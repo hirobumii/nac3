@@ -13,6 +13,7 @@ Errors:
 
 GlobalContext:
 - Separate from typedefs
+- Interact with python intepreter to get data
 - Primitive Type Instance List
 - Symbol Table (readable, ever defined)
 - TypeVar definition stack
