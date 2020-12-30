@@ -19,4 +19,10 @@ GlobalContext:
 - TypeVar definition stack
 - Provide subst, inv_subst, blablabla
 - Cache type var method lookup (dropped when related assumptions are changed)
+- Responsible for printing the error (lookup module/type info, handle line number offset)
+
+Name Resolution:
+- Get class/methods, track module via `inspect.getmodule`
+- GlobalContext store function/class - module association, perform name
+  resolution in the module when identifier is unbounded, and check its type
 
