@@ -1,0 +1,21 @@
+Errors:
+- Not supported
+- Only * is supported
+- Expected * in *, but got *
+- Divergent type in (construct), (location 1), (location 2)
+- Unknown field
+- Unbounded variable
+- Different variable
+- Different domain
+- * is not subclass of *
+- Type not equal
+- Incorrect number of parameters
+
+GlobalContext:
+- Separate from typedefs
+- Primitive Type Instance List
+- Symbol Table (readable, ever defined)
+- TypeVar definition stack
+- Provide subst, inv_subst, blablabla
+- Cache type var method lookup (dropped when related assumptions are changed)
+
