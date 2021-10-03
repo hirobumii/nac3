@@ -795,36 +795,22 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
         }
     } else {
         // skip 5 to skip primitives
+        let mut res_vec: Vec<String> = Vec::new();
         for (i, (def, _)) in
             composer.definition_ast_list.iter().skip(composer.built_in_num).enumerate()
         {
             let def = &*def.read();
-
-            if print {
-                println!(
-                    "{}: {}\n",
-                    i + 5,
-                    def.to_string(
-                        composer.unifier.borrow_mut(),
-                        &mut |id| format!("class{}", id),
-                        &mut |id| format!("tvar{}", id)
-                    )
-                );
-            } else {
-                assert_eq!(
-                    format!(
-                        "{}: {}",
-                        i + 5,
-                        def.to_string(
-                            composer.unifier.borrow_mut(),
-                            &mut |id| format!("class{}", id.to_string()),
-                            &mut |id| format!("tvar{}", id.to_string()),
-                        )
-                    ),
-                    res[i]
+            res_vec.push(format!(
+                "{}: {}\n",
+                i + composer.built_in_num,
+                def.to_string(
+                    composer.unifier.borrow_mut(),
+                    &mut |id| format!("class{}", id),
+                    &mut |id| format!("tvar{}", id)
                 )
-            }
+            ));
         }
+        insta::assert_debug_snapshot!(res_vec);
     }
 }
 
