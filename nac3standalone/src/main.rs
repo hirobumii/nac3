@@ -4,7 +4,7 @@ use inkwell::{
     OptimizationLevel,
 };
 use nac3core::typecheck::type_inferencer::PrimitiveStore;
-use nac3parser::parser;
+use nac3parser::{ast::{ExprKind, StmtKind}, parser};
 use std::env;
 use std::fs;
 use std::{collections::HashMap, path::Path, sync::Arc, time::SystemTime};
@@ -66,6 +66,46 @@ fn main() {
     );
 
     for stmt in parser_result.into_iter() {
+        // handle type vars in toplevel
+        if let StmtKind::Assign { value, targets, .. } = &stmt.node {
+            assert_eq!(targets.len(), 1, "only support single assignment for now, at {}", targets[0].location);
+            if let ExprKind::Call { func, args, .. } = &value.node {
+                if matches!(&func.node, ExprKind::Name { id, .. } if id == &"TypeVar".into()) {
+                    print!("registering typevar {:?}", targets[0].node);
+                    let constraints = args
+                        .iter()
+                        .skip(1)
+                        .map(|x| {
+                            let def_list = &composer.extract_def_list();
+                            let unifier = &mut composer.unifier;
+                            resolver.parse_type_annotation(
+                                def_list,
+                                unifier,
+                                &primitive,
+                                x
+                            ).unwrap()
+                        })
+                        .collect::<Vec<_>>();
+                    let res_ty = composer.unifier.get_fresh_var_with_range(&constraints).0;
+                    println!(
+                        " ...registered: {}",
+                        composer.unifier.stringify(
+                            res_ty,
+                            &mut |x| format!("obj{}", x),
+                            &mut |x| format!("tavr{}", x)
+                        )
+                    );
+                    internal_resolver.add_id_type(
+                        if let ExprKind::Name { id, .. } = &targets[0].node { *id } else {
+                            panic!("must assign simple name variable as type variable for now")
+                        },
+                        res_ty
+                    );
+                    continue;
+                }
+            }
+        }
+
         let (name, def_id, ty) = composer
             .register_top_level(stmt, Some(resolver.clone()), "__main__".into())
             .unwrap();
