@@ -24,7 +24,6 @@ class virtual(Generic[T]):
 import device_db
 core_arguments = device_db.device_db["core"]["arguments"]
 
-
 compiler = nac3artiq.NAC3(core_arguments["target"])
 allow_registration = True
 # Delay NAC3 analysis until all referenced variables are supposed to exist on the CPython side.
