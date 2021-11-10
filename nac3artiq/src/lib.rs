@@ -11,7 +11,7 @@ use inkwell::{
 use pyo3::prelude::*;
 use pyo3::{exceptions, types::PyList, types::PySet, types::PyBytes};
 use nac3parser::{
-    ast::{self, StrRef},
+    ast::{self, StrRef, Constant::Str},
     parser::{self, parse_program},
 };
 
@@ -76,7 +76,7 @@ struct Nac3 {
 }
 
 impl Nac3 {
-    fn register_module_impl(&mut self, obj: PyObject) -> PyResult<()> {
+    fn register_module_impl(&mut self, obj: PyObject, nac3_annotated_cls: &PySet) -> PyResult<()> {
         let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
         let (module_name, source_file) = Python::with_gil(|py| -> PyResult<(String, String)> {
             let obj: &PyAny = obj.extract(py)?;
@@ -111,7 +111,7 @@ impl Nac3 {
             global_value_ids: self.global_value_ids.clone(),
             class_names: Default::default(),
             name_to_pyid: name_to_pyid.clone(),
-            module: obj,
+            module: obj.clone(),
         }) as Arc<dyn SymbolResolver + Send + Sync>;
         let mut name_to_def = HashMap::new();
         let mut name_to_type = HashMap::new();
@@ -121,6 +121,7 @@ impl Nac3 {
                 ast::StmtKind::ClassDef {
                     ref decorator_list,
                     ref mut body,
+                    ref mut bases,
                     ..
                 } => {
                     let kernels = decorator_list.iter().any(|decorator| {
@@ -145,6 +146,33 @@ impl Nac3 {
                         } else {
                             true
                         }
+                    });
+                    bases.retain(|b| {
+                        Python::with_gil(|py| -> PyResult<bool> {
+                            let obj: &PyAny = obj.extract(py)?;
+                            let annot_check = |id: &str| -> bool {
+                                let id = py.eval(
+                                    &format!("id({})", id),
+                                    Some(obj.getattr("__dict__").unwrap().extract().unwrap()),
+                                    None
+                                ).unwrap();
+                                nac3_annotated_cls.contains(id).unwrap()
+                            };
+                            match &b.node {
+                                ast::ExprKind::Name { id, .. } => Ok(annot_check(&id.to_string())),
+                                ast::ExprKind::Constant { value: Str(id), .. } =>
+                                    Ok(annot_check(id.split('[').next().unwrap())),
+                                ast::ExprKind::Subscript { value, .. } => {
+                                    match &value.node {
+                                        ast::ExprKind::Name { id, .. } => Ok(annot_check(&id.to_string()) || *id == "Generic".into()),
+                                        ast::ExprKind::Constant { value: Str(id), .. } =>
+                                            Ok(annot_check(id.split('[').next().unwrap())),
+                                        _ => unreachable!("unsupported base declaration")
+                                    }
+                                }
+                                _ => unreachable!("unsupported base declaration")
+                            }
+                        }).unwrap()
                     });
                     kernels
                 }
@@ -336,9 +364,9 @@ impl Nac3 {
         })
     }
 
-    fn analyze_modules(&mut self, modules: &PySet) -> PyResult<()> {
+    fn analyze_modules(&mut self, modules: &PySet, nac3_annotated_cls: &PySet) -> PyResult<()> {
         for obj in modules.iter() {
-            self.register_module_impl(obj.into())?;
+            self.register_module_impl(obj.into(), nac3_annotated_cls)?;
         }
         Ok(())
     }

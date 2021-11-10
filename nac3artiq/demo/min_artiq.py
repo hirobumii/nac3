@@ -23,7 +23,7 @@ class virtual(Generic[T]):
 compiler = nac3artiq.NAC3(core_arguments["target"])
 allow_module_registration = True
 registered_modules = set()
-
+nac3annotated_class_ids = set()
 
 class KernelInvariant(Generic[T]):
     pass
@@ -69,6 +69,7 @@ def nac3(cls):
     All classes containing kernels or portable methods must use this decorator.
     """
     register_module_of(cls)
+    nac3annotated_class_ids.add(id(cls))
     return cls
 
 
@@ -111,7 +112,7 @@ class Core:
     def run(self, method, *args, **kwargs):
         global allow_module_registration
         if allow_module_registration:
-            compiler.analyze_modules(registered_modules)
+            compiler.analyze_modules(registered_modules, nac3annotated_class_ids)
             allow_module_registration = False
 
         if hasattr(method, "__self__"):
