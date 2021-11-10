@@ -52,6 +52,10 @@ pub struct PrimitivePythonId {
     bool: u64,
     list: u64,
     tuple: u64,
+    typevar: u64,
+    none: u64,
+    generic_alias: (u64, u64),
+    virtual_id: u64,
 }
 
 // TopLevelComposer is unsendable as it holds the unification table, which is
@@ -267,7 +271,36 @@ impl Nac3 {
         let builtins_mod = PyModule::import(py, "builtins").unwrap();
         let id_fn = builtins_mod.getattr("id").unwrap();
         let numpy_mod = PyModule::import(py, "numpy").unwrap();
+        let typing_mod = PyModule::import(py, "typing").unwrap();
+        let types_mod = PyModule::import(py, "types").unwrap();
         let primitive_ids = PrimitivePythonId {
+            virtual_id: py.eval(
+                "id(virtual)", 
+                Some(builtins_mod.getattr("globals").unwrap().call0().unwrap().extract().unwrap()),
+                None
+            ).unwrap().extract().unwrap(),
+            generic_alias: (
+                id_fn
+                    .call1((typing_mod.getattr("_GenericAlias").unwrap(),))
+                    .unwrap()
+                    .extract()
+                    .unwrap(),
+                id_fn
+                    .call1((types_mod.getattr("GenericAlias").unwrap(),))
+                    .unwrap()
+                    .extract()
+                    .unwrap(),
+            ),
+            none: id_fn
+                .call1((builtins_mod.getattr("None").unwrap(),))
+                .unwrap()
+                .extract()
+                .unwrap(),
+            typevar: id_fn
+                .call1((typing_mod.getattr("TypeVar").unwrap(),))
+                .unwrap()
+                .extract()
+                .unwrap(),
             int: id_fn
                 .call1((builtins_mod.getattr("int").unwrap(),))
                 .unwrap()
