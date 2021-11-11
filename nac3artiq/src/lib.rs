@@ -281,11 +281,17 @@ impl Nac3 {
         let typing_mod = PyModule::import(py, "typing").unwrap();
         let types_mod = PyModule::import(py, "types").unwrap();
         let primitive_ids = PrimitivePythonId {
-            virtual_id: py.eval(
-                "id(virtual)", 
-                Some(builtins_mod.getattr("globals").unwrap().call0().unwrap().extract().unwrap()),
-                None
-            ).unwrap().extract().unwrap(),
+            virtual_id: id_fn
+                .call1((builtins_mod
+                    .getattr("globals")
+                    .unwrap()
+                    .call0()
+                    .unwrap()
+                    .get_item("virtual")
+                    .unwrap(),
+                )).unwrap()
+                .extract()
+                .unwrap(),
             generic_alias: (
                 id_fn
                     .call1((typing_mod.getattr("_GenericAlias").unwrap(),))
