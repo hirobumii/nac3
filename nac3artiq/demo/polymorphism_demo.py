@@ -36,6 +36,10 @@ class Demo(Generic[T]):
 
     @kernel
     def run(self):
+        a = 5555
+        a //= 2
+        print_int(a)
+
         print_int(self.a)
         self.poly(6)
         print_int(11111111)

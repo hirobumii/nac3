@@ -2,6 +2,10 @@
 def output_int(x: int32):
     ...
 
+@extern
+def output_double(x: float):
+    ...
+
 
 class A:
     a: int32
@@ -26,6 +30,26 @@ class B:
 
 
 def run() -> int32:
+    i = 1
+    i += 2
+    output_int(i)
+    i -= 1
+    output_int(i)
+    i *= 3
+    output_int(i)
+    i //= 4
+    # i /= 4 # should error, cannot unify float with int32
+    output_int(i)
+
+    d = 2.4
+    output_double(d)
+    d -= 0.1
+    output_double(d)
+    d *= 2.0
+    output_double(d)
+    d /= 0.5
+    output_double(d)
+
     a = A(10)
     output_int(a.a)
 
