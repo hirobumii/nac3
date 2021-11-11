@@ -1,3 +1,8 @@
+use std::convert::TryInto;
+
+use nac3parser::ast::{Constant, Location};
+use crate::symbol_resolver::SymbolValue;
+
 use super::*;
 
 impl TopLevelDef {
@@ -340,5 +345,50 @@ impl TopLevelComposer {
             }
         }
         Ok(result)
+    }
+
+    pub fn parse_parameter_default_value(default: &ast::Expr) -> Result<SymbolValue, String> {
+        fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, String> {
+            match val {
+                Constant::Int(v) => {
+                    if let Ok(v) = v.try_into() {
+                        Ok(SymbolValue::I32(v))
+                    } else {
+                        Ok(SymbolValue::I64(v.try_into().unwrap()))
+                    }
+                }
+                Constant::Float(v) => Ok(SymbolValue::Double(*v)),
+                Constant::Bool(v) => Ok(SymbolValue::Bool(*v)),
+                Constant::Tuple(tuple) => Ok(SymbolValue::Tuple(
+                    tuple.iter().map(|x| handle_constant(x, loc)).collect::<Result<Vec<_>, _>>()?
+                )),
+                _ => unimplemented!("this constant is not supported now at {}", loc),
+            }
+        }
+        match &default.node {
+            ast::ExprKind::Constant { value, .. } => handle_constant(value, &default.location),
+            ast::ExprKind::Call { func, args, .. } if {
+                match &func.node {
+                    ast::ExprKind::Name { id, .. } => *id == "int64".into(),
+                    _ => false,
+                }
+            } => {
+                if args.len() == 1 {
+                    match &args[0].node {
+                        ast::ExprKind::Constant { value: Constant::Int(v), .. } =>
+                            Ok(SymbolValue::I64(v.try_into().unwrap())),
+                        _ => panic!("only allow constant integer here at {}", default.location)
+                    }
+                } else {
+                    panic!("only allow constant integer here at {}", default.location)
+                }
+            }
+            ast::ExprKind::Tuple { elts, .. } => Ok(SymbolValue::Tuple(elts
+                .iter()
+                .map(|x| Self::parse_parameter_default_value(x))
+                .collect::<Result<Vec<_>, _>>()?
+            )),
+            _ => unimplemented!("only constant default is supported now at {}", default.location),
+        }
     }
 }
