@@ -1065,10 +1065,23 @@ impl TopLevelComposer {
                             and names thould not be the same as the keywords"
                                 .into());
                         }
-
-                        args.args
+                        
+                        let mut arg_with_defualt: Vec<(&ast::Located<ast::ArgData<()>>, Option<&ast::Expr>)> = args
+                            .args
                             .iter()
-                            .map(|x| -> Result<FuncArg, String> {
+                            .rev()
+                            .zip(args
+                                .defaults
+                                .iter()
+                                .rev()
+                                .map(|x| -> Option<&ast::Expr> { Some(x) })
+                                .chain(std::iter::repeat(None))
+                            ).collect_vec();
+                        arg_with_defualt.reverse();
+
+                        arg_with_defualt
+                            .iter()
+                            .map(|(x, default)| -> Result<FuncArg, String> {
                                 let annotation = x
                                     .node
                                     .annotation
@@ -1120,7 +1133,12 @@ impl TopLevelComposer {
                                 Ok(FuncArg {
                                     name: x.node.arg,
                                     ty,
-                                    default_value: Default::default(),
+                                    default_value: default.map(|default| {
+                                        match Self::parse_parameter_default_value(default) {
+                                            Ok(res) => res,
+                                            Err(err) => panic!("{}", err),
+                                        }
+                                    }),
                                 })
                             })
                             .collect::<Result<Vec<_>, _>>()?
@@ -1272,7 +1290,20 @@ impl TopLevelComposer {
                         }
 
                         let mut result = Vec::new();
-                        for x in &args.args {
+                        
+                        let mut arg_with_defualt: Vec<(&ast::Located<ast::ArgData<()>>, Option<&ast::Expr>)> = args
+                            .args
+                            .iter()
+                            .rev()
+                            .zip(args
+                                .defaults
+                                .iter()
+                                .rev()
+                                .map(|x| -> Option<&ast::Expr> { Some(x) })
+                                .chain(std::iter::repeat(None))
+                            ).collect_vec();
+                        arg_with_defualt.reverse();
+                        for (x, default) in arg_with_defualt {
                             let name = x.node.arg;
                             if name != zelf {
                                 let type_ann = {
@@ -1317,8 +1348,15 @@ impl TopLevelComposer {
                                 let dummy_func_arg = FuncArg {
                                     name,
                                     ty: unifier.get_fresh_var().0,
-                                    // TODO: default value?
-                                    default_value: None,
+                                    default_value: default.map(|default| {
+                                        if name == "self".into() {
+                                            panic!("`self` parameter cannot take default value at {}", x.location)
+                                        }
+                                        match Self::parse_parameter_default_value(default) {
+                                            Ok(res) => res,
+                                            Err(err) => panic!("{}", err),
+                                        }
+                                    })
                                 };
                                 // push the dummy type and the type annotation
                                 // into the list for later unification
