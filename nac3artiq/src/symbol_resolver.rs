@@ -44,7 +44,6 @@ struct PythonHelper<'a> {
     origin_ty_fn: &'a PyAny,
     args_ty_fn: &'a PyAny,
     globals_dict: &'a PyAny,
-    print_fn: &'a PyAny,
 }
 
 impl Resolver {
@@ -660,7 +659,6 @@ impl SymbolResolver for Resolver {
                                     args_ty_fn: typings.getattr("get_args").unwrap(),
                                     globals_dict: obj.getattr("__dict__").unwrap(),
                                     eval_type_fn: typings.getattr("_eval_type").unwrap(),
-                                    print_fn: builtins.getattr("print").unwrap(),
                                 };
                                 sym_ty = self.get_obj_type(
                                     member.get_item(1)?,
@@ -710,7 +708,6 @@ impl SymbolResolver for Resolver {
                         args_ty_fn: typings.getattr("get_args").unwrap(),
                         globals_dict: obj.getattr("__dict__").unwrap(),
                         eval_type_fn: typings.getattr("_eval_type").unwrap(),
-                        print_fn: builtins.getattr("print").unwrap(),
                     };
                     sym_value = self.get_obj_value(val, &helper, ctx)?;
                     break;
