@@ -13,11 +13,28 @@ V = TypeVar('V', int, float)
 def fun(a: T):
     pass
 
+class D:
+    pass
+
 @nac3
-class Demo(Generic[T]):
+class C:
+    @kernel
+    def print_int_mult(self, i: int32):
+        print_int(i * 5)
+    
+    @kernel
+    def print_int_2(self, i: int32):
+        print_int(i * 2)
+
+@nac3
+class Demo(Generic[T], C, D):
     core: KernelInvariant[Core]
     t: T
     a: int32
+
+    @kernel
+    def print_int_mult(self, i: int32):
+        print_int(i * 10)
 
     def __init__(self, t: T, val: int32 = 3):
         self.core = Core()
@@ -46,7 +63,9 @@ class Demo(Generic[T]):
         self.poly(1.2)
         fun(True)
         fun((1, False, 1.2))
-        
+
+        self.print_int_2(7) # 14
+        self.print_int_mult(7) # 70
 
 
 if __name__ == "__main__":

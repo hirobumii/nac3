@@ -5,7 +5,7 @@ def output_int(x: int32):
 T = TypeVar('T', int32, bool)
 V = TypeVar('V')
 
-class A(Generic[V], Test):
+class A(Generic[V], 'Test'):
     v: V
     def __init__(self, val: V):
         self.v = val
