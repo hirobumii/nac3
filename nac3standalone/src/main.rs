@@ -97,7 +97,7 @@ fn main() {
                     );
                     internal_resolver.add_id_type(
                         if let ExprKind::Name { id, .. } = &targets[0].node { *id } else {
-                            panic!("must assign simple name variable as type variable for now")
+                            panic!("must assign simple name variable as type variable")
                         },
                         res_ty
                     );
