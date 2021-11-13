@@ -1066,7 +1066,7 @@ impl TopLevelComposer {
                                 .into());
                         }
                         
-                        let mut arg_with_defualt: Vec<(&ast::Located<ast::ArgData<()>>, Option<&ast::Expr>)> = args
+                        let arg_with_default: Vec<(&ast::Located<ast::ArgData<()>>, Option<&ast::Expr>)> = args
                             .args
                             .iter()
                             .rev()
@@ -1077,10 +1077,10 @@ impl TopLevelComposer {
                                 .map(|x| -> Option<&ast::Expr> { Some(x) })
                                 .chain(std::iter::repeat(None))
                             ).collect_vec();
-                        arg_with_defualt.reverse();
 
-                        arg_with_defualt
+                        arg_with_default
                             .iter()
+                            .rev()
                             .map(|(x, default)| -> Result<FuncArg, String> {
                                 let annotation = x
                                     .node
@@ -1133,12 +1133,11 @@ impl TopLevelComposer {
                                 Ok(FuncArg {
                                     name: x.node.arg,
                                     ty,
-                                    default_value: default.map(|default| {
-                                        match Self::parse_parameter_default_value(default) {
-                                            Ok(res) => res,
-                                            Err(err) => panic!("{}", err),
-                                        }
-                                    }),
+                                    default_value: match default {
+                                        None => None,
+                                        Some(default) =>
+                                            Some(Self::parse_parameter_default_value(default)?)
+                                    }
                                 })
                             })
                             .collect::<Result<Vec<_>, _>>()?
@@ -1291,7 +1290,7 @@ impl TopLevelComposer {
 
                         let mut result = Vec::new();
                         
-                        let mut arg_with_defualt: Vec<(&ast::Located<ast::ArgData<()>>, Option<&ast::Expr>)> = args
+                        let arg_with_default: Vec<(&ast::Located<ast::ArgData<()>>, Option<&ast::Expr>)> = args
                             .args
                             .iter()
                             .rev()
@@ -1302,8 +1301,8 @@ impl TopLevelComposer {
                                 .map(|x| -> Option<&ast::Expr> { Some(x) })
                                 .chain(std::iter::repeat(None))
                             ).collect_vec();
-                        arg_with_defualt.reverse();
-                        for (x, default) in arg_with_defualt {
+                        
+                        for (x, default) in arg_with_default.into_iter().rev() {
                             let name = x.node.arg;
                             if name != zelf {
                                 let type_ann = {
@@ -1348,15 +1347,15 @@ impl TopLevelComposer {
                                 let dummy_func_arg = FuncArg {
                                     name,
                                     ty: unifier.get_fresh_var().0,
-                                    default_value: default.map(|default| {
-                                        if name == "self".into() {
-                                            panic!("`self` parameter cannot take default value at {}", x.location)
+                                    default_value: match default {
+                                        None => None,
+                                        Some(default) => {
+                                            if name == "self".into() {
+                                                return Err(format!("`self` parameter cannot take default value at {}", x.location));
+                                            }
+                                            Some(Self::parse_parameter_default_value(default)?)
                                         }
-                                        match Self::parse_parameter_default_value(default) {
-                                            Ok(res) => res,
-                                            Err(err) => panic!("{}", err),
-                                        }
-                                    })
+                                    }
                                 };
                                 // push the dummy type and the type annotation
                                 // into the list for later unification

@@ -362,7 +362,7 @@ impl TopLevelComposer {
                 Constant::Tuple(tuple) => Ok(SymbolValue::Tuple(
                     tuple.iter().map(|x| handle_constant(x, loc)).collect::<Result<Vec<_>, _>>()?
                 )),
-                _ => unimplemented!("this constant is not supported now at {}", loc),
+                _ => unimplemented!("this constant is not supported at {}", loc),
             }
         }
         match &default.node {
@@ -377,10 +377,10 @@ impl TopLevelComposer {
                     match &args[0].node {
                         ast::ExprKind::Constant { value: Constant::Int(v), .. } =>
                             Ok(SymbolValue::I64(v.try_into().unwrap())),
-                        _ => panic!("only allow constant integer here at {}", default.location)
+                        _ => Err(format!("only allow constant integer here at {}", default.location))
                     }
                 } else {
-                    panic!("only allow constant integer here at {}", default.location)
+                    Err(format!("only allow constant integer here at {}", default.location))
                 }
             }
             ast::ExprKind::Tuple { elts, .. } => Ok(SymbolValue::Tuple(elts
