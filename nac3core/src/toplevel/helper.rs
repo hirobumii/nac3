@@ -354,7 +354,10 @@ impl TopLevelComposer {
                     if let Ok(v) = v.try_into() {
                         Ok(SymbolValue::I32(v))
                     } else {
-                        Ok(SymbolValue::I64(v.try_into().unwrap()))
+                        Err(format!(
+                            "int64 default parameter should be specified explicitly by `int64()` at {}",
+                            loc
+                        ))
                     }
                 }
                 Constant::Float(v) => Ok(SymbolValue::Double(*v)),
