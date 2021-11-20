@@ -13,7 +13,7 @@ use crate::{
 use crate::{location::Location, typecheck::typedef::TypeEnum};
 use inkwell::values::BasicValueEnum;
 use itertools::{chain, izip};
-use nac3parser::ast::{Constant::Str, Expr, StrRef};
+use nac3parser::ast::{Expr, StrRef};
 use parking_lot::RwLock;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -235,12 +235,9 @@ pub fn parse_type_annotation<T>(
 
     match &expr.node {
         Name { id, .. } => name_handling(id, unifier),
-        Constant { value: Str(id), .. } => name_handling(&id.clone().into(), unifier),
         Subscript { value, slice, .. } => {
             if let Name { id, .. } = &value.node {
                 subscript_name_handle(id, slice, unifier)
-            } else if let Constant { value: Str(id), .. } = &value.node {
-                subscript_name_handle(&id.clone().into(), slice, unifier)
             } else {
                 Err("unsupported type expression".into())
             }

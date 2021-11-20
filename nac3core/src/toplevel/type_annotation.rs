@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 
 use crate::typecheck::typedef::TypeVarMeta;
-use ast::Constant::Str;
 use super::*;
 
 #[derive(Clone, Debug)]
@@ -164,12 +163,10 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
     };
     match &expr.node {
         ast::ExprKind::Name { id, .. } => name_handle(id, unifier, locked),
-        ast::ExprKind::Constant { value: Str(id), .. } => name_handle(&id.clone().into(), unifier, locked),
         // virtual
         ast::ExprKind::Subscript { value, slice, .. }
             if {
-                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"virtual".into()) ||
-                matches!(&value.node, ast::ExprKind::Constant { value: Str(id), .. } if id == "virtual")
+                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"virtual".into())
             } =>
         {
             let def = parse_ast_to_type_annotation_kinds(
@@ -189,8 +186,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
         // list
         ast::ExprKind::Subscript { value, slice, .. }
             if {
-                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"list".into()) ||
-                matches!(&value.node, ast::ExprKind::Constant { value: Str(id), .. } if id == "list")
+                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"list".into())
             } =>
         {
             let def_ann = parse_ast_to_type_annotation_kinds(
@@ -207,8 +203,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
         // tuple
         ast::ExprKind::Subscript { value, slice, .. }
             if {
-                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"tuple".into()) ||
-                matches!(&value.node, ast::ExprKind::Constant { value: Str(id), .. } if id == "tuple")
+                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"tuple".into())
             } =>
         {
             if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
@@ -235,8 +230,6 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
         ast::ExprKind::Subscript { value, slice, .. } => {
             if let ast::ExprKind::Name { id, .. } = &value.node {
                 class_name_handle(id, slice, unifier, locked)
-            } else if let ast::ExprKind::Constant { value: Str(id), .. } = &value.node {
-                class_name_handle(&id.clone().into(), slice, unifier, locked)
             } else {
                 Err("unsupported expression type for class name".into())
             }

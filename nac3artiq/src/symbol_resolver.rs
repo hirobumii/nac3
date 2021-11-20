@@ -40,10 +40,8 @@ struct PythonHelper<'a> {
     type_fn: &'a PyAny,
     len_fn: &'a PyAny,
     id_fn: &'a PyAny,
-    eval_type_fn: &'a PyAny,
     origin_ty_fn: &'a PyAny,
     args_ty_fn: &'a PyAny,
-    globals_dict: &'a PyAny,
 }
 
 impl Resolver {
@@ -87,17 +85,13 @@ impl Resolver {
         defs: &[Arc<RwLock<TopLevelDef>>],
         primitives: &PrimitiveStore,
     ) -> PyResult<Result<(Type, bool), String>> {
-        // eval_type use only globals_dict should be fine
-        let evaluated_ty = helper
-            .eval_type_fn
-            .call1((pyty, helper.globals_dict, helper.globals_dict)).unwrap();
         let ty_id: u64 = helper
             .id_fn
-            .call1((evaluated_ty,))?
+            .call1((pyty,))?
             .extract()?;
         let ty_ty_id: u64 = helper
             .id_fn
-            .call1((helper.type_fn.call1((evaluated_ty,))?,))?
+            .call1((helper.type_fn.call1((pyty,))?,))?
             .extract()?;
         
         if ty_id == self.primitive_ids.int || ty_id == self.primitive_ids.int32 {
@@ -188,8 +182,8 @@ impl Resolver {
             let res = unifier.get_fresh_var_with_range(&constraint_types).0;
             Ok(Ok((res, true)))
         } else if ty_ty_id == self.primitive_ids.generic_alias.0 || ty_ty_id == self.primitive_ids.generic_alias.1 {
-            let origin = helper.origin_ty_fn.call1((evaluated_ty,))?;
-            let args: &PyTuple = helper.args_ty_fn.call1((evaluated_ty,))?.cast_as()?;
+            let origin = helper.origin_ty_fn.call1((pyty,))?;
+            let args: &PyTuple = helper.args_ty_fn.call1((pyty,))?.cast_as()?;
             let origin_ty = match self.get_pyty_obj_type(origin, helper, unifier, defs, primitives)? {
                 Ok((ty, false)) => ty,
                 Ok((_, true)) => return Ok(Err("instantiated type does not take type parameters".into())),
@@ -657,8 +651,6 @@ impl SymbolResolver for Resolver {
                                     type_fn: builtins.getattr("type").unwrap(),
                                     origin_ty_fn: typings.getattr("get_origin").unwrap(),
                                     args_ty_fn: typings.getattr("get_args").unwrap(),
-                                    globals_dict: obj.getattr("__dict__").unwrap(),
-                                    eval_type_fn: typings.getattr("_eval_type").unwrap(),
                                 };
                                 sym_ty = self.get_obj_type(
                                     member.get_item(1)?,
@@ -706,8 +698,6 @@ impl SymbolResolver for Resolver {
                         type_fn: builtins.getattr("type").unwrap(),
                         origin_ty_fn: typings.getattr("get_origin").unwrap(),
                         args_ty_fn: typings.getattr("get_args").unwrap(),
-                        globals_dict: obj.getattr("__dict__").unwrap(),
-                        eval_type_fn: typings.getattr("_eval_type").unwrap(),
                     };
                     sym_value = self.get_obj_value(val, &helper, ctx)?;
                     break;
