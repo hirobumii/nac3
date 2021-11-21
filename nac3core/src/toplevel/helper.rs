@@ -347,51 +347,64 @@ impl TopLevelComposer {
         Ok(result)
     }
 
-    pub fn parse_parameter_default_value(default: &ast::Expr) -> Result<SymbolValue, String> {
-        fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, String> {
-            match val {
-                Constant::Int(v) => {
-                    if let Ok(v) = v.try_into() {
-                        Ok(SymbolValue::I32(v))
-                    } else {
-                        Err(format!(
-                            "int64 default parameter should be specified explicitly by `int64()` at {}",
-                            loc
-                        ))
-                    }
-                }
-                Constant::Float(v) => Ok(SymbolValue::Double(*v)),
-                Constant::Bool(v) => Ok(SymbolValue::Bool(*v)),
-                Constant::Tuple(tuple) => Ok(SymbolValue::Tuple(
-                    tuple.iter().map(|x| handle_constant(x, loc)).collect::<Result<Vec<_>, _>>()?
-                )),
-                _ => unimplemented!("this constant is not supported at {}", loc),
-            }
-        }
-        match &default.node {
-            ast::ExprKind::Constant { value, .. } => handle_constant(value, &default.location),
-            ast::ExprKind::Call { func, args, .. } if {
-                match &func.node {
-                    ast::ExprKind::Name { id, .. } => *id == "int64".into(),
-                    _ => false,
-                }
-            } => {
-                if args.len() == 1 {
-                    match &args[0].node {
-                        ast::ExprKind::Constant { value: Constant::Int(v), .. } =>
-                            Ok(SymbolValue::I64(v.try_into().unwrap())),
-                        _ => Err(format!("only allow constant integer here at {}", default.location))
-                    }
+    pub fn parse_parameter_default_value(default: &ast::Expr, resolver: &(dyn SymbolResolver + Send + Sync)) -> Result<SymbolValue, String> {
+        parse_parameter_default_value(default, resolver)
+    }
+}
+
+pub fn parse_parameter_default_value(default: &ast::Expr, resolver: &(dyn SymbolResolver + Send + Sync)) -> Result<SymbolValue, String> {
+    fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, String> {
+        match val {
+            Constant::Int(v) => {
+                if let Ok(v) = v.try_into() {
+                    Ok(SymbolValue::I32(v))
                 } else {
-                    Err(format!("only allow constant integer here at {}", default.location))
+                    Err(format!(
+                        "int64 default parameter should be specified explicitly by `int64()` at {}",
+                        loc
+                    ))
                 }
             }
-            ast::ExprKind::Tuple { elts, .. } => Ok(SymbolValue::Tuple(elts
-                .iter()
-                .map(|x| Self::parse_parameter_default_value(x))
-                .collect::<Result<Vec<_>, _>>()?
+            Constant::Float(v) => Ok(SymbolValue::Double(*v)),
+            Constant::Bool(v) => Ok(SymbolValue::Bool(*v)),
+            Constant::Tuple(tuple) => Ok(SymbolValue::Tuple(
+                tuple.iter().map(|x| handle_constant(x, loc)).collect::<Result<Vec<_>, _>>()?
             )),
-            _ => unimplemented!("only constant default is supported now at {}", default.location),
+            _ => unimplemented!("this constant is not supported at {}", loc),
         }
+    }
+    match &default.node {
+        ast::ExprKind::Constant { value, .. } => handle_constant(value, &default.location),
+        ast::ExprKind::Call { func, args, .. } if {
+            match &func.node {
+                ast::ExprKind::Name { id, .. } => *id == "int64".into(),
+                _ => false,
+            }
+        } => {
+            if args.len() == 1 {
+                match &args[0].node {
+                    ast::ExprKind::Constant { value: Constant::Int(v), .. } =>
+                        Ok(SymbolValue::I64(v.try_into().unwrap())),
+                    _ => Err(format!("only allow constant integer here at {}", default.location))
+                }
+            } else {
+                Err(format!("only allow constant integer here at {}", default.location))
+            }
+        }
+        ast::ExprKind::Tuple { elts, .. } => Ok(SymbolValue::Tuple(elts
+            .iter()
+            .map(|x| parse_parameter_default_value(x, resolver))
+            .collect::<Result<Vec<_>, _>>()?
+        )),
+        ast::ExprKind::Name { id, .. } => {
+            resolver.get_default_param_value(default).ok_or_else(
+                || format!(
+                    "this module global `{}` cannot be used as a default parameter at {} (should be primitive type or tuple)",
+                    id,
+                    default.location
+                )
+            )
+        }
+        _ => unimplemented!("only constant default is supported now at {}", default.location),
     }
 }

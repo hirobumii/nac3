@@ -4,7 +4,7 @@ use inkwell::{
     OptimizationLevel,
 };
 use nac3core::typecheck::type_inferencer::PrimitiveStore;
-use nac3parser::parser;
+use nac3parser::{ast::{ExprKind, StmtKind}, parser};
 use std::env;
 use std::fs;
 use std::{collections::HashMap, path::Path, sync::Arc, time::SystemTime};
@@ -48,6 +48,7 @@ fn main() {
         id_to_type: builtins_ty.into(),
         id_to_def: builtins_def.into(),
         class_names: Default::default(),
+        module_globals: Default::default(),
     }
     .into();
     let resolver =
@@ -66,6 +67,18 @@ fn main() {
     );
 
     for stmt in parser_result.into_iter() {
+        // handle module globals
+        if let StmtKind::Assign { targets, value, .. } = &stmt.node {
+            if targets.len() == 1 {
+                if let ExprKind::Name { id, .. } = &targets[0].node {
+                    internal_resolver.add_module_global(*id, value);
+                }
+            } else {
+                unimplemented!("only single assign supported now")
+            }
+            continue;
+        }
+
         let (name, def_id, ty) = composer
             .register_top_level(stmt, Some(resolver.clone()), "__main__".into())
             .unwrap();

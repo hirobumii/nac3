@@ -1136,7 +1136,7 @@ impl TopLevelComposer {
                                     default_value: match default {
                                         None => None,
                                         Some(default) =>
-                                            Some(Self::parse_parameter_default_value(default)?)
+                                            Some(Self::parse_parameter_default_value(default, resolver)?)
                                     }
                                 })
                             })
@@ -1353,7 +1353,7 @@ impl TopLevelComposer {
                                             if name == "self".into() {
                                                 return Err(format!("`self` parameter cannot take default value at {}", x.location));
                                             }
-                                            Some(Self::parse_parameter_default_value(default)?)
+                                            Some(Self::parse_parameter_default_value(default, class_resolver)?)
                                         }
                                     }
                                 };
