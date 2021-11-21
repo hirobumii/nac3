@@ -360,7 +360,7 @@ pub fn parse_parameter_default_value(default: &ast::Expr, resolver: &(dyn Symbol
                     Ok(SymbolValue::I32(v))
                 } else {
                     Err(format!(
-                        "int64 default parameter should be specified explicitly by `int64()` at {}",
+                        "integer value out of range at {}",
                         loc
                     ))
                 }
