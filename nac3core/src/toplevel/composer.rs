@@ -1135,8 +1135,16 @@ impl TopLevelComposer {
                                     ty,
                                     default_value: match default {
                                         None => None,
-                                        Some(default) =>
-                                            Some(Self::parse_parameter_default_value(default, resolver)?)
+                                        Some(default) => Some({
+                                            let v = Self::parse_parameter_default_value(default, resolver)?;
+                                            Self::check_default_param_type(
+                                                &v,
+                                                &type_annotation,
+                                                primitives_store,
+                                                unifier
+                                            ).map_err(|err| format!("{} at {}", err, x.location))?;
+                                            v
+                                        })
                                     }
                                 })
                             })
@@ -1353,7 +1361,12 @@ impl TopLevelComposer {
                                             if name == "self".into() {
                                                 return Err(format!("`self` parameter cannot take default value at {}", x.location));
                                             }
-                                            Some(Self::parse_parameter_default_value(default, class_resolver)?)
+                                            Some({
+                                                let v = Self::parse_parameter_default_value(default, class_resolver)?;
+                                                Self::check_default_param_type(&v, &type_ann, primitives, unifier)
+                                                    .map_err(|err| format!("{} at {}", err, x.location))?;
+                                                v
+                                            })
                                         }
                                     }
                                 };

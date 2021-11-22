@@ -350,6 +350,62 @@ impl TopLevelComposer {
     pub fn parse_parameter_default_value(default: &ast::Expr, resolver: &(dyn SymbolResolver + Send + Sync)) -> Result<SymbolValue, String> {
         parse_parameter_default_value(default, resolver)
     }
+
+    pub fn check_default_param_type(val: &SymbolValue, ty: &TypeAnnotation, primitive: &PrimitiveStore, unifier: &mut Unifier) -> Result<(), String> {
+        let res = match val {
+            SymbolValue::Bool(..) => {
+                if matches!(ty, TypeAnnotation::Primitive(t) if *t == primitive.bool) {
+                    None
+                } else {
+                    Some("bool".to_string())
+                }
+            }
+            SymbolValue::Double(..) => {
+                if matches!(ty, TypeAnnotation::Primitive(t) if *t == primitive.float) {
+                    None
+                } else {
+                    Some("float".to_string())
+                }
+            }
+            SymbolValue::I32(..) => {
+                if matches!(ty, TypeAnnotation::Primitive(t) if *t == primitive.int32) {
+                    None
+                } else {
+                    Some("int32".to_string())
+                }
+            }
+            SymbolValue::I64(..) => {
+                if matches!(ty, TypeAnnotation::Primitive(t) if *t == primitive.int64) {
+                    None
+                } else {
+                    Some("int64".to_string())
+                }
+            }
+            SymbolValue::Tuple(elts) => {
+                if let TypeAnnotation::Tuple(elts_ty) = ty {
+                    for (e, t) in elts.iter().zip(elts_ty.iter()) {
+                        Self::check_default_param_type(e, t, primitive, unifier)?
+                    }
+                    if elts.len() != elts_ty.len() {
+                        Some(format!("tuple of length {}", elts.len()))
+                    } else {
+                        None
+                    }
+                } else {
+                    Some("tuple".to_string())
+                }
+            }
+        };
+        if let Some(found) = res {
+            Err(format!(
+                "incompatible default parameter type, expect {}, found {}",
+                ty.stringify(unifier),
+                found
+            ))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 pub fn parse_parameter_default_value(default: &ast::Expr, resolver: &(dyn SymbolResolver + Send + Sync)) -> Result<SymbolValue, String> {
