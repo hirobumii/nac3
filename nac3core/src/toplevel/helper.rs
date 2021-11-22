@@ -399,7 +399,7 @@ pub fn parse_parameter_default_value(default: &ast::Expr, resolver: &(dyn Symbol
         ast::ExprKind::Name { id, .. } => {
             resolver.get_default_param_value(default).ok_or_else(
                 || format!(
-                    "this module global `{}` cannot be used as a default parameter at {} (should be primitive type or tuple)",
+                    "`{}` cannot be used as a default parameter at {} (not primitive type or tuple / not defined?)",
                     id,
                     default.location
                 )

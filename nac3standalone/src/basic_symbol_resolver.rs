@@ -3,7 +3,7 @@ use nac3core::{
     codegen::CodeGenContext,
     location::Location,
     symbol_resolver::{SymbolResolver, SymbolValue},
-    toplevel::{DefinitionId, TopLevelDef, helper::parse_parameter_default_value},
+    toplevel::{DefinitionId, TopLevelDef},
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{Type, Unifier},
@@ -17,7 +17,7 @@ pub struct ResolverInternal {
     pub id_to_type: Mutex<HashMap<StrRef, Type>>,
     pub id_to_def: Mutex<HashMap<StrRef, DefinitionId>>,
     pub class_names: Mutex<HashMap<StrRef, Type>>,
-    pub module_globals: Mutex<HashMap<StrRef, ast::Expr>>,
+    pub module_globals: Mutex<HashMap<StrRef, SymbolValue>>,
 }
 
 impl ResolverInternal {
@@ -29,8 +29,8 @@ impl ResolverInternal {
         self.id_to_type.lock().insert(id, ty);
     }
 
-    pub fn add_module_global(&self, id: StrRef, expr: &ast::Expr) {
-        self.module_globals.lock().insert(id, expr.clone());
+    pub fn add_module_global(&self, id: StrRef, val: SymbolValue) {
+        self.module_globals.lock().insert(id, val);
     }
 }
 
@@ -40,10 +40,7 @@ impl SymbolResolver for Resolver {
     fn get_default_param_value(&self, expr: &ast::Expr) -> Option<SymbolValue> {
         match &expr.node {
             ast::ExprKind::Name { id, .. } => {
-                let expr = self.0.module_globals.lock().get(id).cloned();
-                expr.map(|x| {
-                    parse_parameter_default_value(&x, self).unwrap()
-                })
+                self.0.module_globals.lock().get(id).cloned()
             }
             _ => unimplemented!("other type of expr not supported at {}", expr.location)
         }
