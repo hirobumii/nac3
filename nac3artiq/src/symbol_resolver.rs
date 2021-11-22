@@ -111,9 +111,7 @@ impl Resolver {
             // do not handle type var param and concrete check here
             Ok(Ok((unifier.add_ty(TypeEnum::TTuple { ty: vec![] }), false)))
         } else if let Some(def_id) = self.pyid_to_def.read().get(&ty_id).cloned() {
-            // println!("getting def");
             let def = defs[def_id.0].read();
-            // println!("got def");
             if let TopLevelDef::Class {
                 object_id,
                 type_vars,
