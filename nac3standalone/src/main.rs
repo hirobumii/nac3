@@ -4,8 +4,8 @@ use inkwell::{
     OptimizationLevel,
 };
 use nac3core::typecheck::type_inferencer::PrimitiveStore;
-use nac3parser::{ast::{ExprKind, StmtKind}, parser};
-use std::env;
+use nac3parser::{ast::{Expr, ExprKind, StmtKind}, parser};
+use std::{borrow::Borrow, env};
 use std::fs;
 use std::{collections::HashMap, path::Path, sync::Arc, time::SystemTime};
 
@@ -15,7 +15,7 @@ use nac3core::{
         WorkerRegistry,
     },
     symbol_resolver::SymbolResolver,
-    toplevel::{composer::TopLevelComposer, TopLevelDef},
+    toplevel::{composer::TopLevelComposer, TopLevelDef, helper::parse_parameter_default_value},
     typecheck::typedef::FunSignature,
 };
 
@@ -48,6 +48,7 @@ fn main() {
         id_to_type: builtins_ty.into(),
         id_to_def: builtins_def.into(),
         class_names: Default::default(),
+        module_globals: Default::default(),
     }
     .into();
     let resolver =
@@ -66,35 +67,59 @@ fn main() {
     );
 
     for stmt in parser_result.into_iter() {
-        // handle type vars in toplevel
-        if let StmtKind::Assign { value, targets, .. } = &stmt.node {
-            assert_eq!(targets.len(), 1, "only support single assignment for now, at {}", targets[0].location);
-            if let ExprKind::Call { func, args, .. } = &value.node {
-                if matches!(&func.node, ExprKind::Name { id, .. } if id == &"TypeVar".into()) {
-                    let constraints = args
-                        .iter()
-                        .skip(1)
-                        .map(|x| {
-                            let def_list = &composer.extract_def_list();
-                            let unifier = &mut composer.unifier;
-                            resolver.parse_type_annotation(
-                                def_list,
-                                unifier,
-                                &primitive,
-                                x
-                            ).unwrap()
-                        })
-                        .collect::<Vec<_>>();
-                    let res_ty = composer.unifier.get_fresh_var_with_range(&constraints).0;
-                    internal_resolver.add_id_type(
-                        if let ExprKind::Name { id, .. } = &targets[0].node { *id } else {
-                            panic!("must assign simple name variable as type variable")
+        if let StmtKind::Assign { targets, value, .. } = &stmt.node {
+            fn handle_assignment_pattern(
+                targets: &[Expr],
+                value: &Expr,
+                resolver: &(dyn SymbolResolver + Send + Sync),
+                internal_resolver: &ResolverInternal,
+            ) -> Result<(), String> {
+                if targets.len() == 1 {
+                    match &targets[0].node {
+                        ExprKind::Name { id, .. } => {
+                            let val = parse_parameter_default_value(value.borrow(), resolver)?;
+                            internal_resolver.add_module_global(*id, val);
+                            Ok(())
+                        }
+                        ExprKind::List { elts, .. }
+                        | ExprKind::Tuple { elts, .. } => {
+                            handle_assignment_pattern(elts, value, resolver, internal_resolver)?;
+                            Ok(())
+                        }
+                        _ => unreachable!("cannot be assigned")
+                    }
+                } else {
+                    match &value.node {
+                        ExprKind::List { elts, .. }
+                        | ExprKind::Tuple { elts, .. } => {
+                            if elts.len() != targets.len() {
+                                Err(format!(
+                                    "number of elements to unpack does not match (expect {}, found {}) at {}",
+                                    targets.len(),
+                                    elts.len(),
+                                    value.location
+                                ))
+                            } else {
+                                for (tar, val) in targets.iter().zip(elts) {
+                                    handle_assignment_pattern(
+                                        std::slice::from_ref(tar),
+                                        val,
+                                        resolver,
+                                        internal_resolver
+                                    )?;
+                                }
+                                Ok(())
+                            }
                         },
-                        res_ty
-                    );
-                    continue;
+                        _ => Err(format!("unpack of this expression is not supported at {}", value.location))
+                    }
                 }
             }
+            if let Err(err) = handle_assignment_pattern(targets, value, resolver.as_ref(), internal_resolver.as_ref()) {
+                eprintln!("{}", err);
+                return;
+            }
+            continue;
         }
 
         let (name, def_id, ty) = composer
@@ -131,7 +156,11 @@ fn main() {
 
     let instance = {
         let defs = top_level.definitions.read();
-        let mut instance = defs[resolver.get_identifier_def("run".into()).unwrap().0].write();
+        let mut instance =
+            defs[resolver
+                .get_identifier_def("run".into())
+                .unwrap_or_else(|| panic!("cannot find run() entry point")).0
+            ].write();
         if let TopLevelDef::Function {
             instance_to_stmt,
             instance_to_symbol,
