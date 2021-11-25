@@ -234,10 +234,10 @@ pub fn parse_type_annotation<T>(
                     }
                 }
             } else {
-                Err("unsupported type expression".into())
+                Err(format!("unsupported type expression at {}", expr.location))
             }
         }
-        _ => Err("unsupported type expression".into()),
+        _ => Err(format!("unsupported type expression at {}", expr.location)),
     }
 }
 
