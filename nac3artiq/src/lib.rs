@@ -100,10 +100,13 @@ impl Nac3 {
                     let val = id_fn.call1((member.get_item(1)?,))?.extract()?;
                     name_to_pyid.insert(key.into(), val);
                 }
+                let typings = PyModule::import(py, "typing")?;
                 let helper = PythonHelper {
                     id_fn: builtins.getattr("id").unwrap().to_object(py),
                     len_fn: builtins.getattr("len").unwrap().to_object(py),
                     type_fn: builtins.getattr("type").unwrap().to_object(py),
+                    origin_ty_fn: typings.getattr("get_origin").unwrap().to_object(py),
+                    args_ty_fn: typings.getattr("get_args").unwrap().to_object(py),
                 };
                 Ok((
                     module.getattr("__name__")?.extract()?,
@@ -442,10 +445,13 @@ impl Nac3 {
         };
         let mut synthesized = parse_program(&synthesized).unwrap();
         let builtins = PyModule::import(py, "builtins")?;
+        let typings = PyModule::import(py, "typing")?;
         let helper = PythonHelper {
             id_fn: builtins.getattr("id").unwrap().to_object(py),
             len_fn: builtins.getattr("len").unwrap().to_object(py),
             type_fn: builtins.getattr("type").unwrap().to_object(py),
+            origin_ty_fn: typings.getattr("get_origin").unwrap().to_object(py),
+            args_ty_fn: typings.getattr("get_args").unwrap().to_object(py),
         };
         let resolver = Arc::new(Resolver(Arc::new(InnerResolver {
             id_to_type: self.builtins_ty.clone().into(),
