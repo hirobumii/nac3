@@ -2,19 +2,19 @@ use inkwell::{types::BasicType, values::BasicValueEnum, AddressSpace};
 use nac3core::{
     codegen::CodeGenContext,
     location::Location,
-    symbol_resolver::{SymbolResolver, SymbolValue},
+    symbol_resolver::{StaticValue, SymbolResolver, SymbolValue, ValueEnum},
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{Type, TypeEnum, Unifier},
     },
 };
+use nac3parser::ast::{self, StrRef};
 use parking_lot::{Mutex, RwLock};
 use pyo3::{
     types::{PyList, PyModule, PyTuple},
     PyAny, PyObject, PyResult, Python,
 };
-use nac3parser::ast::{self, StrRef};
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -23,7 +23,7 @@ use std::{
 
 use crate::PrimitivePythonId;
 
-pub struct Resolver {
+pub struct InnerResolver {
     pub id_to_type: Mutex<HashMap<StrRef, Type>>,
     pub id_to_def: Mutex<HashMap<StrRef, DefinitionId>>,
     pub global_value_ids: Arc<Mutex<HashSet<u64>>>,
@@ -31,34 +31,94 @@ pub struct Resolver {
     pub pyid_to_def: Arc<RwLock<HashMap<u64, DefinitionId>>>,
     pub pyid_to_type: Arc<RwLock<HashMap<u64, Type>>>,
     pub primitive_ids: PrimitivePythonId,
+    pub helper: PythonHelper,
     // module specific
     pub name_to_pyid: HashMap<StrRef, u64>,
     pub module: PyObject,
 }
 
-struct PythonHelper<'a> {
-    type_fn: &'a PyAny,
-    len_fn: &'a PyAny,
-    id_fn: &'a PyAny,
-    origin_ty_fn: &'a PyAny,
-    args_ty_fn: &'a PyAny,
+pub struct Resolver(pub Arc<InnerResolver>);
+
+pub struct PythonHelper {
+    pub type_fn: PyObject,
+    pub len_fn: PyObject,
+    pub id_fn: PyObject,
 }
 
-impl Resolver {
+struct PythonValue {
+    id: u64,
+    value: PyObject,
+    resolver: Arc<InnerResolver>,
+}
+
+impl StaticValue for PythonValue {
+    fn get_unique_identifier(&self) -> u64 {
+        self.id
+    }
+
+    fn to_basic_value_enum<'ctx, 'a>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, 'a>,
+    ) -> BasicValueEnum<'ctx> {
+        Python::with_gil(|py| -> PyResult<BasicValueEnum<'ctx>> {
+            self.resolver
+                .get_obj_value(py, self.value.as_ref(py), ctx)
+                .map(Option::unwrap)
+        })
+        .unwrap()
+    }
+
+    fn get_field<'ctx, 'a>(
+        &self,
+        name: StrRef,
+        ctx: &mut CodeGenContext<'ctx, 'a>,
+    ) -> Option<ValueEnum<'ctx>> {
+        Python::with_gil(|py| -> PyResult<Option<ValueEnum<'ctx>>> {
+            let helper = &self.resolver.helper;
+            let ty = helper.type_fn.call1(py, (&self.value,))?;
+            let ty_id: u64 = helper.id_fn.call1(py, (ty,))?.extract(py)?;
+            let def_id = { *self.resolver.pyid_to_def.read().get(&ty_id).unwrap() };
+            let mut mutable = true;
+            let defs = ctx.top_level.definitions.read();
+            if let TopLevelDef::Class { fields, .. } = &*defs[def_id.0].read() {
+                for (field_name, _, is_mutable) in fields.iter() {
+                    if field_name == &name {
+                        mutable = *is_mutable;
+                        break;
+                    }
+                }
+            }
+            Ok(if mutable {
+                None
+            } else {
+                let obj = self.value.getattr(py, &name.to_string())?;
+                let id = self.resolver.helper.id_fn.call1(py, (&obj,))?.extract(py)?;
+                Some(ValueEnum::Static(Arc::new(PythonValue {
+                    id,
+                    value: obj,
+                    resolver: self.resolver.clone(),
+                })))
+            })
+        })
+        .unwrap()
+    }
+}
+
+impl InnerResolver {
     fn get_list_elem_type(
         &self,
+        py: Python,
         list: &PyAny,
         len: usize,
-        helper: &PythonHelper,
         unifier: &mut Unifier,
         defs: &[Arc<RwLock<TopLevelDef>>],
         primitives: &PrimitiveStore,
     ) -> PyResult<Option<Type>> {
-        let first = self.get_obj_type(list.get_item(0)?, helper, unifier, defs, primitives)?;
+        let first = self.get_obj_type(py, list.get_item(0)?, unifier, defs, primitives)?;
         Ok((1..len).fold(first, |a, i| {
             let b = list
                 .get_item(i)
-                .map(|elem| self.get_obj_type(elem, helper, unifier, defs, primitives));
+                .map(|elem| self.get_obj_type(py, elem, unifier, defs, primitives));
             a.and_then(|a| {
                 if let Ok(Ok(Some(ty))) = b {
                     if unifier.unify(a, ty).is_ok() {
@@ -73,44 +133,47 @@ impl Resolver {
         }))
     }
 
-    // handle python objects that represent types themselves
-    // primitives and class types should be themselves, use `ty_id` to check,
-    // TypeVars and GenericAlias(`A[int, bool]`) should use `ty_ty_id` to check
-    // the `bool` value returned indicates whether they are instantiated or not
-    fn get_pyty_obj_type(
+    fn get_obj_type(
         &self,
-        pyty: &PyAny,
-        helper: &PythonHelper,
+        py: Python,
+        obj: &PyAny,
         unifier: &mut Unifier,
         defs: &[Arc<RwLock<TopLevelDef>>],
         primitives: &PrimitiveStore,
-    ) -> PyResult<Result<(Type, bool), String>> {
-        let ty_id: u64 = helper
+    ) -> PyResult<Option<Type>> {
+        let ty_id: u64 = self
+            .helper
             .id_fn
-            .call1((pyty,))?
-            .extract()?;
-        let ty_ty_id: u64 = helper
-            .id_fn
-            .call1((helper.type_fn.call1((pyty,))?,))?
-            .extract()?;
-        
+            .call1(py, (self.helper.type_fn.call1(py, (obj,))?,))?
+            .extract(py)?;
+
         if ty_id == self.primitive_ids.int || ty_id == self.primitive_ids.int32 {
-            Ok(Ok((primitives.int32, true)))
+            Ok(Some(primitives.int32))
         } else if ty_id == self.primitive_ids.int64 {
-            Ok(Ok((primitives.int64, true)))
+            Ok(Some(primitives.int64))
         } else if ty_id == self.primitive_ids.bool {
-            Ok(Ok((primitives.bool, true)))
+            Ok(Some(primitives.bool))
         } else if ty_id == self.primitive_ids.float {
-            Ok(Ok((primitives.float, true)))
+            Ok(Some(primitives.float))
         } else if ty_id == self.primitive_ids.list {
-            // do not handle type var param and concrete check here
-            let var = unifier.get_fresh_var().0;
-            let list = unifier.add_ty(TypeEnum::TList { ty: var });
-            Ok(Ok((list, false)))
+            let len: usize = self.helper.len_fn.call1(py, (obj,))?.extract(py)?;
+            if len == 0 {
+                let var = unifier.get_fresh_var().0;
+                let list = unifier.add_ty(TypeEnum::TList { ty: var });
+                Ok(Some(list))
+            } else {
+                let ty = self.get_list_elem_type(py, obj, len, unifier, defs, primitives)?;
+                Ok(ty.map(|ty| unifier.add_ty(TypeEnum::TList { ty })))
+            }
         } else if ty_id == self.primitive_ids.tuple {
-            // do not handle type var param and concrete check here
-            Ok(Ok((unifier.add_ty(TypeEnum::TTuple { ty: vec![] }), false)))
-        } else if let Some(def_id) = self.pyid_to_def.read().get(&ty_id).cloned() {
+            let elements: &PyTuple = obj.cast_as()?;
+            let types: Result<Option<Vec<_>>, _> = elements
+                .iter()
+                .map(|elem| self.get_obj_type(py, elem, unifier, defs, primitives))
+                .collect();
+            let types = types?;
+            Ok(types.map(|types| unifier.add_ty(TypeEnum::TTuple { ty: types })))
+        } else if let Some(def_id) = self.pyid_to_def.read().get(&ty_id) {
             let def = defs[def_id.0].read();
             if let TopLevelDef::Class {
                 object_id,
@@ -120,283 +183,67 @@ impl Resolver {
                 ..
             } = &*def
             {
-                // do not handle type var param and concrete check here, and no subst
-                Ok(Ok({
-                    let ty = TypeEnum::TObj {
-                        obj_id: *object_id,
-                        params: RefCell::new({
-                            type_vars
-                                .iter()
-                                .map(|x| {
-                                    if let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*x) {
-                                        (*id, *x)
-                                    } else { unreachable!() }
-                                }).collect()
-                        }),
-                        fields: RefCell::new({
-                            let mut res = methods
-                                .iter()
-                                .map(|(iden, ty, _)| (*iden, (*ty, false)))
-                                .collect::<HashMap<_, _>>();
-                            res.extend(fields.clone().into_iter().map(|x| (x.0, (x.1, x.2))));
-                            res
-                        })
-                    };
-                    // here also false, later insta use python object to check compatible
-                    (unifier.add_ty(ty), false)
-                }))
-            } else {
-                // only object is supported, functions are not supported
-                unreachable!("function type is not supported, should not be queried")
-            }
-        } else if ty_ty_id == self.primitive_ids.typevar {
-            let constraint_types = {
-                let constraints = pyty.getattr("__constraints__").unwrap();
-                let mut result: Vec<Type> = vec![];
-                for i in 0.. {
-                    if let Ok(constr) = constraints.get_item(i) {
-                        result.push({
-                            match self.get_pyty_obj_type(constr, helper, unifier, defs, primitives)? {
-                                Ok((ty, _)) => {
-                                    if unifier.is_concrete(ty, &[]) {
-                                        ty
-                                    } else {
-                                        return Ok(Err(format!(
-                                            "the {}th constraint of TypeVar `{}` is not concrete",
-                                            i + 1,
-                                            pyty.getattr("__name__")?.extract::<String>()?
-                                        )))
-                                    }
-                                },
-                                Err(err) => return Ok(Err(err))
-                            }
-                        })
-                    } else {
-                        break;
-                    }
-                }
-                result
-            };
-            let res = unifier.get_fresh_var_with_range(&constraint_types).0;
-            Ok(Ok((res, true)))
-        } else if ty_ty_id == self.primitive_ids.generic_alias.0 || ty_ty_id == self.primitive_ids.generic_alias.1 {
-            let origin = helper.origin_ty_fn.call1((pyty,))?;
-            let args: &PyTuple = helper.args_ty_fn.call1((pyty,))?.cast_as()?;
-            let origin_ty = match self.get_pyty_obj_type(origin, helper, unifier, defs, primitives)? {
-                Ok((ty, false)) => ty,
-                Ok((_, true)) => return Ok(Err("instantiated type does not take type parameters".into())),
-                Err(err) => return Ok(Err(err))
-            };
-
-            match &*unifier.get_ty(origin_ty) {
-                TypeEnum::TList { .. } => {
-                    if args.len() == 1 {
-                        let ty = match self.get_pyty_obj_type(args.get_item(0), helper, unifier, defs, primitives)? {
-                            Ok(ty) => ty,
-                            Err(err) => return Ok(Err(err))
-                        };
-                        if !unifier.is_concrete(ty.0, &[]) && !ty.1 {
-                            panic!("type list should take concrete parameters in type var ranges")
-                        }
-                        Ok(Ok((unifier.add_ty(TypeEnum::TList { ty: ty.0 }), true)))
-                    } else {
-                        return Ok(Err(format!("type list needs exactly 1 type parameters, found {}", args.len())))
-                    }
-                 },
-                TypeEnum::TTuple { .. } => {
-                    let args = match args
-                        .iter()
-                        .map(|x| self.get_pyty_obj_type(x, helper, unifier, defs, primitives))
-                        .collect::<Result<Vec<_>, _>>()?
-                        .into_iter()
-                        .collect::<Result<Vec<_>, _>>() {
-                            Ok(args) if !args.is_empty() => args
-                                .into_iter()
-                                .map(|(x, check)| if !unifier.is_concrete(x, &[]) && !check {
-                                        panic!("type tuple should take concrete parameters in type var ranges")
-                                    } else {
-                                        x
-                                    }
-                                )
-                                .collect::<Vec<_>>(),
-                            Err(err) => return Ok(Err(err)),
-                            _ => return Ok(Err("tuple type needs at least 1 type parameters".to_string()))
-                        };
-                    Ok(Ok((unifier.add_ty(TypeEnum::TTuple { ty: args }), true)))
-                },
-                TypeEnum::TObj { params, obj_id, .. } => {
-                    let subst = {
-                        let params = &*params.borrow();
-                        if params.len() != args.len() {
-                            return Ok(Err(format!(
-                                "for class #{}, expect {} type parameters, got {}.",
-                                obj_id.0,
-                                params.len(),
-                                args.len(),
-                            )))
-                        }
-                        let args = match args
-                            .iter()
-                            .map(|x| self.get_pyty_obj_type(x, helper, unifier, defs, primitives))
-                            .collect::<Result<Vec<_>, _>>()?
-                            .into_iter()
-                            .collect::<Result<Vec<_>, _>>() {
-                                Ok(args) => args
-                                .into_iter()
-                                .map(|(x, check)| if !unifier.is_concrete(x, &[]) && !check {
-                                        panic!("type class should take concrete parameters in type var ranges")
-                                    } else {
-                                        x
-                                    }
-                                )
-                                .collect::<Vec<_>>(),
-                                Err(err) => return Ok(Err(err)),
-                            };
-                        params
-                            .iter()
-                            .zip(args.iter())
-                            .map(|((id, _), ty)| (*id, *ty))
-                            .collect::<HashMap<_, _>>()
-                    };
-                    Ok(Ok((unifier.subst(origin_ty, &subst).unwrap_or(origin_ty), true)))
-                },
-                TypeEnum::TVirtual { .. } => {
-                    if args.len() == 1 {
-                        let ty = match self.get_pyty_obj_type(args.get_item(0), helper, unifier, defs, primitives)? {
-                            Ok(ty) => ty,
-                            Err(err) => return Ok(Err(err))
-                        };
-                        if !unifier.is_concrete(ty.0, &[]) && !ty.1 {
-                            panic!("virtual class should take concrete parameters in type var ranges")
-                        }
-                        Ok(Ok((unifier.add_ty(TypeEnum::TVirtual { ty: ty.0 }), true)))
-                    } else {
-                        return Ok(Err(format!("virtual class needs exactly 1 type parameters, found {}", args.len())))
-                    }
-                }
-                _ => unimplemented!()
-            }
-        } else if ty_id == self.primitive_ids.virtual_id {
-            Ok(Ok(({
-                let ty = TypeEnum::TVirtual { ty: unifier.get_fresh_var().0 };
-                unifier.add_ty(ty)
-            }, false)))
-        } else {
-            Ok(Err("unknown type".into()))
-        }
-    }
-
-    fn get_obj_type(
-        &self,
-        obj: &PyAny,
-        helper: &PythonHelper,
-        unifier: &mut Unifier,
-        defs: &[Arc<RwLock<TopLevelDef>>],
-        primitives: &PrimitiveStore,
-    ) -> PyResult<Option<Type>> {
-        let (extracted_ty, inst_check) = match self.get_pyty_obj_type(
-            {
-                let ty = helper.type_fn.call1((obj,)).unwrap();
-                if [self.primitive_ids.typevar,
-                    self.primitive_ids.generic_alias.0,
-                    self.primitive_ids.generic_alias.1
-                ].contains(&helper.id_fn.call1((ty,))?.extract::<u64>()?) {
-                    obj
-                } else {
-                    ty
-                }
-            },
-            helper,
-            unifier,
-            defs,
-            primitives
-        )? {
-            Ok(s) => s,
-            Err(_) => return Ok(None)
-        };
-        return match (&*unifier.get_ty(extracted_ty), inst_check) {
-            // do the instantiation for these three types
-            (TypeEnum::TList { ty }, false) => {
-                let len: usize = helper.len_fn.call1((obj,))?.extract()?;
-                if len == 0 {
-                    assert!(matches!(
-                        &*unifier.get_ty(extracted_ty),
-                        TypeEnum::TVar { meta: nac3core::typecheck::typedef::TypeVarMeta::Generic, range, .. }
-                            if range.borrow().is_empty()
-                    ));
-                    Ok(Some(extracted_ty))
-                } else {
-                    let actual_ty = self
-                        .get_list_elem_type(obj, len, helper, unifier, defs, primitives)?;
-                    if let Some(actual_ty) = actual_ty {
-                        unifier.unify(*ty, actual_ty).unwrap();
-                        Ok(Some(extracted_ty))
-                    } else {
-                        Ok(None)
-                    }
-                }
-            }
-            (TypeEnum::TTuple { .. }, false) => {
-                let elements: &PyTuple = obj.cast_as()?;
-                let types: Result<Option<Vec<_>>, _> = elements
+                let var_map: HashMap<_, _> = type_vars
                     .iter()
-                    .map(|elem| self.get_obj_type(elem, helper, unifier, defs, primitives))
-                    .collect();
-                let types = types?;
-                Ok(types.map(|types| unifier.add_ty(TypeEnum::TTuple { ty: types })))
-            }
-            (TypeEnum::TObj { params, fields, .. }, false) => {
-                let var_map = params
-                    .borrow()
-                    .iter()
-                    .map(|(id_var, ty)| {
-                        if let TypeEnum::TVar { id, range, .. } = &*unifier.get_ty(*ty) {
-                            assert_eq!(*id, *id_var);
-                            (*id, unifier.get_fresh_var_with_range(&range.borrow()).0)
-                        } else {
-                            unreachable!()
-                        }
+                    .map(|var| {
+                        (
+                            if let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*var) {
+                                *id
+                            } else {
+                                unreachable!()
+                            },
+                            unifier.get_fresh_var().0,
+                        )
                     })
-                    .collect::<HashMap<_, _>>();
-                // loop through non-function fields of the class to get the instantiated value
-                for field in fields.borrow().iter() {
-                    let name: String = (*field.0).into();
-                    if let TypeEnum::TFunc( .. ) = &*unifier.get_ty(field.1.0) {
-                        continue;
-                    } else {
-                        let field_data = obj.getattr(&name)?;
-                        let ty = self
-                            .get_obj_type(field_data, helper, unifier, defs, primitives)?
-                            .unwrap_or(primitives.none);
-                        let field_ty = unifier.subst(field.1.0, &var_map).unwrap_or(field.1.0);
-                        if unifier.unify(ty, field_ty).is_err() {
-                            // field type mismatch
-                            return Ok(None);
-                        }
+                    .collect();
+                let mut fields_ty = HashMap::new();
+                for method in methods.iter() {
+                    fields_ty.insert(method.0, (method.1, false));
+                }
+                for field in fields.iter() {
+                    let name: String = field.0.into();
+                    let field_data = obj.getattr(&name)?;
+                    let ty = self
+                        .get_obj_type(py, field_data, unifier, defs, primitives)?
+                        .unwrap_or(primitives.none);
+                    let field_ty = unifier.subst(field.1, &var_map).unwrap_or(field.1);
+                    if unifier.unify(ty, field_ty).is_err() {
+                        // field type mismatch
+                        return Ok(None);
                     }
+                    fields_ty.insert(field.0, (ty, field.2));
                 }
                 for (_, ty) in var_map.iter() {
                     // must be concrete type
                     if !unifier.is_concrete(*ty, &[]) {
-                        return Ok(None)
+                        return Ok(None);
                     }
                 }
-                return Ok(Some(unifier.subst(extracted_ty, &var_map).unwrap_or(extracted_ty)));
+                Ok(Some(unifier.add_ty(TypeEnum::TObj {
+                    obj_id: *object_id,
+                    fields: RefCell::new(fields_ty),
+                    params: RefCell::new(var_map),
+                })))
+            } else {
+                // only object is supported, functions are not supported
+                Ok(None)
             }
-            _ => Ok(Some(extracted_ty))
-        };
+        } else {
+            Ok(None)
+        }
     }
 
     fn get_obj_value<'ctx, 'a>(
         &self,
+        py: Python,
         obj: &PyAny,
-        helper: &PythonHelper,
         ctx: &mut CodeGenContext<'ctx, 'a>,
     ) -> PyResult<Option<BasicValueEnum<'ctx>>> {
-        let ty_id: u64 = helper
+        let ty_id: u64 = self
+            .helper
             .id_fn
-            .call1((helper.type_fn.call1((obj,))?,))?
-            .extract()?;
+            .call1(py, (self.helper.type_fn.call1(py, (obj,))?,))?
+            .extract(py)?;
         if ty_id == self.primitive_ids.int || ty_id == self.primitive_ids.int32 {
             let val: i32 = obj.extract()?;
             Ok(Some(ctx.ctx.i32_type().const_int(val as u64, false).into()))
@@ -412,16 +259,16 @@ impl Resolver {
             let val: f64 = obj.extract()?;
             Ok(Some(ctx.ctx.f64_type().const_float(val).into()))
         } else if ty_id == self.primitive_ids.list {
-            let id: u64 = helper.id_fn.call1((obj,))?.extract()?;
+            let id: u64 = self.helper.id_fn.call1(py, (obj,))?.extract(py)?;
             let id_str = id.to_string();
-            let len: usize = helper.len_fn.call1((obj,))?.extract()?;
+            let len: usize = self.helper.len_fn.call1(py, (obj,))?.extract(py)?;
             let ty = if len == 0 {
                 ctx.primitives.int32
             } else {
                 self.get_list_elem_type(
+                    py,
                     obj,
                     len,
-                    helper,
                     &mut ctx.unifier,
                     &ctx.top_level.definitions.read(),
                     &ctx.primitives,
@@ -453,7 +300,7 @@ impl Resolver {
             let arr: Result<Option<Vec<_>>, _> = (0..len)
                 .map(|i| {
                     obj.get_item(i)
-                        .and_then(|elem| self.get_obj_value(elem, helper, ctx))
+                        .and_then(|elem| self.get_obj_value(py, elem, ctx))
                 })
                 .collect();
             let arr = arr?.unwrap();
@@ -514,15 +361,15 @@ impl Resolver {
 
             Ok(Some(global.as_pointer_value().into()))
         } else if ty_id == self.primitive_ids.tuple {
-            let id: u64 = helper.id_fn.call1((obj,))?.extract()?;
+            let id: u64 = self.helper.id_fn.call1(py, (obj,))?.extract(py)?;
             let id_str = id.to_string();
             let elements: &PyTuple = obj.cast_as()?;
             let types: Result<Option<Vec<_>>, _> = elements
                 .iter()
                 .map(|elem| {
                     self.get_obj_type(
+                        py,
                         elem,
-                        helper,
                         &mut ctx.unifier,
                         &ctx.top_level.definitions.read(),
                         &ctx.primitives,
@@ -548,7 +395,7 @@ impl Resolver {
 
             let val: Result<Option<Vec<_>>, _> = elements
                 .iter()
-                .map(|elem| self.get_obj_value(elem, helper, ctx))
+                .map(|elem| self.get_obj_value(py, elem, ctx))
                 .collect();
             let val = val?.unwrap();
             let val = ctx.ctx.const_struct(&val, false);
@@ -558,17 +405,11 @@ impl Resolver {
             global.set_initializer(&val);
             Ok(Some(global.as_pointer_value().into()))
         } else {
-            let id: u64 = helper.id_fn.call1((obj,))?.extract()?;
+            let id: u64 = self.helper.id_fn.call1(py, (obj,))?.extract(py)?;
             let id_str = id.to_string();
             let top_level_defs = ctx.top_level.definitions.read();
             let ty = self
-                .get_obj_type(
-                    obj,
-                    helper,
-                    &mut ctx.unifier,
-                    &top_level_defs,
-                    &ctx.primitives,
-                )?
+                .get_obj_type(py, obj, &mut ctx.unifier, &top_level_defs, &ctx.primitives)?
                 .unwrap();
             let ty = ctx
                 .get_llvm_type(ty)
@@ -597,7 +438,7 @@ impl Resolver {
                 let values: Result<Option<Vec<_>>, _> = fields
                     .iter()
                     .map(|(name, _, _)| {
-                        self.get_obj_value(obj.getattr(&name.to_string())?, helper, ctx)
+                        self.get_obj_value(py, obj.getattr(&name.to_string())?, ctx)
                     })
                     .collect();
                 let values = values?;
@@ -617,11 +458,16 @@ impl Resolver {
         }
     }
 
-    fn get_default_param_obj_value(&self, obj: &PyAny, helper: &PythonHelper) -> PyResult<Result<SymbolValue, String>> {
-        let ty_id: u64 = helper
+    fn get_default_param_obj_value(
+        &self,
+        py: Python,
+        obj: &PyAny,
+    ) -> PyResult<Result<SymbolValue, String>> {
+        let ty_id: u64 = self
+            .helper
             .id_fn
-            .call1((helper.type_fn.call1((obj,))?,))?
-            .extract()?;
+            .call1(py, (self.helper.type_fn.call1(py, (obj,))?,))?
+            .extract(py)?;
         Ok(
             if ty_id == self.primitive_ids.int || ty_id == self.primitive_ids.int32 {
                 let val: i32 = obj.extract()?;
@@ -639,63 +485,49 @@ impl Resolver {
                 let elements: &PyTuple = obj.cast_as()?;
                 let elements: Result<Result<Vec<_>, String>, _> = elements
                     .iter()
-                    .map(|elem| {
-                        self.get_default_param_obj_value(
-                            elem,
-                            helper
-                        )
-                    })
+                    .map(|elem| self.get_default_param_obj_value(py, elem))
                     .collect();
                 let elements = match elements? {
                     Ok(el) => el,
-                    Err(err) => return Ok(Err(err))
+                    Err(err) => return Ok(Err(err)),
                 };
                 Ok(SymbolValue::Tuple(elements))
             } else {
                 Err("only primitives values and tuple can be default parameter value".into())
-            }
+            },
         )
     }
 }
 
 impl SymbolResolver for Resolver {
-    fn get_default_param_value(
-        &self,
-        expr: &ast::Expr
-    ) -> Option<SymbolValue> {
+    fn get_default_param_value(&self, expr: &ast::Expr) -> Option<SymbolValue> {
         match &expr.node {
             ast::ExprKind::Name { id, .. } => {
-                Python::with_gil(
-                    |py| -> PyResult<Option<SymbolValue>> {
-                        let obj: &PyAny = self.module.extract(py)?;
-                        let members: &PyList = PyModule::import(py, "inspect")?
-                            .getattr("getmembers")?
-                            .call1((obj,))?
-                            .cast_as()?;
-                        let mut sym_value = None;
-                        for member in members.iter() {
-                            let key: &str = member.get_item(0)?.extract()?;
-                            let val = member.get_item(1)?;
-                            if key == id.to_string() {
-                                let builtins = PyModule::import(py, "builtins")?;
-                                let typings = PyModule::import(py, "typing")?;
-                                let helper = PythonHelper {
-                                    id_fn: builtins.getattr("id").unwrap(),
-                                    len_fn: builtins.getattr("len").unwrap(),
-                                    type_fn: builtins.getattr("type").unwrap(),
-                                    origin_ty_fn: typings.getattr("get_origin").unwrap(),
-                                    args_ty_fn: typings.getattr("get_args").unwrap(),
-                                };
-                                sym_value = Some(self.get_default_param_obj_value(val, &helper).unwrap().unwrap());
-                                break;
-                            }
+                Python::with_gil(|py| -> PyResult<Option<SymbolValue>> {
+                    let obj: &PyAny = self.0.module.extract(py)?;
+                    let members: &PyList = PyModule::import(py, "inspect")?
+                        .getattr("getmembers")?
+                        .call1((obj,))?
+                        .cast_as()?;
+                    let mut sym_value = None;
+                    for member in members.iter() {
+                        let key: &str = member.get_item(0)?.extract()?;
+                        let val = member.get_item(1)?;
+                        if key == id.to_string() {
+                            sym_value = Some(
+                                self.0
+                                    .get_default_param_obj_value(py, val)
+                                    .unwrap()
+                                    .unwrap(),
+                            );
+                            break;
                         }
-                        Ok(sym_value)
                     }
-                )
+                    Ok(sym_value)
+                })
                 .unwrap()
             }
-            _ => unimplemented!("other type of expr not supported at {}", expr.location)
+            _ => unimplemented!("other type of expr not supported at {}", expr.location),
         }
     }
 
@@ -706,13 +538,13 @@ impl SymbolResolver for Resolver {
         primitives: &PrimitiveStore,
         str: StrRef,
     ) -> Option<Type> {
-        let mut id_to_type = self.id_to_type.lock();
+        let mut id_to_type = self.0.id_to_type.lock();
         id_to_type.get(&str).cloned().or_else(|| {
-            let py_id = self.name_to_pyid.get(&str);
+            let py_id = self.0.name_to_pyid.get(&str);
             let result = py_id.and_then(|id| {
-                self.pyid_to_type.read().get(id).copied().or_else(|| {
+                self.0.pyid_to_type.read().get(id).copied().or_else(|| {
                     Python::with_gil(|py| -> PyResult<Option<Type>> {
-                        let obj: &PyAny = self.module.extract(py)?;
+                        let obj: &PyAny = self.0.module.extract(py)?;
                         let members: &PyList = PyModule::import(py, "inspect")?
                             .getattr("getmembers")?
                             .call1((obj,))?
@@ -721,18 +553,9 @@ impl SymbolResolver for Resolver {
                         for member in members.iter() {
                             let key: &str = member.get_item(0)?.extract()?;
                             if key == str.to_string() {
-                                let builtins = PyModule::import(py, "builtins")?;
-                                let typings = PyModule::import(py, "typing")?;
-                                let helper = PythonHelper {
-                                    id_fn: builtins.getattr("id").unwrap(),
-                                    len_fn: builtins.getattr("len").unwrap(),
-                                    type_fn: builtins.getattr("type").unwrap(),
-                                    origin_ty_fn: typings.getattr("get_origin").unwrap(),
-                                    args_ty_fn: typings.getattr("get_args").unwrap(),
-                                };
-                                sym_ty = self.get_obj_type(
+                                sym_ty = self.0.get_obj_type(
+                                    py,
                                     member.get_item(1)?,
-                                    &helper,
                                     unifier,
                                     defs,
                                     primitives,
@@ -755,10 +578,10 @@ impl SymbolResolver for Resolver {
     fn get_symbol_value<'ctx, 'a>(
         &self,
         id: StrRef,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
-    ) -> Option<BasicValueEnum<'ctx>> {
-        Python::with_gil(|py| -> PyResult<Option<BasicValueEnum<'ctx>>> {
-            let obj: &PyAny = self.module.extract(py)?;
+        _: &mut CodeGenContext<'ctx, 'a>,
+    ) -> Option<ValueEnum<'ctx>> {
+        Python::with_gil(|py| -> PyResult<Option<ValueEnum<'ctx>>> {
+            let obj: &PyAny = self.0.module.extract(py)?;
             let members: &PyList = PyModule::import(py, "inspect")?
                 .getattr("getmembers")?
                 .call1((obj,))?
@@ -768,20 +591,16 @@ impl SymbolResolver for Resolver {
                 let key: &str = member.get_item(0)?.extract()?;
                 let val = member.get_item(1)?;
                 if key == id.to_string() {
-                    let builtins = PyModule::import(py, "builtins")?;
-                    let typings = PyModule::import(py, "typing")?;
-                    let helper = PythonHelper {
-                        id_fn: builtins.getattr("id").unwrap(),
-                        len_fn: builtins.getattr("len").unwrap(),
-                        type_fn: builtins.getattr("type").unwrap(),
-                        origin_ty_fn: typings.getattr("get_origin").unwrap(),
-                        args_ty_fn: typings.getattr("get_args").unwrap(),
-                    };
-                    sym_value = self.get_obj_value(val, &helper, ctx)?;
+                    let id = self.0.helper.id_fn.call1(py, (val,))?.extract(py)?;
+                    sym_value = Some(PythonValue {
+                        id,
+                        value: val.extract()?,
+                        resolver: self.0.clone(),
+                    });
                     break;
                 }
             }
-            Ok(sym_value)
+            Ok(sym_value.map(|v| ValueEnum::Static(Arc::new(v))))
         })
         .unwrap()
     }
@@ -791,10 +610,10 @@ impl SymbolResolver for Resolver {
     }
 
     fn get_identifier_def(&self, id: StrRef) -> Option<DefinitionId> {
-        let mut id_to_def = self.id_to_def.lock();
+        let mut id_to_def = self.0.id_to_def.lock();
         id_to_def.get(&id).cloned().or_else(|| {
-            let py_id = self.name_to_pyid.get(&id);
-            let result = py_id.and_then(|id| self.pyid_to_def.read().get(id).copied());
+            let py_id = self.0.name_to_pyid.get(&id);
+            let result = py_id.and_then(|id| self.0.pyid_to_def.read().get(id).copied());
             if let Some(result) = &result {
                 id_to_def.insert(id, *result);
             }

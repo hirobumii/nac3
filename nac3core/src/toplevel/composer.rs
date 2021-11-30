@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use nac3parser::ast::fold::Fold;
-use inkwell::FloatPredicate;
+use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::{
     symbol_resolver::SymbolValue,
@@ -195,7 +195,7 @@ impl TopLevelComposer {
                     signature: primitives.1.add_ty(TypeEnum::TFunc(RefCell::new(FunSignature {
                         args: vec![FuncArg { name: "_".into(), ty: num_ty.0, default_value: None }],
                         ret: float,
-                        vars: var_map,
+                        vars: var_map.clone(),
                     }))),
                     var_id: Default::default(),
                     instance_to_symbol: Default::default(),
@@ -398,7 +398,7 @@ impl TopLevelComposer {
                     signature: primitives.1.add_ty(TypeEnum::TFunc(RefCell::new(FunSignature {
                         args: vec![FuncArg { name: "_".into(), ty: num_ty.0, default_value: None }],
                         ret: primitives.0.bool,
-                        vars: Default::default(),
+                        vars: var_map,
                     }))),
                     var_id: Default::default(),
                     instance_to_symbol: Default::default(),
@@ -415,15 +415,12 @@ impl TopLevelComposer {
                             if ctx.unifier.unioned(arg_ty, boolean) {
                                 Some(arg)
                             } else if ctx.unifier.unioned(arg_ty, int32) || ctx.unifier.unioned(arg_ty, int64) {
-                                Some(
-                                    ctx.builder
-                                        .build_int_truncate(
-                                            arg.into_int_value(),
-                                            ctx.ctx.bool_type(),
-                                            "trunc",
-                                        )
-                                        .into(),
-                                )
+                                Some(ctx.builder.build_int_compare(
+                                    IntPredicate::NE,
+                                    ctx.ctx.i64_type().const_zero(),
+                                    arg.into_int_value(),
+                                    "bool",
+                                ).into())
                             } else if ctx.unifier.unioned(arg_ty, float) {
                                 let val = ctx.builder.
                                     build_float_compare(
@@ -1066,7 +1063,7 @@ impl TopLevelComposer {
                             and names thould not be the same as the keywords"
                                 .into());
                         }
-                        
+
                         let arg_with_default: Vec<(&ast::Located<ast::ArgData<()>>, Option<&ast::Expr>)> = args
                             .args
                             .iter()
@@ -1307,7 +1304,7 @@ impl TopLevelComposer {
                         }
 
                         let mut result = Vec::new();
-                        
+
                         let arg_with_default: Vec<(&ast::Located<ast::ArgData<()>>, Option<&ast::Expr>)> = args
                             .args
                             .iter()
@@ -1319,7 +1316,7 @@ impl TopLevelComposer {
                                 .map(|x| -> Option<&ast::Expr> { Some(x) })
                                 .chain(std::iter::repeat(None))
                             ).collect_vec();
-                        
+
                         for (x, default) in arg_with_default.into_iter().rev() {
                             let name = x.node.arg;
                             if name != zelf {
