@@ -197,7 +197,7 @@ impl Nac3 {
                 let (name, def_id, ty) = self
                     .composer
                     .register_top_level(stmt, Some(resolver.clone()), module_name.clone())
-                    .unwrap();
+                    .map_err(|e| exceptions::PyRuntimeError::new_err(format!("nac3 compilation failure: {}", e)))?;
                 name_to_def.insert(name, def_id);
                 if let Some(ty) = ty {
                     name_to_type.insert(name, ty);
@@ -444,7 +444,9 @@ impl Nac3 {
         );
         let signature = store.add_cty(signature);
 
-        self.composer.start_analysis(true).unwrap();
+        self.composer.start_analysis(true).map_err(|e| exceptions::PyRuntimeError::new_err(format!(
+            "nac3 compilation failure: {}", e
+        )))?;
         self.top_level = Some(Arc::new(self.composer.make_top_level_context()));
         let top_level = self.top_level.as_ref().unwrap();
         let instance = {
