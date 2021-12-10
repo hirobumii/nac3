@@ -1058,20 +1058,27 @@ impl TopLevelComposer {
                             let dummy_field_type = unifier.get_fresh_var().0;
 
                             // handle Kernel[T], KernelInvariant[T]
-                            let (annotation, mutable) = {
-                                let mut result = None;
-                                if let ast::ExprKind::Subscript { value, slice, .. } = &annotation.as_ref().node {
-                                    if let ast::ExprKind::Name { id, .. } = &value.node {
-                                        result = if id == &"Kernel".into() {
-                                            Some((slice, true))
-                                        } else if id == &"KernelInvariant".into() {
-                                            Some((slice, false))
-                                        } else {
-                                            None
+                            let (annotation, mutable) = match &annotation.node {
+                                ast::ExprKind::Subscript { value, slice, .. }
+                                    if matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"Kernel".into()) =>
+                                {
+                                    match &slice.node {
+                                        ast::ExprKind::Subscript { value, .. }
+                                            if matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"list".into()) =>
+                                        {
+                                            return Err(format!("list is not allowed to be `Kernel` at {}", value.location))
                                         }
+                                        _ => (slice, true)
                                     }
                                 }
-                                result.unwrap_or((annotation, true))
+                                ast::ExprKind::Subscript { value, slice, .. }
+                                    if matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"KernelInvariant".into()) => {
+                                    (slice, false)
+                                }
+                                _ => {
+                                    eprintln!("attributes not annotated with `Kernel` or `KernelInvariants` at {}", &annotation.location);
+                                    (annotation, true)
+                                }
                             };
                             class_fields_def.push((*attr, dummy_field_type, mutable));
 
