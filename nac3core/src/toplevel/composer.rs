@@ -9,6 +9,11 @@ use crate::{
 
 use super::*;
 
+pub enum CoreMode {
+    Artiq,
+    Standalone
+}
+
 type DefAst = (Arc<RwLock<TopLevelDef>>, Option<ast::Stmt<()>>);
 pub struct TopLevelComposer {
     // list of top level definitions, same as top level context
@@ -25,11 +30,13 @@ pub struct TopLevelComposer {
     pub method_class: HashMap<DefinitionId, DefinitionId>,
     // number of built-in function and classes in the definition list, later skip
     pub builtin_num: usize,
+    // indicate the mode that we are using the core
+    pub mode: CoreMode,
 }
 
 impl Default for TopLevelComposer {
     fn default() -> Self {
-        Self::new(vec![]).0
+        Self::new(vec![], CoreMode::Standalone).0
     }
 }
 
@@ -38,6 +45,7 @@ impl TopLevelComposer {
     /// resolver can later figure out primitive type definitions when passed a primitive type name
     pub fn new(
         builtins: Vec<(StrRef, FunSignature, Arc<GenCall>)>,
+        mode: CoreMode
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
         let mut primitives = Self::make_primitives();
         let (mut definition_ast_list, builtin_name_list) = builtins::get_builtins(&mut primitives);
@@ -108,6 +116,7 @@ impl TopLevelComposer {
                 keyword_list,
                 defined_names,
                 method_class,
+                mode
             },
             builtin_id,
             builtin_ty,
@@ -554,7 +563,7 @@ impl TopLevelComposer {
                     unifier,
                     primitives,
                     &mut type_var_to_concrete_def,
-                    &self.keyword_list,
+                    (&self.keyword_list, &self.mode)
                 )?
             }
         }
@@ -827,8 +836,9 @@ impl TopLevelComposer {
         unifier: &mut Unifier,
         primitives: &PrimitiveStore,
         type_var_to_concrete_def: &mut HashMap<Type, TypeAnnotation>,
-        keyword_list: &HashSet<StrRef>,
+        core_info: (&HashSet<StrRef>, &CoreMode),
     ) -> Result<(), String> {
+        let (keyword_list, core_mode) = core_info;
         let mut class_def = class_def.write();
         let (
             class_id,
@@ -1059,19 +1069,26 @@ impl TopLevelComposer {
 
                             // handle Kernel[T], KernelInvariant[T]
                             let (annotation, mutable) = {
-                                let mut result = None;
-                                if let ast::ExprKind::Subscript { value, slice, .. } = &annotation.as_ref().node {
-                                    if let ast::ExprKind::Name { id, .. } = &value.node {
-                                        result = if id == &"Kernel".into() {
-                                            Some((slice, true))
-                                        } else if id == &"KernelInvariant".into() {
-                                            Some((slice, false))
-                                        } else {
-                                            None
-                                        }
+                                match core_mode {
+                                    CoreMode::Artiq => match &annotation.as_ref().node {
+                                        ast::ExprKind::Subscript { value, slice, .. } if matches!(
+                                            &value.node,
+                                            ast::ExprKind::Name { id, .. } if id == &"Kernel".into()
+                                        ) => (slice, true),
+                                        ast::ExprKind::Subscript { value, slice, .. } if matches!(
+                                            &value.node,
+                                            ast::ExprKind::Name { id, .. } if id == &"KernelInvariant".into()
+                                        ) => (slice, false),
+                                        _ => continue // ignore fields annotated otherwise
+                                    },
+                                    CoreMode::Standalone => match &annotation.as_ref().node {
+                                        ast::ExprKind::Subscript { value, slice, .. } if matches!(
+                                            &value.node,
+                                            ast::ExprKind::Name { id, .. } if id == &"Invariant".into()
+                                        ) => (slice, false),
+                                        _ => (annotation, true)
                                     }
                                 }
-                                result.unwrap_or((annotation, true))
                             };
                             class_fields_def.push((*attr, dummy_field_type, mutable));
 
