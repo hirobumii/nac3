@@ -1,15 +1,15 @@
-from inspect import getfullargspec, isclass, getmro
+from inspect import getfullargspec
 from functools import wraps
 from types import SimpleNamespace
 from numpy import int32, int64
-from typing import Generic, TypeVar, get_origin
+from typing import Generic, TypeVar
 from math import floor, ceil
 
 import nac3artiq
 
 
 __all__ = [
-    "KernelInvariant", "Kernel", "virtual",
+    "KernelInvariant", "virtual",
     "round64", "floor64", "ceil64",
     "extern", "kernel", "portable", "nac3",
     "ms", "us", "ns",
@@ -24,12 +24,10 @@ T = TypeVar('T')
 class KernelInvariant(Generic[T]):
     pass
 
-class Kernel(Generic[T]):
-    pass
-
 # The virtual class must exist before nac3artiq.NAC3 is created.
 class virtual(Generic[T]):
     pass
+
 
 def round64(x):
     return round(x)
@@ -46,7 +44,6 @@ core_arguments = device_db.device_db["core"]["arguments"]
 
 compiler = nac3artiq.NAC3(core_arguments["target"])
 allow_registration = True
-allow_kernel_read = False
 # Delay NAC3 analysis until all referenced variables are supposed to exist on the CPython side.
 registered_functions = set()
 registered_classes = set()
@@ -93,65 +90,7 @@ def nac3(cls):
     Decorates a class to be analyzed by NAC3.
     All classes containing kernels or portable methods must use this decorator.
     """
-    
-    # python does not allow setting magic method on specific instances 
-    # (https://docs.python.org/3/reference/datamodel.html#special-method-lookup).
-    # use this set to keep track of those custom class instances that are
-    # assigned to the `Kernel` fields of a class
-    cls.__nac3_kernel_only_instances__ = set()
-
-    def apply_kernel_only_constraints(val):
-        kernel_only_set = getattr(type(val), '__nac3_kernel_only_instances__', None)
-        if kernel_only_set is None:
-            return
-        else:
-            for (_, attr_val) in val.__dict__.items():
-                if not (attr_val == val):
-                    apply_kernel_only_constraints(attr_val)
-            kernel_only_set.add(val)
-
-    if not isclass(cls):
-        raise ValueError("nac3 annotation decorator should only be applied to classes")
-    if not cls.__setattr__ in {base.__setattr__ for base in cls.__bases__}:
-        raise ValueError("custom __setattr__ is not supported in kernel classes")
-    
     register_class(cls)
-
-    immutable_fields = {
-        n for b in getmro(cls)
-            for (n, ty) in b.__dict__.get('__annotations__', {}).items() if get_origin(ty) == Kernel
-    }
-    def __setattr__(obj, key, value):
-        if obj in type(obj).__nac3_kernel_only_instances__:
-            raise TypeError("attempting to write to kernel only variable")
-        # should allow init to set value, if no attribute then allow to set attr, then
-        # recursively apply constraint to all the fields of that specific object,
-        # regardless of whether they are marked with `Kernel` or not
-        if key in immutable_fields:
-            if hasattr(obj, key):
-                raise TypeError("attempting to write to kernel only variable")
-            else:
-                apply_kernel_only_constraints(value)
-        object.__setattr__(obj, key, value)
-
-    def __getattribute__(obj, key):        
-        # need to use `object.__getattribute__` to get attr before checking
-        # the key in immutable_fields for `__init__`.
-        # since that in `__init__` when setting a instance variable like `self.a = 3`
-        # the sequence of internal magic call is still calling cls.__getattribute__(self, 'a')
-        # first, and if only "AttributeError" is raised, it will then call `__setattr__`
-        # if we raise `TypeError` too early, python will just halt at this `TypeError`.
-        attr = object.__getattribute__(obj, key)
-        if not allow_kernel_read:
-            if obj in type(obj).__nac3_kernel_only_instances__:
-                raise TypeError("attempting to read kernel only variable")
-            if key in immutable_fields:
-                raise TypeError("attempting to read kernel only variable")
-        return attr
-    
-    cls.__setattr__ = __setattr__
-    cls.__getattribute__ = __getattribute__
-
     return cls
 
 
@@ -203,7 +142,6 @@ class Core:
         self.ref_period = core_arguments["ref_period"]
 
     def run(self, method, *args, **kwargs):
-        global allow_kernel_read
         global allow_registration
         if allow_registration:
             compiler.analyze(registered_functions, registered_classes)
@@ -215,9 +153,8 @@ class Core:
         else:
             obj = method
             name = ""
-        allow_kernel_read = True
+
         compiler.compile_method_to_file(obj, name, args, "module.elf")
-        allow_kernel_read = False
 
     @kernel
     def reset(self):
