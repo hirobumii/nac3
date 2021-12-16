@@ -14,7 +14,7 @@ use nac3core::{
     },
     symbol_resolver::SymbolResolver,
     toplevel::{
-        composer::{TopLevelComposer, CoreMode},
+        composer::{TopLevelComposer, ComposerConfig},
         TopLevelDef, helper::parse_parameter_default_value,
         type_annotation::*,
     },
@@ -46,7 +46,7 @@ fn main() {
     let primitive: PrimitiveStore = TopLevelComposer::make_primitives().0;
     let (mut composer, builtins_def, builtins_ty) = TopLevelComposer::new(
         vec![],
-        CoreMode::Standalone
+        ComposerConfig { kernel_ann: None, kernel_invariant_ann: "Invariant" }
     );
 
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
