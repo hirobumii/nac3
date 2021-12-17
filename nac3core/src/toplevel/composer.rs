@@ -30,7 +30,6 @@ pub struct TopLevelComposer {
     pub method_class: HashMap<DefinitionId, DefinitionId>,
     // number of built-in function and classes in the definition list, later skip
     pub builtin_num: usize,
-    // indicate the mode that we are using the core
     pub core_config: ComposerConfig,
 }
 
