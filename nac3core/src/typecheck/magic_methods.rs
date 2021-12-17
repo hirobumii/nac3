@@ -183,7 +183,7 @@ pub fn impl_cmpop(
     }
 }
 
-/// Add, Sub, Mult, Pow
+/// Add, Sub, Mult
 pub fn impl_basic_arithmetic(
     unifier: &mut Unifier,
     store: &PrimitiveStore,
