@@ -14,6 +14,15 @@ pub struct ComposerConfig {
     pub kernel_invariant_ann: &'static str,
 }
 
+impl Default for ComposerConfig {
+    fn default() -> Self {
+        ComposerConfig {
+            kernel_ann: None,
+            kernel_invariant_ann: "Invariant"
+        }
+    }
+}
+
 type DefAst = (Arc<RwLock<TopLevelDef>>, Option<ast::Stmt<()>>);
 pub struct TopLevelComposer {
     // list of top level definitions, same as top level context
@@ -35,10 +44,7 @@ pub struct TopLevelComposer {
 
 impl Default for TopLevelComposer {
     fn default() -> Self {
-        Self::new(vec![], ComposerConfig {
-            kernel_ann: None,
-            kernel_invariant_ann: "Invariant"
-        }).0
+        Self::new(vec![], Default::default()).0
     }
 }
 

@@ -46,7 +46,7 @@ fn main() {
     let primitive: PrimitiveStore = TopLevelComposer::make_primitives().0;
     let (mut composer, builtins_def, builtins_ty) = TopLevelComposer::new(
         vec![],
-        ComposerConfig { kernel_ann: None, kernel_invariant_ann: "Invariant" }
+        Default::default()
     );
 
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
