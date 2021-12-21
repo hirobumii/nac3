@@ -1,8 +1,12 @@
 #include <stdio.h>
 #include <string.h>
 
-void output_int(int x) {
+void output_int32(int x) {
     printf("%d\n", x);
+}
+
+void output_int64(long x) {
+    printf("%ld\n", x);
 }
 
 void output_asciiart(int x) {

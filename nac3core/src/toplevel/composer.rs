@@ -1,15 +1,27 @@
 use std::cell::RefCell;
 
 use nac3parser::ast::fold::Fold;
-use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::{
-    symbol_resolver::SymbolValue,
     typecheck::type_inferencer::{FunctionData, Inferencer},
     codegen::expr::get_subst_key,
 };
 
 use super::*;
+
+pub struct ComposerConfig {
+    pub kernel_ann: Option<&'static str>,
+    pub kernel_invariant_ann: &'static str,
+}
+
+impl Default for ComposerConfig {
+    fn default() -> Self {
+        ComposerConfig {
+            kernel_ann: None,
+            kernel_invariant_ann: "Invariant"
+        }
+    }
+}
 
 type DefAst = (Arc<RwLock<TopLevelDef>>, Option<ast::Stmt<()>>);
 pub struct TopLevelComposer {
@@ -26,12 +38,13 @@ pub struct TopLevelComposer {
     // get the class def id of a class method
     pub method_class: HashMap<DefinitionId, DefinitionId>,
     // number of built-in function and classes in the definition list, later skip
-    pub built_in_num: usize,
+    pub builtin_num: usize,
+    pub core_config: ComposerConfig,
 }
 
 impl Default for TopLevelComposer {
     fn default() -> Self {
-        Self::new(vec![]).0
+        Self::new(vec![], Default::default()).0
     }
 }
 
@@ -40,408 +53,10 @@ impl TopLevelComposer {
     /// resolver can later figure out primitive type definitions when passed a primitive type name
     pub fn new(
         builtins: Vec<(StrRef, FunSignature, Arc<GenCall>)>,
+        core_config: ComposerConfig
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
         let mut primitives = Self::make_primitives();
-
-        let int32 = primitives.0.int32;
-        let int64 = primitives.0.int64;
-        let float = primitives.0.float;
-        let boolean = primitives.0.bool;
-        let range = primitives.0.range;
-        let string = primitives.0.str;
-        let num_ty = primitives.1.get_fresh_var_with_range(&[int32, int64, float, boolean]);
-        let var_map: HashMap<_, _> = vec![(num_ty.1, num_ty.0)].into_iter().collect();
-
-        let mut definition_ast_list = {
-            let top_level_def_list = vec![
-                Arc::new(RwLock::new(Self::make_top_level_class_def(
-                    0,
-                    None,
-                    "int32".into(),
-                    None,
-                ))),
-                Arc::new(RwLock::new(Self::make_top_level_class_def(
-                    1,
-                    None,
-                    "int64".into(),
-                    None,
-                ))),
-                Arc::new(RwLock::new(Self::make_top_level_class_def(
-                    2,
-                    None,
-                    "float".into(),
-                    None,
-                ))),
-                Arc::new(RwLock::new(Self::make_top_level_class_def(3, None, "bool".into(), None))),
-                Arc::new(RwLock::new(Self::make_top_level_class_def(4, None, "none".into(), None))),
-                Arc::new(RwLock::new(Self::make_top_level_class_def(
-                    5,
-                    None,
-                    "range".into(),
-                    None,
-                ))),
-                Arc::new(RwLock::new(Self::make_top_level_class_def(6, None, "str".into(), None))),
-                Arc::new(RwLock::new(TopLevelDef::Function {
-                    name: "int32".into(),
-                    simple_name: "int32".into(),
-                    signature: primitives.1.add_ty(TypeEnum::TFunc(RefCell::new(FunSignature {
-                        args: vec![FuncArg { name: "_".into(), ty: num_ty.0, default_value: None }],
-                        ret: int32,
-                        vars: var_map.clone(),
-                    }))),
-                    var_id: Default::default(),
-                    instance_to_symbol: Default::default(),
-                    instance_to_stmt: Default::default(),
-                    resolver: None,
-                    codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                        |ctx, _, fun, args| {
-                            let int32 = ctx.primitives.int32;
-                            let int64 = ctx.primitives.int64;
-                            let float = ctx.primitives.float;
-                            let boolean = ctx.primitives.bool;
-                            let arg_ty = fun.0.args[0].ty;
-                            let arg = args[0].1;
-                            if ctx.unifier.unioned(arg_ty, boolean) {
-                                Some(
-                                    ctx.builder
-                                        .build_int_s_extend(
-                                            arg.into_int_value(),
-                                            ctx.ctx.i32_type(),
-                                            "sext",
-                                        )
-                                        .into(),
-                                )
-                            } else if ctx.unifier.unioned(arg_ty, int32) {
-                                Some(arg)
-                            } else if ctx.unifier.unioned(arg_ty, int64) {
-                                Some(
-                                    ctx.builder
-                                        .build_int_truncate(
-                                            arg.into_int_value(),
-                                            ctx.ctx.i32_type(),
-                                            "trunc",
-                                        )
-                                        .into(),
-                                )
-                            } else if ctx.unifier.unioned(arg_ty, float) {
-                                let val = ctx
-                                    .builder
-                                    .build_float_to_signed_int(
-                                        arg.into_float_value(),
-                                        ctx.ctx.i32_type(),
-                                        "fptosi",
-                                    )
-                                    .into();
-                                Some(val)
-                            } else {
-                                unreachable!()
-                            }
-                        },
-                    )))),
-                })),
-                Arc::new(RwLock::new(TopLevelDef::Function {
-                    name: "int64".into(),
-                    simple_name: "int64".into(),
-                    signature: primitives.1.add_ty(TypeEnum::TFunc(RefCell::new(FunSignature {
-                        args: vec![FuncArg { name: "_".into(), ty: num_ty.0, default_value: None }],
-                        ret: int64,
-                        vars: var_map.clone(),
-                    }))),
-                    var_id: Default::default(),
-                    instance_to_symbol: Default::default(),
-                    instance_to_stmt: Default::default(),
-                    resolver: None,
-                    codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                        |ctx, _, fun, args| {
-                            let int32 = ctx.primitives.int32;
-                            let int64 = ctx.primitives.int64;
-                            let float = ctx.primitives.float;
-                            let boolean = ctx.primitives.bool;
-                            let arg_ty = fun.0.args[0].ty;
-                            let arg = args[0].1;
-                            if ctx.unifier.unioned(arg_ty, boolean)
-                                || ctx.unifier.unioned(arg_ty, int32)
-                            {
-                                Some(
-                                    ctx.builder
-                                        .build_int_s_extend(
-                                            arg.into_int_value(),
-                                            ctx.ctx.i64_type(),
-                                            "sext",
-                                        )
-                                        .into(),
-                                )
-                            } else if ctx.unifier.unioned(arg_ty, int64) {
-                                Some(arg)
-                            } else if ctx.unifier.unioned(arg_ty, float) {
-                                let val = ctx
-                                    .builder
-                                    .build_float_to_signed_int(
-                                        arg.into_float_value(),
-                                        ctx.ctx.i64_type(),
-                                        "fptosi",
-                                    )
-                                    .into();
-                                Some(val)
-                            } else {
-                                unreachable!()
-                            }
-                        },
-                    )))),
-                })),
-                Arc::new(RwLock::new(TopLevelDef::Function {
-                    name: "float".into(),
-                    simple_name: "float".into(),
-                    signature: primitives.1.add_ty(TypeEnum::TFunc(RefCell::new(FunSignature {
-                        args: vec![FuncArg { name: "_".into(), ty: num_ty.0, default_value: None }],
-                        ret: float,
-                        vars: var_map.clone(),
-                    }))),
-                    var_id: Default::default(),
-                    instance_to_symbol: Default::default(),
-                    instance_to_stmt: Default::default(),
-                    resolver: None,
-                    codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                        |ctx, _, fun, args| {
-                            let int32 = ctx.primitives.int32;
-                            let int64 = ctx.primitives.int64;
-                            let boolean = ctx.primitives.bool;
-                            let float = ctx.primitives.float;
-                            let arg_ty = fun.0.args[0].ty;
-                            let arg = args[0].1;
-                            if ctx.unifier.unioned(arg_ty, boolean)
-                                || ctx.unifier.unioned(arg_ty, int32)
-                                || ctx.unifier.unioned(arg_ty, int64)
-                            {
-                                let arg = args[0].1.into_int_value();
-                                let val = ctx
-                                    .builder
-                                    .build_signed_int_to_float(arg, ctx.ctx.f64_type(), "sitofp")
-                                    .into();
-                                Some(val)
-                            } else if ctx.unifier.unioned(arg_ty, float) {
-                                Some(arg)
-                            } else {
-                                unreachable!()
-                            }
-                        },
-                    )))),
-                })),
-                Arc::new(RwLock::new(TopLevelDef::Function {
-                    name: "round".into(),
-                    simple_name: "round".into(),
-                    signature: primitives.1.add_ty(TypeEnum::TFunc(RefCell::new(FunSignature {
-                        args: vec![FuncArg { name: "_".into(), ty: float, default_value: None }],
-                        ret: int32,
-                        vars: Default::default(),
-                    }))),
-                    var_id: Default::default(),
-                    instance_to_symbol: Default::default(),
-                    instance_to_stmt: Default::default(),
-                    resolver: None,
-                    codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, _, args| {
-                        let arg = args[0].1;
-                        let round_intrinsic =
-                            ctx.module.get_function("llvm.round.f64").unwrap_or_else(|| {
-                                let float = ctx.ctx.f64_type();
-                                let fn_type = float.fn_type(&[float.into()], false);
-                                ctx.module.add_function("llvm.round.f64", fn_type, None)
-                            });
-                        let val = ctx
-                            .builder
-                            .build_call(round_intrinsic, &[arg], "round")
-                            .try_as_basic_value()
-                            .left()
-                            .unwrap();
-                        Some(
-                            ctx.builder
-                                .build_float_to_signed_int(
-                                    val.into_float_value(),
-                                    ctx.ctx.i32_type(),
-                                    "fptosi",
-                                )
-                                .into(),
-                        )
-                    })))),
-                })),
-                Arc::new(RwLock::new(TopLevelDef::Function {
-                    name: "round64".into(),
-                    simple_name: "round64".into(),
-                    signature: primitives.1.add_ty(TypeEnum::TFunc(RefCell::new(FunSignature {
-                        args: vec![FuncArg { name: "_".into(), ty: float, default_value: None }],
-                        ret: int64,
-                        vars: Default::default(),
-                    }))),
-                    var_id: Default::default(),
-                    instance_to_symbol: Default::default(),
-                    instance_to_stmt: Default::default(),
-                    resolver: None,
-                    codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, _, args| {
-                        let arg = args[0].1;
-                        let round_intrinsic =
-                            ctx.module.get_function("llvm.round.f64").unwrap_or_else(|| {
-                                let float = ctx.ctx.f64_type();
-                                let fn_type = float.fn_type(&[float.into()], false);
-                                ctx.module.add_function("llvm.round.f64", fn_type, None)
-                            });
-                        let val = ctx
-                            .builder
-                            .build_call(round_intrinsic, &[arg], "round")
-                            .try_as_basic_value()
-                            .left()
-                            .unwrap();
-                        Some(
-                            ctx.builder
-                                .build_float_to_signed_int(
-                                    val.into_float_value(),
-                                    ctx.ctx.i64_type(),
-                                    "fptosi",
-                                )
-                                .into(),
-                        )
-                    })))),
-                })),
-                Arc::new(RwLock::new(TopLevelDef::Function {
-                    name: "range".into(),
-                    simple_name: "range".into(),
-                    signature: primitives.1.add_ty(TypeEnum::TFunc(RefCell::new(FunSignature {
-                        args: vec![
-                            FuncArg { name: "start".into(), ty: int32, default_value: None },
-                            FuncArg {
-                                name: "stop".into(),
-                                ty: int32,
-                                // placeholder
-                                default_value: Some(SymbolValue::I32(0)),
-                            },
-                            FuncArg {
-                                name: "step".into(),
-                                ty: int32,
-                                default_value: Some(SymbolValue::I32(1)),
-                            },
-                        ],
-                        ret: range,
-                        vars: Default::default(),
-                    }))),
-                    var_id: Default::default(),
-                    instance_to_symbol: Default::default(),
-                    instance_to_stmt: Default::default(),
-                    resolver: None,
-                    codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, _, args| {
-                        let mut start = None;
-                        let mut stop = None;
-                        let mut step = None;
-                        let int32 = ctx.ctx.i32_type();
-                        let zero = int32.const_zero();
-                        for (i, arg) in args.iter().enumerate() {
-                            if arg.0 == Some("start".into()) {
-                                start = Some(arg.1);
-                            } else if arg.0 == Some("stop".into()) {
-                                stop = Some(arg.1);
-                            } else if arg.0 == Some("step".into()) {
-                                step = Some(arg.1);
-                            } else if i == 0 {
-                                start = Some(arg.1);
-                            } else if i == 1 {
-                                stop = Some(arg.1);
-                            } else if i == 2 {
-                                step = Some(arg.1);
-                            }
-                        }
-                        // TODO: error when step == 0
-                        let step = step.unwrap_or_else(|| int32.const_int(1, false).into());
-                        let stop = stop.unwrap_or_else(|| {
-                            let v = start.unwrap();
-                            start = None;
-                            v
-                        });
-                        let start = start.unwrap_or_else(|| int32.const_zero().into());
-                        let ty = int32.array_type(3);
-                        let ptr = ctx.builder.build_alloca(ty, "range");
-                        unsafe {
-                            let a = ctx.builder.build_in_bounds_gep(ptr, &[zero, zero], "start");
-                            let b = ctx.builder.build_in_bounds_gep(
-                                ptr,
-                                &[zero, int32.const_int(1, false)],
-                                "end",
-                            );
-                            let c = ctx.builder.build_in_bounds_gep(
-                                ptr,
-                                &[zero, int32.const_int(2, false)],
-                                "step",
-                            );
-                            ctx.builder.build_store(a, start);
-                            ctx.builder.build_store(b, stop);
-                            ctx.builder.build_store(c, step);
-                        }
-                        Some(ptr.into())
-                    })))),
-                })),
-                Arc::new(RwLock::new(TopLevelDef::Function {
-                    name: "str".into(),
-                    simple_name: "str".into(),
-                    signature: primitives.1.add_ty(TypeEnum::TFunc(RefCell::new(FunSignature {
-                        args: vec![FuncArg { name: "_".into(), ty: string, default_value: None }],
-                        ret: string,
-                        vars: Default::default(),
-                    }))),
-                    var_id: Default::default(),
-                    instance_to_symbol: Default::default(),
-                    instance_to_stmt: Default::default(),
-                    resolver: None,
-                    codegen_callback: Some(Arc::new(GenCall::new(Box::new(|_, _, _, args| {
-                        Some(args[0].1)
-                    })))),
-                })),
-                Arc::new(RwLock::new(TopLevelDef::Function {
-                    name: "bool".into(),
-                    simple_name: "bool".into(),
-                    signature: primitives.1.add_ty(TypeEnum::TFunc(RefCell::new(FunSignature {
-                        args: vec![FuncArg { name: "_".into(), ty: num_ty.0, default_value: None }],
-                        ret: primitives.0.bool,
-                        vars: var_map,
-                    }))),
-                    var_id: Default::default(),
-                    instance_to_symbol: Default::default(),
-                    instance_to_stmt: Default::default(),
-                    resolver: None,
-                    codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                        |ctx, _, fun, args| {
-                            let int32 = ctx.primitives.int32;
-                            let int64 = ctx.primitives.int64;
-                            let float = ctx.primitives.float;
-                            let boolean = ctx.primitives.bool;
-                            let arg_ty = fun.0.args[0].ty;
-                            let arg = args[0].1;
-                            if ctx.unifier.unioned(arg_ty, boolean) {
-                                Some(arg)
-                            } else if ctx.unifier.unioned(arg_ty, int32) || ctx.unifier.unioned(arg_ty, int64) {
-                                Some(ctx.builder.build_int_compare(
-                                    IntPredicate::NE,
-                                    ctx.ctx.i64_type().const_zero(),
-                                    arg.into_int_value(),
-                                    "bool",
-                                ).into())
-                            } else if ctx.unifier.unioned(arg_ty, float) {
-                                let val = ctx.builder.
-                                    build_float_compare(
-                                        // UEQ as bool(nan) is True
-                                        FloatPredicate::UEQ,
-                                        arg.into_float_value(),
-                                        ctx.ctx.f64_type().const_zero(),
-                                        "bool"
-                                    ).into();
-                                Some(val)
-                            } else {
-                                unreachable!()
-                            }
-                        },
-                    )))),
-                })),
-            ];
-            let ast_list: Vec<Option<ast::Stmt<()>>> =
-                (0..top_level_def_list.len()).map(|_| None).collect();
-            izip!(top_level_def_list, ast_list).collect_vec()
-        };
+        let (mut definition_ast_list, builtin_name_list) = builtins::get_builtins(&mut primitives);
         let primitives_ty = primitives.0;
         let mut unifier = primitives.1;
         let mut keyword_list: HashSet<StrRef> = HashSet::from_iter(vec![
@@ -464,19 +79,17 @@ impl TopLevelComposer {
         let defined_names: HashSet<String> = Default::default();
         let method_class: HashMap<DefinitionId, DefinitionId> = Default::default();
 
-        let mut built_in_id: HashMap<StrRef, DefinitionId> = Default::default();
-        let mut built_in_ty: HashMap<StrRef, Type> = Default::default();
+        let mut builtin_id: HashMap<StrRef, DefinitionId> = Default::default();
+        let mut builtin_ty: HashMap<StrRef, Type> = Default::default();
 
-        for (id, name) in
-            ["int32", "int64", "float", "round", "round64", "range", "str", "bool"].iter().rev().enumerate()
-        {
+        for (id, name) in builtin_name_list.iter().rev().enumerate() {
             let name = (**name).into();
             let id = definition_ast_list.len() - id - 1;
             let def = definition_ast_list[id].0.read();
             if let TopLevelDef::Function { simple_name, signature, .. } = &*def {
                 assert!(name == *simple_name);
-                built_in_ty.insert(name, *signature);
-                built_in_id.insert(name, DefinitionId(id));
+                builtin_ty.insert(name, *signature);
+                builtin_id.insert(name, DefinitionId(id));
             } else {
                 unreachable!()
             }
@@ -484,8 +97,8 @@ impl TopLevelComposer {
 
         for (name, sig, codegen_callback) in builtins {
             let fun_sig = unifier.add_ty(TypeEnum::TFunc(RefCell::new(sig)));
-            built_in_ty.insert(name, fun_sig);
-            built_in_id.insert(name, DefinitionId(definition_ast_list.len()));
+            builtin_ty.insert(name, fun_sig);
+            builtin_id.insert(name, DefinitionId(definition_ast_list.len()));
             definition_ast_list.push((
                 Arc::new(RwLock::new(TopLevelDef::Function {
                     name: name.into(),
@@ -504,16 +117,17 @@ impl TopLevelComposer {
 
         (
             TopLevelComposer {
-                built_in_num: definition_ast_list.len(),
+                builtin_num: definition_ast_list.len(),
                 definition_ast_list,
                 primitives_ty,
                 unifier,
                 keyword_list,
                 defined_names,
                 method_class,
+                core_config,
             },
-            built_in_id,
-            built_in_ty,
+            builtin_id,
+            builtin_ty,
         )
     }
 
@@ -532,7 +146,7 @@ impl TopLevelComposer {
         }
     }
 
-    fn extract_def_list(&self) -> Vec<Arc<RwLock<TopLevelDef>>> {
+    pub fn extract_def_list(&self) -> Vec<Arc<RwLock<TopLevelDef>>> {
         self.definition_ast_list.iter().map(|(def, ..)| def.clone()).collect_vec()
     }
 
@@ -752,7 +366,7 @@ impl TopLevelComposer {
         let primitives_store = &self.primitives_ty;
 
         // skip 5 to skip analyzing the primitives
-        for (class_def, class_ast) in def_list.iter().skip(self.built_in_num) {
+        for (class_def, class_ast) in def_list.iter().skip(self.builtin_num) {
             // only deal with class def here
             let mut class_def = class_def.write();
             let (class_bases_ast, class_def_type_vars, class_resolver) = {
@@ -864,7 +478,7 @@ impl TopLevelComposer {
 
         // first, only push direct parent into the list
         // skip 5 to skip analyzing the primitives
-        for (class_def, class_ast) in self.definition_ast_list.iter_mut().skip(self.built_in_num) {
+        for (class_def, class_ast) in self.definition_ast_list.iter_mut().skip(self.builtin_num) {
             let mut class_def = class_def.write();
             let (class_def_id, class_bases, class_ancestors, class_resolver, class_type_vars) = {
                 if let TopLevelDef::Class { ancestors, resolver, object_id, type_vars, .. } =
@@ -933,7 +547,7 @@ impl TopLevelComposer {
         // second, get all ancestors
         let mut ancestors_store: HashMap<DefinitionId, Vec<TypeAnnotation>> = Default::default();
         // skip 5 to skip analyzing the primitives
-        for (class_def, _) in self.definition_ast_list.iter().skip(self.built_in_num) {
+        for (class_def, _) in self.definition_ast_list.iter().skip(self.builtin_num) {
             let class_def = class_def.read();
             let (class_ancestors, class_id) = {
                 if let TopLevelDef::Class { ancestors, object_id, .. } = class_def.deref() {
@@ -955,7 +569,7 @@ impl TopLevelComposer {
 
         // insert the ancestors to the def list
         // skip 5 to skip analyzing the primitives
-        for (class_def, _) in self.definition_ast_list.iter_mut().skip(self.built_in_num) {
+        for (class_def, _) in self.definition_ast_list.iter_mut().skip(self.builtin_num) {
             let mut class_def = class_def.write();
             let (class_ancestors, class_id, class_type_vars) = {
                 if let TopLevelDef::Class { ancestors, object_id, type_vars, .. } =
@@ -988,7 +602,7 @@ impl TopLevelComposer {
         let mut type_var_to_concrete_def: HashMap<Type, TypeAnnotation> = HashMap::new();
 
         // skip 5 to skip analyzing the primitives
-        for (class_def, class_ast) in def_ast_list.iter().skip(self.built_in_num) {
+        for (class_def, class_ast) in def_ast_list.iter().skip(self.builtin_num) {
             if matches!(&*class_def.read(), TopLevelDef::Class { .. }) {
                 Self::analyze_single_class_methods_fields(
                     class_def.clone(),
@@ -997,7 +611,7 @@ impl TopLevelComposer {
                     unifier,
                     primitives,
                     &mut type_var_to_concrete_def,
-                    &self.keyword_list,
+                    (&self.keyword_list, &self.core_config)
                 )?
             }
         }
@@ -1009,7 +623,7 @@ impl TopLevelComposer {
         loop {
             let mut finished = true;
 
-            for (class_def, _) in def_ast_list.iter().skip(self.built_in_num) {
+            for (class_def, _) in def_ast_list.iter().skip(self.builtin_num) {
                 let mut class_def = class_def.write();
                 if let TopLevelDef::Class { ancestors, .. } = class_def.deref() {
                     // if the length of the ancestor is equal to the current depth
@@ -1068,7 +682,7 @@ impl TopLevelComposer {
         let primitives_store = &self.primitives_ty;
 
         // skip 5 to skip analyzing the primitives
-        for (function_def, function_ast) in def_list.iter().skip(self.built_in_num) {
+        for (function_def, function_ast) in def_list.iter().skip(self.builtin_num) {
             let mut function_def = function_def.write();
             let function_def = function_def.deref_mut();
             let function_ast = if let Some(x) = function_ast.as_ref() {
@@ -1270,8 +884,9 @@ impl TopLevelComposer {
         unifier: &mut Unifier,
         primitives: &PrimitiveStore,
         type_var_to_concrete_def: &mut HashMap<Type, TypeAnnotation>,
-        keyword_list: &HashSet<StrRef>,
+        core_info: (&HashSet<StrRef>, &ComposerConfig),
     ) -> Result<(), String> {
+        let (keyword_list, core_config) = core_info;
         let mut class_def = class_def.write();
         let (
             class_id,
@@ -1503,20 +1118,17 @@ impl TopLevelComposer {
                             let dummy_field_type = unifier.get_fresh_var().0;
 
                             // handle Kernel[T], KernelInvariant[T]
-                            let (annotation, mutable) = {
-                                let mut result = None;
-                                if let ast::ExprKind::Subscript { value, slice, .. } = &annotation.as_ref().node {
-                                    if let ast::ExprKind::Name { id, .. } = &value.node {
-                                        result = if id == &"Kernel".into() {
-                                            Some((slice, true))
-                                        } else if id == &"KernelInvariant".into() {
-                                            Some((slice, false))
-                                        } else {
-                                            None
-                                        }
-                                    }
-                                }
-                                result.unwrap_or((annotation, true))
+                            let (annotation, mutable) = match &annotation.node {
+                                ast::ExprKind::Subscript { value, slice, .. } if matches!(
+                                    &value.node,
+                                    ast::ExprKind::Name { id, .. } if id == &core_config.kernel_invariant_ann.into()
+                                ) => (slice, false),
+                                ast::ExprKind::Subscript { value, slice, .. } if matches!(
+                                    &value.node,
+                                    ast::ExprKind::Name { id, .. } if core_config.kernel_ann.map_or(false, |c| id == &c.into())
+                                ) => (slice, true),
+                                _ if core_config.kernel_ann.is_none() => (annotation, true),
+                                _ => continue // ignore fields annotated otherwise
                             };
                             class_fields_def.push((*attr, dummy_field_type, mutable));
 
@@ -1695,7 +1307,7 @@ impl TopLevelComposer {
     fn analyze_function_instance(&mut self) -> Result<(), String> {
         // first get the class contructor type correct for the following type check in function body
         // also do class field instantiation check
-        for (def, ast) in self.definition_ast_list.iter().skip(self.built_in_num) {
+        for (def, ast) in self.definition_ast_list.iter().skip(self.builtin_num) {
             let class_def = def.read();
             if let TopLevelDef::Class {
                 constructor,
@@ -1767,7 +1379,7 @@ impl TopLevelComposer {
 
         let ctx = Arc::new(self.make_top_level_context());
         // type inference inside function body
-        for (id, (def, ast)) in self.definition_ast_list.iter().enumerate().skip(self.built_in_num)
+        for (id, (def, ast)) in self.definition_ast_list.iter().enumerate().skip(self.builtin_num)
         {
             let mut function_def = def.write();
             if let TopLevelDef::Function {

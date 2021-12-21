@@ -3,18 +3,43 @@ from functools import wraps
 from types import SimpleNamespace
 from numpy import int32, int64
 from typing import Generic, TypeVar
+from math import floor, ceil
 
 import nac3artiq
 
-__all__ = ["KernelInvariant", "extern", "kernel", "portable", "nac3",
-           "ms", "us", "ns",
-           "print_int32", "print_int64",
-           "Core", "TTLOut", "parallel", "sequential"]
+
+__all__ = [
+    "Kernel", "KernelInvariant", "virtual",
+    "round64", "floor64", "ceil64",
+    "extern", "kernel", "portable", "nac3",
+    "ms", "us", "ns",
+    "print_int32", "print_int64",
+    "Core", "TTLOut",
+    "parallel", "sequential"
+]
 
 
 T = TypeVar('T')
+
+class Kernel(Generic[T]):
+    pass
+
 class KernelInvariant(Generic[T]):
     pass
+
+# The virtual class must exist before nac3artiq.NAC3 is created.
+class virtual(Generic[T]):
+    pass
+
+
+def round64(x):
+    return round(x)
+
+def floor64(x):
+    return floor(x)
+
+def ceil64(x):
+    return ceil(x)
 
 
 import device_db

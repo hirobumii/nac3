@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 
 use crate::typecheck::typedef::TypeVarMeta;
-
 use super::*;
 
 #[derive(Clone, Debug)]
@@ -49,64 +48,131 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
     primitives: &PrimitiveStore,
     expr: &ast::Expr<T>,
     // the key stores the type_var of this topleveldef::class, we only need this field here
-    mut locked: HashMap<DefinitionId, Vec<Type>>,
+    locked: HashMap<DefinitionId, Vec<Type>>,
 ) -> Result<TypeAnnotation, String> {
-    match &expr.node {
-        ast::ExprKind::Name { id, .. } => {
-            if id == &"int32".into() {
-                Ok(TypeAnnotation::Primitive(primitives.int32))
-            } else if id == &"int64".into() {
-                Ok(TypeAnnotation::Primitive(primitives.int64))
-            } else if id == &"float".into() {
-                Ok(TypeAnnotation::Primitive(primitives.float))
-            } else if id == &"bool".into() {
-                Ok(TypeAnnotation::Primitive(primitives.bool))
-            } else if id == &"None".into() {
-                Ok(TypeAnnotation::Primitive(primitives.none))
-            } else if id == &"str".into() {
-                Ok(TypeAnnotation::Primitive(primitives.str))
-            } else if let Some(obj_id) = resolver.get_identifier_def(*id) {
-                let type_vars = {
-                    let def_read = top_level_defs[obj_id.0].try_read();
-                    if let Some(def_read) = def_read {
-                        if let TopLevelDef::Class { type_vars, .. } = &*def_read {
-                            type_vars.clone()
-                        } else {
-                            return Err(format!(
-                                "function cannot be used as a type (at {})",
-                                expr.location
-                            ));
-                        }
+    let name_handle = |id: &StrRef, unifier: &mut Unifier, locked: HashMap<DefinitionId, Vec<Type>>| {
+        if id == &"int32".into() {
+            Ok(TypeAnnotation::Primitive(primitives.int32))
+        } else if id == &"int64".into() {
+            Ok(TypeAnnotation::Primitive(primitives.int64))
+        } else if id == &"float".into() {
+            Ok(TypeAnnotation::Primitive(primitives.float))
+        } else if id == &"bool".into() {
+            Ok(TypeAnnotation::Primitive(primitives.bool))
+        } else if id == &"None".into() {
+            Ok(TypeAnnotation::Primitive(primitives.none))
+        } else if id == &"str".into() {
+            Ok(TypeAnnotation::Primitive(primitives.str))
+        } else if let Some(obj_id) = resolver.get_identifier_def(*id) {
+            let type_vars = {
+                let def_read = top_level_defs[obj_id.0].try_read();
+                if let Some(def_read) = def_read {
+                    if let TopLevelDef::Class { type_vars, .. } = &*def_read {
+                        type_vars.clone()
                     } else {
-                        locked.get(&obj_id).unwrap().clone()
+                        return Err(format!(
+                            "function cannot be used as a type (at {})",
+                            expr.location
+                        ));
                     }
-                };
-                // check param number here
-                if !type_vars.is_empty() {
-                    return Err(format!(
-                        "expect {} type variable parameter but got 0 (at {})",
-                        type_vars.len(),
-                        expr.location,
-                    ));
-                }
-                Ok(TypeAnnotation::CustomClass { id: obj_id, params: vec![] })
-            } else if let Some(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id) {
-                if let TypeEnum::TVar { .. } = unifier.get_ty(ty).as_ref() {
-                    Ok(TypeAnnotation::TypeVar(ty))
                 } else {
-                    Err(format!(
-                        "not a type variable identifier at {}",
-                        expr.location
-                    ))
+                    locked.get(&obj_id).unwrap().clone()
                 }
+            };
+            // check param number here
+            if !type_vars.is_empty() {
+                return Err(format!(
+                    "expect {} type variable parameter but got 0 (at {})",
+                    type_vars.len(),
+                    expr.location,
+                ));
+            }
+            Ok(TypeAnnotation::CustomClass { id: obj_id, params: vec![] })
+        } else if let Some(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id) {
+            if let TypeEnum::TVar { .. } = unifier.get_ty(ty).as_ref() {
+                Ok(TypeAnnotation::TypeVar(ty))
             } else {
                 Err(format!(
-                    "name cannot be parsed as a type annotation at {}",
+                    "not a type variable identifier at {}",
                     expr.location
                 ))
             }
+        } else {
+            Err(format!("name cannot be parsed as a type annotation at {}", expr.location))
         }
+    };
 
+    let class_name_handle =
+        |id: &StrRef, slice: &ast::Expr<T>, unifier: &mut Unifier, mut locked: HashMap<DefinitionId, Vec<Type>>| {
+        if vec!["virtual".into(), "Generic".into(), "list".into(), "tuple".into()]
+                .contains(id)
+            {
+                return Err(format!("keywords cannot be class name (at {})", expr.location));
+            }
+        let obj_id = resolver
+            .get_identifier_def(*id)
+            .ok_or_else(|| "unknown class name".to_string())?;
+        let type_vars = {
+            let def_read = top_level_defs[obj_id.0].try_read();
+            if let Some(def_read) = def_read {
+                if let TopLevelDef::Class { type_vars, .. } = &*def_read {
+                    type_vars.clone()
+                } else {
+                    unreachable!("must be class here")
+                }
+            } else {
+                locked.get(&obj_id).unwrap().clone()
+            }
+        };
+        // we do not check whether the application of type variables are compatible here
+        let param_type_infos = {
+            let params_ast = if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
+                elts.iter().collect_vec()
+            } else {
+                vec![slice]
+            };
+            if type_vars.len() != params_ast.len() {
+                return Err(format!(
+                    "expect {} type parameters but got {} (at {})",
+                    type_vars.len(),
+                    params_ast.len(),
+                    params_ast[0].location,
+                ));
+            }
+            let result = params_ast
+                .iter()
+                .map(|x| {
+                    parse_ast_to_type_annotation_kinds(
+                        resolver,
+                        top_level_defs,
+                        unifier,
+                        primitives,
+                        x,
+                        {
+                            locked.insert(obj_id, type_vars.clone());
+                            locked.clone()
+                        },
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            // make sure the result do not contain any type vars
+            let no_type_var = result
+                .iter()
+                .all(|x| get_type_var_contained_in_type_annotation(x).is_empty());
+            if no_type_var {
+                result
+            } else {
+                return Err(format!(
+                    "application of type vars to generic class \
+                    is not currently supported (at {})",
+                    params_ast[0].location
+                ));
+            }
+        };
+        Ok(TypeAnnotation::CustomClass { id: obj_id, params: param_type_infos })
+    };
+    match &expr.node {
+        ast::ExprKind::Name { id, .. } => name_handle(id, unifier, locked),
         // virtual
         ast::ExprKind::Subscript { value, slice, .. }
             if {
@@ -176,74 +242,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
         // custom class
         ast::ExprKind::Subscript { value, slice, .. } => {
             if let ast::ExprKind::Name { id, .. } = &value.node {
-                if vec!["virtual".into(), "Generic".into(), "list".into(), "tuple".into()]
-                    .contains(id)
-                {
-                    return Err(format!("keywords cannot be class name (at {})", value.location));
-                }
-                let obj_id = resolver
-                    .get_identifier_def(*id)
-                    .ok_or_else(|| "unknown class name".to_string())?;
-                let type_vars = {
-                    let def_read = top_level_defs[obj_id.0].try_read();
-                    if let Some(def_read) = def_read {
-                        if let TopLevelDef::Class { type_vars, .. } = &*def_read {
-                            type_vars.clone()
-                        } else {
-                            unreachable!("must be class here")
-                        }
-                    } else {
-                        locked.get(&obj_id).unwrap().clone()
-                    }
-                };
-                // we do not check whether the application of type variables are compatible here
-                let param_type_infos = {
-                    let params_ast = if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
-                        elts.iter().collect_vec()
-                    } else {
-                        vec![slice.as_ref()]
-                    };
-                    if type_vars.len() != params_ast.len() {
-                        return Err(format!(
-                            "expect {} type parameters but got {} (at {})",
-                            type_vars.len(),
-                            params_ast.len(),
-                            params_ast[0].location
-                        ));
-                    }
-                    let result = params_ast
-                        .iter()
-                        .map(|x| {
-                            parse_ast_to_type_annotation_kinds(
-                                resolver,
-                                top_level_defs,
-                                unifier,
-                                primitives,
-                                x,
-                                {
-                                    locked.insert(obj_id, type_vars.clone());
-                                    locked.clone()
-                                },
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-
-                    // make sure the result do not contain any type vars
-                    let no_type_var = result
-                        .iter()
-                        .all(|x| get_type_var_contained_in_type_annotation(x).is_empty());
-                    if no_type_var {
-                        result
-                    } else {
-                        return Err(format!(
-                            "application of type vars to generic class \
-                            is not currently supported (at {})",
-                            params_ast[0].location
-                        ));
-                    }
-                };
-
-                Ok(TypeAnnotation::CustomClass { id: obj_id, params: param_type_infos })
+                class_name_handle(id, slice, unifier, locked)
             } else {
                 Err(format!("unsupported expression type for class name at {}", value.location))
             }
@@ -386,13 +385,7 @@ pub fn get_type_from_type_annotation_kinds(
 /// But note that here we do not make a duplication of `T`, `V`, we direclty
 /// use them as they are in the TopLevelDef::Class since those in the
 /// TopLevelDef::Class.type_vars will be substitute later when seeing applications/instantiations
-/// the Type of their fields and methods will also be subst when application/instantiation \
-/// \
-/// Note this implicit self type is different with seeing `A[T, V]` explicitly outside
-/// the class def ast body, where it is a new instantiation of the generic class `A`,
-/// but equivalent to seeing `A[T, V]` inside the class def body ast, where although we
-/// create copies of `T` and `V`, we will find them out as occured type vars in the analyze_class()
-/// and unify them with the class generic `T`, `V`
+/// the Type of their fields and methods will also be subst when application/instantiation
 pub fn make_self_type_annotation(type_vars: &[Type], object_id: DefinitionId) -> TypeAnnotation {
     TypeAnnotation::CustomClass {
         id: object_id,
