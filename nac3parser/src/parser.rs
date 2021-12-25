@@ -31,7 +31,6 @@ pub fn parse_program(source: &str, file: FileName) -> Result<ast::Suite, ParseEr
 ///
 /// # Example
 /// ```
-/// extern crate num_bigint;
 /// use nac3parser::{parser, ast};
 /// let expr = parser::parse_expression("1 + 2").unwrap();
 ///
