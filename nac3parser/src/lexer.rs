@@ -3,7 +3,7 @@
 //! This means source code is translated into separate tokens.
 
 pub use super::token::Tok;
-use crate::ast::Location;
+use crate::ast::{Location, FileName};
 use crate::error::{LexicalError, LexicalErrorType};
 use num_bigint::BigInt;
 use num_traits::identities::Zero;
@@ -113,8 +113,8 @@ pub type Spanned = (Location, Tok, Location);
 pub type LexResult = Result<Spanned, LexicalError>;
 
 #[inline]
-pub fn make_tokenizer(source: &str) -> impl Iterator<Item = LexResult> + '_ {
-    make_tokenizer_located(source, Location::new(0, 0))
+pub fn make_tokenizer(source: &str, file: FileName) -> impl Iterator<Item = LexResult> + '_ {
+    make_tokenizer_located(source, Location::new(0, 0, file))
 }
 
 pub fn make_tokenizer_located(
@@ -1320,6 +1320,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::default;
+
     use super::{make_tokenizer, NewlineHandler, Tok};
     use num_bigint::BigInt;
 
@@ -1328,7 +1330,7 @@ mod tests {
     const UNIX_EOL: &str = "\n";
 
     pub fn lex_source(source: &str) -> Vec<Tok> {
-        let lexer = make_tokenizer(source);
+        let lexer = make_tokenizer(source, Default::default());
         lexer.map(|x| x.unwrap().1).collect()
     }
 

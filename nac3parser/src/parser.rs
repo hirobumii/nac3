@@ -7,7 +7,7 @@
 
 use std::iter;
 
-use crate::ast;
+use crate::ast::{self, FileName};
 use crate::error::ParseError;
 use crate::lexer;
 pub use crate::mode::Mode;
@@ -20,8 +20,8 @@ use crate::python;
  */
 
 /// Parse a full python program, containing usually multiple lines.
-pub fn parse_program(source: &str) -> Result<ast::Suite, ParseError> {
-    parse(source, Mode::Module).map(|top| match top {
+pub fn parse_program(source: &str, file: FileName) -> Result<ast::Suite, ParseError> {
+    parse(source, Mode::Module, file).map(|top| match top {
         ast::Mod::Module { body, .. } => body,
         _ => unreachable!(),
     })
@@ -64,15 +64,15 @@ pub fn parse_program(source: &str) -> Result<ast::Suite, ParseError> {
 ///
 /// ```
 pub fn parse_expression(source: &str) -> Result<ast::Expr, ParseError> {
-    parse(source, Mode::Expression).map(|top| match top {
+    parse(source, Mode::Expression, Default::default()).map(|top| match top {
         ast::Mod::Expression { body } => *body,
         _ => unreachable!(),
     })
 }
 
 // Parse a given source code
-pub fn parse(source: &str, mode: Mode) -> Result<ast::Mod, ParseError> {
-    let lxr = lexer::make_tokenizer(source);
+pub fn parse(source: &str, mode: Mode, file: FileName) -> Result<ast::Mod, ParseError> {
+    let lxr = lexer::make_tokenizer(source, file);
     let marker_token = (Default::default(), mode.to_marker(), Default::default());
     let tokenizer = iter::once(Ok(marker_token)).chain(lxr);
 
@@ -87,42 +87,42 @@ mod tests {
 
     #[test]
     fn test_parse_empty() {
-        let parse_ast = parse_program("").unwrap();
+        let parse_ast = parse_program("", Default::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_print_hello() {
         let source = String::from("print('Hello world')");
-        let parse_ast = parse_program(&source).unwrap();
+        let parse_ast = parse_program(&source, Default::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_print_2() {
         let source = String::from("print('Hello world', 2)");
-        let parse_ast = parse_program(&source).unwrap();
+        let parse_ast = parse_program(&source, Default::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_kwargs() {
         let source = String::from("my_func('positional', keyword=2)");
-        let parse_ast = parse_program(&source).unwrap();
+        let parse_ast = parse_program(&source, Default::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_if_elif_else() {
         let source = String::from("if 1: 10\nelif 2: 20\nelse: 30");
-        let parse_ast = parse_program(&source).unwrap();
+        let parse_ast = parse_program(&source, Default::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_lambda() {
         let source = "lambda x, y: x * y"; // lambda(x, y): x * y";
-        let parse_ast = parse_program(&source).unwrap();
+        let parse_ast = parse_program(&source, Default::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
@@ -130,7 +130,7 @@ mod tests {
     fn test_parse_tuples() {
         let source = "a, b = 4, 5";
 
-        insta::assert_debug_snapshot!(parse_program(&source).unwrap());
+        insta::assert_debug_snapshot!(parse_program(&source, Default::default()).unwrap());
     }
 
     #[test]
@@ -141,7 +141,7 @@ class Foo(A, B):
   pass
  def method_with_default(self, arg='default'):
   pass";
-        insta::assert_debug_snapshot!(parse_program(&source).unwrap());
+        insta::assert_debug_snapshot!(parse_program(&source, Default::default()).unwrap());
     }
 
     #[test]
@@ -184,7 +184,7 @@ while i < 2: # nac3: 4
     # nac3: if1
     if 1: # nac3: if2
         3";
-        insta::assert_debug_snapshot!(parse_program(&source).unwrap());
+        insta::assert_debug_snapshot!(parse_program(&source, Default::default()).unwrap());
     }
     
     #[test]
@@ -197,7 +197,7 @@ while test: # nac3: while3
     # nac3: simple assign0 
     a = 3 # nac3: simple assign1
 ";
-        insta::assert_debug_snapshot!(parse_program(&source).unwrap());
+        insta::assert_debug_snapshot!(parse_program(&source, Default::default()).unwrap());
     }
 
     #[test]
@@ -216,7 +216,7 @@ if a: # nac3: small2
 for i in a: # nac3: for1
     pass
 ";
-        insta::assert_debug_snapshot!(parse_program(&source).unwrap());
+        insta::assert_debug_snapshot!(parse_program(&source, Default::default()).unwrap());
     }
 
     #[test]
@@ -225,6 +225,6 @@ for i in a: # nac3: for1
 if a: # nac3: something
 a = 3
 ";
-        assert!(parse_program(&source).is_err());
+        assert!(parse_program(&source, Default::default()).is_err());
     }
 }
