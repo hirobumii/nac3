@@ -98,7 +98,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 ))
             }
         } else {
-            Err(format!("name cannot be parsed as a type annotation at {}", expr.location))
+            Err(format!("unknown type annotation at {}", expr.location))
         }
     };
 
