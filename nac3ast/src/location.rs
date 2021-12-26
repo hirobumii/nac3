@@ -6,7 +6,7 @@ use std::fmt;
 pub struct FileName(StrRef);
 impl Default for FileName {
     fn default() -> Self {
-        FileName("unknown file".into())
+        FileName("unknown".into())
     }
 }
 

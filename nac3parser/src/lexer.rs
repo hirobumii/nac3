@@ -1332,7 +1332,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::default;
 
     use super::{make_tokenizer, NewlineHandler, Tok};
 

@@ -37,11 +37,11 @@ pub fn parse_program(source: &str, file: FileName) -> Result<ast::Suite, ParseEr
 /// assert_eq!(
 ///     expr,
 ///     ast::Expr {
-///         location: ast::Location::new(1, 3),
+///         location: ast::Location::new(1, 3, Default::default()),
 ///         custom: (),
 ///         node: ast::ExprKind::BinOp {
 ///             left: Box::new(ast::Expr {
-///                 location: ast::Location::new(1, 1),
+///                 location: ast::Location::new(1, 1, Default::default()),
 ///                 custom: (),
 ///                 node: ast::ExprKind::Constant {
 ///                     value: ast::Constant::Int(1.into()),
@@ -50,7 +50,7 @@ pub fn parse_program(source: &str, file: FileName) -> Result<ast::Suite, ParseEr
 ///             }),
 ///             op: ast::Operator::Add,
 ///             right: Box::new(ast::Expr {
-///                 location: ast::Location::new(1, 5),
+///                 location: ast::Location::new(1, 5, Default::default()),
 ///                 custom: (),
 ///                 node: ast::ExprKind::Constant {
 ///                     value: ast::Constant::Int(2.into()),
