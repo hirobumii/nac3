@@ -91,9 +91,11 @@ impl Nac3 {
     ) -> PyResult<()> {
         let (module_name, source_file) = Python::with_gil(|py| -> PyResult<(String, String)> {
             let module: &PyAny = module.extract(py)?;
+            let os_mod = PyModule::import(py, "os")?;
+            let path_fun = os_mod.getattr("path")?.getattr("abspath")?;
             Ok((
                 module.getattr("__name__")?.extract()?,
-                module.getattr("__file__")?.extract()?,
+                path_fun.call1((module.getattr("__file__")?,))?.extract()?
             ))
         })?;
 
