@@ -479,7 +479,7 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec!["duplicate definition of class `A` ( at unknown:1:1)"];
+    vec!["duplicate definition of class `A` (at unknown:1:1)"];
     "class same name"
 )]
 fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
