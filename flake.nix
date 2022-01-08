@@ -54,7 +54,7 @@
             name = "nac3artiq";
             src = self;
             cargoLock = { lockFile = ./Cargo.lock; };
-            nativeBuildInputs = [ pkgs.python3 llvm-nac3 ];
+            nativeBuildInputs = [ pkgs.python3 llvm-nac3 pkgs.llvmPackages_13.clang-unwrapped ];
             buildInputs = [ pkgs.python3 llvm-nac3 ];
             cargoBuildFlags = [ "--package" "nac3artiq" ];
             cargoTestFlags = [ "--package" "nac3ast" "--package" "nac3parser" "--package" "nac3core" "--package" "nac3artiq" ];
@@ -81,7 +81,7 @@
             name = "nac3artiq-instrumented";
             src = self;
             cargoLock = { lockFile = ./Cargo.lock; };
-            nativeBuildInputs = [ pkgs.python3 llvm-nac3-instrumented ];
+            nativeBuildInputs = [ pkgs.python3 llvm-nac3-instrumented pkgs.llvmPackages_13.clang-unwrapped ];
             buildInputs = [ pkgs.python3 llvm-nac3-instrumented ];
             cargoBuildFlags = [ "--package" "nac3artiq" "--features" "init-llvm-profile" ];
             doCheck = false;
@@ -119,7 +119,7 @@
             name = "nac3artiq-pgo";
             src = self;
             cargoLock = { lockFile = ./Cargo.lock; };
-            nativeBuildInputs = [ pkgs.python3 llvm-nac3-pgo ];
+            nativeBuildInputs = [ pkgs.python3 llvm-nac3-pgo pkgs.llvmPackages_13.clang-unwrapped ];
             buildInputs = [ pkgs.python3 llvm-nac3-pgo ];
             cargoBuildFlags = [ "--package" "nac3artiq" ];
             cargoTestFlags = [ "--package" "nac3ast" "--package" "nac3parser" "--package" "nac3core" "--package" "nac3artiq" ];
@@ -140,7 +140,7 @@
             name = "nac3artiq";
             src = self;
             cargoLock = { lockFile = ./Cargo.lock; };
-            nativeBuildInputs = [ pkgs.zip ];
+            nativeBuildInputs = [ pkgs.zip pkgs.llvmPackages_13.clang-unwrapped ];
             buildInputs = [ pkgs-mingw.zlib ];
             configurePhase =
               ''
@@ -185,6 +185,7 @@
           clippy
           (packages.x86_64-linux.python3-mimalloc.withPackages(ps: [ ps.numpy ]))
         ];
+        UNWRAPPED_CLANG = "${pkgs.llvmPackages_13.clang-unwrapped}/bin/clang";
       };
 
       hydraJobs = {

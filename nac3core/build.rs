@@ -10,6 +10,7 @@ fn main() {
     const FILE: &str = "src/codegen/irrt/irrt.c";
     println!("cargo:rerun-if-changed={}", FILE);
     const FLAG: &[&str] = &[
+        "--target=wasm32",
         FILE,
         "-O3",
         "-emit-llvm",
@@ -20,7 +21,7 @@ fn main() {
         "-o",
         "-",
     ];
-    let output = Command::new("clang")
+    let output = Command::new(env::var("UNWRAPPED_CLANG").unwrap_or_else(|_| "clang".into()))
         .args(FLAG)
         .output()
         .map(|o| {
