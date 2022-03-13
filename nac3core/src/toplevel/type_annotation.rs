@@ -223,6 +223,29 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             Ok(TypeAnnotation::List(def_ann.into()))
         }
 
+        // option
+        ast::ExprKind::Subscript { value, slice, .. }
+            if {
+                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"Option".into())
+            } =>
+        {
+            let def_ann = parse_ast_to_type_annotation_kinds(
+                resolver,
+                top_level_defs,
+                unifier,
+                primitives,
+                slice.as_ref(),
+                locked,
+            )?;
+            let id =
+                if let TypeEnum::TObj { obj_id, .. } = unifier.get_ty(primitives.option).as_ref() {
+                    *obj_id
+                } else {
+                    unreachable!()
+                };
+            Ok(TypeAnnotation::CustomClass { id, params: vec![def_ann] })
+        }
+
         // tuple
         ast::ExprKind::Subscript { value, slice, .. }
             if {

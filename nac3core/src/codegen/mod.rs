@@ -385,6 +385,7 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
         range: unifier.get_representative(primitives.range),
         str: unifier.get_representative(primitives.str),
         exception: unifier.get_representative(primitives.exception),
+        option: unifier.get_representative(primitives.option),
     };
 
     let mut type_cache: HashMap<_, _> = [
@@ -417,6 +418,7 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
         exception.set_body(&fields, false);
         exception.ptr_type(AddressSpace::Generic).into()
     });
+    // TODO: insert option type cache
 
     let (args, ret) = if let ConcreteTypeEnum::TFunc { args, ret, .. } =
         task.store.get(task.signature)

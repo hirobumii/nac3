@@ -74,6 +74,8 @@ impl TopLevelComposer {
             "self".into(),
             "Kernel".into(),
             "KernelInvariant".into(),
+            "Some".into(),
+            "Option".into(),
         ]);
         let defined_names: HashSet<String> = Default::default();
         let method_class: HashMap<DefinitionId, DefinitionId> = Default::default();
@@ -92,7 +94,6 @@ impl TopLevelComposer {
             } else if let TopLevelDef::Class { name, constructor, object_id, type_vars, .. } = &*def
             {
                 assert!(id == object_id.0);
-                assert!(type_vars.is_empty());
                 if let Some(constructor) = constructor {
                     builtin_ty.insert(*name, *constructor);
                 }

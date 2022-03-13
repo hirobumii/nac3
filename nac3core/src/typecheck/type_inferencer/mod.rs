@@ -40,6 +40,7 @@ pub struct PrimitiveStore {
     pub range: Type,
     pub str: Type,
     pub exception: Type,
+    pub option: Type,
 }
 
 pub struct FunctionData {
@@ -932,6 +933,17 @@ impl<'a> Inferencer<'a> {
                 Ok(self.unifier.add_ty(TypeEnum::TTuple { ty: ty? }))
             }
             ast::Constant::Str(_) => Ok(self.primitives.str),
+            ast::Constant::None => {
+                let option_ty = self.primitives.option;
+                let new_mapping = if let TypeEnum::TObj { params, .. } = &*self.unifier.get_ty_immutable(option_ty) {
+                    let (id, _) = params.iter().next().unwrap();
+                    // None can be Option[Any]
+                    vec![(*id, self.unifier.get_fresh_var(None, None).0)].into_iter().collect()
+                } else {
+                    unreachable!("option must be tobj")
+                };
+                Ok(self.unifier.subst(option_ty, &new_mapping).unwrap())
+            }
             _ => report_error("not supported", *loc),
         }
     }
