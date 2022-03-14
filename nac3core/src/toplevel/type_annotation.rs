@@ -72,8 +72,6 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             Ok(TypeAnnotation::Primitive(primitives.float))
         } else if id == &"bool".into() {
             Ok(TypeAnnotation::Primitive(primitives.bool))
-        } else if id == &"None".into() {
-            Ok(TypeAnnotation::Primitive(primitives.none))
         } else if id == &"str".into() {
             Ok(TypeAnnotation::Primitive(primitives.str))
         } else if id == &"Exception".into() {

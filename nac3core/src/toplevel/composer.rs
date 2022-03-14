@@ -1784,9 +1784,7 @@ impl TopLevelComposer {
                             })
                         };
                         let mut identifiers = {
-                            // NOTE: none and function args?
                             let mut result: HashSet<_> = HashSet::new();
-                            result.insert("None".into());
                             if self_type.is_some() {
                                 result.insert("self".into());
                             }
@@ -1809,9 +1807,7 @@ impl TopLevelComposer {
                             },
                             unifier,
                             variable_mapping: {
-                                // NOTE: none and function args?
                                 let mut result: HashMap<StrRef, Type> = HashMap::new();
-                                result.insert("None".into(), primitives_ty.none);
                                 if let Some(self_ty) = self_type {
                                     result.insert("self".into(), self_ty);
                                 }
