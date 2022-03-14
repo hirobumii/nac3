@@ -123,6 +123,7 @@ impl TopLevelComposer {
             obj_id: DefinitionId(10),
             fields: vec![
                 ("is_some".into(), (is_some_type_fun_ty, true)),
+                ("is_none".into(), (is_some_type_fun_ty, true)),
                 ("unwrap".into(), (unwrap_fun_ty, true)),
             ]
             .into_iter()

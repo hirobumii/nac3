@@ -138,6 +138,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             &mut self.unifier,
             self.top_level,
             &mut self.type_cache,
+            &self.primitives,
             ty,
         )
     }
@@ -197,6 +198,22 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                         ty.into_struct_type().const_named_struct(&[str_ptr, size.into()]).into();
                     self.const_strings.insert(v.to_string(), val);
                     val
+                }
+            }
+            Constant::None => {
+                match (
+                    self.unifier.get_ty(ty).as_ref(),
+                    self.unifier.get_ty(self.primitives.option).as_ref(),
+                ) {
+                    (
+                        TypeEnum::TObj { obj_id, params, .. },
+                        TypeEnum::TObj { obj_id: opt_id, .. },
+                    ) if *obj_id == *opt_id => self
+                        .get_llvm_type(generator, *params.iter().next().unwrap().1)
+                        .ptr_type(AddressSpace::Generic)
+                        .const_null()
+                        .into(),
+                    _ => unreachable!("must be option type"),
                 }
             }
             _ => unreachable!(),

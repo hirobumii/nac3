@@ -223,9 +223,33 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             instance_to_stmt: Default::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, fun, args, generator| {
-                    // TODO:
-                    unimplemented!()
+                |ctx, obj, _, _, generator| {
+                    let obj_val = obj.unwrap().1.clone().to_basic_value_enum(ctx, generator)?;
+                    if let BasicValueEnum::PointerValue(ptr) = obj_val {
+                        Ok(Some(ctx.builder.build_is_not_null(ptr, "is_some").into()))
+                    } else {
+                        unreachable!("option must be ptr")
+                    }
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "Option.is_none".into(),
+            simple_name: "is_none".into(),
+            signature: is_some_ty.0,
+            var_id: vec![option_ty_var_id],
+            instance_to_symbol: Default::default(),
+            instance_to_stmt: Default::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |ctx, obj, _, _, generator| {
+                    let obj_val = obj.unwrap().1.clone().to_basic_value_enum(ctx, generator)?;
+                    if let BasicValueEnum::PointerValue(ptr) = obj_val {
+                        Ok(Some(ctx.builder.build_is_null(ptr, "is_none").into()))
+                    } else {
+                        unreachable!("option must be ptr")
+                    }
                 },
             )))),
             loc: None,
@@ -239,9 +263,13 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             instance_to_stmt: Default::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, fun, args, generator| {
-                    // TODO:
-                    unimplemented!()
+                |ctx, obj, _, _, generator| {
+                    let obj_val = obj.unwrap().1.clone().to_basic_value_enum(ctx, generator)?;
+                    if let BasicValueEnum::PointerValue(ptr) = obj_val {
+                        Ok(Some(ctx.builder.build_load(ptr, "unwrap_some")))
+                    } else {
+                        unreachable!("option must be ptr")
+                    }
                 },
             )))),
             loc: None,
@@ -1177,8 +1205,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             instance_to_stmt: Default::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, fun, args, generator| {
-                    unimplemented!()
+                |ctx, _, _fun, args, generator| {
+                    let arg_val = args[0].1.clone().to_basic_value_enum(ctx, generator)?;
+                    let alloca = ctx.builder.build_alloca(arg_val.get_type(), "alloca_some");
+                    ctx.builder.build_store(alloca, arg_val);
+                    Ok(Some(alloca.into()))
                 },
             )))),
             loc: None,
