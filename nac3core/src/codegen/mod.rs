@@ -270,7 +270,7 @@ fn get_llvm_type<'ctx>(
         let result = match &*ty_enum {
             TObj { obj_id, fields, .. } => {
                 // check to avoid treating primitives other than Option as classes
-                if obj_id.0 <= 14 {
+                if obj_id.0 <= 10 {
                     match (unifier.get_ty(ty).as_ref(), unifier.get_ty(primitives.option).as_ref())
                     {
                         (

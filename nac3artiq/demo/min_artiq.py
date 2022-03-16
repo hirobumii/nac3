@@ -11,6 +11,7 @@ from embedding_map import EmbeddingMap
 
 __all__ = [
     "Kernel", "KernelInvariant", "virtual",
+    "Option", "Some",
     "round64", "floor64", "ceil64",
     "extern", "kernel", "portable", "nac3",
     "rpc", "ms", "us", "ns",
@@ -31,6 +32,36 @@ class KernelInvariant(Generic[T]):
 # The virtual class must exist before nac3artiq.NAC3 is created.
 class virtual(Generic[T]):
     pass
+
+class Option(Generic[T]):
+    _nac3_option: T
+
+    def __init__(self, v: T):
+        self._nac3_option = v
+
+    def is_none(self):
+        return self._nac3_option is None
+    
+    def is_some(self):
+        return not self.is_none()
+    
+    def unwrap(self):
+        return self._nac3_option
+
+    def __repr__(self) -> str:
+        if self.is_none():
+            return "Option(None)"
+        else:
+            return "Some({})".format(repr(self._nac3_option))
+    
+    def __str__(self) -> str:
+        if self.is_none():
+            return "None"
+        else:
+            return "Some({})".format(str(self._nac3_option))
+
+def Some(v: T) -> Option[T]:
+    return Option(v)
 
 
 def round64(x):

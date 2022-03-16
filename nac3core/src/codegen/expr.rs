@@ -958,16 +958,27 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                 let resolver = ctx.resolver.clone();
                 let val = resolver.get_symbol_value(*id, ctx).unwrap();
                 // if is tuple, need to deref it to handle tuple as value
-                if let (TypeEnum::TTuple { .. }, BasicValueEnum::PointerValue(ptr)) = (
+                // if is option, need to cast pointer to handle None
+                match (
                     &*ctx.unifier.get_ty(expr.custom.unwrap()),
                     resolver
                         .get_symbol_value(*id, ctx)
                         .unwrap()
                         .to_basic_value_enum(ctx, generator)?,
                 ) {
-                    ctx.builder.build_load(ptr, "tup_val").into()
-                } else {
-                    val
+                    (TypeEnum::TTuple { .. }, BasicValueEnum::PointerValue(ptr)) => {
+                        ctx.builder.build_load(ptr, "tup_val").into()
+                    }
+                    (TypeEnum::TObj { obj_id, params, .. }, BasicValueEnum::PointerValue(ptr))
+                        if *obj_id == ctx.primitives.option.get_obj_id(&ctx.unifier) => {
+                            let actual_ptr_ty = ctx.get_llvm_type(
+                                generator,
+                                *params.iter().next().unwrap().1,
+                            )
+                            .ptr_type(AddressSpace::Generic);
+                            ctx.builder.build_bitcast(ptr, actual_ptr_ty, "option_ptr_cast").into()
+                        }
+                    _ => val,
                 }
             }
         },

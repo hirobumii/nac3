@@ -71,6 +71,7 @@ pub struct PrimitivePythonId {
     exception: u64,
     generic_alias: (u64, u64),
     virtual_id: u64,
+    option: u64,
 }
 
 type TopLevelComponent = (Stmt, String, PyObject);
@@ -352,6 +353,7 @@ impl Nac3 {
 
         let builtins_mod = PyModule::import(py, "builtins").unwrap();
         let id_fn = builtins_mod.getattr("id").unwrap();
+        let type_fn = builtins_mod.getattr("type").unwrap();
         let numpy_mod = PyModule::import(py, "numpy").unwrap();
         let typing_mod = PyModule::import(py, "typing").unwrap();
         let types_mod = PyModule::import(py, "types").unwrap();
@@ -373,7 +375,11 @@ impl Nac3 {
                 get_attr_id(typing_mod, "_GenericAlias"),
                 get_attr_id(types_mod, "GenericAlias"),
             ),
-            none: get_attr_id(builtins_mod, "None"),
+            none: id_fn
+                .call1((type_fn.call1((builtins_mod.getattr("None").unwrap(),)).unwrap(),))
+                .unwrap()
+                .extract()
+                .unwrap(),
             typevar: get_attr_id(typing_mod, "TypeVar"),
             int: get_attr_id(builtins_mod, "int"),
             int32: get_attr_id(numpy_mod, "int32"),
@@ -385,6 +391,17 @@ impl Nac3 {
             list: get_attr_id(builtins_mod, "list"),
             tuple: get_attr_id(builtins_mod, "tuple"),
             exception: get_attr_id(builtins_mod, "Exception"),
+            option: id_fn
+                .call1((builtins_mod
+                    .getattr("globals")
+                    .unwrap()
+                    .call0()
+                    .unwrap()
+                    .get_item("Option")
+                    .unwrap(),))
+                .unwrap()
+                .extract()
+                .unwrap(),
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
