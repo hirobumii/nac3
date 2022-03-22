@@ -282,24 +282,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.option {
             Ok(Ok((primitives.option, false)))
         } else if ty_id == self.primitive_ids.none {
-            if let TypeEnum::TObj { params, .. } =
-                unifier.get_ty_immutable(primitives.option).as_ref()
-            {
-                let var_map = params
-                    .iter()
-                    .map(|(id_var, ty)| {
-                        if let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(*ty) {
-                            assert_eq!(*id, *id_var);
-                            (*id, unifier.get_fresh_var_with_range(range, *name, *loc).0)
-                        } else {
-                            unreachable!()
-                        }
-                    })
-                    .collect::<HashMap<_, _>>();
-                Ok(Ok((unifier.subst(primitives.option, &var_map).unwrap(), true)))
-            } else {
-                unreachable!("must be tobj")
-            }
+            unreachable!("none cannot be typeid")
         } else if let Some(def_id) = self.pyid_to_def.read().get(&ty_id).cloned() {
             let def = defs[def_id.0].read();
             if let TopLevelDef::Class { object_id, type_vars, fields, methods, .. } = &*def {
@@ -597,14 +580,32 @@ impl InnerResolver {
             {
                 let field_data = match obj.getattr("_nac3_option") {
                     Ok(d) => d,
-                    // None should be already handled above
+                    // we use `none = Option(None)`, so the obj always have attr `_nac3_option`
                     Err(_) => unreachable!("cannot be None")
                 };
-                let field_obj_id: u64 = self.helper.id_fn.call1(py, (field_data,))?.extract(py)?;
-                let zelf_obj_id: u64 = self.helper.id_fn.call1(py, (obj,))?.extract(py)?;
-                if field_obj_id == zelf_obj_id {
-                    return Ok(Err("self recursive option type is not allowed".into()))
+                // if is `none`
+                let zelf_id: u64 = self.helper.id_fn.call1(py, (obj,))?.extract(py)?;
+                if zelf_id == self.primitive_ids.none {
+                    if let TypeEnum::TObj { params, .. } =
+                        unifier.get_ty_immutable(primitives.option).as_ref()
+                    {
+                        let var_map = params
+                            .iter()
+                            .map(|(id_var, ty)| {
+                                if let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(*ty) {
+                                    assert_eq!(*id, *id_var);
+                                    (*id, unifier.get_fresh_var_with_range(range, *name, *loc).0)
+                                } else {
+                                    unreachable!()
+                                }
+                            })
+                            .collect::<HashMap<_, _>>();
+                        return Ok(Ok(unifier.subst(primitives.option, &var_map).unwrap()))
+                    } else {
+                        unreachable!("must be tobj")
+                    }
                 }
+                
                 let ty = match self.get_obj_type(py, field_data, unifier, defs, primitives)? {
                     Ok(t) => t,
                     Err(e) => {
@@ -845,36 +846,38 @@ impl InnerResolver {
             global.set_initializer(&val);
             Ok(Some(global.as_pointer_value().into()))
         } else if ty_id == self.primitive_ids.option {
-            match self
-                .get_obj_value(py, obj.getattr("_nac3_option").unwrap(), ctx, generator)
-                .map_err(|e| {
-                    super::CompileError::new_err(format!(
-                        "Error getting value of Option object: {}",
-                        e
-                    ))
-                })? {
-                Some(v) => {
-                    let global_str = format!("{}_option", id);
-                    {
-                        if self.global_value_ids.read().contains(&id) {
-                            let global = ctx.module.get_global(&global_str).unwrap_or_else(|| {
-                                ctx.module.add_global(v.get_type(), Some(AddressSpace::Generic), &global_str)
-                            });
-                            return Ok(Some(global.as_pointer_value().into()));
-                        } else {
-                            self.global_value_ids.write().insert(id);
+            if id == self.primitive_ids.none {
+                // for option type, just a null ptr, whose type needs to be casted in codegen
+                // according to the type info attached in the ast
+                Ok(Some(ctx.ctx.i8_type().ptr_type(AddressSpace::Generic).const_null().into()))
+            } else {
+                match self
+                    .get_obj_value(py, obj.getattr("_nac3_option").unwrap(), ctx, generator)
+                    .map_err(|e| {
+                        super::CompileError::new_err(format!(
+                            "Error getting value of Option object: {}",
+                            e
+                        ))
+                    })? {
+                    Some(v) => {
+                        let global_str = format!("{}_option", id);
+                        {
+                            if self.global_value_ids.read().contains(&id) {
+                                let global = ctx.module.get_global(&global_str).unwrap_or_else(|| {
+                                    ctx.module.add_global(v.get_type(), Some(AddressSpace::Generic), &global_str)
+                                });
+                                return Ok(Some(global.as_pointer_value().into()));
+                            } else {
+                                self.global_value_ids.write().insert(id);
+                            }
                         }
-                    }
-                    let global = ctx.module.add_global(v.get_type(), Some(AddressSpace::Generic), &global_str);
-                    global.set_initializer(&v);
-                    Ok(Some(global.as_pointer_value().into()))
-                },
-                None => Ok(None),
+                        let global = ctx.module.add_global(v.get_type(), Some(AddressSpace::Generic), &global_str);
+                        global.set_initializer(&v);
+                        Ok(Some(global.as_pointer_value().into()))
+                    },
+                    None => Ok(None),
+                }
             }
-        } else if ty_id == self.primitive_ids.none {
-            // for option type, just a null ptr, whose type needs to be casted in codegen
-            // according to the type info attached in the ast
-            Ok(Some(ctx.ctx.i8_type().ptr_type(AddressSpace::Generic).const_null().into()))
         } else {
             let id_str = id.to_string();
 

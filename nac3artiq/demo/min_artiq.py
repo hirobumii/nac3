@@ -11,7 +11,7 @@ from embedding_map import EmbeddingMap
 
 __all__ = [
     "Kernel", "KernelInvariant", "virtual",
-    "Option", "Some",
+    "Option", "Some", "none",
     "round64", "floor64", "ceil64",
     "extern", "kernel", "portable", "nac3",
     "rpc", "ms", "us", "ns",
@@ -50,19 +50,20 @@ class Option(Generic[T]):
 
     def __repr__(self) -> str:
         if self.is_none():
-            return "Option(None)"
+            return "none"
         else:
             return "Some({})".format(repr(self._nac3_option))
     
     def __str__(self) -> str:
         if self.is_none():
-            return "None"
+            return "none"
         else:
             return "Some({})".format(str(self._nac3_option))
 
 def Some(v: T) -> Option[T]:
     return Option(v)
 
+none = Option(None)
 
 def round64(x):
     return round(x)

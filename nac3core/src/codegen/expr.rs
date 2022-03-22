@@ -200,22 +200,6 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                     val
                 }
             }
-            Constant::None => {
-                match (
-                    self.unifier.get_ty(ty).as_ref(),
-                    self.unifier.get_ty(self.primitives.option).as_ref(),
-                ) {
-                    (
-                        TypeEnum::TObj { obj_id, params, .. },
-                        TypeEnum::TObj { obj_id: opt_id, .. },
-                    ) if *obj_id == *opt_id => self
-                        .get_llvm_type(generator, *params.iter().next().unwrap().1)
-                        .ptr_type(AddressSpace::Generic)
-                        .const_null()
-                        .into(),
-                    _ => unreachable!("must be option type"),
-                }
-            }
             _ => unreachable!(),
         }
     }
@@ -950,6 +934,22 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
         ExprKind::Constant { value, .. } => {
             let ty = expr.custom.unwrap();
             ctx.gen_const(generator, value, ty).into()
+        }
+        ExprKind::Name { id, .. } if id == &"none".into() => {
+            match (
+                ctx.unifier.get_ty(expr.custom.unwrap()).as_ref(),
+                ctx.unifier.get_ty(ctx.primitives.option).as_ref(),
+            ) {
+                (
+                    TypeEnum::TObj { obj_id, params, .. },
+                    TypeEnum::TObj { obj_id: opt_id, .. },
+                ) if *obj_id == *opt_id => ctx
+                    .get_llvm_type(generator, *params.iter().next().unwrap().1)
+                    .ptr_type(AddressSpace::Generic)
+                    .const_null()
+                    .into(),
+                _ => unreachable!("must be option type"),
+            }
         }
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
             Some((ptr, None, _)) => ctx.builder.build_load(*ptr, "load").into(),

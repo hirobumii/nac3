@@ -353,7 +353,6 @@ impl Nac3 {
 
         let builtins_mod = PyModule::import(py, "builtins").unwrap();
         let id_fn = builtins_mod.getattr("id").unwrap();
-        let type_fn = builtins_mod.getattr("type").unwrap();
         let numpy_mod = PyModule::import(py, "numpy").unwrap();
         let typing_mod = PyModule::import(py, "typing").unwrap();
         let types_mod = PyModule::import(py, "types").unwrap();
@@ -376,7 +375,13 @@ impl Nac3 {
                 get_attr_id(types_mod, "GenericAlias"),
             ),
             none: id_fn
-                .call1((type_fn.call1((builtins_mod.getattr("None").unwrap(),)).unwrap(),))
+                .call1((builtins_mod
+                    .getattr("globals")
+                    .unwrap()
+                    .call0()
+                    .unwrap()
+                    .get_item("none")
+                    .unwrap(),))
                 .unwrap()
                 .extract()
                 .unwrap(),
