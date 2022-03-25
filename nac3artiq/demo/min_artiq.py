@@ -11,7 +11,7 @@ from embedding_map import EmbeddingMap
 
 __all__ = [
     "Kernel", "KernelInvariant", "virtual",
-    "Option", "Some", "none",
+    "Option", "Some", "none", "UnwrapNoneError",
     "round64", "floor64", "ceil64",
     "extern", "kernel", "portable", "nac3",
     "rpc", "ms", "us", "ns",
@@ -46,6 +46,8 @@ class Option(Generic[T]):
         return not self.is_none()
     
     def unwrap(self):
+        if self.is_none():
+            raise UnwrapNoneError()
         return self._nac3_option
 
     def __repr__(self) -> str:
@@ -271,6 +273,11 @@ class KernelContextManager:
     @kernel
     def __exit__(self):
         pass
+
+@nac3
+class UnwrapNoneError(Exception):
+    """raised when unwrapping a none value"""
+    artiq_builtin = True
 
 parallel = KernelContextManager()
 sequential = KernelContextManager()

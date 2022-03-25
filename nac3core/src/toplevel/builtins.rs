@@ -264,12 +264,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, obj, _, _, generator| {
-                    let obj_val = obj.unwrap().1.clone().to_basic_value_enum(ctx, generator)?;
-                    if let BasicValueEnum::PointerValue(ptr) = obj_val {
-                        Ok(Some(ctx.builder.build_load(ptr, "unwrap_some")))
-                    } else {
-                        unreachable!("option must be ptr")
-                    }
+                    unreachable!("handled in gen_expr")
                 },
             )))),
             loc: None,

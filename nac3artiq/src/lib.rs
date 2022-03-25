@@ -496,7 +496,8 @@ impl Nac3 {
             "KeyError",
             "NotImplementedError",
             "OverflowError",
-            "IOError"
+            "IOError",
+            "UnwrapNoneError",
         ];
         add_exceptions(&mut composer, &mut builtins_def, &mut builtins_ty, &exception_names);
 

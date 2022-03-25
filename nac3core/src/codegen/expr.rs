@@ -1309,6 +1309,26 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                             unreachable!()
                         }
                     };
+                    // directly generate code for option.unwrap
+                    // since it needs location information from ast
+                    if attr == &"unwrap".into()
+                        && id == ctx.primitives.option.get_obj_id(&ctx.unifier)
+                    {
+                        if let BasicValueEnum::PointerValue(ptr) = val.to_basic_value_enum(ctx, generator)? {
+                            let not_null = ctx.builder.build_is_not_null(ptr, "unwrap_not_null");
+                            ctx.make_assert(
+                                generator,
+                                not_null,
+                                "0:UnwrapNoneError",
+                                "",
+                                [None, None, None],
+                                expr.location,
+                            );
+                            return Ok(Some(ctx.builder.build_load(ptr, "unwrap_some").into()))
+                        } else {
+                            unreachable!("option must be ptr")
+                        }
+                    }
                     return Ok(generator
                         .gen_call(
                             ctx,
