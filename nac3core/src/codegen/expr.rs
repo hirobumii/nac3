@@ -1240,17 +1240,23 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
             let cont_bb = ctx.ctx.append_basic_block(current, "cont");
             ctx.builder.build_conditional_branch(test, then_bb, else_bb);
             ctx.builder.position_at_end(then_bb);
-            let a = generator.gen_expr(ctx, body)?.unwrap().to_basic_value_enum(ctx, generator)?;
+            let a = generator.gen_expr(ctx, body)?;
             match result {
                 None => None,
-                Some(v) => Some(ctx.builder.build_store(v, a))
+                Some(v) => {
+                    let a = a.unwrap().to_basic_value_enum(ctx, generator)?;
+                    Some(ctx.builder.build_store(v, a))
+                }
             };
             ctx.builder.build_unconditional_branch(cont_bb);
             ctx.builder.position_at_end(else_bb);
-            let b = generator.gen_expr(ctx, orelse)?.unwrap().to_basic_value_enum(ctx, generator)?;
+            let b = generator.gen_expr(ctx, orelse)?;
             match result {
                 None => None,
-                Some(v) => Some(ctx.builder.build_store(v, b))
+                Some(v) => {
+                    let b = b.unwrap().to_basic_value_enum(ctx, generator)?;
+                    Some(ctx.builder.build_store(v, b))
+                }
             };
             ctx.builder.build_unconditional_branch(cont_bb);
             ctx.builder.position_at_end(cont_bb);
