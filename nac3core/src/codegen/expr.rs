@@ -1226,6 +1226,14 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                 .unwrap()
                 .to_basic_value_enum(ctx, generator)?
                 .into_int_value();
+            let body_ty = body.custom.unwrap();
+            let is_none = ctx.unifier.get_representative(body_ty) == ctx.primitives.none;
+            let result = if !is_none {
+                let llvm_ty = ctx.get_llvm_type(generator, body_ty);
+                Some(ctx.builder.build_alloca(llvm_ty, "if_exp_result"))
+            } else {
+                None
+            };
             let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
             let then_bb = ctx.ctx.append_basic_block(current, "then");
             let else_bb = ctx.ctx.append_basic_block(current, "else");
@@ -1233,14 +1241,23 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
             ctx.builder.build_conditional_branch(test, then_bb, else_bb);
             ctx.builder.position_at_end(then_bb);
             let a = generator.gen_expr(ctx, body)?.unwrap().to_basic_value_enum(ctx, generator)?;
+            match result {
+                None => None,
+                Some(v) => Some(ctx.builder.build_store(v, a))
+            };
             ctx.builder.build_unconditional_branch(cont_bb);
             ctx.builder.position_at_end(else_bb);
             let b = generator.gen_expr(ctx, orelse)?.unwrap().to_basic_value_enum(ctx, generator)?;
+            match result {
+                None => None,
+                Some(v) => Some(ctx.builder.build_store(v, b))
+            };
             ctx.builder.build_unconditional_branch(cont_bb);
             ctx.builder.position_at_end(cont_bb);
-            let phi = ctx.builder.build_phi(a.get_type(), "ifexpr");
-            phi.add_incoming(&[(&a, then_bb), (&b, else_bb)]);
-            phi.as_basic_value().into()
+            match result {
+                None => return Ok(None),
+                Some(v) => return Ok(Some(ctx.builder.build_load(v, "if_exp_val_load").into()))
+            }
         }
         ExprKind::Call { func, args, keywords } => {
             let mut params = args
