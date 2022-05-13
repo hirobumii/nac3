@@ -42,15 +42,18 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
     // very similar to gen_expr, but we don't do an extra load at the end
     // and we flatten nested tuples
     Ok(match &pattern.node {
-        ExprKind::Name { id, .. } => {
-            ctx.var_assignment.get(id).map(|v| Ok(v.0) as Result<_, String>).unwrap_or_else(
-                || {
-                    let ptr_ty = ctx.get_llvm_type(generator, pattern.custom.unwrap());
-                    let ptr = generator.gen_var_alloc(ctx, ptr_ty)?;
-                    ctx.var_assignment.insert(*id, (ptr, None, 0));
-                    Ok(ptr)
-                },
-            )?
+        ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
+            None => {
+                let ptr_ty = ctx.get_llvm_type(generator, pattern.custom.unwrap());
+                let ptr = generator.gen_var_alloc(ctx, ptr_ty)?;
+                ctx.var_assignment.insert(*id, (ptr, None, 0));
+                ptr
+            }
+            Some(v) => {
+                let (ptr, counter) = (v.0, v.2);
+                ctx.var_assignment.insert(*id, (ptr, None, counter));
+                ptr
+            }
         }
         ExprKind::Attribute { value, attr, .. } => {
             let index = ctx.get_attr_index(value.custom.unwrap(), *attr);
