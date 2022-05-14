@@ -671,7 +671,10 @@ impl Nac3 {
                     &mut composer.unifier,
                     &self.primitive,
                 );
-                return Err(CompileError::new_err(msg.unwrap_or(e)));
+                return Err(CompileError::new_err(format!(
+                    "compilation failed\n----------\n{}",
+                    msg.unwrap_or(e)
+                )));
             }
         }
         let top_level = Arc::new(composer.make_top_level_context());

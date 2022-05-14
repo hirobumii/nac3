@@ -670,7 +670,10 @@ impl InnerResolver {
                         if let TypeEnum::TFunc(..) = &*unifier.get_ty(field.1.0) {
                             continue;
                         } else {
-                            let field_data = obj.getattr(&name)?;
+                            let field_data = match obj.getattr(&name) {
+                                Ok(d) => d,
+                                Err(e) => return Ok(Err(format!("{}", e))),
+                            };
                             let ty = match self
                                 .get_obj_type(py, field_data, unifier, defs, primitives)?
                             {
