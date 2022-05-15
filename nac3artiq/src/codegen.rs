@@ -274,6 +274,9 @@ fn gen_rpc_tag<'ctx, 'a>(
                 buffer.push(b'l');
                 gen_rpc_tag(ctx, *ty, buffer)?;
             }
+            TObj { .. } => {
+                buffer.push(b'O');
+            }
             _ => return Err(format!("Unsupported type: {:?}", ctx.unifier.stringify(ty))),
         }
     }
@@ -373,11 +376,11 @@ fn rpc_codegen_callback_fn<'ctx, 'a>(
         .0
         .args
         .iter()
-        .map(|arg| mapping.remove(&arg.name).unwrap().to_basic_value_enum(ctx, generator, arg.ty))
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(|arg| mapping.remove(&arg.name).unwrap())
+        .collect::<Vec<ValueEnum>>();
     if let Some(obj) = obj {
         if let ValueEnum::Static(obj) = obj.1 {
-            real_params.insert(0, obj.get_const_obj(ctx, generator));
+            real_params.insert(0, ValueEnum::Dynamic(obj.get_const_obj(ctx, generator)));
         } else {
             // should be an error here...
             panic!("only host object is allowed");
@@ -385,17 +388,36 @@ fn rpc_codegen_callback_fn<'ctx, 'a>(
     }
 
     for (i, arg) in real_params.iter().enumerate() {
-        let arg_slot = ctx.builder.build_alloca(arg.get_type(), &format!("rpc.arg{}", i));
-        ctx.builder.build_store(arg_slot, *arg);
-        let arg_slot = ctx.builder.build_bitcast(arg_slot, ptr_type, "rpc.arg");
-        let arg_ptr = unsafe {
-            ctx.builder.build_gep(
-                args_ptr,
-                &[int32.const_int(i as u64, false)],
-                &format!("rpc.arg{}", i),
-            )
-        };
-        ctx.builder.build_store(arg_ptr, arg_slot);
+        match arg {
+            ValueEnum::Dynamic(arg) => {
+                let arg_slot = ctx.builder.build_alloca(arg.get_type(), &format!("rpc.arg{}", i));
+                ctx.builder.build_store(arg_slot, *arg);
+                let arg_slot = ctx.builder.build_bitcast(arg_slot, ptr_type, "rpc.arg");
+                let arg_ptr = unsafe {
+                    ctx.builder.build_gep(
+                        args_ptr,
+                        &[int32.const_int(i as u64, false)],
+                        &format!("rpc.arg{}", i),
+                    )
+                };
+                ctx.builder.build_store(arg_ptr, arg_slot);
+            }
+            ValueEnum::Static(arg) => {
+                let arg = arg.get_const_obj(ctx, generator);
+                let arg_slot = ctx.builder.build_alloca(arg.get_type(), &format!("rpc.arg{}", i));
+                ctx.builder.build_store(arg_slot, arg);
+                let arg_slot = ctx.builder.build_bitcast(arg_slot, ptr_type, "rpc.arg");
+                let arg_ptr = unsafe {
+                    ctx.builder.build_gep(
+                        args_ptr,
+                        &[int32.const_int(i as u64, false)],
+                        &format!("rpc.arg{}", i),
+                    )
+                };
+                ctx.builder.build_store(arg_ptr, arg_slot);
+            }
+        }
+        
     }
 
     // call
