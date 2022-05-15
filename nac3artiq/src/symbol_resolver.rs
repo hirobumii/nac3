@@ -99,7 +99,7 @@ impl StaticValue for PythonValue {
         _: &mut dyn CodeGenerator,
     ) -> BasicValueEnum<'ctx> {
         ctx.module
-            .get_global(self.id.to_string().as_str())
+            .get_global(format!("{}_const", self.id).as_str())
             .map(|val| val.as_pointer_value().into())
             .unwrap_or_else(|| {
                 Python::with_gil(|py| -> PyResult<BasicValueEnum<'ctx>> {
