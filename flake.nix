@@ -1,7 +1,7 @@
 {
   description = "The third-generation ARTIQ compiler";
 
-  inputs.nixpkgs.url = github:NixOS/nixpkgs/nixos-21.11;
+  inputs.nixpkgs.url = github:NixOS/nixpkgs/release-22.05;
 
   outputs = { self, nixpkgs }:
     let
@@ -21,7 +21,7 @@
               };
             };
             passthru.cargoLock = cargoLock;
-            nativeBuildInputs = [ pkgs.python3 pkgs.llvmPackages_13.clang-unwrapped pkgs.llvmPackages_13.llvm.out llvm-nac3 ];
+            nativeBuildInputs = [ pkgs.python3 pkgs.llvmPackages_14.clang-unwrapped pkgs.llvmPackages_14.llvm.out llvm-nac3 ];
             buildInputs = [ pkgs.python3 llvm-nac3 ];
             checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ])) ];
             checkPhase =
@@ -55,7 +55,7 @@
 
         # LLVM PGO support
         llvm-nac3-instrumented = pkgs.callPackage ./nix/llvm {
-          stdenv = pkgs.llvmPackages_13.stdenv;
+          stdenv = pkgs.llvmPackages_14.stdenv;
           extraCmakeFlags = [ "-DLLVM_BUILD_INSTRUMENTED=IR" ];
         };
         nac3artiq-instrumented = pkgs.python3Packages.toPythonModule (
@@ -63,13 +63,13 @@
             name = "nac3artiq-instrumented";
             src = self;
             inherit (nac3artiq) cargoLock;
-            nativeBuildInputs = [ pkgs.python3 pkgs.llvmPackages_13.clang-unwrapped pkgs.llvmPackages_13.llvm.out llvm-nac3-instrumented ];
+            nativeBuildInputs = [ pkgs.python3 pkgs.llvmPackages_14.clang-unwrapped pkgs.llvmPackages_14.llvm.out llvm-nac3-instrumented ];
             buildInputs = [ pkgs.python3 llvm-nac3-instrumented ];
             cargoBuildFlags = [ "--package" "nac3artiq" "--features" "init-llvm-profile" ];
             doCheck = false;
             configurePhase =
               ''
-              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-L${pkgs.llvmPackages_13.compiler-rt}/lib/linux -C link-arg=-lclang_rt.profile-x86_64"
+              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-L${pkgs.llvmPackages_14.compiler-rt}/lib/linux -C link-arg=-lclang_rt.profile-x86_64"
               '';
             installPhase =
               ''
@@ -97,8 +97,8 @@
           ];
           buildInputs = [
             (python3-mimalloc.withPackages(ps: [ ps.numpy ps.jsonschema nac3artiq-instrumented ]))
-            pkgs.lld_13
-            pkgs.llvmPackages_13.llvm.out
+            pkgs.lld_14
+            pkgs.llvmPackages_14.llvm.out
           ];
           phases = [ "buildPhase" "installPhase" ];
           buildPhase =
@@ -118,7 +118,7 @@
             '';
         };
         llvm-nac3-pgo = pkgs.callPackage ./nix/llvm {
-          stdenv = pkgs.llvmPackages_13.stdenv;
+          stdenv = pkgs.llvmPackages_14.stdenv;
           extraCmakeFlags = [ "-DLLVM_PROFDATA_FILE=${nac3artiq-profile}/llvm.profdata" ];
         };
         nac3artiq-pgo = pkgs.python3Packages.toPythonModule (
@@ -126,7 +126,7 @@
             name = "nac3artiq-pgo";
             src = self;
             inherit (nac3artiq) cargoLock;
-            nativeBuildInputs = [ pkgs.python3 pkgs.llvmPackages_13.clang-unwrapped pkgs.llvmPackages_13.llvm.out llvm-nac3-pgo ];
+            nativeBuildInputs = [ pkgs.python3 pkgs.llvmPackages_14.clang-unwrapped pkgs.llvmPackages_14.llvm.out llvm-nac3-pgo ];
             buildInputs = [ pkgs.python3 llvm-nac3-pgo ];
             cargoBuildFlags = [ "--package" "nac3artiq" ];
             cargoTestFlags = [ "--package" "nac3ast" "--package" "nac3parser" "--package" "nac3core" "--package" "nac3artiq" ];
@@ -147,12 +147,12 @@
         buildInputs = with pkgs; [
           # build dependencies
           packages.x86_64-linux.llvm-nac3
-          llvmPackages_13.clang-unwrapped  # IRRT
-          pkgs.llvmPackages_13.llvm.out    # IRRT
+          llvmPackages_14.clang-unwrapped  # IRRT
+          pkgs.llvmPackages_14.llvm.out    # IRRT
           cargo
           rustc
           # runtime dependencies
-          lld_13
+          lld_14
           (packages.x86_64-linux.python3-mimalloc.withPackages(ps: [ ps.numpy ]))
           # development tools
           cargo-insta
