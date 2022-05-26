@@ -460,7 +460,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         let i1_true = i1.const_all_ones();
         let expect_fun = self.module.get_function("llvm.expect.i1").unwrap_or_else(|| {
             self.module.add_function(
-                "llvm.expect",
+                "llvm.expect.i1",
                 i1.fn_type(&[i1.into(), i1.into()], false),
                 None,
             )
