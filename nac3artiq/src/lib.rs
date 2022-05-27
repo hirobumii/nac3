@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use inkwell::{
     memory_buffer::MemoryBuffer,
+    module::Linkage,
     passes::{PassManager, PassManagerBuilder},
     targets::*,
     OptimizationLevel,
@@ -820,6 +821,19 @@ impl Nac3 {
                 func.set_linkage(inkwell::module::Linkage::Private);
             }
             function_iter = func.get_next_function();
+        }
+
+        // Demote all global variables that will not be referenced in the kernel to private
+        let preserved_symbols: Vec<&'static [u8]> = vec![
+            b"typeinfo",
+            b"now",
+        ];
+        let mut global_option = main.get_first_global();
+        while let Some(global) = global_option {
+            if !preserved_symbols.contains(&(global.get_name().to_bytes())) {
+                global.set_linkage(Linkage::Private);
+            }
+            global_option = global.get_next_global();
         }
 
         let builder = PassManagerBuilder::create();
