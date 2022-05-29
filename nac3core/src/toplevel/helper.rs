@@ -84,7 +84,7 @@ impl TopLevelComposer {
             obj_id: DefinitionId(7),
             fields: vec![
                 ("__name__".into(), (int32, true)),
-                ("__file__".into(), (int32, true)),
+                ("__file__".into(), (str, true)),
                 ("__line__".into(), (int32, true)),
                 ("__col__".into(), (int32, true)),
                 ("__func__".into(), (str, true)),
