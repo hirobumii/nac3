@@ -247,7 +247,7 @@ impl WorkerRegistry {
         let result = module.verify();
         if let Err(err) = result {
             println!("{}", module.print_to_string().to_str().unwrap());
-            println!("{}", err);
+            println!("{}", err.to_string());
             panic!()
         }
         f.run(&module);
