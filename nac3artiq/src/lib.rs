@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::Write;
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -35,6 +36,8 @@ use nac3core::{
     typecheck::typedef::{FunSignature, FuncArg},
     typecheck::{type_inferencer::PrimitiveStore, typedef::Type},
 };
+
+use nac3ld::Linker;
 
 use tempfile::{self, TempDir};
 
@@ -854,7 +857,7 @@ impl Nac3 {
             Isa::RiscV32IMA => (TargetTriple::create("riscv32-unknown-linux"), "+a,+m".to_string()),
             Isa::CortexA9 => (
                 TargetTriple::create("armv7-unknown-linux-gnueabihf"),
-                "+dsp,+fp16,+neon,+vfp3".to_string(),
+                "+dsp,+fp16,+neon,+vfp3,+long-calls".to_string(),
             ),
         };
         let target =
@@ -869,37 +872,46 @@ impl Nac3 {
                 CodeModel::Default,
             )
             .expect("couldn't create target machine");
-        target_machine
-            .write_to_file(&main, FileType::Object, &working_directory.join("module.o"))
-            .expect("couldn't write module to file");
+        
+        if isa == Isa::Host {
+            target_machine
+                .write_to_file(&main, FileType::Object, &working_directory.join("module.o"))
+                .expect("couldn't write module to file");
+            let linker_args = vec![
+                "-shared".to_string(),
+                "--eh-frame-hdr".to_string(),
+                "-x".to_string(),
+                "-o".to_string(),
+                filename.to_string(),
+                working_directory.join("module.o").to_string_lossy().to_string(),
+            ];
 
-        let mut linker_args = vec![
-            "-shared".to_string(),
-            "--eh-frame-hdr".to_string(),
-            "-x".to_string(),
-            "-o".to_string(),
-            filename.to_string(),
-            working_directory.join("module.o").to_string_lossy().to_string(),
-        ];
-        if isa != Isa::Host {
-            linker_args.push(
-                "-T".to_string()
-                    + self.working_directory.path().join("kernel.ld").to_str().unwrap(),
-            );
-        }
-
-        #[cfg(not(windows))]
-        let lld_command = "ld.lld";
-        #[cfg(windows)]
-        let lld_command = "ld.lld.exe";
-        if let Ok(linker_status) = Command::new(lld_command).args(linker_args).status() {
-            if !linker_status.success() {
-                return Err(CompileError::new_err("failed to start linker"));
+            #[cfg(not(windows))]
+            let lld_command = "ld.lld";
+            #[cfg(windows)]
+            let lld_command = "ld.lld.exe";
+            if let Ok(linker_status) = Command::new(lld_command).args(linker_args).status() {
+                if !linker_status.success() {
+                    return Err(CompileError::new_err("failed to start linker"));
+                }
+            } else {
+                return Err(CompileError::new_err(
+                    "linker returned non-zero status code",
+                ));
             }
         } else {
-            return Err(CompileError::new_err(
-                "linker returned non-zero status code",
-            ));
+            let object_mem = target_machine
+                .write_to_memory_buffer(&main, FileType::Object)
+                .expect("couldn't write module to object file buffer");
+            if let Ok(dyn_lib) = Linker::ld(object_mem.as_slice()) {
+                if let Ok(mut file) = fs::File::create(filename) {
+                    file.write_all(&dyn_lib).expect("couldn't write linked library to file");
+                } else {
+                    return Err(CompileError::new_err("failed to create file"));
+                }
+            } else {
+                return Err(CompileError::new_err("linker failed to process object file"));
+            }
         }
 
         Ok(())
