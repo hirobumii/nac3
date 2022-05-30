@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "nac3ld",
   "nac3ast",
   "nac3parser",
   "nac3core",

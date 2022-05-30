@@ -522,6 +522,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nac3ld"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
 name = "nac3parser"
 version = "0.1.2"
 dependencies = [
