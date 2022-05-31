@@ -34,14 +34,14 @@ let
 in rec {
   llvm-nac3 = pkgs.stdenvNoCC.mkDerivation rec {
     pname = "llvm-nac3-msys2";
-    version = "14.0.3";
+    version = "14.0.4";
     src-llvm = pkgs.fetchurl {
       url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/llvm-${version}.src.tar.xz";
-      sha256 = "sha256-Hgnowm4bZ7yUoSi2LpucJLcMaXokNqR5yeXu3ErillQ=";
+      sha256 = "sha256-646Q362uQHOn+PxjhLrMDdoHJADYK50l2rtSgKc3uiI=";
     };
     src-clang = pkgs.fetchurl {
       url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/clang-${version}.src.tar.xz";
-      sha256 = "sha256-+FxV8ZLLNbnWrx+Zi31avpDjafixZEVQP/qxsC51pvA=";
+      sha256 = "sha256-kivcg0FJHU9UVIxRuv13wOc3oxRv4zx2K84xoP0VFZE=";
     };
     buildInputs = [ pkgs.wineWowPackages.stable ];
     phases = [ "unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase" ];
@@ -128,18 +128,18 @@ in rec {
   };
   lld = pkgs.stdenvNoCC.mkDerivation rec {
     pname = "lld-msys2";
-    version = "14.0.3";
+    version = "14.0.4";
     src = pkgs.fetchurl {
       url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/lld-${version}.src.tar.xz";
-      sha256 = "sha256-qRcW9Z+OeAGCRqerbK0b/d3sJwxNttPSo5SETuh5nI8=";
+      sha256 = "sha256-BeEoSmUWbQo6ETm5mT8cYyuCkwUBMWriDIiiBBcMK6Y=";
     };
     buildInputs = [ pkgs.wineWowPackages.stable ];
     phases = [ "unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase" ];
     patches = [ ./lld-disable-macho.diff ];
     setSourceRoot =  # work around https://github.com/llvm/llvm-project/issues/53281
       ''
-      mv cmake/Modules/* lld-14.0.3.src/cmake/modules
-      sourceRoot=lld-14.0.3.src
+      mv cmake/Modules/* lld-14.0.4.src/cmake/modules
+      sourceRoot=lld-14.0.4.src
       '';
     configurePhase =
       ''
