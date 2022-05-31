@@ -165,6 +165,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     ) -> BasicTypeEnum<'ctx> {
         get_llvm_type(
             self.ctx,
+            &self.module,
             generator,
             &mut self.unifier,
             self.top_level,
