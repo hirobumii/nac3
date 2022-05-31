@@ -34,5 +34,9 @@ def run() -> int32:
     insta = A()
     inst = C(insta)
     inst.foo()
+    
+    insta2 = B()
+    inst2 = C(insta2)
+    inst2.foo()
     return 0
 
