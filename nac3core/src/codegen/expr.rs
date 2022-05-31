@@ -361,17 +361,31 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 }
             }
         }
-        let params = if loc_params.is_empty() {
-            params
-        } else {
-            &loc_params
-        };
+        let params = if loc_params.is_empty() { params } else { &loc_params };
+        let params = fun
+            .get_type()
+            .get_param_types()
+            .into_iter()
+            .zip(params.iter())
+            .map(|(ty, val)| match (ty, val.get_type()) {
+                (BasicTypeEnum::PointerType(arg_ty), BasicTypeEnum::PointerType(val_ty))
+                    if {
+                        ty != val.get_type()
+                            && arg_ty.get_element_type().is_struct_type()
+                            && val_ty.get_element_type().is_struct_type()
+                    } =>
+                {
+                    self.builder.build_bitcast(*val, arg_ty, "call_arg_cast")
+                }
+                _ => *val,
+            })
+            .collect_vec();
         let result = if let Some(target) = self.unwind_target {
             let current = self.builder.get_insert_block().unwrap().get_parent().unwrap();
             let then_block = self.ctx.append_basic_block(current, &format!("after.{}", call_name));
             let result = self
                 .builder
-                .build_invoke(fun, params, then_block, target, call_name)
+                .build_invoke(fun, &params, then_block, target, call_name)
                 .try_as_basic_value()
                 .left();
             self.builder.position_at_end(then_block);
