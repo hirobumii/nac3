@@ -36,12 +36,6 @@ pacman -Syu
 pacman -S mingw-w64-x86_64-artiq
 ```
 
-Install ``lld-msys2`` manually:
-```
-wget https://nixbld.m-labs.hk/build/115527/download/1/ld.lld.exe
-mv ld.lld.exe C:/msys64/mingw64/bin
-```
-
 Note: This build of NAC3 cannot be used with Anaconda Python nor the python.org binaries for Windows. Those Python versions are compiled with Visual Studio (MSVC) and their ABI is incompatible with the GNU ABI used in this build. We have no plans to support Visual Studio nor the MSVC ABI. If you need a MSVC build, please install the requisite bloated spyware from Microsoft and compile NAC3 yourself.
 
 ## For developers

@@ -126,43 +126,6 @@ in rec {
       echo file msys2 $out/*.pkg.tar.zst >> $out/nix-support/hydra-build-products
       '';
   };
-  lld = pkgs.stdenvNoCC.mkDerivation rec {
-    pname = "lld-msys2";
-    version = "14.0.4";
-    src = pkgs.fetchurl {
-      url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/lld-${version}.src.tar.xz";
-      sha256 = "sha256-BeEoSmUWbQo6ETm5mT8cYyuCkwUBMWriDIiiBBcMK6Y=";
-    };
-    buildInputs = [ pkgs.wineWowPackages.stable ];
-    phases = [ "unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase" ];
-    patches = [ ./lld-disable-macho.diff ];
-    setSourceRoot =  # work around https://github.com/llvm/llvm-project/issues/53281
-      ''
-      mv cmake/Modules/* lld-14.0.4.src/cmake/modules
-      sourceRoot=lld-14.0.4.src
-      '';
-    configurePhase =
-      ''
-      export HOME=`mktemp -d`
-      export WINEDEBUG=-all
-      export WINEPATH=Z:${msys2-env}/mingw64/bin\;Z:${llvm-nac3}/bin
-      ${silenceFontconfig}
-      mkdir build
-      cd build
-      wine64 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=Z:$out
-      '';
-    buildPhase =
-      ''
-      wine64 ninja
-      '';
-    installPhase =
-      ''
-      mkdir -p $out $out/nix-support
-      cp bin/ld.lld.exe $out
-      echo file binary-dist $out/ld.lld.exe >> $out/nix-support/hydra-build-products
-      '';
-    dontFixup = true;
-  };
   wine-msys2 = pkgs.writeShellScriptBin "wine-msys2"
     ''
     export WINEDEBUG=-all
