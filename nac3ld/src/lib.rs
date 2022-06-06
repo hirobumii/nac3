@@ -549,22 +549,20 @@ impl<'a> Linker<'a> {
         let eh_frame_slice = eh_frame_rec.data.as_slice();
         // Prepare a new buffer to dodge borrow check
         let mut eh_frame_hdr_vec: Vec<u8> = vec![0; eh_frame_hdr_rec.shdr.sh_size as usize];
-        unsafe {
-            let eh_frame = EH_Frame::new(eh_frame_slice, eh_frame_rec.shdr.sh_offset)
-                .map_err(|()| "cannot read EH frame")?;
-            let mut eh_frame_hdr = EH_Frame_Hdr::new(
-                eh_frame_hdr_vec.as_mut_slice(),
-                eh_frame_hdr_rec.shdr.sh_offset,
-                eh_frame_rec.shdr.sh_offset,
-            );
-            let mut fde_callback = |init_pos, virt_addr| eh_frame_hdr.add_fde(init_pos, virt_addr);
-            eh_frame
-                .iterate_fde(&mut fde_callback)
-                .map_err(|()| "failed to add FDE to .eh_frame_hdr while iterating .eh_frame")?;
+        let eh_frame = EH_Frame::new(eh_frame_slice, eh_frame_rec.shdr.sh_offset)
+            .map_err(|()| "cannot read EH frame")?;
+        let mut eh_frame_hdr = EH_Frame_Hdr::new(
+            eh_frame_hdr_vec.as_mut_slice(),
+            eh_frame_hdr_rec.shdr.sh_offset,
+            eh_frame_rec.shdr.sh_offset,
+        );
+        let mut fde_callback = |init_pos, virt_addr| eh_frame_hdr.add_fde(init_pos, virt_addr);
+        eh_frame
+            .iterate_fde(&mut fde_callback)
+            .map_err(|()| "failed to add FDE to .eh_frame_hdr while iterating .eh_frame")?;
 
-            // Sort FDE entries in .eh_frame_hdr
-            eh_frame_hdr.finalize_fde();
-        }
+        // Sort FDE entries in .eh_frame_hdr
+        eh_frame_hdr.finalize_fde();
 
         // Replace the data buffer in the record
         get_mut_section_by_name!(self, ".eh_frame_hdr")
@@ -727,7 +725,7 @@ impl<'a> Linker<'a> {
 
             // Allocate memory for .eh_frame_hdr
             // Calculate the size by parsing .eh_frame at coarse as possible
-            let eh_frame_hdr_size = unsafe { EH_Frame_Hdr::size_from_eh_frame(eh_frame) };
+            let eh_frame_hdr_size = EH_Frame_Hdr::size_from_eh_frame(eh_frame);
 
             // Describe the .eh_frame_hdr with a dummy shdr.
             let eh_frame_hdr_shdr = Elf32_Shdr {

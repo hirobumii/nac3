@@ -2,6 +2,8 @@
 
 use std::mem;
 
+use byteorder::{ByteOrder, LittleEndian};
+
 pub const DW_EH_PE_omit: u8 = 0xFF;
 pub const DW_EH_PE_absptr: u8 = 0x00;
 
@@ -22,44 +24,29 @@ pub const DW_EH_PE_aligned: u8 = 0x50;
 
 pub const DW_EH_PE_indirect: u8 = 0x80;
 
-pub struct DwarfReader {
-    pub ptr: *const u8,
+pub struct DwarfReader<'a> {
+    pub slice: &'a [u8],
     pub virt_addr: u32,
 }
 
-#[repr(C, packed)]
-struct Unaligned<T>(T);
-
-impl DwarfReader {
-    pub fn new(ptr: *const u8, virt_addr: u32) -> DwarfReader {
-        DwarfReader { ptr, virt_addr }
+impl<'a> DwarfReader<'a> {
+    pub fn new(slice: &[u8], virt_addr: u32) -> DwarfReader {
+        DwarfReader { slice, virt_addr }
     }
 
-    // DWARF streams are packed, so e.g., a u32 would not necessarily be aligned
-    // on a 4-byte boundary. This may cause problems on platforms with strict
-    // alignment requirements. By wrapping data in a "packed" struct, we are
-    // telling the backend to generate "misalignment-safe" code.
-    pub unsafe fn read<T: Copy>(&mut self) -> T {
-        let Unaligned(result) = *(self.ptr as *const Unaligned<T>);
-        let addr_increment = mem::size_of::<T>();
-        self.ptr = self.ptr.add(addr_increment);
-        self.virt_addr += addr_increment as u32;
-        result
-    }
-
-    pub unsafe fn offset(&mut self, offset: i32) {
-        self.ptr = self.ptr.offset(offset as isize);
+    pub fn offset(&mut self, offset: i32) {
+        self.slice = &self.slice[offset as usize..];
         self.virt_addr = self.virt_addr.wrapping_add(offset as u32);
     }
 
     // ULEB128 and SLEB128 encodings are defined in Section 7.6 - "Variable
     // Length Data".
-    pub unsafe fn read_uleb128(&mut self) -> u64 {
+    pub fn read_uleb128(&mut self) -> u64 {
         let mut shift: usize = 0;
         let mut result: u64 = 0;
         let mut byte: u8;
         loop {
-            byte = self.read::<u8>();
+            byte = self.read_u8();
             result |= ((byte & 0x7F) as u64) << shift;
             shift += 7;
             if byte & 0x80 == 0 {
@@ -69,12 +56,12 @@ impl DwarfReader {
         result
     }
 
-    pub unsafe fn read_sleb128(&mut self) -> i64 {
+    pub fn read_sleb128(&mut self) -> i64 {
         let mut shift: u32 = 0;
         let mut result: u64 = 0;
         let mut byte: u8;
         loop {
-            byte = self.read::<u8>();
+            byte = self.read_u8();
             result |= ((byte & 0x7F) as u64) << shift;
             shift += 7;
             if byte & 0x80 == 0 {
@@ -87,49 +74,90 @@ impl DwarfReader {
         }
         result as i64
     }
-}
 
-pub struct DwarfWriter {
-    pub ptr: *mut u8,
-}
-
-impl DwarfWriter {
-    pub fn new(ptr: *mut u8) -> DwarfWriter {
-        DwarfWriter { ptr }
-    }
-
-    pub unsafe fn write<T: Copy>(&mut self, data: T) {
-        *(self.ptr as *mut Unaligned<T>) = Unaligned(data);
-        self.ptr = self.ptr.add(mem::size_of::<T>());
+    pub fn read_u8(&mut self) -> u8 {
+        let val = self.slice[0];
+        self.slice = &self.slice[1..];
+        val
     }
 }
 
-unsafe fn read_encoded_pointer(reader: &mut DwarfReader, encoding: u8) -> Result<usize, ()> {
+macro_rules! impl_read_fn {
+    ( $($type: ty, $byteorder_fn: ident);* ) => {
+        impl<'a> DwarfReader<'a> {
+            $(
+                pub fn $byteorder_fn(&mut self) -> $type {
+                    let val = LittleEndian::$byteorder_fn(self.slice);
+                    self.slice = &self.slice[mem::size_of::<$type>()..];
+                    val
+                }
+            )*
+        }
+    }
+}
+
+impl_read_fn!(
+    u16,    read_u16;
+    u32,    read_u32;
+    u64,    read_u64;
+    i16,    read_i16;
+    i32,    read_i32;
+    i64,    read_i64
+);
+
+pub struct DwarfWriter<'a> {
+    pub slice: &'a mut [u8],
+    pub offset: usize,
+}
+
+impl<'a> DwarfWriter<'a> {
+    pub fn new(slice: &mut [u8]) -> DwarfWriter {
+        DwarfWriter { slice, offset: 0 }
+    }
+
+    pub fn write_u8(&mut self, data: u8) {
+        self.slice[self.offset] = data;
+        self.offset += 1;
+    }
+
+    pub fn write_u32(&mut self, data: u32) {
+        LittleEndian::write_u32(&mut self.slice[self.offset..], data);
+        self.offset += 4;
+    }
+}
+
+fn read_encoded_pointer(reader: &mut DwarfReader, encoding: u8) -> Result<usize, ()> {
     if encoding == DW_EH_PE_omit {
         return Err(());
     }
 
     // DW_EH_PE_aligned implies it's an absolute pointer value
+    // However, we are linking library for 32-bits architecture
+    // The size of variable should be 4 bytes instead
     if encoding == DW_EH_PE_aligned {
-        reader.ptr = round_up(reader.ptr as usize, mem::size_of::<usize>())? as *const u8;
-        return Ok(reader.read::<usize>());
+        let shifted_virt_addr = round_up(reader.virt_addr as usize, mem::size_of::<u32>())?;
+        let addr_inc = shifted_virt_addr - reader.virt_addr as usize;
+
+        reader.slice = &reader.slice[addr_inc..];
+        reader.virt_addr = shifted_virt_addr as u32;
+        return Ok(reader.read_u32() as usize);
     }
 
     match encoding & 0x0F {
-        DW_EH_PE_absptr => Ok(reader.read::<usize>()),
+        DW_EH_PE_absptr => Ok(reader.read_u32() as usize),
         DW_EH_PE_uleb128 => Ok(reader.read_uleb128() as usize),
-        DW_EH_PE_udata2 => Ok(reader.read::<u16>() as usize),
-        DW_EH_PE_udata4 => Ok(reader.read::<u32>() as usize),
-        DW_EH_PE_udata8 => Ok(reader.read::<u64>() as usize),
+        DW_EH_PE_udata2 => Ok(reader.read_u16() as usize),
+        DW_EH_PE_udata4 => Ok(reader.read_u32() as usize),
+        DW_EH_PE_udata8 => Ok(reader.read_u64() as usize),
         DW_EH_PE_sleb128 => Ok(reader.read_sleb128() as usize),
-        DW_EH_PE_sdata2 => Ok(reader.read::<i16>() as usize),
-        DW_EH_PE_sdata4 => Ok(reader.read::<i32>() as usize),
-        DW_EH_PE_sdata8 => Ok(reader.read::<i64>() as usize),
+        DW_EH_PE_sdata2 => Ok(reader.read_i16() as usize),
+        DW_EH_PE_sdata4 => Ok(reader.read_i32() as usize),
+        DW_EH_PE_sdata8 => Ok(reader.read_i64() as usize),
         _ => Err(()),
     }
 }
 
-unsafe fn read_encoded_pointer_with_pc(
+fn read_encoded_pointer_with_pc(
     reader: &mut DwarfReader,
     encoding: u8,
 ) -> Result<usize, ()> {
@@ -177,25 +205,25 @@ fn round_up(unrounded: usize, align: usize) -> Result<usize, ()> {
 // frame information (CFI) record, so there should be only 1 common information entry (CIE).
 // So the class parses the only CIE on init, cache the encoding info, then parse the FDE on
 // iterations based on the cached encoding format.
-pub struct EH_Frame {
+pub struct EH_Frame<'a> {
     // It refers to the augmentation data that corresponds to 'R' in the augmentation string
     pub fde_pointer_encoding: u8,
-    pub fde_reader: DwarfReader,
+    pub fde_reader: DwarfReader<'a>,
     pub fde_sz: usize,
 }
 
-impl EH_Frame {
-    pub unsafe fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> Result<EH_Frame, ()> {
-        let mut cie_reader = DwarfReader::new(eh_frame_slice.as_ptr(), eh_frame_addr);
+impl<'a> EH_Frame<'a> {
+    pub fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> Result<EH_Frame, ()> {
+        let mut cie_reader = DwarfReader::new(eh_frame_slice, eh_frame_addr);
         let eh_frame_size = eh_frame_slice.len();
-        let length = cie_reader.read::<u32>();
+        let length = cie_reader.read_u32();
         let fde_reader = match length {
             // eh_frame with 0 lengths means the CIE is terminated
             // while length == u32::MAX means that the length is only representable with 64 bits,
             // which does not make sense in a system with 32-bit address.
             0 | 0xFFFFFFFF => unimplemented!(),
             _ => {
-                let mut fde_reader = DwarfReader::new(cie_reader.ptr, cie_reader.virt_addr);
+                let mut fde_reader = DwarfReader::new(cie_reader.slice, cie_reader.virt_addr);
                 fde_reader.offset(length as i32);
                 fde_reader
             }
@@ -203,21 +231,21 @@ impl EH_Frame {
         let fde_sz = eh_frame_size - mem::size_of::<u32>() - length as usize;
 
         // Routine check on the .eh_frame well-formness, in terms of CIE ID & Version args.
-        assert_eq!(cie_reader.read::<u32>(), 0);
-        assert_eq!(cie_reader.read::<u8>(), 1);
+        assert_eq!(cie_reader.read_u32(), 0);
+        assert_eq!(cie_reader.read_u8(), 1);
 
         // Parse augmentation string
         // The first character must be 'z', there is no way to proceed otherwise
-        assert_eq!(cie_reader.read::<u8>(), b'z');
+        assert_eq!(cie_reader.read_u8(), b'z');
 
         // Establish a pointer that skips ahead of the string
         // Skip code/data alignment factors & return address register along the way as well
         // We only tackle the case where 'z' and 'R' are part of the augmentation string, otherwise
         // we cannot get the addresses to make .eh_frame_hdr
-        let mut aug_data_reader = DwarfReader::new(cie_reader.ptr, cie_reader.virt_addr);
+        let mut aug_data_reader = DwarfReader::new(cie_reader.slice, cie_reader.virt_addr);
         let mut aug_str_len = 0;
         loop {
-            if aug_data_reader.read::<u8>() == b'\0' {
+            if aug_data_reader.read_u8() == b'\0' {
                 break;
             }
             aug_str_len += 1;
@@ -231,18 +259,18 @@ impl EH_Frame {
         aug_data_reader.read_uleb128(); // Augmentation data length
         let mut fde_pointer_encoding = DW_EH_PE_omit;
         for _ in 0..aug_str_len {
-            match cie_reader.read::<u8>() {
+            match cie_reader.read_u8() {
                 b'L' => {
-                    aug_data_reader.read::<u8>();
+                    aug_data_reader.read_u8();
                 }
 
                 b'P' => {
-                    let encoding = aug_data_reader.read::<u8>();
+                    let encoding = aug_data_reader.read_u8();
                     read_encoded_pointer(&mut aug_data_reader, encoding)?;
                 }
 
                 b'R' => {
-                    fde_pointer_encoding = aug_data_reader.read::<u8>();
+                    fde_pointer_encoding = aug_data_reader.read_u8();
                 }
 
                 // Other characters are not supported
@@ -254,30 +282,30 @@ impl EH_Frame {
         Ok(EH_Frame { fde_pointer_encoding, fde_reader, fde_sz })
     }
 
-    pub unsafe fn iterate_fde(&self, callback: &mut dyn FnMut(u32, u32)) -> Result<(), ()> {
+    pub fn iterate_fde(&self, callback: &mut dyn FnMut(u32, u32)) -> Result<(), ()> {
         // Parse each FDE to obtain the starting address that the FDE applies to
         // Send the FDE offset and the mentioned address to a callback that write up the
         // .eh_frame_hdr section
         let mut remaining_len = self.fde_sz;
-        let mut reader = DwarfReader::new(self.fde_reader.ptr, self.fde_reader.virt_addr);
+        let mut reader = DwarfReader::new(self.fde_reader.slice, self.fde_reader.virt_addr);
         loop {
             if remaining_len == 0 {
                 break;
             }
 
             let fde_virt_addr = reader.virt_addr;
-            let length = match reader.read::<u32>() {
+            let length = match reader.read_u32() {
                 0 | 0xFFFFFFFF => unimplemented!(),
                 other => other,
             };
 
             // Remove the length of the header and the content from the counter
             remaining_len -= length as usize + mem::size_of::<u32>();
-            let mut next_fde_reader = DwarfReader::new(reader.ptr, reader.virt_addr);
+            let mut next_fde_reader = DwarfReader::new(reader.slice, reader.virt_addr);
             next_fde_reader.offset(length as i32);
 
             // Skip CIE pointer offset
-            reader.read::<u32>();
+            reader.read_u32();
 
             // Parse PC Begin using the encoding scheme mentioned in the CIE
             let pc_begin = read_encoded_pointer_with_pc(&mut reader, self.fde_pointer_encoding)?;
@@ -291,74 +319,73 @@ impl EH_Frame {
     }
 }
 
-pub struct EH_Frame_Hdr {
-    fde_writer: DwarfWriter,
-    fde_count_ptr: *mut u8,
+pub struct EH_Frame_Hdr<'a> {
+    fde_writer: DwarfWriter<'a>,
     eh_frame_hdr_addr: u32,
     fdes: Vec<(u32, u32)>,
 }
 
-impl EH_Frame_Hdr {
+impl<'a> EH_Frame_Hdr<'a> {
     // Create a EH_Frame_Hdr object, and write out the fixed fields of .eh_frame_hdr to memory
     // eh_frame_ptr_enc will be 0x1B (PC-relative, 4 bytes)
     // table_enc will be 0x3B (Relative to the start of .eh_frame_hdr, 4 bytes)
     // Load address is not known at this point.
-    pub unsafe fn new(
+    pub fn new(
         eh_frame_hdr_slice: &mut [u8],
         eh_frame_hdr_addr: u32,
         eh_frame_addr: u32,
     ) -> EH_Frame_Hdr {
-        let mut writer = DwarfWriter::new(eh_frame_hdr_slice.as_mut_ptr());
-        writer.write::<u8>(1);
-        writer.write::<u8>(0x1B);
-        writer.write::<u8>(0x03);
-        writer.write::<u8>(0x3B);
+        let mut writer = DwarfWriter::new(eh_frame_hdr_slice);
+        writer.write_u8(1);
+        writer.write_u8(0x1B);
+        writer.write_u8(0x03);
+        writer.write_u8(0x3B);
 
         let eh_frame_offset =
             (eh_frame_addr).wrapping_sub(eh_frame_hdr_addr + ((mem::size_of::<u8>() as u32) * 4));
-        writer.write(eh_frame_offset);
-        let fde_count_ptr = writer.ptr;
-        writer.write::<u32>(0);
+        writer.write_u32(eh_frame_offset);
+        writer.write_u32(0);
 
-        EH_Frame_Hdr { fde_writer: writer, fde_count_ptr, eh_frame_hdr_addr, fdes: Vec::new() }
+        EH_Frame_Hdr { fde_writer: writer, eh_frame_hdr_addr, fdes: Vec::new() }
     }
 
-    pub unsafe fn add_fde(&mut self, init_loc: u32, addr: u32) {
+    fn fde_count_offset() -> usize {
+        8
+    }
+
+    pub fn add_fde(&mut self, init_loc: u32, addr: u32) {
         self.fdes.push((
             init_loc.wrapping_sub(self.eh_frame_hdr_addr),
             addr.wrapping_sub(self.eh_frame_hdr_addr),
         ));
     }
 
-    pub unsafe fn finalize_fde(mut self) {
+    pub fn finalize_fde(mut self) {
         self.fdes
             .sort_by(|(left_init_loc, _), (right_init_loc, _)| left_init_loc.cmp(right_init_loc));
         for (init_loc, addr) in &self.fdes {
-            self.fde_writer.write(init_loc);
-            self.fde_writer.write(addr);
+            self.fde_writer.write_u32(*init_loc);
+            self.fde_writer.write_u32(*addr);
         }
-        let mut fde_count_writer = DwarfWriter::new(self.fde_count_ptr);
-        fde_count_writer.write::<u32>(self.fdes.len() as u32);
+        LittleEndian::write_u32(&mut self.fde_writer.slice[Self::fde_count_offset()..], self.fdes.len() as u32);
     }
 
-    pub unsafe fn size_from_eh_frame(eh_frame: &[u8]) -> usize {
-        // The virtual address of the EH frame does no matter in this case
+    pub fn size_from_eh_frame(eh_frame: &[u8]) -> usize {
+        // The virtual address of the EH frame does not matter in this case
         // Calculation of size does not involve modifying any headers
-        let mut reader = DwarfReader::new(eh_frame.as_ptr(), 0);
-        let end_addr = eh_frame.as_ptr() as usize + eh_frame.len();
+        let mut reader = DwarfReader::new(eh_frame, 0);
         let mut fde_count = 0;
-        while (reader.ptr as usize) < end_addr {
+        while !reader.slice.is_empty() {
             // The original length field should be able to hold the entire value.
             // The device memory space is limited to 32-bits addresses anyway.
-            let entry_length = reader.read::<u32>();
-            let next_ptr = reader.ptr.offset(entry_length as isize);
+            let entry_length = reader.read_u32();
             if entry_length == 0 || entry_length == 0xFFFFFFFF {
                 unimplemented!()
             }
-            if reader.read::<u32>() != 0 {
+            if reader.read_u32() != 0 {
                 fde_count += 1;
             }
-            reader.ptr = next_ptr;
+            reader.offset(entry_length as i32 - mem::size_of::<u32>() as i32)
         }
         12 + fde_count * 8
     }
