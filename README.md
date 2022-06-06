@@ -13,7 +13,7 @@ NAC3 has a modular design and its applicability reaches beyond ARTIQ. The ``nac3
 
 ## Packaging
 
-NAC3 is packaged using the [Nix](https://nixos.org) Flakes system. Install Nix 2.4+ and enable flakes by adding ``experimental-features = nix-command flakes`` to ``nix.conf`` (e.g. ``~/.config/nix/nix.conf``).
+NAC3 is packaged using the [Nix](https://nixos.org) Flakes system. Install Nix 2.8+ and enable flakes by adding ``experimental-features = nix-command flakes`` to ``nix.conf`` (e.g. ``~/.config/nix/nix.conf``).
 
 ## Try NAC3
 
