@@ -34,14 +34,14 @@ let
 in rec {
   llvm-nac3 = pkgs.stdenvNoCC.mkDerivation rec {
     pname = "llvm-nac3-msys2";
-    version = "14.0.4";
+    version = "14.0.6";
     src-llvm = pkgs.fetchurl {
       url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/llvm-${version}.src.tar.xz";
-      sha256 = "sha256-646Q362uQHOn+PxjhLrMDdoHJADYK50l2rtSgKc3uiI=";
+      sha256 = "sha256-BQki7KrKV4H99mMeqSvHFRg/IC+dLxUUcibwI0FPYZo=";
     };
     src-clang = pkgs.fetchurl {
       url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/clang-${version}.src.tar.xz";
-      sha256 = "sha256-kivcg0FJHU9UVIxRuv13wOc3oxRv4zx2K84xoP0VFZE=";
+      sha256 = "sha256-K1hHtqYxGLnv5chVSDY8gf/glrZsOzZ16VPiY0KuQDE=";
     };
     buildInputs = [ pkgs.wineWowPackages.stable ];
     phases = [ "unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase" ];
@@ -83,7 +83,7 @@ in rec {
     cargoLock = {
       lockFile = ../../Cargo.lock;
       outputHashes = {
-        "inkwell-0.1.0" = "sha256-jQGL34UOxFzxRNdQTo52FPmQEqx/kWrW5E3wJNc2haM=";
+        "inkwell-0.1.0" = "sha256-+ih3SO0n6YmZ/mcf+rLDwPAy/1MEZ/A+tI4pM1pUhvU=";
       };
     };
     nativeBuildInputs = [ pkgs.wineWowPackages.stable ];
