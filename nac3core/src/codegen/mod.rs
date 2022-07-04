@@ -31,6 +31,7 @@ use std::sync::{
     Arc,
 };
 use std::thread;
+use lazy_static::lazy_static;
 
 pub mod concrete_type;
 pub mod expr;
@@ -51,9 +52,6 @@ pub struct StaticValueStore {
 }
 
 pub type VarValue<'ctx> = (PointerValue<'ctx>, Option<Arc<dyn StaticValue + Send + Sync>>, i64);
-
-
-use lazy_static::lazy_static;
 
 lazy_static!(
     // HACK: The Mutex is a work-around for issue
