@@ -52,6 +52,9 @@ pub struct StaticValueStore {
 
 pub type VarValue<'ctx> = (PointerValue<'ctx>, Option<Arc<dyn StaticValue + Send + Sync>>, i64);
 
+
+use lazy_static::lazy_static;
+
 lazy_static!(
     // HACK: The Mutex is a work-around for issue
     // https://git.m-labs.hk/M-Labs/nac3/issues/275
