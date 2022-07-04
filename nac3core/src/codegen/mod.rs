@@ -150,12 +150,10 @@ impl WorkerRegistry {
         });
 
         let mut handles = Vec::new();
-
         for mut generator in generators.into_iter() {
             let registry = registry.clone();
             let registry2 = registry.clone();
             let f = f.clone();
-
             let handle = thread::spawn(move || {
                 registry.worker_thread(generator.as_mut(), f);
             });
@@ -228,7 +226,6 @@ impl WorkerRegistry {
 
         let passes = PassManager::create(&module);
 
-
         // HACK: This critical section is a work-around for issue
         // https://git.m-labs.hk/M-Labs/nac3/issues/275
         {
@@ -259,6 +256,7 @@ impl WorkerRegistry {
         if !errors.is_empty() {
             panic!("Codegen error: {}", errors.into_iter().sorted().join("\n----------\n"));
         }
+
         let result = module.verify();
         if let Err(err) = result {
             println!("{}", module.print_to_string().to_str().unwrap());
