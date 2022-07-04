@@ -218,7 +218,8 @@ impl WorkerRegistry {
     ) {
         let context = Context::create();
         let mut builder = context.create_builder();
-        let module = context.create_module(generator.get_name());
+        let mut module = context.create_module(generator.get_name());
+
         module.add_basic_value_flag(
             "Debug Info Version",
             inkwell::module::FlagBehavior::Warning,
@@ -236,9 +237,6 @@ impl WorkerRegistry {
         // HACK: This critical section is a work-around for issue
         // https://git.m-labs.hk/M-Labs/nac3/issues/275
         {
-            // the variable holder `_data` is required even we are not using the
-            // variable. The lock will release itself if the variable `_data` is not
-            // there
             let _data = PASSES_INIT_LOCK.lock();
             let pass_builder = PassManagerBuilder::create();
             pass_builder.set_optimization_level(OptimizationLevel::Default);
@@ -247,16 +245,17 @@ impl WorkerRegistry {
 
         let mut errors = HashSet::new();
         while let Some(task) = self.receiver.recv().unwrap() {
-            let tmp_module = context.create_module("tmp");
-            match gen_func(&context, generator, self, builder, tmp_module, task) {
+            match gen_func(&context, generator, self, builder, module, task) {
                 Ok(result) => {
                     builder = result.0;
                     passes.run_on(&result.2);
-                    module.link_in_module(result.1).unwrap();
+                    module = result.1;
                 }
                 Err((old_builder, e)) => {
                     builder = old_builder;
                     errors.insert(e);
+                    // create a new empty module just to continue codegen and collect errors
+                    module = context.create_module(&format!("{}_recover", generator.get_name()));
                 }
             }
             *self.task_count.lock() -= 1;
@@ -292,6 +291,7 @@ pub struct CodeGenTask {
 
 fn get_llvm_type<'ctx>(
     ctx: &'ctx Context,
+    module: &Module<'ctx>,
     generator: &mut dyn CodeGenerator,
     unifier: &mut Unifier,
     top_level: &TopLevelContext,
@@ -316,6 +316,7 @@ fn get_llvm_type<'ctx>(
                         ) if *obj_id == *opt_id => {
                             return get_llvm_type(
                                 ctx,
+                                module,
                                 generator,
                                 unifier,
                                 top_level,
@@ -332,27 +333,37 @@ fn get_llvm_type<'ctx>(
                 // a struct with fields in the order of declaration
                 let top_level_defs = top_level.definitions.read();
                 let definition = top_level_defs.get(obj_id.0).unwrap();
-                let ty = if let TopLevelDef::Class { name, fields: fields_list, .. } =
+                let ty = if let TopLevelDef::Class { fields: fields_list, .. } =
                     &*definition.read()
                 {
-                    let struct_type = ctx.opaque_struct_type(&name.to_string());
-                    type_cache.insert(unifier.get_representative(ty), struct_type.ptr_type(AddressSpace::Generic).into());
-                    let fields = fields_list
-                        .iter()
-                        .map(|f| {
-                            get_llvm_type(
-                                ctx,
-                                generator,
-                                unifier,
-                                top_level,
-                                type_cache,
-                                primitives,
-                                fields[&f.0].0,
-                            )
-                        })
-                        .collect_vec();
-                    struct_type.set_body(&fields, false);
-                    struct_type.ptr_type(AddressSpace::Generic).into()
+                    let name = unifier.stringify(ty);
+                    match module.get_struct_type(&name) {
+                        Some(t) => t.ptr_type(AddressSpace::Generic).into(),
+                        None => {
+                            let struct_type = ctx.opaque_struct_type(&name);
+                            type_cache.insert(
+                                unifier.get_representative(ty),
+                                struct_type.ptr_type(AddressSpace::Generic).into()
+                            );
+                            let fields = fields_list
+                                .iter()
+                                .map(|f| {
+                                    get_llvm_type(
+                                        ctx,
+                                        module,
+                                        generator,
+                                        unifier,
+                                        top_level,
+                                        type_cache,
+                                        primitives,
+                                        fields[&f.0].0,
+                                    )
+                                })
+                                .collect_vec();
+                            struct_type.set_body(&fields, false);
+                            struct_type.ptr_type(AddressSpace::Generic).into()
+                        }
+                    }
                 } else {
                     unreachable!()
                 };
@@ -362,14 +373,19 @@ fn get_llvm_type<'ctx>(
                 // a struct with fields in the order present in the tuple
                 let fields = ty
                     .iter()
-                    .map(|ty| get_llvm_type(ctx, generator, unifier, top_level, type_cache, primitives, *ty))
+                    .map(|ty| {
+                        get_llvm_type(
+                            ctx, module, generator, unifier, top_level, type_cache, primitives, *ty,
+                        )
+                    })
                     .collect_vec();
                 ctx.struct_type(&fields, false).into()
             }
             TList { ty } => {
                 // a struct with an integer and a pointer to an array
-                let element_type =
-                    get_llvm_type(ctx, generator, unifier, top_level, type_cache, primitives, *ty);
+                let element_type = get_llvm_type(
+                    ctx, module, generator, unifier, top_level, type_cache, primitives, *ty,
+                );
                 let fields = [
                     element_type.ptr_type(AddressSpace::Generic).into(),
                     generator.get_size_type(ctx).into(),
@@ -455,28 +471,40 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         (primitives.float, context.f64_type().into()),
         (primitives.bool, context.bool_type().into()),
         (primitives.str, {
-            let str_type = context.opaque_struct_type("str");
-            let fields = [
-                context.i8_type().ptr_type(AddressSpace::Generic).into(),
-                generator.get_size_type(context).into(),
-            ];
-            str_type.set_body(&fields, false);
-            str_type.into()
+            let name = "str";
+            match module.get_struct_type(name) {
+                None => {
+                    let str_type = context.opaque_struct_type("str");
+                    let fields = [
+                        context.i8_type().ptr_type(AddressSpace::Generic).into(),
+                        generator.get_size_type(context).into(),
+                    ];
+                    str_type.set_body(&fields, false);
+                    str_type.into()
+                }
+                Some(t) => t.as_basic_type_enum()
+            }
         }),
         (primitives.range, context.i32_type().array_type(3).ptr_type(AddressSpace::Generic).into()),
+        (primitives.exception, {
+            let name = "Exception";
+            match module.get_struct_type(name) {
+                Some(t) => t.ptr_type(AddressSpace::Generic).as_basic_type_enum(),
+                None => {
+                    let exception = context.opaque_struct_type("Exception");
+                    let int32 = context.i32_type().into();
+                    let int64 = context.i64_type().into();
+                    let str_ty = module.get_struct_type("str").unwrap().as_basic_type_enum();
+                    let fields = [int32, str_ty, int32, int32, str_ty, str_ty, int64, int64, int64];
+                    exception.set_body(&fields, false);
+                    exception.ptr_type(AddressSpace::Generic).as_basic_type_enum()
+                }
+            }
+        })
     ]
     .iter()
     .cloned()
     .collect();
-    type_cache.insert(primitives.exception, {
-        let exception = context.opaque_struct_type("Exception");
-        let int32 = context.i32_type().into();
-        let int64 = context.i64_type().into();
-        let str_ty = *type_cache.get(&primitives.str).unwrap();
-        let fields = [int32, str_ty, int32, int32, str_ty, str_ty, int64, int64, int64];
-        exception.set_body(&fields, false);
-        exception.ptr_type(AddressSpace::Generic).into()
-    });
     // NOTE: special handling of option cannot use this type cache since it contains type var,
     // handled inside get_llvm_type instead
 
@@ -499,7 +527,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
     let ret_type = if unifier.unioned(ret, primitives.none) {
         None
     } else {
-        Some(get_llvm_type(context, generator, &mut unifier, top_level_ctx.as_ref(), &mut type_cache, &primitives, ret))
+        Some(get_llvm_type(context, &module, generator, &mut unifier, top_level_ctx.as_ref(), &mut type_cache, &primitives, ret))
     };
 
     let has_sret = ret_type.map_or(false, |ty| need_sret(context, ty));
@@ -508,6 +536,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         .map(|arg| {
             get_llvm_type(
                 context,
+                &module,
                 generator,
                 &mut unifier,
                 top_level_ctx.as_ref(),
@@ -556,6 +585,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         let alloca = builder.build_alloca(
             get_llvm_type(
                 context,
+                &module,
                 generator,
                 &mut unifier,
                 top_level_ctx.as_ref(),
