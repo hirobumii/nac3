@@ -521,6 +521,7 @@ dependencies = [
  "inkwell",
  "insta",
  "itertools",
+ "lazy_static",
  "nac3parser",
  "parking_lot 0.11.2",
  "rayon",
