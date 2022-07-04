@@ -53,6 +53,8 @@ pub struct StaticValueStore {
 pub type VarValue<'ctx> = (PointerValue<'ctx>, Option<Arc<dyn StaticValue + Send + Sync>>, i64);
 
 lazy_static!(
+    // HACK: The Mutex is a work-around for issue
+    // https://git.m-labs.hk/M-Labs/nac3/issues/275
     static ref PASSES_INIT_LOCK: Mutex<AtomicBool> = Mutex::new(AtomicBool::new(true));
 );
 
@@ -230,7 +232,13 @@ impl WorkerRegistry {
 
         let passes = PassManager::create(&module);
 
+
+        // HACK: This critical section is a work-around for issue
+        // https://git.m-labs.hk/M-Labs/nac3/issues/275
         {
+            // the variable holder `_data` is required even we are not using the
+            // variable. The lock will release itself if the variable `_data` is not
+            // there
             let _data = PASSES_INIT_LOCK.lock();
             let pass_builder = PassManagerBuilder::create();
             pass_builder.set_optimization_level(OptimizationLevel::Default);
