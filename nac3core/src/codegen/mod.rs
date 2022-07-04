@@ -52,6 +52,10 @@ pub struct StaticValueStore {
 
 pub type VarValue<'ctx> = (PointerValue<'ctx>, Option<Arc<dyn StaticValue + Send + Sync>>, i64);
 
+lazy_static!(
+    static ref PASSES_INIT_LOCK: Mutex<AtomicBool> = Mutex::new(AtomicBool::new(true));
+);
+
 pub struct CodeGenContext<'ctx, 'a> {
     pub ctx: &'ctx Context,
     pub builder: Builder<'ctx>,
@@ -144,13 +148,16 @@ impl WorkerRegistry {
         });
 
         let mut handles = Vec::new();
+
         for mut generator in generators.into_iter() {
             let registry = registry.clone();
             let registry2 = registry.clone();
             let f = f.clone();
+
             let handle = thread::spawn(move || {
                 registry.worker_thread(generator.as_mut(), f);
             });
+
             let handle = thread::spawn(move || {
                 if let Err(e) = handle.join() {
                     if let Some(e) = e.downcast_ref::<&'static str>() {
@@ -162,6 +169,7 @@ impl WorkerRegistry {
                     registry2.wait_condvar.notify_all();
                 }
             });
+
             handles.push(handle);
         }
         (registry, handles)
@@ -202,11 +210,13 @@ impl WorkerRegistry {
         self.sender.send(Some(task)).unwrap();
     }
 
-    fn worker_thread<G: CodeGenerator>(&self, generator: &mut G, f: Arc<WithCall>) {
+    fn worker_thread<G: CodeGenerator>(
+        &self, generator:
+        &mut G, f: Arc<WithCall>
+    ) {
         let context = Context::create();
         let mut builder = context.create_builder();
         let module = context.create_module(generator.get_name());
-
         module.add_basic_value_flag(
             "Debug Info Version",
             inkwell::module::FlagBehavior::Warning,
@@ -218,10 +228,14 @@ impl WorkerRegistry {
             context.i32_type().const_int(4, false),
         );
 
-        let pass_builder = PassManagerBuilder::create();
-        pass_builder.set_optimization_level(OptimizationLevel::Default);
         let passes = PassManager::create(&module);
-        pass_builder.populate_function_pass_manager(&passes);
+
+        {
+            let _data = PASSES_INIT_LOCK.lock();
+            let pass_builder = PassManagerBuilder::create();
+            pass_builder.set_optimization_level(OptimizationLevel::Default);
+            pass_builder.populate_function_pass_manager(&passes);
+        }
 
         let mut errors = HashSet::new();
         while let Some(task) = self.receiver.recv().unwrap() {
@@ -243,7 +257,6 @@ impl WorkerRegistry {
         if !errors.is_empty() {
             panic!("Codegen error: {}", errors.into_iter().sorted().join("\n----------\n"));
         }
-
         let result = module.verify();
         if let Err(err) = result {
             println!("{}", module.print_to_string().to_str().unwrap());
