@@ -10,6 +10,7 @@ crossbeam = "0.8.1"
 parking_lot = "0.11.1"
 rayon = "1.5.1"
 nac3parser = { path = "../nac3parser" }
+lazy_static = "1.4.0"
 
 [dependencies.inkwell]
 git = "https://github.com/TheDan64/inkwell.git"

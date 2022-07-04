@@ -31,6 +31,7 @@ use std::sync::{
     Arc,
 };
 use std::thread;
+use lazy_static::lazy_static;
 
 pub mod concrete_type;
 pub mod expr;
@@ -51,6 +52,12 @@ pub struct StaticValueStore {
 }
 
 pub type VarValue<'ctx> = (PointerValue<'ctx>, Option<Arc<dyn StaticValue + Send + Sync>>, i64);
+
+lazy_static!(
+    // HACK: The Mutex is a work-around for issue
+    // https://git.m-labs.hk/M-Labs/nac3/issues/275
+    static ref PASSES_INIT_LOCK: Mutex<AtomicBool> = Mutex::new(AtomicBool::new(true));
+);
 
 pub struct CodeGenContext<'ctx, 'a> {
     pub ctx: &'ctx Context,
@@ -218,10 +225,16 @@ impl WorkerRegistry {
             context.i32_type().const_int(4, false),
         );
 
-        let pass_builder = PassManagerBuilder::create();
-        pass_builder.set_optimization_level(OptimizationLevel::Default);
         let passes = PassManager::create(&module);
-        pass_builder.populate_function_pass_manager(&passes);
+
+        // HACK: This critical section is a work-around for issue
+        // https://git.m-labs.hk/M-Labs/nac3/issues/275
+        {
+            let _data = PASSES_INIT_LOCK.lock();
+            let pass_builder = PassManagerBuilder::create();
+            pass_builder.set_optimization_level(OptimizationLevel::Default);
+            pass_builder.populate_function_pass_manager(&passes);
+        }
 
         let mut errors = HashSet::new();
         while let Some(task) = self.receiver.recv().unwrap() {
