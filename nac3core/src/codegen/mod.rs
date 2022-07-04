@@ -159,7 +159,6 @@ impl WorkerRegistry {
             let handle = thread::spawn(move || {
                 registry.worker_thread(generator.as_mut(), f);
             });
-
             let handle = thread::spawn(move || {
                 if let Err(e) = handle.join() {
                     if let Some(e) = e.downcast_ref::<&'static str>() {
@@ -171,7 +170,6 @@ impl WorkerRegistry {
                     registry2.wait_condvar.notify_all();
                 }
             });
-
             handles.push(handle);
         }
         (registry, handles)
@@ -212,10 +210,7 @@ impl WorkerRegistry {
         self.sender.send(Some(task)).unwrap();
     }
 
-    fn worker_thread<G: CodeGenerator>(
-        &self, generator:
-        &mut G, f: Arc<WithCall>
-    ) {
+    fn worker_thread<G: CodeGenerator>(&self, generator: &mut G, f: Arc<WithCall>) {
         let context = Context::create();
         let mut builder = context.create_builder();
         let mut module = context.create_module(generator.get_name());
