@@ -135,7 +135,6 @@ fn test_simple_register_without_constructor(source: &str) {
     composer.register_top_level(ast, None, "".into(), false).unwrap();
 }
 
-
 #[test_case(
     vec![
         indoc! {"
