@@ -164,6 +164,7 @@ impl TopLevelComposer {
         ast: ast::Stmt<()>,
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
         mod_path: String,
+        allow_no_constructor: bool,
     ) -> Result<(StrRef, DefinitionId, Option<Type>), String> {
         let defined_names = &mut self.defined_names;
         match &ast.node {
@@ -298,7 +299,7 @@ impl TopLevelComposer {
                     self.definition_ast_list.push((def, Some(ast)));
                 }
 
-                let result_ty = if contains_constructor { Some(constructor_ty) } else { None };
+                let result_ty = if allow_no_constructor || contains_constructor { Some(constructor_ty) } else { None };
                 Ok((class_name, DefinitionId(class_def_id), result_ty))
             }
 
