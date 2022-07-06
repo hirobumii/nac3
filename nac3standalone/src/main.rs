@@ -208,7 +208,7 @@ fn main() {
                 if module == &Some("__future__".into()) && names.len() == 1 && names[0].name == "annotations".into() => (),
             _ => {
                 let (name, def_id, ty) =
-                    composer.register_top_level(stmt, Some(resolver.clone()), "__main__".into()).unwrap();
+                    composer.register_top_level(stmt, Some(resolver.clone()), "__main__".into(), true).unwrap();
                 internal_resolver.add_id_def(name, def_id);
                 if let Some(ty) = ty {
                     internal_resolver.add_id_type(name, ty);
