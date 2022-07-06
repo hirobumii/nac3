@@ -116,7 +116,7 @@ fn test_simple_register(source: Vec<&str>) {
         let ast = parse_program(s, Default::default()).unwrap();
         let ast = ast[0].clone();
 
-        composer.register_top_level(ast, None, "".into()).unwrap();
+        composer.register_top_level(ast, None, "".into(), false).unwrap();
     }
 }
 
@@ -163,7 +163,7 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
         let ast = ast[0].clone();
 
         let (id, def_id, ty) =
-            composer.register_top_level(ast, Some(resolver.clone()), "".into()).unwrap();
+            composer.register_top_level(ast, Some(resolver.clone()), "".into(), false).unwrap();
         internal_resolver.add_id_def(id, def_id);
         if let Some(ty) = ty {
             internal_resolver.add_id_type(id, ty);
@@ -515,7 +515,7 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
         let ast = ast[0].clone();
 
         let (id, def_id, ty) = {
-            match composer.register_top_level(ast, Some(resolver.clone()), "".into()) {
+            match composer.register_top_level(ast, Some(resolver.clone()), "".into(), false) {
                 Ok(x) => x,
                 Err(msg) => {
                     if print {
@@ -699,7 +699,7 @@ fn test_inference(source: Vec<&str>, res: Vec<&str>) {
         let ast = ast[0].clone();
 
         let (id, def_id, ty) = {
-            match composer.register_top_level(ast, Some(resolver.clone()), "".into()) {
+            match composer.register_top_level(ast, Some(resolver.clone()), "".into(), false) {
                 Ok(x) => x,
                 Err(msg) => {
                     if print {
