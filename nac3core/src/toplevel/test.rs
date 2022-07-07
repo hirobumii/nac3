@@ -125,6 +125,7 @@ fn test_simple_register(source: Vec<&str>) {
         class A:
             def foo(self):
                 pass
+        a = A()
     "};
     "register"
 )]
@@ -132,7 +133,7 @@ fn test_simple_register_without_constructor(source: &str) {
     let mut composer: TopLevelComposer = Default::default();
     let ast = parse_program(source, Default::default()).unwrap();
     let ast = ast[0].clone();
-    composer.register_top_level(ast, None, "".into(), false).unwrap();
+    composer.register_top_level(ast, None, "".into(), true).unwrap();
 }
 
 #[test_case(
