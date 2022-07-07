@@ -1067,11 +1067,26 @@ impl TopLevelComposer {
         let mut defined_fields: HashSet<_> = HashSet::new();
         for b in class_body_ast {
             match &b.node {
-                ast::StmtKind::FunctionDef { args, returns, name, .. } => {
+                ast::StmtKind::FunctionDef { args, returns, name, decorator_list, .. } => {
                     let (method_dummy_ty, method_id) =
                         Self::get_class_method_def_info(class_methods_def, *name)?;
 
                     let mut method_var_map: HashMap<u32, Type> = HashMap::new();
+
+                    // This part check if __init__ method decorate with inappropriate decorator (rpc)
+                    if name == &"__init__".into() {
+                        if let Some(_) = decorator_list
+                        .iter()
+                        .find(|ast::Located { node, .. }| match node {
+                            &ast::ExprKind::Name { id, .. } => id == "rpc".into(),
+                            _ => false
+                        }) {
+                            return Err(format!(
+                                "class {} constructor {} (at {}) must not be decorated with rpc",
+                                _class_name, name, b.location
+                            ));
+                        }
+                    }
 
                     let arg_types: Vec<FuncArg> = {
                         // check method parameters cannot have same name
