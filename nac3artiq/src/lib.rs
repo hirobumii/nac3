@@ -371,7 +371,7 @@ impl Nac3 {
                 });
 
             let (name, def_id, ty) = composer
-                .register_top_level(stmt.clone(), Some(resolver.clone()), path.clone())
+                .register_top_level(stmt.clone(), Some(resolver.clone()), path.clone(), false)
                 .map_err(|e| {
                     CompileError::new_err(format!(
                         "compilation failed\n----------\n{}",
@@ -451,7 +451,7 @@ impl Nac3 {
         });
         let resolver = Arc::new(Resolver(inner_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
         let (_, def_id, _) = composer
-            .register_top_level(synthesized.pop().unwrap(), Some(resolver.clone()), "".into())
+            .register_top_level(synthesized.pop().unwrap(), Some(resolver.clone()), "".into(), false)
             .unwrap();
 
         let fun_signature =
