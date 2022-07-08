@@ -402,6 +402,7 @@ impl Nac3 {
                                     }
                                 })
                             {
+                                // This part check if __init__ method decorate with inappropriate decorator (rpc)
                                 if name == &"__init__".into() {
                                     return Err(CompileError::new_err(format!(
                                         "compilation failed\n----------\nConstructor __init__ function should not decorated with rpc decorator (at {})",
