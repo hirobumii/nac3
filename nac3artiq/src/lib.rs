@@ -396,7 +396,7 @@ impl Nac3 {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
                             if let Some(location) = decorator_list
                                 .iter()
-                                .find_map(|ast::Located { location, node, .. } | {
+                                .find_map(|ast::Located { location, node, .. }| {
                                     match node {
                                         ExprKind::Name { id, .. } if id == &"rpc".into() => Some(location),
                                         _ => None,
