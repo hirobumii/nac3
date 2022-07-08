@@ -1073,21 +1073,6 @@ impl TopLevelComposer {
 
                     let mut method_var_map: HashMap<u32, Type> = HashMap::new();
 
-                    // This part check if __init__ method decorate with inappropriate decorator (rpc)
-                    if name == &"__init__".into() {
-                        if let Some(_) = decorator_list
-                        .iter()
-                        .find(|ast::Located { node, .. }| match node {
-                            &ast::ExprKind::Name { id, .. } => id == "rpc".into(),
-                            _ => false
-                        }) {
-                            return Err(format!(
-                                "class {} constructor {} (at {}) must not be decorated with rpc",
-                                _class_name, name, b.location
-                            ));
-                        }
-                    }
-
                     let arg_types: Vec<FuncArg> = {
                         // check method parameters cannot have same name
                         let mut defined_parameter_name: HashSet<_> = HashSet::new();
