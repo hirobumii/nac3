@@ -1067,7 +1067,7 @@ impl TopLevelComposer {
         let mut defined_fields: HashSet<_> = HashSet::new();
         for b in class_body_ast {
             match &b.node {
-                ast::StmtKind::FunctionDef { args, returns, name, decorator_list, .. } => {
+                ast::StmtKind::FunctionDef { args, returns, name, .. }=> {
                     let (method_dummy_ty, method_id) =
                         Self::get_class_method_def_info(class_methods_def, *name)?;
 
