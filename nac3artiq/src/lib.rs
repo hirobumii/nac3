@@ -394,20 +394,11 @@ impl Nac3 {
                     let class_obj = module.getattr(py, &class_name).unwrap();
                     for stmt in body.iter() {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
-                            if let Some(location) = decorator_list
-                                .iter()
-                                .find_map(|ast::Located { location, node, .. }| {
-                                    match node {
-                                        ExprKind::Name { id, .. } if id == &"rpc".into() => Some(location),
-                                        _ => None,
-                                    }
-                                })
-                            {
-                                // This part check if __init__ method decorate with inappropriate decorator (rpc)
+                            if decorator_list.iter().any(|decorator| matches!(decorator.node, ExprKind::Name { id, .. } if id == "rpc".into())) {
                                 if name == &"__init__".into() {
                                     return Err(CompileError::new_err(format!(
-                                        "compilation failed\n----------\nClass {} Constructor __init__ function should not decorated with rpc decorator (at {})",
-                                        class_name, location
+                                        "compilation failed\n----------\nThe constructor of class {} should not be decorated with rpc decorator (at {})",
+                                        class_name, stmt.location
                                     )));
                                 }
                                 rpc_ids.push((Some((class_obj.clone(), *name)), def_id));
