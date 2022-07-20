@@ -196,7 +196,7 @@ impl TopLevelComposer {
             let mut current_class = class.clone();
             while let Some(base) = base_class_lookup.get(current_class) {
                 if let Some(cons) = constructor_lookup.get(base) {
-                    self.constructor_lookup.insert(*current_class, cons.clone());
+                    self.constructor_lookup.insert(**class, cons.clone());
                     break;
                 } else {
                     current_class = base;
