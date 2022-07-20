@@ -172,7 +172,7 @@ impl TopLevelComposer {
             })
         );
 
-        let mut constructor_lookup: HashMap<StrRef, ast::Located<ast::StmtKind>> = HashMap::from_iter(
+        let constructor_lookup: HashMap<StrRef, ast::Located<ast::StmtKind>> = HashMap::from_iter(
             classes.iter().filter_map(|(class_name, _, body)| {
                 for stmt in body.iter() {
                     let func_name = if let ast::StmtKind::FunctionDef { name, .. } = &stmt.node {
@@ -187,69 +187,6 @@ impl TopLevelComposer {
                 }
                 return None
             })
-        );
-
-        constructor_lookup.insert(
-            "Exception".into(),
-            ast::Located::new(
-                ast::Location::new(0, 0, ast::FileName("".into())),
-                ast::StmtKind::FunctionDef {
-                    name: "__init__".into(),
-                    args: Box::new(ast::Arguments {
-                        posonlyargs: vec![],
-                        args: vec![
-                            ast::Located {
-                                location: Location {
-                                    row: 8,
-                                    column: 18,
-                                    file: ast::FileName("".into()),
-                                },
-                                custom: (),
-                                node: ast::ArgData {
-                                    arg: "self".into(),
-                                    annotation: None,
-                                    type_comment: None,
-                                },
-                            },
-                            ast::Located {
-                                location: Location {
-                                    row: 8,
-                                    column: 18,
-                                    file: ast::FileName("".into()),
-                                },
-                                custom: (),
-                                node: ast::ArgData {
-                                    arg: "message".into(),
-                                    annotation: None,
-                                    type_comment: None,
-                                },
-                            }
-                        ],
-                        vararg: None,
-                        kwonlyargs: Default::default(),
-                        kw_defaults: Default::default(),
-                        kwarg: None,
-                        defaults: Default::default(),
-                    }),
-                    body: vec![
-                        ast::Located {
-                            location: Location {
-                                row: 0,
-                                column: 0,
-                                file: ast::FileName("".into()),
-                            },
-                            custom: (),
-                            node: ast::StmtKind::Pass {
-                                config_comment: Default::default(),
-                            },
-                        },
-                    ],
-                    decorator_list: Default::default(),
-                    returns: None,
-                    type_comment: Default::default(),
-                    config_comment: Default::default(),
-                }
-            )
         );
 
         for (class, _, _) in classes
