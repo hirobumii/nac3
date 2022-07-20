@@ -567,6 +567,151 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
 }
 
 #[test_case(
+    indoc! {"
+        class A:
+            def __init__(self):
+                pass
+
+        class B(A):
+            pass
+
+        class C(B):
+            pass
+    "},
+    HashMap::from([
+        ("A".into(),ast::Located {
+            location: ast::Location::new(2, 5, ast::FileName("unknown".into())),
+            custom: (),
+            node: ast::StmtKind::FunctionDef {
+                name: "__init__".into(),
+                args: Box::new(ast::Arguments {
+                    posonlyargs: vec![],
+                    args: vec![
+                        ast::Located {
+                            location: ast::Location::new(2, 18, ast::FileName("unknown".into())),
+                            custom: (),
+                            node: ast::ArgData {
+                                arg: "self".into(),
+                                annotation: None,
+                                type_comment: None,
+                            },
+                        },
+                    ],
+                    vararg: None,
+                    kwonlyargs: vec![],
+                    kw_defaults: vec![],
+                    kwarg: None,
+                    defaults: vec![],
+                }),
+                body: vec![
+                    ast::Located {
+                        location: Location::new(3, 9, ast::FileName("unknown".into())),
+                        custom: (),
+                        node: ast::StmtKind::Pass {
+                            config_comment: vec![],
+                        },
+                    },
+                ],
+                decorator_list: vec![],
+                returns: None,
+                type_comment: None,
+                config_comment: vec![],
+            },
+        }),
+        ("B".into(), ast::Located {
+            location: ast::Location::new(2, 5, ast::FileName("unknown".into())),
+            custom: (),
+            node: ast::StmtKind::FunctionDef {
+                name: "__init__".into(),
+                args: Box::new(ast::Arguments {
+                    posonlyargs: vec![],
+                    args: vec![
+                        ast::Located {
+                            location: ast::Location::new(2, 18, ast::FileName("unknown".into())),
+                            custom: (),
+                            node: ast::ArgData {
+                                arg: "self".into(),
+                                annotation: None,
+                                type_comment: None,
+                            },
+                        },
+                    ],
+                    vararg: None,
+                    kwonlyargs: vec![],
+                    kw_defaults: vec![],
+                    kwarg: None,
+                    defaults: vec![],
+                }),
+                body: vec![
+                    ast::Located {
+                        location: Location::new(3, 9, ast::FileName("unknown".into())),
+                        custom: (),
+                        node: ast::StmtKind::Pass {
+                            config_comment: vec![],
+                        },
+                    },
+                ],
+                decorator_list: vec![],
+                returns: None,
+                type_comment: None,
+                config_comment: vec![],
+            },
+        }),
+        ("C".into(), ast::Located {
+            location: ast::Location::new(2, 5, ast::FileName("unknown".into())),
+            custom: (),
+            node: ast::StmtKind::FunctionDef {
+                name: "__init__".into(),
+                args: Box::new(ast::Arguments {
+                    posonlyargs: vec![],
+                    args: vec![
+                        ast::Located {
+                            location: ast::Location::new(2, 18, ast::FileName("unknown".into())),
+                            custom: (),
+                            node: ast::ArgData {
+                                arg: "self".into(),
+                                annotation: None,
+                                type_comment: None,
+                            },
+                        },
+                    ],
+                    vararg: None,
+                    kwonlyargs: vec![],
+                    kw_defaults: vec![],
+                    kwarg: None,
+                    defaults: vec![],
+                }),
+                body: vec![
+                    ast::Located {
+                        location: Location::new(3, 9, ast::FileName("unknown".into())),
+                        custom: (),
+                        node: ast::StmtKind::Pass {
+                            config_comment: vec![],
+                        },
+                    },
+                ],
+                decorator_list: vec![],
+                returns: None,
+                type_comment: None,
+                config_comment: vec![],
+            },
+        }),
+    ]);
+    "build_constructor_lookup_table"
+)]
+fn test_build_constructor_lookup(source: &str, result: HashMap<ast::StrRef, ast::Located<ast::StmtKind>>) {
+    let ast = parse_program(source, Default::default());
+    let mut composer: TopLevelComposer = Default::default();
+    if let Ok(stmts) = ast {
+        composer.build_constructor_lookup(stmts.iter())
+    }
+
+    assert_eq!(result.get(&"A".into()).unwrap(), result.get(&"B".into()).unwrap());
+    assert_eq!(result.get(&"B".into()).unwrap(), result.get(&"C".into()).unwrap());
+}
+
+
+#[test_case(
     vec![
         indoc! {"
             def fun(a: int32, b: int32) -> int32:
