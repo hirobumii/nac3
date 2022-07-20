@@ -37,7 +37,7 @@ pub struct TopLevelComposer {
     // number of built-in function and classes in the definition list, later skip
     pub builtin_num: usize,
     pub core_config: ComposerConfig,
-    // the HashMap that store the class name and It constructor Function
+    // the HashMap that store the class name and it's constructor function
     pub constructor_lookup: HashMap<StrRef, ast::Located<ast::StmtKind>>,
 }
 
