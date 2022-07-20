@@ -280,7 +280,7 @@ impl Nac3 {
             self.builtins.clone(),
             ComposerConfig { kernel_ann: Some("Kernel"), kernel_invariant_ann: "KernelInvariant" },
         );
-
+        composer.build_constructor_lookup(self.top_levels.iter().map(|(stmt, _, _)| stmt));
         let builtins = PyModule::import(py, "builtins")?;
         let typings = PyModule::import(py, "typing")?;
         let id_fn = builtins.getattr("id")?;

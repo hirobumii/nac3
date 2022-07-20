@@ -183,6 +183,7 @@ fn main() {
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
 
     let parser_result = parser::parse_program(&program, file_name.into()).unwrap();
+    composer.build_constructor_lookup(parser_result.iter());
 
     for stmt in parser_result.into_iter() {
         match &stmt.node {

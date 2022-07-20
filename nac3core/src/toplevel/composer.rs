@@ -37,6 +37,8 @@ pub struct TopLevelComposer {
     // number of built-in function and classes in the definition list, later skip
     pub builtin_num: usize,
     pub core_config: ComposerConfig,
+    // the HashMap that store the class name and It constructor Function
+    pub constructor_lookup: HashMap<StrRef, ast::Located<ast::StmtKind>>,
 }
 
 impl Default for TopLevelComposer {
@@ -132,10 +134,143 @@ impl TopLevelComposer {
                 defined_names,
                 method_class,
                 core_config,
+                constructor_lookup: Default::default(),
             },
             builtin_id,
             builtin_ty,
         )
+    }
+
+    pub fn build_constructor_lookup<'a, I>(&mut self, stmts: I)
+    where
+        I: Iterator<Item = &'a ast::Located<ast::StmtKind>>
+    {
+        let classes = Vec::from_iter(stmts.filter_map(|stmt| {
+            if let ast::StmtKind::ClassDef { name, bases, body, .. } = &stmt.node {
+                Some((name, bases, body))
+            } else {
+                None
+            }
+        }));
+
+        let base_class_lookup: HashMap<StrRef, StrRef> = HashMap::from_iter(
+            classes.iter().filter_map(|(class_name, bases, _)| {
+                // Get the first base class in the Vector of bases is good enough, since we only support single inheritance
+                let base_class = bases.get(0).and_then(|ast::Located { node, .. }| {
+                    if let ast::ExprKind::Name { id, .. } = node {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(base_class) = base_class {
+                    Some((**class_name, base_class))
+                } else {
+                    None
+                }
+            })
+        );
+
+        let mut constructor_lookup: HashMap<StrRef, ast::Located<ast::StmtKind>> = HashMap::from_iter(
+            classes.iter().filter_map(|(class_name, _, body)| {
+                for stmt in body.iter() {
+                    let func_name = if let ast::StmtKind::FunctionDef { name, .. } = &stmt.node {
+                        name
+                    } else {
+                        continue;
+                    };
+
+                    if func_name == &"__init__".into() {
+                        return Some((**class_name, stmt.clone()))
+                    }
+                }
+                return None
+            })
+        );
+
+        constructor_lookup.insert(
+            "Exception".into(),
+            ast::Located::new(
+                ast::Location::new(0, 0, ast::FileName("".into())),
+                ast::StmtKind::FunctionDef {
+                    name: "__init__".into(),
+                    args: Box::new(ast::Arguments {
+                        posonlyargs: vec![],
+                        args: vec![
+                            ast::Located {
+                                location: Location {
+                                    row: 8,
+                                    column: 18,
+                                    file: ast::FileName("".into()),
+                                },
+                                custom: (),
+                                node: ast::ArgData {
+                                    arg: "self".into(),
+                                    annotation: None,
+                                    type_comment: None,
+                                },
+                            },
+                            ast::Located {
+                                location: Location {
+                                    row: 8,
+                                    column: 18,
+                                    file: ast::FileName("".into()),
+                                },
+                                custom: (),
+                                node: ast::ArgData {
+                                    arg: "message".into(),
+                                    annotation: None,
+                                    type_comment: None,
+                                },
+                            }
+                        ],
+                        vararg: None,
+                        kwonlyargs: Default::default(),
+                        kw_defaults: Default::default(),
+                        kwarg: None,
+                        defaults: Default::default(),
+                    }),
+                    body: vec![
+                        ast::Located {
+                            location: Location {
+                                row: 0,
+                                column: 0,
+                                file: ast::FileName("".into()),
+                            },
+                            custom: (),
+                            node: ast::StmtKind::Pass {
+                                config_comment: Default::default(),
+                            },
+                        },
+                    ],
+                    decorator_list: Default::default(),
+                    returns: None,
+                    type_comment: Default::default(),
+                    config_comment: Default::default(),
+                }
+            )
+        );
+
+        for (class, _, _) in classes
+            .iter()
+            .filter(|(c, _, _)| constructor_lookup.get(c).is_none())
+        {
+            let mut current_class = class.clone();
+            while let Some(base) = base_class_lookup.get(current_class) {
+                if let Some(cons) = constructor_lookup.get(base) {
+                    self.constructor_lookup.insert(*current_class, cons.clone());
+                    break;
+                } else {
+                    current_class = base;
+                }
+            }
+        }
+
+        // copy the rest of the classes with constructor into the self.constructor_lookup
+        for (k, v) in constructor_lookup.into_iter() {
+            self.constructor_lookup.insert(k, v);
+        }
     }
 
     pub fn make_top_level_context(&self) -> TopLevelContext {
@@ -222,18 +357,19 @@ impl TopLevelComposer {
                 // we do not push anything to the def list, so we keep track of the index
                 // and then push in the correct order after the for loop
                 let mut class_method_index_offset = 0;
-                let init_id = "__init__".into();
                 let exception_id = "Exception".into();
                 // TODO: Fix this hack. We will generate constructor for classes that inherit
                 // from Exception class (directly or indirectly), but this code cannot handle
                 // subclass of other exception classes.
                 let mut contains_constructor = bases
                     .iter().any(|base| matches!(base.node, ast::ExprKind::Name { id, .. } if id == exception_id));
+
+                if self.constructor_lookup.contains_key(&class_name) {
+                    contains_constructor = true;
+                }
+
                 for b in body {
                     if let ast::StmtKind::FunctionDef { name: method_name, .. } = &b.node {
-                        if method_name == &init_id {
-                            contains_constructor = true;
-                        }
                         if self.keyword_list.contains(method_name) {
                             return Err(format!(
                                 "cannot use keyword `{}` as a method name (at {})",
