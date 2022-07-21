@@ -156,36 +156,29 @@ impl TopLevelComposer {
         let base_class_lookup: HashMap<StrRef, StrRef> = HashMap::from_iter(
             classes.iter().filter_map(|(class_name, bases, _)| {
                 // Get the first base class in the Vector of bases is good enough, since we only support single inheritance
-                let base_class = bases.get(0).and_then(|ast::Located { node, .. }| {
+                bases
+                .get(0)
+                .and_then(|ast::Located { node, .. }| {
                     if let ast::ExprKind::Name { id, .. } = node {
                         Some(*id)
                     } else {
                         None
                     }
-                });
-
-                if let Some(base_class) = base_class {
-                    Some((**class_name, base_class))
-                } else {
-                    None
-                }
+                })
+                .and_then(|base_class_name| Some((**class_name, base_class_name)))
             })
         );
 
         let constructor_lookup: HashMap<StrRef, ast::Located<ast::StmtKind>> = HashMap::from_iter(
             classes.iter().filter_map(|(class_name, _, body)| {
-                for stmt in body.iter() {
-                    let func_name = if let ast::StmtKind::FunctionDef { name, .. } = &stmt.node {
-                        name
-                    } else {
-                        continue;
-                    };
-
-                    if func_name == &"__init__".into() {
-                        return Some((**class_name, stmt.clone()))
+                body.iter().find_map(|stmt| {
+                    if let ast::StmtKind::FunctionDef { name, .. } = &stmt.node {
+                        if name == &"__init__".into() {
+                            return Some((**class_name, stmt.clone()));
+                        }
                     }
-                }
-                None
+                    None
+                })
             })
         );
 
