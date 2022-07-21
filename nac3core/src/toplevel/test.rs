@@ -706,8 +706,9 @@ fn test_build_constructor_lookup(source: &str, result: HashMap<ast::StrRef, ast:
         composer.build_constructor_lookup(stmts.iter())
     }
 
-    assert_eq!(result.get(&"A".into()).unwrap(), result.get(&"B".into()).unwrap());
-    assert_eq!(result.get(&"B".into()).unwrap(), result.get(&"C".into()).unwrap());
+    assert_eq!(result.get(&"A".into()).unwrap(), composer.constructor_lookup.get(&"A".into()).unwrap());
+    assert_eq!(result.get(&"B".into()).unwrap(), composer.constructor_lookup.get(&"B".into()).unwrap());
+    assert_eq!(result.get(&"C".into()).unwrap(), composer.constructor_lookup.get(&"C".into()).unwrap());
 }
 
 
