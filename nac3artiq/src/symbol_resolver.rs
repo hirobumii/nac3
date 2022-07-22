@@ -545,6 +545,32 @@ impl InnerResolver {
         if let Some(ty) = self.pyid_to_type.read().get(&py_obj_id) {
             return Ok(Ok(*ty))
         }
+
+        // check if constructor function exists in the methods list
+        let pyid_to_def = self.pyid_to_def.read();
+        let constructor_ty = pyid_to_def
+            .get(&py_obj_id)
+            .and_then(|def_id| {
+                defs.iter()
+                    .find_map(|def| {
+                        if let TopLevelDef::Class {
+                            object_id, methods, constructor, ..
+                        } = &*def.read() {
+                            if object_id == def_id
+                            || !constructor.is_none()
+                            || methods.iter().any(|(s, _, _)| s == &"__init__".into()) {
+                                return constructor.clone();
+                            }
+                        }
+                        None
+                    })
+            });
+
+        if let Some(ty) = constructor_ty {
+            self.pyid_to_type.write().insert(py_obj_id, ty);
+            return Ok(Ok(ty))
+        }
+
         let (extracted_ty, inst_check) = match self.get_pyty_obj_type(
             py,
             {
