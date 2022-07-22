@@ -551,17 +551,18 @@ impl InnerResolver {
         let constructor_ty = pyid_to_def
             .get(&py_obj_id)
             .and_then(|def_id| {
-                defs.iter()
-                    .find_map(|def| {
-                        if let TopLevelDef::Class {
-                            object_id, methods, constructor, ..
-                        } = &*def.read() {
-                            if object_id == def_id && constructor.is_some() && methods.iter().any(|(s, _, _)| s == &"__init__".into()) {
-                                return constructor.clone();
-                            }
+                defs
+                .iter()
+                .find_map(|def| {
+                    if let TopLevelDef::Class {
+                        object_id, methods, constructor, ..
+                    } = &*def.read() {
+                        if object_id == def_id && constructor.is_some() && methods.iter().any(|(s, _, _)| s == &"__init__".into()) {
+                            return constructor.clone();
                         }
-                        None
-                    })
+                    }
+                    None
+                })
             });
 
         if let Some(ty) = constructor_ty {
