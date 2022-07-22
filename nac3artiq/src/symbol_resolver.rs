@@ -556,7 +556,7 @@ impl InnerResolver {
                         if let TopLevelDef::Class {
                             object_id, methods, constructor, ..
                         } = &*def.read() {
-                            if object_id == def_id && !constructor.is_none() && methods.iter().any(|(s, _, _)| s == &"__init__".into()) {
+                            if object_id == def_id && constructor.is_some() && methods.iter().any(|(s, _, _)| s == &"__init__".into()) {
                                 return constructor.clone();
                             }
                         }
