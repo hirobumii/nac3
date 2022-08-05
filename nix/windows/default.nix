@@ -69,7 +69,7 @@ in rec {
       '';
     buildPhase =
       ''
-      wine64 ninja
+      wine64 ninja -j $NIX_BUILD_CORES
       '';
     installPhase =
       ''
