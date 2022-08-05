@@ -9,8 +9,8 @@ name = "nac3artiq"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.14", features = ["extension-module"] }
-parking_lot = "0.11"
+pyo3 = { version = "0.16", features = ["extension-module"] }
+parking_lot = "0.12"
 tempfile = "3"
 nac3parser = { path = "../nac3parser" }
 nac3core = { path = "../nac3core" }
