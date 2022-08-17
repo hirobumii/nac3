@@ -1509,6 +1509,7 @@ impl TopLevelComposer {
         }
 
         let mut errors = HashSet::new();
+        let mut inited_fields_cache: HashMap<DefinitionId, Vec<StrRef>> = HashMap::new();
         let mut analyze = |i, def: &Arc<RwLock<TopLevelDef>>, ast: &Option<Stmt>| {
             let class_def = def.read();
             if let TopLevelDef::Class {
@@ -1617,12 +1618,42 @@ impl TopLevelComposer {
                         if *name != init_str_id {
                             unreachable!("must be init function here")
                         }
-                        let all_inited = Self::get_all_assigned_field(body.as_slice())?;
-                        for (f, _, _) in fields {
-                            if !all_inited.contains(f) {
+
+                        let locally_inited_fields = Self::get_all_assigned_field(body.as_slice())?;
+                        for field in locally_inited_fields.iter() {
+                            inited_fields_cache
+                                .entry(*object_id)
+                                .and_modify(|v| v.push(*field))
+                                .or_insert(vec![*field]);
+                        }
+
+                        let not_locally_inited_fields = fields
+                            .iter()
+                            .filter_map(|(field, _, _)| if !locally_inited_fields.contains(field) { Some(*field) } else { None } );
+
+                        let mut ancestors_id = ancestors
+                            .iter()
+                            .skip(1)
+                            .filter_map(|ancestor| {
+                                match ancestor {
+                                    TypeAnnotation::CustomClass { id, .. } => Some(*id),
+                                    _ => None
+                                }
+                            });
+
+                        for field in not_locally_inited_fields {
+                            let ancestor_inited = ancestors_id.any(|id| {
+                                if let Some(ancestor_inited_fields) = inited_fields_cache.get(&id) {
+                                    ancestor_inited_fields.contains(&field)
+                                } else {
+                                    false
+                                }
+                            });
+
+                            if !ancestor_inited {
                                 return Err(format!(
                                     "fields `{}` of class `{}` not fully initialized in the initializer (at {})",
-                                    f,
+                                    field,
                                     class_name,
                                     body[0].location,
                                 ));
