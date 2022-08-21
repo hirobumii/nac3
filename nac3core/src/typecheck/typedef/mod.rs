@@ -513,7 +513,7 @@ impl Unifier {
 
     fn unify_impl(&mut self, a: Type, b: Type, swapped: bool) -> Result<(), TypeError> {
         use TypeEnum::*;
-        
+
         if !swapped {
             let rep_a = self.unification_table.get_representative(a);
             let rep_b = self.unification_table.get_representative(b);
