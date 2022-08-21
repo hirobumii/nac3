@@ -91,9 +91,9 @@ pub enum TopLevelDef {
         // class fields
         // name, type, is mutable
         fields: Vec<(StrRef, Type, bool)>,
-        // class methods, pointing to the corresponding function definition.
-        static_fields: Vec<(StrRef, Type, bool)>, 
         // list of static data members
+        static_fields: Vec<(StrRef, Type, bool)>,
+        // class methods, pointing to the corresponding function definition.
         methods: Vec<(StrRef, Type, DefinitionId)>,
         // ancestor classes, including itself.
         ancestors: Vec<TypeAnnotation>,

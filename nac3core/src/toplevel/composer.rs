@@ -1040,7 +1040,7 @@ impl TopLevelComposer {
             class_body_ast,
             _class_ancestor_def,
             class_fields_def,
-            class_static_fields_def, // Introduce static class attribute list into the function
+            class_static_fields_def,
             class_methods_def,
             class_type_vars_def,
             class_resolver,
@@ -1270,7 +1270,6 @@ impl TopLevelComposer {
                         .unify(method_dummy_ty, method_type)
                         .map_err(|e| e.to_display(unifier).to_string())?;
                 }
-                // Reset value from none since fields in the form "ATTR_0: int32 = 10" need to be initialised
                 ast::StmtKind::AnnAssign { target, annotation, value, .. } => {
                     if let ast::ExprKind::Name { id: attr, .. } = &target.node {
                         if defined_fields.insert(attr.to_string()) {
@@ -1297,7 +1296,6 @@ impl TopLevelComposer {
                                 _ if core_config.kernel_ann.is_none() => (annotation, true),
                                 _ => continue, // ignore fields annotated otherwise
                             };
-                            // If the value node is provided, then it must be a static class attribute
                             if let Option::Some(..) = &value{
                                 class_static_fields_def.push((*attr, dummy_field_type, mutable));
                             }
@@ -1331,7 +1329,7 @@ impl TopLevelComposer {
                             type_var_to_concrete_def.insert(dummy_field_type, parsed_annotation);
                         } else {
                             return Err(format!(
-                                "same class fields `{}` defined twice (at {})",
+                                "same class field `{}` defined twice (at {})",
                                 attr, target.location
                             ));
                         }
@@ -1342,23 +1340,16 @@ impl TopLevelComposer {
                         ));
                     }
                 }
-
-                // Add assign branch since fields in the form "ATTR_0 = 5" in the class body qualify as static class attributes
-                // However, type checking and expression folding needs to be performed in order to correctly
-                // Infer the type of target
                 ast::StmtKind::Assign { targets, value, .. } => {
-
                     for target in targets {
                         if let ast::ExprKind::Name { id: attr, .. } = &target.node {
                             if defined_fields.insert(attr.to_string()) {
                                 let dummy_field_type = unifier.get_dummy_var().0;
-
                                 class_static_fields_def.push((*attr, dummy_field_type, true));
                                 class_fields_def.push((*attr, dummy_field_type, true));
-                                
                             } else {
                                 return Err(format!(
-                                    "same class fields `{}` defined twice (at {})",
+                                    "same class field `{}` defined twice (at {})",
                                     attr, target.location
                                 ));
                             }
@@ -1550,7 +1541,7 @@ impl TopLevelComposer {
                 ancestors,
                 methods,
                 fields,
-                static_fields, // Introduce static fields for (un)initialization check
+                static_fields,
                 type_vars,
                 name: class_name,
                 object_id,
@@ -1653,8 +1644,6 @@ impl TopLevelComposer {
                             unreachable!("must be init function here")
                         }
                         let all_inited = Self::get_all_assigned_field(body.as_slice())?;
-                        // If a field is uninitialized but also a static class attribute, don't 
-                        // throw an error due to uninitialization
                         for f in fields {
                             if !all_inited.contains(&f.0) && !static_fields.contains(&f) {
                                 return Err(format!(

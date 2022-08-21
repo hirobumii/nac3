@@ -66,6 +66,7 @@ pub fn get_exn_constructor(
         object_id: DefinitionId(class_id),
         type_vars: Default::default(),
         fields: exception_fields,
+        static_fields: Default::default(),
         methods: vec![("__init__".into(), signature, DefinitionId(cons_id))],
         ancestors: vec![
             TypeAnnotation::CustomClass { id: DefinitionId(class_id), params: Default::default() },
@@ -74,7 +75,6 @@ pub fn get_exn_constructor(
         constructor: Some(signature),
         resolver: None,
         loc: None,
-        static_fields: Default::default(),
     };
     (fun_def, class_def, signature, exn_type)
 }
