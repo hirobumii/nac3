@@ -1347,44 +1347,6 @@ impl TopLevelComposer {
                 // However, type checking and expression folding needs to be performed in order to correctly
                 // Infer the type of target
                 ast::StmtKind::Assign { targets, value, .. } => {
-                    // let ctx = Arc::new(self.make_top_level_context());
-
-                    // let mut identifiers = {
-                    //     let mut result: HashSet<_> = HashSet::new();
-                    //     if self_type.is_some() {
-                    //         result.insert("self".into());
-                    //     }
-                    //     result.extend(inst_args.iter().map(|x| x.name));
-                    //     result
-                    // };
-                    // let mut calls: HashMap<CodeLocation, CallId> = HashMap::new();
-                    // let mut inferencer = Inferencer {
-                    //     top_level: ctx.as_ref(),
-                    //     defined_identifiers: identifiers.clone(),
-                    //     function_data: &mut FunctionData {
-                    //         resolver: class_resolver.as_ref().unwrap().clone(),
-                    //         return_type: if unifier.unioned(inst_ret, primitives_ty.none) {
-                    //             None
-                    //         } else {
-                    //             Some(inst_ret)
-                    //         },
-                    //         // NOTE: allowed type vars
-                    //         bound_variables: no_range_vars.clone(),
-                    //     },
-                    //     unifier,
-                    //     variable_mapping: {
-                    //         let mut result: HashMap<StrRef, Type> = HashMap::new();
-                    //         if let Some(self_ty) = self_type {
-                    //             result.insert("self".into(), self_ty);
-                    //         }
-                    //         result.extend(inst_args.iter().map(|x| (x.name, x.ty)));
-                    //         result
-                    //     },
-                    //     primitives: primitives_ty,
-                    //     virtual_checks: &mut Vec::new(),
-                    //     calls: &mut calls,
-                    //     in_handler: false,
-                    // };
 
                     for target in targets {
                         if let ast::ExprKind::Name { id: attr, .. } = &target.node {
@@ -1393,10 +1355,6 @@ impl TopLevelComposer {
 
                                 class_static_fields_def.push((*attr, dummy_field_type, true));
                                 class_fields_def.push((*attr, dummy_field_type, true));
-
-                                // let value = inferencer.fold_expr(*value)?;
-                                // let value_ty = value.custom.unwrap();
-
                                 
                             } else {
                                 return Err(format!(
