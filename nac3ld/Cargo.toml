@@ -5,4 +5,4 @@ authors = ["M-Labs"]
 edition = "2018"
 
 [dependencies]
-byteorder = { version = "1.0", default-features = false }
+byteorder = { version = "1.4", default-features = false }

@@ -8,7 +8,7 @@ use parking_lot::{Mutex, MutexGuard};
 use string_interner::{DefaultBackend, DefaultSymbol, StringInterner, symbol::SymbolU32};
 use fxhash::FxBuildHasher;
 
-pub type Interner = StringInterner<DefaultSymbol, DefaultBackend<DefaultSymbol>, FxBuildHasher>;
+pub type Interner = StringInterner<DefaultBackend<DefaultSymbol>, FxBuildHasher>;
 lazy_static! {
     static ref INTERNER: Mutex<Interner> = Mutex::new(StringInterner::with_hasher(FxBuildHasher::default()));
 }
