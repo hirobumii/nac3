@@ -1040,6 +1040,7 @@ impl TopLevelComposer {
             class_body_ast,
             _class_ancestor_def,
             class_fields_def,
+            class_static_fields_def, // Introduce static class attribute list into the function
             class_methods_def,
             class_type_vars_def,
             class_resolver,
@@ -1047,6 +1048,7 @@ impl TopLevelComposer {
             object_id,
             ancestors,
             fields,
+            static_fields,
             methods,
             resolver,
             type_vars,
@@ -1054,7 +1056,7 @@ impl TopLevelComposer {
         } = &mut *class_def
         {
             if let ast::StmtKind::ClassDef { name, bases, body, .. } = &class_ast {
-                (*object_id, *name, bases, body, ancestors, fields, methods, type_vars, resolver)
+                (*object_id, *name, bases, body, ancestors, fields, static_fields, methods, type_vars, resolver)
             } else {
                 unreachable!("here must be class def ast");
             }
@@ -1268,7 +1270,8 @@ impl TopLevelComposer {
                         .unify(method_dummy_ty, method_type)
                         .map_err(|e| e.to_display(unifier).to_string())?;
                 }
-                ast::StmtKind::AnnAssign { target, annotation, value: None, .. } => {
+                // Reset value from none since fields in the form "ATTR_0: int32 = 10" need to be initialised
+                ast::StmtKind::AnnAssign { target, annotation, value, .. } => {
                     if let ast::ExprKind::Name { id: attr, .. } = &target.node {
                         if defined_fields.insert(attr.to_string()) {
                             let dummy_field_type = unifier.get_dummy_var().0;
@@ -1294,6 +1297,10 @@ impl TopLevelComposer {
                                 _ if core_config.kernel_ann.is_none() => (annotation, true),
                                 _ => continue, // ignore fields annotated otherwise
                             };
+                            // If the value node is provided, then it must be a static class attribute
+                            if let Option::Some(..) = &value{
+                                class_static_fields_def.push((*attr, dummy_field_type, mutable));
+                            }
                             class_fields_def.push((*attr, dummy_field_type, mutable));
 
                             let parsed_annotation = parse_ast_to_type_annotation_kinds(
@@ -1335,7 +1342,76 @@ impl TopLevelComposer {
                         ));
                     }
                 }
-                ast::StmtKind::Assign { .. } => {}, // we don't class attributes
+
+                // Add assign branch since fields in the form "ATTR_0 = 5" in the class body qualify as static class attributes
+                // However, type checking and expression folding needs to be performed in order to correctly
+                // Infer the type of target
+                ast::StmtKind::Assign { targets, value, .. } => {
+                    // let ctx = Arc::new(self.make_top_level_context());
+
+                    // let mut identifiers = {
+                    //     let mut result: HashSet<_> = HashSet::new();
+                    //     if self_type.is_some() {
+                    //         result.insert("self".into());
+                    //     }
+                    //     result.extend(inst_args.iter().map(|x| x.name));
+                    //     result
+                    // };
+                    // let mut calls: HashMap<CodeLocation, CallId> = HashMap::new();
+                    // let mut inferencer = Inferencer {
+                    //     top_level: ctx.as_ref(),
+                    //     defined_identifiers: identifiers.clone(),
+                    //     function_data: &mut FunctionData {
+                    //         resolver: class_resolver.as_ref().unwrap().clone(),
+                    //         return_type: if unifier.unioned(inst_ret, primitives_ty.none) {
+                    //             None
+                    //         } else {
+                    //             Some(inst_ret)
+                    //         },
+                    //         // NOTE: allowed type vars
+                    //         bound_variables: no_range_vars.clone(),
+                    //     },
+                    //     unifier,
+                    //     variable_mapping: {
+                    //         let mut result: HashMap<StrRef, Type> = HashMap::new();
+                    //         if let Some(self_ty) = self_type {
+                    //             result.insert("self".into(), self_ty);
+                    //         }
+                    //         result.extend(inst_args.iter().map(|x| (x.name, x.ty)));
+                    //         result
+                    //     },
+                    //     primitives: primitives_ty,
+                    //     virtual_checks: &mut Vec::new(),
+                    //     calls: &mut calls,
+                    //     in_handler: false,
+                    // };
+
+                    for target in targets {
+                        if let ast::ExprKind::Name { id: attr, .. } = &target.node {
+                            if defined_fields.insert(attr.to_string()) {
+                                let dummy_field_type = unifier.get_dummy_var().0;
+
+                                class_static_fields_def.push((*attr, dummy_field_type, true));
+                                class_fields_def.push((*attr, dummy_field_type, true));
+
+                                // let value = inferencer.fold_expr(*value)?;
+                                // let value_ty = value.custom.unwrap();
+
+                                
+                            } else {
+                                return Err(format!(
+                                    "same class fields `{}` defined twice (at {})",
+                                    attr, target.location
+                                ));
+                            }
+                        } else {
+                            return Err(format!(
+                                "unsupported statement type in class definition body (at {})",
+                                target.location
+                            ));
+                        }   
+                    }
+                },
                 ast::StmtKind::Pass { .. } => {}
                 ast::StmtKind::Expr { value: _, .. } => {} // typically a docstring; ignoring all expressions matches CPython behavior
                 _ => {
@@ -1516,6 +1592,7 @@ impl TopLevelComposer {
                 ancestors,
                 methods,
                 fields,
+                static_fields, // Introduce static fields for (un)initialization check
                 type_vars,
                 name: class_name,
                 object_id,
@@ -1618,11 +1695,13 @@ impl TopLevelComposer {
                             unreachable!("must be init function here")
                         }
                         let all_inited = Self::get_all_assigned_field(body.as_slice())?;
-                        for (f, _, _) in fields {
-                            if !all_inited.contains(f) {
+                        // If a field is uninitialized but also a static class attribute, don't 
+                        // throw an error due to uninitialization
+                        for f in fields {
+                            if !all_inited.contains(&f.0) && !static_fields.contains(&f) {
                                 return Err(format!(
                                     "fields `{}` of class `{}` not fully initialized in the initializer (at {})",
-                                    f,
+                                    &f.0,
                                     class_name,
                                     body[0].location,
                                 ));

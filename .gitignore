@@ -1,3 +1,9 @@
 __pycache__
 /target
 windows/msys2
+nac3standalone/demo/src/test.py
+nac3standalone/demo/{
+interpreted.log
+nac3standalone/demo/module.o
+nac3standalone/demo/demo
+nac3standalone/demo/run.log

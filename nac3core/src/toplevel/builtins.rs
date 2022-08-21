@@ -74,6 +74,8 @@ pub fn get_exn_constructor(
         constructor: Some(signature),
         resolver: None,
         loc: None,
+        // Make TopLevelDef::Class initlializer compatible
+        static_fields: Default::default(),
     };
     (fun_def, class_def, signature, exn_type)
 }
@@ -175,6 +177,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             type_vars: Default::default(),
             fields: exception_fields,
             methods: Default::default(),
+            // Make TopLevelDef::Class initlializer compatible
+            static_fields: Default::default(),
             ancestors: vec![],
             constructor: None,
             resolver: None,
@@ -200,6 +204,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 object_id: DefinitionId(10),
                 type_vars: vec![option_ty_var],
                 fields: vec![],
+                // Make TopLevelDef::Class initlializer compatible
+                static_fields: vec![],
                 methods: vec![
                     ("is_some".into(), is_some_ty.0, DefinitionId(11)),
                     ("is_none".into(), is_some_ty.0, DefinitionId(12)),

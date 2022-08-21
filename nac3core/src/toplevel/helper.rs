@@ -162,6 +162,7 @@ impl TopLevelComposer {
             object_id: DefinitionId(index),
             type_vars: Default::default(),
             fields: Default::default(),
+            static_fields: Default::default(), // Initialize for constructor
             methods: Default::default(),
             ancestors: Default::default(),
             constructor,
