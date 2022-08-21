@@ -214,7 +214,7 @@ impl StaticValue for PythonValue {
             let ty_id: u64 = helper.id_fn.call1(py, (ty,))?.extract(py)?;
             assert_eq!(ty_id, self.resolver.primitive_ids.tuple);
             let tup: &PyTuple = self.value.extract(py)?;
-            let elem = tup.get_item(index as usize);
+            let elem = tup.get_item(index as usize)?;
             let id = self.resolver.helper.id_fn.call1(py, (elem,))?.extract(py)?;
             Ok(Some((id, elem.into())))
         })
@@ -351,7 +351,7 @@ impl InnerResolver {
                 let constraints = pyty.getattr("__constraints__").unwrap();
                 let mut result: Vec<Type> = vec![];
                 let needs_defer = self.deferred_eval_store.needs_defer.load(Relaxed);
-                for i in 0.. {
+                for i in 0usize.. {
                     if let Ok(constr) = constraints.get_item(i) {
                         if needs_defer {
                             result.push(unifier.get_dummy_var().0);
@@ -409,7 +409,7 @@ impl InnerResolver {
                     if args.len() == 1 {
                         let ty = match self.get_pyty_obj_type(
                             py,
-                            args.get_item(0),
+                            args.get_item(0)?,
                             unifier,
                             defs,
                             primitives,
@@ -490,7 +490,7 @@ impl InnerResolver {
                     if args.len() == 1 {
                         let ty = match self.get_pyty_obj_type(
                             py,
-                            args.get_item(0),
+                            args.get_item(0)?,
                             unifier,
                             defs,
                             primitives,
