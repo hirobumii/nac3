@@ -27,7 +27,7 @@ Install [MSYS2](https://www.msys2.org/), and open "MSYS2 MinGW x64". Edit ``/etc
 ```
 [artiq]
 SigLevel = Optional TrustAll
-Server = https://lab.m-labs.hk/msys2
+Server = https://msys2.m-labs.hk/artiq-nac3
 ```
 
 Then run the following commands:
