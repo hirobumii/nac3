@@ -1,4 +1,4 @@
-use std::{collections::HashMap, convert::TryInto, iter::once};
+use std::{collections::HashMap, convert::TryInto, iter::once, iter::zip};
 
 use crate::{
     codegen::{
@@ -21,7 +21,7 @@ use inkwell::{
     types::{AnyType, BasicType, BasicTypeEnum},
     values::{BasicValueEnum, FunctionValue, IntValue, PointerValue}
 };
-use itertools::{chain, izip, zip, Itertools};
+use itertools::{chain, izip, Itertools};
 use nac3parser::ast::{
     self, Boolop, Comprehension, Constant, Expr, ExprKind, Location, Operator, StrRef,
 };

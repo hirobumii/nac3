@@ -1,10 +1,11 @@
-use itertools::{zip, Itertools};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::{borrow::Cow, collections::HashSet};
+use std::iter::zip;
+use itertools::Itertools;
 
 use nac3parser::ast::{Location, StrRef};
 

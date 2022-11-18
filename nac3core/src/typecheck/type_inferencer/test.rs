@@ -6,7 +6,7 @@ use crate::{
     toplevel::{DefinitionId, TopLevelDef},
 };
 use indoc::indoc;
-use itertools::zip;
+use std::iter::zip;
 use nac3parser::parser::parse_program;
 use parking_lot::RwLock;
 use test_case::test_case;
