@@ -639,7 +639,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             ctx.module.add_function(personality_symbol, ty, None)
         });
         let exception_type = ctx.get_llvm_type(generator, ctx.primitives.exception);
-        let ptr_type = ctx.ctx.i8_type().ptr_type(inkwell::AddressSpace::Generic);
+        let ptr_type = ctx.ctx.i8_type().ptr_type(inkwell::AddressSpace::default());
         let current_block = ctx.builder.get_insert_block().unwrap();
         let current_fun = current_block.get_parent().unwrap();
         let landingpad = ctx.ctx.append_basic_block(current_fun, "try.landingpad");

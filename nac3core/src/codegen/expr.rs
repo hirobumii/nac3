@@ -152,7 +152,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                     _ => unreachable!("must be option type"),
                 };
                 let actual_ptr_type =
-                    self.get_llvm_type(generator, ty).ptr_type(AddressSpace::Generic);
+                    self.get_llvm_type(generator, ty).ptr_type(AddressSpace::default());
                 actual_ptr_type.const_null().into()
             }
         }
@@ -719,12 +719,12 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
             args.iter().enumerate().map(|(i, arg)| match ctx.get_llvm_type(generator, arg.ty) {
                 BasicTypeEnum::StructType(ty) if is_extern => {
                     byvals.push((i, ty));
-                    ty.ptr_type(AddressSpace::Generic).into()
+                    ty.ptr_type(AddressSpace::default()).into()
                 },
                 x => x
             }.into()).collect_vec();
         if has_sret {
-            params.insert(0, ret_type.unwrap().ptr_type(AddressSpace::Generic).into());
+            params.insert(0, ret_type.unwrap().ptr_type(AddressSpace::default()).into());
         }
         let fun_ty = match ret_type {
             Some(ret_type) if !has_sret => ret_type.fn_type(&params, false),
@@ -774,7 +774,7 @@ pub fn allocate_list<'ctx, 'a, G: CodeGenerator>(
     let size_t = generator.get_size_type(ctx.ctx);
     let i32_t = ctx.ctx.i32_type();
     let arr_ty =
-        ctx.ctx.struct_type(&[ty.ptr_type(AddressSpace::Generic).into(), size_t.into()], false);
+        ctx.ctx.struct_type(&[ty.ptr_type(AddressSpace::default()).into(), size_t.into()], false);
     let zero = ctx.ctx.i32_type().const_zero();
     let arr_str_ptr = ctx.builder.build_alloca(arr_ty, "tmparrstr");
     unsafe {
@@ -1063,7 +1063,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                     TypeEnum::TObj { obj_id: opt_id, .. },
                 ) if *obj_id == *opt_id => ctx
                     .get_llvm_type(generator, *params.iter().next().unwrap().1)
-                    .ptr_type(AddressSpace::Generic)
+                    .ptr_type(AddressSpace::default())
                     .const_null()
                     .into(),
                 _ => unreachable!("must be option type"),

@@ -318,7 +318,7 @@ fn get_llvm_type<'ctx>(
                                 primitives,
                                 *params.iter().next().unwrap().1,
                             )
-                            .ptr_type(AddressSpace::Generic)
+                            .ptr_type(AddressSpace::default())
                             .into();
                         }
                         _ => unreachable!("must be option type"),
@@ -332,12 +332,12 @@ fn get_llvm_type<'ctx>(
                 {
                     let name = unifier.stringify(ty);
                     match module.get_struct_type(&name) {
-                        Some(t) => t.ptr_type(AddressSpace::Generic).into(),
+                        Some(t) => t.ptr_type(AddressSpace::default()).into(),
                         None => {
                             let struct_type = ctx.opaque_struct_type(&name);
                             type_cache.insert(
                                 unifier.get_representative(ty),
-                                struct_type.ptr_type(AddressSpace::Generic).into()
+                                struct_type.ptr_type(AddressSpace::default()).into()
                             );
                             let fields = fields_list
                                 .iter()
@@ -355,7 +355,7 @@ fn get_llvm_type<'ctx>(
                                 })
                                 .collect_vec();
                             struct_type.set_body(&fields, false);
-                            struct_type.ptr_type(AddressSpace::Generic).into()
+                            struct_type.ptr_type(AddressSpace::default()).into()
                         }
                     }
                 } else {
@@ -381,10 +381,10 @@ fn get_llvm_type<'ctx>(
                     ctx, module, generator, unifier, top_level, type_cache, primitives, *ty,
                 );
                 let fields = [
-                    element_type.ptr_type(AddressSpace::Generic).into(),
+                    element_type.ptr_type(AddressSpace::default()).into(),
                     generator.get_size_type(ctx).into(),
                 ];
-                ctx.struct_type(&fields, false).ptr_type(AddressSpace::Generic).into()
+                ctx.struct_type(&fields, false).ptr_type(AddressSpace::default()).into()
             }
             TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),
@@ -470,7 +470,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
                 None => {
                     let str_type = context.opaque_struct_type("str");
                     let fields = [
-                        context.i8_type().ptr_type(AddressSpace::Generic).into(),
+                        context.i8_type().ptr_type(AddressSpace::default()).into(),
                         generator.get_size_type(context).into(),
                     ];
                     str_type.set_body(&fields, false);
@@ -479,11 +479,11 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
                 Some(t) => t.as_basic_type_enum()
             }
         }),
-        (primitives.range, context.i32_type().array_type(3).ptr_type(AddressSpace::Generic).into()),
+        (primitives.range, context.i32_type().array_type(3).ptr_type(AddressSpace::default()).into()),
         (primitives.exception, {
             let name = "Exception";
             match module.get_struct_type(name) {
-                Some(t) => t.ptr_type(AddressSpace::Generic).as_basic_type_enum(),
+                Some(t) => t.ptr_type(AddressSpace::default()).as_basic_type_enum(),
                 None => {
                     let exception = context.opaque_struct_type("Exception");
                     let int32 = context.i32_type().into();
@@ -491,7 +491,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
                     let str_ty = module.get_struct_type("str").unwrap().as_basic_type_enum();
                     let fields = [int32, str_ty, int32, int32, str_ty, str_ty, int64, int64, int64];
                     exception.set_body(&fields, false);
-                    exception.ptr_type(AddressSpace::Generic).as_basic_type_enum()
+                    exception.ptr_type(AddressSpace::default()).as_basic_type_enum()
                 }
             }
         })
@@ -543,7 +543,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         .collect_vec();
 
     if has_sret {
-        params.insert(0, ret_type.unwrap().ptr_type(AddressSpace::Generic).into());
+        params.insert(0, ret_type.unwrap().ptr_type(AddressSpace::default()).into());
     }
 
     let fn_type = match ret_type {

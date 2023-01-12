@@ -832,12 +832,12 @@ impl InnerResolver {
             let size_t = generator.get_size_type(ctx.ctx);
             let arr_ty = ctx
                 .ctx
-                .struct_type(&[ty.ptr_type(AddressSpace::Generic).into(), size_t.into()], false);
+                .struct_type(&[ty.ptr_type(AddressSpace::default()).into(), size_t.into()], false);
 
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(arr_ty, Some(AddressSpace::Generic), &id_str)
+                        ctx.module.add_global(arr_ty, Some(AddressSpace::default()), &id_str)
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 } else {
@@ -860,7 +860,7 @@ impl InnerResolver {
 
             let arr_global = ctx.module.add_global(
                 ty.array_type(len as u32),
-                Some(AddressSpace::Generic),
+                Some(AddressSpace::default()),
                 &(id_str.clone() + "_"),
             );
             let arr: BasicValueEnum = if ty.is_int_type() {
@@ -885,11 +885,11 @@ impl InnerResolver {
             arr_global.set_initializer(&arr);
 
             let val = arr_ty.const_named_struct(&[
-                arr_global.as_pointer_value().const_cast(ty.ptr_type(AddressSpace::Generic)).into(),
+                arr_global.as_pointer_value().const_cast(ty.ptr_type(AddressSpace::default())).into(),
                 size_t.const_int(len as u64, false).into(),
             ]);
 
-            let global = ctx.module.add_global(arr_ty, Some(AddressSpace::Generic), &id_str);
+            let global = ctx.module.add_global(arr_ty, Some(AddressSpace::default()), &id_str);
             global.set_initializer(&val);
 
             Ok(Some(global.as_pointer_value().into()))
@@ -929,7 +929,7 @@ impl InnerResolver {
                 // for option type, just a null ptr
                 Ok(Some(
                     ctx.get_llvm_type(generator, option_val_ty)
-                        .ptr_type(AddressSpace::Generic)
+                        .ptr_type(AddressSpace::default())
                         .const_null()
                         .into(),
                 ))
@@ -947,14 +947,14 @@ impl InnerResolver {
                         {
                             if self.global_value_ids.read().contains_key(&id) {
                                 let global = ctx.module.get_global(&global_str).unwrap_or_else(|| {
-                                    ctx.module.add_global(v.get_type(), Some(AddressSpace::Generic), &global_str)
+                                    ctx.module.add_global(v.get_type(), Some(AddressSpace::default()), &global_str)
                                 });
                                 return Ok(Some(global.as_pointer_value().into()));
                             } else {
                                 self.global_value_ids.write().insert(id, obj.into());
                             }
                         }
-                        let global = ctx.module.add_global(v.get_type(), Some(AddressSpace::Generic), &global_str);
+                        let global = ctx.module.add_global(v.get_type(), Some(AddressSpace::default()), &global_str);
                         global.set_initializer(&v);
                         Ok(Some(global.as_pointer_value().into()))
                     },
@@ -980,7 +980,7 @@ impl InnerResolver {
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(ty, Some(AddressSpace::Generic), &id_str)
+                        ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 } else {
@@ -1002,7 +1002,7 @@ impl InnerResolver {
                 if let Some(values) = values {
                     let val = ty.const_named_struct(&values);
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(ty, Some(AddressSpace::Generic), &id_str)
+                        ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
                     });
                     global.set_initializer(&val);
                     Ok(Some(global.as_pointer_value().into()))

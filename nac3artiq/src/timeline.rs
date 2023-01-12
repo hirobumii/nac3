@@ -20,7 +20,7 @@ impl TimeFns for NowPinningTimeFns64 {
             .get_global("now")
             .unwrap_or_else(|| ctx.module.add_global(i64_type, None, "now"));
         let now_hiptr =
-            ctx.builder.build_bitcast(now, i32_type.ptr_type(AddressSpace::Generic), "now_hiptr");
+            ctx.builder.build_bitcast(now, i32_type.ptr_type(AddressSpace::default()), "now_hiptr");
         if let BasicValueEnum::PointerValue(now_hiptr) = now_hiptr {
             let now_loptr = unsafe {
                 ctx.builder.build_gep(now_hiptr, &[i32_type.const_int(2, false)], "now_gep")
@@ -62,7 +62,7 @@ impl TimeFns for NowPinningTimeFns64 {
                 .unwrap_or_else(|| ctx.module.add_global(i64_type, None, "now"));
             let now_hiptr = ctx.builder.build_bitcast(
                 now,
-                i32_type.ptr_type(AddressSpace::Generic),
+                i32_type.ptr_type(AddressSpace::default()),
                 "now_bitcast",
             );
             if let BasicValueEnum::PointerValue(now_hiptr) = now_hiptr {
@@ -97,7 +97,7 @@ impl TimeFns for NowPinningTimeFns64 {
             .get_global("now")
             .unwrap_or_else(|| ctx.module.add_global(i64_type, None, "now"));
         let now_hiptr =
-            ctx.builder.build_bitcast(now, i32_type.ptr_type(AddressSpace::Generic), "now_hiptr");
+            ctx.builder.build_bitcast(now, i32_type.ptr_type(AddressSpace::default()), "now_hiptr");
         if let BasicValueEnum::PointerValue(now_hiptr) = now_hiptr {
             let now_loptr = unsafe {
                 ctx.builder.build_gep(now_hiptr, &[i32_type.const_int(2, false)], "now_loptr")
@@ -189,7 +189,7 @@ impl TimeFns for NowPinningTimeFns {
                 .unwrap_or_else(|| ctx.module.add_global(i64_type, None, "now"));
             let now_hiptr = ctx.builder.build_bitcast(
                 now,
-                i32_type.ptr_type(AddressSpace::Generic),
+                i32_type.ptr_type(AddressSpace::default()),
                 "now_bitcast",
             );
             if let BasicValueEnum::PointerValue(now_hiptr) = now_hiptr {
@@ -238,7 +238,7 @@ impl TimeFns for NowPinningTimeFns {
             let time_lo = ctx.builder.build_int_truncate(time, i32_type, "now_trunc");
             let now_hiptr = ctx.builder.build_bitcast(
                 now,
-                i32_type.ptr_type(AddressSpace::Generic),
+                i32_type.ptr_type(AddressSpace::default()),
                 "now_bitcast",
             );
             if let BasicValueEnum::PointerValue(now_hiptr) = now_hiptr {

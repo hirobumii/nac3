@@ -284,7 +284,7 @@ pub fn list_slice_assignment<'ctx, 'a>(
     src_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
 ) {
     let size_ty = generator.get_size_type(ctx.ctx);
-    let int8_ptr = ctx.ctx.i8_type().ptr_type(AddressSpace::Generic);
+    let int8_ptr = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
     let int32 = ctx.ctx.i32_type();
     let (fun_symbol, elem_ptr_type) = ("__nac3_list_slice_assign_var_size", int8_ptr);
     let slice_assign_fun = {
