@@ -14,11 +14,14 @@ pacman --root $MSYS2DIR --config $MSYS2DIR/etc/pacman.conf --cachedir $MSYS2DIR/
 
 echo "{ pkgs } : [" > msys2_packages.nix
 while read package; do
-	hash=$(nix-prefetch-url $package)
+	basename=${package##*/}
+	name=${basename//\~/}
+	hash=$(nix-prefetch-url $package --name $name)
 	echo "
 (pkgs.fetchurl {
   url = \"$package\";
   sha256 = \"$hash\";
+  name = \"$name\";
 })" >> msys2_packages.nix
 done < $MSYS2DIR/packages.txt
 echo "]" >> msys2_packages.nix
