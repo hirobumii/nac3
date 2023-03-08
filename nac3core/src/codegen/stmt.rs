@@ -1000,7 +1000,7 @@ pub fn gen_stmt<'ctx, 'a, G: CodeGenerator>(
         ctx.debug_info.2,
         None,
     );
-    ctx.builder.set_current_debug_location(ctx.ctx, loc);
+    ctx.builder.set_current_debug_location(loc);
 
     match &stmt.node {
         StmtKind::Pass { .. } => {}

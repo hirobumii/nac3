@@ -695,7 +695,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         func_scope.as_debug_info_scope(),
         None
     );
-    code_gen_context.builder.set_current_debug_location(context, loc);
+    code_gen_context.builder.set_current_debug_location(loc);
     
     let result = codegen_function(generator, &mut code_gen_context);
 

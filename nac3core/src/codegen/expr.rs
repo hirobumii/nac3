@@ -1046,7 +1046,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
         ctx.debug_info.2,
         None,
     );
-    ctx.builder.set_current_debug_location(ctx.ctx, loc);
+    ctx.builder.set_current_debug_location(loc);
 
     Ok(Some(match &expr.node {
         ExprKind::Constant { value, .. } => {

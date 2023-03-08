@@ -17,7 +17,7 @@ nac3core = { path = "../nac3core" }
 nac3ld = { path = "../nac3ld" }
 
 [dependencies.inkwell]
-git = "https://github.com/TheDan64/inkwell.git"
+version = "0.1.1"
 default-features = false
 features = ["llvm14-0", "target-x86", "target-arm", "target-riscv", "no-libffi-linking"]
 
