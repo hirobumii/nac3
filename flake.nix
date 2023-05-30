@@ -138,7 +138,7 @@
 
       packages.x86_64-w64-mingw32 = import ./nix/windows { inherit pkgs; };
 
-      devShell.x86_64-linux = pkgs.mkShell {
+      devShells.x86_64-linux.default = pkgs.mkShell {
         name = "nac3-dev-shell";
         buildInputs = with pkgs; [
           # build dependencies
