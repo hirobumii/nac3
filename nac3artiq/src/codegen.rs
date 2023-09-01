@@ -498,7 +498,7 @@ pub fn attributes_writeback<'ctx, 'a>(
     host_attributes: PyObject,
 ) -> Result<(), String> {
     Python::with_gil(|py| -> PyResult<Result<(), String>> {
-        let host_attributes = host_attributes.cast_as::<PyList>(py)?;
+        let host_attributes: &PyList = host_attributes.downcast(py)?;
         let top_levels = ctx.top_level.definitions.read();
         let globals = inner_resolver.global_value_ids.read();
         let int32 = ctx.ctx.i32_type();

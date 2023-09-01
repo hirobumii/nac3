@@ -170,7 +170,7 @@ impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
                     location: token.0,
                 }
             }
-            LalrpopError::UnrecognizedEOF { location, .. } => ParseError {
+            LalrpopError::UnrecognizedEof { location, .. } => ParseError {
                 error: ParseErrorType::Eof,
                 location,
             },

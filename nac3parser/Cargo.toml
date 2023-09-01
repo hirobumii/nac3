@@ -8,17 +8,17 @@ license = "MIT"
 edition = "2018"
 
 [build-dependencies]
-lalrpop = "0.19"
+lalrpop = "0.20"
 
 [dependencies]
 nac3ast = { path = "../nac3ast" }
-lalrpop-util = "0.19"
+lalrpop-util = "0.20"
 log = "0.4"
 unic-emoji-char = "0.9"
 unic-ucd-ident  = "0.9"
-unicode_names2 = "0.5"
+unicode_names2 = "1.0"
 phf = { version = "0.11", features = ["macros"] }
-ahash = "0.7"
+ahash = "0.8"
 
 [dev-dependencies]
 insta = "=1.11.0"

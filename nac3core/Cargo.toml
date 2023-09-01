@@ -5,7 +5,7 @@ authors = ["M-Labs"]
 edition = "2018"
 
 [dependencies]
-itertools = "0.10"
+itertools = "0.11"
 crossbeam = "0.8"
 parking_lot = "0.12"
 rayon = "1.5"
@@ -13,13 +13,13 @@ nac3parser = { path = "../nac3parser" }
 lazy_static = "1.4"
 
 [dependencies.inkwell]
-version = "0.1.1"
+version = "0.2"
 default-features = false
 features = ["llvm14-0", "target-x86", "target-arm", "target-riscv", "no-libffi-linking"]
 
 [dev-dependencies]
 test-case = "1.2.0"
-indoc = "1.0"
+indoc = "2.0"
 insta = "=1.11.0"
 
 [build-dependencies]

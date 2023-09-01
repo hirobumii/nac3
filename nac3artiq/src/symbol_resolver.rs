@@ -166,7 +166,7 @@ impl StaticValue for PythonValue {
                 let ty_id: u64 = helper.id_fn.call1(py, (ty,))?.extract(py)?;
                 // for optimizing unwrap KernelInvariant
                 if ty_id == self.resolver.primitive_ids.option && name == "_nac3_option".into() {
-                    let obj = self.value.getattr(py, &name.to_string())?;
+                    let obj = self.value.getattr(py, name.to_string().as_str())?;
                     let id = self.resolver.helper.id_fn.call1(py, (&obj,))?.extract(py)?;
                     if self.id == self.resolver.primitive_ids.none {
                         return Ok(None)
@@ -188,7 +188,7 @@ impl StaticValue for PythonValue {
                 let result = if mutable {
                     None
                 } else {
-                    let obj = self.value.getattr(py, &name.to_string())?;
+                    let obj = self.value.getattr(py, name.to_string().as_str())?;
                     let id = self.resolver.helper.id_fn.call1(py, (&obj,))?.extract(py)?;
                     Some((id, obj))
                 };
@@ -394,7 +394,7 @@ impl InnerResolver {
         {
             let origin = self.helper.origin_ty_fn.call1(py, (pyty,))?;
             let args = self.helper.args_ty_fn.call1(py, (pyty,))?;
-            let args: &PyTuple = args.cast_as(py)?;
+            let args: &PyTuple = args.downcast(py)?;
             let origin_ty =
                 match self.get_pyty_obj_type(py, origin.as_ref(py), unifier, defs, primitives)? {
                     Ok((ty, false)) => ty,
@@ -619,7 +619,7 @@ impl InnerResolver {
                 }
             }
             (TypeEnum::TTuple { .. }, false) => {
-                let elements: &PyTuple = obj.cast_as()?;
+                let elements: &PyTuple = obj.downcast()?;
                 let types: Result<Result<Vec<_>, _>, _> = elements
                     .iter()
                     .map(|elem| self.get_obj_type(py, elem, unifier, defs, primitives))
@@ -695,7 +695,7 @@ impl InnerResolver {
                         if let TypeEnum::TFunc(..) = &*unifier.get_ty(field.1.0) {
                             continue;
                         } else {
-                            let field_data = match obj.getattr(&name) {
+                            let field_data = match obj.getattr(name.as_str()) {
                                 Ok(d) => d,
                                 Err(e) => return Ok(Err(format!("{}", e))),
                             };
@@ -896,7 +896,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.tuple {
             if let TypeEnum::TTuple { ty } = ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
                 let tup_tys = ty.iter();
-                let elements: &PyTuple = obj.cast_as()?;
+                let elements: &PyTuple = obj.downcast()?;
                 assert_eq!(elements.len(), tup_tys.len());
                 let val: Result<Option<Vec<_>>, _> =
                     elements
@@ -994,7 +994,7 @@ impl InnerResolver {
                 let values: Result<Option<Vec<_>>, _> = fields
                     .iter()
                     .map(|(name, ty, _)| {
-                        self.get_obj_value(py, obj.getattr(&name.to_string())?, ctx, generator, *ty)
+                        self.get_obj_value(py, obj.getattr(name.to_string().as_str())?, ctx, generator, *ty)
                             .map_err(|e| super::CompileError::new_err(format!("Error getting field {}: {}", name, e)))
                     })
                     .collect();
@@ -1042,7 +1042,7 @@ impl InnerResolver {
             let val: f64 = obj.extract()?;
             Ok(SymbolValue::Double(val))
         } else if ty_id == self.primitive_ids.tuple {
-            let elements: &PyTuple = obj.cast_as()?;
+            let elements: &PyTuple = obj.downcast()?;
             let elements: Result<Result<Vec<_>, String>, _> =
                 elements.iter().map(|elem| self.get_default_param_obj_value(py, elem)).collect();
             elements?.map(SymbolValue::Tuple)
@@ -1066,7 +1066,7 @@ impl SymbolResolver for Resolver {
             ast::ExprKind::Name { id, .. } => {
                 Python::with_gil(|py| -> PyResult<Option<SymbolValue>> {
                     let obj: &PyAny = self.0.module.extract(py)?;
-                    let members: &PyDict = obj.getattr("__dict__").unwrap().cast_as().unwrap();
+                    let members: &PyDict = obj.getattr("__dict__").unwrap().downcast().unwrap();
                     let mut sym_value = None;
                     for (key, val) in members.iter() {
                         let key: &str = key.extract()?;
@@ -1110,7 +1110,7 @@ impl SymbolResolver for Resolver {
                     None => Python::with_gil(|py| -> PyResult<Result<Type, String>> {
                         let obj: &PyAny = self.0.module.extract(py)?;
                         let mut sym_ty = Err(format!("cannot find symbol `{}`", str));
-                        let members: &PyDict = obj.getattr("__dict__").unwrap().cast_as().unwrap();
+                        let members: &PyDict = obj.getattr("__dict__").unwrap().downcast().unwrap();
                         for (key, val) in members.iter() {
                             let key: &str = key.extract()?;
                             if key == str.to_string() {
@@ -1145,7 +1145,7 @@ impl SymbolResolver for Resolver {
             Python::with_gil(|py| -> PyResult<Option<(u64, PyObject)>> {
                 let obj: &PyAny = self.0.module.extract(py)?;
                 let mut sym_value: Option<(u64, PyObject)> = None;
-                let members: &PyDict = obj.getattr("__dict__").unwrap().cast_as().unwrap();
+                let members: &PyDict = obj.getattr("__dict__").unwrap().downcast().unwrap();
                 for (key, val) in members.iter() {
                     let key: &str = key.extract()?;
                     if key == id.to_string() {

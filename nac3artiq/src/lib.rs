@@ -143,7 +143,7 @@ impl Nac3 {
                                     if *id == "Exception".into() {
                                         Ok(true)
                                     } else {
-                                        let base_obj = module.getattr(py, id.to_string())?;
+                                        let base_obj = module.getattr(py, id.to_string().as_str())?;
                                         let base_id = id_fn.call1((base_obj,))?.extract()?;
                                         Ok(registered_class_ids.contains(&base_id))
                                     }
@@ -325,7 +325,7 @@ impl Nac3 {
             let helper = helper.clone();
             let class_obj;
             if let StmtKind::ClassDef { name, .. } = &stmt.node {
-                let class = py_module.getattr(name.to_string()).unwrap();
+                let class = py_module.getattr(name.to_string().as_str()).unwrap();
                 if issubclass.call1((class, exn_class)).unwrap().extract().unwrap() &&
                     class.getattr("artiq_builtin").is_err() {
                     class_obj = Some(class);
@@ -339,7 +339,7 @@ impl Nac3 {
                 module_to_resolver_cache.get(&module_id).cloned().unwrap_or_else(|| {
                     let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
                     let members: &PyDict =
-                        py_module.getattr("__dict__").unwrap().cast_as().unwrap();
+                        py_module.getattr("__dict__").unwrap().downcast().unwrap();
                     for (key, val) in members.iter() {
                         let key: &str = key.extract().unwrap();
                         let val = id_fn.call1((val,)).unwrap().extract().unwrap();
@@ -385,13 +385,13 @@ impl Nac3 {
             match &stmt.node {
                 StmtKind::FunctionDef { decorator_list, .. } => {
                     if decorator_list.iter().any(|decorator| matches!(decorator.node, ExprKind::Name { id, .. } if id == "rpc".into())) {
-                        store_fun.call1(py, (def_id.0.into_py(py), module.getattr(py, name.to_string()).unwrap())).unwrap();
+                        store_fun.call1(py, (def_id.0.into_py(py), module.getattr(py, name.to_string().as_str()).unwrap())).unwrap();
                         rpc_ids.push((None, def_id));
                     }
                 }
                 StmtKind::ClassDef { name, body, .. } => {
                     let class_name = name.to_string();
-                    let class_obj = module.getattr(py, &class_name).unwrap();
+                    let class_obj = module.getattr(py, class_name.as_str()).unwrap();
                     for stmt in body.iter() {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
                             if decorator_list.iter().any(|decorator| matches!(decorator.node, ExprKind::Name { id, .. } if id == "rpc".into())) {
@@ -517,7 +517,7 @@ impl Nac3 {
                                         py,
                                         (
                                             id.0.into_py(py),
-                                            class_def.getattr(py, name.to_string()).unwrap(),
+                                            class_def.getattr(py, name.to_string().as_str()).unwrap(),
                                         ),
                                     )
                                     .unwrap();

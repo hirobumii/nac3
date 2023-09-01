@@ -9,7 +9,7 @@ name = "nac3artiq"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.16", features = ["extension-module"] }
+pyo3 = { version = "0.19", features = ["extension-module"] }
 parking_lot = "0.12"
 tempfile = "3"
 nac3parser = { path = "../nac3parser" }
@@ -17,7 +17,7 @@ nac3core = { path = "../nac3core" }
 nac3ld = { path = "../nac3ld" }
 
 [dependencies.inkwell]
-version = "0.1.1"
+version = "0.2"
 default-features = false
 features = ["llvm14-0", "target-x86", "target-arm", "target-riscv", "no-libffi-linking"]
 
