@@ -280,10 +280,16 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
 
             ctx.builder.build_store(i, start);
 
-            // Pre-Loop Checks:
-            // - step == 0 -> ValueError
-            // - start < stop for step > 0 || start > stop for step < 0
-            // TODO: Generate step == 0 -> raise ValueError
+            // Check "If step is zero, ValueError is raised."
+            let rangenez = ctx.builder.build_int_compare(IntPredicate::NE, step, int32.const_zero(), "");
+            ctx.make_assert(
+                generator,
+                rangenez,
+                "ValueError",
+                "range() arg 3 must not be zero",
+                [None, None, None],
+                ctx.current_loc
+            );
 
             ctx.builder.build_conditional_branch(
                 gen_in_range_check(ctx, start, stop, step),
