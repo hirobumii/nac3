@@ -193,7 +193,13 @@ pub fn gen_assign<'ctx, 'a, G: CodeGenerator>(
             }
         }
         _ => {
-            let ptr = generator.gen_store_target(ctx, target, Some("target.addr"))?;
+            let name = if let ExprKind::Name { id, .. } = &target.node {
+                format!("{}.addr", id.to_string())
+            } else {
+                String::from("target.addr")
+            };
+            let ptr = generator.gen_store_target(ctx, target, Some(name.as_str()))?;
+
             if let ExprKind::Name { id, .. } = &target.node {
                 let (_, static_value, counter) = ctx.var_assignment.get_mut(id).unwrap();
                 *counter += 1;
