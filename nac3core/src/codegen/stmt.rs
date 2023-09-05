@@ -248,7 +248,6 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
         let size_t = generator.get_size_type(ctx.ctx);
         let zero = int32.const_zero();
         let current = ctx.builder.get_insert_block().and_then(|bb| bb.get_parent()).unwrap();
-        let test_bb = ctx.ctx.append_basic_block(current, "for.cond");
         let body_bb = ctx.ctx.append_basic_block(current, "for.body");
         let cont_bb = ctx.ctx.append_basic_block(current, "for.end");
         // if there is no orelse, we just go to cont_bb
@@ -258,12 +257,15 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
         // Whether the iterable is a range() expression
         let is_iterable_range_expr = ctx.unifier.unioned(iter.custom.unwrap(), ctx.primitives.range);
 
-        // store loop bb information and restore it later
-        let loop_bb = if is_iterable_range_expr {
-            ctx.loop_target.replace((body_bb, cont_bb))
+        // The target BB of the loop backedge
+        let backedge_bb_target = if is_iterable_range_expr {
+            body_bb
         } else {
-            ctx.loop_target.replace((test_bb, cont_bb))
+            ctx.ctx.append_basic_block(current, "for.cond")
         };
+
+        // store loop bb information and restore it later
+        let loop_bb = ctx.loop_target.replace((backedge_bb_target, cont_bb));
 
         let iter_val = generator.gen_expr(ctx, iter)?.unwrap().to_basic_value_enum(
             ctx,
@@ -317,6 +319,8 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
             ctx.builder.position_at_end(cond_cont_bb);
             ctx.builder.build_store(i, next_i);
         } else {
+            let test_bb = backedge_bb_target;
+
             let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("for.counter.addr"))?;
             // counter = -1
             ctx.builder.build_store(counter, size_t.const_int(u64::max_value(), true));
@@ -353,11 +357,7 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
         }
 
         if !ctx.is_terminated() {
-            if is_iterable_range_expr {
-                ctx.builder.build_unconditional_branch(body_bb);
-            } else {
-                ctx.builder.build_unconditional_branch(test_bb);
-            }
+            ctx.builder.build_unconditional_branch(backedge_bb_target);
         }
 
         if !orelse.is_empty() {
@@ -373,12 +373,6 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
             if counter != counter2 {
                 *static_val = None;
             }
-        }
-
-        // Clear test_bb if unused
-        if is_iterable_range_expr {
-            ctx.builder.position_at_end(test_bb);
-            ctx.builder.build_unreachable();
         }
 
         ctx.builder.position_at_end(cont_bb);
