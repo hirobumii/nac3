@@ -321,9 +321,8 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
         } else {
             let test_bb = backedge_bb_target;
 
-            let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("for.counter.addr"))?;
-            // counter = -1
-            ctx.builder.build_store(counter, size_t.const_int(u64::max_value(), true));
+            let index_addr = generator.gen_var_alloc(ctx, size_t.into(), Some("for.index.addr"))?;
+            ctx.builder.build_store(index_addr, size_t.const_zero());
             let len = ctx
                 .build_gep_and_load(
                     iter_val.into_pointer_value(),
@@ -333,20 +332,21 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
             ctx.builder.build_unconditional_branch(test_bb);
 
             ctx.builder.position_at_end(test_bb);
-            let tmp = ctx.builder.build_load(counter, "i").into_int_value();
-            let tmp = ctx.builder.build_int_add(tmp, size_t.const_int(1, false), "inc");
-            ctx.builder.build_store(counter, tmp);
-            let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, len, "cmp");
+            let index = ctx.builder.build_load(index_addr, "for.index").into_int_value();
+            let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, index, len, "cond");
             ctx.builder.build_conditional_branch(cmp, body_bb, orelse_bb);
 
             ctx.builder.position_at_end(body_bb);
             let arr_ptr = ctx
                 .build_gep_and_load(iter_val.into_pointer_value(), &[zero, zero])
                 .into_pointer_value();
-            let val = ctx.build_gep_and_load(arr_ptr, &[tmp]);
+            let val = ctx.build_gep_and_load(arr_ptr, &[index]);
             generator.gen_assign(ctx, target, val.into())?;
-
             gen_block(generator, ctx, body.iter())?;
+
+            let index = ctx.builder.build_load(index_addr, "for.index").into_int_value();
+            let inc = ctx.builder.build_int_add(index, size_t.const_int(1, true), "");
+            ctx.builder.build_store(index_addr, inc);
         }
 
         for (k, (_, _, counter)) in var_assignment.iter() {
