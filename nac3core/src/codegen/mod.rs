@@ -77,7 +77,8 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub const_strings: HashMap<String, BasicValueEnum<'ctx>>,
     // stores the alloca for variables
     pub init_bb: BasicBlock<'ctx>,
-    // the first one is the test_bb, and the second one is bb after the loop
+    /// The header and exit basic blocks of a loop in this context. See
+    /// https://llvm.org/docs/LoopTerminology.html for explanation of these terminology.
     pub loop_target: Option<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
     // unwind target bb
     pub unwind_target: Option<BasicBlock<'ctx>>,
