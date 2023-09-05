@@ -1,9 +1,12 @@
+# For Loop using an increasing range() expression as its iterable
+
 @extern
 def output_int32(x: int32):
     ...
 
 def run() -> int32:
-    for _ in range(10):
-        output_int32(_)
-        _ = 0
+    i = 0
+    for i in range(10):
+        output_int32(i)
+    output_int32(i)
     return 0
