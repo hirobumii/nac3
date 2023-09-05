@@ -221,13 +221,13 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
         let int32 = ctx.ctx.i32_type();
         let size_t = generator.get_size_type(ctx.ctx);
         let zero = int32.const_zero();
-        let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-        let test_bb = ctx.ctx.append_basic_block(current, "test");
-        let body_bb = ctx.ctx.append_basic_block(current, "body");
-        let cont_bb = ctx.ctx.append_basic_block(current, "cont");
+        let current = ctx.builder.get_insert_block().and_then(|bb| bb.get_parent()).unwrap();
+        let test_bb = ctx.ctx.append_basic_block(current, "for.cond");
+        let body_bb = ctx.ctx.append_basic_block(current, "for.body");
+        let cont_bb = ctx.ctx.append_basic_block(current, "for.end");
         // if there is no orelse, we just go to cont_bb
         let orelse_bb =
-            if orelse.is_empty() { cont_bb } else { ctx.ctx.append_basic_block(current, "orelse") };
+            if orelse.is_empty() { cont_bb } else { ctx.ctx.append_basic_block(current, "for.orelse") };
         // store loop bb information and restore it later
         let loop_bb = ctx.loop_target.replace((test_bb, cont_bb));
 
@@ -338,12 +338,12 @@ pub fn gen_while<'ctx, 'a, G: CodeGenerator>(
         let var_assignment = ctx.var_assignment.clone();
 
         let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-        let test_bb = ctx.ctx.append_basic_block(current, "test");
-        let body_bb = ctx.ctx.append_basic_block(current, "body");
-        let cont_bb = ctx.ctx.append_basic_block(current, "cont");
+        let test_bb = ctx.ctx.append_basic_block(current, "while.test");
+        let body_bb = ctx.ctx.append_basic_block(current, "while.body");
+        let cont_bb = ctx.ctx.append_basic_block(current, "while.cont");
         // if there is no orelse, we just go to cont_bb
         let orelse_bb =
-            if orelse.is_empty() { cont_bb } else { ctx.ctx.append_basic_block(current, "orelse") };
+            if orelse.is_empty() { cont_bb } else { ctx.ctx.append_basic_block(current, "while.orelse") };
         // store loop bb information and restore it later
         let loop_bb = ctx.loop_target.replace((test_bb, cont_bb));
         ctx.builder.build_unconditional_branch(test_bb);
@@ -401,15 +401,15 @@ pub fn gen_if<'ctx, 'a, G: CodeGenerator>(
         let var_assignment = ctx.var_assignment.clone();
 
         let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-        let test_bb = ctx.ctx.append_basic_block(current, "test");
-        let body_bb = ctx.ctx.append_basic_block(current, "body");
+        let test_bb = ctx.ctx.append_basic_block(current, "if.test");
+        let body_bb = ctx.ctx.append_basic_block(current, "if.body");
         let mut cont_bb = None;
         // if there is no orelse, we just go to cont_bb
         let orelse_bb = if orelse.is_empty() {
-            cont_bb = Some(ctx.ctx.append_basic_block(current, "cont"));
+            cont_bb = Some(ctx.ctx.append_basic_block(current, "if.cont"));
             cont_bb.unwrap()
         } else {
-            ctx.ctx.append_basic_block(current, "orelse")
+            ctx.ctx.append_basic_block(current, "if.orelse")
         };
         ctx.builder.build_unconditional_branch(test_bb);
         ctx.builder.position_at_end(test_bb);
