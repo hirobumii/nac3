@@ -41,6 +41,14 @@ struct CommandLineArgs {
     /// The number of threads allocated to processing the source file.
     #[arg(default_value_t = 1)]
     threads: u32,
+
+    /// The level to optimize the LLVM IR.
+    #[arg(short = 'O', default_value_t = 2, value_parser = clap::value_parser!(u32).range(0..=3))]
+    opt_level: u32,
+
+    /// Whether to emit LLVM IR at the end of every module.
+    #[arg(long, default_value_t = false)]
+    emit_llvm: bool,
 }
 
 fn handle_typevar_definition(
@@ -169,7 +177,14 @@ fn handle_assignment_pattern(
 
 fn main() {
     let cli = CommandLineArgs::parse();
-    let CommandLineArgs { file_name, threads } = cli;
+    let CommandLineArgs { file_name, threads, opt_level, emit_llvm } = cli;
+    let opt_level = match opt_level {
+        0 => OptimizationLevel::None,
+        1 => OptimizationLevel::Less,
+        2 => OptimizationLevel::Default,
+        // The default behavior for -O<n> where n>3 defaults to O3 for both Clang and GCC
+        _ => OptimizationLevel::Aggressive,
+    };
 
     Target::initialize_all(&InitializationConfig::default());
 
@@ -256,8 +271,8 @@ fn main() {
     };
 
     let llvm_options = CodeGenLLVMOptions {
-        opt_level: OptimizationLevel::Default,
-        emit_llvm: false,
+        opt_level,
+        emit_llvm,
     };
     let task = CodeGenTask {
         subst: Default::default(),
@@ -322,7 +337,7 @@ fn main() {
             &triple,
             "",
             "",
-            OptimizationLevel::Default,
+            opt_level,
             RelocMode::Default,
             CodeModel::Default,
         )
