@@ -10,8 +10,8 @@ use std::{borrow::Borrow, collections::HashMap, fs, path::Path, sync::Arc};
 
 use nac3core::{
     codegen::{
-        concrete_type::ConcreteTypeStore, irrt::load_irrt, CodeGenTask, DefaultCodeGenerator,
-        WithCall, WorkerRegistry,
+        concrete_type::ConcreteTypeStore, irrt::load_irrt, CodeGenLLVMOptions, CodeGenTask,
+        DefaultCodeGenerator, WithCall, WorkerRegistry,
     },
     symbol_resolver::SymbolResolver,
     toplevel::{
@@ -255,6 +255,10 @@ fn main() {
         }
     };
 
+    let llvm_options = CodeGenLLVMOptions {
+        opt_level: OptimizationLevel::Default,
+        emit_llvm: false,
+    };
     let task = CodeGenTask {
         subst: Default::default(),
         symbol_name: "run".to_string(),
@@ -278,7 +282,7 @@ fn main() {
     let threads = (0..threads)
         .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{}", i), 64)))
         .collect();
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, f);
+    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, f);
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 

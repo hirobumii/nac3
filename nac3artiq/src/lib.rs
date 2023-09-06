@@ -12,7 +12,7 @@ use inkwell::{
     targets::*,
     OptimizationLevel,
 };
-use nac3core::codegen::gen_func_impl;
+use nac3core::codegen::{CodeGenLLVMOptions, gen_func_impl};
 use nac3core::toplevel::builtins::get_exn_constructor;
 use nac3core::typecheck::typedef::{TypeEnum, Unifier};
 use nac3parser::{
@@ -97,7 +97,9 @@ struct Nac3 {
     top_levels: Vec<TopLevelComponent>,
     string_store: Arc<RwLock<HashMap<String, i32>>>,
     exception_ids: Arc<RwLock<HashMap<usize, usize>>>,
-    deferred_eval_store: DeferredEvaluationStore
+    deferred_eval_store: DeferredEvaluationStore,
+    /// LLVM-related options for code generation.
+    llvm_options: CodeGenLLVMOptions,
 }
 
 create_exception!(nac3artiq, CompileError, exceptions::PyException);
@@ -588,7 +590,12 @@ impl Nac3 {
 
         let membuffer = membuffers.clone();
         py.allow_threads(|| {
-            let (registry, handles) = WorkerRegistry::create_workers(threads, top_level.clone(), f);
+            let (registry, handles) = WorkerRegistry::create_workers(
+                threads,
+                top_level.clone(),
+                &self.llvm_options,
+                f
+            );
             registry.add_task(task);
             registry.wait_tasks_complete(handles);
 
@@ -681,7 +688,7 @@ impl Nac3 {
                 &triple,
                 "",
                 &features,
-                OptimizationLevel::Default,
+                self.llvm_options.opt_level,
                 RelocMode::PIC,
                 CodeModel::Default,
             )
@@ -885,6 +892,10 @@ impl Nac3 {
             string_store: Default::default(),
             exception_ids: Default::default(),
             deferred_eval_store: DeferredEvaluationStore::new(),
+            llvm_options: CodeGenLLVMOptions {
+                opt_level: OptimizationLevel::Default,
+                emit_llvm: false,
+            }
         })
     }
 

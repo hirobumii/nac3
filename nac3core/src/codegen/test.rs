@@ -1,7 +1,7 @@
 use crate::{
     codegen::{
-        concrete_type::ConcreteTypeStore, CodeGenContext, CodeGenTask, DefaultCodeGenerator,
-        WithCall, WorkerRegistry,
+        concrete_type::ConcreteTypeStore, CodeGenContext, CodeGenLLVMOptions, CodeGenTask,
+        DefaultCodeGenerator, WithCall, WorkerRegistry,
     },
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
@@ -13,6 +13,7 @@ use crate::{
     },
 };
 use indoc::indoc;
+use inkwell::OptimizationLevel;
 use nac3parser::{
     ast::{fold::Fold, StrRef},
     parser::parse_program,
@@ -220,7 +221,17 @@ fn test_primitives() {
         .trim();
         assert_eq!(expected, module.print_to_string().to_str().unwrap().trim());
     })));
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, f);
+
+    let llvm_options = CodeGenLLVMOptions {
+        opt_level: OptimizationLevel::Default,
+        emit_llvm: false,
+    };
+    let (registry, handles) = WorkerRegistry::create_workers(
+        threads,
+        top_level,
+        &llvm_options,
+        f
+    );
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 }
@@ -395,7 +406,17 @@ fn test_simple_call() {
         .trim();
         assert_eq!(expected, module.print_to_string().to_str().unwrap().trim());
     })));
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, f);
+
+    let llvm_options = CodeGenLLVMOptions {
+        opt_level: OptimizationLevel::Default,
+        emit_llvm: false,
+    };
+    let (registry, handles) = WorkerRegistry::create_workers(
+        threads,
+        top_level,
+        &llvm_options,
+        f
+    );
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 }

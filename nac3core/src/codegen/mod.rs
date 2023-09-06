@@ -132,12 +132,15 @@ pub struct WorkerRegistry {
     wait_condvar: Condvar,
     top_level_ctx: Arc<TopLevelContext>,
     static_value_store: Arc<Mutex<StaticValueStore>>,
+    /// LLVM-related options for code generation.
+    llvm_options: CodeGenLLVMOptions,
 }
 
 impl WorkerRegistry {
     pub fn create_workers<G: CodeGenerator + Send + 'static>(
         generators: Vec<Box<G>>,
         top_level_ctx: Arc<TopLevelContext>,
+        llvm_options: &CodeGenLLVMOptions,
         f: Arc<WithCall>,
     ) -> (Arc<WorkerRegistry>, Vec<thread::JoinHandle<()>>) {
         let (sender, receiver) = unbounded();
@@ -158,6 +161,7 @@ impl WorkerRegistry {
             task_count,
             wait_condvar,
             top_level_ctx,
+            llvm_options: llvm_options.clone(),
         });
 
         let mut handles = Vec::new();
@@ -242,7 +246,7 @@ impl WorkerRegistry {
         {
             let _data = PASSES_INIT_LOCK.lock();
             let pass_builder = PassManagerBuilder::create();
-            pass_builder.set_optimization_level(OptimizationLevel::Default);
+            pass_builder.set_optimization_level(self.llvm_options.opt_level);
             pass_builder.populate_function_pass_manager(&passes);
         }
 
@@ -274,6 +278,13 @@ impl WorkerRegistry {
             println!("{}", err.to_string());
             panic!()
         }
+
+        if self.llvm_options.emit_llvm {
+            println!("LLVM IR for {}", module.get_name().to_str().unwrap());
+            println!("{}", module.to_string());
+            println!();
+        }
+
         f.run(&module);
         let mut lock = self.task_count.lock();
         *lock += 1;
@@ -634,7 +645,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
             ),
         /* directory */ "",
         /* producer */ "NAC3",
-        /* is_optimized */ true,
+        /* is_optimized */ registry.llvm_options.opt_level != OptimizationLevel::None,
         /* compiler command line flags */ "",
         /* runtime_ver */ 0,
         /* split_name */ "",
@@ -669,7 +680,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         /* is_definition */ true,
         /* scope_line */ row as u32,
         /* flags */ inkwell::debug_info::DIFlags::PUBLIC,
-        /* is_optimized */ true,
+        /* is_optimized */ registry.llvm_options.opt_level != OptimizationLevel::None,
     );
     fn_val.set_subprogram(func_scope);
 
