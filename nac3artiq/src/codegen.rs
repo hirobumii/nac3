@@ -84,7 +84,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                 .try_as_basic_value()
                 .left()
                 .unwrap();
-            let end_store = self.gen_store_target(ctx, &end, None)?;
+            let end_store = self.gen_store_target(ctx, &end, Some("end_store.addr"))?;
             ctx.builder.build_store(end_store, max);
         }
         if let Some(start) = self.start.clone() {
@@ -140,7 +140,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                                     node: ExprKind::Name { id: start, ctx: name_ctx.clone() },
                                     custom: Some(ctx.primitives.int64),
                                 };
-                                let start = self.gen_store_target(ctx, &start_expr, None)?;
+                                let start = self.gen_store_target(ctx, &start_expr, Some("start.addr"))?;
                                 ctx.builder.build_store(start, now);
                                 Ok(Some(start_expr)) as Result<_, String>
                             },
@@ -153,7 +153,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                             node: ExprKind::Name { id: end, ctx: name_ctx.clone() },
                             custom: Some(ctx.primitives.int64),
                         };
-                        let end = self.gen_store_target(ctx, &end_expr, None)?;
+                        let end = self.gen_store_target(ctx, &end_expr, Some("end.addr"))?;
                         ctx.builder.build_store(end, now);
                         self.end = Some(end_expr);
                         self.name_counter += 1;
@@ -204,7 +204,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                                 .try_as_basic_value()
                                 .left()
                                 .unwrap();
-                            let outer_end = self.gen_store_target(ctx, old_end, None)?;
+                            let outer_end = self.gen_store_target(ctx, old_end, Some("outer_end.addr"))?;
                             ctx.builder.build_store(outer_end, max);
                         }
                         self.start = old_start;
