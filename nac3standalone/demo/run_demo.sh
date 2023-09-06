@@ -15,6 +15,6 @@ else
 fi
 
 rm -f *.o
-$nac3standalone $1
+$nac3standalone "$@"
 rustc -o demo demo.rs -Crelocation-model=static -Clink-arg=./module.o
 ./demo
