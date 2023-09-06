@@ -30,7 +30,7 @@ pub fn gen_var<'ctx, 'a>(
     let current = ctx.builder.get_insert_block().unwrap();
     // position before the last branching instruction...
     ctx.builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
-    let ptr = ctx.builder.build_alloca(ty, name.unwrap_or("tmp"));
+    let ptr = ctx.builder.build_alloca(ty, name.unwrap_or(""));
     ctx.builder.position_at_end(current);
     Ok(ptr)
 }
@@ -76,7 +76,7 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
                         ctx.ctx.i32_type().const_zero(),
                         ctx.ctx.i32_type().const_int(index as u64, false),
                     ],
-                    name.unwrap_or("attr"),
+                    name.unwrap_or(""),
                 )
             }
         }
@@ -137,7 +137,7 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
                 let arr_ptr = ctx
                     .build_gep_and_load(v, &[i32_type.const_zero(), i32_type.const_zero()])
                     .into_pointer_value();
-                ctx.builder.build_gep(arr_ptr, &[index], name.unwrap_or("loadarrgep"))
+                ctx.builder.build_gep(arr_ptr, &[index], name.unwrap_or(""))
             }
         }
         _ => unreachable!(),
