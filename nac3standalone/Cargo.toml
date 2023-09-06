@@ -9,6 +9,10 @@ parking_lot = "0.12"
 nac3parser = { path = "../nac3parser" }
 nac3core = { path = "../nac3core" }
 
+[dependencies.clap]
+version = "4.4"
+features = ["derive"]
+
 [dependencies.inkwell]
 version = "0.2"
 default-features = false

@@ -1,3 +1,4 @@
+use clap::Parser;
 use inkwell::{
     memory_buffer::MemoryBuffer,
     passes::{PassManager, PassManagerBuilder},
@@ -5,7 +6,7 @@ use inkwell::{
     OptimizationLevel,
 };
 use parking_lot::{Mutex, RwLock};
-use std::{borrow::Borrow, collections::HashMap, env, fs, path::Path, sync::Arc};
+use std::{borrow::Borrow, collections::HashMap, fs, path::Path, sync::Arc};
 
 use nac3core::{
     codegen::{
@@ -29,6 +30,18 @@ use nac3parser::{
 
 mod basic_symbol_resolver;
 use basic_symbol_resolver::*;
+
+/// Command-line argument parser definition.
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct CommandLineArgs {
+    /// The name of the input file.
+    file_name: String,
+
+    /// The number of threads allocated to processing the source file.
+    #[arg(default_value_t = 1)]
+    threads: u32,
+}
 
 fn handle_typevar_definition(
     var: &Expr,
@@ -155,8 +168,8 @@ fn handle_assignment_pattern(
 }
 
 fn main() {
-    let file_name = env::args().nth(1).unwrap();
-    let threads: u32 = env::args().nth(2).map(|s| str::parse(&s).unwrap()).unwrap_or(1);
+    let cli = CommandLineArgs::parse();
+    let CommandLineArgs { file_name, threads } = cli;
 
     Target::initialize_all(&InitializationConfig::default());
 
