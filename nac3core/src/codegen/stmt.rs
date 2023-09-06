@@ -24,12 +24,13 @@ use std::convert::TryFrom;
 pub fn gen_var<'ctx, 'a>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     ty: BasicTypeEnum<'ctx>,
+    name: Option<&str>,
 ) -> Result<PointerValue<'ctx>, String> {
     // put the alloca in init block
     let current = ctx.builder.get_insert_block().unwrap();
     // position before the last branching instruction...
     ctx.builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
-    let ptr = ctx.builder.build_alloca(ty, "tmp");
+    let ptr = ctx.builder.build_alloca(ty, name.unwrap_or("tmp"));
     ctx.builder.position_at_end(current);
     Ok(ptr)
 }
@@ -38,6 +39,7 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     pattern: &Expr<Option<Type>>,
+    name: Option<&str>,
 ) -> Result<PointerValue<'ctx>, String> {
     // very similar to gen_expr, but we don't do an extra load at the end
     // and we flatten nested tuples
@@ -45,7 +47,7 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
             None => {
                 let ptr_ty = ctx.get_llvm_type(generator, pattern.custom.unwrap());
-                let ptr = generator.gen_var_alloc(ctx, ptr_ty)?;
+                let ptr = generator.gen_var_alloc(ctx, ptr_ty, name)?;
                 ctx.var_assignment.insert(*id, (ptr, None, 0));
                 ptr
             }
@@ -74,7 +76,7 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
                         ctx.ctx.i32_type().const_zero(),
                         ctx.ctx.i32_type().const_int(index as u64, false),
                     ],
-                    "attr",
+                    name.unwrap_or("attr"),
                 )
             }
         }
@@ -135,7 +137,7 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
                 let arr_ptr = ctx
                     .build_gep_and_load(v, &[i32_type.const_zero(), i32_type.const_zero()])
                     .into_pointer_value();
-                ctx.builder.build_gep(arr_ptr, &[index], "loadarrgep")
+                ctx.builder.build_gep(arr_ptr, &[index], name.unwrap_or("loadarrgep"))
             }
         }
         _ => unreachable!(),
@@ -191,7 +193,7 @@ pub fn gen_assign<'ctx, 'a, G: CodeGenerator>(
             }
         }
         _ => {
-            let ptr = generator.gen_store_target(ctx, target)?;
+            let ptr = generator.gen_store_target(ctx, target, None)?;
             if let ExprKind::Name { id, .. } = &target.node {
                 let (_, static_value, counter) = ctx.var_assignment.get_mut(id).unwrap();
                 *counter += 1;
@@ -237,8 +239,8 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
         if ctx.unifier.unioned(iter.custom.unwrap(), ctx.primitives.range) {
             // setup
             let iter_val = iter_val.into_pointer_value();
-            let i = generator.gen_var_alloc(ctx, int32.into())?;
-            let user_i = generator.gen_store_target(ctx, target)?;
+            let i = generator.gen_var_alloc(ctx, int32.into(), None)?;
+            let user_i = generator.gen_store_target(ctx, target, None)?;
             let (start, end, step) = destructure_range(ctx, iter_val);
             ctx.builder.build_store(i, ctx.builder.build_int_sub(start, step, "start_init"));
             ctx.builder.build_unconditional_branch(test_bb);
@@ -270,7 +272,7 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
             );
             ctx.builder.position_at_end(body_bb);
         } else {
-            let counter = generator.gen_var_alloc(ctx, size_t.into())?;
+            let counter = generator.gen_var_alloc(ctx, size_t.into(), None)?;
             // counter = -1
             ctx.builder.build_store(counter, size_t.const_int(u64::max_value(), true));
             let len = ctx
@@ -655,7 +657,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         let mut final_data = None;
         let has_cleanup = !finalbody.is_empty();
         if has_cleanup {
-            let final_state = generator.gen_var_alloc(ctx, ptr_type.into())?;
+            let final_state = generator.gen_var_alloc(ctx, ptr_type.into(), None)?;
             final_data = Some((final_state, Vec::new(), Vec::new()));
             if let Some((continue_target, break_target)) = ctx.loop_target {
                 let break_proxy = ctx.ctx.append_basic_block(current_fun, "try.break");
@@ -821,7 +823,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             ctx.builder.position_at_end(handler_bb);
             if let Some(name) = name {
                 let exn_ty = ctx.get_llvm_type(generator, type_.as_ref().unwrap().custom.unwrap());
-                let exn_store = generator.gen_var_alloc(ctx, exn_ty)?;
+                let exn_store = generator.gen_var_alloc(ctx, exn_ty, None)?;
                 ctx.var_assignment.insert(*name, (exn_store, None, 0));
                 ctx.builder.build_store(exn_store, exn.as_basic_value());
             }

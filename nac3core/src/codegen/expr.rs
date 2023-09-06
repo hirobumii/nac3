@@ -810,7 +810,7 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
         let zero_size_t = size_t.const_zero();
         let zero_32 = int32.const_zero();
 
-        let index = generator.gen_var_alloc(ctx, size_t.into())?;
+        let index = generator.gen_var_alloc(ctx, size_t.into(), None)?;
         ctx.builder.build_store(index, zero_size_t);
 
         let elem_ty = ctx.get_llvm_type(generator, elt.custom.unwrap());
@@ -853,7 +853,7 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
             list_content =
                 ctx.build_gep_and_load(list, &[zero_size_t, zero_32]).into_pointer_value();
 
-            let i = generator.gen_store_target(ctx, target)?;
+            let i = generator.gen_store_target(ctx, target, None)?;
             ctx.builder.build_store(i, ctx.builder.build_int_sub(start, step, "start_init"));
             ctx.builder.build_unconditional_branch(test_bb);
             ctx.builder.position_at_end(test_bb);
@@ -888,7 +888,7 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
             list = allocate_list(generator, ctx, elem_ty, length);
             list_content =
                 ctx.build_gep_and_load(list, &[zero_size_t, zero_32]).into_pointer_value();
-            let counter = generator.gen_var_alloc(ctx, size_t.into())?;
+            let counter = generator.gen_var_alloc(ctx, size_t.into(), None)?;
             // counter = -1
             ctx.builder.build_store(counter, size_t.const_int(u64::max_value(), true));
             ctx.builder.build_unconditional_branch(test_bb);

@@ -87,8 +87,9 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
         ty: BasicTypeEnum<'ctx>,
+        name: Option<&str>,
     ) -> Result<PointerValue<'ctx>, String> {
-        gen_var(ctx, ty)
+        gen_var(ctx, ty, name)
     }
 
     /// Return a pointer pointing to the target of the expression.
@@ -96,11 +97,12 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
         pattern: &Expr<Option<Type>>,
+        name: Option<&str>,
     ) -> Result<PointerValue<'ctx>, String>
     where
         Self: Sized,
     {
-        gen_store_target(self, ctx, pattern)
+        gen_store_target(self, ctx, pattern, name)
     }
 
     /// Generate code for an assignment expression.
