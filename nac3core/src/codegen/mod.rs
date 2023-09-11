@@ -15,7 +15,7 @@ use inkwell::{
     builder::Builder,
     context::Context,
     module::Module,
-    passes::{PassManager, PassManagerBuilder},
+    passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{AnyType, BasicType, BasicTypeEnum},
     values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue},
@@ -32,7 +32,6 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use lazy_static::lazy_static;
 
 pub mod concrete_type;
 pub mod expr;
@@ -53,12 +52,6 @@ pub struct StaticValueStore {
 }
 
 pub type VarValue<'ctx> = (PointerValue<'ctx>, Option<Arc<dyn StaticValue + Send + Sync>>, i64);
-
-lazy_static!(
-    // HACK: The Mutex is a work-around for issue
-    // https://git.m-labs.hk/M-Labs/nac3/issues/275
-    static ref PASSES_INIT_LOCK: Mutex<AtomicBool> = Mutex::new(AtomicBool::new(true));
-);
 
 /// Additional options for LLVM during codegen.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -305,23 +298,11 @@ impl WorkerRegistry {
             context.i32_type().const_int(4, false),
         );
 
-        let passes = PassManager::create(&module);
-
-        // HACK: This critical section is a work-around for issue
-        // https://git.m-labs.hk/M-Labs/nac3/issues/275
-        {
-            let _data = PASSES_INIT_LOCK.lock();
-            let pass_builder = PassManagerBuilder::create();
-            pass_builder.set_optimization_level(self.llvm_options.opt_level);
-            pass_builder.populate_function_pass_manager(&passes);
-        }
-
         let mut errors = HashSet::new();
         while let Some(task) = self.receiver.recv().unwrap() {
             match gen_func(&context, generator, self, builder, module, task) {
                 Ok(result) => {
                     builder = result.0;
-                    passes.run_on(&result.2);
                     module = result.1;
                 }
                 Err((old_builder, e)) => {
@@ -345,9 +326,21 @@ impl WorkerRegistry {
             panic!()
         }
 
+        let pass_options = PassBuilderOptions::create();
+        let target_machine = self.llvm_options.target.create_target_machine(
+            self.llvm_options.opt_level
+        ).expect(format!("could not create target machine from properties {:?}", self.llvm_options.target).as_str());
+        let passes = format!("default<O{}>", self.llvm_options.opt_level as u32);
+
+        let result = module.run_passes(passes.as_str(), &target_machine, pass_options);
+        if let Err(err) = result {
+            panic!("Failed to run optimization for module `{}`: {}",
+                   module.get_name().to_str().unwrap(),
+                   err.to_string());
+        }
+
         if self.llvm_options.emit_llvm {
-            println!("LLVM IR for {}", module.get_name().to_str().unwrap());
-            println!("{}", module.to_string());
+            println!("LLVM IR for {}\n{}", module.get_name().to_str().unwrap(), module.to_string());
             println!();
         }
 

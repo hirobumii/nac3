@@ -1,7 +1,7 @@
 use clap::Parser;
 use inkwell::{
     memory_buffer::MemoryBuffer,
-    passes::{PassManager, PassManagerBuilder},
+    passes::PassBuilderOptions,
     targets::*,
     OptimizationLevel,
 };
@@ -325,16 +325,17 @@ fn main() {
         function_iter = func.get_next_function();
     }
 
-    let builder = PassManagerBuilder::create();
-    builder.set_optimization_level(OptimizationLevel::Aggressive);
-    let passes = PassManager::create(());
-    builder.set_inliner_with_threshold(255);
-    builder.populate_module_pass_manager(&passes);
-    passes.run_on(&main);
-
     let target_machine = llvm_options.target
         .create_target_machine(llvm_options.opt_level)
         .expect("couldn't create target machine");
+
+    let pass_options = PassBuilderOptions::create();
+    pass_options.set_merge_functions(true);
+    let result = main.run_passes("default<O3>", &target_machine, pass_options);
+    if let Err(err) = result {
+        panic!("Failed to run optimization for module `main`: {}", err.to_string());
+    }
+
     target_machine
         .write_to_file(&main, FileType::Object, Path::new("module.o"))
         .expect("couldn't write module to file");
