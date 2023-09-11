@@ -16,6 +16,7 @@ use inkwell::{
     context::Context,
     module::Module,
     passes::{PassManager, PassManagerBuilder},
+    targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{AnyType, BasicType, BasicTypeEnum},
     values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue},
     debug_info::{
@@ -66,6 +67,67 @@ pub struct CodeGenLLVMOptions {
     pub opt_level: OptimizationLevel,
     /// Whether to output the LLVM IR after generation is complete.
     pub emit_llvm: bool,
+}
+
+/// Additional options for code generation for the target machine.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CodeGenTargetMachineOptions {
+    /// The target machine triple.
+    pub triple: String,
+    /// The target machine CPU.
+    pub cpu: String,
+    /// Additional target machine features.
+    pub features: String,
+    /// Relocation mode for code generation.
+    pub reloc_mode: RelocMode,
+    /// Code model for code generation.
+    pub code_model: CodeModel,
+}
+
+impl CodeGenTargetMachineOptions {
+
+    /// Creates an instance of [CodeGenTargetMachineOptions] using the triple of the host machine.
+    /// Other options are set to defaults.
+    pub fn from_host_triple() -> CodeGenTargetMachineOptions {
+        CodeGenTargetMachineOptions {
+            triple: TargetMachine::get_default_triple().as_str().to_string_lossy().into_owned(),
+            cpu: String::default(),
+            features: String::default(),
+            reloc_mode: RelocMode::Default,
+            code_model: CodeModel::Default,
+        }
+    }
+
+    /// Creates an instance of [CodeGenTargetMachineOptions] using the properties of the host
+    /// machine. Other options are set to defaults.
+    pub fn from_host() -> CodeGenTargetMachineOptions {
+        CodeGenTargetMachineOptions {
+            cpu: TargetMachine::get_host_cpu_name().to_string(),
+            features: TargetMachine::get_host_cpu_features().to_string(),
+            ..CodeGenTargetMachineOptions::from_host_triple()
+        }
+    }
+
+    /// Creates a [TargetMachine] using the target options specified by this struct.
+    ///
+    /// See [Target::create_target_machine].
+    pub fn create_target_machine(
+        &self,
+        level: OptimizationLevel,
+    ) -> Option<TargetMachine> {
+        let triple = TargetTriple::create(self.triple.as_str());
+        let target = Target::from_triple(&triple)
+            .expect(format!("could not create target from target triple {}", self.triple).as_str());
+
+        target.create_target_machine(
+            &triple,
+            self.cpu.as_str(),
+            self.features.as_str(),
+            level,
+            self.reloc_mode,
+            self.code_model
+        )
+    }
 }
 
 pub struct CodeGenContext<'ctx, 'a> {

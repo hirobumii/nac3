@@ -12,7 +12,7 @@ use inkwell::{
     targets::*,
     OptimizationLevel,
 };
-use nac3core::codegen::{CodeGenLLVMOptions, gen_func_impl};
+use nac3core::codegen::{CodeGenLLVMOptions, CodeGenTargetMachineOptions, gen_func_impl};
 use nac3core::toplevel::builtins::get_exn_constructor;
 use nac3core::typecheck::typedef::{TypeEnum, Unifier};
 use nac3parser::{
@@ -664,34 +664,42 @@ impl Nac3 {
         link_fn(&main)
     }
 
-    fn get_llvm_target_machine(
-        &self,
-    ) -> TargetMachine {
-        let (triple, features) = match self.isa {
-            Isa::Host => (
-                TargetMachine::get_default_triple(),
-                TargetMachine::get_host_cpu_features().to_string(),
-            ),
-            Isa::RiscV32G => {
-                (TargetTriple::create("riscv32-unknown-linux"), "+a,+m,+f,+d".to_string())
-            }
-            Isa::RiscV32IMA => (TargetTriple::create("riscv32-unknown-linux"), "+a,+m".to_string()),
-            Isa::CortexA9 => (
-                TargetTriple::create("armv7-unknown-linux-gnueabihf"),
-                "+dsp,+fp16,+neon,+vfp3,+long-calls".to_string(),
-            ),
-        };
-        let target =
-            Target::from_triple(&triple).expect("couldn't create target from target triple");
-        target
-            .create_target_machine(
-                &triple,
-                "",
-                &features,
-                self.llvm_options.opt_level,
-                RelocMode::PIC,
-                CodeModel::Default,
-            )
+    /// Returns the [TargetTriple] used for compiling to [isa].
+    fn get_llvm_target_triple(isa: Isa) -> TargetTriple {
+        match isa {
+            Isa::Host => TargetMachine::get_default_triple(),
+            Isa::RiscV32G | Isa::RiscV32IMA => TargetTriple::create("riscv32-unknown-linux"),
+            Isa::CortexA9 => TargetTriple::create("armv7-unknown-linux-gnueabihf"),
+        }
+    }
+
+    /// Returns the [String] representing the target features used for compiling to [isa].
+    fn get_llvm_target_features(isa: Isa) -> String {
+        match isa {
+            Isa::Host => TargetMachine::get_host_cpu_features().to_string(),
+            Isa::RiscV32G => "+a,+m,+f,+d".to_string(),
+            Isa::RiscV32IMA => "+a,+m".to_string(),
+            Isa::CortexA9 => "+dsp,+fp16,+neon,+vfp3,+long-calls".to_string(),
+        }
+    }
+
+    /// Returns an instance of [CodeGenTargetMachineOptions] representing the target machine
+    /// options used for compiling to [isa].
+    fn get_llvm_target_options(isa: Isa) -> CodeGenTargetMachineOptions {
+        CodeGenTargetMachineOptions {
+            triple: Nac3::get_llvm_target_triple(isa).as_str().to_string_lossy().into_owned(),
+            cpu: String::default(),
+            features: Nac3::get_llvm_target_features(isa),
+            reloc_mode: RelocMode::PIC,
+            ..CodeGenTargetMachineOptions::from_host()
+        }
+    }
+
+    /// Returns an instance of [TargetMachine] used in compiling and linking of a program to the
+    /// target [isa].
+    fn get_llvm_target_machine(&self) -> TargetMachine {
+        Nac3::get_llvm_target_options(self.isa)
+            .create_target_machine(self.llvm_options.opt_level)
             .expect("couldn't create target machine")
     }
 }
