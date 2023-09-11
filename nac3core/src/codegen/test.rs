@@ -1,7 +1,7 @@
 use crate::{
     codegen::{
-        concrete_type::ConcreteTypeStore, CodeGenContext, CodeGenLLVMOptions, CodeGenTask,
-        DefaultCodeGenerator, WithCall, WorkerRegistry,
+        concrete_type::ConcreteTypeStore, CodeGenContext, CodeGenLLVMOptions,
+        CodeGenTargetMachineOptions, CodeGenTask, DefaultCodeGenerator, WithCall, WorkerRegistry,
     },
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
@@ -224,6 +224,7 @@ fn test_primitives() {
 
     let llvm_options = CodeGenLLVMOptions {
         opt_level: OptimizationLevel::Default,
+        target: CodeGenTargetMachineOptions::from_host_triple(),
         emit_llvm: false,
     };
     let (registry, handles) = WorkerRegistry::create_workers(
@@ -409,6 +410,7 @@ fn test_simple_call() {
 
     let llvm_options = CodeGenLLVMOptions {
         opt_level: OptimizationLevel::Default,
+        target: CodeGenTargetMachineOptions::from_host_triple(),
         emit_llvm: false,
     };
     let (registry, handles) = WorkerRegistry::create_workers(

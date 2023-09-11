@@ -10,8 +10,8 @@ use std::{borrow::Borrow, collections::HashMap, fs, path::Path, sync::Arc};
 
 use nac3core::{
     codegen::{
-        concrete_type::ConcreteTypeStore, irrt::load_irrt, CodeGenLLVMOptions, CodeGenTask,
-        DefaultCodeGenerator, WithCall, WorkerRegistry,
+        concrete_type::ConcreteTypeStore, irrt::load_irrt, CodeGenLLVMOptions,
+        CodeGenTargetMachineOptions, CodeGenTask, DefaultCodeGenerator, WithCall, WorkerRegistry,
     },
     symbol_resolver::SymbolResolver,
     toplevel::{
@@ -272,8 +272,10 @@ fn main() {
 
     let llvm_options = CodeGenLLVMOptions {
         opt_level,
+        target: CodeGenTargetMachineOptions::from_host_triple(),
         emit_llvm,
     };
+
     let task = CodeGenTask {
         subst: Default::default(),
         symbol_name: "run".to_string(),
@@ -330,17 +332,8 @@ fn main() {
     builder.populate_module_pass_manager(&passes);
     passes.run_on(&main);
 
-    let triple = TargetMachine::get_default_triple();
-    let target = Target::from_triple(&triple).expect("couldn't create target from target triple");
-    let target_machine = target
-        .create_target_machine(
-            &triple,
-            "",
-            "",
-            opt_level,
-            RelocMode::Default,
-            CodeModel::Default,
-        )
+    let target_machine = llvm_options.target
+        .create_target_machine(llvm_options.opt_level)
         .expect("couldn't create target machine");
     target_machine
         .write_to_file(&main, FileType::Object, Path::new("module.o"))

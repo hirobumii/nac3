@@ -65,6 +65,10 @@ lazy_static!(
 pub struct CodeGenLLVMOptions {
     /// The optimization level to apply on the generated LLVM IR.
     pub opt_level: OptimizationLevel,
+
+    /// Options related to the target machine.
+    pub target: CodeGenTargetMachineOptions,
+
     /// Whether to output the LLVM IR after generation is complete.
     pub emit_llvm: bool,
 }
