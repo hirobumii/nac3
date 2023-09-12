@@ -49,6 +49,18 @@ struct CommandLineArgs {
     /// Whether to emit LLVM IR at the end of every module.
     #[arg(long, default_value_t = false)]
     emit_llvm: bool,
+
+    /// The target triple to compile for.
+    #[arg(long)]
+    triple: Option<String>,
+
+    /// The target CPU to compile for.
+    #[arg(long)]
+    mcpu: Option<String>,
+
+    /// Additional target features to enable/disable, specified using the `+`/`-` prefixes.
+    #[arg(long)]
+    target_features: Option<String>,
 }
 
 fn handle_typevar_definition(
@@ -177,7 +189,24 @@ fn handle_assignment_pattern(
 
 fn main() {
     let cli = CommandLineArgs::parse();
-    let CommandLineArgs { file_name, threads, opt_level, emit_llvm } = cli;
+    let CommandLineArgs {
+        file_name,
+        threads,
+        opt_level,
+        emit_llvm,
+        triple,
+        mcpu,
+        target_features,
+    } = cli;
+
+    Target::initialize_all(&InitializationConfig::default());
+
+    let host_target_machine = CodeGenTargetMachineOptions::from_host();
+    let triple = triple.unwrap_or(host_target_machine.triple.clone());
+    let mcpu = mcpu
+        .map(|arg| if arg == "native" { host_target_machine.cpu.clone() } else { arg })
+        .unwrap_or_default();
+    let target_features = target_features.unwrap_or_default();
     let opt_level = match opt_level {
         0 => OptimizationLevel::None,
         1 => OptimizationLevel::Less,
@@ -185,8 +214,6 @@ fn main() {
         // The default behavior for -O<n> where n>3 defaults to O3 for both Clang and GCC
         _ => OptimizationLevel::Aggressive,
     };
-
-    Target::initialize_all(&InitializationConfig::default());
 
     let program = match fs::read_to_string(file_name.clone()) {
         Ok(program) => program,
@@ -272,7 +299,12 @@ fn main() {
 
     let llvm_options = CodeGenLLVMOptions {
         opt_level,
-        target: CodeGenTargetMachineOptions::from_host_triple(),
+        target: CodeGenTargetMachineOptions {
+            triple,
+            cpu: mcpu,
+            features: target_features,
+            ..host_target_machine
+        },
         emit_llvm,
     };
 
