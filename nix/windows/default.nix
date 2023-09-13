@@ -21,10 +21,10 @@ let
     text =
       ''
       implementation=CPython
-      version=3.10
+      version=3.11
       shared=true
       abi3=false
-      lib_name=python3.10
+      lib_name=python3.11
       lib_dir=${msys2-env}/mingw64/lib
       pointer_width=64
       build_flags=WITH_THREAD
