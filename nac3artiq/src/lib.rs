@@ -677,6 +677,15 @@ impl Nac3 {
         }
     }
 
+    /// Returns the [String] representing the target CPU used for compiling to [isa].
+    fn get_llvm_target_cpu(isa: Isa) -> String {
+        match isa {
+            Isa::Host => TargetMachine::get_host_cpu_name().to_string(),
+            Isa::RiscV32G | Isa::RiscV32IMA => "generic-rv32".to_string(),
+            Isa::CortexA9 => "cortex-a9".to_string(),
+        }
+    }
+
     /// Returns the [String] representing the target features used for compiling to [isa].
     fn get_llvm_target_features(isa: Isa) -> String {
         match isa {
@@ -692,7 +701,7 @@ impl Nac3 {
     fn get_llvm_target_options(isa: Isa) -> CodeGenTargetMachineOptions {
         CodeGenTargetMachineOptions {
             triple: Nac3::get_llvm_target_triple(isa).as_str().to_string_lossy().into_owned(),
-            cpu: String::default(),
+            cpu: Nac3::get_llvm_target_cpu(isa),
             features: Nac3::get_llvm_target_features(isa),
             reloc_mode: RelocMode::PIC,
             ..CodeGenTargetMachineOptions::from_host()
