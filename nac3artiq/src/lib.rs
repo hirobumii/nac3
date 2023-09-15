@@ -916,7 +916,6 @@ impl Nac3 {
             llvm_options: CodeGenLLVMOptions {
                 opt_level: OptimizationLevel::Default,
                 target: Nac3::get_llvm_target_options(isa),
-                emit_llvm: false,
             }
         })
     }

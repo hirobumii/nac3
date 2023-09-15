@@ -61,9 +61,6 @@ pub struct CodeGenLLVMOptions {
 
     /// Options related to the target machine.
     pub target: CodeGenTargetMachineOptions,
-
-    /// Whether to output the LLVM IR after generation is complete.
-    pub emit_llvm: bool,
 }
 
 /// Additional options for code generation for the target machine.
@@ -337,11 +334,6 @@ impl WorkerRegistry {
             panic!("Failed to run optimization for module `{}`: {}",
                    module.get_name().to_str().unwrap(),
                    err.to_string());
-        }
-
-        if self.llvm_options.emit_llvm {
-            println!("LLVM IR for {}\n{}", module.get_name().to_str().unwrap(), module.to_string());
-            println!();
         }
 
         f.run(&module);
