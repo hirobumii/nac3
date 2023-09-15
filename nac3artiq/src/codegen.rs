@@ -529,7 +529,7 @@ pub fn attributes_writeback<'ctx, 'a>(
                             let index = ctx.get_attr_index(ty, *name);
                             values.push((*field_ty, ctx.build_gep_and_load(
                                             obj.into_pointer_value(),
-                                            &[zero, int32.const_int(index as u64, false)])));
+                                            &[zero, int32.const_int(index as u64, false)], None)));
                         }
                     }
                     if !attributes.is_empty() {

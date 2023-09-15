@@ -93,7 +93,7 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
                 .to_basic_value_enum(ctx, generator, value.custom.unwrap())?
                 .into_pointer_value();
             let len = ctx
-                .build_gep_and_load(v, &[zero, i32_type.const_int(1, false)])
+                .build_gep_and_load(v, &[zero, i32_type.const_int(1, false)], Some("len"))
                 .into_int_value();
             let raw_index = generator
                 .gen_expr(ctx, slice)?
@@ -135,7 +135,7 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
             );
             unsafe {
                 let arr_ptr = ctx
-                    .build_gep_and_load(v, &[i32_type.const_zero(), i32_type.const_zero()])
+                    .build_gep_and_load(v, &[i32_type.const_zero(), i32_type.const_zero()], Some("arr.addr"))
                     .into_pointer_value();
                 ctx.builder.build_gep(arr_ptr, &[index], name.unwrap_or(""))
             }
@@ -327,6 +327,7 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
                 .build_gep_and_load(
                     iter_val.into_pointer_value(),
                     &[zero, int32.const_int(1, false)],
+                    Some("len")
                 )
                 .into_int_value();
             ctx.builder.build_unconditional_branch(test_bb);
@@ -338,9 +339,9 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
 
             ctx.builder.position_at_end(body_bb);
             let arr_ptr = ctx
-                .build_gep_and_load(iter_val.into_pointer_value(), &[zero, zero])
+                .build_gep_and_load(iter_val.into_pointer_value(), &[zero, zero], Some("arr.addr"))
                 .into_pointer_value();
-            let val = ctx.build_gep_and_load(arr_ptr, &[index]);
+            let val = ctx.build_gep_and_load(arr_ptr, &[index], Some("val"));
             generator.gen_assign(ctx, target, val.into())?;
             gen_block(generator, ctx, body.iter())?;
 
