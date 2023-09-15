@@ -220,7 +220,6 @@ fn test_primitives() {
     let llvm_options = CodeGenLLVMOptions {
         opt_level: OptimizationLevel::Default,
         target: CodeGenTargetMachineOptions::from_host_triple(),
-        emit_llvm: false,
     };
     let (registry, handles) = WorkerRegistry::create_workers(
         threads,
@@ -411,7 +410,6 @@ fn test_simple_call() {
     let llvm_options = CodeGenLLVMOptions {
         opt_level: OptimizationLevel::Default,
         target: CodeGenTargetMachineOptions::from_host_triple(),
-        emit_llvm: false,
     };
     let (registry, handles) = WorkerRegistry::create_workers(
         threads,

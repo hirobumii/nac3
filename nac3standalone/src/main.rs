@@ -305,7 +305,6 @@ fn main() {
             features: target_features,
             ..host_target_machine
         },
-        emit_llvm,
     };
 
     let task = CodeGenTask {
@@ -340,10 +339,18 @@ fn main() {
     let main = context
         .create_module_from_ir(MemoryBuffer::create_from_memory_range(&buffers[0], "main"))
         .unwrap();
-    for buffer in buffers.iter().skip(1) {
+    if emit_llvm {
+        main.write_bitcode_to_path(Path::new("main.bc"));
+    }
+
+    for (idx, buffer) in buffers.iter().skip(1).enumerate() {
         let other = context
             .create_module_from_ir(MemoryBuffer::create_from_memory_range(buffer, "main"))
             .unwrap();
+
+        if emit_llvm {
+            other.write_bitcode_to_path(Path::new(&format!("module{}.bc", idx)));
+        }
 
         main.link_in_module(other).unwrap();
     }
