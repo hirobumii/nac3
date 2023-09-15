@@ -162,7 +162,7 @@ pub fn handle_slice_indices<'a, 'ctx, G: CodeGenerator>(
     let int32 = ctx.ctx.i32_type();
     let zero = int32.const_zero();
     let one = int32.const_int(1, false);
-    let length = ctx.build_gep_and_load(list, &[zero, one]).into_int_value();
+    let length = ctx.build_gep_and_load(list, &[zero, one], Some("length")).into_int_value();
     let length = ctx.builder.build_int_truncate_or_bit_cast(length, int32, "leni32");
     Ok(match (start, end, step) {
         (s, e, None) => (
@@ -309,21 +309,21 @@ pub fn list_slice_assignment<'ctx, 'a>(
 
     let zero = int32.const_zero();
     let one = int32.const_int(1, false);
-    let dest_arr_ptr = ctx.build_gep_and_load(dest_arr, &[zero, zero]);
+    let dest_arr_ptr = ctx.build_gep_and_load(dest_arr, &[zero, zero], Some("dest.addr"));
     let dest_arr_ptr = ctx.builder.build_pointer_cast(
         dest_arr_ptr.into_pointer_value(),
         elem_ptr_type,
         "dest_arr_ptr_cast",
     );
-    let dest_len = ctx.build_gep_and_load(dest_arr, &[zero, one]).into_int_value();
+    let dest_len = ctx.build_gep_and_load(dest_arr, &[zero, one], Some("dest.len")).into_int_value();
     let dest_len = ctx.builder.build_int_truncate_or_bit_cast(dest_len, int32, "srclen32");
-    let src_arr_ptr = ctx.build_gep_and_load(src_arr, &[zero, zero]);
+    let src_arr_ptr = ctx.build_gep_and_load(src_arr, &[zero, zero], Some("src.addr"));
     let src_arr_ptr = ctx.builder.build_pointer_cast(
         src_arr_ptr.into_pointer_value(),
         elem_ptr_type,
         "src_arr_ptr_cast",
     );
-    let src_len = ctx.build_gep_and_load(src_arr, &[zero, one]).into_int_value();
+    let src_len = ctx.build_gep_and_load(src_arr, &[zero, one], Some("src.len")).into_int_value();
     let src_len = ctx.builder.build_int_truncate_or_bit_cast(src_len, int32, "srclen32");
 
     // index in bound and positive should be done

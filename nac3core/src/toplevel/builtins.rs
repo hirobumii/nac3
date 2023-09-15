@@ -1013,6 +1013,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                 .build_gep_and_load(
                                     arg.into_pointer_value(),
                                     &[zero, int32.const_int(1, false)],
+                                    None,
                                 )
                                 .into_int_value();
                             if len.get_type().get_bit_width() != 32 {

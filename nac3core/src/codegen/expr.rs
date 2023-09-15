@@ -62,8 +62,10 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         &mut self,
         ptr: PointerValue<'ctx>,
         index: &[IntValue<'ctx>],
+        name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
-        unsafe { self.builder.build_load(self.builder.build_gep(ptr, index, "gep"), "load") }
+        let gep = unsafe { self.builder.build_gep(ptr, index, "") };
+        self.builder.build_load(gep, name.unwrap_or_default())
     }
 
     fn get_subst_key(
@@ -753,13 +755,13 @@ pub fn destructure_range<'ctx, 'a>(
 ) -> (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>) {
     let int32 = ctx.ctx.i32_type();
     let start = ctx
-        .build_gep_and_load(range, &[int32.const_zero(), int32.const_int(0, false)])
+        .build_gep_and_load(range, &[int32.const_zero(), int32.const_int(0, false)], Some("range.start"))
         .into_int_value();
     let end = ctx
-        .build_gep_and_load(range, &[int32.const_zero(), int32.const_int(1, false)])
+        .build_gep_and_load(range, &[int32.const_zero(), int32.const_int(1, false)], Some("range.stop"))
         .into_int_value();
     let step = ctx
-        .build_gep_and_load(range, &[int32.const_zero(), int32.const_int(2, false)])
+        .build_gep_and_load(range, &[int32.const_zero(), int32.const_int(2, false)], Some("range.step"))
         .into_int_value();
     (start, end, step)
 }
@@ -799,9 +801,15 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     if let ExprKind::ListComp { elt, generators } = &expr.node {
         let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-        let test_bb = ctx.ctx.append_basic_block(current, "test");
-        let body_bb = ctx.ctx.append_basic_block(current, "body");
-        let cont_bb = ctx.ctx.append_basic_block(current, "cont");
+
+        let init_bb = ctx.ctx.append_basic_block(current, "listcomp.init");
+        let test_bb = ctx.ctx.append_basic_block(current, "listcomp.test");
+        let body_bb = ctx.ctx.append_basic_block(current, "listcomp.body");
+        let cont_bb = ctx.ctx.append_basic_block(current, "listcomp.cont");
+
+        ctx.builder.build_unconditional_branch(init_bb);
+
+        ctx.builder.position_at_end(init_bb);
 
         let Comprehension { target, iter, ifs, .. } = &generators[0];
         let iter_val = generator.gen_expr(ctx, iter)?.unwrap().to_basic_value_enum(ctx, generator, iter.custom.unwrap())?;
@@ -830,10 +838,11 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
             // in case length is non-positive
             let is_valid =
                 ctx.builder.build_int_compare(inkwell::IntPredicate::SGT, length, zero_32, "check");
-            let normal = ctx.ctx.append_basic_block(current, "normal_list");
-            let empty = ctx.ctx.append_basic_block(current, "empty_list");
-            let list_init = ctx.ctx.append_basic_block(current, "list_init");
+            let normal = ctx.ctx.append_basic_block(current, "listcomp.normal_list");
+            let empty = ctx.ctx.append_basic_block(current, "listcomp.empty_list");
+            let list_init = ctx.ctx.append_basic_block(current, "listcomp.list_init");
             ctx.builder.build_conditional_branch(is_valid, normal, empty);
+
             // normal: allocate a list
             ctx.builder.position_at_end(normal);
             let list_a = allocate_list(
@@ -843,19 +852,22 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
                 ctx.builder.build_int_z_extend_or_bit_cast(length, size_t, "z_ext_len"),
             );
             ctx.builder.build_unconditional_branch(list_init);
+
             ctx.builder.position_at_end(empty);
             let list_b = allocate_list(generator, ctx, elem_ty, zero_size_t);
             ctx.builder.build_unconditional_branch(list_init);
+
             ctx.builder.position_at_end(list_init);
             let phi = ctx.builder.build_phi(list_a.get_type(), "phi");
             phi.add_incoming(&[(&list_a, normal), (&list_b, empty)]);
             list = phi.as_basic_value().into_pointer_value();
-            list_content =
-                ctx.build_gep_and_load(list, &[zero_size_t, zero_32]).into_pointer_value();
+            list_content = ctx.build_gep_and_load(list, &[zero_size_t, zero_32], Some("list_content"))
+                .into_pointer_value();
 
             let i = generator.gen_store_target(ctx, target, Some("i.addr"))?;
             ctx.builder.build_store(i, ctx.builder.build_int_sub(start, step, "start_init"));
             ctx.builder.build_unconditional_branch(test_bb);
+
             ctx.builder.position_at_end(test_bb);
             let sign =
                 ctx.builder.build_int_compare(inkwell::IntPredicate::SGT, step, zero_32, "sign");
@@ -877,32 +889,36 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
                 body_bb,
                 cont_bb,
             );
+
             ctx.builder.position_at_end(body_bb);
         } else {
             let length = ctx
                 .build_gep_and_load(
                     iter_val.into_pointer_value(),
                     &[zero_size_t, int32.const_int(1, false)],
+                    Some("length"),
                 )
                 .into_int_value();
             list = allocate_list(generator, ctx, elem_ty, length);
             list_content =
-                ctx.build_gep_and_load(list, &[zero_size_t, zero_32]).into_pointer_value();
+                ctx.build_gep_and_load(list, &[zero_size_t, zero_32], Some("list_content")).into_pointer_value();
             let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
             // counter = -1
             ctx.builder.build_store(counter, size_t.const_int(u64::max_value(), true));
             ctx.builder.build_unconditional_branch(test_bb);
+
             ctx.builder.position_at_end(test_bb);
             let tmp = ctx.builder.build_load(counter, "i").into_int_value();
             let tmp = ctx.builder.build_int_add(tmp, size_t.const_int(1, false), "inc");
             ctx.builder.build_store(counter, tmp);
             let cmp = ctx.builder.build_int_compare(inkwell::IntPredicate::SLT, tmp, length, "cmp");
             ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb);
+
             ctx.builder.position_at_end(body_bb);
             let arr_ptr = ctx
-                .build_gep_and_load(iter_val.into_pointer_value(), &[zero_size_t, zero_32])
+                .build_gep_and_load(iter_val.into_pointer_value(), &[zero_size_t, zero_32], Some("arr.addr"))
                 .into_pointer_value();
-            let val = ctx.build_gep_and_load(arr_ptr, &[tmp]);
+            let val = ctx.build_gep_and_load(arr_ptr, &[tmp], Some("val"));
             generator.gen_assign(ctx, target, val.into())?;
         }
         for cond in ifs.iter() {
@@ -913,8 +929,10 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
                 .into_int_value();
             let succ = ctx.ctx.append_basic_block(current, "then");
             ctx.builder.build_conditional_branch(result, succ, test_bb);
+
             ctx.builder.position_at_end(succ);
         }
+
         let elem = generator.gen_expr(ctx, elt)?.unwrap();
         let i = ctx.builder.build_load(index, "i").into_int_value();
         let elem_ptr = unsafe { ctx.builder.build_gep(list_content, &[i], "elem_ptr") };
@@ -923,11 +941,13 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
         ctx.builder
             .build_store(index, ctx.builder.build_int_add(i, size_t.const_int(1, false), "inc"));
         ctx.builder.build_unconditional_branch(test_bb);
+
         ctx.builder.position_at_end(cont_bb);
         let len_ptr = unsafe {
             ctx.builder.build_gep(list, &[zero_size_t, int32.const_int(1, false)], "length")
         };
         ctx.builder.build_store(len_ptr, ctx.builder.build_load(index, "index"));
+
         Ok(list.into())
     } else {
         unreachable!()
@@ -1102,7 +1122,8 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
             };
             let length = generator.get_size_type(ctx.ctx).const_int(elements.len() as u64, false);
             let arr_str_ptr = allocate_list(generator, ctx, ty, length);
-            let arr_ptr = ctx.build_gep_and_load(arr_str_ptr, &[zero, zero]).into_pointer_value();
+            let arr_ptr = ctx.build_gep_and_load(arr_str_ptr, &[zero, zero], Some("arr.addr"))
+                .into_pointer_value();
             unsafe {
                 for (i, v) in elements.iter().enumerate() {
                     let elem_ptr = ctx.builder.build_gep(
@@ -1148,6 +1169,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                     Ok(ValueEnum::Dynamic(ctx.build_gep_and_load(
                         v.into_pointer_value(),
                         &[zero, int32.const_int(index as u64, false)],
+                        None,
                     ))) as Result<_, String>
                 }, Ok)?,
                 ValueEnum::Dynamic(v) => {
@@ -1155,6 +1177,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                     ValueEnum::Dynamic(ctx.build_gep_and_load(
                         v.into_pointer_value(),
                         &[zero, int32.const_int(index as u64, false)],
+                        None,
                     ))
                 }
             }
@@ -1511,7 +1534,8 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                     .to_basic_value_enum(ctx, generator, value.custom.unwrap())?
                     .into_pointer_value();
                 let ty = ctx.get_llvm_type(generator, *ty);
-                let arr_ptr = ctx.build_gep_and_load(v, &[zero, zero]).into_pointer_value();
+                let arr_ptr = ctx.build_gep_and_load(v, &[zero, zero], Some("arr.addr"))
+                    .into_pointer_value();
                 if let ExprKind::Slice { lower, upper, step } = &slice.node {
                     let one = int32.const_int(1, false);
                     let (start, end, step) =
@@ -1550,7 +1574,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                     res_array_ret.into()
                 } else {
                     let len = ctx
-                        .build_gep_and_load(v, &[zero, int32.const_int(1, false)])
+                        .build_gep_and_load(v, &[zero, int32.const_int(1, false)], Some("len"))
                         .into_int_value();
                     let raw_index = generator
                         .gen_expr(ctx, slice)?
@@ -1590,7 +1614,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                         [Some(raw_index), Some(len), None],
                         expr.location,
                     );
-                    ctx.build_gep_and_load(arr_ptr, &[index]).into()
+                    ctx.build_gep_and_load(arr_ptr, &[index], None).into()
                 }
             } else if let TypeEnum::TTuple { .. } = &*ctx.unifier.get_ty(value.custom.unwrap()) {
                 let index: u32 =
