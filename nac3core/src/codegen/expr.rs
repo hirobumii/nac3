@@ -765,32 +765,55 @@ pub fn destructure_range<'ctx, 'a>(
     (start, end, step)
 }
 
+/// Allocates a List structure with the given [type][ty] and [length]. The name of the resulting
+/// LLVM value is `{name}.addr`, or `list.addr` if [name] is not specified.
+///
+/// Returns an instance of [PointerValue] pointing to the List structure. The List structure is
+/// defined as `type { ty*, size_t }` in LLVM, where the first element stores the pointer to the
+/// data, and the second element stores the size of the List.
 pub fn allocate_list<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     ty: BasicTypeEnum<'ctx>,
     length: IntValue<'ctx>,
+    name: Option<&str>,
 ) -> PointerValue<'ctx> {
-    let arr_ptr = ctx.builder.build_array_alloca(ty, length, "tmparr");
     let size_t = generator.get_size_type(ctx.ctx);
     let i32_t = ctx.ctx.i32_type();
-    let arr_ty =
-        ctx.ctx.struct_type(&[ty.ptr_type(AddressSpace::default()).into(), size_t.into()], false);
+    // List structure; type { ty*, size_t }
+    let arr_ty = ctx.ctx
+        .struct_type(&[ty.ptr_type(AddressSpace::default()).into(), size_t.into()], false);
     let zero = ctx.ctx.i32_type().const_zero();
-    let arr_str_ptr = ctx.builder.build_alloca(arr_ty, "tmparrstr");
+
+    let arr_str_ptr = ctx.builder.build_alloca(
+        arr_ty, format!("{}.addr", name.unwrap_or("list")).as_str()
+    );
+
     unsafe {
+        // Pointer to the `length` element of the list structure
         let len_ptr = ctx.builder.build_in_bounds_gep(
             arr_str_ptr,
             &[zero, i32_t.const_int(1, false)],
-            "len_ptr",
+            ""
         );
-        let length = ctx.builder.build_int_z_extend(length, size_t, "zext");
+        let length = ctx.builder.build_int_z_extend(
+            length,
+            size_t,
+            ""
+        );
         ctx.builder.build_store(len_ptr, length);
-        let ptr_to_arr =
-            ctx.builder.build_in_bounds_gep(arr_str_ptr, &[zero, i32_t.const_zero()], "ptr_to_arr");
+
+        // Pointer to the `data` element of the list structure
+        let arr_ptr = ctx.builder.build_array_alloca(ty, length, "");
+        let ptr_to_arr = ctx.builder.build_in_bounds_gep(
+            arr_str_ptr,
+            &[zero, i32_t.const_zero()],
+            ""
+        );
         ctx.builder.build_store(ptr_to_arr, arr_ptr);
-        arr_str_ptr
     }
+
+    arr_str_ptr
 }
 
 pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
@@ -849,11 +872,18 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
                 ctx,
                 elem_ty,
                 ctx.builder.build_int_z_extend_or_bit_cast(length, size_t, "z_ext_len"),
+                Some("listcomp"),
             );
             ctx.builder.build_unconditional_branch(list_init);
 
             ctx.builder.position_at_end(empty);
-            let list_b = allocate_list(generator, ctx, elem_ty, zero_size_t);
+            let list_b = allocate_list(
+                generator,
+                ctx,
+                elem_ty,
+                zero_size_t,
+                Some("list_b")
+            );
             ctx.builder.build_unconditional_branch(list_init);
 
             ctx.builder.position_at_end(list_init);
@@ -898,7 +928,7 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
                     Some("length"),
                 )
                 .into_int_value();
-            list = allocate_list(generator, ctx, elem_ty, length);
+            list = allocate_list(generator, ctx, elem_ty, length, Some("listcomp"));
             list_content =
                 ctx.build_gep_and_load(list, &[zero_size_t, zero_32], Some("list_content")).into_pointer_value();
             let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
@@ -1089,7 +1119,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
             }
         }
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
-            Some((ptr, None, _)) => ctx.builder.build_load(*ptr, "load").into(),
+            Some((ptr, None, _)) => ctx.builder.build_load(*ptr, id.to_string().as_str()).into(),
             Some((_, Some(static_value), _)) => ValueEnum::Static(static_value.clone()),
             None => {
                 let resolver = ctx.resolver.clone();
@@ -1120,8 +1150,8 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                 elements[0].get_type()
             };
             let length = generator.get_size_type(ctx.ctx).const_int(elements.len() as u64, false);
-            let arr_str_ptr = allocate_list(generator, ctx, ty, length);
-            let arr_ptr = ctx.build_gep_and_load(arr_str_ptr, &[zero, zero], Some("arr.addr"))
+            let arr_str_ptr = allocate_list(generator, ctx, ty, length, Some("list"));
+            let arr_ptr = ctx.build_gep_and_load(arr_str_ptr, &[zero, zero], Some("list.ptr.addr"))
                 .into_pointer_value();
             unsafe {
                 for (i, v) in elements.iter().enumerate() {
@@ -1558,7 +1588,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                             .into_int_value(),
                         step,
                     );
-                    let res_array_ret = allocate_list(generator, ctx, ty, length);
+                    let res_array_ret = allocate_list(generator, ctx, ty, length, Some("ret"));
                     let res_ind =
                         handle_slice_indices(&None, &None, &None, ctx, generator, res_array_ret)?;
                     list_slice_assignment(
