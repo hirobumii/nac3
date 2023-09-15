@@ -8,6 +8,7 @@ members = [
   "nac3artiq",
   "runkernel",
 ]
+resolver = "2"
 
 [profile.release]
 debug = true

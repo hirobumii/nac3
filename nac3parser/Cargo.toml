@@ -5,7 +5,7 @@ description = "Parser for python code."
 authors = [ "RustPython Team", "M-Labs" ]
 build = "build.rs"
 license = "MIT"
-edition = "2018"
+edition = "2021"
 
 [build-dependencies]
 lalrpop = "0.20"
