@@ -1,9 +1,9 @@
-typedef _ExtInt(8) int8_t;
-typedef unsigned _ExtInt(8) uint8_t;
-typedef _ExtInt(32) int32_t;
-typedef unsigned _ExtInt(32) uint32_t;
-typedef _ExtInt(64) int64_t;
-typedef unsigned _ExtInt(64) uint64_t;
+typedef _BitInt(8) int8_t;
+typedef unsigned _BitInt(8) uint8_t;
+typedef _BitInt(32) int32_t;
+typedef unsigned _BitInt(32) uint32_t;
+typedef _BitInt(64) int64_t;
+typedef unsigned _BitInt(64) uint64_t;
 
 # define MAX(a, b) (a > b ? a : b)
 # define MIN(a, b) (a > b ? b : a)
