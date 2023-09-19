@@ -319,8 +319,7 @@ impl WorkerRegistry {
         let result = module.verify();
         if let Err(err) = result {
             println!("{}", module.print_to_string().to_str().unwrap());
-            println!("{}", err.to_string());
-            panic!()
+            panic!("{}", err.to_string())
         }
 
         let pass_options = PassBuilderOptions::create();
