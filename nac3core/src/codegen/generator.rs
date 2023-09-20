@@ -1,5 +1,5 @@
 use crate::{
-    codegen::{expr::*, stmt::*, CodeGenContext},
+    codegen::{expr::*, stmt::*, bool_to_i1, bool_to_i8, CodeGenContext},
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::typedef::{FunSignature, Type},
@@ -7,7 +7,7 @@ use crate::{
 use inkwell::{
     context::Context,
     types::{BasicTypeEnum, IntType},
-    values::{BasicValueEnum, PointerValue},
+    values::{BasicValueEnum, IntValue, PointerValue},
 };
 use nac3parser::ast::{Expr, Stmt, StrRef};
 
@@ -179,6 +179,24 @@ pub trait CodeGenerator {
         Self: Sized,
     {
         gen_stmt(self, ctx, stmt)
+    }
+
+    /// Converts the value of [a boolean-like value][bool_value] into an `i1`.
+    fn bool_to_i1<'ctx, 'a>(
+        &self,
+        ctx: &CodeGenContext<'ctx, 'a>,
+        bool_value: IntValue<'ctx>
+    ) -> IntValue<'ctx> {
+        bool_to_i1(&ctx.builder, bool_value)
+    }
+
+    /// Converts the value of [a boolean-like value][bool_value] into an `i8`.
+    fn bool_to_i8<'ctx, 'a>(
+        &self,
+        ctx: &CodeGenContext<'ctx, 'a>,
+        bool_value: IntValue<'ctx>
+    ) -> IntValue<'ctx> {
+        bool_to_i8(&ctx.builder, &ctx.ctx, bool_value)
     }
 }
 

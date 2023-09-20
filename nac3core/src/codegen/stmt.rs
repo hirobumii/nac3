@@ -411,7 +411,7 @@ pub fn gen_while<'ctx, 'a, G: CodeGenerator>(
             test.custom.unwrap(),
         )?;
         if let BasicValueEnum::IntValue(test) = test {
-            ctx.builder.build_conditional_branch(test, body_bb, orelse_bb);
+            ctx.builder.build_conditional_branch(generator.bool_to_i1(ctx, test), body_bb, orelse_bb);
         } else {
             unreachable!()
         };
@@ -470,13 +470,11 @@ pub fn gen_if<'ctx, 'a, G: CodeGenerator>(
         };
         ctx.builder.build_unconditional_branch(test_bb);
         ctx.builder.position_at_end(test_bb);
-        let test = generator.gen_expr(ctx, test)?.unwrap().to_basic_value_enum(
-            ctx,
-            generator,
-            test.custom.unwrap(),
-        )?;
+        let test = generator.gen_expr(ctx, test)?
+            .unwrap()
+            .to_basic_value_enum(ctx, generator, test.custom.unwrap())?;
         if let BasicValueEnum::IntValue(test) = test {
-            ctx.builder.build_conditional_branch(test, body_bb, orelse_bb);
+            ctx.builder.build_conditional_branch(generator.bool_to_i1(ctx, test), body_bb, orelse_bb);
         } else {
             unreachable!()
         };
@@ -1021,6 +1019,7 @@ pub fn gen_return<'ctx, 'a, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     value: &Option<Box<Expr<Option<Type>>>>,
 ) -> Result<(), String> {
+    let func = ctx.builder.get_insert_block().and_then(|bb| bb.get_parent()).unwrap();
     let value = value
         .as_ref()
         .map(|v_expr| {
@@ -1039,8 +1038,26 @@ pub fn gen_return<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.build_store(ctx.return_buffer.unwrap(), value.unwrap());
         ctx.builder.build_return(None);
     } else {
+        // Remap boolean return type into i1
+        let value = value.map(|v| {
+            let expected_ty = func.get_type().get_return_type().unwrap();
+            let ret_val = v.as_basic_value_enum();
+
+            if expected_ty.is_int_type() && ret_val.is_int_value() {
+                let ret_type = expected_ty.into_int_type();
+                let ret_val = ret_val.into_int_value();
+
+                if ret_type.get_bit_width() == 1 && ret_val.get_type().get_bit_width() != 1 {
+                    generator.bool_to_i1(ctx, ret_val)
+                } else {
+                    ret_val
+                }.into()
+            } else {
+                ret_val
+            }
+        });
         let value = value.as_ref().map(|v| v as &dyn BasicValue);
-        ctx.builder.build_return(value);
+        ctx.builder.build_return(value.into());
     }
     Ok(())
 }

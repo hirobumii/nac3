@@ -450,7 +450,7 @@ fn rpc_codegen_callback_fn<'ctx, 'a>(
     let alloc_bb = ctx.ctx.append_basic_block(current_function, "rpc.continue");
     let tail_bb = ctx.ctx.append_basic_block(current_function, "rpc.tail");
 
-    let ret_ty = ctx.get_llvm_type(generator, fun.0.ret);
+    let ret_ty = ctx.get_llvm_abi_type(generator, fun.0.ret);
     let need_load = !ret_ty.is_pointer_type();
     let slot = ctx.builder.build_alloca(ret_ty, "rpc.ret.slot");
     let slotgen = ctx.builder.build_bitcast(slot, ptr_type, "rpc.ret.ptr");

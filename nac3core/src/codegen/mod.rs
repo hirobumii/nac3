@@ -9,6 +9,7 @@ use crate::{
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use inkwell::{
     AddressSpace,
+    IntPredicate,
     OptimizationLevel,
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
@@ -18,7 +19,7 @@ use inkwell::{
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{AnyType, BasicType, BasicTypeEnum},
-    values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue},
+    values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue},
     debug_info::{
         DebugInfoBuilder, DICompileUnit, DISubprogram, AsDIScope, DIFlagsConstants, DIScope
     },
@@ -354,6 +355,10 @@ pub struct CodeGenTask {
     pub id: usize,
 }
 
+/// Retrieves the [LLVM type][BasicTypeEnum] corresponding to the [Type].
+///
+/// This function is used to obtain the in-memory representation of [ty], e.g. a `bool` variable
+/// would be represented by an `i8`.
 fn get_llvm_type<'ctx>(
     ctx: &'ctx Context,
     module: &Module<'ctx>,
@@ -465,6 +470,34 @@ fn get_llvm_type<'ctx>(
     })
 }
 
+/// Retrieves the [LLVM type][BasicTypeEnum] corresponding to the [Type].
+///
+/// This function is used mainly to obtain the ABI representation of [ty], e.g. a `bool` is
+/// would be represented by an `i1`.
+///
+/// The difference between the in-memory representation (as returned by [get_llvm_type]) and the
+/// ABI representation is that the in-memory representation must be at least byte-sized and must
+/// be byte-aligned for the variable to be addressable in memory, whereas there is no such
+/// restriction for ABI representations.
+fn get_llvm_abi_type<'ctx>(
+    ctx: &'ctx Context,
+    module: &Module<'ctx>,
+    generator: &mut dyn CodeGenerator,
+    unifier: &mut Unifier,
+    top_level: &TopLevelContext,
+    type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
+    primitives: &PrimitiveStore,
+    ty: Type,
+) -> BasicTypeEnum<'ctx> {
+    // If the type is used in the definition of a function, return `i1` instead of `i8` for ABI
+    // consistency.
+    return if unifier.unioned(ty, primitives.bool) {
+        ctx.bool_type().into()
+    } else {
+        get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, primitives, ty)
+    }
+}
+
 fn need_sret<'ctx>(ctx: &'ctx Context, ty: BasicTypeEnum<'ctx>) -> bool {
     fn need_sret_impl<'ctx>(ctx: &'ctx Context, ty: BasicTypeEnum<'ctx>, maybe_large: bool) -> bool {
         match ty {
@@ -534,7 +567,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         (primitives.uint32, context.i32_type().into()),
         (primitives.uint64, context.i64_type().into()),
         (primitives.float, context.f64_type().into()),
-        (primitives.bool, context.bool_type().into()),
+        (primitives.bool, context.i8_type().into()),
         (primitives.str, {
             let name = "str";
             match module.get_struct_type(name) {
@@ -592,14 +625,14 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
     let ret_type = if unifier.unioned(ret, primitives.none) {
         None
     } else {
-        Some(get_llvm_type(context, &module, generator, &mut unifier, top_level_ctx.as_ref(), &mut type_cache, &primitives, ret))
+        Some(get_llvm_abi_type(context, &module, generator, &mut unifier, top_level_ctx.as_ref(), &mut type_cache, &primitives, ret))
     };
 
     let has_sret = ret_type.map_or(false, |ty| need_sret(context, ty));
     let mut params = args
         .iter()
         .map(|arg| {
-            get_llvm_type(
+            get_llvm_abi_type(
                 context,
                 &module,
                 generator,
@@ -647,19 +680,35 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
     let offset = if has_sret { 1 } else { 0 };
     for (n, arg) in args.iter().enumerate() {
         let param = fn_val.get_nth_param((n as u32) + offset).unwrap();
-        let alloca = builder.build_alloca(
-            get_llvm_type(
-                context,
-                &module,
-                generator,
-                &mut unifier,
-                top_level_ctx.as_ref(),
-                &mut type_cache,
-                &primitives,
-                arg.ty,
-            ),
-            &arg.name.to_string(),
+        let local_type = get_llvm_type(
+            context,
+            &module,
+            generator,
+            &mut unifier,
+            top_level_ctx.as_ref(),
+            &mut type_cache,
+            &primitives,
+            arg.ty,
         );
+        let alloca = builder.build_alloca(
+            local_type,
+            &format!("{}.addr", &arg.name.to_string()),
+        );
+
+        // Remap boolean parameters into i8
+        let param = if local_type.is_int_type() && param.is_int_value() {
+            let expected_ty = local_type.into_int_type();
+            let param_val = param.into_int_value();
+
+            if expected_ty.get_bit_width() == 8 && param_val.get_type().get_bit_width() == 1 {
+                bool_to_i8(&builder, &context, param_val)
+            } else {
+                param_val
+            }.into()
+        } else {
+            param
+        };
+
         builder.build_store(alloca, param);
         var_assignment.insert(arg.name, (alloca, None, 0));
     }
@@ -801,4 +850,41 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
         }
         Ok(())
     })
+}
+
+/// Converts the value of [a boolean-like value][bool_value] into an `i1`.
+fn bool_to_i1<'ctx>(builder: &Builder<'ctx>, bool_value: IntValue<'ctx>) -> IntValue<'ctx> {
+    if bool_value.get_type().get_bit_width() != 1 {
+        builder.build_int_compare(
+            IntPredicate::NE,
+            bool_value,
+            bool_value.get_type().const_zero(),
+            "tobool"
+        )
+    } else {
+        bool_value
+    }
+}
+
+/// Converts the value of [a boolean-like value][bool_value] into an `i8`.
+fn bool_to_i8<'ctx>(
+    builder: &Builder<'ctx>,
+    ctx: &'ctx Context,
+    bool_value: IntValue<'ctx>
+) -> IntValue<'ctx> {
+    let value_bits = bool_value.get_type().get_bit_width();
+    match value_bits {
+        8 => bool_value,
+        1 => builder.build_int_z_extend(bool_value, ctx.i8_type(), "frombool"),
+        _ => bool_to_i8(
+            builder,
+            ctx,
+            builder.build_int_compare(
+                IntPredicate::NE,
+                bool_value,
+                bool_value.get_type().const_zero(),
+                ""
+            )
+        ),
+    }
 }

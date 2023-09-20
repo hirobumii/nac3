@@ -1050,7 +1050,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let uint32 = ctx.primitives.uint32;
                     let uint64 = ctx.primitives.uint64;
                     let float = ctx.primitives.float;
-                    let llvm_i1 = ctx.ctx.bool_type().as_basic_type_enum();
+                    let llvm_i8 = ctx.ctx.i8_type().as_basic_type_enum();
                     let llvm_i32 = ctx.ctx.i32_type().as_basic_type_enum();
                     let llvm_i64 = ctx.ctx.i64_type().as_basic_type_enum();
                     let llvm_f64 = ctx.ctx.f64_type().as_basic_type_enum();
@@ -1060,7 +1060,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let n_val = args[1].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
                     let mut is_type = |a: Type, b: Type| ctx.unifier.unioned(a, b);
                     let (fun_name, arg_ty) = if is_type(m_ty, n_ty) && is_type(n_ty, boolean) {
-                        ("llvm.umin.i1", llvm_i1)
+                        ("llvm.umin.i8", llvm_i8)
                     } else if is_type(m_ty, n_ty) && is_type(n_ty, int32) {
                         ("llvm.smin.i32", llvm_i32)
                     } else if is_type(m_ty, n_ty) && is_type(n_ty, int64) {
@@ -1112,7 +1112,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let uint32 = ctx.primitives.uint32;
                     let uint64 = ctx.primitives.uint64;
                     let float = ctx.primitives.float;
-                    let llvm_i1 = ctx.ctx.bool_type().as_basic_type_enum();
+                    let llvm_i8 = ctx.ctx.i8_type().as_basic_type_enum();
                     let llvm_i32 = ctx.ctx.i32_type().as_basic_type_enum();
                     let llvm_i64 = ctx.ctx.i64_type().as_basic_type_enum();
                     let llvm_f64 = ctx.ctx.f64_type().as_basic_type_enum();
@@ -1122,7 +1122,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let n_val = args[1].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
                     let mut is_type = |a: Type, b: Type| ctx.unifier.unioned(a, b);
                     let (fun_name, arg_ty) = if is_type(m_ty, n_ty) && is_type(n_ty, boolean) {
-                        ("llvm.umax.i1", llvm_i1)
+                        ("llvm.umax.i8", llvm_i8)
                     } else if is_type(m_ty, n_ty) && is_type(n_ty, int32) {
                         ("llvm.smax.i32", llvm_i32)
                     } else if is_type(m_ty, n_ty) && is_type(n_ty, int64) {

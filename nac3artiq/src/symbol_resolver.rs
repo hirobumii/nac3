@@ -134,9 +134,7 @@ impl StaticValue for PythonValue {
                 PrimitiveValue::U32(val) => ctx.ctx.i32_type().const_int(*val as u64, false).into(),
                 PrimitiveValue::U64(val) => ctx.ctx.i64_type().const_int(*val as u64, false).into(),
                 PrimitiveValue::F64(val) => ctx.ctx.f64_type().const_float(*val).into(),
-                PrimitiveValue::Bool(val) => {
-                    ctx.ctx.bool_type().const_int(*val as u64, false).into()
-                }
+                PrimitiveValue::Bool(val) => ctx.ctx.i8_type().const_int(*val as u64, false).into(),
             });
         }
         if let Some(global) = ctx.module.get_global(&self.id.to_string()) {
@@ -808,7 +806,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.bool {
             let val: bool = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
-            Ok(Some(ctx.ctx.bool_type().const_int(val as u64, false).into()))
+            Ok(Some(ctx.ctx.i8_type().const_int(val as u64, false).into()))
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             let val: f64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::F64(val));

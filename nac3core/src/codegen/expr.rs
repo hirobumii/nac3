@@ -4,6 +4,7 @@ use crate::{
     codegen::{
         concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
         get_llvm_type,
+        get_llvm_abi_type,
         irrt::*,
         stmt::gen_raise,
         CodeGenContext, CodeGenTask,
@@ -103,7 +104,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             SymbolValue::I64(v) => self.ctx.i64_type().const_int(*v as u64, true).into(),
             SymbolValue::U32(v) => self.ctx.i32_type().const_int(*v as u64, false).into(),
             SymbolValue::U64(v) => self.ctx.i64_type().const_int(*v as u64, false).into(),
-            SymbolValue::Bool(v) => self.ctx.bool_type().const_int(*v as u64, true).into(),
+            SymbolValue::Bool(v) => self.ctx.i8_type().const_int(*v as u64, true).into(),
             SymbolValue::Double(v) => self.ctx.f64_type().const_float(*v).into(),
             SymbolValue::Str(v) => {
                 let str_ptr =
@@ -160,12 +161,31 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         }
     }
 
+    /// See [get_llvm_type].
     pub fn get_llvm_type(
         &mut self,
         generator: &mut dyn CodeGenerator,
         ty: Type,
     ) -> BasicTypeEnum<'ctx> {
         get_llvm_type(
+            self.ctx,
+            &self.module,
+            generator,
+            &mut self.unifier,
+            self.top_level,
+            &mut self.type_cache,
+            &self.primitives,
+            ty,
+        )
+    }
+
+    /// See [get_llvm_abi_type].
+    pub fn get_llvm_abi_type(
+        &mut self,
+        generator: &mut dyn CodeGenerator,
+        ty: Type,
+    ) -> BasicTypeEnum<'ctx> {
+        get_llvm_abi_type(
             self.ctx,
             &self.module,
             generator,
@@ -186,7 +206,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         match value {
             Constant::Bool(v) => {
                 assert!(self.unifier.unioned(ty, self.primitives.bool));
-                let ty = self.ctx.bool_type();
+                let ty = self.ctx.i8_type();
                 ty.const_int(if *v { 1 } else { 0 }, false).into()
             }
             Constant::Int(val) => {
@@ -713,18 +733,19 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
         let ret_type = if ctx.unifier.unioned(fun.0.ret, ctx.primitives.none) {
             None
         } else {
-            Some(ctx.get_llvm_type(generator, fun.0.ret))
+            Some(ctx.get_llvm_abi_type(generator, fun.0.ret))
         };
         let has_sret = ret_type.map_or(false, |ret_type| need_sret(ctx.ctx, ret_type));
         let mut byvals = Vec::new();
-        let mut params =
-            args.iter().enumerate().map(|(i, arg)| match ctx.get_llvm_type(generator, arg.ty) {
+        let mut params = args.iter().enumerate()
+            .map(|(i, arg)| match ctx.get_llvm_abi_type(generator, arg.ty) {
                 BasicTypeEnum::StructType(ty) if is_extern => {
                     byvals.push((i, ty));
                     ty.ptr_type(AddressSpace::default()).into()
                 },
                 x => x
-            }.into()).collect_vec();
+            }.into())
+            .collect_vec();
         if has_sret {
             params.insert(0, ret_type.unwrap().ptr_type(AddressSpace::default()).into());
         }
@@ -746,6 +767,25 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
         }
         fun_val
     });
+
+    // Convert boolean parameter values into i1
+    let param_vals = (&fun_val.get_params()).iter().zip(param_vals)
+        .map(|(p, v)| {
+            if p.is_int_value() && v.is_int_value() {
+                let expected_ty = p.into_int_value().get_type();
+                let param_val = v.into_int_value();
+
+                if expected_ty.get_bit_width() == 1 && param_val.get_type().get_bit_width() != 1 {
+                    generator.bool_to_i1(ctx, param_val)
+                } else {
+                    param_val
+                }.into()
+            } else {
+                v
+            }
+        })
+        .collect_vec();
+
     Ok(ctx.build_call_or_invoke(fun_val, &param_vals, "call"))
 }
 
@@ -951,12 +991,14 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
             let val = ctx.build_gep_and_load(arr_ptr, &[tmp], Some("val"));
             generator.gen_assign(ctx, target, val.into())?;
         }
+
         for cond in ifs.iter() {
             let result = generator
                 .gen_expr(ctx, cond)?
                 .unwrap()
                 .to_basic_value_enum(ctx, generator, cond.custom.unwrap())?
                 .into_int_value();
+            let result = generator.bool_to_i1(ctx, result);
             let succ = ctx.ctx.append_basic_block(current, "then");
             ctx.builder.build_conditional_branch(result, succ, test_bb);
 
@@ -1223,11 +1265,11 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
             let a_bb = ctx.ctx.append_basic_block(current, "a");
             let b_bb = ctx.ctx.append_basic_block(current, "b");
             let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-            ctx.builder.build_conditional_branch(left, a_bb, b_bb);
+            ctx.builder.build_conditional_branch(generator.bool_to_i1(ctx, left), a_bb, b_bb);
             let (a, b) = match op {
                 Boolop::Or => {
                     ctx.builder.position_at_end(a_bb);
-                    let a = ctx.ctx.bool_type().const_int(1, false);
+                    let a = ctx.ctx.i8_type().const_int(1, false);
                     ctx.builder.build_unconditional_branch(cont_bb);
                     ctx.builder.position_at_end(b_bb);
                     let b = generator
@@ -1235,6 +1277,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                         .unwrap()
                         .to_basic_value_enum(ctx, generator, values[1].custom.unwrap())?
                         .into_int_value();
+                    let b = generator.bool_to_i8(ctx, b);
                     ctx.builder.build_unconditional_branch(cont_bb);
                     (a, b)
                 }
@@ -1245,15 +1288,16 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                         .unwrap()
                         .to_basic_value_enum(ctx, generator, values[1].custom.unwrap())?
                         .into_int_value();
+                    let a = generator.bool_to_i8(ctx, a);
                     ctx.builder.build_unconditional_branch(cont_bb);
                     ctx.builder.position_at_end(b_bb);
-                    let b = ctx.ctx.bool_type().const_int(0, false);
+                    let b = ctx.ctx.i8_type().const_zero();
                     ctx.builder.build_unconditional_branch(cont_bb);
                     (a, b)
                 }
             };
             ctx.builder.position_at_end(cont_bb);
-            let phi = ctx.builder.build_phi(ctx.ctx.bool_type(), "phi");
+            let phi = ctx.builder.build_phi(ctx.ctx.i8_type(), "");
             phi.add_incoming(&[(&a, a_bb), (&b, b_bb)]);
             phi.as_basic_value().into()
         }
