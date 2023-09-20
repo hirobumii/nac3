@@ -181,7 +181,7 @@ pub trait CodeGenerator {
         gen_stmt(self, ctx, stmt)
     }
 
-    /// Converts the value of [a boolean-like value][bool_value] into an `i1`.
+    /// See [bool_to_i1].
     fn bool_to_i1<'ctx, 'a>(
         &self,
         ctx: &CodeGenContext<'ctx, 'a>,
@@ -190,7 +190,7 @@ pub trait CodeGenerator {
         bool_to_i1(&ctx.builder, bool_value)
     }
 
-    /// Converts the value of [a boolean-like value][bool_value] into an `i8`.
+    /// See [bool_to_i8].
     fn bool_to_i8<'ctx, 'a>(
         &self,
         ctx: &CodeGenContext<'ctx, 'a>,

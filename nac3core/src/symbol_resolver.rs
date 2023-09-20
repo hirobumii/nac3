@@ -59,6 +59,7 @@ impl Display for SymbolValue {
 }
 
 pub trait StaticValue {
+    /// Returns a unique identifier for this value.
     fn get_unique_identifier(&self) -> u64;
 
     fn get_const_obj<'ctx, 'a>(
@@ -67,6 +68,7 @@ pub trait StaticValue {
         generator: &mut dyn CodeGenerator,
     ) -> BasicValueEnum<'ctx>;
 
+    /// Converts this value to a LLVM [BasicValueEnum].
     fn to_basic_value_enum<'ctx, 'a>(
         &self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -74,12 +76,14 @@ pub trait StaticValue {
         expected_ty: Type,
     ) -> Result<BasicValueEnum<'ctx>, String>;
 
+    /// Returns a field within this value.
     fn get_field<'ctx, 'a>(
         &self,
         name: StrRef,
         ctx: &mut CodeGenContext<'ctx, 'a>,
     ) -> Option<ValueEnum<'ctx>>;
 
+    /// Returns a single element of this tuple.
     fn get_tuple_element<'ctx>(&self, index: u32) -> Option<ValueEnum<'ctx>>;
 }
 

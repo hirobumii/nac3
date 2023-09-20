@@ -21,6 +21,7 @@ use nac3parser::ast::{
 };
 use std::convert::TryFrom;
 
+/// See [CodeGenerator::gen_var_alloc].
 pub fn gen_var<'ctx, 'a>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     ty: BasicTypeEnum<'ctx>,
@@ -35,6 +36,7 @@ pub fn gen_var<'ctx, 'a>(
     Ok(ptr)
 }
 
+/// See [CodeGenerator::gen_store_target].
 pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -144,6 +146,7 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
     })
 }
 
+/// See [CodeGenerator::gen_assign].
 pub fn gen_assign<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -214,13 +217,21 @@ pub fn gen_assign<'ctx, 'a, G: CodeGenerator>(
     Ok(())
 }
 
-/// Generates a sequence of IR which checks whether [value] does not exceed the upper bound of the
-/// range as defined by [stop] and [step].
+/// Generates a sequence of IR which checks whether `value` does not exceed the upper bound of the
+/// range as defined by `stop` and `step`.
 ///
 /// Note that the generated IR will **not** check whether value is part of the range or whether
 /// value exceeds the lower bound of the range (as evident by the missing `start` argument).
 ///
-/// Returns an [IntValue] representing the result of whether the [value] is in the range.
+/// The generated IR is equivalent to the following Rust code:
+///
+/// ```rust,ignore
+/// let sign = step > 0;
+/// let (lo, hi) = if sign { (value, stop) } else { (stop, value) };
+/// let cmp = lo < hi;
+/// ```
+///
+/// Returns an `i1` [IntValue] representing the result of whether the `value` is in the range.
 fn gen_in_range_check<'ctx, 'a>(
     ctx: &CodeGenContext<'ctx, 'a>,
     value: IntValue<'ctx>,
@@ -234,6 +245,7 @@ fn gen_in_range_check<'ctx, 'a>(
     ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp")
 }
 
+/// See [CodeGenerator::gen_for].
 pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -384,6 +396,7 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
     Ok(())
 }
 
+/// See [CodeGenerator::gen_while].
 pub fn gen_while<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -447,6 +460,7 @@ pub fn gen_while<'ctx, 'a, G: CodeGenerator>(
     Ok(())
 }
 
+/// See [CodeGenerator::gen_if].
 pub fn gen_if<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -535,6 +549,8 @@ pub fn final_proxy<'ctx, 'a>(
     final_paths.push(block);
 }
 
+/// Inserts the declaration of the builtin function with the specified `symbol` name, and returns
+/// the function.
 pub fn get_builtins<'ctx, 'a>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -632,6 +648,10 @@ pub fn exn_constructor<'ctx, 'a>(
     Ok(Some(zelf.into()))
 }
 
+/// Generates IR for a `raise` statement.
+///
+/// * `exception` - The exception thrown by the `raise` statement.
+/// * `loc` - The location where the exception is raised from.
 pub fn gen_raise<'ctx, 'a>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -683,6 +703,7 @@ pub fn gen_raise<'ctx, 'a>(
     ctx.builder.build_unreachable();
 }
 
+/// Generates IR for a `try` statement.
 pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -1005,6 +1026,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     }
 }
 
+/// See [CodeGenerator::gen_with].
 pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     _: &mut G,
     _: &mut CodeGenContext<'ctx, 'a>,
@@ -1014,6 +1036,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     Err(format!("With statement with custom types is not yet supported (at {})", stmt.location))
 }
 
+/// Generates IR for a `return` statement.
 pub fn gen_return<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -1062,6 +1085,7 @@ pub fn gen_return<'ctx, 'a, G: CodeGenerator>(
     Ok(())
 }
 
+/// See [CodeGenerator::gen_stmt].
 pub fn gen_stmt<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -1153,6 +1177,7 @@ pub fn gen_stmt<'ctx, 'a, G: CodeGenerator>(
     Ok(())
 }
 
+/// Generates IR for a block statement contains `stmts`.
 pub fn gen_block<'ctx, 'a, 'b, G: CodeGenerator, I: Iterator<Item = &'b Stmt<Option<Type>>>>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,

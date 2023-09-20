@@ -59,6 +59,8 @@ pub fn get_subst_key(
 }
 
 impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
+    /// Builds a sequence of `getelementptr` and `load` instructions which stores the value of a
+    /// struct field into an LLVM value.
     pub fn build_gep_and_load(
         &mut self,
         ptr: PointerValue<'ctx>,
@@ -197,6 +199,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         )
     }
 
+    /// Generates an LLVM variable for a [constant value][value] with a given [type][ty].
     pub fn gen_const(
         &mut self,
         generator: &mut dyn CodeGenerator,
@@ -258,6 +261,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         }
     }
 
+    /// Generates a binary operation `op` between two integral operands `lhs` and `rhs`.
     pub fn gen_int_ops(
         &mut self,
         generator: &mut dyn CodeGenerator,
@@ -302,6 +306,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         }
     }
 
+    /// Generates a binary operation `op` between two floating-point operands `lhs` and `rhs`.
     pub fn gen_float_ops(
         &mut self,
         op: &Operator,
@@ -424,6 +429,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         }
     }
 
+    /// Helper function for generating a LLVM variable storing a [String].
     pub fn gen_string<S: Into<String>>(
         &mut self,
         generator: &mut dyn CodeGenerator,
@@ -523,6 +529,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     }
 }
 
+/// See [CodeGenerator::gen_constructor].
 pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -554,6 +561,7 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     }
 }
 
+/// See [CodeGenerator::gen_func_instance].
 pub fn gen_func_instance<'ctx, 'a>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     obj: Option<(Type, ValueEnum<'ctx>)>,
@@ -630,6 +638,7 @@ pub fn gen_func_instance<'ctx, 'a>(
     }
 }
 
+/// See [CodeGenerator::gen_call].
 pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -789,6 +798,8 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
     Ok(ctx.build_call_or_invoke(fun_val, &param_vals, "call"))
 }
 
+/// Generates three LLVM variables representing the start, stop, and step values of a [range] class
+/// respectively.
 pub fn destructure_range<'ctx, 'a>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     range: PointerValue<'ctx>,
@@ -857,6 +868,7 @@ pub fn allocate_list<'ctx, 'a, G: CodeGenerator>(
     arr_str_ptr
 }
 
+/// Generates LLVM IR for a [list comprehension expression][expr].
 pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -1026,6 +1038,13 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
     }
 }
 
+/// Generates LLVM IR for a [binary operator expression][expr].
+///
+/// * `left` - The left-hand side of the binary operator.
+/// * `op` - The operator applied on the operands.
+/// * `right` - The right-hand side of the binary operator.
+/// * `loc` - The location of the full expression.
+/// * `is_aug_assign` - Whether the binary operator expression is also an assignment operator.
 pub fn gen_binop_expr<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -1122,6 +1141,7 @@ pub fn gen_binop_expr<'ctx, 'a, G: CodeGenerator>(
     }
 }
 
+/// See [CodeGenerator::gen_expr].
 pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,

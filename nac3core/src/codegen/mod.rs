@@ -357,7 +357,7 @@ pub struct CodeGenTask {
 
 /// Retrieves the [LLVM type][BasicTypeEnum] corresponding to the [Type].
 ///
-/// This function is used to obtain the in-memory representation of [ty], e.g. a `bool` variable
+/// This function is used to obtain the in-memory representation of `ty`, e.g. a `bool` variable
 /// would be represented by an `i8`.
 fn get_llvm_type<'ctx>(
     ctx: &'ctx Context,
@@ -472,7 +472,7 @@ fn get_llvm_type<'ctx>(
 
 /// Retrieves the [LLVM type][BasicTypeEnum] corresponding to the [Type].
 ///
-/// This function is used mainly to obtain the ABI representation of [ty], e.g. a `bool` is
+/// This function is used mainly to obtain the ABI representation of `ty`, e.g. a `bool` is
 /// would be represented by an `i1`.
 ///
 /// The difference between the in-memory representation (as returned by [get_llvm_type]) and the
@@ -511,6 +511,7 @@ fn need_sret<'ctx>(ctx: &'ctx Context, ty: BasicTypeEnum<'ctx>) -> bool {
     need_sret_impl(ctx, ty, true)
 }
 
+/// Implementation for generating LLVM IR for a function.
 pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenContext) -> Result<(), String>> (
     context: &'ctx Context,
     generator: &mut G,
@@ -835,6 +836,15 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
     Ok((builder, module, fn_val))
 }
 
+/// Generates LLVM IR for a function.
+///
+/// * `context` - The [LLVM Context][Context] used in generating the function body.
+/// * `generator` - The [CodeGenerator] for generating various program constructs.
+/// * `registry` - The [WorkerRegistry] responsible for monitoring this function generation task.
+/// * `builder` - The [Builder] used for generating LLVM IR.
+/// * `module` - The [Module] of which the generated LLVM function will be inserted into.
+/// * `task` - The [CodeGenTask] associated with this function generation task.
+///
 pub fn gen_func<'ctx, G: CodeGenerator>(
     context: &'ctx Context,
     generator: &mut G,
@@ -852,7 +862,7 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
     })
 }
 
-/// Converts the value of [a boolean-like value][bool_value] into an `i1`.
+/// Converts the value of a boolean-like value `bool_value` into an `i1`.
 fn bool_to_i1<'ctx>(builder: &Builder<'ctx>, bool_value: IntValue<'ctx>) -> IntValue<'ctx> {
     if bool_value.get_type().get_bit_width() != 1 {
         builder.build_int_compare(
@@ -866,7 +876,7 @@ fn bool_to_i1<'ctx>(builder: &Builder<'ctx>, bool_value: IntValue<'ctx>) -> IntV
     }
 }
 
-/// Converts the value of [a boolean-like value][bool_value] into an `i8`.
+/// Converts the value of a boolean-like value `bool_value` into an `i8`.
 fn bool_to_i8<'ctx>(
     builder: &Builder<'ctx>,
     ctx: &'ctx Context,
