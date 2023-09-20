@@ -21,6 +21,7 @@ use nac3parser::{
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use inkwell::targets::{InitializationConfig, Target};
 
 struct Resolver {
     id_to_type: HashMap<StrRef, Type>,
@@ -181,23 +182,17 @@ fn test_primitives() {
         let expected = indoc! {"
             ; ModuleID = 'test'
             source_filename = \"test\"
-            
-            define i32 @testing(i32 %0, i32 %1) !dbg !4 {
+
+            ; Function Attrs: mustprogress nofree norecurse nosync nounwind readnone willreturn
+            define i32 @testing(i32 %0, i32 %1) local_unnamed_addr #0 !dbg !4 {
             init:
-              %add = add i32 %0, %1, !dbg !9
+              %add = add i32 %1, %0, !dbg !9
               %cmp = icmp eq i32 %add, 1, !dbg !10
-              br i1 %cmp, label %then, label %else, !dbg !10
-            
-            then:                                             ; preds = %init
-              br label %cont, !dbg !11
-            
-            else:                                             ; preds = %init
-              br label %cont, !dbg !12
-            
-            cont:                                             ; preds = %else, %then
-              %if_exp_result.0 = phi i32 [ %0, %then ], [ 0, %else ], !dbg !13
-              ret i32 %if_exp_result.0, !dbg !14
+              %. = select i1 %cmp, i32 %0, i32 0, !dbg !11
+              ret i32 %., !dbg !12
             }
+
+            attributes #0 = { mustprogress nofree norecurse nosync nounwind readnone willreturn }
 
             !llvm.module.flags = !{!0, !1}
             !llvm.dbg.cu = !{!2}
@@ -213,14 +208,14 @@ fn test_primitives() {
             !8 = !{}
             !9 = !DILocation(line: 1, column: 9, scope: !4)
             !10 = !DILocation(line: 2, column: 15, scope: !4)
-            !11 = !DILocation(line: 2, column: 5, scope: !4)
-            !12 = !DILocation(line: 2, column: 22, scope: !4)
-            !13 = !DILocation(line: 0, scope: !4)
-            !14 = !DILocation(line: 3, column: 8, scope: !4)
+            !11 = !DILocation(line: 0, scope: !4)
+            !12 = !DILocation(line: 3, column: 8, scope: !4)
         "}
         .trim();
         assert_eq!(expected, module.print_to_string().to_str().unwrap().trim());
     })));
+
+    Target::initialize_all(&InitializationConfig::default());
 
     let llvm_options = CodeGenLLVMOptions {
         opt_level: OptimizationLevel::Default,
@@ -373,22 +368,26 @@ fn test_simple_call() {
             ; ModuleID = 'test'
             source_filename = \"test\"
 
-            define i32 @testing(i32 %0) !dbg !5 {
+            ; Function Attrs: mustprogress nofree norecurse nosync nounwind readnone willreturn
+            define i32 @testing(i32 %0) local_unnamed_addr #0 !dbg !5 {
             init:
-              %call = call i32 @foo.0(i32 %0), !dbg !10
-              %mul = mul i32 %call, 2, !dbg !11
-              ret i32 %mul, !dbg !11
+              %add.i = shl i32 %0, 1, !dbg !10
+              %mul = add i32 %add.i, 2, !dbg !10
+              ret i32 %mul, !dbg !10
             }
-            
-            define i32 @foo.0(i32 %0) !dbg !12 {
+
+            ; Function Attrs: mustprogress nofree norecurse nosync nounwind readnone willreturn
+            define i32 @foo.0(i32 %0) local_unnamed_addr #0 !dbg !11 {
             init:
-              %add = add i32 %0, 1, !dbg !13
-              ret i32 %add, !dbg !13
+              %add = add i32 %0, 1, !dbg !12
+              ret i32 %add, !dbg !12
             }
-            
+
+            attributes #0 = { mustprogress nofree norecurse nosync nounwind readnone willreturn }
+
             !llvm.module.flags = !{!0, !1}
             !llvm.dbg.cu = !{!2, !4}
-            
+
             !0 = !{i32 2, !\"Debug Info Version\", i32 3}
             !1 = !{i32 2, !\"Dwarf Version\", i32 4}
             !2 = distinct !DICompileUnit(language: DW_LANG_Python, file: !3, producer: \"NAC3\", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug)
@@ -399,14 +398,15 @@ fn test_simple_call() {
             !7 = !{!8}
             !8 = !DIBasicType(name: \"_\", flags: DIFlagPublic)
             !9 = !{}
-            !10 = !DILocation(line: 1, column: 9, scope: !5)
-            !11 = !DILocation(line: 2, column: 12, scope: !5)
-            !12 = distinct !DISubprogram(name: \"foo.0\", linkageName: \"foo.0\", scope: null, file: !3, line: 1, type: !6, scopeLine: 1, flags: DIFlagPublic, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !4, retainedNodes: !9)
-            !13 = !DILocation(line: 1, column: 12, scope: !12)
+            !10 = !DILocation(line: 2, column: 12, scope: !5)
+            !11 = distinct !DISubprogram(name: \"foo.0\", linkageName: \"foo.0\", scope: null, file: !3, line: 1, type: !6, scopeLine: 1, flags: DIFlagPublic, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !4, retainedNodes: !9)
+            !12 = !DILocation(line: 1, column: 12, scope: !11)
         "}
         .trim();
         assert_eq!(expected, module.print_to_string().to_str().unwrap().trim());
     })));
+
+    Target::initialize_all(&InitializationConfig::default());
 
     let llvm_options = CodeGenLLVMOptions {
         opt_level: OptimizationLevel::Default,
