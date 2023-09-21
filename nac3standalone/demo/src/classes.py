@@ -1,9 +1,9 @@
 @extern
-def output_int32(x: int32):
+def output_int32(x: int32, newline: bool=True):
     ...
 
 @extern
-def output_int64(x: int64):
+def output_int64(x: int64, newline: bool=True):
     ...
 
 

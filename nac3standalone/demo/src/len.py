@@ -1,5 +1,5 @@
 @extern
-def output_int32(x: int32):
+def output_int32(x: int32, newline: bool=True):
     ...
 
 

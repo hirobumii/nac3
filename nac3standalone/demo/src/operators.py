@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 @extern
-def output_int32(x: int32):
+def output_int32(x: int32, newline: bool=True):
     ...
 @extern
-def output_uint32(x: uint32):
+def output_uint32(x: uint32, newline: bool=True):
     ...
 @extern
-def output_int64(x: int64):
+def output_int64(x: int64, newline: bool=True):
     ...
 @extern
-def output_uint64(x: uint64):
+def output_uint64(x: uint64, newline: bool=True):
     ...
 @extern
-def output_float64(x: float):
+def output_float64(x: float, newline: bool=True):
     ...
 
 def run() -> int32:

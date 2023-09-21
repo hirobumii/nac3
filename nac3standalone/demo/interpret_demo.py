@@ -48,6 +48,12 @@ def patch(module):
         else:
             sys.stdout.write(" .,-:;i+hHM$*#@  "[x])
 
+    def output(x, newline: bool=True):
+        if newline:
+            print(x)
+        else:
+            print(x, end="")
+
     def extern(fun):
         name = fun.__name__
         if name == "output_asciiart":
@@ -58,9 +64,10 @@ def patch(module):
             "output_int32_list",
             "output_uint32",
             "output_uint64",
-            "output_float64"
+            "output_float64",
+            "output_str",
         }:
-            return print
+            return output
         else:
             raise NotImplementedError
 

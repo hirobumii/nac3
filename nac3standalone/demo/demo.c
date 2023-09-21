@@ -20,20 +20,41 @@
   #define usize uint16_t
 #endif
 
-void output_int32(const int32_t x) {
-  printf("%d\n", x);
+struct cslice {
+  const void *data;
+  usize len;
+};
+
+void output_int32(const int32_t x, bool newline) {
+  printf("%d", x);
+
+  if (newline) {
+    fputc('\n', stdout);
+  }
 }
 
 void output_int64(const int64_t x) {
-  printf("%ld\n", x);
+  printf("%ld", x);
+
+  if (newline) {
+    fputc('\n', stdout);
+  }
 }
 
 void output_uint32(const uint32_t x) {
-  printf("%d\n", x);
+  printf("%d", x);
+
+  if (newline) {
+    fputc('\n', stdout);
+  }
 }
 
 void output_uint64(const uint64_t x) {
-  printf("%ld\n", x);
+  printf("%ld", x);
+
+  if (newline) {
+    fputc('\n', stdout);
+  }
 }
 
 void output_asciiart(const int32_t x) {
@@ -43,20 +64,29 @@ void output_asciiart(const int32_t x) {
   } else {
     fputc(chars[x], stdout);
   }
+
+  if (newline) {
+    fputc('\n', stdout);
+  }
 }
 
-struct cslice_int32 {
-  const int32_t* data;
-  usize len;
-};
+void output_str(struct cslice *slice, bool newline) {
+  for (usize i = 0; i < slice->len; ++i) {
+    fputc(((const char *) slice->data)[i], stdout);
+  }
 
-void output_int32_list(struct cslice_int32* slice) {
+  if (newline) {
+    fputc('\n', stdout);
+  }
+}
+
+void output_int32_list(struct cslice *slice) {
   fputc('[', stdout);
   for (usize i = 0; i < slice->len; ++i) {
     if (i == slice->len - 1) {
-      printf("%d", slice->data[i]);
+      printf("%d", ((const int32_t *) slice->data)[i]);
     } else {
-      printf("%d, ", slice->data[i]);
+      printf("%d, ", ((const int32_t *) slice->data)[i]);
     }
   }
   puts("]");

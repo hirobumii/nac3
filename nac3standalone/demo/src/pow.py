@@ -1,5 +1,5 @@
 @extern
-def output_float64(f: float):
+def output_float64(f: float, newline: bool=True):
     ...
 
 

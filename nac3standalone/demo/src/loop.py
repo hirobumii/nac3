@@ -1,7 +1,7 @@
 # For Loop using an increasing range() expression as its iterable
 
 @extern
-def output_int32(x: int32):
+def output_int32(x: int32, newline: bool=True):
     ...
 
 def run() -> int32:

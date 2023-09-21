@@ -1,9 +1,9 @@
 @extern
-def output_int32_list(x: list[int32]):
+def output_int32_list(x: list[int32], newline: bool=True):
     ...
 
 @extern
-def output_int32(x: int32):
+def output_int32(x: int32, newline: bool=True):
     ...
 
 class A:

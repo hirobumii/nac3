@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 @extern
-def output_int32(a: int32):
+def output_int32(a: int32, newline: bool=True):
     ...
 
 class A:
