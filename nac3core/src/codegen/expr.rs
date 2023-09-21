@@ -339,6 +339,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         let mut return_slot = None;
         if fun.count_params() > 0 {
             let sret_id = Attribute::get_named_enum_kind_id("sret");
+            let byref_id = Attribute::get_named_enum_kind_id("byref");
             let byval_id = Attribute::get_named_enum_kind_id("byval");
 
             let offset = if fun.get_enum_attribute(AttributeLoc::Param(0), sret_id).is_some() {
@@ -350,7 +351,8 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 0
             };
             for (i, param) in params.iter().enumerate() {
-                if fun.get_enum_attribute(AttributeLoc::Param((i + offset) as u32), byval_id).is_some() {
+                let loc = AttributeLoc::Param((i + offset) as u32);
+                if fun.get_enum_attribute(loc, byref_id).is_some() || fun.get_enum_attribute(loc, byval_id).is_some() {
                     // lazy update
                     if loc_params.is_empty() {
                         loc_params.extend(params[0..i+offset].iter().copied());
@@ -715,11 +717,11 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
             Some(ctx.get_llvm_type(generator, fun.0.ret))
         };
         let has_sret = ret_type.map_or(false, |ret_type| need_sret(ctx.ctx, ret_type));
-        let mut byvals = Vec::new();
+        let mut byrefs = Vec::new();
         let mut params =
             args.iter().enumerate().map(|(i, arg)| match ctx.get_llvm_type(generator, arg.ty) {
                 BasicTypeEnum::StructType(ty) if is_extern => {
-                    byvals.push((i, ty));
+                    byrefs.push((i, ty));
                     ty.ptr_type(AddressSpace::default()).into()
                 },
                 x => x
@@ -739,9 +741,19 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
         } else {
             0
         };
-        for (i, ty) in byvals {
-            fun_val.add_attribute(AttributeLoc::Param((i as u32) + offset),
-                ctx.ctx.create_type_attribute(Attribute::get_named_enum_kind_id("byval"), ty.as_any_type_enum()));
+
+        // The attribute ID used to mark arguments of a structure type.
+        // Structure-Typed parameters of extern functions must **not** be marked as `byval`, as
+        // `byval` explicitly specifies that the argument is to be passed on the stack, which breaks
+        // on most ABIs where the first several arguments are expected to be passed in registers.
+        let passing_attr_id = Attribute::get_named_enum_kind_id(
+            if is_extern { "byref" } else { "byval" }
+        );
+        for (i, ty) in byrefs {
+            fun_val.add_attribute(
+                AttributeLoc::Param((i as u32) + offset),
+                ctx.ctx.create_type_attribute(passing_attr_id, ty.as_any_type_enum())
+            );
         }
         fun_val
     });
