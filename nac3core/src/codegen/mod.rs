@@ -328,7 +328,6 @@ impl WorkerRegistry {
             self.llvm_options.opt_level
         ).expect(format!("could not create target machine from properties {:?}", self.llvm_options.target).as_str());
         let passes = format!("default<O{}>", self.llvm_options.opt_level as u32);
-
         let result = module.run_passes(passes.as_str(), &target_machine, pass_options);
         if let Err(err) = result {
             panic!("Failed to run optimization for module `{}`: {}",

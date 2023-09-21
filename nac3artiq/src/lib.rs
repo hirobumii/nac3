@@ -660,7 +660,8 @@ impl Nac3 {
 
         let pass_options = PassBuilderOptions::create();
         pass_options.set_merge_functions(true);
-        let result = main.run_passes("default<O3>", &target_machine, pass_options);
+        let passes = format!("default<O{}>", self.llvm_options.opt_level as u32);
+        let result = main.run_passes(passes.as_str(), &target_machine, pass_options);
         if let Err(err) = result {
             panic!("Failed to run optimization for module `main`: {}", err.to_string());
         }
