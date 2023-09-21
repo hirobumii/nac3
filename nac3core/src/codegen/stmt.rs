@@ -808,8 +808,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.outer_catch_clauses = old_clauses;
         ctx.unwind_target = old_unwind;
         ctx.return_target = old_return;
-        ctx.loop_target = old_loop_target;
-        old_loop_target = None;
+        ctx.loop_target = old_loop_target.or(ctx.loop_target).take();
 
         let old_unwind = if !finalbody.is_empty() {
             let final_landingpad = ctx.ctx.append_basic_block(current_fun, "try.catch.final");
@@ -930,7 +929,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         }
 
         ctx.unwind_target = old_unwind;
-        ctx.loop_target = old_loop_target;
+        ctx.loop_target = old_loop_target.or(ctx.loop_target).take();
         ctx.return_target = old_return;
 
         ctx.builder.position_at_end(landingpad);

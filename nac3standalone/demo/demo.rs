@@ -97,6 +97,9 @@ pub extern "C" fn __nac3_raise(state: u32, exception_object: u32, context: u32) 
     exit(101);
 }
 
+#[no_mangle]
+pub extern "C" fn __nac3_end_catch() {}
+
 extern "C" {
     fn run() -> i32;
 }
