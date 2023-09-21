@@ -58,7 +58,8 @@ def patch(module):
             "output_int32_list",
             "output_uint32",
             "output_uint64",
-            "output_float64"
+            "output_float64",
+            "output_str",
         }:
             return print
         else:

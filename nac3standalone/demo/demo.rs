@@ -1,3 +1,7 @@
+use std::io;
+use std::io::Write;
+use std::process::exit;
+
 mod cslice {
     // copied from https://github.com/dherman/cslice
     use std::marker::PhantomData;
@@ -56,6 +60,14 @@ pub extern "C" fn output_asciiart(x: i32) {
 }
 
 #[no_mangle]
+pub extern "C" fn output_str(x: &cslice::CSlice<u8>) {
+    for e in x.as_ref().iter() {
+        print!("{}", char::from(*e));
+    }
+    println!();
+}
+
+#[no_mangle]
 pub extern "C" fn output_int32_list(x: &cslice::CSlice<i32>) {
     print!("[");
     let mut it = x.as_ref().iter().peekable();
@@ -75,8 +87,14 @@ pub extern "C" fn __nac3_personality(_state: u32, _exception_object: u32, _conte
 }
 
 #[no_mangle]
-pub extern "C" fn __nac3_raise(_state: u32, _exception_object: u32, _context: u32) -> u32 {
-    unimplemented!();
+pub extern "C" fn __nac3_raise(state: u32, exception_object: u32, context: u32) -> u32 {
+    writeln!(io::stderr(),
+             "__nac3_raise(state: {:#010x}, exception_object: {:#010x}, context: {:#010x})",
+             state,
+             exception_object,
+             context
+    ).unwrap();
+    exit(101);
 }
 
 extern "C" {
