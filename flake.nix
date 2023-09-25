@@ -9,6 +9,7 @@
     in rec {
       packages.x86_64-linux = rec {
         llvm-nac3 = pkgs.callPackage ./nix/llvm {};
+        clang-unwrapped = pkgs.runCommandNoCC "clang-unwrapped" {} "mkdir -p $out/bin; ln -s ${pkgs.llvmPackages_14.clang-unwrapped}/bin/clang $out/bin/clang-unwrapped";
         nac3artiq = pkgs.python3Packages.toPythonModule (
           pkgs.rustPlatform.buildRustPackage rec {
             name = "nac3artiq";
@@ -18,7 +19,7 @@
               lockFile = ./Cargo.lock;
             };
             passthru.cargoLock = cargoLock;
-            nativeBuildInputs = [ pkgs.python3 pkgs.llvmPackages_14.clang-unwrapped pkgs.llvmPackages_14.llvm.out llvm-nac3 ];
+            nativeBuildInputs = [ pkgs.python3 pkgs.llvmPackages_14.clang packages.x86_64-linux.clang-unwrapped pkgs.llvmPackages_14.llvm.out llvm-nac3 ];
             buildInputs = [ pkgs.python3 llvm-nac3 ];
             checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ])) ];
             checkPhase =
@@ -143,7 +144,8 @@
         buildInputs = with pkgs; [
           # build dependencies
           packages.x86_64-linux.llvm-nac3
-          llvmPackages_14.clang-unwrapped  # IRRT
+          llvmPackages_14.clang  # demo
+          packages.x86_64-linux.clang-unwrapped  # IRRT
           pkgs.llvmPackages_14.llvm.out    # IRRT
           cargo
           rustc
