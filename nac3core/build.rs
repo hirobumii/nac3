@@ -29,7 +29,7 @@ fn main() {
         "-o",
         "-",
     ];
-    let output = Command::new("clang")
+    let output = Command::new("clang-unwrapped")
         .args(FLAG)
         .output()
         .map(|o| {
