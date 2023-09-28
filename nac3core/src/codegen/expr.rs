@@ -1281,11 +1281,12 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                 .unwrap()
                 .to_basic_value_enum(ctx, generator, values[0].custom.unwrap())?
                 .into_int_value();
+            let left = generator.bool_to_i1(ctx, left);
             let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
             let a_bb = ctx.ctx.append_basic_block(current, "a");
             let b_bb = ctx.ctx.append_basic_block(current, "b");
             let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-            ctx.builder.build_conditional_branch(generator.bool_to_i1(ctx, left), a_bb, b_bb);
+            ctx.builder.build_conditional_branch(left, a_bb, b_bb);
             let (a, b) = match op {
                 Boolop::Or => {
                     ctx.builder.position_at_end(a_bb);
@@ -1451,6 +1452,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                 .unwrap()
                 .to_basic_value_enum(ctx, generator, test.custom.unwrap())?
                 .into_int_value();
+            let test = generator.bool_to_i1(ctx, test);
             let body_ty = body.custom.unwrap();
             let is_none = ctx.unifier.get_representative(body_ty) == ctx.primitives.none;
             let result = if !is_none {
