@@ -13,5 +13,7 @@ set -- "${@:1:$(($# - 1))}"
 echo -n "Checking $demo... "
 ./interpret_demo.py "$demo" > interpreted.log
 ./run_demo.sh "$@" "$demo" > run.log
+./run_demo_lli.sh "$@" "$demo" > run_lli.log
 diff -Nau interpreted.log run.log
+diff -Nau interpreted.log run_lli.log
 echo "ok"
