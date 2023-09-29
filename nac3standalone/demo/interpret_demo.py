@@ -48,17 +48,21 @@ def patch(module):
         else:
             sys.stdout.write(" .,-:;i+hHM$*#@  "[x])
 
+    def output_float(x):
+        print("%f" % x)
+
     def extern(fun):
         name = fun.__name__
         if name == "output_asciiart":
             return output_asciiart
+        elif name == "output_float64":
+            return output_float
         elif name in {
             "output_int32",
             "output_int64",
             "output_int32_list",
             "output_uint32",
             "output_uint64",
-            "output_float64",
             "output_str",
         }:
             return print
