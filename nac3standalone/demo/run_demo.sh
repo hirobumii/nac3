@@ -14,7 +14,9 @@ else
     nac3standalone=../../target/x86_64-unknown-linux-gnu/release/nac3standalone
 fi
 
-rm -f *.o
+rm -f "*.o" demo
+
 $nac3standalone "$@"
-rustc -o demo demo.rs -Crelocation-model=static -Clink-arg=./module.o
+clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
+clang -o demo module.o demo.o
 ./demo
