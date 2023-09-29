@@ -295,7 +295,7 @@ impl<'a> Inferencer<'a> {
         let mut ret = false;
         for stmt in block {
             if ret {
-                return Err(format!("dead code at {:?}", stmt.location));
+                println!("warning: dead code at {:?}\n", stmt.location)
             }
             if self.check_stmt(stmt, defined_identifiers)? {
                 ret = true;

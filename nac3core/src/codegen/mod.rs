@@ -1,4 +1,5 @@
 use crate::{
+    codegen::stmt::gen_block,
     symbol_resolver::{StaticValue, SymbolResolver},
     toplevel::{TopLevelContext, TopLevelDef},
     typecheck::{
@@ -160,7 +161,7 @@ pub struct CodeGenContext<'ctx, 'a> {
 
 impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     pub fn is_terminated(&self) -> bool {
-        self.builder.get_insert_block().unwrap().get_terminator().is_some()
+        self.builder.get_insert_block().and_then(|bb| bb.get_terminator()).is_some()
     }
 }
 
@@ -854,10 +855,7 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
 ) -> Result<(Builder<'ctx>, Module<'ctx>, FunctionValue<'ctx>), (Builder<'ctx>, String)> {
     let body = task.body.clone();
     gen_func_impl(context, generator, registry, builder, module, task, |generator, ctx| {
-        for stmt in body.iter() {
-            generator.gen_stmt(ctx, stmt)?;
-        }
-        Ok(())
+        gen_block(generator, ctx, body.iter())
     })
 }
 
