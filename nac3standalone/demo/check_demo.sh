@@ -17,3 +17,5 @@ echo -n "Checking $demo... "
 diff -Nau interpreted.log run.log
 diff -Nau interpreted.log run_lli.log
 echo "ok"
+
+rm -f interpreted.log run.log run_lli.log
