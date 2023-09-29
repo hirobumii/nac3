@@ -354,7 +354,12 @@ fn main() {
 
         main.link_in_module(other).unwrap();
     }
-    main.link_in_module(load_irrt(&context)).unwrap();
+
+    let irrt = load_irrt(&context);
+    if emit_llvm {
+        irrt.write_bitcode_to_path(Path::new("irrt.bc"));
+    }
+    main.link_in_module(irrt).unwrap();
 
     let mut function_iter = main.get_first_function();
     while let Some(func) = function_iter {
