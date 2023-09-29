@@ -15,6 +15,10 @@ def output_uint64(x: uint64):
 	...
 
 @extern
+def output_float64(x: float):
+	...
+
+@extern
 def output_int32_list(x: list[int32]):
 	...
 
@@ -38,6 +42,15 @@ def test_output_uint32():
 def test_output_uint64():
 	output_uint64(uint64(256))
 
+def test_output_float64():
+	output_float64(0.0)
+	output_float64(1.0)
+	output_float64(-1.0)
+	output_float64(128.0)
+	output_float64(-128.0)
+	output_float64(16.25)
+	output_float64(-16.25)
+
 def test_output_asciiart():
 	for i in range(17):
 		output_asciiart(i)
@@ -54,6 +67,7 @@ def run() -> int32:
 	test_output_int64()
 	test_output_uint32()
 	test_output_uint64()
+	test_output_float64()
 	test_output_asciiart()
 	test_output_int32_list()
 	test_output_str_family()
