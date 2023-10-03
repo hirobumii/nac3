@@ -1,4 +1,8 @@
 @extern
+def output_bool(x: bool):
+	...
+
+@extern
 def output_int32(x: int32):
 	...
 
@@ -29,6 +33,10 @@ def output_asciiart(x: int32):
 @extern
 def output_str(x: str):
 	...
+
+def test_output_bool():
+	output_bool(True)
+	output_bool(False)
 
 def test_output_int32():
 	output_int32(-128)
@@ -63,6 +71,7 @@ def test_output_str_family():
 	output_str("hello world")
 
 def run() -> int32:
+	test_output_bool()
 	test_output_int32()
 	test_output_int64()
 	test_output_uint32()
