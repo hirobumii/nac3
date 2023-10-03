@@ -16,8 +16,8 @@ demo="$1"
 
 echo -n "Checking $demo... "
 ./interpret_demo.py "$demo" > interpreted.log
-./run_demo.sh "${nac3args[@]}" "$demo" > run.log
-./run_demo_lli.sh "${nac3args[@]}" "$demo" > run_lli.log
+./run_demo.sh --out run.log "${nac3args[@]}" "$demo"
+./run_demo.sh --lli --out run_lli.log "${nac3args[@]}" "$demo"
 diff -Nau interpreted.log run.log
 diff -Nau interpreted.log run_lli.log
 echo "ok"
