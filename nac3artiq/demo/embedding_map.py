@@ -18,6 +18,13 @@ class EmbeddingMap:
                                           "SPIError",
                                           "0:ZeroDivisionError",
                                           "0:IndexError",
+                                          "0:ValueError",
+                                          "0:RuntimeError",
+                                          "0:AssertionError",
+                                          "0:KeyError",
+                                          "0:NotImplementedError",
+                                          "0:OverflowError",
+                                          "0:IOError",
                                           "0:UnwrapNoneError"])
 
     def preallocate_runtime_exception_names(self, names):
