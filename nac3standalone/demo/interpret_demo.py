@@ -58,6 +58,7 @@ def patch(module):
         elif name == "output_float64":
             return output_float
         elif name in {
+            "output_bool",
             "output_int32",
             "output_int64",
             "output_int32_list",
