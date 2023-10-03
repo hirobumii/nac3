@@ -120,7 +120,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 let vals = ls.iter().map(|v| self.gen_symbol_val(generator, v, ty)).collect_vec();
                 let fields = vals.iter().map(|v| v.get_type()).collect_vec();
                 let ty = self.ctx.struct_type(&fields, false);
-                let ptr = self.builder.build_alloca(ty, "tuple");
+                let ptr = gen_var(self, ty.into(), Some("tuple")).unwrap();
                 let zero = self.ctx.i32_type().const_zero();
                 unsafe {
                     for (i, val) in vals.into_iter().enumerate() {
@@ -144,7 +144,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                     _ => unreachable!("must be option type"),
                 };
                 let val = self.gen_symbol_val(generator, v, ty);
-                let ptr = self.builder.build_alloca(val.get_type(), "default_opt_some");
+                let ptr = generator.gen_var_alloc(self, val.get_type(), Some("default_opt_some")).unwrap();
                 self.builder.build_store(ptr, val);
                 ptr.into()
             }
@@ -664,6 +664,7 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
     let key;
     let param_vals;
     let is_extern;
+
     let symbol = {
         // make sure this lock guard is dropped at the end of this scope...
         let def = definition.read();

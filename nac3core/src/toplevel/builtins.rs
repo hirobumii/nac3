@@ -710,7 +710,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     });
                     let start = start.unwrap_or_else(|| int32.const_zero().into());
                     let ty = int32.array_type(3);
-                    let ptr = ctx.builder.build_alloca(ty, "range");
+                    let ptr = generator.gen_var_alloc(ctx, ty.into(), Some("range")).unwrap();
                     unsafe {
                         let a = ctx.builder.build_in_bounds_gep(ptr, &[zero, zero], "start");
                         let b = ctx.builder.build_in_bounds_gep(
@@ -1236,7 +1236,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 |ctx, _, fun, args, generator| {
                     let arg_ty = fun.0.args[0].ty;
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    let alloca = ctx.builder.build_alloca(arg_val.get_type(), "alloca_some");
+                    let alloca = generator.gen_var_alloc(ctx, arg_val.get_type(), Some("alloca_some")).unwrap();
                     ctx.builder.build_store(alloca, arg_val);
                     Ok(Some(alloca.into()))
                 },
