@@ -6,7 +6,7 @@ use crate::{
         get_llvm_type,
         get_llvm_abi_type,
         irrt::*,
-        stmt::gen_raise,
+        stmt::{gen_raise, gen_var},
         CodeGenContext, CodeGenTask,
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -357,13 +357,14 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     }
 
     pub fn build_call_or_invoke(
-        &self,
+        &mut self,
         fun: FunctionValue<'ctx>,
         params: &[BasicValueEnum<'ctx>],
         call_name: &str,
     ) -> Option<BasicValueEnum<'ctx>> {
         let mut loc_params: Vec<BasicValueEnum<'ctx>> = Vec::new();
         let mut return_slot = None;
+
         if fun.count_params() > 0 {
             let sret_id = Attribute::get_named_enum_kind_id("sret");
             let byref_id = Attribute::get_named_enum_kind_id("byref");
@@ -384,7 +385,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                     if loc_params.is_empty() {
                         loc_params.extend(params[0..i+offset].iter().copied());
                     }
-                    let slot = self.builder.build_alloca(param.get_type(), call_name);
+                    let slot = gen_var(self, param.get_type(), Some(call_name)).unwrap();
                     loc_params.push(slot.into());
                     self.builder.build_store(slot, *param);
                 } else if !loc_params.is_empty() {
@@ -451,7 +452,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     ) {
         let ty = self.get_llvm_type(generator, self.primitives.exception).into_pointer_type();
         let zelf_ty: BasicTypeEnum = ty.get_element_type().into_struct_type().into();
-        let zelf = self.builder.build_alloca(zelf_ty, "alloca");
+        let zelf = generator.gen_var_alloc(self, zelf_ty, Some("exn")).unwrap();
         let int32 = self.ctx.i32_type();
         let zero = int32.const_zero();
         unsafe {

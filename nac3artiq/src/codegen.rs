@@ -385,7 +385,7 @@ fn rpc_codegen_callback_fn<'ctx, 'a>(
     }
 
     for (i, arg) in real_params.iter().enumerate() {
-        let arg_slot = ctx.builder.build_alloca(arg.get_type(), &format!("rpc.arg{}", i));
+        let arg_slot = generator.gen_var_alloc(ctx, arg.get_type(), Some(&format!("rpc.arg{i}"))).unwrap();
         ctx.builder.build_store(arg_slot, *arg);
         let arg_slot = ctx.builder.build_bitcast(arg_slot, ptr_type, "rpc.arg");
         let arg_ptr = unsafe {

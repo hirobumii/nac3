@@ -74,6 +74,12 @@ void output_str(struct cslice *slice) {
   putchar('\n');
 }
 
+uint64_t dbg_stack_address(__attribute__((unused)) struct cslice *slice) {
+  int i;
+  void *ptr = (void *) &i;
+  return (uintptr_t) ptr;
+}
+
 uint32_t __nac3_personality(uint32_t state, uint32_t exception_object, uint32_t context) {
   printf("__nac3_personality(state: %u, exception_object: %u, context: %u\n", state, exception_object, context);
   exit(101);

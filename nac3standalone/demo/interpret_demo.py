@@ -51,6 +51,9 @@ def patch(module):
     def output_float(x):
         print("%f" % x)
 
+    def dbg_stack_address(_):
+        return 0
+
     def extern(fun):
         name = fun.__name__
         if name == "output_asciiart":
@@ -67,6 +70,8 @@ def patch(module):
             "output_str",
         }:
             return print
+        elif name == "dbg_stack_address":
+            return dbg_stack_address
         else:
             raise NotImplementedError
 
