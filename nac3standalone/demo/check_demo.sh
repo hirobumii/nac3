@@ -7,13 +7,17 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
-demo="${@:-1}"
-set -- "${@:1:$(($# - 1))}"
+declare -a nac3args
+while [ $# -gt 1 ]; do
+  nac3args+=("$1")
+  shift
+done
+demo="$1"
 
 echo -n "Checking $demo... "
 ./interpret_demo.py "$demo" > interpreted.log
-./run_demo.sh "$@" "$demo" > run.log
-./run_demo_lli.sh "$@" "$demo" > run_lli.log
+./run_demo.sh "${nac3args[@]}" "$demo" > run.log
+./run_demo_lli.sh "${nac3args[@]}" "$demo" > run_lli.log
 diff -Nau interpreted.log run.log
 diff -Nau interpreted.log run_lli.log
 echo "ok"
