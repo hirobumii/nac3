@@ -18,5 +18,5 @@ rm -f "*.o" demo
 
 $nac3standalone "$@"
 clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
-clang -o demo module.o demo.o
+clang -lm -o demo module.o demo.o
 ./demo
