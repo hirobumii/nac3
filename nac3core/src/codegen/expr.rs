@@ -916,7 +916,9 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(init_bb);
 
         let Comprehension { target, iter, ifs, .. } = &generators[0];
-        let iter_val = generator.gen_expr(ctx, iter)?.unwrap().to_basic_value_enum(ctx, generator, iter.custom.unwrap())?;
+        let iter_val = generator.gen_expr(ctx, iter)?
+            .unwrap()
+            .to_basic_value_enum(ctx, generator, iter.custom.unwrap())?;
         let int32 = ctx.ctx.i32_type();
         let size_t = generator.get_size_type(ctx.ctx);
         let zero_size_t = size_t.const_zero();
@@ -932,8 +934,8 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
 
         if is_range {
             let iter_val = iter_val.into_pointer_value();
-            let (start, end, step) = destructure_range(ctx, iter_val);
-            let diff = ctx.builder.build_int_sub(end, start, "diff");
+            let (start, stop, step) = destructure_range(ctx, iter_val);
+            let diff = ctx.builder.build_int_sub(stop, start, "diff");
             // add 1 to the length as the value is rounded to zero
             // the length may be 1 more than the actual length if the division is exact, but the
             // length is a upper bound only anyway so it does not matter.
@@ -942,37 +944,21 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
             // in case length is non-positive
             let is_valid =
                 ctx.builder.build_int_compare(IntPredicate::SGT, length, zero_32, "check");
-            let normal = ctx.ctx.append_basic_block(current, "listcomp.normal_list");
-            let empty = ctx.ctx.append_basic_block(current, "listcomp.empty_list");
-            let list_init = ctx.ctx.append_basic_block(current, "listcomp.list_init");
-            ctx.builder.build_conditional_branch(is_valid, normal, empty);
 
-            // normal: allocate a list
-            ctx.builder.position_at_end(normal);
-            let list_a = allocate_list(
-                generator,
-                ctx,
-                elem_ty,
+            let list_alloc_size = ctx.builder.build_select(
+                is_valid,
                 ctx.builder.build_int_z_extend_or_bit_cast(length, size_t, "z_ext_len"),
-                Some("listcomp"),
+                zero_size_t,
+                "listcomp.alloc_size"
             );
-            ctx.builder.build_unconditional_branch(list_init);
-
-            ctx.builder.position_at_end(empty);
-            let list_b = allocate_list(
+            list = allocate_list(
                 generator,
                 ctx,
                 elem_ty,
-                zero_size_t,
-                Some("list_b")
+                list_alloc_size.into_int_value(),
+                Some("listcomp.addr")
             );
-            ctx.builder.build_unconditional_branch(list_init);
-
-            ctx.builder.position_at_end(list_init);
-            let phi = ctx.builder.build_phi(list_a.get_type(), "phi");
-            phi.add_incoming(&[(&list_a, normal), (&list_b, empty)]);
-            list = phi.as_basic_value().into_pointer_value();
-            list_content = ctx.build_gep_and_load(list, &[zero_size_t, zero_32], Some("list_content"))
+            list_content = ctx.build_gep_and_load(list, &[zero_size_t, zero_32], Some("listcomp.data.addr"))
                 .into_pointer_value();
 
             let i = generator.gen_store_target(ctx, target, Some("i.addr"))?;
@@ -990,9 +976,9 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
             );
             ctx.builder.build_store(i, tmp);
             // if step > 0, continue when i < end
-            let cmp1 = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, end, "cmp1");
+            let cmp1 = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, stop, "cmp1");
             // if step < 0, continue when i > end
-            let cmp2 = ctx.builder.build_int_compare(IntPredicate::SGT, tmp, end, "cmp2");
+            let cmp2 = ctx.builder.build_int_compare(IntPredicate::SGT, tmp, stop, "cmp2");
             let pos = ctx.builder.build_and(sign, cmp1, "pos");
             let neg = ctx.builder.build_and(ctx.builder.build_not(sign, "inv"), cmp2, "neg");
             ctx.builder.build_conditional_branch(
