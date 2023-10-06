@@ -459,9 +459,14 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         params: [Option<IntValue<'ctx>>; 3],
         loc: Location,
     ) {
-        let ty = self.get_llvm_type(generator, self.primitives.exception).into_pointer_type();
-        let zelf_ty: BasicTypeEnum = ty.get_element_type().into_struct_type().into();
-        let zelf = generator.gen_var_alloc(self, zelf_ty, Some("exn")).unwrap();
+        let zelf = if let Some(exception_val) = self.exception_val {
+            exception_val
+        } else {
+            let ty = self.get_llvm_type(generator, self.primitives.exception).into_pointer_type();
+            let zelf_ty: BasicTypeEnum = ty.get_element_type().into_struct_type().into();
+            let zelf = generator.gen_var_alloc(self, zelf_ty, Some("exn")).unwrap();
+            self.exception_val.insert(zelf).to_owned()
+        };
         let int32 = self.ctx.i32_type();
         let zero = int32.const_zero();
         unsafe {

@@ -146,6 +146,7 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub const_strings: HashMap<String, BasicValueEnum<'ctx>>,
     // stores the alloca for variables
     pub init_bb: BasicBlock<'ctx>,
+    pub exception_val: Option<PointerValue<'ctx>>,
     /// The header and exit basic blocks of a loop in this context. See
     /// https://llvm.org/docs/LoopTerminology.html for explanation of these terminology.
     pub loop_target: Option<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
@@ -802,6 +803,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         type_cache,
         primitives,
         init_bb,
+        exception_val: Default::default(),
         builder,
         module,
         unifier,
