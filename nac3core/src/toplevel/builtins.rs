@@ -919,70 +919,22 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             )))),
             loc: None,
         })),
-        Arc::new(RwLock::new(TopLevelDef::Function {
-            name: "floor".into(),
-            simple_name: "floor".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: float, default_value: None }],
-                ret: int32,
-                vars: Default::default(),
-            })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
-            resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, _, args, generator| {
-                    let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
-                    let floor_intrinsic =
-                        ctx.module.get_function("llvm.floor.f64").unwrap_or_else(|| {
-                            let float = ctx.ctx.f64_type();
-                            let fn_type = float.fn_type(&[float.into()], false);
-                            ctx.module.add_function("llvm.floor.f64", fn_type, None)
-                        });
-                    let val = ctx
-                        .builder
-                        .build_call(floor_intrinsic, &[arg.into()], "floor")
-                        .try_as_basic_value()
-                        .left()
-                        .unwrap();
-                    Ok(val.into())
-                },
-            )))),
-            loc: None,
-        })),
-        Arc::new(RwLock::new(TopLevelDef::Function {
-            name: "ceil".into(),
-            simple_name: "ceil".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: float, default_value: None }],
-                ret: int32,
-                vars: Default::default(),
-            })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
-            resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, _, args, generator| {
-                    let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
-                    let ceil_intrinsic =
-                        ctx.module.get_function("llvm.ceil.f64").unwrap_or_else(|| {
-                            let float = ctx.ctx.f64_type();
-                            let fn_type = float.fn_type(&[float.into()], false);
-                            ctx.module.add_function("llvm.ceil.f64", fn_type, None)
-                        });
-                    let val = ctx
-                        .builder
-                        .build_call(ceil_intrinsic, &[arg.into()], "ceil")
-                        .try_as_basic_value()
-                        .left()
-                        .unwrap();
-                    Ok(val.into())
-                },
-            )))),
-            loc: None,
-        })),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "floor",
+            float,
+            &[(float, "x")],
+            "llvm.floor.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "ceil",
+            float,
+            &[(float, "x")],
+            "llvm.ceil.f64",
+        ),
         Arc::new(RwLock::new({
             let list_var = primitives.1.get_fresh_var(Some("L".into()), None);
             let list = primitives.1.add_ty(TypeEnum::TList { ty: list_var.0 });
@@ -1268,6 +1220,353 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 Ok(Some(val.into()))
             }),
         ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "sin",
+            float,
+            &[(float, "x")],
+            "llvm.sin.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "cos",
+            float,
+            &[(float, "x")],
+            "llvm.cos.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "exp",
+            float,
+            &[(float, "x")],
+            "llvm.exp.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "exp2",
+            float,
+            &[(float, "x")],
+            "llvm.exp2.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "log",
+            float,
+            &[(float, "x")],
+            "llvm.log.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "log10",
+            float,
+            &[(float, "x")],
+            "llvm.log10.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "log2",
+            float,
+            &[(float, "x")],
+            "llvm.log2.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "fabs",
+            float,
+            &[(float, "x")],
+            "llvm.fabs.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "trunc",
+            float,
+            &[(float, "x")],
+            "llvm.trunc.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "sqrt",
+            float,
+            &[(float, "x")],
+            "llvm.sqrt.f64",
+        ),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "rint",
+            float,
+            &[(float, "x")],
+            Box::new(|ctx, _, fun, args, generator| {
+                let float = ctx.primitives.float;
+                let llvm_f64 = ctx.ctx.f64_type();
+
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
+
+                assert!(ctx.unifier.unioned(x_ty, float));
+
+                let intrinsic_fn = ctx.module.get_function("llvm.round.f64").unwrap_or_else(|| {
+                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+
+                    ctx.module.add_function("llvm.round.f64", fn_type, None)
+                });
+
+                // rint(x) == round(x * 0.5) * 2.0
+
+                // %0 = fmul f64 %x, 0.5
+                let x_half = ctx.builder
+                    .build_float_mul(x_val.into_float_value(), llvm_f64.const_float(0.5), "");
+                // %1 = call f64 @llvm.round.f64(f64 %0)
+                let round = ctx.builder
+                    .build_call(
+                        intrinsic_fn,
+                        &vec![x_half.into()],
+                        "",
+                    )
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+                // %2 = fmul f64 %1, 2.0
+                let val = ctx.builder
+                    .build_float_mul(round.into_float_value(), llvm_f64.const_float(2.0).into(), "rint");
+
+                Ok(Some(val.into()))
+            }),
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "tan",
+            float,
+            &[(float, "x")],
+            "tan",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "arcsin",
+            float,
+            &[(float, "x")],
+            "asin",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "arccos",
+            float,
+            &[(float, "x")],
+            "acos",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "arctan",
+            float,
+            &[(float, "x")],
+            "atan",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "sinh",
+            float,
+            &[(float, "x")],
+            "sinh",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "cosh",
+            float,
+            &[(float, "x")],
+            "cosh",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "tanh",
+            float,
+            &[(float, "x")],
+            "tanh",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "arcsinh",
+            float,
+            &[(float, "x")],
+            "asinh",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "arccosh",
+            float,
+            &[(float, "x")],
+            "acosh",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "arctanh",
+            float,
+            &[(float, "x")],
+            "atanh",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "expm1",
+            float,
+            &[(float, "x")],
+            "expm1",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "cbrt",
+            float,
+            &[(float, "x")],
+            "cbrt",
+            &["readnone", "willreturn"],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "erf",
+            float,
+            &[(float, "z")],
+            "erf",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "erfc",
+            float,
+            &[(float, "x")],
+            "erfc",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "gamma",
+            float,
+            &[(float, "z")],
+            "tgamma",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "gammaln",
+            float,
+            &[(float, "x")],
+            "lgamma",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "j0",
+            float,
+            &[(float, "x")],
+            "j0",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "j1",
+            float,
+            &[(float, "x")],
+            "j1",
+            &[],
+        ),
+        // Not mapped: jv/yv, libm only supports integer orders.
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "arctan2",
+            float,
+            &[(float, "x1"), (float, "x2")],
+            "atan2",
+            &[],
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "copysign",
+            float,
+            &[(float, "x1"), (float, "x2")],
+            "llvm.copysign.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "fmax",
+            float,
+            &[(float, "x1"), (float, "x2")],
+            "llvm.maxnum.f64",
+        ),
+        create_fn_by_intrinsic(
+            primitives,
+            &var_map,
+            "fmin",
+            float,
+            &[(float, "x1"), (float, "x2")],
+            "llvm.minnum.f64",
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "ldexp",
+            float,
+            &[(float, "x1"), (int32, "x2")],
+            "ldexp",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "hypot",
+            float,
+            &[(float, "x1"), (float, "x2")],
+            "hypot",
+            &[],
+        ),
+        create_fn_by_extern(
+            primitives,
+            &var_map,
+            "nextafter",
+            float,
+            &[(float, "x1"), (float, "x2")],
+            "nextafter",
+            &[],
+        ),
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "Some".into(),
             simple_name: "Some".into(),
@@ -1314,6 +1613,42 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "abs",
             "isnan",
             "isinf",
+            "sin",
+            "cos",
+            "exp",
+            "exp2",
+            "log",
+            "log10",
+            "log2",
+            "fabs",
+            "trunc",
+            "sqrt",
+            "rint",
+            "tan",
+            "arcsin",
+            "arccos",
+            "arctan",
+            "sinh",
+            "cosh",
+            "tanh",
+            "arcsinh",
+            "arccosh",
+            "arctanh",
+            "expm1",
+            "cbrt",
+            "erf",
+            "erfc",
+            "gamma",
+            "gammaln",
+            "j0",
+            "j1",
+            "arctan2",
+            "copysign",
+            "fmax",
+            "fmin",
+            "ldexp",
+            "hypot",
+            "nextafter",
             "Some",
         ],
     )

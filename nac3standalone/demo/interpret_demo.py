@@ -5,6 +5,7 @@ import importlib.util
 import importlib.machinery
 import numpy as np
 import pathlib
+import scipy
 
 from numpy import int32, int64, uint32, uint64
 from typing import TypeVar, Generic
@@ -97,8 +98,49 @@ def patch(module):
     module.Some = Some
     module.none = none
 
+    # NumPy Math functions
     module.isnan = np.isnan
     module.isinf = np.isinf
+    module.sin = np.sin
+    module.cos = np.cos
+    module.exp = np.exp
+    module.exp2 = np.exp2
+    module.log = np.log
+    module.log10 = np.log10
+    module.log2 = np.log2
+    module.fabs = np.fabs
+    module.floor = np.floor
+    module.ceil = np.ceil
+    module.trunc = np.trunc
+    module.sqrt = np.sqrt
+    module.rint = np.rint
+    module.tan = np.tan
+    module.arcsin = np.arcsin
+    module.arccos = np.arccos
+    module.arctan = np.arctan
+    module.sinh = np.sinh
+    module.cosh = np.cosh
+    module.tanh = np.tanh
+    module.arcsinh = np.arcsinh
+    module.arccosh = np.arccosh
+    module.arctanh = np.arctanh
+    module.expm1 = np.expm1
+    module.cbrt = np.cbrt
+    module.arctan2 = np.arctan2
+    module.copysign = np.copysign
+    module.fmax = np.fmax
+    module.fmin = np.fmin
+    module.ldexp = np.ldexp
+    module.hypot = np.hypot
+    module.nextafter = np.nextafter
+
+    # SciPy Math Functions
+    module.erf = scipy.special.erf
+    module.erfc = scipy.special.erfc
+    module.gamma = scipy.special.gamma
+    module.gammaln = scipy.special.gammaln
+    module.j0 = scipy.special.j0
+    module.j1 = scipy.special.j1
 
 
 def file_import(filename, prefix="file_import_"):
