@@ -762,15 +762,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                         .try_as_basic_value()
                         .left()
                         .unwrap();
-                    Ok(Some(
-                        ctx.builder
-                            .build_float_to_signed_int(
-                                val.into_float_value(),
-                                ctx.ctx.i32_type(),
-                                "fptosi",
-                            )
-                            .into(),
-                    ))
+                    Ok(val.into())
                 },
             )))),
             loc: None,
@@ -802,15 +794,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                         .try_as_basic_value()
                         .left()
                         .unwrap();
-                    Ok(Some(
-                        ctx.builder
-                            .build_float_to_signed_int(
-                                val.into_float_value(),
-                                ctx.ctx.i32_type(),
-                                "fptosi",
-                            )
-                            .into(),
-                    ))
+                    Ok(val.into())
                 },
             )))),
             loc: None,
