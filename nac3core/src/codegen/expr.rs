@@ -3,6 +3,7 @@ use std::{collections::HashMap, convert::TryInto, iter::once, iter::zip};
 use crate::{
     codegen::{
         concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
+        gen_in_range_check,
         get_llvm_type,
         get_llvm_abi_type,
         irrt::*,
@@ -963,11 +964,14 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
 
             let i = generator.gen_store_target(ctx, target, Some("i.addr"))?;
             ctx.builder.build_store(i, ctx.builder.build_int_sub(start, step, "start_init"));
-            ctx.builder.build_unconditional_branch(test_bb);
+
+            ctx.builder.build_conditional_branch(
+                gen_in_range_check(ctx, start, stop, step),
+                test_bb,
+                cont_bb,
+            );
 
             ctx.builder.position_at_end(test_bb);
-            let sign =
-                ctx.builder.build_int_compare(IntPredicate::SGT, step, zero_32, "sign");
             // add and test
             let tmp = ctx.builder.build_int_add(
                 ctx.builder.build_load(i, "i").into_int_value(),
@@ -975,14 +979,8 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
                 "start_loop",
             );
             ctx.builder.build_store(i, tmp);
-            // if step > 0, continue when i < end
-            let cmp1 = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, stop, "cmp1");
-            // if step < 0, continue when i > end
-            let cmp2 = ctx.builder.build_int_compare(IntPredicate::SGT, tmp, stop, "cmp2");
-            let pos = ctx.builder.build_and(sign, cmp1, "pos");
-            let neg = ctx.builder.build_and(ctx.builder.build_not(sign, "inv"), cmp2, "neg");
             ctx.builder.build_conditional_branch(
-                ctx.builder.build_or(pos, neg, "or"),
+                gen_in_range_check(ctx, tmp, stop, step),
                 body_bb,
                 cont_bb,
             );
@@ -1001,7 +999,7 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
                 ctx.build_gep_and_load(list, &[zero_size_t, zero_32], Some("list_content")).into_pointer_value();
             let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
             // counter = -1
-            ctx.builder.build_store(counter, size_t.const_int(u64::max_value(), true));
+            ctx.builder.build_store(counter, size_t.const_int(u64::MAX, true));
             ctx.builder.build_unconditional_branch(test_bb);
 
             ctx.builder.position_at_end(test_bb);

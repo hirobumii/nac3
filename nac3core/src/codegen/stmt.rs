@@ -5,7 +5,10 @@ use super::{
     CodeGenContext, CodeGenerator,
 };
 use crate::{
-    codegen::expr::gen_binop_expr,
+    codegen::{
+        expr::gen_binop_expr,
+        gen_in_range_check,
+    },
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::typedef::{FunSignature, Type, TypeEnum},
 };
@@ -13,7 +16,7 @@ use inkwell::{
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
     types::BasicTypeEnum,
-    values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
+    values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue},
     IntPredicate,
 };
 use nac3parser::ast::{
@@ -230,34 +233,6 @@ pub fn gen_assign<'ctx, 'a, G: CodeGenerator>(
         }
     };
     Ok(())
-}
-
-/// Generates a sequence of IR which checks whether `value` does not exceed the upper bound of the
-/// range as defined by `stop` and `step`.
-///
-/// Note that the generated IR will **not** check whether value is part of the range or whether
-/// value exceeds the lower bound of the range (as evident by the missing `start` argument).
-///
-/// The generated IR is equivalent to the following Rust code:
-///
-/// ```rust,ignore
-/// let sign = step > 0;
-/// let (lo, hi) = if sign { (value, stop) } else { (stop, value) };
-/// let cmp = lo < hi;
-/// ```
-///
-/// Returns an `i1` [IntValue] representing the result of whether the `value` is in the range.
-fn gen_in_range_check<'ctx, 'a>(
-    ctx: &CodeGenContext<'ctx, 'a>,
-    value: IntValue<'ctx>,
-    stop: IntValue<'ctx>,
-    step: IntValue<'ctx>,
-) -> IntValue<'ctx> {
-    let sign = ctx.builder.build_int_compare(IntPredicate::SGT, step, ctx.ctx.i32_type().const_zero(), "");
-    let lo = ctx.builder.build_select(sign, value, stop, "").into_int_value();
-    let hi = ctx.builder.build_select(sign, stop, value, "").into_int_value();
-
-    ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp")
 }
 
 /// See [CodeGenerator::gen_for].
