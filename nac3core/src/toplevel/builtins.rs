@@ -554,86 +554,6 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             loc: None,
         })),
         Arc::new(RwLock::new(TopLevelDef::Function {
-            name: "round".into(),
-            simple_name: "round".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: float, default_value: None }],
-                ret: int32,
-                vars: Default::default(),
-            })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
-            resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, _, args, generator| {
-                    let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
-                    let round_intrinsic =
-                        ctx.module.get_function("llvm.round.f64").unwrap_or_else(|| {
-                            let float = ctx.ctx.f64_type();
-                            let fn_type = float.fn_type(&[float.into()], false);
-                            ctx.module.add_function("llvm.round.f64", fn_type, None)
-                        });
-                    let val = ctx
-                        .builder
-                        .build_call(round_intrinsic, &[arg.into()], "round")
-                        .try_as_basic_value()
-                        .left()
-                        .unwrap();
-                    Ok(Some(
-                        ctx.builder
-                            .build_float_to_signed_int(
-                                val.into_float_value(),
-                                ctx.ctx.i32_type(),
-                                "fptosi",
-                            )
-                            .into(),
-                    ))
-                },
-            )))),
-            loc: None,
-        })),
-        Arc::new(RwLock::new(TopLevelDef::Function {
-            name: "round64".into(),
-            simple_name: "round64".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: float, default_value: None }],
-                ret: int64,
-                vars: Default::default(),
-            })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
-            resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, _, args, generator| {
-                    let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
-                    let round_intrinsic =
-                        ctx.module.get_function("llvm.round.f64").unwrap_or_else(|| {
-                            let float = ctx.ctx.f64_type();
-                            let fn_type = float.fn_type(&[float.into()], false);
-                            ctx.module.add_function("llvm.round.f64", fn_type, None)
-                        });
-                    let val = ctx
-                        .builder
-                        .build_call(round_intrinsic, &[arg.into()], "round")
-                        .try_as_basic_value()
-                        .left()
-                        .unwrap();
-                    Ok(Some(
-                        ctx.builder
-                            .build_float_to_signed_int(
-                                val.into_float_value(),
-                                ctx.ctx.i64_type(),
-                                "fptosi",
-                            )
-                            .into(),
-                    ))
-                },
-            )))),
-            loc: None,
-        })),
-        Arc::new(RwLock::new(TopLevelDef::Function {
             name: "range".into(),
             simple_name: "range".into(),
             signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
@@ -856,46 +776,6 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             loc: None,
         })),
         Arc::new(RwLock::new(TopLevelDef::Function {
-            name: "floor64".into(),
-            simple_name: "floor64".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: float, default_value: None }],
-                ret: int64,
-                vars: Default::default(),
-            })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
-            resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, _, args, generator| {
-                    let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
-                    let floor_intrinsic =
-                        ctx.module.get_function("llvm.floor.f64").unwrap_or_else(|| {
-                            let float = ctx.ctx.f64_type();
-                            let fn_type = float.fn_type(&[float.into()], false);
-                            ctx.module.add_function("llvm.floor.f64", fn_type, None)
-                        });
-                    let val = ctx
-                        .builder
-                        .build_call(floor_intrinsic, &[arg.into()], "floor")
-                        .try_as_basic_value()
-                        .left()
-                        .unwrap();
-                    Ok(Some(
-                        ctx.builder
-                            .build_float_to_signed_int(
-                                val.into_float_value(),
-                                ctx.ctx.i64_type(),
-                                "fptosi",
-                            )
-                            .into(),
-                    ))
-                },
-            )))),
-            loc: None,
-        })),
-        Arc::new(RwLock::new(TopLevelDef::Function {
             name: "ceil".into(),
             simple_name: "ceil".into(),
             signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
@@ -927,46 +807,6 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                             .build_float_to_signed_int(
                                 val.into_float_value(),
                                 ctx.ctx.i32_type(),
-                                "fptosi",
-                            )
-                            .into(),
-                    ))
-                },
-            )))),
-            loc: None,
-        })),
-        Arc::new(RwLock::new(TopLevelDef::Function {
-            name: "ceil64".into(),
-            simple_name: "ceil64".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: float, default_value: None }],
-                ret: int64,
-                vars: Default::default(),
-            })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
-            resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, _, args, generator| {
-                    let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
-                    let ceil_intrinsic =
-                        ctx.module.get_function("llvm.ceil.f64").unwrap_or_else(|| {
-                            let float = ctx.ctx.f64_type();
-                            let fn_type = float.fn_type(&[float.into()], false);
-                            ctx.module.add_function("llvm.ceil.f64", fn_type, None)
-                        });
-                    let val = ctx
-                        .builder
-                        .build_call(ceil_intrinsic, &[arg.into()], "ceil")
-                        .try_as_basic_value()
-                        .left()
-                        .unwrap();
-                    Ok(Some(
-                        ctx.builder
-                            .build_float_to_signed_int(
-                                val.into_float_value(),
-                                ctx.ctx.i64_type(),
                                 "fptosi",
                             )
                             .into(),
@@ -1255,15 +1095,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "uint32",
             "uint64",
             "float",
-            "round",
-            "round64",
             "range",
             "str",
             "bool",
             "floor",
-            "floor64",
             "ceil",
-            "ceil64",
             "len",
             "min",
             "max",
