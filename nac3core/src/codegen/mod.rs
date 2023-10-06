@@ -129,6 +129,8 @@ impl CodeGenTargetMachineOptions {
 pub struct CodeGenContext<'ctx, 'a> {
     pub ctx: &'ctx Context,
     pub builder: Builder<'ctx>,
+    /// The [DebugInfoBuilder], [compilation unit information][DICompileUnit], and
+    /// [scope information][DIScope] of this context.
     pub debug_info: (DebugInfoBuilder<'ctx>, DICompileUnit<'ctx>, DIScope<'ctx>),
     pub module: Module<'ctx>,
     pub top_level: &'a TopLevelContext,

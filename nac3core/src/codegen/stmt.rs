@@ -27,12 +27,27 @@ pub fn gen_var<'ctx, 'a>(
     ty: BasicTypeEnum<'ctx>,
     name: Option<&str>,
 ) -> Result<PointerValue<'ctx>, String> {
+    // Restore debug location
+    let di_loc = ctx.debug_info.0.create_debug_location(
+        ctx.ctx,
+        ctx.current_loc.row as u32,
+        ctx.current_loc.column as u32,
+        ctx.debug_info.2,
+        None,
+    );
+
     // put the alloca in init block
     let current = ctx.builder.get_insert_block().unwrap();
+
     // position before the last branching instruction...
     ctx.builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
+    ctx.builder.set_current_debug_location(di_loc);
+
     let ptr = ctx.builder.build_alloca(ty, name.unwrap_or(""));
+
     ctx.builder.position_at_end(current);
+    ctx.builder.set_current_debug_location(di_loc);
+
     Ok(ptr)
 }
 
