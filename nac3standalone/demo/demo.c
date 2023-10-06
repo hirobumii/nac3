@@ -12,30 +12,31 @@
   #error "Unsupported platform - Platform is not 32-bit or 64-bit"
 #endif
 
-void output_bool(const bool x) {
+void output_bool(bool x) {
   puts(x ? "True" : "False");
 }
 
-void output_int32(const int32_t x) {
+void output_int32(int32_t x) {
   printf("%d\n", x);
 }
 
-void output_int64(const int64_t x) {
+void output_int64(int64_t x) {
   printf("%ld\n", x);
 }
 
-void output_uint32(const uint32_t x) {
+void output_uint32(uint32_t x) {
   printf("%d\n", x);
 }
 
-void output_uint64(const uint64_t x) {
+void output_uint64(uint64_t x) {
   printf("%ld\n", x);
 }
 
-void output_float64(const double x) {
+void output_float64(double x) {
   printf("%f\n", x);
 }
-void output_asciiart(const int32_t x) {
+
+void output_asciiart(int32_t x) {
   static const char *chars = " .,-:;i+hHM$*#@  ";
   if (x < 0) {
     putchar('\n');
@@ -45,12 +46,12 @@ void output_asciiart(const int32_t x) {
 }
 
 struct cslice {
-  const void *data;
+  void *data;
   usize len;
 };
 
 void output_int32_list(struct cslice *slice) {
-  const int32_t *data = (const int32_t *) slice->data;
+  const int32_t *data = (int32_t *) slice->data;
 
   putchar('[');
   for (usize i = 0; i < slice->len; ++i) {
