@@ -365,6 +365,15 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         let mut loc_params: Vec<BasicValueEnum<'ctx>> = Vec::new();
         let mut return_slot = None;
 
+        let loc = self.debug_info.0.create_debug_location(
+            self.ctx,
+            self.current_loc.row as u32,
+            self.current_loc.column as u32,
+            self.debug_info.2,
+            None,
+        );
+        self.builder.set_current_debug_location(loc);
+
         if fun.count_params() > 0 {
             let sret_id = Attribute::get_named_enum_kind_id("sret");
             let byref_id = Attribute::get_named_enum_kind_id("byref");
@@ -1648,6 +1657,10 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                             _ => unreachable!("option must be static or ptr")
                         }
                     }
+
+                    // Reset current_loc back to the location of the call
+                    ctx.current_loc = expr.location;
+
                     return Ok(generator
                         .gen_call(
                             ctx,
