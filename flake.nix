@@ -21,7 +21,7 @@
             passthru.cargoLock = cargoLock;
             nativeBuildInputs = [ pkgs.python3 pkgs.llvmPackages_14.clang packages.x86_64-linux.clang-unwrapped pkgs.llvmPackages_14.llvm.out llvm-nac3 ];
             buildInputs = [ pkgs.python3 llvm-nac3 ];
-            checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ])) ];
+            checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ps.scipy ])) ];
             checkPhase =
               ''
               echo "Checking nac3standalone demos..."
@@ -94,7 +94,7 @@
             })
           ];
           buildInputs = [
-            (python3-mimalloc.withPackages(ps: [ ps.numpy ps.jsonschema nac3artiq-instrumented ]))
+            (python3-mimalloc.withPackages(ps: [ ps.numpy ps.scipy ps.jsonschema nac3artiq-instrumented ]))
             pkgs.llvmPackages_14.llvm.out
           ];
           phases = [ "buildPhase" "installPhase" ];
@@ -151,7 +151,7 @@
           rustc
           # runtime dependencies
           lld_14                           # for running kernels on the host
-          (packages.x86_64-linux.python3-mimalloc.withPackages(ps: [ ps.numpy ]))
+          (packages.x86_64-linux.python3-mimalloc.withPackages(ps: [ ps.numpy ps.scipy ]))
           # development tools
           cargo-insta
           clippy
