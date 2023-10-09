@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -33,7 +34,11 @@ void output_uint64(uint64_t x) {
 }
 
 void output_float64(double x) {
-    printf("%f\n", x);
+    if (isnan(x)) {
+        puts("nan");
+    } else {
+        printf("%f\n", x);
+    }
 }
 
 void output_asciiart(int32_t x) {
