@@ -138,3 +138,11 @@ int32_t __nac3_list_slice_assign_var_size(
     }
     return dest_arr_len;
 }
+
+int32_t __nac3_isinf(double x) {
+    return __builtin_isinf(x);
+}
+
+int32_t __nac3_isnan(double x) {
+    return __builtin_isnan(x);
+}

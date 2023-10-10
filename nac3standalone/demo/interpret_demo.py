@@ -3,6 +3,7 @@
 import sys
 import importlib.util
 import importlib.machinery
+import numpy as np
 import pathlib
 
 from numpy import int32, int64, uint32, uint64
@@ -42,6 +43,12 @@ def Some(v: T) -> Option[T]:
 none = Option(None)
 
 def patch(module):
+    def dbl_nan():
+        return np.nan
+
+    def dbl_inf():
+        return np.inf
+
     def output_asciiart(x):
         if x < 0:
             sys.stdout.write("\n")
@@ -56,7 +63,11 @@ def patch(module):
 
     def extern(fun):
         name = fun.__name__
-        if name == "output_asciiart":
+        if name == "dbl_nan":
+            return dbl_nan
+        elif name == "dbl_inf":
+            return dbl_inf
+        elif name == "output_asciiart":
             return output_asciiart
         elif name == "output_float64":
             return output_float
@@ -85,6 +96,9 @@ def patch(module):
     module.Option = Option
     module.Some = Some
     module.none = none
+
+    module.isnan = np.isnan
+    module.isinf = np.isinf
 
 
 def file_import(filename, prefix="file_import_"):

@@ -1,7 +1,9 @@
 use super::*;
 use crate::{
     codegen::{
-        expr::destructure_range, irrt::calculate_len_for_slice_range, stmt::exn_constructor,
+        expr::destructure_range,
+        irrt::{calculate_len_for_slice_range, call_isinf, call_isnan},
+        stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
 };
@@ -1226,6 +1228,46 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             )))),
             loc: None,
         })),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "isnan",
+            boolean,
+            &[(float, "x")],
+            Box::new(|ctx, _, fun, args, generator| {
+                let float = ctx.primitives.float;
+
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
+
+                assert!(ctx.unifier.unioned(x_ty, float));
+
+                let val = call_isnan(generator, ctx, x_val.into_float_value());
+
+                Ok(Some(val.into()))
+            }),
+        ),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "isinf",
+            boolean,
+            &[(float, "x")],
+            Box::new(|ctx, _, fun, args, generator| {
+                let float = ctx.primitives.float;
+
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
+
+                assert!(ctx.unifier.unioned(x_ty, float));
+
+                let val = call_isinf(generator, ctx, x_val.into_float_value());
+
+                Ok(Some(val.into()))
+            }),
+        ),
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "Some".into(),
             simple_name: "Some".into(),
@@ -1270,6 +1312,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "min",
             "max",
             "abs",
+            "isnan",
+            "isinf",
             "Some",
         ],
     )

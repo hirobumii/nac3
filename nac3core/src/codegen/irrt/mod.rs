@@ -7,7 +7,7 @@ use inkwell::{
     memory_buffer::MemoryBuffer,
     module::Module,
     types::BasicTypeEnum,
-    values::{IntValue, PointerValue},
+    values::{FloatValue, IntValue, PointerValue},
     AddressSpace, IntPredicate,
 };
 use nac3parser::ast::Expr;
@@ -431,4 +431,44 @@ pub fn list_slice_assignment<'ctx, 'a>(
     ctx.builder.build_store(dest_len_ptr, new_len);
     ctx.builder.build_unconditional_branch(cont_bb);
     ctx.builder.position_at_end(cont_bb);
+}
+
+/// Generates a call to `isinf` in IR. Returns an `i1` representing the result.
+pub fn call_isinf<'ctx, 'a>(
+    generator: &mut dyn CodeGenerator,
+    ctx: &CodeGenContext<'ctx, 'a>,
+    v: FloatValue<'ctx>,
+) -> IntValue<'ctx> {
+    let intrinsic_fn = ctx.module.get_function("__nac3_isinf").unwrap_or_else(|| {
+        let fn_type = ctx.ctx.i32_type().fn_type(&[ctx.ctx.f64_type().into()], false);
+        ctx.module.add_function("__nac3_isinf", fn_type, None)
+    });
+
+    let ret = ctx.builder
+        .build_call(intrinsic_fn, &[v.into()], "isinf")
+        .try_as_basic_value()
+        .unwrap_left()
+        .into_int_value();
+
+    generator.bool_to_i1(ctx, ret)
+}
+
+/// Generates a call to `isnan` in IR. Returns an `i1` representing the result.
+pub fn call_isnan<'ctx, 'a>(
+    generator: &mut dyn CodeGenerator,
+    ctx: &CodeGenContext<'ctx, 'a>,
+    v: FloatValue<'ctx>,
+) -> IntValue<'ctx> {
+    let intrinsic_fn = ctx.module.get_function("__nac3_isnan").unwrap_or_else(|| {
+        let fn_type = ctx.ctx.i32_type().fn_type(&[ctx.ctx.f64_type().into()], false);
+        ctx.module.add_function("__nac3_isnan", fn_type, None)
+    });
+
+    let ret = ctx.builder
+        .build_call(intrinsic_fn, &[v.into()], "isnan")
+        .try_as_basic_value()
+        .unwrap_left()
+        .into_int_value();
+
+    generator.bool_to_i1(ctx, ret)
 }

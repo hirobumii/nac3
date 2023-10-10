@@ -13,6 +13,14 @@
     #error "Unsupported platform - Platform is not 32-bit or 64-bit"
 #endif
 
+double dbl_nan(void) {
+  return NAN;
+}
+
+double dbl_inf(void) {
+  return INFINITY;
+}
+
 void output_bool(bool x) {
     puts(x ? "True" : "False");
 }
