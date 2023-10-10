@@ -82,51 +82,55 @@ pub struct FunInstance {
 #[derive(Debug, Clone)]
 pub enum TopLevelDef {
     Class {
-        // name for error messages and symbols
+        /// Name for error messages and symbols.
         name: StrRef,
-        // object ID used for TypeEnum
+        /// Object ID used for [TypeEnum].
         object_id: DefinitionId,
         /// type variables bounded to the class.
         type_vars: Vec<Type>,
-        // class fields
-        // name, type, is mutable
+        /// Class fields.
+        ///
+        /// Name and type is mutable.
         fields: Vec<(StrRef, Type, bool)>,
-        // class methods, pointing to the corresponding function definition.
+        /// Class methods, pointing to the corresponding function definition.
         methods: Vec<(StrRef, Type, DefinitionId)>,
-        // ancestor classes, including itself.
+        /// Ancestor classes, including itself.
         ancestors: Vec<TypeAnnotation>,
-        // symbol resolver of the module defined the class, none if it is built-in type
+        /// Symbol resolver of the module defined the class; [None] if it is built-in type.
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
-        // constructor type
+        /// Constructor type.
         constructor: Option<Type>,
-        // definition location
+        /// Definition location.
         loc: Option<Location>,
     },
     Function {
-        // prefix for symbol, should be unique globally
+        /// Prefix for symbol, should be unique globally.
         name: String,
-        // simple name, the same as in method/function definition
+        /// Simple name, the same as in method/function definition.
         simple_name: StrRef,
-        // function signature.
+        /// Function signature.
         signature: Type,
-        // instantiated type variable IDs
+        /// Instantiated type variable IDs.
         var_id: Vec<u32>,
         /// Function instance to symbol mapping
-        /// Key: string representation of type variable values, sorted by variable ID in ascending
+        ///
+        /// * Key: String representation of type variable values, sorted by variable ID in ascending
         /// order, including type variables associated with the class.
-        /// Value: function symbol name.
+        /// * Value: Function symbol name.
         instance_to_symbol: HashMap<String, String>,
         /// Function instances to annotated AST mapping
-        /// Key: string representation of type variable values, sorted by variable ID in ascending
+        ///
+        /// * Key: String representation of type variable values, sorted by variable ID in ascending
         /// order, including type variables associated with the class. Excluding rigid type
         /// variables.
-        /// rigid type variables that would be substituted when the function is instantiated.
+        ///
+        /// Rigid type variables that would be substituted when the function is instantiated.
         instance_to_stmt: HashMap<String, FunInstance>,
-        // symbol resolver of the module defined the class
+        /// Symbol resolver of the module defined the class.
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
-        // custom codegen callback
+        /// Custom code generation callback.
         codegen_callback: Option<Arc<GenCall>>,
-        // definition location
+        /// Definition location.
         loc: Option<Location>,
     },
 }
