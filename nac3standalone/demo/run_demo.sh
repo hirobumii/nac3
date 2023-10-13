@@ -31,9 +31,8 @@ else
     nac3standalone=../../target/x86_64-unknown-linux-gnu/release/nac3standalone
 fi
 
+rm -f ./*.o ./*.bc demo
 if [ -z "$use_lli" ]; then
-  rm -f "*.o" demo
-
   $nac3standalone "${nac3args[@]}"
 
   clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
@@ -45,15 +44,17 @@ if [ -z "$use_lli" ]; then
     ./demo > "$outfile"
   fi
 else
-  rm -f "*.o" "*.bc" demo
-
   $nac3standalone --emit-llvm "${nac3args[@]}"
 
   clang -c -std=gnu11 -Wall -Wextra -O3 -emit-llvm -o demo.bc demo.c
 
+  shopt -s nullglob
+  llvm-link -o nac3out.bc module*.bc main.bc
+  shopt -u nullglob
+
   if [ -z "$outfile" ]; then
-    lli --extra-module demo.bc --extra-module irrt.bc main.bc
+    lli --extra-module demo.bc --extra-module irrt.bc nac3out.bc
   else
-    lli --extra-module demo.bc --extra-module irrt.bc main.bc > "$outfile"
+    lli --extra-module demo.bc --extra-module irrt.bc nac3out.bc > "$outfile"
   fi
 fi
