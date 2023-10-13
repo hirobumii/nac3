@@ -2,6 +2,7 @@ use clap::Parser;
 use inkwell::{
     memory_buffer::MemoryBuffer,
     passes::PassBuilderOptions,
+    support::is_multithreaded,
     targets::*,
     OptimizationLevel,
 };
@@ -210,12 +211,19 @@ fn main() {
         .map(|arg| if arg == "native" { host_target_machine.cpu.clone() } else { arg })
         .unwrap_or_default();
     let target_features = target_features.unwrap_or_default();
-    let threads = if threads == 0 {
-        std::thread::available_parallelism()
-            .map(|threads| threads.get() as u32)
-            .unwrap_or(1u32)
+    let threads = if is_multithreaded() {
+        if threads == 0 {
+            std::thread::available_parallelism()
+                .map(|threads| threads.get() as u32)
+                .unwrap_or(1u32)
+        } else {
+            threads
+        }
     } else {
-        threads
+        if threads != 1 {
+            println!("Warning: Number of threads specified in command-line but multithreading is disabled in LLVM at build time! Defaulting to single-threaded compilation")
+        }
+        1
     };
     let opt_level = match opt_level {
         0 => OptimizationLevel::None,

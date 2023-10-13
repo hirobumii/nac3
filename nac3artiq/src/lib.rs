@@ -9,6 +9,7 @@ use inkwell::{
     memory_buffer::MemoryBuffer,
     module::{Linkage, Module},
     passes::PassBuilderOptions,
+    support::is_multithreaded,
     targets::*,
     OptimizationLevel,
 };
@@ -582,7 +583,8 @@ impl Nac3 {
             membuffer.lock().push(buffer);
         })));
         let size_t = if self.isa == Isa::Host { 64 } else { 32 };
-        let thread_names: Vec<String> = (0..4).map(|_| "main".to_string()).collect();
+        let num_threads = if is_multithreaded() { 4 } else { 1 };
+        let thread_names: Vec<String> = (0..num_threads).map(|_| "main".to_string()).collect();
         let threads: Vec<_> = thread_names
             .iter()
             .map(|s| Box::new(ArtiqCodeGenerator::new(s.to_string(), size_t, self.time_fns)))
