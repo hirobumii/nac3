@@ -48,6 +48,8 @@ struct CommandLineArgs {
     opt_level: u32,
 
     /// Whether to emit LLVM IR at the end of every module.
+    ///
+    /// If multithreaded compilation is also enabled, each thread will emit its own module.
     #[arg(long, default_value_t = false)]
     emit_llvm: bool,
 
