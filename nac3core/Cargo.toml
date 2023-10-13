@@ -10,7 +10,6 @@ crossbeam = "0.8"
 parking_lot = "0.12"
 rayon = "1.5"
 nac3parser = { path = "../nac3parser" }
-lazy_static = "1.4"
 
 [dependencies.inkwell]
 version = "0.2"
