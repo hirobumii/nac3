@@ -112,7 +112,7 @@ in stdenv.mkDerivation (rec {
     "-DLLVM_HOST_TRIPLE=${stdenv.hostPlatform.config}"
     "-DLLVM_DEFAULT_TARGET_TRIPLE=${stdenv.hostPlatform.config}"
     "-DLLVM_ENABLE_UNWIND_TABLES=OFF"
-    "-DLLVM_ENABLE_THREADS=OFF"
+    "-DLLVM_ENABLE_THREADS=ON"
     "-DLLVM_INCLUDE_BENCHMARKS=OFF"
     "-DLLVM_BUILD_TOOLS=OFF"
     "-DLLVM_TARGETS_TO_BUILD=X86;ARM;RISCV"
