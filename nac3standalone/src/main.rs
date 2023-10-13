@@ -39,7 +39,7 @@ struct CommandLineArgs {
     file_name: String,
 
     /// The number of threads allocated to processing the source file.
-    #[arg(default_value_t = 1)]
+    #[arg(short = 'T', default_value_t = 1)]
     threads: u32,
 
     /// The level to optimize the LLVM IR.
