@@ -38,7 +38,8 @@ struct CommandLineArgs {
     /// The name of the input file.
     file_name: String,
 
-    /// The number of threads allocated to processing the source file.
+    /// The number of threads allocated to processing the source file. If 0 is passed to this
+    /// parameter, all available threads will be used for compilation.
     #[arg(short = 'T', default_value_t = 1)]
     threads: u32,
 
@@ -207,6 +208,13 @@ fn main() {
         .map(|arg| if arg == "native" { host_target_machine.cpu.clone() } else { arg })
         .unwrap_or_default();
     let target_features = target_features.unwrap_or_default();
+    let threads = if threads == 0 {
+        std::thread::available_parallelism()
+            .map(|threads| threads.get() as u32)
+            .unwrap_or(1u32)
+    } else {
+        threads
+    };
     let opt_level = match opt_level {
         0 => OptimizationLevel::None,
         1 => OptimizationLevel::Less,
