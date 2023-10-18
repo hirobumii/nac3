@@ -265,12 +265,12 @@ impl InnerResolver {
         Ok(Ok(ty))
     }
 
-    /// handle python objects that represent types themselves
+    /// Handles python objects that represent types themselves,
     ///
-    /// primitives and class types should be themselves, use `ty_id` to check,
-    /// TypeVars and GenericAlias(`A[int, bool]`) should use `ty_ty_id` to check
+    /// Primitives and class types should be themselves, use `ty_id` to check;
+    /// TypeVars and GenericAlias(`A[int, bool]`) should use `ty_ty_id` to check.
     ///
-    /// the `bool` value returned indicates whether they are instantiated or not
+    /// The `bool` value returned indicates whether they are instantiated or not
     fn get_pyty_obj_type(
         &self,
         py: Python,

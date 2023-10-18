@@ -226,10 +226,13 @@ impl DefaultCodeGenerator {
 }
 
 impl CodeGenerator for DefaultCodeGenerator {
+
+    /// Returns the name for this [CodeGenerator].
     fn get_name(&self) -> &str {
         &self.name
     }
 
+    /// Returns an LLVM integer type representing `size_t`.
     fn get_size_type<'ctx>(&self, ctx: &'ctx Context) -> IntType<'ctx> {
         // it should be unsigned, but we don't really need unsigned and this could save us from
         // having to do a bit cast...

@@ -205,6 +205,7 @@ pub trait StaticValue {
     /// Returns a unique identifier for this value.
     fn get_unique_identifier(&self) -> u64;
 
+    /// Returns the constant object represented by this unique identifier.
     fn get_const_obj<'ctx>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -232,7 +233,10 @@ pub trait StaticValue {
 
 #[derive(Clone)]
 pub enum ValueEnum<'ctx> {
+    /// [ValueEnum] representing a static value.
     Static(Arc<dyn StaticValue + Send + Sync>),
+
+    /// [ValueEnum] representing a dynamic value.
     Dynamic(BasicValueEnum<'ctx>),
 }
 
@@ -267,6 +271,8 @@ impl<'ctx> From<StructValue<'ctx>> for ValueEnum<'ctx> {
 }
 
 impl<'ctx> ValueEnum<'ctx> {
+
+    /// Converts this [ValueEnum] to a [BasicValueEnum].
     pub fn to_basic_value_enum<'a>(
         self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -281,7 +287,7 @@ impl<'ctx> ValueEnum<'ctx> {
 }
 
 pub trait SymbolResolver {
-    // get type of type variable identifier or top-level function type
+    /// Get type of type variable identifier or top-level function type,
     fn get_symbol_type(
         &self,
         unifier: &mut Unifier,
@@ -290,7 +296,7 @@ pub trait SymbolResolver {
         str: StrRef,
     ) -> Result<Type, String>;
 
-    // get the top-level definition of identifiers
+    /// Get the top-level definition of identifiers.
     fn get_identifier_def(&self, str: StrRef) -> Result<DefinitionId, String>;
 
     fn get_symbol_value<'ctx>(
@@ -329,7 +335,7 @@ thread_local! {
     ];
 }
 
-// convert type annotation into type
+/// Converts a type annotation into a [Type].
 pub fn parse_type_annotation<T>(
     resolver: &dyn SymbolResolver,
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],

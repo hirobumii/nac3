@@ -126,42 +126,74 @@ impl CodeGenTargetMachineOptions {
 }
 
 pub struct CodeGenContext<'ctx, 'a> {
+    /// The LLVM context associated with [this context][CodeGenContext].
     pub ctx: &'ctx Context,
+
+    /// The [Builder] instance for creating LLVM IR statements.
     pub builder: Builder<'ctx>,
     /// The [DebugInfoBuilder], [compilation unit information][DICompileUnit], and
     /// [scope information][DIScope] of this context.
     pub debug_info: (DebugInfoBuilder<'ctx>, DICompileUnit<'ctx>, DIScope<'ctx>),
+
+    /// The module for which [this context][CodeGenContext] is generating into.
     pub module: Module<'ctx>,
+
+    /// The [TopLevelContext] associated with [this context][CodeGenContext].
     pub top_level: &'a TopLevelContext,
     pub unifier: Unifier,
     pub resolver: Arc<dyn SymbolResolver + Send + Sync>,
     pub static_value_store: Arc<Mutex<StaticValueStore>>,
+
+    /// A [HashMap] containing the mapping between the names of variables currently in-scope and
+    /// its value information.
     pub var_assignment: HashMap<StrRef, VarValue<'ctx>>,
+
+    ///
     pub type_cache: HashMap<Type, BasicTypeEnum<'ctx>>,
     pub primitives: PrimitiveStore,
     pub calls: Arc<HashMap<CodeLocation, CallId>>,
     pub registry: &'a WorkerRegistry,
-    // const string cache
+
+    /// Cache for constant strings.
     pub const_strings: HashMap<String, BasicValueEnum<'ctx>>,
-    // stores the alloca for variables
+
+    /// [BasicBlock] containing all `alloca` statements for the current function.
     pub init_bb: BasicBlock<'ctx>,
     pub exception_val: Option<PointerValue<'ctx>>,
+
     /// The header and exit basic blocks of a loop in this context. See
     /// https://llvm.org/docs/LoopTerminology.html for explanation of these terminology.
     pub loop_target: Option<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
-    // unwind target bb
+
+    /// The target [BasicBlock] to jump to when performing stack unwind.
     pub unwind_target: Option<BasicBlock<'ctx>>,
-    // return target bb, just emit ret if no such target
+
+    /// The target [BasicBlock] to jump to before returning from the function.
+    ///
+    /// If this field is [None] when generating a return from a function, `ret` with no argument can
+    /// be emitted.
     pub return_target: Option<BasicBlock<'ctx>>,
+
+    /// The [PointerValue] containing the return value of the function.
     pub return_buffer: Option<PointerValue<'ctx>>,
+
     // outer catch clauses
     pub outer_catch_clauses:
         Option<(Vec<Option<BasicValueEnum<'ctx>>>, BasicBlock<'ctx>, PhiValue<'ctx>)>,
+
+    /// Whether `sret` is needed for the first parameter of the function.
+    ///
+    /// See [need_sret].
     pub need_sret: bool,
+
+    /// The current source location.
     pub current_loc: Location,
 }
 
 impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
+
+    /// Whether the [current basic block][Builder::get_insert_block] referenced by `builder`
+    /// contains a [terminator statement][BasicBlock::get_terminator].
     pub fn is_terminated(&self) -> bool {
         self.builder.get_insert_block().and_then(|bb| bb.get_terminator()).is_some()
     }
@@ -186,17 +218,26 @@ impl WithCall {
 pub struct WorkerRegistry {
     sender: Arc<Sender<Option<CodeGenTask>>>,
     receiver: Arc<Receiver<Option<CodeGenTask>>>,
+
+    /// Whether any thread in this registry has panicked.
     panicked: AtomicBool,
+
+    /// The total number of tasks queued or completed in the registry.
     task_count: Mutex<usize>,
+
+    /// The number of threads available for this registry.
     thread_count: usize,
     wait_condvar: Condvar,
     top_level_ctx: Arc<TopLevelContext>,
     static_value_store: Arc<Mutex<StaticValueStore>>,
+
     /// LLVM-related options for code generation.
     llvm_options: CodeGenLLVMOptions,
 }
 
 impl WorkerRegistry {
+
+    /// Creates workers for this registry.
     pub fn create_workers<G: CodeGenerator + Send + 'static>(
         generators: Vec<Box<G>>,
         top_level_ctx: Arc<TopLevelContext>,
@@ -278,11 +319,13 @@ impl WorkerRegistry {
         }
     }
 
+    /// Adds a task to this [WorkerRegistry].
     pub fn add_task(&self, task: CodeGenTask) {
         *self.task_count.lock() += 1;
         self.sender.send(Some(task)).unwrap();
     }
 
+    /// Function executed by worker thread for generating IR for each function.
     fn worker_thread<G: CodeGenerator>(&self, generator: &mut G, f: Arc<WithCall>) {
         let context = Context::create();
         let mut builder = context.create_builder();
@@ -502,6 +545,14 @@ fn get_llvm_abi_type<'ctx>(
     }
 }
 
+/// Whether `sret` is needed for a return value with type `ty`.
+///
+/// When returning a large data structure (e.g. structures that do not fit in 1-2 native words of
+/// the target processor) by value, a synthetic parameter with a pointer type will be passed in the
+/// slot of the first parameter to act as the location of which the return value is passed into.
+///
+/// See [https://releases.llvm.org/14.0.0/docs/LangRef.html#parameter-attributes] for more
+/// information.
 fn need_sret(ty: BasicTypeEnum) -> bool {
     fn need_sret_impl(ty: BasicTypeEnum, maybe_large: bool) -> bool {
         match ty {
