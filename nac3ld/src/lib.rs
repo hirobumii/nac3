@@ -556,10 +556,9 @@ impl<'a> Linker<'a> {
             eh_frame_hdr_rec.shdr.sh_offset,
             eh_frame_rec.shdr.sh_offset,
         );
-        let mut fde_callback = |init_pos, virt_addr| eh_frame_hdr.add_fde(init_pos, virt_addr);
-        eh_frame
-            .iterate_fde(&mut fde_callback)
-            .map_err(|()| "failed to add FDE to .eh_frame_hdr while iterating .eh_frame")?;
+        eh_frame.cfi_records()
+            .flat_map(|cfi| cfi.fde_records())
+            .for_each(&mut |(init_pos, virt_addr)| eh_frame_hdr.add_fde(init_pos, virt_addr));
 
         // Sort FDE entries in .eh_frame_hdr
         eh_frame_hdr.finalize_fde();

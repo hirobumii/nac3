@@ -27,20 +27,33 @@ pub const DW_EH_PE_indirect: u8 = 0x80;
 pub struct DwarfReader<'a> {
     pub slice: &'a [u8],
     pub virt_addr: u32,
+    base_slice: &'a [u8],
+    base_virt_addr: u32,
 }
 
 impl<'a> DwarfReader<'a> {
+
     pub fn new(slice: &[u8], virt_addr: u32) -> DwarfReader {
-        DwarfReader { slice, virt_addr }
+        DwarfReader { slice, virt_addr, base_slice: slice, base_virt_addr: virt_addr }
     }
 
-    pub fn offset(&mut self, offset: i32) {
+    /// Creates a new instance from another instance of [DwarfReader], optionally removing any
+    /// offsets previously applied to the other instance.
+    pub fn from_reader(other: &DwarfReader<'a>, reset_offset: bool) -> DwarfReader<'a> {
+        if reset_offset {
+            DwarfReader::new(&other.base_slice, other.base_virt_addr)
+        } else {
+            DwarfReader::new(&other.slice, other.virt_addr)
+        }
+    }
+
+    pub fn offset(&mut self, offset: u32) {
         self.slice = &self.slice[offset as usize..];
-        self.virt_addr = self.virt_addr.wrapping_add(offset as u32);
+        self.virt_addr = self.virt_addr.wrapping_add(offset);
     }
 
-    // ULEB128 and SLEB128 encodings are defined in Section 7.6 - "Variable
-    // Length Data".
+    /// ULEB128 and SLEB128 encodings are defined in Section 7.6 - "Variable Length Data" of the
+    /// [DWARF-4 Manual](https://dwarfstd.org/doc/DWARF4.pdf).
     pub fn read_uleb128(&mut self) -> u64 {
         let mut shift: usize = 0;
         let mut result: u64 = 0;
@@ -70,7 +83,7 @@ impl<'a> DwarfReader<'a> {
         }
         // sign-extend
         if shift < u64::BITS && (byte & 0x40) != 0 {
-            result |= (!0 as u64) << shift;
+            result |= (!0u64) << shift;
         }
         result as i64
     }
@@ -200,38 +213,69 @@ fn round_up(unrounded: usize, align: usize) -> Result<usize, ()> {
     }
 }
 
-// Minimalistic structure to store everything needed for parsing FDEs to synthesize
-// .eh_frame_hdr section. Since we are only linking 1 object file, there should only be 1 call
-// frame information (CFI) record, so there should be only 1 common information entry (CIE).
-// So the class parses the only CIE on init, cache the encoding info, then parse the FDE on
-// iterations based on the cached encoding format.
+/// Minimalistic structure to store everything needed for parsing FDEs to synthesize `.eh_frame_hdr`
+/// section.
+///
+/// Refer to [The Linux Standard Base Core Specification, Generic Part](https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html)
+/// for more information.
 pub struct EH_Frame<'a> {
-    // It refers to the augmentation data that corresponds to 'R' in the augmentation string
-    pub fde_pointer_encoding: u8,
-    pub fde_reader: DwarfReader<'a>,
-    pub fde_sz: usize,
+    reader: DwarfReader<'a>,
 }
 
 impl<'a> EH_Frame<'a> {
+
+    /// Creates an [EH_Frame] using the bytes in the `.eh_frame` section and its address in the ELF
+    /// file.
     pub fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> Result<EH_Frame, ()> {
-        let mut cie_reader = DwarfReader::new(eh_frame_slice, eh_frame_addr);
-        let eh_frame_size = eh_frame_slice.len();
+        Ok(EH_Frame { reader: DwarfReader::new(eh_frame_slice, eh_frame_addr) })
+    }
+
+    /// Returns an [Iterator] over all Call Frame Information (CFI) records.
+    pub fn cfi_records(&self) -> CFI_Records<'a> {
+        let reader = DwarfReader::from_reader(&self.reader, true);
+        let len = reader.slice.len();
+
+        CFI_Records {
+            reader,
+            available: len,
+        }
+    }
+}
+
+/// A single Call Frame Information (CFI) record.
+///
+/// From the [specification](https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html):
+///
+/// > Each CFI record contains a Common Information Entry (CIE) record followed by 1 or more Frame
+/// Description Entry (FDE) records.
+pub struct CFI_Record<'a> {
+    // It refers to the augmentation data that corresponds to 'R' in the augmentation string
+    fde_pointer_encoding: u8,
+    fde_reader: DwarfReader<'a>,
+}
+
+impl<'a> CFI_Record<'a> {
+
+    pub fn from_reader(cie_reader: &mut DwarfReader<'a>) -> Result<CFI_Record<'a>, ()> {
         let length = cie_reader.read_u32();
         let fde_reader = match length {
             // eh_frame with 0 lengths means the CIE is terminated
-            // while length == u32::MAX means that the length is only representable with 64 bits,
+            0 => panic!("Cannot create an EH_Frame from a termination CIE"),
+
+            // length == u32::MAX means that the length is only representable with 64 bits,
             // which does not make sense in a system with 32-bit address.
-            0 | 0xFFFFFFFF => unimplemented!(),
+            0xFFFFFFFF => unimplemented!(),
+
             _ => {
-                let mut fde_reader = DwarfReader::new(cie_reader.slice, cie_reader.virt_addr);
-                fde_reader.offset(length as i32);
+                let mut fde_reader = DwarfReader::from_reader(&cie_reader, false);
+                fde_reader.offset(length);
                 fde_reader
             }
         };
-        let fde_sz = eh_frame_size - mem::size_of::<u32>() - length as usize;
 
         // Routine check on the .eh_frame well-formness, in terms of CIE ID & Version args.
-        assert_eq!(cie_reader.read_u32(), 0);
+        let cie_ptr = cie_reader.read_u32();
+        assert_eq!(cie_ptr, 0);
         assert_eq!(cie_reader.read_u8(), 1);
 
         // Parse augmentation string
@@ -242,7 +286,7 @@ impl<'a> EH_Frame<'a> {
         // Skip code/data alignment factors & return address register along the way as well
         // We only tackle the case where 'z' and 'R' are part of the augmentation string, otherwise
         // we cannot get the addresses to make .eh_frame_hdr
-        let mut aug_data_reader = DwarfReader::new(cie_reader.slice, cie_reader.virt_addr);
+        let mut aug_data_reader = DwarfReader::from_reader(&cie_reader, false);
         let mut aug_str_len = 0;
         loop {
             if aug_data_reader.read_u8() == b'\0' {
@@ -279,44 +323,121 @@ impl<'a> EH_Frame<'a> {
         }
         assert_ne!(fde_pointer_encoding, DW_EH_PE_omit);
 
-        Ok(EH_Frame { fde_pointer_encoding, fde_reader, fde_sz })
+        Ok(CFI_Record {
+            fde_pointer_encoding,
+            fde_reader,
+        })
     }
 
-    pub fn iterate_fde(&self, callback: &mut dyn FnMut(u32, u32)) -> Result<(), ()> {
+    /// Returns a [DwarfReader] initialized to the first Frame Description Entry (FDE) of this CFI
+    /// record.
+    pub fn get_fde_reader(&self) -> DwarfReader<'a> {
+        DwarfReader::from_reader(&self.fde_reader, true)
+    }
+
+    /// Returns an [Iterator] over all Frame Description Entries (FDEs).
+    pub fn fde_records(&self) -> FDE_Records<'a> {
+        let reader = self.get_fde_reader();
+        let len = reader.slice.len();
+
+        FDE_Records {
+            pointer_encoding: self.fde_pointer_encoding,
+            reader,
+            available: len,
+        }
+    }
+}
+
+/// [Iterator] over Call Frame Information (CFI) records in an
+/// [Exception Handling (EH) frame][EH_Frame].
+pub struct CFI_Records<'a> {
+    reader: DwarfReader<'a>,
+    available: usize,
+}
+
+impl<'a> Iterator for CFI_Records<'a> {
+    type Item = CFI_Record<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.available == 0 {
+                return None;
+            }
+
+            let mut this_reader = DwarfReader::from_reader(&self.reader, false);
+
+            // Remove the length of the header and the content from the counter
+            let length = self.reader.read_u32();
+            let length = match length {
+                // eh_frame with 0-length means the CIE is terminated
+                0 => return None,
+                0xFFFFFFFF => unimplemented!("CIE entries larger than 4 bytes not supported"),
+                other => other,
+            } as usize;
+
+            // Remove the length of the header and the content from the counter
+            self.available -= length + mem::size_of::<u32>();
+            let mut next_reader = DwarfReader::from_reader(&self.reader, false);
+            next_reader.offset(length as u32);
+
+            let cie_ptr = self.reader.read_u32();
+
+            self.reader = next_reader;
+
+            // Skip this record if it is a FDE
+            if cie_ptr == 0 {
+                // Rewind back to the start of the CFI Record
+                return Some(CFI_Record::from_reader(&mut this_reader).ok().unwrap())
+            }
+        }
+    }
+}
+
+/// [Iterator] over Frame Description Entries (FDEs) in an
+/// [Exception Handling (EH) frame][EH_Frame].
+pub struct FDE_Records<'a> {
+    pointer_encoding: u8,
+    reader: DwarfReader<'a>,
+    available: usize,
+}
+
+impl<'a> Iterator for FDE_Records<'a> {
+    type Item = (u32, u32);
+
+    fn next(&mut self) -> Option<Self::Item> {
         // Parse each FDE to obtain the starting address that the FDE applies to
         // Send the FDE offset and the mentioned address to a callback that write up the
         // .eh_frame_hdr section
-        let mut remaining_len = self.fde_sz;
-        let mut reader = DwarfReader::new(self.fde_reader.slice, self.fde_reader.virt_addr);
-        loop {
-            if remaining_len == 0 {
-                break;
-            }
 
-            let fde_virt_addr = reader.virt_addr;
-            let length = match reader.read_u32() {
-                0 | 0xFFFFFFFF => unimplemented!(),
-                other => other,
-            };
-
-            // Remove the length of the header and the content from the counter
-            remaining_len -= length as usize + mem::size_of::<u32>();
-            let mut next_fde_reader = DwarfReader::new(reader.slice, reader.virt_addr);
-            next_fde_reader.offset(length as i32);
-
-            // Only parse FDEs, indicated by its CIE pointer being non-zero
-            let cie_ptr = reader.read_u32();
-            if cie_ptr != 0 {
-                // Parse PC Begin using the encoding scheme mentioned in the CIE
-                let pc_begin = read_encoded_pointer_with_pc(&mut reader, self.fde_pointer_encoding)?;
-
-                callback(pc_begin as u32, fde_virt_addr);
-            }
-
-            reader = next_fde_reader;
+        if self.available == 0 {
+            return None;
         }
 
-        Ok(())
+        // Remove the length of the header and the content from the counter
+        let length = match self.reader.read_u32() {
+            // eh_frame with 0-length means the CIE is terminated
+            0 => return None,
+            0xFFFFFFFF => unimplemented!("CIE entries larger than 4 bytes not supported"),
+            other => other,
+        } as usize;
+
+        // Remove the length of the header and the content from the counter
+        self.available -= length + mem::size_of::<u32>();
+        let mut next_fde_reader = DwarfReader::from_reader(&self.reader, false);
+        next_fde_reader.offset(length as u32);
+
+        let cie_ptr = self.reader.read_u32();
+        let next_val = if cie_ptr != 0 {
+            let pc_begin = read_encoded_pointer_with_pc(&mut self.reader, self.pointer_encoding)
+                .expect("Failed to read PC Begin");
+            Some((pc_begin as u32, self.reader.virt_addr))
+        } else {
+            None
+        };
+
+        self.reader = next_fde_reader;
+
+        next_val
     }
 }
 
@@ -327,29 +448,32 @@ pub struct EH_Frame_Hdr<'a> {
 }
 
 impl<'a> EH_Frame_Hdr<'a> {
-    // Create a EH_Frame_Hdr object, and write out the fixed fields of .eh_frame_hdr to memory
-    // eh_frame_ptr_enc will be 0x1B (PC-relative, 4 bytes)
-    // table_enc will be 0x3B (Relative to the start of .eh_frame_hdr, 4 bytes)
-    // Load address is not known at this point.
+
+    /// Create a [EH_Frame_Hdr] object, and write out the fixed fields of `.eh_frame_hdr` to memory.
+    ///
+    /// Load address is not known at this point.
     pub fn new(
         eh_frame_hdr_slice: &mut [u8],
         eh_frame_hdr_addr: u32,
         eh_frame_addr: u32,
     ) -> EH_Frame_Hdr {
         let mut writer = DwarfWriter::new(eh_frame_hdr_slice);
-        writer.write_u8(1);
-        writer.write_u8(0x1B);
-        writer.write_u8(0x03);
-        writer.write_u8(0x3B);
 
-        let eh_frame_offset =
-            (eh_frame_addr).wrapping_sub(eh_frame_hdr_addr + ((mem::size_of::<u8>() as u32) * 4));
-        writer.write_u32(eh_frame_offset);
-        writer.write_u32(0);
+        writer.write_u8(1);     // version
+        writer.write_u8(0x1B);  // eh_frame_ptr_enc - PC-relative 4-byte signed value
+        writer.write_u8(0x03);  // fde_count_enc - 4-byte unsigned value
+        writer.write_u8(0x3B);  // table_enc - .eh_frame_hdr section-relative 4-byte signed value
+
+        let eh_frame_offset = eh_frame_addr
+            .wrapping_sub(eh_frame_hdr_addr + writer.offset as u32 + ((mem::size_of::<u8>() as u32) * 4));
+        writer.write_u32(eh_frame_offset);  // eh_frame_ptr
+        writer.write_u32(0);  // `fde_count`, will be written in finalize_fde
 
         EH_Frame_Hdr { fde_writer: writer, eh_frame_hdr_addr, fdes: Vec::new() }
     }
 
+    /// The offset of the `fde_count` value relative to the start of the `.eh_frame_hdr` section in
+    /// bytes.
     fn fde_count_offset() -> usize {
         8
     }
@@ -391,7 +515,7 @@ impl<'a> EH_Frame_Hdr<'a> {
                 fde_count += 1;
             }
 
-            reader.offset(entry_length as i32 - mem::size_of::<u32>() as i32)
+            reader.offset(entry_length - mem::size_of::<u32>() as u32)
         }
 
         12 + fde_count * 8
