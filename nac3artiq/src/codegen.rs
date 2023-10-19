@@ -215,12 +215,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         return Ok(());
                     } else if id == &"sequential".into() {
                         let start = self.start.take();
-                        for stmt in body.iter() {
-                            self.gen_stmt(ctx, stmt)?;
-                            if ctx.is_terminated() {
-                                break;
-                            }
-                        }
+                        gen_block(self, ctx, body.iter())?;
                         self.start = start;
                         return Ok(());
                     }
