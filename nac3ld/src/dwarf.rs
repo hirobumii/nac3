@@ -304,13 +304,14 @@ impl<'a> EH_Frame<'a> {
             let mut next_fde_reader = DwarfReader::new(reader.slice, reader.virt_addr);
             next_fde_reader.offset(length as i32);
 
-            // Skip CIE pointer offset
-            reader.read_u32();
+            // Only parse FDEs, indicated by its CIE pointer being non-zero
+            let cie_ptr = reader.read_u32();
+            if cie_ptr != 0 {
+                // Parse PC Begin using the encoding scheme mentioned in the CIE
+                let pc_begin = read_encoded_pointer_with_pc(&mut reader, self.fde_pointer_encoding)?;
 
-            // Parse PC Begin using the encoding scheme mentioned in the CIE
-            let pc_begin = read_encoded_pointer_with_pc(&mut reader, self.fde_pointer_encoding)?;
-
-            callback(pc_begin as u32, fde_virt_addr);
+                callback(pc_begin as u32, fde_virt_addr);
+            }
 
             reader = next_fde_reader;
         }
@@ -382,11 +383,17 @@ impl<'a> EH_Frame_Hdr<'a> {
             if entry_length == 0 || entry_length == 0xFFFFFFFF {
                 unimplemented!()
             }
-            if reader.read_u32() != 0 {
+
+            // This slot stores the CIE ID (for CIE)/CIE Pointer (for FDE).
+            // This value must be non-zero for FDEs.
+            let cie_ptr = reader.read_u32();
+            if cie_ptr != 0 {
                 fde_count += 1;
             }
+
             reader.offset(entry_length as i32 - mem::size_of::<u32>() as i32)
         }
+
         12 + fde_count * 8
     }
 }
