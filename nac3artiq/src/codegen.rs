@@ -1,7 +1,7 @@
 use nac3core::{
     codegen::{
         expr::gen_call,
-        stmt::{gen_block, gen_with},
+        stmt::gen_with,
         CodeGenContext, CodeGenerator,
     },
     symbol_resolver::ValueEnum,
@@ -225,7 +225,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         self.end = Some(end_expr);
                         self.name_counter += 1;
 
-                        gen_block(self, ctx, body.iter())?;
+                        self.gen_block(ctx, body.iter())?;
 
                         let current = ctx.builder.get_insert_block().unwrap();
 
@@ -268,7 +268,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         return Ok(());
                     } else if id == &"sequential".into() {
                         let start = self.start.take();
-                        gen_block(self, ctx, body.iter())?;
+                        self.gen_block(ctx, body.iter())?;
                         self.start = start;
 
                         // Reset the timeline when we are exiting the sequential block
