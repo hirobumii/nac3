@@ -169,6 +169,7 @@ pub trait CodeGenerator {
     }
 
     /// Generate code for a statement
+    ///
     /// Return true if the statement must early return
     fn gen_stmt<'ctx, 'a>(
         &mut self,
@@ -179,6 +180,18 @@ pub trait CodeGenerator {
         Self: Sized,
     {
         gen_stmt(self, ctx, stmt)
+    }
+
+    /// Generates code for a block statement.
+    fn gen_block<'ctx, 'a, 'b, I: Iterator<Item = &'b Stmt<Option<Type>>>>(
+        &mut self,
+        ctx: &mut CodeGenContext<'ctx, 'a>,
+        stmts: I,
+    ) -> Result<(), String>
+    where
+        Self: Sized,
+    {
+        gen_block(self, ctx, stmts)
     }
 
     /// See [bool_to_i1].

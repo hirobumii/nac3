@@ -1,5 +1,4 @@
 use crate::{
-    codegen::stmt::gen_block,
     symbol_resolver::{StaticValue, SymbolResolver},
     toplevel::{TopLevelContext, TopLevelDef},
     typecheck::{
@@ -859,7 +858,7 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
 ) -> Result<(Builder<'ctx>, Module<'ctx>, FunctionValue<'ctx>), (Builder<'ctx>, String)> {
     let body = task.body.clone();
     gen_func_impl(context, generator, registry, builder, module, task, |generator, ctx| {
-        gen_block(generator, ctx, body.iter())
+        generator.gen_block(ctx, body.iter())
     })
 }
 

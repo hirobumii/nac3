@@ -303,7 +303,7 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
 
             ctx.builder.position_at_end(body_bb);
             ctx.builder.build_store(target_i, ctx.builder.build_load(i, "").into_int_value());
-            gen_block(generator, ctx, body.iter())?;
+            generator.gen_block(ctx, body.iter())?;
 
             // Test if next element is still in range
             let next_i = ctx.builder.build_int_add(
@@ -345,7 +345,7 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
                 .into_pointer_value();
             let val = ctx.build_gep_and_load(arr_ptr, &[index], Some("val"));
             generator.gen_assign(ctx, target, val.into())?;
-            gen_block(generator, ctx, body.iter())?;
+            generator.gen_block(ctx, body.iter())?;
 
             let index = ctx.builder.build_load(index_addr, "for.index").into_int_value();
             let inc = ctx.builder.build_int_add(index, size_t.const_int(1, true), "");
@@ -365,7 +365,7 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
 
         if !orelse.is_empty() {
             ctx.builder.position_at_end(orelse_bb);
-            gen_block(generator, ctx, orelse.iter())?;
+            generator.gen_block(ctx, orelse.iter())?;
             if !ctx.is_terminated() {
                 ctx.builder.build_unconditional_branch(cont_bb);
             }
@@ -419,7 +419,7 @@ pub fn gen_while<'ctx, 'a, G: CodeGenerator>(
             unreachable!()
         };
         ctx.builder.position_at_end(body_bb);
-        gen_block(generator, ctx, body.iter())?;
+        generator.gen_block(ctx, body.iter())?;
         for (k, (_, _, counter)) in var_assignment.iter() {
             let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
             if counter != counter2 {
@@ -431,7 +431,7 @@ pub fn gen_while<'ctx, 'a, G: CodeGenerator>(
         }
         if !orelse.is_empty() {
             ctx.builder.position_at_end(orelse_bb);
-            gen_block(generator, ctx, orelse.iter())?;
+            generator.gen_block(ctx, orelse.iter())?;
             if !ctx.is_terminated() {
                 ctx.builder.build_unconditional_branch(cont_bb);
             }
@@ -483,7 +483,7 @@ pub fn gen_if<'ctx, 'a, G: CodeGenerator>(
             unreachable!()
         };
         ctx.builder.position_at_end(body_bb);
-        gen_block(generator, ctx, body.iter())?;
+        generator.gen_block(ctx, body.iter())?;
         for (k, (_, _, counter)) in var_assignment.iter() {
             let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
             if counter != counter2 {
@@ -499,7 +499,7 @@ pub fn gen_if<'ctx, 'a, G: CodeGenerator>(
         }
         if !orelse.is_empty() {
             ctx.builder.position_at_end(orelse_bb);
-            gen_block(generator, ctx, orelse.iter())?;
+            generator.gen_block(ctx, orelse.iter())?;
             if !ctx.is_terminated() {
                 if cont_bb.is_none() {
                     cont_bb = Some(ctx.ctx.append_basic_block(current, "cont"));
@@ -788,9 +788,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         }
         let old_clauses = ctx.outer_catch_clauses.replace((all_clauses, dispatcher, exn));
         let old_unwind = ctx.unwind_target.replace(landingpad);
-        gen_block(generator, ctx, body.iter())?;
+        generator.gen_block(ctx, body.iter())?;
         if ctx.builder.get_insert_block().unwrap().get_terminator().is_none() {
-            gen_block(generator, ctx, orelse.iter())?;
+            generator.gen_block(ctx, orelse.iter())?;
         }
         let body = ctx.builder.get_insert_block().unwrap();
         // reset old_clauses and old_unwind
@@ -892,7 +892,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
                 ctx.var_assignment.insert(*name, (exn_store, None, 0));
                 ctx.builder.build_store(exn_store, exn.as_basic_value());
             }
-            gen_block(generator, ctx, body.iter())?;
+            generator.gen_block(ctx, body.iter())?;
             let current = ctx.builder.get_insert_block().unwrap();
             // only need to call end catch if not terminated
             // otherwise, we already handled in return/break/continue/raise
@@ -975,7 +975,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             // exception path
             let cleanup = cleanup.unwrap();
             ctx.builder.position_at_end(cleanup);
-            gen_block(generator, ctx, finalbody.iter())?;
+            generator.gen_block(ctx, finalbody.iter())?;
             if !ctx.is_terminated() {
                 ctx.build_call_or_invoke(resume, &[], "resume");
                 ctx.builder.build_unreachable();
@@ -987,7 +987,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             final_targets.push(tail);
             let finalizer = ctx.ctx.append_basic_block(current_fun, "try.finally");
             ctx.builder.position_at_end(finalizer);
-            gen_block(generator, ctx, finalbody.iter())?;
+            generator.gen_block(ctx, finalbody.iter())?;
             if !ctx.is_terminated() {
                 let dest = ctx.builder.build_load(final_state, "final_dest");
                 ctx.builder.build_indirect_branch(dest, &final_targets);
