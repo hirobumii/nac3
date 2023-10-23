@@ -28,9 +28,17 @@ use std::{
 
 pub struct ArtiqCodeGenerator<'a> {
     name: String,
+
+    /// The size of a `size_t` variable in bits.
     size_t: u32,
+
+    /// Monotonic counter for naming `start`/`stop` variables used by `with parallel` blocks.
     name_counter: u32,
+
+    /// Variable for tracking the start of a `with parallel` block.
     start: Option<Expr<Option<Type>>>,
+
+    /// Variable for tracking the end of a `with parallel` block.
     end: Option<Expr<Option<Type>>>,
     timeline: &'a (dyn TimeFns + Sync),
 }
@@ -102,6 +110,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
         if let StmtKind::With { items, body, .. } = &stmt.node {
             if items.len() == 1 && items[0].optional_vars.is_none() {
                 let item = &items[0];
+
                 // Behavior of parallel and sequential:
                 // Each function call (indirectly, can be inside a sequential block) within a parallel
                 // block will update the end variable to the maximum now_mu in the block.
@@ -119,11 +128,15 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                     if id == &"parallel".into() {
                         let old_start = self.start.take();
                         let old_end = self.end.take();
+
                         let now = if let Some(old_start) = &old_start {
-                            self.gen_expr(ctx, old_start)?.unwrap().to_basic_value_enum(ctx, self, old_start.custom.unwrap())?
+                            self.gen_expr(ctx, old_start)?
+                                .unwrap()
+                                .to_basic_value_enum(ctx, self, old_start.custom.unwrap())?
                         } else {
                             self.timeline.emit_now_mu(ctx)
                         };
+
                         // Emulate variable allocation, as we need to use the CodeGenContext
                         // HashMap to store our variable due to lifetime limitation
                         // Note: we should be able to store variables directly if generic
@@ -157,8 +170,11 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         ctx.builder.build_store(end, now);
                         self.end = Some(end_expr);
                         self.name_counter += 1;
+
                         gen_block(self, ctx, body.iter())?;
+
                         let current = ctx.builder.get_insert_block().unwrap();
+
                         // if the current block is terminated, move before the terminator
                         // we want to set the timeline before reaching the terminator
                         // TODO: This may be unsound if there are multiple exit paths in the
@@ -172,6 +188,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         } else {
                             false
                         };
+
                         // set duration
                         let end_expr = self.end.take().unwrap();
                         let end_val = self
@@ -183,6 +200,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         if old_start.is_none() {
                             self.timeline.emit_at_mu(ctx, end_val);
                         }
+
                         // inside a parallel block, should update the outer max now_mu
                         if let Some(old_end) = &old_end {
                             let outer_end_val = self
@@ -207,20 +225,25 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                             let outer_end = self.gen_store_target(ctx, old_end, Some("outer_end.addr"))?;
                             ctx.builder.build_store(outer_end, max);
                         }
+
                         self.start = old_start;
                         self.end = old_end;
+
                         if reset_position {
                             ctx.builder.position_at_end(current);
                         }
+
                         return Ok(());
                     } else if id == &"sequential".into() {
                         let start = self.start.take();
                         gen_block(self, ctx, body.iter())?;
                         self.start = start;
+
                         return Ok(());
                     }
                 }
             }
+
             // not parallel/sequential
             gen_with(self, ctx, stmt)
         } else {
