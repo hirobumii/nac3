@@ -75,7 +75,11 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
         params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         let result = gen_call(self, ctx, obj, fun, params)?;
-        if let Some(end) = self.end.clone() {
+
+        if let (
+            Some(start),
+            Some(end)
+        ) = (self.start.clone(), self.end.clone()) {
             let old_end = self.gen_expr(ctx, &end)?.unwrap().to_basic_value_enum(ctx, self, end.custom.unwrap())?;
             let now = self.timeline.emit_now_mu(ctx);
             let smax = ctx.module.get_function("llvm.smax.i64").unwrap_or_else(|| {
@@ -94,11 +98,11 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                 .unwrap();
             let end_store = self.gen_store_target(ctx, &end, Some("end_store.addr"))?;
             ctx.builder.build_store(end_store, max);
-        }
-        if let Some(start) = self.start.clone() {
+
             let start_val = self.gen_expr(ctx, &start)?.unwrap().to_basic_value_enum(ctx, self, start.custom.unwrap())?;
             self.timeline.emit_at_mu(ctx, start_val);
         }
+
         Ok(result)
     }
 
@@ -235,9 +239,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
 
                         return Ok(());
                     } else if id == &"sequential".into() {
-                        let start = self.start.take();
                         self.gen_block(ctx, body.iter())?;
-                        self.start = start;
 
                         return Ok(());
                     }
