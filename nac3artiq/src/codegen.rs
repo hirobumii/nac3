@@ -52,6 +52,66 @@ impl<'a> ArtiqCodeGenerator<'a> {
         assert!(size_t == 32 || size_t == 64);
         ArtiqCodeGenerator { name, size_t, name_counter: 0, start: None, end: None, timeline }
     }
+
+    /// If the generator is currently in a direct-`parallel` block context, emits IR that resets the
+    /// position of the timeline to the initial timeline position before entering the `parallel`
+    /// block.
+    ///
+    /// Direct-`parallel` block context refers to when the generator is generating statements whose
+    /// closest parent `with` statement is a `with parallel` block.
+    fn timeline_reset_start<'ctx, 'b>(
+        &mut self,
+        ctx: &mut CodeGenContext<'ctx, 'b>
+    ) -> Result<(), String> {
+        if let Some(start) = self.start.clone() {
+            let start_val = self.gen_expr(ctx, &start)?
+                .unwrap()
+                .to_basic_value_enum(ctx, self, start.custom.unwrap())?;
+            self.timeline.emit_at_mu(ctx, start_val);
+        }
+
+        Ok(())
+    }
+
+    /// If the generator is currently in a `parallel` block context, emits IR that updates the
+    /// maximum end position of the `parallel` block as specified by the timeline `end` value.
+    ///
+    /// In general the `end` parameter should be set to `self.end` for updating the maximum end
+    /// position for the current `parallel` block. Other values can be passed in to update the
+    /// maximum end position for other `parallel` blocks.
+    ///
+    /// `parallel`-block context refers to when the generator is generating statements within a
+    /// (possibly indirect) `parallel` block.
+    fn timeline_update_end_max<'ctx, 'b>(
+        &mut self,
+        ctx: &mut CodeGenContext<'ctx, 'b>,
+        end: Option<Expr<Option<Type>>>,
+    ) -> Result<(), String> {
+        if let Some(end) = end {
+            let old_end = self.gen_expr(ctx, &end)?
+                .unwrap()
+                .to_basic_value_enum(ctx, self, end.custom.unwrap())?;
+            let now = self.timeline.emit_now_mu(ctx);
+            let smax = ctx.module.get_function("llvm.smax.i64").unwrap_or_else(|| {
+                let i64 = ctx.ctx.i64_type();
+                ctx.module.add_function(
+                    "llvm.smax.i64",
+                    i64.fn_type(&[i64.into(), i64.into()], false),
+                    None,
+                )
+            });
+            let max = ctx
+                .builder
+                .build_call(smax, &[old_end.into(), now.into()], "smax")
+                .try_as_basic_value()
+                .left()
+                .unwrap();
+            let end_store = self.gen_store_target(ctx, &end, Some(""))?;
+            ctx.builder.build_store(end_store, max);
+        }
+
+        Ok(())
+    }
 }
 
 impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
@@ -75,30 +135,10 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
         params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         let result = gen_call(self, ctx, obj, fun, params)?;
-        if let Some(end) = self.end.clone() {
-            let old_end = self.gen_expr(ctx, &end)?.unwrap().to_basic_value_enum(ctx, self, end.custom.unwrap())?;
-            let now = self.timeline.emit_now_mu(ctx);
-            let smax = ctx.module.get_function("llvm.smax.i64").unwrap_or_else(|| {
-                let i64 = ctx.ctx.i64_type();
-                ctx.module.add_function(
-                    "llvm.smax.i64",
-                    i64.fn_type(&[i64.into(), i64.into()], false),
-                    None,
-                )
-            });
-            let max = ctx
-                .builder
-                .build_call(smax, &[old_end.into(), now.into()], "smax")
-                .try_as_basic_value()
-                .left()
-                .unwrap();
-            let end_store = self.gen_store_target(ctx, &end, Some("end_store.addr"))?;
-            ctx.builder.build_store(end_store, max);
-        }
-        if let Some(start) = self.start.clone() {
-            let start_val = self.gen_expr(ctx, &start)?.unwrap().to_basic_value_enum(ctx, self, start.custom.unwrap())?;
-            self.timeline.emit_at_mu(ctx, start_val);
-        }
+
+        self.timeline_update_end_max(ctx, self.end.clone())?;
+        self.timeline_reset_start(ctx)?;
+
         Ok(result)
     }
 
@@ -202,29 +242,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         }
 
                         // inside a parallel block, should update the outer max now_mu
-                        if let Some(old_end) = &old_end {
-                            let outer_end_val = self
-                                .gen_expr(ctx, old_end)?
-                                .unwrap()
-                                .to_basic_value_enum(ctx, self, old_end.custom.unwrap())?;
-                            let smax =
-                                ctx.module.get_function("llvm.smax.i64").unwrap_or_else(|| {
-                                    let i64 = ctx.ctx.i64_type();
-                                    ctx.module.add_function(
-                                        "llvm.smax.i64",
-                                        i64.fn_type(&[i64.into(), i64.into()], false),
-                                        None,
-                                    )
-                                });
-                            let max = ctx
-                                .builder
-                                .build_call(smax, &[end_val.into(), outer_end_val.into()], "smax")
-                                .try_as_basic_value()
-                                .left()
-                                .unwrap();
-                            let outer_end = self.gen_store_target(ctx, old_end, Some("outer_end.addr"))?;
-                            ctx.builder.build_store(outer_end, max);
-                        }
+                        self.timeline_update_end_max(ctx, old_end.clone())?;
 
                         self.start = old_start;
                         self.end = old_end;
