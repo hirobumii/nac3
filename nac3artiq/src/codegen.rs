@@ -50,7 +50,14 @@ impl<'a> ArtiqCodeGenerator<'a> {
         timeline: &'a (dyn TimeFns + Sync),
     ) -> ArtiqCodeGenerator<'a> {
         assert!(size_t == 32 || size_t == 64);
-        ArtiqCodeGenerator { name, size_t, name_counter: 0, start: None, end: None, timeline }
+        ArtiqCodeGenerator {
+            name,
+            size_t,
+            name_counter: 0,
+            start: None,
+            end: None,
+            timeline,
+        }
     }
 
     /// If the generator is currently in a direct-`parallel` block context, emits IR that resets the
@@ -82,10 +89,14 @@ impl<'a> ArtiqCodeGenerator<'a> {
     ///
     /// `parallel`-block context refers to when the generator is generating statements within a
     /// (possibly indirect) `parallel` block.
+    ///
+    /// * `store_name` - The LLVM value name for the pointer to `end`. `.addr` will be appended to
+    /// the end of the provided value name.
     fn timeline_update_end_max<'ctx, 'b>(
         &mut self,
         ctx: &mut CodeGenContext<'ctx, 'b>,
         end: Option<Expr<Option<Type>>>,
+        store_name: Option<&str>,
     ) -> Result<(), String> {
         if let Some(end) = end {
             let old_end = self.gen_expr(ctx, &end)?
@@ -106,7 +117,10 @@ impl<'a> ArtiqCodeGenerator<'a> {
                 .try_as_basic_value()
                 .left()
                 .unwrap();
-            let end_store = self.gen_store_target(ctx, &end, Some(""))?;
+            let end_store = self.gen_store_target(
+                ctx,
+                &end,
+                store_name.map(|name| format!("{name}.addr")).as_deref())?;
             ctx.builder.build_store(end_store, max);
         }
 
@@ -136,7 +150,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         let result = gen_call(self, ctx, obj, fun, params)?;
 
-        self.timeline_update_end_max(ctx, self.end.clone())?;
+        self.timeline_update_end_max(ctx, self.end.clone(), Some("end"))?;
         self.timeline_reset_start(ctx)?;
 
         Ok(result)
@@ -242,7 +256,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         }
 
                         // inside a parallel block, should update the outer max now_mu
-                        self.timeline_update_end_max(ctx, old_end.clone())?;
+                        self.timeline_update_end_max(ctx, old_end.clone(), Some("outer.end"))?;
 
                         self.start = old_start;
                         self.end = old_end;
@@ -256,6 +270,9 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         let start = self.start.take();
                         gen_block(self, ctx, body.iter())?;
                         self.start = start;
+
+                        // Reset the timeline when we are exiting the sequential block
+                        self.timeline_reset_start(ctx)?;
 
                         return Ok(());
                     }
