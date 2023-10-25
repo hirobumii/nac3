@@ -1,7 +1,7 @@
 use nac3core::{
     codegen::{
         expr::gen_call,
-        stmt::gen_with,
+        stmt::{gen_block, gen_with},
         CodeGenContext, CodeGenerator,
     },
     symbol_resolver::ValueEnum,
@@ -26,6 +26,24 @@ use std::{
     sync::Arc,
 };
 
+/// The parallelism mode within a block.
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum ParallelMode {
+    /// No parallelism is currently registered for this context.
+    None,
+
+    /// Legacy (or shallow) parallelism. Default before NAC3.
+    ///
+    /// Each statement within the `with` block is treated as statements to be executed in parallel.
+    Legacy,
+
+    /// Deep parallelism. Default since NAC3.
+    ///
+    /// Each function call within the `with` block (except those within a nested `sequential` block)
+    /// are treated to be executed in parallel.
+    Deep
+}
+
 pub struct ArtiqCodeGenerator<'a> {
     name: String,
 
@@ -41,6 +59,12 @@ pub struct ArtiqCodeGenerator<'a> {
     /// Variable for tracking the end of a `with parallel` block.
     end: Option<Expr<Option<Type>>>,
     timeline: &'a (dyn TimeFns + Sync),
+
+    /// The [ParallelMode] of the current parallel context.
+    ///
+    /// The current parallel context refers to the nearest `with parallel` or `with legacy_parallel`
+    /// statement, which is used to determine when and how the timeline should be updated.
+    parallel_mode: ParallelMode,
 }
 
 impl<'a> ArtiqCodeGenerator<'a> {
@@ -57,6 +81,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
             start: None,
             end: None,
             timeline,
+            parallel_mode: ParallelMode::None,
         }
     }
 
@@ -141,6 +166,31 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
         }
     }
 
+    fn gen_block<'ctx, 'a, 'c, I: Iterator<Item=&'c Stmt<Option<Type>>>>(
+        &mut self,
+        ctx: &mut CodeGenContext<'ctx, 'a>,
+        stmts: I
+    ) -> Result<(), String> where Self: Sized {
+        // Legacy parallel emits timeline end-update/timeline-reset after each top-level statement
+        // in the parallel block
+        if self.parallel_mode == ParallelMode::Legacy {
+            for stmt in stmts {
+                self.gen_stmt(ctx, stmt)?;
+
+                if ctx.is_terminated() {
+                    break;
+                }
+
+                self.timeline_update_end_max(ctx, self.end.clone(), Some("end"))?;
+                self.timeline_reset_start(ctx)?;
+            }
+
+            Ok(())
+        } else {
+            gen_block(self, ctx, stmts)
+        }
+    }
+
     fn gen_call<'ctx, 'a>(
         &mut self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -150,8 +200,11 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
         let result = gen_call(self, ctx, obj, fun, params)?;
 
-        self.timeline_update_end_max(ctx, self.end.clone(), Some("end"))?;
-        self.timeline_reset_start(ctx)?;
+        // Deep parallel emits timeline end-update/timeline-reset after each function call
+        if self.parallel_mode == ParallelMode::Deep {
+            self.timeline_update_end_max(ctx, self.end.clone(), Some("end"))?;
+            self.timeline_reset_start(ctx)?;
+        }
 
         Ok(result)
     }
@@ -179,9 +232,10 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                 // - If there is a end variable, it indicates that we are (indirectly) inside a
                 // parallel block, and we should update the max end value.
                 if let ExprKind::Name { id, ctx: name_ctx } = &item.context_expr.node {
-                    if id == &"parallel".into() {
+                    if id == &"parallel".into() || id == &"legacy_parallel".into() {
                         let old_start = self.start.take();
                         let old_end = self.end.take();
+                        let old_parallel_mode = self.parallel_mode;
 
                         let now = if let Some(old_start) = &old_start {
                             self.gen_expr(ctx, old_start)?
@@ -224,6 +278,11 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         ctx.builder.build_store(end, now);
                         self.end = Some(end_expr);
                         self.name_counter += 1;
+                        self.parallel_mode = match id.to_string().as_str() {
+                            "parallel" => ParallelMode::Deep,
+                            "legacy_parallel" => ParallelMode::Legacy,
+                            _ => unreachable!(),
+                        };
 
                         self.gen_block(ctx, body.iter())?;
 
@@ -258,8 +317,9 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         // inside a parallel block, should update the outer max now_mu
                         self.timeline_update_end_max(ctx, old_end.clone(), Some("outer.end"))?;
 
-                        self.start = old_start;
+                        self.parallel_mode = old_parallel_mode;
                         self.end = old_end;
+                        self.start = old_start;
 
                         if reset_position {
                             ctx.builder.position_at_end(current);
@@ -267,12 +327,20 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
 
                         return Ok(());
                     } else if id == &"sequential".into() {
+                        // For deep parallel, temporarily take away start to avoid function calls in
+                        // the block from resetting the timeline.
+                        // This does not affect legacy parallel, as the timeline will be reset after
+                        // this block finishes execution.
                         let start = self.start.take();
                         self.gen_block(ctx, body.iter())?;
                         self.start = start;
 
                         // Reset the timeline when we are exiting the sequential block
-                        self.timeline_reset_start(ctx)?;
+                        // Legacy parallel does not need this, since it will be reset after codegen
+                        // for this statement is completed
+                        if self.parallel_mode == ParallelMode::Deep {
+                            self.timeline_reset_start(ctx)?;
+                        }
 
                         return Ok(());
                     }
