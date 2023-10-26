@@ -62,7 +62,7 @@ pub struct Inferencer<'a> {
 }
 
 struct NaiveFolder();
-impl fold::Fold<()> for NaiveFolder {
+impl Fold<()> for NaiveFolder {
     type TargetU = Option<Type>;
     type Error = String;
     fn map_user(&mut self, _: ()) -> Result<Self::TargetU, Self::Error> {
@@ -74,7 +74,7 @@ fn report_error<T>(msg: &str, location: Location) -> Result<T, String> {
     Err(format!("{} at {}", msg, location))
 }
 
-impl<'a> fold::Fold<()> for Inferencer<'a> {
+impl<'a> Fold<()> for Inferencer<'a> {
     type TargetU = Option<Type>;
     type Error = String;
 
@@ -231,14 +231,14 @@ impl<'a> fold::Fold<()> for Inferencer<'a> {
                         *ctx = ExprContext::Store;
                     }
                 }
-                if targets.iter().all(|t| matches!(t.node, ast::ExprKind::Name { .. })) {
+                if targets.iter().all(|t| matches!(t.node, ExprKind::Name { .. })) {
                     if let ast::StmtKind::Assign { targets, value, .. } = node.node {
                         let value = self.fold_expr(*value)?;
                         let value_ty = value.custom.unwrap();
                         let targets: Result<Vec<_>, _> = targets
                             .into_iter()
                             .map(|target| {
-                                if let ast::ExprKind::Name { id, ctx } = target.node {
+                                if let ExprKind::Name { id, ctx } = target.node {
                                     self.defined_identifiers.insert(id);
                                     let target_ty = if let Some(ty) = self.variable_mapping.get(&id)
                                     {
@@ -261,7 +261,7 @@ impl<'a> fold::Fold<()> for Inferencer<'a> {
                                     let location = target.location;
                                     self.unifier.unify(value_ty, target_ty).map(|_| Located {
                                         location,
-                                        node: ast::ExprKind::Name { id, ctx },
+                                        node: ExprKind::Name { id, ctx },
                                         custom: Some(target_ty),
                                     })
                                 } else {
@@ -440,22 +440,22 @@ impl<'a> fold::Fold<()> for Inferencer<'a> {
 
     fn fold_expr(&mut self, node: ast::Expr<()>) -> Result<ast::Expr<Self::TargetU>, Self::Error> {
         let expr = match node.node {
-            ast::ExprKind::Call { func, args, keywords } => {
+            ExprKind::Call { func, args, keywords } => {
                 return self.fold_call(node.location, *func, args, keywords);
             }
-            ast::ExprKind::Lambda { args, body } => {
+            ExprKind::Lambda { args, body } => {
                 return self.fold_lambda(node.location, *args, *body);
             }
-            ast::ExprKind::ListComp { elt, generators } => {
+            ExprKind::ListComp { elt, generators } => {
                 return self.fold_listcomp(node.location, *elt, generators);
             }
             _ => fold::fold_expr(self, node)?,
         };
         let custom = match &expr.node {
-            ast::ExprKind::Constant { value, .. } => {
+            ExprKind::Constant { value, .. } => {
                 Some(self.infer_constant(value, &expr.location)?)
             }
-            ast::ExprKind::Name { id, .. } => {
+            ExprKind::Name { id, .. } => {
                 // the name `none` is special since it may have different types
                 if id == &"none".into() {
                     if let TypeEnum::TObj { params, .. } =
@@ -498,29 +498,29 @@ impl<'a> fold::Fold<()> for Inferencer<'a> {
                     Some(self.infer_identifier(*id)?)
                 }
             }
-            ast::ExprKind::List { elts, .. } => Some(self.infer_list(elts)?),
-            ast::ExprKind::Tuple { elts, .. } => Some(self.infer_tuple(elts)?),
-            ast::ExprKind::Attribute { value, attr, ctx } => {
+            ExprKind::List { elts, .. } => Some(self.infer_list(elts)?),
+            ExprKind::Tuple { elts, .. } => Some(self.infer_tuple(elts)?),
+            ExprKind::Attribute { value, attr, ctx } => {
                 Some(self.infer_attribute(value, *attr, ctx)?)
             }
-            ast::ExprKind::BoolOp { values, .. } => Some(self.infer_bool_ops(values)?),
-            ast::ExprKind::BinOp { left, op, right } => {
+            ExprKind::BoolOp { values, .. } => Some(self.infer_bool_ops(values)?),
+            ExprKind::BinOp { left, op, right } => {
                 Some(self.infer_bin_ops(expr.location, left, op, right, false)?)
             }
-            ast::ExprKind::UnaryOp { op, operand } => Some(self.infer_unary_ops(op, operand)?),
-            ast::ExprKind::Compare { left, ops, comparators } => {
+            ExprKind::UnaryOp { op, operand } => Some(self.infer_unary_ops(op, operand)?),
+            ExprKind::Compare { left, ops, comparators } => {
                 Some(self.infer_compare(left, ops, comparators)?)
             }
-            ast::ExprKind::Subscript { value, slice, ctx, .. } => {
+            ExprKind::Subscript { value, slice, ctx, .. } => {
                 Some(self.infer_subscript(value.as_ref(), slice.as_ref(), ctx)?)
             }
-            ast::ExprKind::IfExp { test, body, orelse } => {
+            ExprKind::IfExp { test, body, orelse } => {
                 Some(self.infer_if_expr(test, body.as_ref(), orelse.as_ref())?)
             }
-            ast::ExprKind::ListComp { .. }
-            | ast::ExprKind::Lambda { .. }
-            | ast::ExprKind::Call { .. } => expr.custom, // already computed
-            ast::ExprKind::Slice { .. } => None, // we don't need it for slice
+            ExprKind::ListComp { .. }
+            | ExprKind::Lambda { .. }
+            | ExprKind::Call { .. } => expr.custom, // already computed
+            ExprKind::Slice { .. } => None, // we don't need it for slice
             _ => return report_error("not supported", expr.location),
         };
         Ok(ast::Expr { custom, location: expr.location, node: expr.node })
@@ -748,7 +748,7 @@ impl<'a> Inferencer<'a> {
             custom: Some(new_context.unifier.add_ty(TypeEnum::TList { ty: elt.custom.unwrap() })),
             node: ExprKind::ListComp {
                 elt: Box::new(elt),
-                generators: vec![ast::Comprehension {
+                generators: vec![Comprehension {
                     target: Box::new(target),
                     iter: Box::new(iter),
                     ifs,
@@ -1094,7 +1094,7 @@ impl<'a> Inferencer<'a> {
     ) -> InferenceResult {
         let ty = self.unifier.get_dummy_var().0;
         match &slice.node {
-            ast::ExprKind::Slice { lower, upper, step } => {
+            ExprKind::Slice { lower, upper, step } => {
                 for v in [lower.as_ref(), upper.as_ref(), step.as_ref()].iter().flatten() {
                     self.constrain(v.custom.unwrap(), self.primitives.int32, &v.location)?;
                 }
@@ -1102,7 +1102,7 @@ impl<'a> Inferencer<'a> {
                 self.constrain(value.custom.unwrap(), list, &value.location)?;
                 Ok(list)
             }
-            ast::ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
+            ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
                 // the index is a constant, so value can be a sequence.
                 let ind: Option<i32> = (*val).try_into().ok();
                 let ind = ind.ok_or_else(|| "Index must be int32".to_string())?;

@@ -42,7 +42,7 @@ fn main() {
     let output = std::str::from_utf8(&output.stdout).unwrap().replace("\r\n", "\n");
     let mut filtered_output = String::with_capacity(output.len());
 
-    let regex_filter = regex::Regex::new(r"(?ms:^define.*?\}$)|(?m:^declare.*?$)").unwrap();
+    let regex_filter = Regex::new(r"(?ms:^define.*?\}$)|(?m:^declare.*?$)").unwrap();
     for f in regex_filter.captures_iter(&output) {
         assert!(f.len() == 1);
         filtered_output.push_str(&f[0]);

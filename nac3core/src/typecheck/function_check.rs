@@ -20,7 +20,7 @@ impl<'a> Inferencer<'a> {
         defined_identifiers: &mut HashSet<StrRef>,
     ) -> Result<(), String> {
         match &pattern.node {
-            ast::ExprKind::Name { id, .. } if id == &"none".into() =>
+            ExprKind::Name { id, .. } if id == &"none".into() =>
                 Err(format!("cannot assign to a `none` (at {})", pattern.location)),
             ExprKind::Name { id, .. } => {
                 if !defined_identifiers.contains(id) {

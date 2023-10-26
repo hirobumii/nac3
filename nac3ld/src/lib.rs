@@ -1,7 +1,7 @@
 use dwarf::*;
 use elf::*;
 use std::collections::HashMap;
-use std::{convert, mem, ptr, slice, str};
+use std::{mem, ptr, slice, str};
 
 extern crate byteorder;
 use byteorder::{ByteOrder, LittleEndian};
@@ -21,7 +21,7 @@ pub enum Error {
     Lookup(&'static str),
 }
 
-impl convert::From<&'static str> for Error {
+impl From<&'static str> for Error {
     fn from(desc: &'static str) -> Error {
         Error::Parsing(desc)
     }

@@ -348,7 +348,7 @@ pub fn list_slice_assignment<'ctx, 'a>(
     let src_end = ctx.builder
         .build_select(
             ctx.builder.build_int_compare(
-                inkwell::IntPredicate::SLT,
+                IntPredicate::SLT,
                 src_idx.2,
                 zero,
                 "is_neg",
@@ -361,7 +361,7 @@ pub fn list_slice_assignment<'ctx, 'a>(
     let dest_end = ctx.builder
         .build_select(
             ctx.builder.build_int_compare(
-                inkwell::IntPredicate::SLT,
+                IntPredicate::SLT,
                 dest_idx.2,
                 zero,
                 "is_neg",

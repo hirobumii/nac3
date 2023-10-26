@@ -499,7 +499,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         generator: &mut dyn CodeGenerator,
         s: S,
     ) -> BasicValueEnum<'ctx> {
-        self.gen_const(generator, &nac3parser::ast::Constant::Str(s.into()), self.primitives.str).unwrap()
+        self.gen_const(generator, &Constant::Str(s.into()), self.primitives.str).unwrap()
     }
 
     pub fn raise_exn(
@@ -1860,7 +1860,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                 }
             } else if let TypeEnum::TTuple { .. } = &*ctx.unifier.get_ty(value.custom.unwrap()) {
                 let index: u32 =
-                    if let ExprKind::Constant { value: ast::Constant::Int(v), .. } = &slice.node {
+                    if let ExprKind::Constant { value: Constant::Int(v), .. } = &slice.node {
                         (*v).try_into().unwrap()
                     } else {
                         unreachable!("tuple subscript must be const int after type check");

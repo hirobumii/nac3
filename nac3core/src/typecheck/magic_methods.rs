@@ -2,7 +2,7 @@ use crate::typecheck::{
     type_inferencer::*,
     typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier},
 };
-use nac3parser::ast::{self, StrRef};
+use nac3parser::ast::StrRef;
 use nac3parser::ast::{Cmpop, Operator, Unaryop};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -87,7 +87,7 @@ pub fn impl_binop(
     ty: Type,
     other_ty: &[Type],
     ret_ty: Type,
-    ops: &[ast::Operator],
+    ops: &[Operator],
 ) {
     with_fields(unifier, ty, |unifier, fields| {
         let (other_ty, other_var_id) = if other_ty.len() == 1 {
@@ -137,7 +137,7 @@ pub fn impl_binop(
     });
 }
 
-pub fn impl_unaryop(unifier: &mut Unifier, ty: Type, ret_ty: Type, ops: &[ast::Unaryop]) {
+pub fn impl_unaryop(unifier: &mut Unifier, ty: Type, ret_ty: Type, ops: &[Unaryop]) {
     with_fields(unifier, ty, |unifier, fields| {
         for op in ops {
             fields.insert(
@@ -160,7 +160,7 @@ pub fn impl_cmpop(
     store: &PrimitiveStore,
     ty: Type,
     other_ty: Type,
-    ops: &[ast::Cmpop],
+    ops: &[Cmpop],
 ) {
     with_fields(unifier, ty, |unifier, fields| {
         for op in ops {
@@ -197,7 +197,7 @@ pub fn impl_basic_arithmetic(
         ty,
         other_ty,
         ret_ty,
-        &[ast::Operator::Add, ast::Operator::Sub, ast::Operator::Mult],
+        &[Operator::Add, Operator::Sub, Operator::Mult],
     )
 }
 
@@ -209,7 +209,7 @@ pub fn impl_pow(
     other_ty: &[Type],
     ret_ty: Type,
 ) {
-    impl_binop(unifier, store, ty, other_ty, ret_ty, &[ast::Operator::Pow])
+    impl_binop(unifier, store, ty, other_ty, ret_ty, &[Operator::Pow])
 }
 
 /// BitOr, BitXor, BitAnd
@@ -220,18 +220,18 @@ pub fn impl_bitwise_arithmetic(unifier: &mut Unifier, store: &PrimitiveStore, ty
         ty,
         &[ty],
         ty,
-        &[ast::Operator::BitAnd, ast::Operator::BitOr, ast::Operator::BitXor],
+        &[Operator::BitAnd, Operator::BitOr, Operator::BitXor],
     )
 }
 
 /// LShift, RShift
 pub fn impl_bitwise_shift(unifier: &mut Unifier, store: &PrimitiveStore, ty: Type) {
-    impl_binop(unifier, store, ty, &[store.int32, store.uint32], ty, &[ast::Operator::LShift, ast::Operator::RShift]);
+    impl_binop(unifier, store, ty, &[store.int32, store.uint32], ty, &[Operator::LShift, Operator::RShift]);
 }
 
 /// Div
 pub fn impl_div(unifier: &mut Unifier, store: &PrimitiveStore, ty: Type, other_ty: &[Type]) {
-    impl_binop(unifier, store, ty, other_ty, store.float, &[ast::Operator::Div])
+    impl_binop(unifier, store, ty, other_ty, store.float, &[Operator::Div])
 }
 
 /// FloorDiv
@@ -242,7 +242,7 @@ pub fn impl_floordiv(
     other_ty: &[Type],
     ret_ty: Type,
 ) {
-    impl_binop(unifier, store, ty, other_ty, ret_ty, &[ast::Operator::FloorDiv])
+    impl_binop(unifier, store, ty, other_ty, ret_ty, &[Operator::FloorDiv])
 }
 
 /// Mod
@@ -253,22 +253,22 @@ pub fn impl_mod(
     other_ty: &[Type],
     ret_ty: Type,
 ) {
-    impl_binop(unifier, store, ty, other_ty, ret_ty, &[ast::Operator::Mod])
+    impl_binop(unifier, store, ty, other_ty, ret_ty, &[Operator::Mod])
 }
 
 /// UAdd, USub
 pub fn impl_sign(unifier: &mut Unifier, _store: &PrimitiveStore, ty: Type) {
-    impl_unaryop(unifier, ty, ty, &[ast::Unaryop::UAdd, ast::Unaryop::USub])
+    impl_unaryop(unifier, ty, ty, &[Unaryop::UAdd, Unaryop::USub])
 }
 
 /// Invert
 pub fn impl_invert(unifier: &mut Unifier, _store: &PrimitiveStore, ty: Type) {
-    impl_unaryop(unifier, ty, ty, &[ast::Unaryop::Invert])
+    impl_unaryop(unifier, ty, ty, &[Unaryop::Invert])
 }
 
 /// Not
 pub fn impl_not(unifier: &mut Unifier, store: &PrimitiveStore, ty: Type) {
-    impl_unaryop(unifier, ty, store.bool, &[ast::Unaryop::Not])
+    impl_unaryop(unifier, ty, store.bool, &[Unaryop::Not])
 }
 
 /// Lt, LtE, Gt, GtE
@@ -278,13 +278,13 @@ pub fn impl_comparison(unifier: &mut Unifier, store: &PrimitiveStore, ty: Type, 
         store,
         ty,
         other_ty,
-        &[ast::Cmpop::Lt, ast::Cmpop::Gt, ast::Cmpop::LtE, ast::Cmpop::GtE],
+        &[Cmpop::Lt, Cmpop::Gt, Cmpop::LtE, Cmpop::GtE],
     )
 }
 
 /// Eq, NotEq
 pub fn impl_eq(unifier: &mut Unifier, store: &PrimitiveStore, ty: Type) {
-    impl_cmpop(unifier, store, ty, ty, &[ast::Cmpop::Eq, ast::Cmpop::NotEq])
+    impl_cmpop(unifier, store, ty, ty, &[Cmpop::Eq, Cmpop::NotEq])
 }
 
 pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifier) {

@@ -383,8 +383,8 @@ fn get_llvm_type<'ctx>(
                     match (unifier.get_ty(ty).as_ref(), unifier.get_ty(primitives.option).as_ref())
                     {
                         (
-                            TypeEnum::TObj { obj_id, params, .. },
-                            TypeEnum::TObj { obj_id: opt_id, .. },
+                            TObj { obj_id, params, .. },
+                            TObj { obj_id: opt_id, .. },
                         ) if *obj_id == *opt_id => {
                             return get_llvm_type(
                                 ctx,

@@ -298,7 +298,7 @@ pub trait SymbolResolver {
         ctx: &mut CodeGenContext<'ctx, 'a>,
     ) -> Option<ValueEnum<'ctx>>;
 
-    fn get_default_param_value(&self, expr: &nac3parser::ast::Expr) -> Option<SymbolValue>;
+    fn get_default_param_value(&self, expr: &Expr) -> Option<SymbolValue>;
     fn get_string_id(&self, s: &str) -> i32;
     fn get_exception_id(&self, tyid: usize) -> usize;
 

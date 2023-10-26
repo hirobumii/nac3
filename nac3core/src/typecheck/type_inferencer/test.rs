@@ -20,7 +20,7 @@ struct Resolver {
 impl SymbolResolver for Resolver {
     fn get_default_param_value(
         &self,
-        _: &nac3parser::ast::Expr,
+        _: &ast::Expr,
     ) -> Option<crate::symbol_resolver::SymbolValue> {
         unimplemented!()
     }
@@ -62,7 +62,7 @@ struct TestEnvironment {
     pub primitives: PrimitiveStore,
     pub id_to_name: HashMap<usize, StrRef>,
     pub identifier_mapping: HashMap<StrRef, Type>,
-    pub virtual_checks: Vec<(Type, Type, nac3parser::ast::Location)>,
+    pub virtual_checks: Vec<(Type, Type, Location)>,
     pub calls: HashMap<CodeLocation, CallId>,
     pub top_level: TopLevelContext,
 }

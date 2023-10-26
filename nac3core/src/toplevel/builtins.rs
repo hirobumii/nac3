@@ -1904,7 +1904,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         })),
     ];
 
-    let ast_list: Vec<Option<ast::Stmt<()>>> =
+    let ast_list: Vec<Option<Stmt<()>>> =
         (0..top_level_def_list.len()).map(|_| None).collect();
 
     izip!(top_level_def_list, ast_list).collect_vec()

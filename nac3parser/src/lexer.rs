@@ -486,8 +486,8 @@ where
             }
         }
         match p {
-            0xD800..=0xDFFF => Ok(std::char::REPLACEMENT_CHARACTER),
-            _ => std::char::from_u32(p).ok_or(unicode_error),
+            0xD800..=0xDFFF => Ok(char::REPLACEMENT_CHARACTER),
+            _ => char::from_u32(p).ok_or(unicode_error),
         }
     }
 

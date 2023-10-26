@@ -36,7 +36,7 @@ struct Resolver(Arc<ResolverInternal>);
 impl SymbolResolver for Resolver {
     fn get_default_param_value(
         &self,
-        _: &nac3parser::ast::Expr,
+        _: &ast::Expr,
     ) -> Option<crate::symbol_resolver::SymbolValue> {
         unimplemented!()
     }

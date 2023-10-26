@@ -413,7 +413,7 @@ fn rpc_codegen_callback_fn<'ctx, 'a>(
     args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
     generator: &mut dyn CodeGenerator,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-    let ptr_type = ctx.ctx.i8_type().ptr_type(inkwell::AddressSpace::default());
+    let ptr_type = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
     let size_type = generator.get_size_type(ctx.ctx);
     let int8 = ctx.ctx.i8_type();
     let int32 = ctx.ctx.i32_type();

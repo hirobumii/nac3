@@ -641,7 +641,7 @@ impl Unifier {
                     .get_intersection(a, b)
                     .map_err(|_| TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None))?
                     .unwrap();
-                let range = if let TypeEnum::TVar { range, .. } = &*self.get_ty(intersection) {
+                let range = if let TVar { range, .. } = &*self.get_ty(intersection) {
                     range.clone()
                 } else {
                     unreachable!()
@@ -649,7 +649,7 @@ impl Unifier {
                 self.unification_table.unify(a, b);
                 self.unification_table.set_value(
                     a,
-                    Rc::new(TypeEnum::TVar {
+                    Rc::new(TVar {
                         id: name1.map_or(*id2, |_| *id),
                         fields: new_fields,
                         range,
@@ -1217,7 +1217,7 @@ impl Unifier {
         cache: &mut HashMap<Type, Option<Type>>,
     ) -> Option<Mapping<K>>
     where
-        K: std::hash::Hash + std::cmp::Eq + std::clone::Clone,
+        K: std::hash::Hash + Eq + Clone,
     {
         let mut map2 = None;
         for (k, v) in map.iter() {
@@ -1238,7 +1238,7 @@ impl Unifier {
         cache: &mut HashMap<Type, Option<Type>>,
     ) -> Option<Mapping<K, (Type, bool)>>
     where
-        K: std::hash::Hash + std::cmp::Eq + std::clone::Clone,
+        K: std::hash::Hash + Eq + Clone,
     {
         let mut map2 = None;
         for (k, (v, mutability)) in map.iter() {

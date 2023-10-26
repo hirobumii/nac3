@@ -17,8 +17,8 @@ use nac3core::codegen::{CodeGenLLVMOptions, CodeGenTargetMachineOptions, gen_fun
 use nac3core::toplevel::builtins::get_exn_constructor;
 use nac3core::typecheck::typedef::{TypeEnum, Unifier};
 use nac3parser::{
-    ast::{self, ExprKind, Stmt, StmtKind, StrRef},
-    parser::{self, parse_program},
+    ast::{ExprKind, Stmt, StmtKind, StrRef},
+    parser::parse_program,
 };
 use pyo3::prelude::*;
 use pyo3::{exceptions, types::PyBytes, types::PyDict, types::PySet};
@@ -120,16 +120,16 @@ impl Nac3 {
         let source = fs::read_to_string(&source_file).map_err(|e| {
             exceptions::PyIOError::new_err(format!("failed to read input file: {}", e))
         })?;
-        let parser_result = parser::parse_program(&source, source_file.into())
+        let parser_result = parse_program(&source, source_file.into())
             .map_err(|e| exceptions::PySyntaxError::new_err(format!("parse error: {}", e)))?;
 
         for mut stmt in parser_result.into_iter() {
             let include = match stmt.node {
-                ast::StmtKind::ClassDef {
+                StmtKind::ClassDef {
                     ref decorator_list, ref mut body, ref mut bases, ..
                 } => {
                     let nac3_class = decorator_list.iter().any(|decorator| {
-                        if let ast::ExprKind::Name { id, .. } = decorator.node {
+                        if let ExprKind::Name { id, .. } = decorator.node {
                             id.to_string() == "nac3"
                         } else {
                             false
@@ -143,7 +143,7 @@ impl Nac3 {
                         Python::with_gil(|py| -> PyResult<bool> {
                             let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
                             match &base.node {
-                                ast::ExprKind::Name { id, .. } => {
+                                ExprKind::Name { id, .. } => {
                                     if *id == "Exception".into() {
                                         Ok(true)
                                     } else {
@@ -158,9 +158,9 @@ impl Nac3 {
                         .unwrap()
                     });
                     body.retain(|stmt| {
-                        if let ast::StmtKind::FunctionDef { ref decorator_list, .. } = stmt.node {
+                        if let StmtKind::FunctionDef { ref decorator_list, .. } = stmt.node {
                             decorator_list.iter().any(|decorator| {
-                                if let ast::ExprKind::Name { id, .. } = decorator.node {
+                                if let ExprKind::Name { id, .. } = decorator.node {
                                     id.to_string() == "kernel"
                                         || id.to_string() == "portable"
                                         || id.to_string() == "rpc"
@@ -174,9 +174,9 @@ impl Nac3 {
                     });
                     true
                 }
-                ast::StmtKind::FunctionDef { ref decorator_list, .. } => {
+                StmtKind::FunctionDef { ref decorator_list, .. } => {
                     decorator_list.iter().any(|decorator| {
-                        if let ast::ExprKind::Name { id, .. } = decorator.node {
+                        if let ExprKind::Name { id, .. } = decorator.node {
                             let id = id.to_string();
                             id == "extern" || id == "portable" || id == "kernel" || id == "rpc"
                         } else {
@@ -639,7 +639,7 @@ impl Nac3 {
         let mut function_iter = main.get_first_function();
         while let Some(func) = function_iter {
             if func.count_basic_blocks() > 0 && func.get_name().to_str().unwrap() != "__modinit__" {
-                func.set_linkage(inkwell::module::Linkage::Private);
+                func.set_linkage(Linkage::Private);
             }
             function_iter = func.get_next_function();
         }

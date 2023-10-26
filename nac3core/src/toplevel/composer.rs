@@ -20,7 +20,7 @@ impl Default for ComposerConfig {
     }
 }
 
-type DefAst = (Arc<RwLock<TopLevelDef>>, Option<ast::Stmt<()>>);
+type DefAst = (Arc<RwLock<TopLevelDef>>, Option<Stmt<()>>);
 pub struct TopLevelComposer {
     // list of top level definitions, same as top level context
     pub definition_ast_list: Vec<DefAst>,
@@ -175,7 +175,7 @@ impl TopLevelComposer {
     /// and check duplicate class/method/function definition
     pub fn register_top_level(
         &mut self,
-        ast: ast::Stmt<()>,
+        ast: Stmt<()>,
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
         mod_path: String,
         allow_no_constructor: bool,
@@ -230,7 +230,7 @@ impl TopLevelComposer {
                     Arc<RwLock<TopLevelDef>>,
                     DefinitionId,
                     Type,
-                    ast::Stmt<()>,
+                    Stmt<()>,
                 );
                 let mut class_method_name_def_ids: Vec<MethodInfo> = Vec::new();
                 // we do not push anything to the def list, so we keep track of the index

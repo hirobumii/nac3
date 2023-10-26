@@ -334,7 +334,7 @@ impl TopLevelComposer {
         )
     }
 
-    pub fn get_all_assigned_field(stmts: &[ast::Stmt<()>]) -> Result<HashSet<StrRef>, String> {
+    pub fn get_all_assigned_field(stmts: &[Stmt<()>]) -> Result<HashSet<StrRef>, String> {
         let mut result = HashSet::new();
         for s in stmts {
             match &s.node {

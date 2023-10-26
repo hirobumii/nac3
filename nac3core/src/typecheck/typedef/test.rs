@@ -47,7 +47,7 @@ impl Unifier {
 
     fn map_eq<K>(&mut self, map1: &Mapping<K>, map2: &Mapping<K>) -> bool
     where
-        K: std::hash::Hash + std::cmp::Eq + std::clone::Clone,
+        K: std::hash::Hash + Eq + Clone,
     {
         if map1.len() != map2.len() {
             return false;
@@ -62,7 +62,7 @@ impl Unifier {
 
     fn map_eq2<K>(&mut self, map1: &Mapping<K, RecordField>, map2: &Mapping<K, RecordField>) -> bool
     where
-        K: std::hash::Hash + std::cmp::Eq + std::clone::Clone,
+        K: std::hash::Hash + Eq + Clone,
     {
         if map1.len() != map2.len() {
             return false;
