@@ -1,8 +1,8 @@
 def f():
-	return
-	return
+    return
+    return
 
 def run() -> int32:
-	f()
+    f()
 
-	return 0
+    return 0
