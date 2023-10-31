@@ -41,10 +41,10 @@ def u64_max() -> uint64:
     return ~uint64(0)
 
 def i64_min() -> int64:
-    return int64(1) << int64(63)
+    return int64(1) << 63
 
 def i64_max() -> int64:
-    return ~(int64(1) << int64(63))
+    return ~(int64(1) << 63)
 
 def test_u32_bnot():
     output_uint32(~uint32(0))
