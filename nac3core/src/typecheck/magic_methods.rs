@@ -96,11 +96,13 @@ pub fn impl_binop(
             let (ty, var_id) = unifier.get_fresh_var_with_range(other_ty, Some("N".into()), None);
             (ty, Some(var_id))
         };
+
         let function_vars = if let Some(var_id) = other_var_id {
             vec![(var_id, other_ty)].into_iter().collect::<HashMap<_, _>>()
         } else {
             HashMap::new()
         };
+
         for op in ops {
             fields.insert(binop_name(op).into(), {
                 (
@@ -224,7 +226,7 @@ pub fn impl_bitwise_arithmetic(unifier: &mut Unifier, store: &PrimitiveStore, ty
 
 /// LShift, RShift
 pub fn impl_bitwise_shift(unifier: &mut Unifier, store: &PrimitiveStore, ty: Type) {
-    impl_binop(unifier, store, ty, &[ty], ty, &[ast::Operator::LShift, ast::Operator::RShift])
+    impl_binop(unifier, store, ty, &[store.int32, store.uint32], ty, &[ast::Operator::LShift, ast::Operator::RShift]);
 }
 
 /// Div
@@ -295,6 +297,7 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
         uint64: uint64_t,
         ..
     } = *store;
+
     /* int ======== */
     for t in [int32_t, int64_t, uint32_t, uint64_t] {
         impl_basic_arithmetic(unifier, store, t, &[t], t);

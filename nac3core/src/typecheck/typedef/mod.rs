@@ -116,6 +116,7 @@ impl RecordField {
     }
 }
 
+/// Category of variable and value types.
 #[derive(Clone)]
 pub enum TypeEnum {
     TRigidVar {
@@ -123,6 +124,8 @@ pub enum TypeEnum {
         name: Option<StrRef>,
         loc: Option<Location>,
     },
+
+    /// A type variable.
     TVar {
         id: u32,
         // empty indicates this is not a struct/tuple/list
@@ -132,21 +135,41 @@ pub enum TypeEnum {
         name: Option<StrRef>,
         loc: Option<Location>,
     },
+
+    /// A tuple type.
     TTuple {
+        /// The types of elements present in this tuple.
         ty: Vec<Type>,
     },
+
+    /// A list type.
     TList {
+        /// The type of elements present in this list.
         ty: Type,
     },
+
+    /// An object type.
     TObj {
+        /// The [DefintionId] of this object type.
         obj_id: DefinitionId,
+
+        /// The fields present in this object type.
+        ///
+        /// The key of the [Mapping] is the identifier of the field, while the value is a tuple
+        /// containing the [Type] of the field, and a `bool` indicating whether the field is a
+        /// variable (as opposed to a function).
         fields: Mapping<StrRef, (Type, bool)>,
+
+        /// Mapping between the ID of type variables and the [Type] representing the type variables
+        /// of this object type.
         params: VarMap,
     },
     TVirtual {
         ty: Type,
     },
     TCall(Vec<CallId>),
+
+    /// A function type.
     TFunc(FunSignature),
 }
 
@@ -294,11 +317,16 @@ impl Unifier {
         self.get_fresh_var_with_range(&[], None, None)
     }
 
+    /// Returns a fresh [type variable][TypeEnum::TVar] with no associated range.
+    ///
+    /// This type variable can be instantiated by any type.
     pub fn get_fresh_var(&mut self, name: Option<StrRef>, loc: Option<Location>) -> (Type, u32) {
         self.get_fresh_var_with_range(&[], name, loc)
     }
 
-    /// Get a fresh type variable.
+    /// Returns a fresh [type variable][TypeEnum::TVar] with the range specified by `range`.
+    ///
+    /// This type variable can be instantiated by any type present in `range`.
     pub fn get_fresh_var_with_range(
         &mut self,
         range: &[Type],

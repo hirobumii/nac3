@@ -37,7 +37,9 @@ def test_int32():
     output_int32(a ^ b)
     output_int32(a & b)
     output_int32(a << b)
+    output_int32(a << uint32(b))
     output_int32(a >> b)
+    output_int32(a >> uint32(b))
     output_float64(a / b)
     a += b
     output_int32(a)
@@ -74,7 +76,9 @@ def test_uint32():
     output_uint32(a ^ b)
     output_uint32(a & b)
     output_uint32(a << b)
+    output_uint32(a << int32(b))
     output_uint32(a >> b)
+    output_uint32(a >> int32(b))
     output_float64(a / b)
     a += b
     output_uint32(a)
@@ -108,8 +112,10 @@ def test_int64():
     output_int64(a | b)
     output_int64(a ^ b)
     output_int64(a & b)
-    output_int64(a << b)
-    output_int64(a >> b)
+    output_int64(a << int32(b))
+    output_int64(a << uint32(b))
+    output_int64(a >> int32(b))
+    output_int64(a >> uint32(b))
     output_float64(a / b)
     a += b
     output_int64(a)
@@ -127,9 +133,9 @@ def test_int64():
     output_int64(a)
     a &= b
     output_int64(a)
-    a <<= b
+    a <<= int32(b)
     output_int64(a)
-    a >>= b
+    a >>= int32(b)
     output_int64(a)
 
 def test_uint64():
@@ -143,8 +149,8 @@ def test_uint64():
     output_uint64(a | b)
     output_uint64(a ^ b)
     output_uint64(a & b)
-    output_uint64(a << b)
-    output_uint64(a >> b)
+    output_uint64(a << uint32(b))
+    output_uint64(a >> uint32(b))
     output_float64(a / b)
     a += b
     output_uint64(a)
@@ -162,9 +168,9 @@ def test_uint64():
     output_uint64(a)
     a &= b
     output_uint64(a)
-    a <<= b
+    a <<= uint32(b)
     output_uint64(a)
-    a >>= b
+    a >>= uint32(b)
     output_uint64(a)
 
 class A:
