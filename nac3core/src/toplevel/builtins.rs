@@ -1377,49 +1377,13 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[(float, "x")],
             "llvm.sqrt.f64",
         ),
-        create_fn_by_codegen(
+        create_fn_by_intrinsic(
             primitives,
             &var_map,
             "rint",
             float,
             &[(float, "x")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let float = ctx.primitives.float;
-                let llvm_f64 = ctx.ctx.f64_type();
-
-                let x_ty = fun.0.args[0].ty;
-                let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?;
-
-                assert!(ctx.unifier.unioned(x_ty, float));
-
-                let intrinsic_fn = ctx.module.get_function("llvm.round.f64").unwrap_or_else(|| {
-                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
-
-                    ctx.module.add_function("llvm.round.f64", fn_type, None)
-                });
-
-                // rint(x) == round(x * 0.5) * 2.0
-
-                // %0 = fmul f64 %x, 0.5
-                let x_half = ctx.builder
-                    .build_float_mul(x_val.into_float_value(), llvm_f64.const_float(0.5), "");
-                // %1 = call f64 @llvm.round.f64(f64 %0)
-                let round = ctx.builder
-                    .build_call(
-                        intrinsic_fn,
-                        &vec![x_half.into()],
-                        "",
-                    )
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap();
-                // %2 = fmul f64 %1, 2.0
-                let val = ctx.builder
-                    .build_float_mul(round.into_float_value(), llvm_f64.const_float(2.0).into(), "rint");
-
-                Ok(Some(val.into()))
-            }),
+            "llvm.roundeven.f64",
         ),
         create_fn_by_extern(
             primitives,
