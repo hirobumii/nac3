@@ -298,8 +298,40 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             (Operator::BitOr, _) => self.builder.build_or(lhs, rhs, "or").into(),
             (Operator::BitXor, _) => self.builder.build_xor(lhs, rhs, "xor").into(),
             (Operator::BitAnd, _) => self.builder.build_and(lhs, rhs, "and").into(),
-            (Operator::LShift, _) => self.builder.build_left_shift(lhs, rhs, "lshift").into(),
-            (Operator::RShift, _) => self.builder.build_right_shift(lhs, rhs, true, "rshift").into(),
+
+            // Sign-ness of bitshift operators are always determined by the left operand
+            (Operator::LShift, signed) | (Operator::RShift, signed) => {
+                // RHS operand is always 32 bits
+                assert_eq!(rhs.get_type().get_bit_width(), 32);
+
+                let common_type = lhs.get_type();
+                let rhs = if common_type.get_bit_width() > 32 {
+                    if signed {
+                        self.builder.build_int_s_extend(rhs, common_type, "")
+                    } else {
+                        self.builder.build_int_z_extend(rhs, common_type, "")
+                    }
+                } else {
+                    rhs
+                };
+
+                let rhs_gez = self.builder.build_int_compare(IntPredicate::SGE, rhs, common_type.const_zero(), "");
+                self.make_assert(
+                    generator,
+                    rhs_gez,
+                    "ValueError",
+                    "negative shift count",
+                    [None, None, None],
+                    self.current_loc
+                );
+
+                match *op {
+                    Operator::LShift => self.builder.build_left_shift(lhs, rhs, "lshift").into(),
+                    Operator::RShift => self.builder.build_right_shift(lhs, rhs, signed, "rshift").into(),
+                    _ => unreachable!()
+                }
+            }
+
             (Operator::FloorDiv, true) => self.builder.build_int_signed_div(lhs, rhs, "floordiv").into(),
             (Operator::FloorDiv, false) => self.builder.build_int_unsigned_div(lhs, rhs, "floordiv").into(),
             (Operator::Pow, s) => integer_power(generator, self, lhs, rhs, s).into(),
@@ -1085,6 +1117,9 @@ pub fn gen_binop_expr<'ctx, 'a, G: CodeGenerator>(
         Ok(Some(ctx.gen_int_ops(generator, op, left_val, right_val, true).into()))
     } else if ty1 == ty2 && [ctx.primitives.uint32, ctx.primitives.uint64].contains(&ty1) {
         Ok(Some(ctx.gen_int_ops(generator, op, left_val, right_val, false).into()))
+    } else if [Operator::LShift, Operator::RShift].contains(op) {
+        let signed = [ctx.primitives.int32, ctx.primitives.int64].contains(&ty1);
+        Ok(Some(ctx.gen_int_ops(generator, op, left_val, right_val, signed).into()))
     } else if ty1 == ty2 && ctx.primitives.float == ty1 {
         Ok(Some(ctx.gen_float_ops(op, left_val, right_val).into()))
     } else if ty1 == ctx.primitives.float && ty2 == ctx.primitives.int32 {
