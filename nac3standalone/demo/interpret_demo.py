@@ -3,6 +3,7 @@
 import sys
 import importlib.util
 import importlib.machinery
+import math
 import numpy as np
 import pathlib
 import scipy
@@ -42,6 +43,12 @@ def Some(v: T) -> Option[T]:
     return Option(v)
 
 none = Option(None)
+
+def round_away_zero(x):
+    if x >= 0.0:
+        return math.floor(x + 0.5)
+    else:
+        return math.ceil(x - 0.5)
 
 def patch(module):
     def dbl_nan():
@@ -98,6 +105,14 @@ def patch(module):
     module.Some = Some
     module.none = none
 
+    # Builtin Math functions
+    module.round = round_away_zero
+    module.round64 = round_away_zero
+    module.floor = math.floor
+    module.floor64 = math.floor
+    module.ceil = math.ceil
+    module.ceil64 = math.ceil
+
     # NumPy Math functions
     module.isnan = np.isnan
     module.isinf = np.isinf
@@ -109,8 +124,6 @@ def patch(module):
     module.log10 = np.log10
     module.log2 = np.log2
     module.fabs = np.fabs
-    module.floor = np.floor
-    module.ceil = np.ceil
     module.trunc = np.trunc
     module.sqrt = np.sqrt
     module.rint = np.rint
