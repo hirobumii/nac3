@@ -814,6 +814,66 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             )))),
             loc: None,
         })),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "round",
+            int32,
+            &[(float, "n")],
+            Box::new(|ctx, _, _, args, generator| {
+                let llvm_f64 = ctx.ctx.f64_type();
+                let llvm_i32 = ctx.ctx.i32_type();
+
+                let arg = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+
+                let intrinsic_fn = ctx.module.get_function("llvm.round.f64").unwrap_or_else(|| {
+                        let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+
+                        ctx.module.add_function("llvm.round.f64", fn_type, None)
+                    });
+
+                let val = ctx
+                    .builder
+                    .build_call(intrinsic_fn, &[arg.into()], "")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+                let val_toint = ctx.builder
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "round");
+                Ok(Some(val_toint.into()))
+            }),
+        ),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "round64",
+            int64,
+            &[(float, "n")],
+            Box::new(|ctx, _, _, args, generator| {
+                let llvm_f64 = ctx.ctx.f64_type();
+                let llvm_i64 = ctx.ctx.i64_type();
+
+                let arg = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+
+                let intrinsic_fn = ctx.module.get_function("llvm.round.f64").unwrap_or_else(|| {
+                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+
+                    ctx.module.add_function("llvm.round.f64", fn_type, None)
+                });
+
+                let val = ctx
+                    .builder
+                    .build_call(intrinsic_fn, &[arg.into()], "")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+                let val_toint = ctx.builder
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "round");
+                Ok(Some(val_toint.into()))
+            }),
+        ),
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "range".into(),
             simple_name: "range".into(),
@@ -996,21 +1056,125 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             )))),
             loc: None,
         })),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             primitives,
             &var_map,
             "floor",
-            float,
-            &[(float, "x")],
-            "llvm.floor.f64",
+            int32,
+            &[(float, "n")],
+            Box::new(|ctx, _, _, args, generator| {
+                let llvm_f64 = ctx.ctx.f64_type();
+                let llvm_i32 = ctx.ctx.i32_type();
+
+                let arg = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+
+                let intrinsic_fn = ctx.module.get_function("llvm.floor.f64").unwrap_or_else(|| {
+                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+
+                    ctx.module.add_function("llvm.floor.f64", fn_type, None)
+                });
+
+                let val = ctx
+                    .builder
+                    .build_call(intrinsic_fn, &[arg.into()], "")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+                let val_toint = ctx.builder
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "floor");
+                Ok(Some(val_toint.into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "floor64",
+            int64,
+            &[(float, "n")],
+            Box::new(|ctx, _, _, args, generator| {
+                let llvm_f64 = ctx.ctx.f64_type();
+                let llvm_i64 = ctx.ctx.i64_type();
+
+                let arg = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+
+                let intrinsic_fn = ctx.module.get_function("llvm.floor.f64").unwrap_or_else(|| {
+                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+
+                    ctx.module.add_function("llvm.floor.f64", fn_type, None)
+                });
+
+                let val = ctx
+                    .builder
+                    .build_call(intrinsic_fn, &[arg.into()], "")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+                let val_toint = ctx.builder
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "floor");
+                Ok(Some(val_toint.into()))
+            }),
+        ),
+        create_fn_by_codegen(
             primitives,
             &var_map,
             "ceil",
-            float,
-            &[(float, "x")],
-            "llvm.ceil.f64",
+            int32,
+            &[(float, "n")],
+            Box::new(|ctx, _, _, args, generator| {
+                let llvm_f64 = ctx.ctx.f64_type();
+                let llvm_i32 = ctx.ctx.i32_type();
+
+                let arg = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+
+                let intrinsic_fn = ctx.module.get_function("llvm.ceil.f64").unwrap_or_else(|| {
+                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+
+                    ctx.module.add_function("llvm.ceil.f64", fn_type, None)
+                });
+
+                let val = ctx
+                    .builder
+                    .build_call(intrinsic_fn, &[arg.into()], "")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+                let val_toint = ctx.builder
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "ceil");
+                Ok(Some(val_toint.into()))
+            }),
+        ),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "ceil64",
+            int64,
+            &[(float, "n")],
+            Box::new(|ctx, _, _, args, generator| {
+                let llvm_f64 = ctx.ctx.f64_type();
+                let llvm_i64 = ctx.ctx.i64_type();
+
+                let arg = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+
+                let intrinsic_fn = ctx.module.get_function("llvm.ceil.f64").unwrap_or_else(|| {
+                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+
+                    ctx.module.add_function("llvm.ceil.f64", fn_type, None)
+                });
+
+                let val = ctx
+                    .builder
+                    .build_call(intrinsic_fn, &[arg.into()], "")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+                let val_toint = ctx.builder
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "ceil");
+                Ok(Some(val_toint.into()))
+            }),
         ),
         Arc::new(RwLock::new({
             let list_var = primitives.1.get_fresh_var(Some("L".into()), None);
@@ -1815,11 +1979,15 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "uint32",
             "uint64",
             "float",
+            "round",
+            "round64",
             "range",
             "str",
             "bool",
             "floor",
+            "floor64",
             "ceil",
+            "ceil64",
             "len",
             "min",
             "max",

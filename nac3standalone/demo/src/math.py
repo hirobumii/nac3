@@ -3,6 +3,14 @@ def output_bool(x: bool):
     ...
 
 @extern
+def output_int32(x: int32):
+    ...
+
+@extern
+def output_int64(x: int64):
+    ...
+
+@extern
 def output_float64(x: float):
     ...
 
@@ -19,6 +27,14 @@ def dbl_pi() -> float:
 
 def dbl_e() -> float:
     return 2.71828182845904523536028747135266249775724709369995
+
+def test_round():
+    for x in [-1.5, -0.5, 0.5, 1.5]:
+        output_int32(round(x))
+
+def test_round64():
+    for x in [-1.5, -0.5, 0.5, 1.5]:
+        output_int64(round64(x))
 
 def test_isnan():
     for x in [dbl_nan(), 0.0, dbl_inf()]:
@@ -64,12 +80,20 @@ def test_fabs():
         output_float64(fabs(x))
 
 def test_floor():
-    for x in [-1.5, -0.5, 0.5, 1.5, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(floor(x))
+    for x in [-1.5, -0.5, 0.5, 1.5]:
+        output_int32(floor(x))
+
+def test_floor64():
+    for x in [-1.5, -0.5, 0.5, 1.5]:
+        output_int64(floor64(x))
 
 def test_ceil():
-    for x in [-1.5, -0.5, 0.5, 1.5, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(ceil(x))
+    for x in [-1.5, -0.5, 0.5, 1.5]:
+        output_int32(ceil(x))
+
+def test_ceil64():
+    for x in [-1.5, -0.5, 0.5, 1.5]:
+        output_int64(ceil64(x))
 
 def test_trunc():
     for x in [-1.5, -0.5, 0.5, 1.5, dbl_inf(), -dbl_inf(), dbl_nan()]:
@@ -192,6 +216,8 @@ def test_nextafter():
             output_float64(nextafter(x1, x2))
 
 def run() -> int32:
+    test_round()
+    test_round64()
     test_isnan()
     test_isinf()
     test_sin()
@@ -203,7 +229,9 @@ def run() -> int32:
     test_log2()
     test_fabs()
     test_floor()
+    test_floor64()
     test_ceil()
+    test_ceil64()
     test_trunc()
     test_sqrt()
     test_rint()
