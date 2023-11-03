@@ -95,10 +95,6 @@ def test_ceil64():
     for x in [-1.5, -0.5, 0.5, 1.5]:
         output_int64(ceil64(x))
 
-def test_trunc():
-    for x in [-1.5, -0.5, 0.5, 1.5, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(trunc(x))
-
 def test_sqrt():
     for x in [1.0, 2.0, 4.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
         output_float64(sqrt(x))
@@ -232,7 +228,6 @@ def run() -> int32:
     test_floor64()
     test_ceil()
     test_ceil64()
-    test_trunc()
     test_sqrt()
     test_rint()
     test_tan()

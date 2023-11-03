@@ -1528,14 +1528,6 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         create_fn_by_intrinsic(
             primitives,
             &var_map,
-            "trunc",
-            float,
-            &[(float, "x")],
-            "llvm.trunc.f64",
-        ),
-        create_fn_by_intrinsic(
-            primitives,
-            &var_map,
             "sqrt",
             float,
             &[(float, "x")],
@@ -2002,7 +1994,6 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "log10",
             "log2",
             "fabs",
-            "trunc",
             "sqrt",
             "rint",
             "tan",
