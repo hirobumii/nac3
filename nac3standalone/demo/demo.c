@@ -34,11 +34,11 @@ void output_int64(int64_t x) {
 }
 
 void output_uint32(uint32_t x) {
-    printf("%d\n", x);
+    printf("%u\n", x);
 }
 
 void output_uint64(uint64_t x) {
-    printf("%ld\n", x);
+    printf("%lu\n", x);
 }
 
 void output_float64(double x) {
