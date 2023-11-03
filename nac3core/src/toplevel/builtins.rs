@@ -712,12 +712,15 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
 
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    let res = if ctx.unifier.unioned(arg_ty, int32)
-                        || ctx.unifier.unioned(arg_ty, uint32)
+                    let res = if ctx.unifier.unioned(arg_ty, uint32)
                         || ctx.unifier.unioned(arg_ty, boolean)
                     {
                         ctx.builder
                             .build_int_z_extend(arg.into_int_value(), ctx.ctx.i64_type(), "zext")
+                            .into()
+                    } else if ctx.unifier.unioned(arg_ty, int32) {
+                        ctx.builder
+                            .build_int_s_extend(arg.into_int_value(), ctx.ctx.i64_type(), "sext")
                             .into()
                     } else if ctx.unifier.unioned(arg_ty, int64)
                         || ctx.unifier.unioned(arg_ty, uint64)
