@@ -1352,25 +1352,16 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                     }
                     _ => val.into(),
                 }
-            } else if [ctx.primitives.int32, ctx.primitives.int64].contains(&ty) {
+            } else if [ctx.primitives.int32, ctx.primitives.int64, ctx.primitives.uint32, ctx.primitives.uint64].contains(&ty) {
                 let val = val.into_int_value();
                 match op {
                     ast::Unaryop::USub => ctx.builder.build_int_neg(val, "neg").into(),
                     ast::Unaryop::Invert => ctx.builder.build_not(val, "not").into(),
-                    ast::Unaryop::Not => ctx
-                        .builder
-                        .build_int_compare(
-                            IntPredicate::EQ,
-                            val,
-                            val.get_type().const_zero(),
-                            "not",
-                        )
-                        .into(),
+                    ast::Unaryop::Not => ctx.builder.build_xor(val, val.get_type().const_all_ones(), "not").into(),
                     _ => val.into(),
                 }
             } else if ty == ctx.primitives.float {
-                let val =
-                    if let BasicValueEnum::FloatValue(val) = val { val } else { unreachable!() };
+                let val = val.into_float_value();
                 match op {
                     ast::Unaryop::USub => ctx.builder.build_float_neg(val, "neg").into(),
                     ast::Unaryop::Not => ctx
