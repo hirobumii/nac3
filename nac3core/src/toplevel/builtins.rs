@@ -477,12 +477,16 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let int32 = ctx.primitives.int32;
-                    let int64 = ctx.primitives.int64;
-                    let uint32 = ctx.primitives.uint32;
-                    let uint64 = ctx.primitives.uint64;
-                    let float = ctx.primitives.float;
-                    let boolean = ctx.primitives.bool;
+                    let PrimitiveStore {
+                        int32,
+                        int64,
+                        uint32,
+                        uint64,
+                        float,
+                        bool: boolean,
+                        ..
+                    } = ctx.primitives;
+
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
                     Ok(if ctx.unifier.unioned(arg_ty, boolean) {
@@ -512,15 +516,21 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                 .into(),
                         )
                     } else if ctx.unifier.unioned(arg_ty, float) {
-                        let val = ctx
+                        let to_int64 = ctx
                             .builder
                             .build_float_to_signed_int(
                                 arg.into_float_value(),
+                                ctx.ctx.i64_type(),
+                                "",
+                            );
+                        let val = ctx.builder
+                            .build_int_truncate(
+                                to_int64,
                                 ctx.ctx.i32_type(),
-                                "fptosi",
-                            )
-                            .into();
-                        Some(val)
+                                "conv",
+                            );
+
+                        Some(val.into())
                     } else {
                         unreachable!()
                     })
@@ -542,12 +552,16 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let int32 = ctx.primitives.int32;
-                    let int64 = ctx.primitives.int64;
-                    let uint32 = ctx.primitives.uint32;
-                    let uint64 = ctx.primitives.uint64;
-                    let float = ctx.primitives.float;
-                    let boolean = ctx.primitives.bool;
+                    let PrimitiveStore {
+                        int32,
+                        int64,
+                        uint32,
+                        uint64,
+                        float,
+                        bool: boolean,
+                        ..
+                    } = ctx.primitives;
+
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
                     Ok(
@@ -609,12 +623,16 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let int32 = ctx.primitives.int32;
-                    let int64 = ctx.primitives.int64;
-                    let uint32 = ctx.primitives.uint32;
-                    let uint64 = ctx.primitives.uint64;
-                    let float = ctx.primitives.float;
-                    let boolean = ctx.primitives.bool;
+                    let PrimitiveStore {
+                        int32,
+                        int64,
+                        uint32,
+                        uint64,
+                        float,
+                        bool: boolean,
+                        ..
+                    } = ctx.primitives;
+
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
                     let res = if ctx.unifier.unioned(arg_ty, boolean) {
@@ -661,12 +679,16 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let int32 = ctx.primitives.int32;
-                    let int64 = ctx.primitives.int64;
-                    let uint32 = ctx.primitives.uint32;
-                    let uint64 = ctx.primitives.uint64;
-                    let float = ctx.primitives.float;
-                    let boolean = ctx.primitives.bool;
+                    let PrimitiveStore {
+                        int32,
+                        int64,
+                        uint32,
+                        uint64,
+                        float,
+                        bool: boolean,
+                        ..
+                    } = ctx.primitives;
+
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
                     let res = if ctx.unifier.unioned(arg_ty, int32)
@@ -725,6 +747,13 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                             let val = ctx
                                 .builder
                                 .build_signed_int_to_float(arg, ctx.ctx.f64_type(), "sitofp")
+                                .into();
+                            Some(val)
+                        } else if [uint32, uint64].iter().any(|ty| ctx.unifier.unioned(arg_ty, *ty)) {
+                            let arg = arg.into_int_value();
+                            let val = ctx
+                                .builder
+                                .build_unsigned_int_to_float(arg, ctx.ctx.f64_type(), "uitofp")
                                 .into();
                             Some(val)
                         } else if ctx.unifier.unioned(arg_ty, float) {
