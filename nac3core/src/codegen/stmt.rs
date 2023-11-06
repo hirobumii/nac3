@@ -99,63 +99,69 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             }
         }
         ExprKind::Subscript { value, slice, .. } => {
-            assert!(matches!(
-                ctx.unifier.get_ty_immutable(value.custom.unwrap()).as_ref(),
-                TypeEnum::TList { .. },
-            ));
-            let i32_type = ctx.ctx.i32_type();
-            let zero = i32_type.const_zero();
-            let v = if let Some(v) = generator.gen_expr(ctx, value)? {
-                v.to_basic_value_enum(ctx, generator, value.custom.unwrap())?.into_pointer_value()
-            } else {
-                return Ok(None)
-            };
-            let len = ctx
-                .build_gep_and_load(v, &[zero, i32_type.const_int(1, false)], Some("len"))
-                .into_int_value();
-            let raw_index = if let Some(v) = generator.gen_expr(ctx, slice)? {
-                v.to_basic_value_enum(ctx, generator, slice.custom.unwrap())?.into_int_value()
-            } else {
-                return Ok(None)
-            };
-            let raw_index = ctx.builder.build_int_s_extend(
-                raw_index,
-                generator.get_size_type(ctx.ctx),
-                "sext",
-            );
-            // handle negative index
-            let is_negative = ctx.builder.build_int_compare(
-                IntPredicate::SLT,
-                raw_index,
-                generator.get_size_type(ctx.ctx).const_zero(),
-                "is_neg",
-            );
-            let adjusted = ctx.builder.build_int_add(raw_index, len, "adjusted");
-            let index = ctx
-                .builder
-                .build_select(is_negative, adjusted, raw_index, "index")
-                .into_int_value();
-            // unsigned less than is enough, because negative index after adjustment is
-            // bigger than the length (for unsigned cmp)
-            let bound_check = ctx.builder.build_int_compare(
-                IntPredicate::ULT,
-                index,
-                len,
-                "inbound",
-            );
-            ctx.make_assert(
-                generator,
-                bound_check,
-                "0:IndexError",
-                "index {0} out of bounds 0:{1}",
-                [Some(raw_index), Some(len), None],
-                slice.location,
-            );
-            unsafe {
-                let arr_ptr = ctx
-                    .build_gep_and_load(v, &[i32_type.const_zero(), i32_type.const_zero()], Some("arr.addr"))
-                    .into_pointer_value();
-                ctx.builder.build_gep(arr_ptr, &[index], name.unwrap_or(""))
+            match ctx.unifier.get_ty_immutable(value.custom.unwrap()).as_ref() {
+                TypeEnum::TList { .. } => {
+                    let i32_type = ctx.ctx.i32_type();
+                    let zero = i32_type.const_zero();
+                    let v = generator
+                        .gen_expr(ctx, value)?
+                        .unwrap()
+                        .to_basic_value_enum(ctx, generator, value.custom.unwrap())?
+                        .into_pointer_value();
+                    let len = ctx
+                        .build_gep_and_load(v, &[zero, i32_type.const_int(1, false)], Some("len"))
+                        .into_int_value();
+                    let raw_index = generator
+                        .gen_expr(ctx, slice)?
+                        .unwrap()
+                        .to_basic_value_enum(ctx, generator, slice.custom.unwrap())?
+                        .into_int_value();
+                    let raw_index = ctx.builder.build_int_s_extend(
+                        raw_index,
+                        generator.get_size_type(ctx.ctx),
+                        "sext",
+                    );
+                    // handle negative index
+                    let is_negative = ctx.builder.build_int_compare(
+                        IntPredicate::SLT,
+                        raw_index,
+                        generator.get_size_type(ctx.ctx).const_zero(),
+                        "is_neg",
+                    );
+                    let adjusted = ctx.builder.build_int_add(raw_index, len, "adjusted");
+                    let index = ctx
+                        .builder
+                        .build_select(is_negative, adjusted, raw_index, "index")
+                        .into_int_value();
+                    // unsigned less than is enough, because negative index after adjustment is
+                    // bigger than the length (for unsigned cmp)
+                    let bound_check = ctx.builder.build_int_compare(
+                        IntPredicate::ULT,
+                        index,
+                        len,
+                        "inbound",
+                    );
+                    ctx.make_assert(
+                        generator,
+                        bound_check,
+                        "0:IndexError",
+                        "index {0} out of bounds 0:{1}",
+                        [Some(raw_index), Some(len), None],
+                        slice.location,
+                    );
+                    unsafe {
+                        let arr_ptr = ctx
+                            .build_gep_and_load(v, &[i32_type.const_zero(), i32_type.const_zero()], Some("arr.addr"))
+                            .into_pointer_value();
+                        ctx.builder.build_gep(arr_ptr, &[index], name.unwrap_or(""))
+                    }
+                }
+
+                TypeEnum::TNDArray { .. } => {
+                    todo!()
+                }
+
+                _ => unreachable!(),
             }
         }
         _ => unreachable!(),
@@ -203,7 +209,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
             let value = value
                 .to_basic_value_enum(ctx, generator, target.custom.unwrap())?
                 .into_pointer_value();
-                let TypeEnum::TList { ty } = &*ctx.unifier.get_ty(target.custom.unwrap()) else {
+                let (TypeEnum::TList { ty } | TypeEnum::TNDArray { ty, .. }) = &*ctx.unifier.get_ty(target.custom.unwrap()) else {
                     unreachable!()
                 };
 

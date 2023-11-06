@@ -470,6 +470,22 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             )))),
             loc: None,
         })),
+        {
+            let tvar = primitives.1.get_fresh_var(Some("T".into()), None);
+            let ndims = primitives.1.get_fresh_const_generic_var(primitives.0.uint64, Some("N".into()), None);
+
+            Arc::new(RwLock::new(TopLevelDef::Class {
+                name: "ndarray".into(),
+                object_id: DefinitionId(14),
+                type_vars: vec![tvar.0, ndims.0],
+                fields: Vec::default(),
+                methods: Vec::default(),
+                ancestors: Vec::default(),
+                constructor: None,
+                resolver: None,
+                loc: None,
+            }))
+        },
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "int32".into(),
             simple_name: "int32".into(),
@@ -1265,10 +1281,13 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         Arc::new(RwLock::new({
-            let list_var = primitives.1.get_fresh_var(Some("L".into()), None);
-            let list = primitives.1.add_ty(TypeEnum::TList { ty: list_var.0 });
+            let tvar = primitives.1.get_fresh_var(Some("L".into()), None);
+            let list = primitives.1.add_ty(TypeEnum::TList { ty: tvar.0 });
+            let ndims = primitives.1.get_fresh_const_generic_var(primitives.0.uint64, Some("N".into()), None);
+            let ndarray = primitives.1.add_ty(TypeEnum::TNDArray { ty: tvar.0, ndims: ndims.0 });
+
             let arg_ty = primitives.1.get_fresh_var_with_range(
-                &[list, primitives.0.range],
+                &[list, ndarray, primitives.0.range],
                 Some("I".into()),
                 None,
             );
@@ -1278,7 +1297,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
                     args: vec![FuncArg { name: "ls".into(), ty: arg_ty.0, default_value: None }],
                     ret: int32,
-                    vars: vec![(list_var.1, list_var.0), (arg_ty.1, arg_ty.0)]
+                    vars: vec![(tvar.1, tvar.0), (arg_ty.1, arg_ty.0)]
                         .into_iter()
                         .collect(),
                 })),
@@ -1296,19 +1315,25 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                             let (start, end, step) = destructure_range(ctx, arg);
                             Some(calculate_len_for_slice_range(generator, ctx, start, end, step).into())
                         } else {
-                            let int32 = ctx.ctx.i32_type();
-                            let zero = int32.const_zero();
-                            let len = ctx
-                                .build_gep_and_load(
-                                    arg.into_pointer_value(),
-                                    &[zero, int32.const_int(1, false)],
-                                    None,
-                                )
-                                .into_int_value();
-                            if len.get_type().get_bit_width() == 32 {
-                                Some(len.into())
-                            } else {
-                                Some(ctx.builder.build_int_truncate(len, int32, "len2i32").into())
+                            match &*ctx.unifier.get_ty_immutable(arg_ty) {
+                                TypeEnum::TList { .. } => {
+                                    let int32 = ctx.ctx.i32_type();
+                                    let zero = int32.const_zero();
+                                    let len = ctx
+                                        .build_gep_and_load(
+                                            arg.into_pointer_value(),
+                                            &[zero, int32.const_int(1, false)],
+                                            None,
+                                        )
+                                        .into_int_value();
+                                    if len.get_type().get_bit_width() == 32 {
+                                        Some(len.into())
+                                    } else {
+                                        Some(ctx.builder.build_int_truncate(len, int32, "len2i32").into())
+                                    }
+                                }
+                                TypeEnum::TNDArray { .. } => todo!(),
+                                _ => unreachable!(),
                             }
                         })
                     },

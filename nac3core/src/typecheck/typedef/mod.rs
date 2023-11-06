@@ -159,6 +159,11 @@ pub enum TypeEnum {
         ty: Type,
     },
 
+    TNDArray {
+        ty: Type,
+        ndims: Type,
+    },
+
     /// An object type.
     TObj {
         /// The [DefintionId] of this object type.
@@ -193,6 +198,7 @@ impl TypeEnum {
             TypeEnum::TLiteral { .. } => "TConstant",
             TypeEnum::TTuple { .. } => "TTuple",
             TypeEnum::TList { .. } => "TList",
+            TypeEnum::TNDArray { .. } => "TNDArray",
             TypeEnum::TObj { .. } => "TObj",
             TypeEnum::TVirtual { .. } => "TVirtual",
             TypeEnum::TCall { .. } => "TCall",
@@ -418,6 +424,9 @@ impl Unifier {
             TypeEnum::TList { ty } => self
                 .get_instantiations(*ty)
                 .map(|ty| ty.iter().map(|&ty| self.add_ty(TypeEnum::TList { ty })).collect_vec()),
+            TypeEnum::TNDArray { ty, ndims } => self
+                .get_instantiations(*ty)
+                .map(|ty| ty.iter().map(|&ty| self.add_ty(TypeEnum::TNDArray { ty, ndims: *ndims })).collect_vec()),
             TypeEnum::TVirtual { ty } => self.get_instantiations(*ty).map(|ty| {
                 ty.iter().map(|&ty| self.add_ty(TypeEnum::TVirtual { ty })).collect_vec()
             }),
@@ -470,6 +479,7 @@ impl Unifier {
             TVar { .. } => allowed_typevars.iter().any(|b| self.unification_table.unioned(a, *b)),
             TCall { .. } => false,
             TList { ty } | TVirtual { ty } => self.is_concrete(*ty, allowed_typevars),
+            TNDArray { ty, .. } => self.is_concrete(*ty, allowed_typevars),
             TTuple { ty } => ty.iter().all(|ty| self.is_concrete(*ty, allowed_typevars)),
             TObj { params: vars, .. } => {
                 vars.values().all(|ty| self.is_concrete(*ty, allowed_typevars))
@@ -717,7 +727,8 @@ impl Unifier {
                 self.unify_impl(x, b, false)?;
                 self.set_a_to_b(a, x);
             }
-            (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TList { ty }) => {
+            (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TList { ty }) |
+            (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TNDArray { ty, .. }) => {
                 for (k, v) in fields {
                     match *k {
                         RecordKey::Int(_) => {
@@ -826,6 +837,15 @@ impl Unifier {
             (TList { ty: ty1 }, TList { ty: ty2 }) => {
                 if self.unify_impl(*ty1, *ty2, false).is_err() {
                     return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
+                }
+                self.set_a_to_b(a, b);
+            }
+            (TNDArray { ty: ty1, ndims: ndims1 }, TNDArray { ty: ty2, ndims: ndims2 }) => {
+                if self.unify_impl(*ty1, *ty2, false).is_err() {
+                    return self.incompatible_types(a, b)
+                }
+                if self.unify_impl(*ndims1, *ndims2, false).is_err() {
+                    return self.incompatible_types(a, b)
                 }
                 self.set_a_to_b(a, b);
             }
@@ -1076,6 +1096,13 @@ impl Unifier {
             TypeEnum::TList { ty } => {
                 format!("list[{}]", self.internal_stringify(*ty, obj_to_name, var_to_name, notes))
             }
+            TypeEnum::TNDArray { ty, ndims } => {
+                format!(
+                    "ndarray[{}, {}]",
+                    self.internal_stringify(*ty, obj_to_name, var_to_name, notes),
+                    self.internal_stringify(*ndims, obj_to_name, var_to_name, notes),
+                )
+            }
             TypeEnum::TVirtual { ty } => {
                 format!(
                     "virtual[{}]",
@@ -1195,7 +1222,7 @@ impl Unifier {
         // variables, i.e. things like TRecord, TCall should not occur, and we
         // should be safe to not implement the substitution for those variants.
         match &*ty {
-            TypeEnum::TRigidVar { .. } => None,
+            TypeEnum::TRigidVar { .. } | TypeEnum::TLiteral { .. } => None,
             TypeEnum::TVar { id, .. } => mapping.get(id).copied(),
             TypeEnum::TTuple { ty } => {
                 let mut new_ty = Cow::from(ty);
@@ -1212,6 +1239,19 @@ impl Unifier {
             }
             TypeEnum::TList { ty } => {
                 self.subst_impl(*ty, mapping, cache).map(|t| self.add_ty(TypeEnum::TList { ty: t }))
+            }
+            TypeEnum::TNDArray { ty, ndims } => {
+                let new_ty = self.subst_impl(*ty, mapping, cache);
+                let new_ndims = self.subst_impl(*ndims, mapping, cache);
+
+                if new_ty.is_some() || new_ndims.is_some() {
+                    Some(self.add_ty(TypeEnum::TNDArray {
+                        ty: new_ty.unwrap_or(*ty),
+                        ndims: new_ndims.unwrap_or(*ndims)
+                    }))
+                } else {
+                    None
+                }
             }
             TypeEnum::TVirtual { ty } => self
                 .subst_impl(*ty, mapping, cache)
@@ -1382,6 +1422,19 @@ impl Unifier {
             }
             (TList { ty: ty1 }, TList { ty: ty2 }) => {
                 Ok(self.get_intersection(*ty1, *ty2)?.map(|ty| self.add_ty(TList { ty })))
+            }
+            (TNDArray { ty: ty1, ndims: ndims1 }, TNDArray { ty: ty2, ndims: ndims2 }) => {
+                let ty = self.get_intersection(*ty1, *ty2)?;
+                let ndims = self.get_intersection(*ndims1, *ndims2)?;
+
+                Ok(if ty.is_some() || ndims.is_some() {
+                    Some(self.add_ty(TNDArray {
+                        ty: ty.unwrap_or(*ty1),
+                        ndims: ndims.unwrap_or(*ndims1),
+                    }))
+                } else {
+                    None
+                })
             }
             (TVirtual { ty: ty1 }, TVirtual { ty: ty2 }) => {
                 Ok(self.get_intersection(*ty1, *ty2)?.map(|ty| self.add_ty(TVirtual { ty })))

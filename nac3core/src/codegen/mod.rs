@@ -507,6 +507,24 @@ fn get_llvm_type<'ctx>(
                 ];
                 ctx.struct_type(&fields, false).ptr_type(AddressSpace::default()).into()
             }
+            TNDArray { ty, .. } => {
+                let llvm_usize = generator.get_size_type(ctx);
+                let element_type = get_llvm_type(
+                    ctx, module, generator, unifier, top_level, type_cache, primitives, *ty,
+                );
+
+                // struct NDArray { num_dims: size_t, dims: size_t*, data: T* }
+                //
+                // * num_dims: Number of dimensions in the array
+                // * dims: Pointer to an array containing the size of each dimension
+                // * data: Pointer to an array containing the array data
+                let fields = [
+                    llvm_usize.into(),
+                    llvm_usize.ptr_type(AddressSpace::default()).into(),
+                    element_type.ptr_type(AddressSpace::default()).into(),
+                ];
+                ctx.struct_type(&fields, false).ptr_type(AddressSpace::default()).into()
+            }
             TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),
         };

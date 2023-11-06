@@ -1846,6 +1846,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         ctx.build_gep_and_load(arr_ptr, &[index], None).into()
                     }
                 }
+                TypeEnum::TNDArray { .. } => {
+                    return Err(String::from("subscript operator for ndarray not implemented"))
+                }
                 TypeEnum::TTuple { .. } => {
                     let index: u32 =
                         if let ExprKind::Constant { value: Constant::Int(v), .. } = &slice.node {

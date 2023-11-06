@@ -354,13 +354,14 @@ pub trait SymbolResolver {
 }
 
 thread_local! {
-    static IDENTIFIER_ID: [StrRef; 11] = [
+    static IDENTIFIER_ID: [StrRef; 12] = [
         "int32".into(),
         "int64".into(),
         "float".into(),
         "bool".into(),
         "virtual".into(),
         "list".into(),
+        "ndarray".into(),
         "tuple".into(),
         "str".into(),
         "Exception".into(),
@@ -385,11 +386,12 @@ pub fn parse_type_annotation<T>(
     let bool_id = ids[3];
     let virtual_id = ids[4];
     let list_id = ids[5];
-    let tuple_id = ids[6];
-    let str_id = ids[7];
-    let exn_id = ids[8];
-    let uint32_id = ids[9];
-    let uint64_id = ids[10];
+    let ndarray_id = ids[6];
+    let tuple_id = ids[7];
+    let str_id = ids[8];
+    let exn_id = ids[9];
+    let uint32_id = ids[10];
+    let uint64_id = ids[11];
 
     let name_handling = |id: &StrRef, loc: Location, unifier: &mut Unifier| {
         if *id == int32_id {
@@ -460,6 +462,21 @@ pub fn parse_type_annotation<T>(
         } else if *id == list_id {
             let ty = parse_type_annotation(resolver, top_level_defs, unifier, primitives, slice)?;
             Ok(unifier.add_ty(TypeEnum::TList { ty }))
+        } else if *id == ndarray_id {
+            let Tuple { elts, .. } = &slice.node else {
+                return Err(HashSet::from([
+                    String::from("Expected 2 type arguments for ndarray"),
+                ]))
+            };
+            if elts.len() < 2 {
+                return Err(HashSet::from([
+                    String::from("Expected 2 type arguments for ndarray"),
+                ]))
+            }
+
+            let ty = parse_type_annotation(resolver, top_level_defs, unifier, primitives, &elts[0])?;
+            let ndims = parse_type_annotation(resolver, top_level_defs, unifier, primitives, &elts[1])?;
+            Ok(unifier.add_ty(TypeEnum::TNDArray { ty, ndims }))
         } else if *id == tuple_id {
             if let Tuple { elts, .. } = &slice.node {
                 let ty = elts

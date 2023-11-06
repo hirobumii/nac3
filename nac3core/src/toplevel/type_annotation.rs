@@ -491,11 +491,24 @@ pub fn get_type_from_type_annotation_kinds(
                 (*name, (subst_ty, *mutability))
             }));
             let need_subst = !subst.is_empty();
-            let ty = unifier.add_ty(TypeEnum::TObj {
-                obj_id: *obj_id,
-                fields: tobj_fields,
-                params: subst,
-            });
+            let ty = if obj_id == &DefinitionId(14) {
+                assert_eq!(subst.len(), 2);
+                let tv_tys = subst.iter()
+                    .sorted_by_key(|(k, _)| *k)
+                    .map(|(_, v)| v)
+                    .collect_vec();
+
+                unifier.add_ty(TypeEnum::TNDArray {
+                    ty: *tv_tys[0],
+                    ndims: *tv_tys[1],
+                })
+            } else {
+                unifier.add_ty(TypeEnum::TObj {
+                    obj_id: *obj_id,
+                    fields: tobj_fields,
+                    params: subst,
+                })
+            };
             if need_subst {
                 if let Some(wl) = subst_list.as_mut() {
                     wl.push(ty);

@@ -33,6 +33,7 @@ impl Unifier {
                     && ty1.iter().zip(ty2.iter()).all(|(t1, t2)| self.eq(*t1, *t2))
             }
             (TypeEnum::TList { ty: ty1 }, TypeEnum::TList { ty: ty2 })
+            | (TypeEnum::TNDArray { ty: ty1 }, TypeEnum::TNDArray { ty: ty2 })
             | (TypeEnum::TVirtual { ty: ty1 }, TypeEnum::TVirtual { ty: ty2 }) => {
                 self.eq(*ty1, *ty2)
             }

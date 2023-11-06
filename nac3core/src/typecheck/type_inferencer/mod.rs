@@ -223,8 +223,12 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 if self.unifier.unioned(iter.custom.unwrap(), self.primitives.range) {
                     self.unify(self.primitives.int32, target.custom.unwrap(), &target.location)?;
                 } else {
-                    let list = self.unifier.add_ty(TypeEnum::TList { ty: target.custom.unwrap() });
-                    self.unify(list, iter.custom.unwrap(), &iter.location)?;
+                    let list_like_ty = match &*self.unifier.get_ty(iter.custom.unwrap()) {
+                        TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty: target.custom.unwrap() }),
+                        TypeEnum::TNDArray { .. } => todo!(),
+                        _ => unreachable!(),
+                    };
+                    self.unify(list_like_ty, iter.custom.unwrap(), &iter.location)?;
                 }
                 let body =
                     body.into_iter().map(|b| self.fold_stmt(b)).collect::<Result<Vec<_>, _>>()?;
@@ -1137,9 +1141,13 @@ impl<'a> Inferencer<'a> {
                 for v in [lower.as_ref(), upper.as_ref(), step.as_ref()].iter().flatten() {
                     self.constrain(v.custom.unwrap(), self.primitives.int32, &v.location)?;
                 }
-                let list = self.unifier.add_ty(TypeEnum::TList { ty });
-                self.constrain(value.custom.unwrap(), list, &value.location)?;
-                Ok(list)
+                let list_like_ty = match &*self.unifier.get_ty(value.custom.unwrap()) {
+                    TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty }),
+                    TypeEnum::TNDArray { ndims, .. } => self.unifier.add_ty(TypeEnum::TNDArray { ty, ndims: *ndims }),
+                    _ => unreachable!()
+                };
+                self.constrain(value.custom.unwrap(), list_like_ty, &value.location)?;
+                Ok(list_like_ty)
             }
             ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
                 // the index is a constant, so value can be a sequence.
@@ -1159,10 +1167,15 @@ impl<'a> Inferencer<'a> {
                 {
                     return report_error("Tuple index must be a constant (KernelInvariant is also not supported)", slice.location)
                 }
+
                 // the index is not a constant, so value can only be a list
                 self.constrain(slice.custom.unwrap(), self.primitives.int32, &slice.location)?;
-                let list = self.unifier.add_ty(TypeEnum::TList { ty });
-                self.constrain(value.custom.unwrap(), list, &value.location)?;
+                let list_like_ty = match &*self.unifier.get_ty(value.custom.unwrap()) {
+                    TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty }),
+                    TypeEnum::TNDArray { .. } => todo!(),
+                    _ => unreachable!(),
+                };
+                self.constrain(value.custom.unwrap(), list_like_ty, &value.location)?;
                 Ok(ty)
             }
         }

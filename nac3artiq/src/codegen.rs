@@ -400,6 +400,9 @@ fn gen_rpc_tag(
                 buffer.push(b'l');
                 gen_rpc_tag(ctx, *ty, buffer)?;
             }
+            TNDArray { .. } => {
+                todo!()
+            }
             _ => return Err(format!("Unsupported type: {:?}", ctx.unifier.stringify(ty))),
         }
     }
@@ -666,6 +669,14 @@ pub fn attributes_writeback(
                     }
                 },
                 TypeEnum::TList { ty: elem_ty } => {
+                    if gen_rpc_tag(ctx, *elem_ty, &mut scratch_buffer).is_ok() {
+                        let pydict = PyDict::new(py);
+                        pydict.set_item("obj", val)?;
+                        host_attributes.append(pydict)?;
+                        values.push((ty, inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap()));
+                    }
+                },
+                TypeEnum::TNDArray { ty: elem_ty, .. } => {
                     if gen_rpc_tag(ctx, *elem_ty, &mut scratch_buffer).is_ok() {
                         let pydict = PyDict::new(py);
                         pydict.set_item("obj", val)?;

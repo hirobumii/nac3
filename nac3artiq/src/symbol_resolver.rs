@@ -302,6 +302,12 @@ impl InnerResolver {
             let var = unifier.get_dummy_var().0;
             let list = unifier.add_ty(TypeEnum::TList { ty: var });
             Ok(Ok((list, false)))
+        } else if ty_id == self.primitive_ids.ndarray {
+            // do not handle type var param and concrete check here
+            let var = unifier.get_dummy_var().0;
+            let ndims = unifier.get_fresh_const_generic_var(primitives.usize(), None, None).0;
+            let ndarray = unifier.add_ty(TypeEnum::TNDArray { ty: var, ndims });
+            Ok(Ok((ndarray, false)))
         } else if ty_id == self.primitive_ids.tuple {
             // do not handle type var param and concrete check here
             Ok(Ok((unifier.add_ty(TypeEnum::TTuple { ty: vec![] }), false)))
@@ -445,6 +451,16 @@ impl InnerResolver {
                             args.len()
                         )));
                     }
+                }
+                TypeEnum::TNDArray { .. } => {
+                    if args.len() != 2 {
+                        return Ok(Err(format!(
+                            "type list needs exactly 2 type parameters, found {}",
+                            args.len()
+                        )));
+                    }
+
+                    todo!()
                 }
                 TypeEnum::TTuple { .. } => {
                     let args = match args
@@ -607,7 +623,7 @@ impl InnerResolver {
             Err(e) => return Ok(Err(e)),
         };
         match (&*unifier.get_ty(extracted_ty), inst_check) {
-            // do the instantiation for these three types
+            // do the instantiation for these four types
             (TypeEnum::TList { ty }, false) => {
                 let len: usize = self.helper.len_fn.call1(py, (obj,))?.extract(py)?;
                 if len == 0 {
@@ -626,6 +642,30 @@ impl InnerResolver {
                             Err(e) => Ok(Err(format!(
                                 "type error ({}) for the list",
                                 e.to_display(unifier)
+                            ))),
+                        },
+                        Err(e) => Ok(Err(e)),
+                    }
+                }
+            }
+            (TypeEnum::TNDArray { ty, ndims }, false) => {
+                let len: usize = self.helper.len_fn.call1(py, (obj,))?.extract(py)?;
+                if len == 0 {
+                    assert!(matches!(
+                        &*unifier.get_ty(*ty),
+                        TypeEnum::TVar { fields: None, range, .. }
+                            if range.is_empty()
+                    ));
+                    Ok(Ok(extracted_ty))
+                } else {
+                    let actual_ty =
+                        self.get_list_elem_type(py, obj, len, unifier, defs, primitives)?;
+                    match actual_ty {
+                        Ok(t) => match unifier.unify(*ty, t) {
+                            Ok(_) => Ok(Ok(unifier.add_ty(TypeEnum::TNDArray { ty: *ty, ndims: *ndims }))),
+                            Err(e) => Ok(Err(format!(
+                                "type error ({}) for the ndarray",
+                                e.to_display(unifier).to_string()
                             ))),
                         },
                         Err(e) => Ok(Err(e)),
@@ -898,6 +938,8 @@ impl InnerResolver {
             global.set_initializer(&val);
 
             Ok(Some(global.as_pointer_value().into()))
+        } else if ty_id == self.primitive_ids.ndarray {
+            todo!()
         } else if ty_id == self.primitive_ids.tuple {
             let expected_ty_enum = ctx.unifier.get_ty_immutable(expected_ty);
             let TypeEnum::TTuple { ty } = expected_ty_enum.as_ref() else {
