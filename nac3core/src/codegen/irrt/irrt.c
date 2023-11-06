@@ -146,3 +146,54 @@ int32_t __nac3_isinf(double x) {
 int32_t __nac3_isnan(double x) {
     return __builtin_isnan(x);
 }
+
+double tgamma(double arg);
+
+double __nac3_gamma(double z) {
+    // Handling for denormals
+    //     | x                 | Python gamma(x) | C tgamma(x) |
+    // --- | ----------------- | --------------- | ----------- |
+    // (1) | nan               | nan             | nan         |
+    // (2) | -inf              | -inf            | inf         |
+    // (3) | inf               | inf             | inf         |
+    // (4) | 0.0               | inf             | inf         |
+    // (5) | {-1.0, -2.0, ...} | inf             | nan         |
+
+    // (1)-(3)
+    if (__builtin_isinf(z) || __builtin_isnan(z)) {
+        return z;
+    }
+
+    double v = tgamma(z);
+
+    // (4)-(5)
+    return __builtin_isinf(v) || __builtin_isnan(v) ? __builtin_inf() : v;
+}
+
+double lgamma(double arg);
+
+double __nac3_gammaln(double x) {
+    // libm's handling of value overflows differs from scipy:
+    // - scipy: gammaln(-inf) -> -inf
+    // - libm : lgamma(-inf) -> inf
+
+    if (__builtin_isinf(x)) {
+        return x;
+    }
+
+    return lgamma(x);
+}
+
+double j0(double x);
+
+double __nac3_j0(double x) {
+    // libm's handling of value overflows differs from scipy:
+    // - scipy: j0(inf) -> nan
+    // - libm : j0(inf) -> 0.0
+
+    if (__builtin_isinf(x)) {
+        return __builtin_nan("");
+    }
+
+    return j0(x);
+}
