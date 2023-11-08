@@ -89,12 +89,12 @@
             (pkgs.fetchFromGitHub {
               owner = "m-labs";
               repo = "artiq";
-              rev = "dd57fdc530baf926a5f354dc1c2bd90564affd96";
-              sha256 = "sha256-hcqVcToYWkc3oDFkKr9wZUF65ydiSYVHdmiGiu2Mc1c=";
+              rev = "4fa0419c8262099ef297bf8b417f51f4095b2df5";
+              sha256 = "sha256-edFO4scUlVeZtrPcqnmsjsAI/DgoSRDAbzG60ZP+ZX8=";
             })
           ];
           buildInputs = [
-            (python3-mimalloc.withPackages(ps: [ ps.numpy ps.scipy ps.jsonschema nac3artiq-instrumented ]))
+            (python3-mimalloc.withPackages(ps: [ ps.numpy ps.scipy ps.jsonschema ps.lmdb nac3artiq-instrumented ]))
             pkgs.llvmPackages_14.llvm.out
           ];
           phases = [ "buildPhase" "installPhase" ];
