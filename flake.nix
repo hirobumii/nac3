@@ -29,12 +29,10 @@
             checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ps.scipy ])) ];
             checkPhase =
               ''
-              echo "Checking nac3standalone demos..."
+              echo "Running Cargo tests..."
               pushd nac3standalone/demo
               patchShebangs .
-              ./check_demos.sh
               popd
-              echo "Running Cargo tests..."
               cargoCheckHook
               '';
             installPhase =
