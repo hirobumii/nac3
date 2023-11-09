@@ -34,6 +34,9 @@ mod basic_symbol_resolver;
 use basic_symbol_resolver::*;
 use nac3core::toplevel::composer::ComposerConfig;
 
+#[cfg(test)]
+mod test;
+
 /// Command-line argument parser definition.
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
