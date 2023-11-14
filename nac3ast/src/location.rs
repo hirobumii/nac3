@@ -1,8 +1,9 @@
 //! Datatypes to support source location information.
+use std::cmp::Ordering;
 use crate::ast_gen::StrRef;
 use std::fmt;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FileName(pub StrRef);
 impl Default for FileName {
     fn default() -> Self {
@@ -17,7 +18,7 @@ impl From<String> for FileName {
 }
 
 /// A location somewhere in the sourcecode.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Location {
     pub row: usize,
     pub column: usize,
@@ -27,6 +28,28 @@ pub struct Location {
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}:{}:{}", self.file.0, self.row, self.column)
+    }
+}
+
+impl Ord for Location {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let file_cmp = self.file.0.to_string().cmp(&other.file.0.to_string());
+        if file_cmp != Ordering::Equal {
+            return file_cmp
+        }
+
+        let row_cmp = self.row.cmp(&other.row);
+        if row_cmp != Ordering::Equal {
+            return row_cmp
+        }
+
+        self.column.cmp(&other.column)
+    }
+}
+
+impl PartialOrd for Location {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
