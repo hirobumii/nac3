@@ -1649,7 +1649,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     let fun = ctx
                         .resolver
                         .get_identifier_def(*id)
-                        .map_err(|e| format!("{} (at {})", e, func.location))?;
+                        .map_err(|e| format!("{} (at {})", e.iter().next().unwrap(), func.location))?;
                     return Ok(generator
                         .gen_call(ctx, None, (&signature, fun), params)?
                         .map(Into::into));

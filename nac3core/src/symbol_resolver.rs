@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, collections::HashSet, fmt::Display};
 use std::rc::Rc;
 
 use crate::typecheck::typedef::TypeEnum;
@@ -296,7 +296,7 @@ pub trait SymbolResolver {
     ) -> Result<Type, String>;
 
     /// Get the top-level definition of identifiers.
-    fn get_identifier_def(&self, str: StrRef) -> Result<DefinitionId, String>;
+    fn get_identifier_def(&self, str: StrRef) -> Result<DefinitionId, HashSet<String>>;
 
     fn get_symbol_value<'ctx>(
         &self,
@@ -341,7 +341,7 @@ pub fn parse_type_annotation<T>(
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     expr: &Expr<T>,
-) -> Result<Type, String> {
+) -> Result<Type, HashSet<String>> {
     use nac3parser::ast::ExprKind::*;
     let ids = IDENTIFIER_ID.with(|ids| *ids);
     let int32_id = ids[0];
@@ -379,10 +379,12 @@ pub fn parse_type_annotation<T>(
                 let def = top_level_defs[obj_id.0].read();
                 if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
                     if !type_vars.is_empty() {
-                        return Err(format!(
-                            "Unexpected number of type parameters: expected {} but got 0",
-                            type_vars.len()
-                        ));
+                        return Err(HashSet::from([
+                            format!(
+                                "Unexpected number of type parameters: expected {} but got 0",
+                                type_vars.len()
+                            ),
+                        ]))
                     }
                     let fields = chain(
                         fields.iter().map(|(k, v, m)| (*k, (*v, *m))),
@@ -395,16 +397,22 @@ pub fn parse_type_annotation<T>(
                         params: HashMap::default(),
                     }))
                 } else {
-                    Err(format!("Cannot use function name as type at {loc}"))
+                    Err(HashSet::from([
+                        format!("Cannot use function name as type at {loc}"),
+                    ]))
                 }
             } else {
                 let ty = resolver
                     .get_symbol_type(unifier, top_level_defs, primitives, *id)
-                    .map_err(|e| format!("Unknown type annotation at {loc}: {e}"))?;
+                    .map_err(|e| HashSet::from([
+                        format!("Unknown type annotation at {loc}: {e}"),
+                    ]))?;
                 if let TypeEnum::TVar { .. } = &*unifier.get_ty(ty) {
                     Ok(ty)
                 } else {
-                    Err(format!("Unknown type annotation {id} at {loc}"))
+                    Err(HashSet::from([
+                        format!("Unknown type annotation {id} at {loc}"),
+                    ]))
                 }
             }
         }
@@ -427,7 +435,9 @@ pub fn parse_type_annotation<T>(
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(unifier.add_ty(TypeEnum::TTuple { ty }))
             } else {
-                Err("Expected multiple elements for tuple".into())
+                Err(HashSet::from([
+                    "Expected multiple elements for tuple".into()
+                ]))
             }
         } else {
             let types = if let Tuple { elts, .. } = &slice.node {
@@ -444,11 +454,13 @@ pub fn parse_type_annotation<T>(
             let def = top_level_defs[obj_id.0].read();
             if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
                 if types.len() != type_vars.len() {
-                    return Err(format!(
-                        "Unexpected number of type parameters: expected {} but got {}",
-                        type_vars.len(),
-                        types.len()
-                    ));
+                    return Err(HashSet::from([
+                        format!(
+                            "Unexpected number of type parameters: expected {} but got {}",
+                            type_vars.len(),
+                            types.len()
+                        ),
+                    ]))
                 }
                 let mut subst = HashMap::new();
                 for (var, ty) in izip!(type_vars.iter(), types.iter()) {
@@ -472,7 +484,9 @@ pub fn parse_type_annotation<T>(
                 }));
                 Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: subst }))
             } else {
-                Err("Cannot use function name as type".into())
+                Err(HashSet::from([
+                    "Cannot use function name as type".into(),
+                ]))
             }
         }
     };
@@ -483,10 +497,14 @@ pub fn parse_type_annotation<T>(
             if let Name { id, .. } = &value.node {
                 subscript_name_handle(id, slice, unifier)
             } else {
-                Err(format!("unsupported type expression at {}", expr.location))
+                Err(HashSet::from([
+                    format!("unsupported type expression at {}", expr.location),
+                ]))
             }
         }
-        _ => Err(format!("unsupported type expression at {}", expr.location)),
+        _ => Err(HashSet::from([
+            format!("unsupported type expression at {}", expr.location),
+        ])),
     }
 }
 
@@ -497,7 +515,7 @@ impl dyn SymbolResolver + Send + Sync {
         unifier: &mut Unifier,
         primitives: &PrimitiveStore,
         expr: &Expr<T>,
-    ) -> Result<Type, String> {
+    ) -> Result<Type, HashSet<String>> {
         parse_type_annotation(self, top_level_defs, unifier, primitives, expr)
     }
 

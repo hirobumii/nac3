@@ -63,12 +63,14 @@ impl SymbolResolver for Resolver {
         unimplemented!()
     }
 
-    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, String> {
+    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
         self.id_to_def
             .read()
             .get(&id)
             .cloned()
-            .ok_or_else(|| format!("cannot find symbol `{}`", id))
+            .ok_or_else(|| HashSet::from([
+                format!("cannot find symbol `{}`", id),
+            ]))
     }
 
     fn get_string_id(&self, _: &str) -> i32 {

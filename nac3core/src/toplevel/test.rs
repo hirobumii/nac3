@@ -64,8 +64,9 @@ impl SymbolResolver for Resolver {
         unimplemented!()
     }
 
-    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, String> {
-        self.0.id_to_def.lock().get(&id).cloned().ok_or_else(|| "Unknown identifier".to_string())
+    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
+        self.0.id_to_def.lock().get(&id).cloned()
+            .ok_or_else(|| HashSet::from(["Unknown identifier".to_string()]))
     }
 
     fn get_string_id(&self, _: &str) -> i32 {
@@ -551,9 +552,9 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
 
     if let Err(msg) = composer.start_analysis(false) {
         if print {
-            println!("{}", msg);
+            println!("{}", msg.iter().sorted().join("\n----------\n"));
         } else {
-            assert_eq!(res[0], msg);
+            assert_eq!(res[0], msg.iter().next().unwrap());
         }
     } else {
         // skip 5 to skip primitives
@@ -735,9 +736,9 @@ fn test_inference(source: Vec<&str>, res: Vec<&str>) {
 
     if let Err(msg) = composer.start_analysis(true) {
         if print {
-            println!("{}", msg);
+            println!("{}", msg.iter().sorted().join("\n----------\n"));
         } else {
-            assert_eq!(res[0], msg);
+            assert_eq!(res[0], msg.iter().next().unwrap());
         }
     } else {
         // skip 5 to skip primitives

@@ -13,6 +13,7 @@ use inkwell::{
     targets::*,
     OptimizationLevel,
 };
+use itertools::Itertools;
 use nac3core::codegen::{CodeGenLLVMOptions, CodeGenTargetMachineOptions, gen_func_impl};
 use nac3core::toplevel::builtins::get_exn_constructor;
 use nac3core::typecheck::typedef::{TypeEnum, Unifier};
@@ -470,7 +471,7 @@ impl Nac3 {
 
         if let Err(e) = composer.start_analysis(true) {
             // report error of __modinit__ separately
-            return if e.contains("<nac3_synthesized_modinit>") {
+            return if e.iter().any(|err| err.contains("<nac3_synthesized_modinit>")) {
                 let msg = Self::report_modinit(
                     &arg_names,
                     method_name,
@@ -481,12 +482,15 @@ impl Nac3 {
                 );
                 Err(CompileError::new_err(format!(
                     "compilation failed\n----------\n{}",
-                    msg.unwrap_or(e)
+                    msg.unwrap_or(e.iter().sorted().join("\n----------\n"))
                 )))
             } else {
-                Err(CompileError::new_err(format!(
-                    "compilation failed\n----------\n{e}"
-                )))
+                Err(CompileError::new_err(
+                    format!(
+                        "compilation failed\n----------\n{}",
+                        e.iter().sorted().join("\n----------\n"),
+                    ),
+                ))
             }
         }
         let top_level = Arc::new(composer.make_top_level_context());

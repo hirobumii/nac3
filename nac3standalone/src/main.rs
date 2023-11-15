@@ -8,6 +8,7 @@ use inkwell::{
 };
 use parking_lot::{Mutex, RwLock};
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
+use std::collections::HashSet;
 
 use nac3core::{
     codegen::{
@@ -74,24 +75,28 @@ fn handle_typevar_definition(
     def_list: &[Arc<RwLock<TopLevelDef>>],
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
-) -> Result<Type, String> {
+) -> Result<Type, HashSet<String>> {
     let ExprKind::Call { func, args, .. } = &var.node else {
-        return Err(format!(
-            "expression {var:?} cannot be handled as a generic parameter in global scope"
-        ))
+        return Err(HashSet::from([
+            format!(
+                "expression {var:?} cannot be handled as a generic parameter in global scope"
+            ),
+        ]))
     };
 
     match &func.node {
         ExprKind::Name { id, .. } if id == &"TypeVar".into() => {
             let ExprKind::Constant { value: Constant::Str(ty_name), .. } = &args[0].node else {
-                return Err(format!("Expected string constant for first parameter of `TypeVar`, got {:?}", &args[0].node))
+                return Err(HashSet::from([
+                    format!("Expected string constant for first parameter of `TypeVar`, got {:?}", &args[0].node),
+                ]))
             };
             let generic_name: StrRef = ty_name.to_string().into();
 
             let constraints = args
                 .iter()
                 .skip(1)
-                .map(|x| -> Result<Type, String> {
+                .map(|x| -> Result<Type, HashSet<String>> {
                     let ty = parse_ast_to_type_annotation_kinds(
                         resolver,
                         def_list,
@@ -109,7 +114,9 @@ fn handle_typevar_definition(
             let loc = func.location;
 
             if constraints.len() == 1 {
-                return Err(format!("A single constraint is not allowed (at {loc})"))
+                return Err(HashSet::from([
+                    format!("A single constraint is not allowed (at {loc})"),
+                ]))
             }
 
             Ok(unifier.get_fresh_var_with_range(&constraints, Some(generic_name), Some(loc)).0)
@@ -117,14 +124,18 @@ fn handle_typevar_definition(
 
         ExprKind::Name { id, .. } if id == &"ConstGeneric".into() => {
             if args.len() != 2 {
-                return Err(format!("Expected 2 arguments for `ConstGeneric`, got {}", args.len()))
+                return Err(HashSet::from([
+                    format!("Expected 2 arguments for `ConstGeneric`, got {}", args.len()),
+                ]))
             }
 
             let ExprKind::Constant { value: Constant::Str(ty_name), .. } = &args[0].node else {
-                return Err(format!(
-                    "Expected string constant for first parameter of `ConstGeneric`, got {:?}",
-                    &args[0].node
-                ))
+                return Err(HashSet::from([
+                    format!(
+                        "Expected string constant for first parameter of `ConstGeneric`, got {:?}",
+                        &args[0].node
+                    ),
+                ]))
             };
             let generic_name: StrRef = ty_name.to_string().into();
 
@@ -145,9 +156,11 @@ fn handle_typevar_definition(
             Ok(unifier.get_fresh_const_generic_var(constraint, Some(generic_name), Some(loc)).0)
         }
 
-        _ => Err(format!(
-            "expression {var:?} cannot be handled as a generic parameter in global scope"
-        ))
+        _ => Err(HashSet::from([
+            format!(
+                "expression {var:?} cannot be handled as a generic parameter in global scope"
+            ),
+        ]))
     }
 }
 

@@ -362,7 +362,7 @@ impl TopLevelComposer {
         }
     }
 
-    pub fn start_analysis(&mut self, inference: bool) -> Result<(), String> {
+    pub fn start_analysis(&mut self, inference: bool) -> Result<(), HashSet<String>> {
         self.analyze_top_level_class_type_var()?;
         self.analyze_top_level_class_bases()?;
         self.analyze_top_level_class_fields_methods()?;
@@ -374,7 +374,7 @@ impl TopLevelComposer {
     }
 
     /// step 1, analyze the type vars associated with top level class
-    fn analyze_top_level_class_type_var(&mut self) -> Result<(), String> {
+    fn analyze_top_level_class_type_var(&mut self) -> Result<(), HashSet<String>> {
         let def_list = &self.definition_ast_list;
         let temp_def_list = self.extract_def_list();
         let unifier = self.unifier.borrow_mut();
@@ -417,10 +417,12 @@ impl TopLevelComposer {
                         } =>
                     {
                         if is_generic {
-                            return Err(format!(
-                                "only single Generic[...] is allowed (at {})",
-                                b.location
-                            ));
+                            return Err(HashSet::from([
+                                format!(
+                                    "only single Generic[...] is allowed (at {})",
+                                    b.location
+                                ),
+                            ]))
                         }
                         is_generic = true;
 
@@ -459,10 +461,12 @@ impl TopLevelComposer {
                             })
                         };
                         if !all_unique_type_var {
-                            return Err(format!(
-                                "duplicate type variable occurs (at {})",
-                                slice.location
-                            ));
+                            return Err(HashSet::from([
+                                format!(
+                                    "duplicate type variable occurs (at {})",
+                                    slice.location
+                                ),
+                            ]))
                         }
 
                         // add to TopLevelDef
@@ -481,11 +485,11 @@ impl TopLevelComposer {
                 continue;
             }
             if let Err(e) = analyze(class_def, class_ast) {
-                errors.insert(e);
+                errors.extend(e);
             }
         }
         if !errors.is_empty() {
-            return Err(errors.into_iter().sorted().join("\n----------\n"));
+            return Err(errors)
         }
         Ok(())
     }
@@ -493,7 +497,7 @@ impl TopLevelComposer {
     /// step 2, base classes.
     /// now that the type vars of all classes are done, handle base classes and
     /// put Self class into the ancestors list. We only allow single inheritance
-    fn analyze_top_level_class_bases(&mut self) -> Result<(), String> {
+    fn analyze_top_level_class_bases(&mut self) -> Result<(), HashSet<String>> {
         if self.unifier.top_level.is_none() {
             let ctx = Arc::new(self.make_top_level_context());
             self.unifier.top_level = Some(ctx);
@@ -542,11 +546,13 @@ impl TopLevelComposer {
                     }
 
                     if has_base {
-                        return Err(format!(
-                            "a class definition can only have at most one base class \
-                        declaration and one generic declaration (at {})",
-                            b.location
-                        ));
+                        return Err(HashSet::from([
+                            format!(
+                                "a class definition can only have at most one base class \
+                                declaration and one generic declaration (at {})",
+                                b.location
+                            ),
+                        ]))
                     }
                     has_base = true;
 
@@ -565,10 +571,12 @@ impl TopLevelComposer {
                     if let TypeAnnotation::CustomClass { .. } = &base_ty {
                         class_ancestors.push(base_ty);
                     } else {
-                        return Err(format!(
-                            "class base declaration can only be custom class (at {})",
-                            b.location,
-                        ));
+                        return Err(HashSet::from([
+                            format!(
+                                "class base declaration can only be custom class (at {})",
+                                b.location,
+                            ),
+                        ]))
                     }
                 }
                 Ok(())
@@ -581,16 +589,16 @@ impl TopLevelComposer {
                 continue;
             }
             if let Err(e) = get_direct_parents(class_def, class_ast) {
-                errors.insert(e);
+                errors.extend(e);
             }
         }
         if !errors.is_empty() {
-            return Err(errors.into_iter().sorted().join("\n----------\n"));
+            return Err(errors)
         }
 
         // second, get all ancestors
         let mut ancestors_store: HashMap<DefinitionId, Vec<TypeAnnotation>> = HashMap::default();
-        let mut get_all_ancestors = |class_def: &Arc<RwLock<TopLevelDef>>| {
+        let mut get_all_ancestors = |class_def: &Arc<RwLock<TopLevelDef>>| -> Result<(), HashSet<String>> {
             let class_def = class_def.read();
             let (class_ancestors, class_id) = {
                 if let TopLevelDef::Class { ancestors, object_id, .. } = &*class_def {
@@ -615,11 +623,11 @@ impl TopLevelComposer {
                 continue;
             }
             if let Err(e) = get_all_ancestors(class_def) {
-                errors.insert(e);
+                errors.extend(e);
             }
         }
         if !errors.is_empty() {
-            return Err(errors.into_iter().sorted().join("\n----------\n"));
+            return Err(errors)
         }
 
         // insert the ancestors to the def list
@@ -657,7 +665,9 @@ impl TopLevelComposer {
                             stmt.node,
                             ast::StmtKind::FunctionDef { .. } | ast::StmtKind::AnnAssign { .. }
                         ) {
-                            return Err("Classes inherited from exception should have no custom fields/methods".into());
+                            return Err(HashSet::from([
+                                "Classes inherited from exception should have no custom fields/methods".into()
+                            ]))
                         }
                     }
                 } else {
@@ -680,7 +690,7 @@ impl TopLevelComposer {
     }
 
     /// step 3, class fields and methods
-    fn analyze_top_level_class_fields_methods(&mut self) -> Result<(), String> {
+    fn analyze_top_level_class_fields_methods(&mut self) -> Result<(), HashSet<String>> {
         let temp_def_list = self.extract_def_list();
         let primitives = &self.primitives_ty;
         let def_ast_list = &self.definition_ast_list;
@@ -703,12 +713,12 @@ impl TopLevelComposer {
                     &mut type_var_to_concrete_def,
                     (&self.keyword_list, &self.core_config),
                 ) {
-                    errors.insert(e);
+                    errors.extend(e);
                 }
             }
         }
         if !errors.is_empty() {
-            return Err(errors.into_iter().sorted().join("\n----------\n"));
+            return Err(errors)
         }
 
         // handle the inherited methods and fields
@@ -752,15 +762,16 @@ impl TopLevelComposer {
 
         let mut subst_list = Some(Vec::new());
         // unification of previously assigned typevar
-        let mut unification_helper = |ty, def| {
+        let mut unification_helper = |ty, def| -> Result<(), HashSet<String>> {
             let target_ty =
                 get_type_from_type_annotation_kinds(&temp_def_list, unifier, &def, &mut subst_list)?;
-            unifier.unify(ty, target_ty).map_err(|e| e.to_display(unifier).to_string())?;
+            unifier.unify(ty, target_ty)
+                .map_err(|e| HashSet::from([e.to_display(unifier).to_string()]))?;
             Ok(())
         };
         for (ty, def) in type_var_to_concrete_def {
             if let Err(e) = unification_helper(ty, def) {
-                errors.insert(e);
+                errors.extend(e);
             }
         }
         for ty in subst_list.unwrap() {
@@ -787,7 +798,7 @@ impl TopLevelComposer {
             }
         }
         if !errors.is_empty() {
-            return Err(errors.into_iter().sorted().join("\n----------\n"));
+            return Err(errors)
         }
 
         for (def, _) in def_ast_list.iter().skip(self.builtin_num) {
@@ -806,7 +817,7 @@ impl TopLevelComposer {
     }
 
     /// step 4, after class methods are done, top level functions have nothing unknown
-    fn analyze_top_level_function(&mut self) -> Result<(), String> {
+    fn analyze_top_level_function(&mut self) -> Result<(), HashSet<String>> {
         let def_list = &self.definition_ast_list;
         let keyword_list = &self.keyword_list;
         let temp_def_list = self.extract_def_list();
@@ -842,11 +853,13 @@ impl TopLevelComposer {
                             if !defined_parameter_name.insert(x.node.arg)
                                 || keyword_list.contains(&x.node.arg)
                             {
-                                return Err(format!(
-                                    "top level function must have unique parameter names \
-                                    and names should not be the same as the keywords (at {})",
-                                    x.location
-                                ));
+                                return Err(HashSet::from([
+                                    format!(
+                                        "top level function must have unique parameter names \
+                                        and names should not be the same as the keywords (at {})",
+                                        x.location
+                                    ),
+                                ]))
                             }
                         }
 
@@ -869,17 +882,17 @@ impl TopLevelComposer {
                         arg_with_default
                             .iter()
                             .rev()
-                            .map(|(x, default)| -> Result<FuncArg, String> {
+                            .map(|(x, default)| -> Result<FuncArg, HashSet<String>> {
                                 let annotation = x
                                     .node
                                     .annotation
                                     .as_ref()
-                                    .ok_or_else(|| {
+                                    .ok_or_else(|| HashSet::from([
                                         format!(
                                             "function parameter `{}` needs type annotation at {}",
                                             x.node.arg, x.location
-                                        )
-                                    })?
+                                        ),
+                                    ]))?
                                     .as_ref();
 
                                 let type_annotation = parse_ast_to_type_annotation_kinds(
@@ -897,7 +910,7 @@ impl TopLevelComposer {
                                 let type_vars_within =
                                     get_type_var_contained_in_type_annotation(&type_annotation)
                                         .into_iter()
-                                        .map(|x| -> Result<(u32, Type), String> {
+                                        .map(|x| -> Result<(u32, Type), HashSet<String>> {
                                             if let TypeAnnotation::TypeVar(ty) = x {
                                                 Ok((Self::get_var_id(ty, unifier)?, ty))
                                             } else {
@@ -934,9 +947,9 @@ impl TopLevelComposer {
                                                 primitives_store,
                                                 unifier,
                                             )
-                                            .map_err(
-                                                |err| format!("{} (at {})", err, x.location),
-                                            )?;
+                                            .map_err(|err| HashSet::from([
+                                                format!("{} (at {})", err, x.location),
+                                            ]))?;
                                             v
                                         }),
                                     },
@@ -965,7 +978,7 @@ impl TopLevelComposer {
                             let type_vars_within =
                                 get_type_var_contained_in_type_annotation(&return_ty_annotation)
                                     .into_iter()
-                                    .map(|x| -> Result<(u32, Type), String> {
+                                    .map(|x| -> Result<(u32, Type), HashSet<String>> {
                                         if let TypeAnnotation::TypeVar(ty) = x {
                                             Ok((Self::get_var_id(ty, unifier)?, ty))
                                         } else {
@@ -1007,9 +1020,9 @@ impl TopLevelComposer {
                         ret: return_ty,
                         vars: function_var_map,
                     }));
-                    unifier.unify(*dummy_ty, function_ty).map_err(|e| {
-                        e.at(Some(function_ast.location)).to_display(unifier).to_string()
-                    })?;
+                    unifier.unify(*dummy_ty, function_ty).map_err(|e| HashSet::from([
+                        e.at(Some(function_ast.location)).to_display(unifier).to_string(),
+                    ]))?;
                 } else {
                     unreachable!("must be both function");
                 }
@@ -1024,11 +1037,11 @@ impl TopLevelComposer {
                 continue;
             }
             if let Err(e) = analyze(function_def, function_ast) {
-                errors.insert(e);
+                errors.extend(e);
             }
         }
         if !errors.is_empty() {
-            return Err(errors.into_iter().sorted().join("\n----------\n"));
+            return Err(errors)
         }
         Ok(())
     }
@@ -1041,7 +1054,7 @@ impl TopLevelComposer {
         primitives: &PrimitiveStore,
         type_var_to_concrete_def: &mut HashMap<Type, TypeAnnotation>,
         core_info: (&HashSet<StrRef>, &ComposerConfig),
-    ) -> Result<(), String> {
+    ) -> Result<(), HashSet<String>> {
         let (keyword_list, core_config) = core_info;
         let mut class_def = class_def.write();
         let (
@@ -1092,25 +1105,23 @@ impl TopLevelComposer {
                             if !defined_parameter_name.insert(x.node.arg)
                                 || (keyword_list.contains(&x.node.arg) && x.node.arg != zelf)
                             {
-                                return Err(format!(
-                                    "top level function must have unique parameter names \
+                                return Err(HashSet::from([
+                                    format!("top level function must have unique parameter names \
                                     and names should not be the same as the keywords (at {})",
-                                    x.location
-                                ));
+                                    x.location),
+                                ]))
                             }
                         }
 
                         if name == &"__init__".into() && !defined_parameter_name.contains(&zelf) {
-                            return Err(format!(
-                                "__init__ method must have a `self` parameter (at {})",
-                                b.location
-                            ));
+                            return Err(HashSet::from([
+                                format!("__init__ method must have a `self` parameter (at {})", b.location),
+                            ]))
                         }
                         if !defined_parameter_name.contains(&zelf) {
-                            return Err(format!(
-                                "class method must have a `self` parameter (at {})",
-                                b.location
-                            ));
+                            return Err(HashSet::from([
+                                format!("class method must have a `self` parameter (at {})", b.location),
+                            ]))
                         }
 
                         let mut result = Vec::new();
@@ -1139,12 +1150,12 @@ impl TopLevelComposer {
                                         .node
                                         .annotation
                                         .as_ref()
-                                        .ok_or_else(|| {
+                                        .ok_or_else(|| HashSet::from([
                                             format!(
                                                 "type annotation needed for `{}` at {}",
                                                 x.node.arg, x.location
-                                            )
-                                        })?
+                                            ),
+                                        ]))?
                                         .as_ref();
                                     parse_ast_to_type_annotation_kinds(
                                         class_resolver,
@@ -1181,7 +1192,9 @@ impl TopLevelComposer {
                                         None => None,
                                         Some(default) => {
                                             if name == "self".into() {
-                                                return Err(format!("`self` parameter cannot take default value (at {})", x.location));
+                                                return Err(HashSet::from([
+                                                    format!("`self` parameter cannot take default value (at {})", x.location),
+                                                ]));
                                             }
                                             Some({
                                                 let v = Self::parse_parameter_default_value(
@@ -1191,9 +1204,9 @@ impl TopLevelComposer {
                                                 Self::check_default_param_type(
                                                     &v, &type_ann, primitives, unifier,
                                                 )
-                                                .map_err(|err| {
-                                                    format!("{} (at {})", err, x.location)
-                                                })?;
+                                                .map_err(|err| HashSet::from([
+                                                    format!("{} (at {})", err, x.location),
+                                                ]))?;
                                                 v
                                             })
                                         }
@@ -1279,7 +1292,7 @@ impl TopLevelComposer {
                     // which should be fine since type within method_type will be subst later
                     unifier
                         .unify(method_dummy_ty, method_type)
-                        .map_err(|e| e.to_display(unifier).to_string())?;
+                        .map_err(|e| HashSet::from([e.to_display(unifier).to_string()]))?;
                 }
                 ast::StmtKind::AnnAssign { target, annotation, value: None, .. } => {
                     if let ast::ExprKind::Name { id: attr, .. } = &target.node {
@@ -1325,11 +1338,13 @@ impl TopLevelComposer {
                             for type_var_within in type_vars_within {
                                 if let TypeAnnotation::TypeVar(t) = type_var_within {
                                     if !class_type_vars_def.contains(&t) {
-                                        return Err(format!(
-                                            "class fields can only use type \
-                                            vars over which the class is generic (at {})",
-                                            annotation.location
-                                        ));
+                                        return Err(HashSet::from([
+                                            format!(
+                                                "class fields can only use type \
+                                                vars over which the class is generic (at {})",
+                                                annotation.location
+                                            ),
+                                        ]))
                                     }
                                 } else {
                                     unreachable!("must be type var annotation");
@@ -1337,26 +1352,32 @@ impl TopLevelComposer {
                             }
                             type_var_to_concrete_def.insert(dummy_field_type, parsed_annotation);
                         } else {
-                            return Err(format!(
-                                "same class fields `{}` defined twice (at {})",
-                                attr, target.location
-                            ));
+                            return Err(HashSet::from([
+                                format!(
+                                    "same class fields `{}` defined twice (at {})",
+                                    attr, target.location
+                                ),
+                            ]))
                         }
                     } else {
-                        return Err(format!(
-                            "unsupported statement type in class definition body (at {})",
-                            target.location
-                        ));
+                        return Err(HashSet::from([
+                            format!(
+                                "unsupported statement type in class definition body (at {})",
+                                target.location
+                            ),
+                        ]))
                     }
                 }
                 ast::StmtKind::Assign { .. } => {}, // we don't class attributes
                 ast::StmtKind::Pass { .. } => {}
                 ast::StmtKind::Expr { value: _, .. } => {} // typically a docstring; ignoring all expressions matches CPython behavior
                 _ => {
-                    return Err(format!(
-                        "unsupported statement in class definition body (at {})",
-                        b.location
-                    ))
+                    return Err(HashSet::from([
+                        format!(
+                            "unsupported statement in class definition body (at {})",
+                            b.location
+                        ),
+                    ]))
                 }
             }
         }
@@ -1369,7 +1390,7 @@ impl TopLevelComposer {
         unifier: &mut Unifier,
         _primitives: &PrimitiveStore,
         type_var_to_concrete_def: &mut HashMap<Type, TypeAnnotation>,
-    ) -> Result<(), String> {
+    ) -> Result<(), HashSet<String>> {
         let (
             _class_id,
             class_ancestor_def,
@@ -1420,9 +1441,11 @@ impl TopLevelComposer {
                                     type_var_to_concrete_def,
                                 );
                             if !ok {
-                                return Err(format!(
-                                    "method {class_method_name} has same name as ancestors' method, but incompatible type"
-                                ));
+                                return Err(HashSet::from([
+                                    format!(
+                                        "method {class_method_name} has same name as ancestors' method, but incompatible type"
+                                    ),
+                                ]))
                             }
                             // mark it as added
                             is_override.insert(*class_method_name);
@@ -1457,9 +1480,11 @@ impl TopLevelComposer {
                     // find if there is a fields with the same name in the child class
                     for (class_field_name, ..) in &*class_fields_def {
                         if class_field_name == anc_field_name {
-                            return Err(format!(
-                                "field `{class_field_name}` has already declared in the ancestor classes"
-                            ));
+                            return Err(HashSet::from([
+                                format!(
+                                    "field `{class_field_name}` has already declared in the ancestor classes"
+                                ),
+                            ]))
                         }
                     }
                     new_child_fields.push(to_be_added);
@@ -1483,7 +1508,7 @@ impl TopLevelComposer {
 
     /// step 5, analyze and call type inferencer to fill the `instance_to_stmt` of
     /// [`TopLevelDef::Function`]
-    fn analyze_function_instance(&mut self) -> Result<(), String> {
+    fn analyze_function_instance(&mut self) -> Result<(), HashSet<String>> {
         // first get the class constructor type correct for the following type check in function body
         // also do class field instantiation check
         let init_str_id = "__init__".into();
@@ -1588,9 +1613,9 @@ impl TopLevelComposer {
                     };
                     constructors.push((i, signature, definition_extension.len()));
                     definition_extension.push((Arc::new(RwLock::new(cons_fun)), None));
-                    unifier.unify(constructor.unwrap(), signature).map_err(|e| {
+                    unifier.unify(constructor.unwrap(), signature).map_err(|e| HashSet::from([
                         e.at(Some(ast.as_ref().unwrap().location)).to_display(unifier).to_string()
-                    })?;
+                    ]))?;
                     return Ok(());
                 }
                 let mut init_id: Option<DefinitionId> = None;
@@ -1618,9 +1643,9 @@ impl TopLevelComposer {
                     ret: self_type,
                     vars: contor_type_vars,
                 }));
-                unifier.unify(constructor.unwrap(), contor_type).map_err(|e| {
+                unifier.unify(constructor.unwrap(), contor_type).map_err(|e| HashSet::from([
                     e.at(Some(ast.as_ref().unwrap().location)).to_display(unifier).to_string()
-                })?;
+                ]))?;
 
                 // class field instantiation check
                 if let (Some(init_id), false) = (init_id, fields.is_empty()) {
@@ -1632,12 +1657,14 @@ impl TopLevelComposer {
                         let all_inited = Self::get_all_assigned_field(body.as_slice())?;
                         for (f, _, _) in fields {
                             if !all_inited.contains(f) {
-                                return Err(format!(
-                                    "fields `{}` of class `{}` not fully initialized in the initializer (at {})",
-                                    f,
-                                    class_name,
-                                    body[0].location,
-                                ));
+                                return Err(HashSet::from([
+                                    format!(
+                                        "fields `{}` of class `{}` not fully initialized in the initializer (at {})",
+                                        f,
+                                        class_name,
+                                        body[0].location,
+                                    ),
+                                ]))
                             }
                         }
                     }
@@ -1650,11 +1677,11 @@ impl TopLevelComposer {
                 continue;
             }
             if let Err(e) = analyze(i, def, ast) {
-                errors.insert(e);
+                errors.extend(e);
             }
         }
         if !errors.is_empty() {
-            return Err(errors.into_iter().sorted().join("\n---------\n"));
+            return Err(errors)
         }
 
         for (i, signature, id) in constructors {
@@ -1869,9 +1896,9 @@ impl TopLevelComposer {
                                     if let TypeEnum::TObj { obj_id, .. } = &*base {
                                         *obj_id
                                     } else {
-                                        return Err(format!(
-                                            "Base type should be a class (at {loc})"
-                                        ));
+                                        return Err(HashSet::from([
+                                            format!("Base type should be a class (at {loc})"),
+                                        ]))
                                     }
                                 };
                                 let subtype_id = {
@@ -1881,9 +1908,11 @@ impl TopLevelComposer {
                                     } else {
                                         let base_repr = inferencer.unifier.stringify(*base);
                                         let subtype_repr = inferencer.unifier.stringify(*subtype);
-                                        return Err(format!(
-                                            "Expected a subtype of {base_repr}, but got {subtype_repr} (at {loc})"
-                                        ));
+                                        return Err(HashSet::from([
+                                            format!(
+                                                "Expected a subtype of {base_repr}, but got {subtype_repr} (at {loc})"
+                                            ),
+                                        ]))
                                     }
                                 };
                                 let subtype_entry = defs[subtype_id.0].read();
@@ -1893,9 +1922,11 @@ impl TopLevelComposer {
                                     if m.is_none() {
                                         let base_repr = inferencer.unifier.stringify(*base);
                                         let subtype_repr = inferencer.unifier.stringify(*subtype);
-                                        return Err(format!(
-                                            "Expected a subtype of {base_repr}, but got {subtype_repr} (at {loc})"
-                                        ));
+                                        return Err(HashSet::from([
+                                            format!(
+                                                "Expected a subtype of {base_repr}, but got {subtype_repr} (at {loc})"
+                                            ),
+                                        ]))
                                     }
                                 } else {
                                     unreachable!();
@@ -1918,12 +1949,14 @@ impl TopLevelComposer {
                                 &mut |id| format!("typevar{id}"),
                                 &mut None,
                             );
-                            return Err(format!(
-                                "expected return type of `{}` in function `{}` (at {})",
-                                ret_str,
-                                name,
-                                ast.as_ref().unwrap().location
-                            ));
+                            return Err(HashSet::from([
+                                format!(
+                                    "expected return type of `{}` in function `{}` (at {})",
+                                    ret_str,
+                                    name,
+                                    ast.as_ref().unwrap().location
+                                ),
+                            ]))
                         }
 
                         instance_to_stmt.insert(
@@ -1947,11 +1980,11 @@ impl TopLevelComposer {
                 continue;
             }
             if let Err(e) = analyze_2(id, def, ast) {
-                errors.insert(e);
+                errors.extend(e);
             }
         }
         if !errors.is_empty() {
-            return Err(errors.into_iter().sorted().join("\n----------\n"));
+            return Err(errors)
         }
         Ok(())
     }

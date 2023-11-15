@@ -82,7 +82,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
     // the key stores the type_var of this topleveldef::class, we only need this field here
     locked: HashMap<DefinitionId, Vec<Type>>,
     type_var: Option<Type>,
-) -> Result<TypeAnnotation, String> {
+) -> Result<TypeAnnotation, HashSet<String>> {
     let name_handle = |id: &StrRef,
                        unifier: &mut Unifier,
                        locked: HashMap<DefinitionId, Vec<Type>>| {
@@ -109,10 +109,12 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                     if let TopLevelDef::Class { type_vars, .. } = &*def_read {
                         type_vars.clone()
                     } else {
-                        return Err(format!(
-                            "function cannot be used as a type (at {})",
-                            expr.location
-                        ));
+                        return Err(HashSet::from([
+                            format!(
+                                "function cannot be used as a type (at {})",
+                                expr.location
+                            ),
+                        ]))
                     }
                 } else {
                     locked.get(&obj_id).unwrap().clone()
@@ -120,11 +122,13 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             };
             // check param number here
             if !type_vars.is_empty() {
-                return Err(format!(
-                    "expect {} type variable parameter but got 0 (at {})",
-                    type_vars.len(),
-                    expr.location,
-                ));
+                return Err(HashSet::from([
+                    format!(
+                        "expect {} type variable parameter but got 0 (at {})",
+                        type_vars.len(),
+                        expr.location,
+                    ),
+                ]))
             }
             Ok(TypeAnnotation::CustomClass { id: obj_id, params: vec![] })
         } else if let Ok(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id) {
@@ -133,10 +137,14 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 unifier.unify(var, ty).unwrap();
                 Ok(TypeAnnotation::TypeVar(ty))
             } else {
-                Err(format!("`{}` is not a valid type annotation (at {})", id, expr.location))
+                Err(HashSet::from([
+                    format!("`{}` is not a valid type annotation (at {})", id, expr.location),
+                ]))
             }
         } else {
-            Err(format!("`{}` is not a valid type annotation (at {})", id, expr.location))
+            Err(HashSet::from([
+                format!("`{}` is not a valid type annotation (at {})", id, expr.location),
+            ]))
         }
     };
 
@@ -147,7 +155,9 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
          mut locked: HashMap<DefinitionId, Vec<Type>>| {
             if ["virtual".into(), "Generic".into(), "list".into(), "tuple".into(), "Option".into()].contains(id)
             {
-                return Err(format!("keywords cannot be class name (at {})", expr.location));
+                return Err(HashSet::from([
+                    format!("keywords cannot be class name (at {})", expr.location),
+                ]))
             }
             let obj_id = resolver.get_identifier_def(*id)?;
             let type_vars = {
@@ -170,12 +180,14 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                     vec![slice]
                 };
                 if type_vars.len() != params_ast.len() {
-                    return Err(format!(
-                        "expect {} type parameters but got {} (at {})",
-                        type_vars.len(),
-                        params_ast.len(),
-                        params_ast[0].location,
-                    ));
+                    return Err(HashSet::from([
+                        format!(
+                            "expect {} type parameters but got {} (at {})",
+                            type_vars.len(),
+                            params_ast.len(),
+                            params_ast[0].location,
+                        ),
+                    ]))
                 }
                 let result = params_ast
                     .iter()
@@ -201,11 +213,12 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 if no_type_var {
                     result
                 } else {
-                    return Err(format!(
-                        "application of type vars to generic class \
-                    is not currently supported (at {})",
-                        params_ast[0].location
-                    ));
+                    return Err(HashSet::from([
+                        format!(
+                            "application of type vars to generic class is not currently supported (at {})",
+                            params_ast[0].location
+                        ),
+                    ]))
                 }
             };
             Ok(TypeAnnotation::CustomClass { id: obj_id, params: param_type_infos })
@@ -311,7 +324,9 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             if let ast::ExprKind::Name { id, .. } = &value.node {
                 class_name_handle(id, slice, unifier, locked)
             } else {
-                Err(format!("unsupported expression type for class name (at {})", value.location))
+                Err(HashSet::from([
+                    format!("unsupported expression type for class name (at {})", value.location)
+                ]))
             }
         }
 
@@ -324,13 +339,16 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             };
             let underlying_ty = underlying_ty[0];
 
-            let value = SymbolValue::from_constant(value, underlying_ty, primitives, unifier)?;
+            let value = SymbolValue::from_constant(value, underlying_ty, primitives, unifier)
+                .map_err(|err| HashSet::from([err]))?;
 
             if matches!(value, SymbolValue::Str(_) | SymbolValue::Tuple(_) | SymbolValue::OptionSome(_)) {
-                return Err(format!(
-                    "expression {value} is not allowed for constant type annotation (at {})",
-                    expr.location
-                ))
+                return Err(HashSet::from([
+                    format!(
+                        "expression {value} is not allowed for constant type annotation (at {})",
+                        expr.location
+                    ),
+                ]))
             }
 
             Ok(TypeAnnotation::Constant {
@@ -339,7 +357,9 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             })
         }
 
-        _ => Err(format!("unsupported expression for type annotation (at {})", expr.location)),
+        _ => Err(HashSet::from([
+            format!("unsupported expression for type annotation (at {})", expr.location),
+        ])),
     }
 }
 
@@ -351,7 +371,7 @@ pub fn get_type_from_type_annotation_kinds(
     unifier: &mut Unifier,
     ann: &TypeAnnotation,
     subst_list: &mut Option<Vec<Type>>
-) -> Result<Type, String> {
+) -> Result<Type, HashSet<String>> {
     match ann {
         TypeAnnotation::CustomClass { id: obj_id, params } => {
             let def_read = top_level_defs[obj_id.0].read();
@@ -361,11 +381,13 @@ pub fn get_type_from_type_annotation_kinds(
             };
 
             if type_vars.len() != params.len() {
-                return Err(format!(
-                    "unexpected number of type parameters: expected {} but got {}",
-                    type_vars.len(),
-                    params.len()
-                ))
+                return Err(HashSet::from([
+                    format!(
+                        "unexpected number of type parameters: expected {} but got {}",
+                        type_vars.len(),
+                        params.len()
+                    ),
+                ]))
             }
 
                     let param_ty = params
@@ -401,16 +423,18 @@ pub fn get_type_from_type_annotation_kinds(
                             if ok {
                                 result.insert(*id, p);
                             } else {
-                                return Err(format!(
-                                    "cannot apply type {} to type variable with id {:?}",
-                                    unifier.internal_stringify(
-                                        p,
-                                        &mut |id| format!("class{id}"),
-                                        &mut |id| format!("typevar{id}"),
-                                        &mut None
-                                    ),
-                                    *id
-                                ));
+                                return Err(HashSet::from([
+                                    format!(
+                                        "cannot apply type {} to type variable with id {:?}",
+                                        unifier.internal_stringify(
+                                            p,
+                                            &mut |id| format!("class{id}"),
+                                            &mut |id| format!("typevar{id}"),
+                                            &mut None
+                                        ),
+                                        *id
+                                    )
+                                ]))
                             }
                         }
 
@@ -430,11 +454,13 @@ pub fn get_type_from_type_annotation_kinds(
                             if ok {
                                 result.insert(*id, p);
                             } else {
-                                return Err(format!(
-                                    "cannot apply type {} to type variable {}",
-                                    unifier.stringify(p),
-                                    name.unwrap_or_else(|| format!("typevar{id}").into()),
-                                ))
+                                return Err(HashSet::from([
+                                    format!(
+                                        "cannot apply type {} to type variable {}",
+                                        unifier.stringify(p),
+                                        name.unwrap_or_else(|| format!("typevar{id}").into()),
+                                    ),
+                                ]))
                             }
                         }
 

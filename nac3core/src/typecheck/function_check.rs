@@ -6,9 +6,11 @@ use nac3parser::ast::{self, Constant, Expr, ExprKind, Operator::{LShift, RShift}
 use std::{collections::HashSet, iter::once};
 
 impl<'a> Inferencer<'a> {
-    fn should_have_value(&mut self, expr: &Expr<Option<Type>>) -> Result<(), String> {
+    fn should_have_value(&mut self, expr: &Expr<Option<Type>>) -> Result<(), HashSet<String>> {
         if matches!(expr.custom, Some(ty) if self.unifier.unioned(ty, self.primitives.none)) {
-            Err(format!("Error at {}: cannot have value none", expr.location))
+            Err(HashSet::from([
+                format!("Error at {}: cannot have value none", expr.location),
+            ]))
         } else {
             Ok(())
         }
@@ -18,10 +20,11 @@ impl<'a> Inferencer<'a> {
         &mut self,
         pattern: &Expr<Option<Type>>,
         defined_identifiers: &mut HashSet<StrRef>,
-    ) -> Result<(), String> {
+    ) -> Result<(), HashSet<String>> {
         match &pattern.node {
-            ExprKind::Name { id, .. } if id == &"none".into() =>
-                Err(format!("cannot assign to a `none` (at {})", pattern.location)),
+            ExprKind::Name { id, .. } if id == &"none".into() => Err(HashSet::from([
+                format!("cannot assign to a `none` (at {})", pattern.location),
+            ])),
             ExprKind::Name { id, .. } => {
                 if !defined_identifiers.contains(id) {
                     defined_identifiers.insert(*id);
@@ -41,15 +44,19 @@ impl<'a> Inferencer<'a> {
                 self.should_have_value(value)?;
                 self.check_expr(slice, defined_identifiers)?;
                 if let TypeEnum::TTuple { .. } = &*self.unifier.get_ty(value.custom.unwrap()) {
-                    return Err(format!(
-                        "Error at {}: cannot assign to tuple element",
-                        value.location
-                    ));
+                    return Err(HashSet::from([
+                        format!(
+                            "Error at {}: cannot assign to tuple element",
+                            value.location
+                        ),
+                    ]))
                 }
                 Ok(())
             }
             ExprKind::Constant { .. } => {
-                Err(format!("cannot assign to a constant (at {})", pattern.location))
+                Err(HashSet::from([
+                    format!("cannot assign to a constant (at {})", pattern.location),
+                ]))
             }
             _ => self.check_expr(pattern, defined_identifiers),
         }
@@ -59,15 +66,17 @@ impl<'a> Inferencer<'a> {
         &mut self,
         expr: &Expr<Option<Type>>,
         defined_identifiers: &mut HashSet<StrRef>,
-    ) -> Result<(), String> {
+    ) -> Result<(), HashSet<String>> {
         // there are some cases where the custom field is None
         if let Some(ty) = &expr.custom {
             if !matches!(&expr.node, ExprKind::Constant { value: Constant::Ellipsis, .. }) && !self.unifier.is_concrete(*ty, &self.function_data.bound_variables) {
-                return Err(format!(
-                    "expected concrete type at {} but got {}",
-                    expr.location,
-                    self.unifier.get_ty(*ty).get_type_name()
-                ));
+                return Err(HashSet::from([
+                    format!(
+                        "expected concrete type at {} but got {}",
+                        expr.location,
+                        self.unifier.get_ty(*ty).get_type_name()
+                    )
+                ]))
             }
         }
         match &expr.node {
@@ -87,10 +96,12 @@ impl<'a> Inferencer<'a> {
                             self.defined_identifiers.insert(*id);
                         }
                         Err(e) => {
-                            return Err(format!(
-                                "type error at identifier `{}` ({}) at {}",
-                                id, e, expr.location
-                            ));
+                            return Err(HashSet::from([
+                                format!(
+                                    "type error at identifier `{}` ({}) at {}",
+                                    id, e, expr.location
+                                )
+                            ]))
                         }
                     }
                 }
@@ -121,10 +132,12 @@ impl<'a> Inferencer<'a> {
                         };
 
                         if *rhs_val < 0 {
-                            return Err(format!(
-                                "shift count is negative at {}",
-                                right.location
-                            ));
+                            return Err(HashSet::from([
+                                format!(
+                                    "shift count is negative at {}",
+                                    right.location
+                                ),
+                            ]))
                         }
                     }
                 }
@@ -200,7 +213,7 @@ impl<'a> Inferencer<'a> {
         &mut self,
         stmt: &Stmt<Option<Type>>,
         defined_identifiers: &mut HashSet<StrRef>,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, HashSet<String>> {
         match &stmt.node {
             StmtKind::For { target, iter, body, orelse, .. } => {
                 self.check_expr(iter, defined_identifiers)?;
@@ -307,11 +320,11 @@ impl<'a> Inferencer<'a> {
         &mut self,
         block: &[Stmt<Option<Type>>],
         defined_identifiers: &mut HashSet<StrRef>,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, HashSet<String>> {
         let mut ret = false;
         for stmt in block {
             if ret {
-                println!("warning: dead code at {:?}\n", stmt.location);
+                eprintln!("warning: dead code at {:?}\n", stmt.location);
             }
             if self.check_stmt(stmt, defined_identifiers)? {
                 ret = true;
