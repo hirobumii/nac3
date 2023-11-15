@@ -204,13 +204,13 @@ impl TopLevelComposer {
     pub fn get_class_method_def_info(
         class_methods_def: &[(StrRef, Type, DefinitionId)],
         method_name: StrRef,
-    ) -> Result<(Type, DefinitionId), String> {
+    ) -> Result<(Type, DefinitionId), HashSet<String>> {
         for (name, ty, def_id) in class_methods_def {
             if name == &method_name {
                 return Ok((*ty, *def_id));
             }
         }
-        Err(format!("no method {method_name} in the current class"))
+        Err(HashSet::from([format!("no method {method_name} in the current class")]))
     }
 
     /// get all base class def id of a class, excluding itself. \
@@ -221,7 +221,7 @@ impl TopLevelComposer {
     pub fn get_all_ancestors_helper(
         child: &TypeAnnotation,
         temp_def_list: &[Arc<RwLock<TopLevelDef>>],
-    ) -> Result<Vec<TypeAnnotation>, String> {
+    ) -> Result<Vec<TypeAnnotation>, HashSet<String>> {
         let mut result: Vec<TypeAnnotation> = Vec::new();
         let mut parent = Self::get_parent(child, temp_def_list);
         while let Some(p) = parent {
@@ -242,7 +242,7 @@ impl TopLevelComposer {
             if no_cycle {
                 result.push(p);
             } else {
-                return Err("cyclic inheritance detected".into());
+                return Err(HashSet::from(["cyclic inheritance detected".into()]));
             }
         }
         Ok(result)
@@ -272,11 +272,13 @@ impl TopLevelComposer {
     }
 
     /// get the `var_id` of a given `TVar` type
-    pub fn get_var_id(var_ty: Type, unifier: &mut Unifier) -> Result<u32, String> {
+    pub fn get_var_id(var_ty: Type, unifier: &mut Unifier) -> Result<u32, HashSet<String>> {
         if let TypeEnum::TVar { id, .. } = unifier.get_ty(var_ty).as_ref() {
             Ok(*id)
         } else {
-            Err("not type var".to_string())
+            Err(HashSet::from([
+                "not type var".to_string(),
+            ]))
         }
     }
 
@@ -338,7 +340,7 @@ impl TopLevelComposer {
         )
     }
 
-    pub fn get_all_assigned_field(stmts: &[Stmt<()>]) -> Result<HashSet<StrRef>, String> {
+    pub fn get_all_assigned_field(stmts: &[Stmt<()>]) -> Result<HashSet<StrRef>, HashSet<String>> {
         let mut result = HashSet::new();
         for s in stmts {
             match &s.node {
@@ -355,10 +357,12 @@ impl TopLevelComposer {
                         }
                     } =>
                 {
-                    return Err(format!(
-                        "redundant type annotation for class fields at {}",
-                        s.location
-                    ))
+                    return Err(HashSet::from([
+                        format!(
+                            "redundant type annotation for class fields at {}",
+                            s.location
+                        ),
+                    ]))
                 }
                 ast::StmtKind::Assign { targets, .. } => {
                     for t in targets {
@@ -410,7 +414,7 @@ impl TopLevelComposer {
     pub fn parse_parameter_default_value(
         default: &ast::Expr,
         resolver: &(dyn SymbolResolver + Send + Sync),
-    ) -> Result<SymbolValue, String> {
+    ) -> Result<SymbolValue, HashSet<String>> {
         parse_parameter_default_value(default, resolver)
     }
 
@@ -467,14 +471,14 @@ impl TopLevelComposer {
 pub fn parse_parameter_default_value(
     default: &ast::Expr,
     resolver: &(dyn SymbolResolver + Send + Sync),
-) -> Result<SymbolValue, String> {
-    fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, String> {
+) -> Result<SymbolValue, HashSet<String>> {
+    fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, HashSet<String>> {
         match val {
             Constant::Int(v) => {
                 if let Ok(v) = (*v).try_into() {
                     Ok(SymbolValue::I32(v))
                 } else {
-                    Err(format!("integer value out of range at {loc}"))
+                    Err(HashSet::from([format!("integer value out of range at {loc}")]))
                 }
             }
             Constant::Float(v) => Ok(SymbolValue::Double(*v)),
@@ -482,9 +486,11 @@ pub fn parse_parameter_default_value(
             Constant::Tuple(tuple) => Ok(SymbolValue::Tuple(
                 tuple.iter().map(|x| handle_constant(x, loc)).collect::<Result<Vec<_>, _>>()?,
             )),
-            Constant::None => Err(format!(
-                "`None` is not supported, use `none` for option type instead ({loc})"
-            )),
+            Constant::None => Err(HashSet::from([
+                format!(
+                    "`None` is not supported, use `none` for option type instead ({loc})"
+                ),
+            ])),
             _ => unimplemented!("this constant is not supported at {}", loc),
         }
     }
@@ -497,37 +503,51 @@ pub fn parse_parameter_default_value(
                         let v: Result<i64, _> = (*v).try_into();
                         match v {
                             Ok(v) => Ok(SymbolValue::I64(v)),
-                            _ => Err(format!("default param value out of range at {}", default.location)),
+                            _ => Err(HashSet::from([
+                                format!("default param value out of range at {}", default.location)
+                            ])),
                         }
                     }
-                    _ => Err(format!("only allow constant integer here at {}", default.location))
+                    _ => Err(HashSet::from([
+                        format!("only allow constant integer here at {}", default.location),
+                    ]))
                 }
                 ast::ExprKind::Name { id, .. } if *id == "uint32".into() => match &args[0].node {
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
                         let v: Result<u32, _> = (*v).try_into();
                         match v {
                             Ok(v) => Ok(SymbolValue::U32(v)),
-                            _ => Err(format!("default param value out of range at {}", default.location)),
+                            _ => Err(HashSet::from([
+                                format!("default param value out of range at {}", default.location),
+                            ])),
                         }
                     }
-                    _ => Err(format!("only allow constant integer here at {}", default.location))
+                    _ => Err(HashSet::from([
+                        format!("only allow constant integer here at {}", default.location),
+                    ]))
                 }
                 ast::ExprKind::Name { id, .. } if *id == "uint64".into() => match &args[0].node {
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
                         let v: Result<u64, _> = (*v).try_into();
                         match v {
                             Ok(v) => Ok(SymbolValue::U64(v)),
-                            _ => Err(format!("default param value out of range at {}", default.location)),
+                            _ => Err(HashSet::from([
+                                format!("default param value out of range at {}", default.location),
+                            ])),
                         }
                     }
-                    _ => Err(format!("only allow constant integer here at {}", default.location))
+                    _ => Err(HashSet::from([
+                        format!("only allow constant integer here at {}", default.location),
+                    ]))
                 }
                 ast::ExprKind::Name { id, .. } if *id == "Some".into() => Ok(
                     SymbolValue::OptionSome(
                         Box::new(parse_parameter_default_value(&args[0], resolver)?)
                     )
                 ),
-                _ => Err(format!("unsupported default parameter at {}", default.location)),
+                _ => Err(HashSet::from([
+                    format!("unsupported default parameter at {}", default.location),
+                ])),
             }
         }
         ast::ExprKind::Tuple { elts, .. } => Ok(SymbolValue::Tuple(elts
@@ -538,17 +558,21 @@ pub fn parse_parameter_default_value(
         ast::ExprKind::Name { id, .. } if id == &"none".into() => Ok(SymbolValue::OptionNone),
         ast::ExprKind::Name { id, .. } => {
             resolver.get_default_param_value(default).ok_or_else(
-                || format!(
-                    "`{}` cannot be used as a default parameter at {} \
-                    (not primitive type, option or tuple / not defined?)",
-                    id,
-                    default.location
-                )
+                || HashSet::from([
+                    format!(
+                        "`{}` cannot be used as a default parameter at {} \
+                        (not primitive type, option or tuple / not defined?)",
+                        id,
+                        default.location
+                    ),
+                ])
             )
         }
-        _ => Err(format!(
-            "unsupported default parameter (not primitive type, option or tuple) at {}",
-            default.location
-        ))
+        _ => Err(HashSet::from([
+            format!(
+                "unsupported default parameter (not primitive type, option or tuple) at {}",
+                default.location
+            ),
+        ]))
     }
 }

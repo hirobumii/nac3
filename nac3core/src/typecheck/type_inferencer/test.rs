@@ -43,8 +43,9 @@ impl SymbolResolver for Resolver {
         unimplemented!()
     }
 
-    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, String> {
-        self.id_to_def.get(&id).cloned().ok_or_else(|| "Unknown identifier".to_string())
+    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
+        self.id_to_def.get(&id).cloned()
+            .ok_or_else(|| HashSet::from(["Unknown identifier".to_string()]))
     }
 
     fn get_string_id(&self, _: &str) -> i32 {

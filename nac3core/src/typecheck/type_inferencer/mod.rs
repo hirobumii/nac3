@@ -64,19 +64,19 @@ pub struct Inferencer<'a> {
 struct NaiveFolder();
 impl Fold<()> for NaiveFolder {
     type TargetU = Option<Type>;
-    type Error = String;
+    type Error = HashSet<String>;
     fn map_user(&mut self, (): ()) -> Result<Self::TargetU, Self::Error> {
         Ok(None)
     }
 }
 
-fn report_error<T>(msg: &str, location: Location) -> Result<T, String> {
-    Err(format!("{msg} at {location}"))
+fn report_error<T>(msg: &str, location: Location) -> Result<T, HashSet<String>> {
+    Err(HashSet::from([format!("{msg} at {location}")]))
 }
 
 impl<'a> Fold<()> for Inferencer<'a> {
     type TargetU = Option<Type>;
-    type Error = String;
+    type Error = HashSet<String>;
 
     fn map_user(&mut self, (): ()) -> Result<Self::TargetU, Self::Error> {
         Ok(None)
@@ -159,9 +159,9 @@ impl<'a> Fold<()> for Inferencer<'a> {
                                 }
                                 if let Some(old_typ) = self.variable_mapping.insert(name, typ) {
                                     let loc = handler.location;
-                                    self.unifier.unify(old_typ, typ).map_err(|e| {
-                                        e.at(Some(loc)).to_display(self.unifier).to_string()
-                                    })?;
+                                    self.unifier.unify(old_typ, typ).map_err(|e| HashSet::from([
+                                        e.at(Some(loc)).to_display(self.unifier).to_string(),
+                                    ]))?;
                                 }
                             }
                             let mut type_ = naive_folder.fold_expr(*type_)?;
@@ -274,7 +274,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                         .collect();
                     let loc = node.location;
                     let targets = targets
-                        .map_err(|e| e.at(Some(loc)).to_display(self.unifier).to_string())?;
+                        .map_err(|e| HashSet::from([e.at(Some(loc)).to_display(self.unifier).to_string()]))?;
                     return Ok(Located {
                         location: node.location,
                         node: ast::StmtKind::Assign {
@@ -528,22 +528,24 @@ impl<'a> Fold<()> for Inferencer<'a> {
     }
 }
 
-type InferenceResult = Result<Type, String>;
+type InferenceResult = Result<Type, HashSet<String>>;
 
 impl<'a> Inferencer<'a> {
     /// Constrain a <: b
     /// Currently implemented as unification
-    fn constrain(&mut self, a: Type, b: Type, location: &Location) -> Result<(), String> {
+    fn constrain(&mut self, a: Type, b: Type, location: &Location) -> Result<(), HashSet<String>> {
         self.unify(a, b, location)
     }
 
-    fn unify(&mut self, a: Type, b: Type, location: &Location) -> Result<(), String> {
+    fn unify(&mut self, a: Type, b: Type, location: &Location) -> Result<(), HashSet<String>> {
         self.unifier
             .unify(a, b)
-            .map_err(|e| e.at(Some(*location)).to_display(self.unifier).to_string())
+            .map_err(|e| HashSet::from([
+                e.at(Some(*location)).to_display(self.unifier).to_string(),
+            ]))
     }
 
-    fn infer_pattern(&mut self, pattern: &ast::Expr<()>) -> Result<(), String> {
+    fn infer_pattern(&mut self, pattern: &ast::Expr<()>) -> Result<(), HashSet<String>> {
         match &pattern.node {
             ExprKind::Name { id, .. } => {
                 if !self.defined_identifiers.contains(id) {
@@ -592,9 +594,9 @@ impl<'a> Inferencer<'a> {
                                 .map(|v| v.name)
                                 .rev()
                                 .collect();
-                            self.unifier.unify_call(&call, ty, sign, &required).map_err(|e| {
-                                e.at(Some(location)).to_display(self.unifier).to_string()
-                            })?;
+                            self.unifier.unify_call(&call, ty, sign, &required).map_err(|e| HashSet::from([
+                                e.at(Some(location)).to_display(self.unifier).to_string(),
+                            ]))?;
                             return Ok(sign.ret);
                         }
                     }
@@ -623,7 +625,7 @@ impl<'a> Inferencer<'a> {
         location: Location,
         args: Arguments,
         body: ast::Expr<()>,
-    ) -> Result<ast::Expr<Option<Type>>, String> {
+    ) -> Result<ast::Expr<Option<Type>>, HashSet<String>> {
         if !args.posonlyargs.is_empty()
             || args.vararg.is_some()
             || !args.kwonlyargs.is_empty()
@@ -692,7 +694,7 @@ impl<'a> Inferencer<'a> {
         location: Location,
         elt: ast::Expr<()>,
         mut generators: Vec<Comprehension>,
-    ) -> Result<ast::Expr<Option<Type>>, String> {
+    ) -> Result<ast::Expr<Option<Type>>, HashSet<String>> {
         if generators.len() != 1 {
             return report_error(
                 "Only 1 generator statement for list comprehension is supported",
@@ -765,7 +767,7 @@ impl<'a> Inferencer<'a> {
         func: ast::Expr<()>,
         mut args: Vec<ast::Expr<()>>,
         keywords: Vec<Located<ast::KeywordData>>,
-    ) -> Result<ast::Expr<Option<Type>>, String> {
+    ) -> Result<ast::Expr<Option<Type>>, HashSet<String>> {
         let func =
             if let Located { location: func_location, custom, node: ExprKind::Name { id, ctx } } =
                 func
@@ -899,7 +901,9 @@ impl<'a> Inferencer<'a> {
                     .collect();
                 self.unifier
                     .unify_call(&call, func.custom.unwrap(), sign, &required)
-                    .map_err(|e| e.at(Some(location)).to_display(self.unifier).to_string())?;
+                    .map_err(|e| HashSet::from([
+                        e.at(Some(location)).to_display(self.unifier).to_string(),
+                    ]))?;
                 return Ok(Located {
                     location,
                     custom: Some(sign.ret),
@@ -1073,8 +1077,11 @@ impl<'a> Inferencer<'a> {
     ) -> InferenceResult {
         let boolean = self.primitives.bool;
         for (a, b, c) in izip!(once(left).chain(comparators), comparators, ops) {
-            let method =
-                comparison_name(c).ok_or_else(|| "unsupported comparator".to_string())?.into();
+            let method = comparison_name(c)
+                .ok_or_else(|| HashSet::from([
+                    "unsupported comparator".to_string()
+                ]))?
+                .into();
             self.build_method_call(
                 a.location,
                 method,
@@ -1105,7 +1112,7 @@ impl<'a> Inferencer<'a> {
             ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
                 // the index is a constant, so value can be a sequence.
                 let ind: Option<i32> = (*val).try_into().ok();
-                let ind = ind.ok_or_else(|| "Index must be int32".to_string())?;
+                let ind = ind.ok_or_else(|| HashSet::from(["Index must be int32".to_string()]))?;
                 let map = once((
                     ind.into(),
                     RecordField::new(ty, ctx == &ExprContext::Store, Some(value.location)),

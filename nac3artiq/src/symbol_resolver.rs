@@ -15,7 +15,7 @@ use pyo3::{
     PyAny, PyObject, PyResult, Python,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering::Relaxed}
@@ -1172,17 +1172,21 @@ impl SymbolResolver for Resolver {
         })
     }
 
-    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, String> {
+    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
         {
             let id_to_def = self.0.id_to_def.read();
             id_to_def.get(&id).copied().ok_or_else(String::new)
         }
         .or_else(|_| {
-            let py_id =
-                self.0.name_to_pyid.get(&id).ok_or(format!("Undefined identifier `{id}`"))?;
-            let result = self.0.pyid_to_def.read().get(py_id).copied().ok_or(format!(
-                "`{id}` is not registered with NAC3 (@nac3 decorator missing?)"
-            ))?;
+            let py_id = self.0.name_to_pyid.get(&id)
+                .ok_or_else(|| HashSet::from([
+                    format!("Undefined identifier `{id}`"),
+                ]))?;
+            let result = self.0.pyid_to_def.read().get(py_id)
+                .copied()
+                .ok_or_else(|| HashSet::from([
+                    format!("`{id}` is not registered with NAC3 (@nac3 decorator missing?)"),
+                ]))?;
             self.0.id_to_def.write().insert(id, result);
             Ok(result)
         })
