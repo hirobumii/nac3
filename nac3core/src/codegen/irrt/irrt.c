@@ -197,3 +197,47 @@ double __nac3_j0(double x) {
 
     return j0(x);
 }
+
+uint32_t __nac3_ndarray_calc_size(
+    const int32_t *list_data,
+    uint32_t list_len
+) {
+    uint32_t num_elems = 1;
+    for (uint32_t i = 0; i < list_len; ++i) {
+        int32_t val = list_data[i];
+        __builtin_assume(val >= 0);
+        num_elems *= (uint32_t) list_data[i];
+    }
+    return num_elems;
+}
+
+uint64_t __nac3_ndarray_calc_size64(
+    const int32_t *list_data,
+    uint64_t list_len
+) {
+    uint64_t num_elems = 1;
+    for (uint64_t i = 0; i < list_len; ++i) {
+        int32_t val = list_data[i];
+        __builtin_assume(val >= 0);
+       num_elems *= (uint64_t) list_data[i];
+    }
+    return num_elems;
+}
+
+void __nac3_ndarray_init_dims(
+    uint32_t *ndarray_dims,
+    const int32_t *shape_data,
+    uint32_t shape_len
+) {
+    __builtin_memcpy(ndarray_dims, shape_data, shape_len * sizeof(int32_t));
+}
+
+void __nac3_ndarray_init_dims64(
+    uint64_t *ndarray_dims,
+    const int32_t *shape_data,
+    uint64_t shape_len
+) {
+    for (uint64_t i = 0; i < shape_len; ++i) {
+        ndarray_dims[i] = (uint64_t) shape_data[i];
+    }
+}

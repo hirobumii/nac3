@@ -13,11 +13,12 @@ use crate::{
         stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
+    toplevel::numpy::gen_ndarray_empty,
 };
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     types::{BasicType, BasicMetadataTypeEnum},
-    values::BasicMetadataValueEnum,
+    values::{BasicValue, BasicMetadataValueEnum},
     FloatPredicate,
     IntPredicate
 };
@@ -278,6 +279,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
     let boolean = primitives.0.bool;
     let range = primitives.0.range;
     let string = primitives.0.str;
+    let ndarray_float = {
+        let ndarray_ty_enum = TypeEnum::ndarray(&mut primitives.1, Some(float), None, &primitives.0);
+        primitives.1.add_ty(ndarray_ty_enum)
+    };
+    let list_int32 = primitives.1.add_ty(TypeEnum::TList { ty: int32 });
     let num_ty = primitives.1.get_fresh_var_with_range(
         &[int32, int64, float, boolean, uint32, uint64],
         Some("N".into()),
@@ -837,6 +843,32 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             )))),
             loc: None,
         })),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "np_ndarray",
+            ndarray_float,
+            // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
+            // type variable
+            &[(list_int32, "shape")],
+            Box::new(|ctx, obj, fun, args, generator| {
+                gen_ndarray_empty(ctx, obj, fun, args, generator)
+                    .map(|val| Some(val.as_basic_value_enum()))
+            }),
+        ),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "np_empty",
+            ndarray_float,
+            // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
+            // type variable
+            &[(list_int32, "shape")],
+            Box::new(|ctx, obj, fun, args, generator| {
+                gen_ndarray_empty(ctx, obj, fun, args, generator)
+                    .map(|val| Some(val.as_basic_value_enum()))
+            }),
+        ),
         create_fn_by_codegen(
             primitives,
             &var_map,

@@ -5,11 +5,12 @@ import importlib.util
 import importlib.machinery
 import math
 import numpy as np
+import numpy.typing as npt
 import pathlib
 
 from numpy import int32, int64, uint32, uint64
 from scipy import special
-from typing import TypeVar, Generic, Literal
+from typing import TypeVar, Generic, Literal, Union
 
 T = TypeVar('T')
 class Option(Generic[T]):
@@ -49,6 +50,13 @@ class _ConstGenericMarker:
 
 def ConstGeneric(name, constraint):
     return TypeVar(name, _ConstGenericMarker, constraint)
+
+N = TypeVar("N", bound=np.uint64)
+class _NDArrayDummy(Generic[T, N]):
+    pass
+
+# https://stackoverflow.com/questions/67803260/how-to-create-a-type-alias-with-a-throw-away-generic
+NDArray = Union[npt.NDArray[T], _NDArrayDummy[T, N]]
 
 def round_away_zero(x):
     if x >= 0.0:
@@ -124,6 +132,16 @@ def patch(module):
     module.ceil64 = math.ceil
     module.np_ceil = np.ceil
 
+    # NumPy ndarray functions
+    module.ndarray = NDArray
+    module.np_ndarray = np.ndarray
+    module.np_empty = np.empty
+    module.np_zeros = np.zeros
+    module.np_ones = np.ones
+    module.np_full = np.full
+    module.np_eye = np.eye
+    module.np_identity = np.identity
+
     # NumPy Math functions
     module.np_isnan = np.isnan
     module.np_isinf = np.isinf
@@ -166,6 +184,9 @@ def patch(module):
     module.sp_spec_j0 = special.j0
     module.sp_spec_j1 = special.j1
 
+    # NumPy NDArray Functions
+    module.np_ndarray = np.ndarray
+    module.np_empty = np.empty
 
 def file_import(filename, prefix="file_import_"):
     filename = pathlib.Path(filename)

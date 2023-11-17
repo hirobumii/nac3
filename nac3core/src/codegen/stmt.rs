@@ -16,7 +16,7 @@ use inkwell::{
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
     types::BasicTypeEnum,
-    values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue},
+    values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
     IntPredicate,
 };
 use nac3parser::ast::{
@@ -398,6 +398,80 @@ pub fn gen_for<G: CodeGenerator>(
             *static_val = None;
         }
     }
+
+    ctx.builder.position_at_end(cont_bb);
+    ctx.loop_target = loop_bb;
+
+    Ok(())
+}
+
+/// Generates a C-style `for` construct using lambdas, similar to the following C code:
+///
+/// ```c
+/// for (x... = init(); cond(x...); update(x...)) {
+///     body(x...);
+/// }
+/// ```
+///
+/// * `init` - A lambda containing IR statements declaring and initializing loop variables. The
+/// return value is a [Clone] value which will be passed to the other lambdas.
+/// * `cond` - A lambda containing IR statements checking whether the loop should continue
+/// executing. The result value must be an `i1` indicating if the loop should continue.
+/// * `body` - A lambda containing IR statements within the loop body.
+/// * `update` - A lambda containing IR statements updating loop variables.
+pub fn gen_for_callback<'ctx, 'a, I, InitFn, CondFn, BodyFn, UpdateFn>(
+    generator: &mut dyn CodeGenerator,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    init: InitFn,
+    cond: CondFn,
+    body: BodyFn,
+    update: UpdateFn,
+) -> Result<(), String>
+    where
+        I: Clone,
+        InitFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>) -> Result<I, String>,
+        CondFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, I) -> Result<IntValue<'ctx>, String>,
+        BodyFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
+        UpdateFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
+{
+    let current = ctx.builder.get_insert_block().and_then(|bb| bb.get_parent()).unwrap();
+    let init_bb = ctx.ctx.append_basic_block(current, "for.init");
+    // The BB containing the loop condition check
+    let cond_bb = ctx.ctx.append_basic_block(current, "for.cond");
+    let body_bb = ctx.ctx.append_basic_block(current, "for.body");
+    // The BB containing the increment expression
+    let update_bb = ctx.ctx.append_basic_block(current, "for.update");
+    let cont_bb = ctx.ctx.append_basic_block(current, "for.end");
+
+    // store loop bb information and restore it later
+    let loop_bb = ctx.loop_target.replace((update_bb, cont_bb));
+
+    ctx.builder.build_unconditional_branch(init_bb);
+
+    let loop_var = {
+        ctx.builder.position_at_end(init_bb);
+        let result = init(generator, ctx)?;
+        ctx.builder.build_unconditional_branch(cond_bb);
+
+        result
+    };
+
+    ctx.builder.position_at_end(cond_bb);
+    let cond = cond(generator, ctx, loop_var.clone())?;
+    assert_eq!(cond.get_type().get_bit_width(), ctx.ctx.bool_type().get_bit_width());
+    ctx.builder.build_conditional_branch(
+        cond,
+        body_bb,
+        cont_bb
+    );
+
+    ctx.builder.position_at_end(body_bb);
+    body(generator, ctx, loop_var.clone())?;
+    ctx.builder.build_unconditional_branch(update_bb);
+
+    ctx.builder.position_at_end(update_bb);
+    update(generator, ctx, loop_var)?;
+    ctx.builder.build_unconditional_branch(cond_bb);
 
     ctx.builder.position_at_end(cont_bb);
     ctx.loop_target = loop_bb;

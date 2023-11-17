@@ -5,7 +5,7 @@ use std::{cell::RefCell, sync::Arc};
 
 use super::typedef::{Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, Unifier};
 use super::{magic_methods::*, typedef::CallId};
-use crate::{symbol_resolver::SymbolResolver, toplevel::TopLevelContext};
+use crate::{symbol_resolver::{SymbolResolver, SymbolValue}, toplevel::TopLevelContext};
 use itertools::izip;
 use nac3parser::ast::{
     self,
@@ -892,6 +892,53 @@ impl<'a> Inferencer<'a> {
                     report_error("Integer out of bound", args[0].location)
                 }
             }
+        }
+
+        // 1-argument ndarray n-dimensional creation functions
+        if [
+            "np_ndarray".into(),
+            "np_empty".into(),
+        ].contains(id) && args.len() == 1 {
+            let ExprKind::List { elts, .. } = &args[0].node else {
+                return report_error("Expected List literal for first argument of np_ndarray", args[0].location)
+            };
+
+            let ndims = elts.len() as u64;
+
+            let arg0 = self.fold_expr(args.remove(0))?;
+            let ndims = self.unifier.get_fresh_literal(
+                vec![SymbolValue::U64(ndims)],
+                None,
+            );
+            let ret = self.unifier.add_ty(TypeEnum::TNDArray {
+                ty: self.primitives.float,
+                ndims
+            });
+            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                args: vec![
+                    FuncArg {
+                        name: "shape".into(),
+                        ty: arg0.custom.unwrap(),
+                        default_value: None,
+                    },
+                ],
+                ret,
+                vars: HashMap::new(),
+            }));
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(ret),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(custom),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                    }),
+                    args: vec![arg0],
+                    keywords: vec![],
+                },
+            }))
         }
 
         Ok(None)
