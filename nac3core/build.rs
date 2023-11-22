@@ -17,6 +17,7 @@ fn main() {
     const FLAG: &[&str] = &[
         "--target=wasm32",
         FILE,
+        "-fno-discard-value-names",
         "-O3",
         "-emit-llvm",
         "-S",
