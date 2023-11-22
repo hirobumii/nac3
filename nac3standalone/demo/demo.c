@@ -94,13 +94,13 @@ uint64_t dbg_stack_address(__attribute__((unused)) struct cslice *slice) {
 }
 
 uint32_t __nac3_personality(uint32_t state, uint32_t exception_object, uint32_t context) {
-    printf("__nac3_personality(state: %u, exception_object: %u, context: %u\n", state, exception_object, context);
+    printf("__nac3_personality(state: %u, exception_object: %u, context: %u)\n", state, exception_object, context);
     exit(101);
     __builtin_unreachable();
 }
 
 uint32_t __nac3_raise(uint32_t state, uint32_t exception_object, uint32_t context) {
-    printf("__nac3_raise(state: %u, exception_object: %u, context: %u\n", state, exception_object, context);
+    printf("__nac3_raise(state: %u, exception_object: %u, context: %u)\n", state, exception_object, context);
     exit(101);
     __builtin_unreachable();
 }
