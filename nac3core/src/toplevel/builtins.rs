@@ -881,6 +881,33 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 Ok(Some(val_toint.into()))
             }),
         ),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "np_round",
+            float,
+            &[(float, "n")],
+            Box::new(|ctx, _, _, args, generator| {
+                let llvm_f64 = ctx.ctx.f64_type();
+
+                let arg = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+
+                let intrinsic_fn = ctx.module.get_function("llvm.roundeven.f64").unwrap_or_else(|| {
+                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+
+                    ctx.module.add_function("llvm.roundeven.f64", fn_type, None)
+                });
+
+                let val = ctx
+                    .builder
+                    .build_call(intrinsic_fn, &[arg.into()], "")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+                Ok(Some(val.into()))
+            }),
+        ),
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "range".into(),
             simple_name: "range".into(),
@@ -1126,6 +1153,33 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         create_fn_by_codegen(
             primitives,
             &var_map,
+            "np_floor",
+            float,
+            &[(float, "n")],
+            Box::new(|ctx, _, _, args, generator| {
+                let llvm_f64 = ctx.ctx.f64_type();
+
+                let arg = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+
+                let intrinsic_fn = ctx.module.get_function("llvm.floor.f64").unwrap_or_else(|| {
+                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+
+                    ctx.module.add_function("llvm.floor.f64", fn_type, None)
+                });
+
+                let val = ctx
+                    .builder
+                    .build_call(intrinsic_fn, &[arg.into()], "")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+                Ok(Some(val.into()))
+            }),
+        ),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
             "ceil",
             int32,
             &[(float, "n")],
@@ -1181,6 +1235,33 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 let val_toint = ctx.builder
                     .build_float_to_signed_int(val.into_float_value(), llvm_i64, "ceil");
                 Ok(Some(val_toint.into()))
+            }),
+        ),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "np_ceil",
+            float,
+            &[(float, "n")],
+            Box::new(|ctx, _, _, args, generator| {
+                let llvm_f64 = ctx.ctx.f64_type();
+
+                let arg = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+
+                let intrinsic_fn = ctx.module.get_function("llvm.ceil.f64").unwrap_or_else(|| {
+                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+
+                    ctx.module.add_function("llvm.ceil.f64", fn_type, None)
+                });
+
+                let val = ctx
+                    .builder
+                    .build_call(intrinsic_fn, &[arg.into()], "")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap();
+                Ok(Some(val.into()))
             }),
         ),
         Arc::new(RwLock::new({
@@ -1835,13 +1916,16 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "float",
             "round",
             "round64",
+            "np_round",
             "range",
             "str",
             "bool",
             "floor",
             "floor64",
+            "np_floor",
             "ceil",
             "ceil64",
+            "np_ceil",
             "len",
             "min",
             "max",

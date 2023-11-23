@@ -36,6 +36,10 @@ def test_round64():
     for x in [-1.5, -0.5, 0.5, 1.5]:
         output_int64(round64(x))
 
+def test_np_round():
+    for x in [-1.5, -0.5, 0.5, 1.5, dbl_inf(), -dbl_inf(), dbl_nan()]:
+        output_float64(np_round(x))
+
 def test_np_isnan():
     for x in [dbl_nan(), 0.0, dbl_inf()]:
         output_bool(np_isnan(x))
@@ -87,6 +91,10 @@ def test_floor64():
     for x in [-1.5, -0.5, 0.5, 1.5]:
         output_int64(floor64(x))
 
+def test_np_floor():
+    for x in [-1.5, -0.5, 0.5, 1.5, dbl_inf(), -dbl_inf(), dbl_nan()]:
+        output_float64(np_floor(x))
+
 def test_ceil():
     for x in [-1.5, -0.5, 0.5, 1.5]:
         output_int32(ceil(x))
@@ -94,6 +102,10 @@ def test_ceil():
 def test_ceil64():
     for x in [-1.5, -0.5, 0.5, 1.5]:
         output_int64(ceil64(x))
+
+def test_np_ceil():
+    for x in [-1.5, -0.5, 0.5, 1.5, dbl_inf(), -dbl_inf(), dbl_nan()]:
+        output_float64(np_ceil(x))
 
 def test_np_sqrt():
     for x in [1.0, 2.0, 4.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
@@ -214,6 +226,7 @@ def test_np_nextafter():
 def run() -> int32:
     test_round()
     test_round64()
+    test_np_round()
     test_np_isnan()
     test_np_isinf()
     test_np_sin()
@@ -226,8 +239,10 @@ def run() -> int32:
     test_np_fabs()
     test_floor()
     test_floor64()
+    test_np_floor()
     test_ceil()
     test_ceil64()
+    test_np_ceil()
     test_np_sqrt()
     test_np_rint()
     test_np_tan()

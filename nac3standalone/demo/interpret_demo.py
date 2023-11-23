@@ -108,10 +108,13 @@ def patch(module):
     # Builtin Math functions
     module.round = round_away_zero
     module.round64 = round_away_zero
+    module.np_round = np.round
     module.floor = math.floor
     module.floor64 = math.floor
+    module.np_floor = np.floor
     module.ceil = math.ceil
     module.ceil64 = math.ceil
+    module.np_ceil = np.ceil
 
     # NumPy Math functions
     module.np_isnan = np.isnan
