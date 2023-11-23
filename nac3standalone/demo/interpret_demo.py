@@ -6,9 +6,9 @@ import importlib.machinery
 import math
 import numpy as np
 import pathlib
-import scipy
 
 from numpy import int32, int64, uint32, uint64
+from scipy import special
 from typing import TypeVar, Generic
 
 T = TypeVar('T')
@@ -114,46 +114,46 @@ def patch(module):
     module.ceil64 = math.ceil
 
     # NumPy Math functions
-    module.isnan = np.isnan
-    module.isinf = np.isinf
-    module.sin = np.sin
-    module.cos = np.cos
-    module.exp = np.exp
-    module.exp2 = np.exp2
-    module.log = np.log
-    module.log10 = np.log10
-    module.log2 = np.log2
-    module.fabs = np.fabs
-    module.trunc = np.trunc
-    module.sqrt = np.sqrt
-    module.rint = np.rint
-    module.tan = np.tan
-    module.arcsin = np.arcsin
-    module.arccos = np.arccos
-    module.arctan = np.arctan
-    module.sinh = np.sinh
-    module.cosh = np.cosh
-    module.tanh = np.tanh
-    module.arcsinh = np.arcsinh
-    module.arccosh = np.arccosh
-    module.arctanh = np.arctanh
-    module.expm1 = np.expm1
-    module.cbrt = np.cbrt
-    module.arctan2 = np.arctan2
-    module.copysign = np.copysign
-    module.fmax = np.fmax
-    module.fmin = np.fmin
-    module.ldexp = np.ldexp
-    module.hypot = np.hypot
-    module.nextafter = np.nextafter
+    module.np_isnan = np.isnan
+    module.np_isinf = np.isinf
+    module.np_sin = np.sin
+    module.np_cos = np.cos
+    module.np_exp = np.exp
+    module.np_exp2 = np.exp2
+    module.np_log = np.log
+    module.np_log10 = np.log10
+    module.np_log2 = np.log2
+    module.np_fabs = np.fabs
+    module.np_trunc = np.trunc
+    module.np_sqrt = np.sqrt
+    module.np_rint = np.rint
+    module.np_tan = np.tan
+    module.np_arcsin = np.arcsin
+    module.np_arccos = np.arccos
+    module.np_arctan = np.arctan
+    module.np_sinh = np.sinh
+    module.np_cosh = np.cosh
+    module.np_tanh = np.tanh
+    module.np_arcsinh = np.arcsinh
+    module.np_arccosh = np.arccosh
+    module.np_arctanh = np.arctanh
+    module.np_expm1 = np.expm1
+    module.np_cbrt = np.cbrt
+    module.np_arctan2 = np.arctan2
+    module.np_copysign = np.copysign
+    module.np_fmax = np.fmax
+    module.np_fmin = np.fmin
+    module.np_ldexp = np.ldexp
+    module.np_hypot = np.hypot
+    module.np_nextafter = np.nextafter
 
     # SciPy Math Functions
-    module.erf = scipy.special.erf
-    module.erfc = scipy.special.erfc
-    module.gamma = scipy.special.gamma
-    module.gammaln = scipy.special.gammaln
-    module.j0 = scipy.special.j0
-    module.j1 = scipy.special.j1
+    module.sp_spec_erf = special.erf
+    module.sp_spec_erfc = special.erfc
+    module.sp_spec_gamma = special.gamma
+    module.sp_spec_gammaln = special.gammaln
+    module.sp_spec_j0 = special.j0
+    module.sp_spec_j1 = special.j1
 
 
 def file_import(filename, prefix="file_import_"):

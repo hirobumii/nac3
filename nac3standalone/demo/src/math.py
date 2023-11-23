@@ -36,48 +36,48 @@ def test_round64():
     for x in [-1.5, -0.5, 0.5, 1.5]:
         output_int64(round64(x))
 
-def test_isnan():
+def test_np_isnan():
     for x in [dbl_nan(), 0.0, dbl_inf()]:
-        output_bool(isnan(x))
+        output_bool(np_isnan(x))
 
-def test_isinf():
+def test_np_isinf():
     for x in [dbl_inf(), -dbl_inf(), 0.0, dbl_nan()]:
-        output_bool(isinf(x))
+        output_bool(np_isinf(x))
 
-def test_sin():
+def test_np_sin():
     pi = dbl_pi()
     for x in [-pi, -pi / 2.0, -pi / 4.0, 0.0, pi / 4.0, pi / 2.0, pi, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(sin(x))
+        output_float64(np_sin(x))
 
-def test_cos():
+def test_np_cos():
     pi = dbl_pi()
     for x in [-pi, -pi / 2.0, -pi / 4.0, 0.0, pi / 4.0, pi / 2.0, pi, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(cos(x))
+        output_float64(np_cos(x))
 
-def test_exp():
+def test_np_exp():
     for x in [0.0, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(exp(x))
+        output_float64(np_exp(x))
 
-def test_exp2():
+def test_np_exp2():
     for x in [0.0, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(exp2(x))
+        output_float64(np_exp2(x))
 
-def test_log():
+def test_np_log():
     e = dbl_e()
     for x in [1.0, e, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(log(x))
+        output_float64(np_log(x))
 
-def test_log10():
+def test_np_log10():
     for x in [1.0, 10.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(log10(x))
+        output_float64(np_log10(x))
 
-def test_log2():
+def test_np_log2():
     for x in [1.0, 2.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(log2(x))
+        output_float64(np_log2(x))
 
-def test_fabs():
+def test_np_fabs():
     for x in [-1.0, 0.0, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(fabs(x))
+        output_float64(np_fabs(x))
 
 def test_floor():
     for x in [-1.5, -0.5, 0.5, 1.5]:
@@ -95,165 +95,165 @@ def test_ceil64():
     for x in [-1.5, -0.5, 0.5, 1.5]:
         output_int64(ceil64(x))
 
-def test_sqrt():
+def test_np_sqrt():
     for x in [1.0, 2.0, 4.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(sqrt(x))
+        output_float64(np_sqrt(x))
 
-def test_rint():
+def test_np_rint():
     for x in [-1.5, -0.5, 0.5, 1.5, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(rint(x))
+        output_float64(np_rint(x))
 
-def test_tan():
+def test_np_tan():
     pi = dbl_pi()
     for x in [-pi, -pi / 2.0, -pi / 4.0, 0.0, pi / 4.0, pi / 2.0, pi, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(tan(x))
+        output_float64(np_tan(x))
 
-def test_arcsin():
+def test_np_arcsin():
     for x in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(arcsin(x))
+        output_float64(np_arcsin(x))
 
-def test_arccos():
+def test_np_arccos():
     for x in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(arccos(x))
+        output_float64(np_arccos(x))
 
-def test_arctan():
+def test_np_arctan():
     for x in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(arctan(x))
+        output_float64(np_arctan(x))
 
-def test_sinh():
+def test_np_sinh():
     for x in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(sinh(x))
+        output_float64(np_sinh(x))
 
-def test_cosh():
+def test_np_cosh():
     for x in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(cosh(x))
+        output_float64(np_cosh(x))
 
-def test_tanh():
+def test_np_tanh():
     for x in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(tanh(x))
+        output_float64(np_tanh(x))
 
-def test_arcsinh():
+def test_np_arcsinh():
     for x in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(arcsinh(x))
+        output_float64(np_arcsinh(x))
 
-def test_arccosh():
+def test_np_arccosh():
     for x in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(arccosh(x))
+        output_float64(np_arccosh(x))
 
-def test_arctanh():
+def test_np_arctanh():
     for x in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(arctanh(x))
+        output_float64(np_arctanh(x))
 
-def test_expm1():
+def test_np_expm1():
     for x in [0.0, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(expm1(x))
+        output_float64(np_expm1(x))
 
-def test_cbrt():
+def test_np_cbrt():
     for x in [1.0, 8.0, 27.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(expm1(x))
+        output_float64(np_expm1(x))
 
-def test_erf():
+def test_sp_spec_erf():
     for x in [-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(erf(x))
+        output_float64(sp_spec_erf(x))
 
-def test_erfc():
+def test_sp_spec_erfc():
     for x in [-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(erfc(x))
+        output_float64(sp_spec_erfc(x))
 
-def test_gamma():
+def test_sp_spec_gamma():
     for x in [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(gamma(x))
+        output_float64(sp_spec_gamma(x))
 
-def test_gammaln():
+def test_sp_spec_gammaln():
     for x in [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(gammaln(x))
+        output_float64(sp_spec_gammaln(x))
 
-def test_j0():
+def test_sp_spec_j0():
     for x in [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(j0(x))
+        output_float64(sp_spec_j0(x))
 
-def test_j1():
+def test_sp_spec_j1():
     for x in [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]:
-        output_float64(j1(x))
+        output_float64(sp_spec_j1(x))
 
-def test_arctan2():
+def test_np_arctan2():
     for x1 in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
         for x2 in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-            output_float64(arctan2(x1, x2))
+            output_float64(np_arctan2(x1, x2))
 
-def test_copysign():
+def test_np_copysign():
     for x1 in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
         for x2 in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-            output_float64(copysign(x1, x2))
+            output_float64(np_copysign(x1, x2))
 
-def test_fmax():
+def test_np_fmax():
     for x1 in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
         for x2 in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-            output_float64(fmax(x1, x2))
+            output_float64(np_fmax(x1, x2))
 
-def test_fmin():
+def test_np_fmin():
     for x1 in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
         for x2 in [-1.0, -0.5, 0.0, 0.5, 1.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-            output_float64(fmin(x1, x2))
+            output_float64(np_fmin(x1, x2))
 
-def test_ldexp():
+def test_np_ldexp():
     for x1 in [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
         for x2 in [-2, -1, 0, 1, 2]:
-            output_float64(ldexp(x1, x2))
+            output_float64(np_ldexp(x1, x2))
 
-def test_hypot():
+def test_np_hypot():
     for x1 in [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
         for x2 in [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-            output_float64(hypot(x1, x2))
+            output_float64(np_hypot(x1, x2))
 
-def test_nextafter():
+def test_np_nextafter():
     for x1 in [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
         for x2 in [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-            output_float64(nextafter(x1, x2))
+            output_float64(np_nextafter(x1, x2))
 
 def run() -> int32:
     test_round()
     test_round64()
-    test_isnan()
-    test_isinf()
-    test_sin()
-    test_cos()
-    test_exp()
-    test_exp2()
-    test_log()
-    test_log10()
-    test_log2()
-    test_fabs()
+    test_np_isnan()
+    test_np_isinf()
+    test_np_sin()
+    test_np_cos()
+    test_np_exp()
+    test_np_exp2()
+    test_np_log()
+    test_np_log10()
+    test_np_log2()
+    test_np_fabs()
     test_floor()
     test_floor64()
     test_ceil()
     test_ceil64()
-    test_sqrt()
-    test_rint()
-    test_tan()
-    test_arcsin()
-    test_arccos()
-    test_arctan()
-    test_sinh()
-    test_cosh()
-    test_tanh()
-    test_arcsinh()
-    test_arccosh()
-    test_arctanh()
-    test_expm1()
-    test_cbrt()
-    test_erf()
-    test_erfc()
-    test_gamma()
-    test_gammaln()
-    test_j0()
-    test_j1()
-    test_arctan2()
-    test_copysign()
-    test_fmax()
-    test_fmin()
-    test_ldexp()
-    test_hypot()
-    test_nextafter()
+    test_np_sqrt()
+    test_np_rint()
+    test_np_tan()
+    test_np_arcsin()
+    test_np_arccos()
+    test_np_arctan()
+    test_np_sinh()
+    test_np_cosh()
+    test_np_tanh()
+    test_np_arcsinh()
+    test_np_arccosh()
+    test_np_arctanh()
+    test_np_expm1()
+    test_np_cbrt()
+    test_sp_spec_erf()
+    test_sp_spec_erfc()
+    test_sp_spec_gamma()
+    test_sp_spec_gammaln()
+    test_sp_spec_j0()
+    test_sp_spec_j1()
+    test_np_arctan2()
+    test_np_copysign()
+    test_np_fmax()
+    test_np_fmin()
+    test_np_ldexp()
+    test_np_hypot()
+    test_np_nextafter()
 
     return 0
