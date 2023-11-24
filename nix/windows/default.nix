@@ -25,7 +25,7 @@ let
       shared=true
       abi3=false
       lib_name=python3.11
-      lib_dir=${msys2-env}/mingw64/lib
+      lib_dir=${msys2-env}/clang64/lib
       pointer_width=64
       build_flags=WITH_THREAD
       suppress_build_script_link_lines=false
@@ -61,7 +61,7 @@ in rec {
       ''
       export HOME=`mktemp -d`
       export WINEDEBUG=-all
-      export WINEPATH=Z:${msys2-env}/mingw64/bin
+      export WINEPATH=Z:${msys2-env}/clang64/bin
       ${silenceFontconfig}
       mkdir build
       cd build
@@ -89,9 +89,11 @@ in rec {
       ''
       export HOME=`mktemp -d`
       export WINEDEBUG=-all
-      export WINEPATH=Z:${msys2-env}/mingw64/bin\;Z:${llvm-nac3}/bin\;Z:${clang-unwrapped}/bin
+      export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${clang-unwrapped}/bin
       ${silenceFontconfig}
       export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
+      export CC=clang
+      export LLVM_SYS_140_PREFIX=Z:${llvm-nac3}
       wine64 cargo build --release -p nac3artiq
       '';
     installPhase =
@@ -100,6 +102,7 @@ in rec {
       cp target/release/nac3artiq.dll $out/nac3artiq.pyd
       echo file binary-dist $out/nac3artiq.pyd >> $out/nix-support/hydra-build-products
       '';
+    doCheck = false;  # https://git.m-labs.hk/M-Labs/nac3/issues/358
     checkPhase =
       ''
       wine64 cargo test --release
@@ -127,7 +130,7 @@ in rec {
   wine-msys2 = pkgs.writeShellScriptBin "wine-msys2"
     ''
     export WINEDEBUG=-all
-    export WINEPATH=Z:${msys2-env}/mingw64/bin\;Z:${llvm-nac3}/bin\;Z:${clang-unwrapped}/bin
+    export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${clang-unwrapped}/bin
     export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
     exec ${pkgs.wineWowPackages.stable}/bin/wine64 cmd
     '';
@@ -135,7 +138,7 @@ in rec {
     ''
     export HOME=`mktemp -d`
     export WINEDEBUG=-all
-    export WINEPATH=Z:${msys2-env}/mingw64/bin
+    export WINEPATH=Z:${msys2-env}/clang64/bin
     ${silenceFontconfig}
     exec ${pkgs.wineWowPackages.stable}/bin/wine64 $@
     '';

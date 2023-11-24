@@ -23,7 +23,7 @@ After setting up Nix as above, use ``nix shell git+https://github.com/m-labs/art
 
 ### Windows
 
-Install [MSYS2](https://www.msys2.org/), and open "MSYS2 MinGW x64". Edit ``/etc/pacman.conf`` to add:
+Install [MSYS2](https://www.msys2.org/), and open "MSYS2 CLANG64". Edit ``/etc/pacman.conf`` to add:
 ```
 [artiq]
 SigLevel = Optional TrustAll
@@ -33,10 +33,8 @@ Server = https://msys2.m-labs.hk/artiq-nac3
 Then run the following commands:
 ```
 pacman -Syu
-pacman -S mingw-w64-x86_64-artiq
+pacman -S mingw-w64-clang-x86_64-artiq
 ```
-
-Note: This build of NAC3 cannot be used with Anaconda Python nor the python.org binaries for Windows. Those Python versions are compiled with Visual Studio (MSVC) and their ABI is incompatible with the GNU ABI used in this build. We have no plans to support Visual Studio nor the MSVC ABI. If you need a MSVC build, please install the requisite bloated spyware from Microsoft and compile NAC3 yourself.
 
 ## For developers
 
