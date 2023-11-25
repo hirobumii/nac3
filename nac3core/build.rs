@@ -29,7 +29,7 @@ fn main() {
         "-o",
         "-",
     ];
-    let output = Command::new("clang-unwrapped")
+    let output = Command::new("clang-irrt")
         .args(FLAG)
         .output()
         .map(|o| {
@@ -61,7 +61,7 @@ fn main() {
         file.write_all(filtered_output.as_bytes()).unwrap();
     }
 
-    let mut llvm_as = Command::new("llvm-as")
+    let mut llvm_as = Command::new("llvm-as-irrt")
         .stdin(Stdio::piped())
         .arg("-o")
         .arg(out_path.join("irrt.bc"))

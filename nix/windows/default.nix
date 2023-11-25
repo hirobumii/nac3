@@ -77,7 +77,12 @@ in rec {
       '';
     dontFixup = true;
   };
-  clang-unwrapped = pkgs.runCommandNoCC "clang-unwrapped" {} "mkdir -p $out/bin; ln -s ${llvm-nac3}/bin/clang.exe $out/bin/clang-unwrapped.exe";
+  llvm-tools-irrt = pkgs.runCommandNoCC "llvm-tools-irrt" {}
+    ''
+    mkdir -p $out/bin
+    ln -s ${llvm-nac3}/bin/clang.exe $out/bin/clang-irrt.exe
+    ln -s ${llvm-nac3}/bin/llvm-as.exe $out/bin/llvm-as-irrt.exe
+    '';
   nac3artiq = pkgs.rustPlatform.buildRustPackage {
     name = "nac3artiq-msys2";
     src = ../../.;
@@ -89,7 +94,7 @@ in rec {
       ''
       export HOME=`mktemp -d`
       export WINEDEBUG=-all
-      export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${clang-unwrapped}/bin
+      export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${llvm-tools-irrt}/bin
       ${silenceFontconfig}
       export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
       export CC=clang
@@ -130,7 +135,7 @@ in rec {
   wine-msys2 = pkgs.writeShellScriptBin "wine-msys2"
     ''
     export WINEDEBUG=-all
-    export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${clang-unwrapped}/bin
+    export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${llvm-tools-irrt}/bin
     export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
     exec ${pkgs.wineWowPackages.stable}/bin/wine64 cmd
     '';
