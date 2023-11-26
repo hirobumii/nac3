@@ -7,7 +7,7 @@ use inkwell::{
     OptimizationLevel,
 };
 use parking_lot::{Mutex, RwLock};
-use std::{borrow::Borrow, collections::HashMap, fs, path::Path, sync::Arc};
+use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
 use nac3core::{
     codegen::{
@@ -121,7 +121,7 @@ fn handle_assignment_pattern(
         match &targets[0].node {
             ExprKind::Name { id, .. } => {
                 if let Ok(var) = handle_typevar_definition(
-                    value.borrow(),
+                    value,
                     resolver,
                     def_list,
                     unifier,
@@ -130,7 +130,7 @@ fn handle_assignment_pattern(
                     internal_resolver.add_id_type(*id, var);
                     Ok(())
                 } else if let Ok(val) =
-                    parse_parameter_default_value(value.borrow(), resolver)
+                    parse_parameter_default_value(value, resolver)
                 {
                     internal_resolver.add_module_global(*id, val);
                     Ok(())
