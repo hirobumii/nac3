@@ -199,27 +199,27 @@ double __nac3_j0(double x) {
 }
 
 uint32_t __nac3_ndarray_calc_size(
-    const int32_t *list_data,
+    const uint64_t *list_data,
     uint32_t list_len
 ) {
     uint32_t num_elems = 1;
     for (uint32_t i = 0; i < list_len; ++i) {
-        int32_t val = list_data[i];
+        uint64_t val = list_data[i];
         __builtin_assume(val >= 0);
-        num_elems *= (uint32_t) list_data[i];
+        num_elems *= list_data[i];
     }
     return num_elems;
 }
 
 uint64_t __nac3_ndarray_calc_size64(
-    const int32_t *list_data,
+    const uint64_t *list_data,
     uint64_t list_len
 ) {
     uint64_t num_elems = 1;
     for (uint64_t i = 0; i < list_len; ++i) {
-        int32_t val = list_data[i];
+        uint64_t val = list_data[i];
         __builtin_assume(val >= 0);
-       num_elems *= (uint64_t) list_data[i];
+       num_elems *= list_data[i];
     }
     return num_elems;
 }
@@ -239,5 +239,33 @@ void __nac3_ndarray_init_dims64(
 ) {
     for (uint64_t i = 0; i < shape_len; ++i) {
         ndarray_dims[i] = (uint64_t) shape_data[i];
+    }
+}
+
+void __nac3_ndarray_calc_nd_indices(
+    uint32_t index,
+    const uint32_t* dims,
+    uint32_t num_dims,
+    uint32_t* idxs
+) {
+    uint32_t stride = 1;
+    for (uint32_t dim = 0; dim < num_dims; dim++) {
+        uint32_t i = num_dims - dim - 1;
+        idxs[i] = (index / stride) % dims[i];
+        stride *= dims[i];
+    }
+}
+
+void __nac3_ndarray_calc_nd_indices64(
+    uint64_t index,
+    const uint64_t* dims,
+    uint64_t num_dims,
+    uint64_t* idxs
+) {
+    uint64_t stride = 1;
+    for (uint64_t dim = 0; dim < num_dims; dim++) {
+        uint64_t i = num_dims - dim - 1;
+        idxs[i] = (index / stride) % dims[i];
+        stride *= dims[i];
     }
 }

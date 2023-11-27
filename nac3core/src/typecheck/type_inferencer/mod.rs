@@ -898,9 +898,14 @@ impl<'a> Inferencer<'a> {
         if [
             "np_ndarray".into(),
             "np_empty".into(),
+            "np_zeros".into(),
+            "np_ones".into(),
         ].contains(id) && args.len() == 1 {
             let ExprKind::List { elts, .. } = &args[0].node else {
-                return report_error("Expected List literal for first argument of np_ndarray", args[0].location)
+                return report_error(
+                    format!("Expected List literal for first argument of {id}, got {}", args[0].node.name()).as_str(),
+                    args[0].location
+                )
             };
 
             let ndims = elts.len() as u64;
@@ -936,6 +941,62 @@ impl<'a> Inferencer<'a> {
                         node: ExprKind::Name { id: *id, ctx: ctx.clone() },
                     }),
                     args: vec![arg0],
+                    keywords: vec![],
+                },
+            }))
+        }
+
+        // 2-argument ndarray n-dimensional creation functions
+        if id == &"np_full".into() && args.len() == 2 {
+            let ExprKind::List { elts, .. } = &args[0].node else {
+                return report_error(
+                    format!("Expected List literal for first argument of {id}, got {}", args[0].node.name()).as_str(),
+                    args[0].location
+                )
+            };
+
+            let ndims = elts.len() as u64;
+
+            let arg0 = self.fold_expr(args.remove(0))?;
+            let arg1 = self.fold_expr(args.remove(0))?;
+
+            let ty = arg1.custom.unwrap();
+            let ndims = self.unifier.get_fresh_literal(
+                vec![SymbolValue::U64(ndims)],
+                None,
+            );
+
+            let ret = self.unifier.add_ty(TypeEnum::TNDArray {
+                ty,
+                ndims
+            });
+            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                args: vec![
+                    FuncArg {
+                        name: "shape".into(),
+                        ty: arg0.custom.unwrap(),
+                        default_value: None,
+                    },
+                    FuncArg {
+                        name: "fill_value".into(),
+                        ty: arg1.custom.unwrap(),
+                        default_value: None,
+                    },
+                ],
+                ret,
+                vars: HashMap::new(),
+            }));
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(ret),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(custom),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                    }),
+                    args: vec![arg0, arg1],
                     keywords: vec![],
                 },
             }))

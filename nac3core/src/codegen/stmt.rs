@@ -15,7 +15,7 @@ use crate::{
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
-    types::BasicTypeEnum,
+    types::{BasicType, BasicTypeEnum},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
     IntPredicate,
 };
@@ -47,6 +47,37 @@ pub fn gen_var<'ctx>(
     ctx.builder.set_current_debug_location(di_loc);
 
     let ptr = ctx.builder.build_alloca(ty, name.unwrap_or(""));
+
+    ctx.builder.position_at_end(current);
+    ctx.builder.set_current_debug_location(di_loc);
+
+    Ok(ptr)
+}
+
+/// See [CodeGenerator::gen_array_var_alloc].
+pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx>>(
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ty: T,
+    size: IntValue<'ctx>,
+    name: Option<&str>,
+) -> Result<PointerValue<'ctx>, String> {
+    // Restore debug location
+    let di_loc = ctx.debug_info.0.create_debug_location(
+        ctx.ctx,
+        ctx.current_loc.row as u32,
+        ctx.current_loc.column as u32,
+        ctx.debug_info.2,
+        None,
+    );
+
+    // put the alloca in init block
+    let current = ctx.builder.get_insert_block().unwrap();
+
+    // position before the last branching instruction...
+    ctx.builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
+    ctx.builder.set_current_debug_location(di_loc);
+
+    let ptr = ctx.builder.build_array_alloca(ty, size, name.unwrap_or(""));
 
     ctx.builder.position_at_end(current);
     ctx.builder.set_current_debug_location(di_loc);

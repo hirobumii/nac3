@@ -92,6 +92,18 @@ pub trait CodeGenerator {
         gen_var(ctx, ty, name)
     }
 
+    /// Allocate memory for a variable and return a pointer pointing to it.
+    /// The default implementation places the allocations at the start of the function.
+    fn gen_array_var_alloc<'ctx, 'a>(
+        &mut self,
+        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ty: BasicTypeEnum<'ctx>,
+        size: IntValue<'ctx>,
+        name: Option<&str>,
+    ) -> Result<PointerValue<'ctx>, String> {
+        gen_array_var(ctx, ty, size, name)
+    }
+
     /// Return a pointer pointing to the target of the expression.
     fn gen_store_target<'ctx>(
         &mut self,

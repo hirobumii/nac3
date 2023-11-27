@@ -13,7 +13,13 @@ use crate::{
         stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
-    toplevel::numpy::gen_ndarray_empty,
+    toplevel::numpy::{
+        gen_ndarray_empty,
+        gen_ndarray_eye,
+        gen_ndarray_full,
+        gen_ndarray_ones,
+        gen_ndarray_zeros,
+    },
 };
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
@@ -22,6 +28,7 @@ use inkwell::{
     FloatPredicate,
     IntPredicate
 };
+use crate::toplevel::numpy::gen_ndarray_identity;
 
 type BuiltinInfo = Vec<(Arc<RwLock<TopLevelDef>>, Option<Stmt>)>;
 
@@ -279,9 +286,29 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
     let boolean = primitives.0.bool;
     let range = primitives.0.range;
     let string = primitives.0.str;
+    let ndarray = {
+        let ndarray_ty = TypeEnum::ndarray(&mut primitives.1, None, None, &primitives.0);
+        primitives.1.add_ty(ndarray_ty)
+    };
     let ndarray_float = {
         let ndarray_ty_enum = TypeEnum::ndarray(&mut primitives.1, Some(float), None, &primitives.0);
         primitives.1.add_ty(ndarray_ty_enum)
+    };
+    let ndarray_float_2d = {
+        let value = match primitives.0.size_t {
+            64 => SymbolValue::U64(2u64),
+            32 => SymbolValue::U32(2u32),
+            _ => unreachable!(),
+        };
+        let ndims = primitives.1.add_ty(TypeEnum::TLiteral {
+            values: vec![value],
+            loc: None,
+        });
+
+        primitives.1.add_ty(TypeEnum::TNDArray {
+            ty: float,
+            ndims,
+        })
     };
     let list_int32 = primitives.1.add_ty(TypeEnum::TList { ty: int32 });
     let num_ty = primitives.1.get_fresh_var_with_range(
@@ -872,6 +899,89 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         create_fn_by_codegen(
             primitives,
             &var_map,
+            "np_zeros",
+            ndarray_float,
+            // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
+            // type variable
+            &[(list_int32, "shape")],
+            Box::new(|ctx, obj, fun, args, generator| {
+                gen_ndarray_zeros(ctx, obj, fun, args, generator)
+                    .map(|val| Some(val.as_basic_value_enum()))
+            }),
+        ),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "np_ones",
+            ndarray_float,
+            // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
+            // type variable
+            &[(list_int32, "shape")],
+            Box::new(|ctx, obj, fun, args, generator| {
+                gen_ndarray_ones(ctx, obj, fun, args, generator)
+                    .map(|val| Some(val.as_basic_value_enum()))
+            }),
+        ),
+        {
+            let tv = primitives.1.get_fresh_var(Some("T".into()), None).0;
+
+            create_fn_by_codegen(
+                primitives,
+                &var_map,
+                "np_full",
+                ndarray,
+                // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
+                // type variable
+                &[(list_int32, "shape"), (tv, "fill_value")],
+                Box::new(|ctx, obj, fun, args, generator| {
+                    gen_ndarray_full(ctx, obj, fun, args, generator)
+                        .map(|val| Some(val.as_basic_value_enum()))
+                }),
+            )
+        },
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "np_eye".into(),
+            simple_name: "np_eye".into(),
+            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+                args: vec![
+                    FuncArg { name: "N".into(), ty: int32, default_value: None },
+                    // TODO(Derppening): Default values current do not work?
+                    FuncArg {
+                        name: "M".into(),
+                        ty: int32,
+                        default_value: Some(SymbolValue::OptionNone)
+                    },
+                    FuncArg { name: "k".into(), ty: int32, default_value: Some(SymbolValue::I32(0)) },
+                ],
+                ret: ndarray_float_2d,
+                vars: var_map.clone(),
+            })),
+            var_id: Default::default(),
+            instance_to_symbol: Default::default(),
+            instance_to_stmt: Default::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |ctx, obj, fun, args, generator| {
+                    gen_ndarray_eye(ctx, obj, fun, args, generator)
+                        .map(|val| Some(val.as_basic_value_enum()))
+                },
+            )))),
+            loc: None,
+        })),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
+            "np_identity",
+            ndarray_float_2d,
+            &[(int32, "n")],
+            Box::new(|ctx, obj, fun, args, generator| {
+                gen_ndarray_identity(ctx, obj, fun, args, generator)
+                    .map(|val| Some(val.as_basic_value_enum()))
+            }),
+        ),
+        create_fn_by_codegen(
+            primitives,
+            &var_map,
             "round",
             int32,
             &[(float, "n")],
@@ -1364,7 +1474,22 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                         Some(ctx.builder.build_int_truncate(len, int32, "len2i32").into())
                                     }
                                 }
-                                TypeEnum::TNDArray { .. } => todo!(),
+                                TypeEnum::TNDArray { .. } => {
+                                    let llvm_i32 = ctx.ctx.i32_type();
+                                    let i32_zero = llvm_i32.const_zero();
+
+                                    let len = ctx.build_gep_and_load(
+                                        arg.into_pointer_value(),
+                                        &[i32_zero, i32_zero],
+                                        None,
+                                    ).into_int_value();
+
+                                    if len.get_type().get_bit_width() != 32 {
+                                        Some(ctx.builder.build_int_truncate(len, llvm_i32, "len").into())
+                                    } else {
+                                        Some(len.into())
+                                    }
+                                }
                                 _ => unreachable!(),
                             }
                         })

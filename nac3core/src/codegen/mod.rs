@@ -34,6 +34,9 @@ use std::sync::{
 };
 use std::thread;
 
+#[cfg(debug_assertions)]
+use inkwell::types::AnyTypeEnum;
+
 pub mod concrete_type;
 pub mod expr;
 mod generator;
@@ -236,7 +239,7 @@ pub struct WorkerRegistry {
     static_value_store: Arc<Mutex<StaticValueStore>>,
 
     /// LLVM-related options for code generation.
-    llvm_options: CodeGenLLVMOptions,
+    pub llvm_options: CodeGenLLVMOptions,
 }
 
 impl WorkerRegistry {
@@ -994,4 +997,44 @@ fn gen_in_range_check<'ctx>(
     let hi = ctx.builder.build_select(sign, stop, value, "").into_int_value();
 
     ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp")
+}
+
+/// Checks whether the pointer `value` refers to a `list` in LLVM.
+fn assert_is_list(value: PointerValue) -> PointerValue {
+    #[cfg(debug_assertions)]
+    {
+        let llvm_shape_ty = value.get_type().get_element_type();
+        let AnyTypeEnum::StructType(llvm_shape_ty) = llvm_shape_ty else {
+            panic!("Expected struct type for `list` type, but got {llvm_shape_ty}")
+        };
+        assert_eq!(llvm_shape_ty.count_fields(), 2);
+        assert!(matches!(llvm_shape_ty.get_field_type_at_index(0), Some(BasicTypeEnum::PointerType(..))));
+        assert!(matches!(llvm_shape_ty.get_field_type_at_index(1), Some(BasicTypeEnum::IntType(..))));
+    }
+
+    value
+}
+
+/// Checks whether the pointer `value` refers to an `NDArray` in LLVM.
+fn assert_is_ndarray(value: PointerValue) -> PointerValue {
+    #[cfg(debug_assertions)]
+    {
+        let llvm_ndarray_ty = value.get_type().get_element_type();
+        let AnyTypeEnum::StructType(llvm_ndarray_ty) = llvm_ndarray_ty else {
+            panic!("Expected struct type for `NDArray` type, but got {llvm_ndarray_ty}")
+        };
+
+        assert_eq!(llvm_ndarray_ty.count_fields(), 3);
+        assert!(matches!(llvm_ndarray_ty.get_field_type_at_index(0), Some(BasicTypeEnum::IntType(..))));
+        let Some(ndarray_dims) = llvm_ndarray_ty.get_field_type_at_index(1) else {
+            unreachable!()
+        };
+        let BasicTypeEnum::PointerType(dims) = ndarray_dims else {
+            panic!("Expected pointer type for `list.1`, but got {ndarray_dims}")
+        };
+        assert!(matches!(dims.get_element_type(), AnyTypeEnum::IntType(..)));
+        assert!(matches!(llvm_ndarray_ty.get_field_type_at_index(2), Some(BasicTypeEnum::PointerType(..))));
+    }
+
+    value
 }

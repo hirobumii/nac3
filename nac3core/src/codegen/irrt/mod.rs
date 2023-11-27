@@ -1,6 +1,6 @@
 use crate::typecheck::typedef::Type;
 
-use super::{CodeGenContext, CodeGenerator};
+use super::{assert_is_list, assert_is_ndarray, CodeGenContext, CodeGenerator};
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     context::Context,
@@ -11,9 +11,6 @@ use inkwell::{
     AddressSpace, IntPredicate,
 };
 use nac3parser::ast::Expr;
-
-#[cfg(debug_assertions)]
-use inkwell::types::AnyTypeEnum;
 
 #[must_use]
 pub fn load_irrt(ctx: &Context) -> Module {
@@ -550,62 +547,21 @@ pub fn call_j0<'ctx>(
         .into_float_value()
 }
 
-/// Checks whether the pointer `value` refers to a `list` in LLVM.
-fn assert_is_list(value: PointerValue) -> PointerValue {
-    #[cfg(debug_assertions)]
-    {
-        let llvm_shape_ty = value.get_type().get_element_type();
-        let AnyTypeEnum::StructType(llvm_shape_ty) = llvm_shape_ty else {
-            panic!("Expected struct type for `list` type, but got {llvm_shape_ty}")
-        };
-        assert_eq!(llvm_shape_ty.count_fields(), 2);
-        assert!(matches!(llvm_shape_ty.get_field_type_at_index(0), Some(BasicTypeEnum::PointerType(..))));
-        assert!(matches!(llvm_shape_ty.get_field_type_at_index(1), Some(BasicTypeEnum::IntType(..))));
-    }
-
-    value
-}
-
-/// Checks whether the pointer `value` refers to an `NDArray` in LLVM.
-fn assert_is_ndarray(value: PointerValue) -> PointerValue {
-    #[cfg(debug_assertions)]
-    {
-        let llvm_ndarray_ty = value.get_type().get_element_type();
-        let AnyTypeEnum::StructType(llvm_ndarray_ty) = llvm_ndarray_ty else {
-            panic!("Expected struct type for `NDArray` type, but got {llvm_ndarray_ty}")
-        };
-
-        assert_eq!(llvm_ndarray_ty.count_fields(), 3);
-        assert!(matches!(llvm_ndarray_ty.get_field_type_at_index(0), Some(BasicTypeEnum::IntType(..))));
-        let Some(ndarray_dims) = llvm_ndarray_ty.get_field_type_at_index(1) else {
-            unreachable!()
-        };
-        let BasicTypeEnum::PointerType(dims) = ndarray_dims else {
-            panic!("Expected pointer type for `list.1`, but got {ndarray_dims}")
-        };
-        assert!(matches!(dims.get_element_type(), AnyTypeEnum::IntType(..)));
-        assert!(matches!(llvm_ndarray_ty.get_field_type_at_index(2), Some(BasicTypeEnum::PointerType(..))));
-    }
-
-    value
-}
-
 /// Generates a call to `__nac3_ndarray_calc_size`. Returns an [IntValue] representing the
 /// calculated total size.
 ///
-/// * `shape` - LLVM pointer to the `shape` of the NDArray. This value must be the LLVM
-/// representation of a `list`.
+/// * `num_dims` - An [IntValue] containing the number of dimensions.
+/// * `dims` - A [PointerValue] to an array containing the size of each dimensions.
 pub fn call_ndarray_calc_size<'ctx, 'a>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, 'a>,
-    shape: PointerValue<'ctx>,
+    num_dims: IntValue<'ctx>,
+    dims: PointerValue<'ctx>,
 ) -> IntValue<'ctx> {
-    assert_is_list(shape);
-
-    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_i64 = ctx.ctx.i64_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
-    let llvm_pi32 = llvm_i32.ptr_type(AddressSpace::default());
+    let llvm_pi64 = llvm_i64.ptr_type(AddressSpace::default());
 
     let ndarray_calc_size_fn_name = match generator.get_size_type(ctx.ctx).get_bit_width() {
         32 => "__nac3_ndarray_calc_size",
@@ -614,7 +570,7 @@ pub fn call_ndarray_calc_size<'ctx, 'a>(
     };
     let ndarray_calc_size_fn_t = llvm_usize.fn_type(
         &[
-            llvm_pi32.into(),
+            llvm_pi64.into(),
             llvm_usize.into(),
         ],
         false,
@@ -624,30 +580,12 @@ pub fn call_ndarray_calc_size<'ctx, 'a>(
             ctx.module.add_function(ndarray_calc_size_fn_name, ndarray_calc_size_fn_t, None)
         });
 
-    let (
-        shape_data,
-        shape_len,
-    ) = unsafe {
-        (
-            ctx.builder.build_in_bounds_gep(
-                shape,
-                &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-                ""
-            ),
-            ctx.builder.build_in_bounds_gep(
-                shape,
-                &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-                ""
-            ),
-        )
-    };
-
     ctx.builder
         .build_call(
             ndarray_calc_size_fn,
             &[
-                ctx.builder.build_load(shape_data, "").into(),
-                ctx.builder.build_load(shape_len, "").into(),
+                dims.into(),
+                num_dims.into(),
             ],
             "",
         )
@@ -721,4 +659,68 @@ pub fn call_ndarray_init_dims<'ctx, 'a>(
         ],
         "",
     );
+}
+
+pub fn call_ndarray_calc_nd_indices<'ctx, 'a>(
+    generator: &mut dyn CodeGenerator,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    index: IntValue<'ctx>,
+    ndarray: PointerValue<'ctx>,
+) -> Result<PointerValue<'ctx>, String> {
+    assert_is_ndarray(ndarray);
+
+    let llvm_void = ctx.ctx.void_type();
+    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
+
+    let ndarray_calc_nd_indices_dn_name = match generator.get_size_type(ctx.ctx).get_bit_width() {
+        32 => "__nac3_ndarray_calc_nd_indices",
+        64 => "__nac3_ndarray_calc_nd_indices64",
+        bw => unreachable!("Unsupported size type bit width: {}", bw)
+    };
+    let ndarray_calc_nd_indices_fn = ctx.module.get_function(ndarray_calc_nd_indices_dn_name).unwrap_or_else(|| {
+        let fn_type = llvm_void.fn_type(
+            &[
+                llvm_usize.into(),
+                llvm_pusize.into(),
+                llvm_usize.into(),
+                llvm_pusize.into(),
+            ],
+            false,
+        );
+
+        ctx.module.add_function(ndarray_calc_nd_indices_dn_name, fn_type, None)
+    });
+
+    let ndarray_num_dims = ctx.build_gep_and_load(
+        ndarray,
+        &[llvm_i32.const_zero(), llvm_i32.const_zero()],
+        None,
+    ).into_int_value();
+    let ndarray_dims = ctx.build_gep_and_load(
+        ndarray,
+        &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
+        None,
+    ).into_pointer_value();
+
+    let indices = ctx.builder.build_array_alloca(
+        llvm_usize,
+        ndarray_num_dims,
+        "",
+    );
+
+    ctx.builder.build_call(
+        ndarray_calc_nd_indices_fn,
+        &[
+            index.into(),
+            ndarray_dims.into(),
+            ndarray_num_dims.into(),
+            indices.into(),
+        ],
+        "",
+    );
+
+    Ok(indices)
 }
