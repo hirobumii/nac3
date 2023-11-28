@@ -53,7 +53,7 @@ impl TopLevelComposer {
         core_config: ComposerConfig,
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
         let mut primitives = Self::make_primitives();
-        let (mut definition_ast_list, builtin_name_list) = builtins::get_builtins(&mut primitives);
+        let mut definition_ast_list = builtins::get_builtins(&mut primitives);
         let primitives_ty = primitives.0;
         let mut unifier = primitives.1;
         let mut keyword_list: HashSet<StrRef> = HashSet::from_iter(vec![
@@ -83,12 +83,26 @@ impl TopLevelComposer {
         let mut builtin_id: HashMap<StrRef, DefinitionId> = Default::default();
         let mut builtin_ty: HashMap<StrRef, Type> = Default::default();
 
-        for (id, name) in builtin_name_list.iter().rev().enumerate() {
+        let builtin_name_list = definition_ast_list.iter()
+            .map(|def_ast| match *def_ast.0.read() {
+                TopLevelDef::Class { name, .. } => name.to_string(),
+                TopLevelDef::Function { simple_name, .. } => simple_name.to_string(),
+            })
+            .collect_vec();
+
+        for (id, name) in builtin_name_list.iter().enumerate() {
             let name = (**name).into();
-            let id = definition_ast_list.len() - id - 1;
             let def = definition_ast_list[id].0.read();
-            if let TopLevelDef::Function { simple_name, signature, .. } = &*def {
-                assert!(name == *simple_name);
+            if let TopLevelDef::Function { name: func_name, simple_name, signature, .. } = &*def {
+                assert_eq!(name, *simple_name, "Simple name of builtin function should match builtin name list");
+
+                // Do not add member functions into the list of builtin IDs;
+                // Here we assume that all builtin top-level functions have the same name and simple
+                // name, and all member functions have something prefixed to its name
+                if *func_name != simple_name.to_string() {
+                    continue
+                }
+
                 builtin_ty.insert(name, *signature);
                 builtin_id.insert(name, DefinitionId(id));
             } else if let TopLevelDef::Class { name, constructor, object_id, .. } = &*def

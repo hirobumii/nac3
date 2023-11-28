@@ -22,7 +22,7 @@ use inkwell::{
     IntPredicate
 };
 
-type BuiltinInfo = (Vec<(Arc<RwLock<TopLevelDef>>, Option<Stmt>)>, &'static [&'static str]);
+type BuiltinInfo = Vec<(Arc<RwLock<TopLevelDef>>, Option<Stmt>)>;
 
 pub fn get_exn_constructor(
     name: &str,
@@ -1906,68 +1906,6 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
 
     let ast_list: Vec<Option<ast::Stmt<()>>> =
         (0..top_level_def_list.len()).map(|_| None).collect();
-    (
-        izip!(top_level_def_list, ast_list).collect_vec(),
-        &[
-            "int32",
-            "int64",
-            "uint32",
-            "uint64",
-            "float",
-            "round",
-            "round64",
-            "np_round",
-            "range",
-            "str",
-            "bool",
-            "floor",
-            "floor64",
-            "np_floor",
-            "ceil",
-            "ceil64",
-            "np_ceil",
-            "len",
-            "min",
-            "max",
-            "abs",
-            "np_isnan",
-            "np_isinf",
-            "np_sin",
-            "np_cos",
-            "np_exp",
-            "np_exp2",
-            "np_log",
-            "np_log10",
-            "np_log2",
-            "np_fabs",
-            "np_sqrt",
-            "np_rint",
-            "np_tan",
-            "np_arcsin",
-            "np_arccos",
-            "np_arctan",
-            "np_sinh",
-            "np_cosh",
-            "np_tanh",
-            "np_arcsinh",
-            "np_arccosh",
-            "np_arctanh",
-            "np_expm1",
-            "np_cbrt",
-            "sp_spec_erf",
-            "sp_spec_erfc",
-            "sp_spec_gamma",
-            "sp_spec_gammaln",
-            "sp_spec_j0",
-            "sp_spec_j1",
-            "np_arctan2",
-            "np_copysign",
-            "np_fmax",
-            "np_fmin",
-            "np_ldexp",
-            "np_hypot",
-            "np_nextafter",
-            "Some",
-        ],
-    )
+
+    izip!(top_level_def_list, ast_list).collect_vec()
 }
