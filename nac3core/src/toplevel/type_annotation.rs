@@ -127,7 +127,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
          slice: &ast::Expr<T>,
          unifier: &mut Unifier,
          mut locked: HashMap<DefinitionId, Vec<Type>>| {
-            if vec!["virtual".into(), "Generic".into(), "list".into(), "tuple".into()].contains(id)
+            if vec!["virtual".into(), "Generic".into(), "list".into(), "tuple".into(), "Option".into()].contains(id)
             {
                 return Err(format!("keywords cannot be class name (at {})", expr.location));
             }

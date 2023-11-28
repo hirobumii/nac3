@@ -74,8 +74,15 @@ fn handle_typevar_definition(
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
 ) -> Result<Type, String> {
-    if let ExprKind::Call { func, args, .. } = &var.node {
-        if matches!(&func.node, ExprKind::Name { id, .. } if id == &"TypeVar".into()) {
+    let ExprKind::Call { func, args, .. } = &var.node else {
+        return Err(format!(
+            "expression {:?} cannot be handled as a generic parameter in global scope",
+            var
+        ))
+    };
+
+    match &func.node {
+        ExprKind::Name { id, .. } if id == &"TypeVar".into() => {
             let constraints = args
                 .iter()
                 .skip(1)
@@ -94,15 +101,10 @@ fn handle_typevar_definition(
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(unifier.get_fresh_var_with_range(&constraints, None, None).0)
-        } else {
-            Err(format!(
-                "expression {:?} cannot be handled as a TypeVar in global scope",
-                var
-            ))
         }
-    } else {
-        Err(format!(
-            "expression {:?} cannot be handled as a TypeVar in global scope",
+
+        _ => Err(format!(
+            "expression {:?} cannot be handled as a generic parameter in global scope",
             var
         ))
     }
@@ -135,7 +137,7 @@ fn handle_assignment_pattern(
                     internal_resolver.add_module_global(*id, val);
                     Ok(())
                 } else {
-                    Err(format!("fails to evaluate this expression `{:?}` as a constant or TypeVar at {}",
+                    Err(format!("fails to evaluate this expression `{:?}` as a constant or generic parameter at {}",
                         targets[0].node,
                         targets[0].location,
                     ))
