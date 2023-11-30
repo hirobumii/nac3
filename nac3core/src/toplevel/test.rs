@@ -361,7 +361,7 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec!["application of type vars to generic class is not currently supported (at unknown: line 4 column 24)"];
+    vec!["application of type vars to generic class is not currently supported (at unknown:4:24)"];
     "err no type var in generic app"
 )]
 #[test_case(
@@ -417,7 +417,7 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
             def __init__():
                 pass
     "}],
-    vec!["__init__ method must have a `self` parameter (at unknown: line 2 column 5)"];
+    vec!["__init__ method must have a `self` parameter (at unknown:2:5)"];
     "err no self_1"
 )]
 #[test_case(
@@ -439,7 +439,7 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
         "}
 
     ],
-    vec!["a class definition can only have at most one base class declaration and one generic declaration (at unknown: line 1 column 24)"];
+    vec!["a class definition can only have at most one base class declaration and one generic declaration (at unknown:1:24)"];
     "err multiple inheritance"
 )]
 #[test_case(
@@ -507,7 +507,7 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec!["duplicate definition of class `A` (at unknown: line 1 column 1)"];
+    vec!["duplicate definition of class `A` (at unknown:1:1)"];
     "class same name"
 )]
 fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
