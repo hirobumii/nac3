@@ -1,11 +1,12 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::{collections::HashMap, fmt::Display};
+use std::rc::Rc;
 
 use crate::typecheck::typedef::TypeEnum;
 use crate::{
     codegen::CodeGenContext,
-    toplevel::{DefinitionId, TopLevelDef},
+    toplevel::{DefinitionId, TopLevelDef, type_annotation::TypeAnnotation},
 };
 use crate::{
     codegen::CodeGenerator,
@@ -16,7 +17,7 @@ use crate::{
 };
 use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue};
 use itertools::{chain, izip};
-use nac3parser::ast::{Expr, Location, StrRef};
+use nac3parser::ast::{Constant, Expr, Location, StrRef};
 use parking_lot::RwLock;
 
 #[derive(Clone, PartialEq, Debug)]
@@ -31,6 +32,147 @@ pub enum SymbolValue {
     Tuple(Vec<SymbolValue>),
     OptionSome(Box<SymbolValue>),
     OptionNone,
+}
+
+impl SymbolValue {
+    /// Creates a [SymbolValue] from a [Constant].
+    ///
+    /// * `constant` - The constant to create the value from.
+    /// * `expected_ty` - The expected type of the [SymbolValue].
+    pub fn from_constant(
+        constant: &Constant,
+        expected_ty: Type,
+        primitives: &PrimitiveStore,
+        unifier: &mut Unifier
+    ) -> Result<Self, String> {
+        match constant {
+            Constant::None => {
+                if unifier.unioned(expected_ty, primitives.option) {
+                    Ok(SymbolValue::OptionNone)
+                } else {
+                    Err(format!("Expected {:?}, but got Option", expected_ty))
+                }
+            }
+            Constant::Bool(b) => {
+                if unifier.unioned(expected_ty, primitives.bool) {
+                    Ok(SymbolValue::Bool(*b))
+                } else {
+                    Err(format!("Expected {:?}, but got bool", expected_ty))
+                }
+            }
+            Constant::Str(s) => {
+                if unifier.unioned(expected_ty, primitives.str) {
+                    Ok(SymbolValue::Str(s.to_string()))
+                } else {
+                    Err(format!("Expected {:?}, but got str", expected_ty))
+                }
+            },
+            Constant::Int(i) => {
+                if unifier.unioned(expected_ty, primitives.int32) {
+                    i32::try_from(*i)
+                        .map(|val| SymbolValue::I32(val))
+                        .map_err(|e| e.to_string())
+                } else if unifier.unioned(expected_ty, primitives.int64) {
+                    i64::try_from(*i)
+                        .map(|val| SymbolValue::I64(val))
+                        .map_err(|e| e.to_string())
+                } else if unifier.unioned(expected_ty, primitives.uint32) {
+                    u32::try_from(*i)
+                        .map(|val| SymbolValue::U32(val))
+                        .map_err(|e| e.to_string())
+                } else if unifier.unioned(expected_ty, primitives.uint64) {
+                    u64::try_from(*i)
+                        .map(|val| SymbolValue::U64(val))
+                        .map_err(|e| e.to_string())
+                } else {
+                    Err(format!("Expected {:?}, but got int", expected_ty))
+                }
+            }
+            Constant::Tuple(t) => {
+                let expected_ty = unifier.get_ty(expected_ty);
+                let TypeEnum::TTuple { ty } = expected_ty.as_ref() else {
+                    return Err(format!("Expected {:?}, but got Tuple", expected_ty.get_type_name()))
+                };
+
+                assert_eq!(ty.len(), t.len());
+
+                let elems = t.into_iter()
+                    .zip(ty)
+                    .map(|(constant, ty)| Self::from_constant(constant, *ty, primitives, unifier))
+                    .collect::<Result<Vec<SymbolValue>, _>>()?;
+                Ok(SymbolValue::Tuple(elems))
+            }
+            Constant::Float(f) => {
+                if unifier.unioned(expected_ty, primitives.float) {
+                    Ok(SymbolValue::Double(*f))
+                } else {
+                    Err(format!("Expected {:?}, but got float", expected_ty))
+                }
+            },
+            _ => Err(format!("Unsupported value type {:?}", constant)),
+        }
+    }
+
+    /// Returns the [Type] representing the data type of this value.
+    pub fn get_type(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> Type {
+        match self {
+            SymbolValue::I32(_) => primitives.int32,
+            SymbolValue::I64(_) => primitives.int64,
+            SymbolValue::U32(_) => primitives.uint32,
+            SymbolValue::U64(_) => primitives.uint64,
+            SymbolValue::Str(_) => primitives.str,
+            SymbolValue::Double(_) => primitives.float,
+            SymbolValue::Bool(_) => primitives.bool,
+            SymbolValue::Tuple(vs) => {
+                let vs_tys = vs
+                    .iter()
+                    .map(|v| v.get_type(primitives, unifier))
+                    .collect::<Vec<_>>();
+                unifier.add_ty(TypeEnum::TTuple {
+                    ty: vs_tys,
+                })
+            }
+            SymbolValue::OptionSome(_) => primitives.option,
+            SymbolValue::OptionNone => primitives.option,
+        }
+    }
+
+    /// Returns the [TypeAnnotation] representing the data type of this value.
+    pub fn get_type_annotation(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> TypeAnnotation {
+        match self {
+            SymbolValue::Bool(..) => TypeAnnotation::Primitive(primitives.bool),
+            SymbolValue::Double(..) => TypeAnnotation::Primitive(primitives.float),
+            SymbolValue::I32(..) => TypeAnnotation::Primitive(primitives.int32),
+            SymbolValue::I64(..) => TypeAnnotation::Primitive(primitives.int64),
+            SymbolValue::U32(..) => TypeAnnotation::Primitive(primitives.uint32),
+            SymbolValue::U64(..) => TypeAnnotation::Primitive(primitives.uint64),
+            SymbolValue::Str(..) => TypeAnnotation::Primitive(primitives.str),
+            SymbolValue::Tuple(vs) => {
+                let vs_tys = vs
+                    .iter()
+                    .map(|v| v.get_type_annotation(primitives, unifier))
+                    .collect::<Vec<_>>();
+                TypeAnnotation::Tuple(vs_tys)
+            }
+            SymbolValue::OptionNone => TypeAnnotation::CustomClass {
+                id: primitives.option.get_obj_id(unifier),
+                params: Default::default(),
+            },
+            SymbolValue::OptionSome(v) => {
+                let ty = v.get_type_annotation(primitives, unifier);
+                TypeAnnotation::CustomClass {
+                    id: primitives.option.get_obj_id(unifier),
+                    params: vec![ty],
+                }
+            }
+        }
+    }
+
+    /// Returns the [TypeEnum] representing the data type of this value.
+    pub fn get_type_enum(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> Rc<TypeEnum> {
+        let ty = self.get_type(primitives, unifier);
+        unifier.get_ty(ty)
+    }
 }
 
 impl Display for SymbolValue {

@@ -416,40 +416,6 @@ impl TopLevelComposer {
         primitive: &PrimitiveStore,
         unifier: &mut Unifier,
     ) -> Result<(), String> {
-        fn type_default_param(
-            val: &SymbolValue,
-            primitive: &PrimitiveStore,
-            unifier: &mut Unifier,
-        ) -> TypeAnnotation {
-            match val {
-                SymbolValue::Bool(..) => TypeAnnotation::Primitive(primitive.bool),
-                SymbolValue::Double(..) => TypeAnnotation::Primitive(primitive.float),
-                SymbolValue::I32(..) => TypeAnnotation::Primitive(primitive.int32),
-                SymbolValue::I64(..) => TypeAnnotation::Primitive(primitive.int64),
-                SymbolValue::U32(..) => TypeAnnotation::Primitive(primitive.uint32),
-                SymbolValue::U64(..) => TypeAnnotation::Primitive(primitive.uint64),
-                SymbolValue::Str(..) => TypeAnnotation::Primitive(primitive.str),
-                SymbolValue::Tuple(vs) => {
-                    let vs_tys = vs
-                        .iter()
-                        .map(|v| type_default_param(v, primitive, unifier))
-                        .collect::<Vec<_>>();
-                    TypeAnnotation::Tuple(vs_tys)
-                }
-                SymbolValue::OptionNone => TypeAnnotation::CustomClass {
-                    id: primitive.option.get_obj_id(unifier),
-                    params: Default::default(),
-                },
-                SymbolValue::OptionSome(v) => {
-                    let ty = type_default_param(v, primitive, unifier);
-                    TypeAnnotation::CustomClass {
-                        id: primitive.option.get_obj_id(unifier),
-                        params: vec![ty],
-                    }
-                }
-            }
-        }
-
         fn is_compatible(
             found: &TypeAnnotation,
             expect: &TypeAnnotation,
@@ -481,7 +447,7 @@ impl TopLevelComposer {
             }
         }
 
-        let found = type_default_param(val, primitive, unifier);
+        let found = val.get_type_annotation(primitive, unifier);
         if !is_compatible(&found, ty, unifier, primitive) {
             Err(format!(
                 "incompatible default parameter type, expect {}, found {}",
