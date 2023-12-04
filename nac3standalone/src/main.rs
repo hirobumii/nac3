@@ -321,6 +321,7 @@ fn main() {
             triple,
             cpu: mcpu,
             features: target_features,
+            reloc_mode: RelocMode::PIC,
             ..host_target_machine
         },
     };
