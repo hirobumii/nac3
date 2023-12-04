@@ -30,7 +30,7 @@ void output_int32(int32_t x) {
 }
 
 void output_int64(int64_t x) {
-    printf("%ld\n", x);
+    printf("%lld\n", x);
 }
 
 void output_uint32(uint32_t x) {
@@ -38,7 +38,7 @@ void output_uint32(uint32_t x) {
 }
 
 void output_uint64(uint64_t x) {
-    printf("%lu\n", x);
+    printf("%llu\n", x);
 }
 
 void output_float64(double x) {
