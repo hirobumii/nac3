@@ -134,6 +134,17 @@ pub enum TypeEnum {
         range: Vec<Type>,
         name: Option<StrRef>,
         loc: Option<Location>,
+        /// Whether this type variable refers to a const-generic variable.
+        is_const_generic: bool,
+    },
+
+    /// A constant for substitution into a const generic variable.
+    TConstant {
+        /// The value of the constant.
+        value: SymbolValue,
+        /// The underlying type of the value.
+        ty: Type,
+        loc: Option<Location>,
     },
 
     /// A tuple type.
@@ -178,6 +189,7 @@ impl TypeEnum {
         match self {
             TypeEnum::TRigidVar { .. } => "TRigidVar",
             TypeEnum::TVar { .. } => "TVar",
+            TypeEnum::TConstant { .. } => "TConstant",
             TypeEnum::TTuple { .. } => "TTuple",
             TypeEnum::TList { .. } => "TList",
             TypeEnum::TObj { .. } => "TObj",
@@ -263,6 +275,7 @@ impl Unifier {
             fields: Some(fields),
             name: None,
             loc: None,
+            is_const_generic: false,
         })
     }
 
@@ -336,7 +349,33 @@ impl Unifier {
         let id = self.var_id + 1;
         self.var_id += 1;
         let range = range.to_vec();
-        (self.add_ty(TypeEnum::TVar { id, range, fields: None, name, loc }), id)
+        (self.add_ty(TypeEnum::TVar { id, range, fields: None, name, loc, is_const_generic: false }), id)
+    }
+
+    /// Returns a fresh type representing a constant generic variable with the given underlying type
+    /// `ty`.
+    pub fn get_fresh_const_generic_var(
+        &mut self,
+        ty: Type,
+        name: Option<StrRef>,
+        loc: Option<Location>,
+    ) -> (Type, u32) {
+        let id = self.var_id + 1;
+        self.var_id += 1;
+        (self.add_ty(TypeEnum::TVar { id, range: vec![ty], fields: None, name, loc, is_const_generic: true }), id)
+    }
+
+    /// Returns a fresh type representing a [fresh constant][TypeEnum::TConstant] with the given
+    /// `value` and type `ty`.
+    pub fn get_fresh_constant(
+        &mut self,
+        value: SymbolValue,
+        ty: Type,
+        loc: Option<Location>,
+    ) -> Type {
+        assert!(matches!(self.get_ty(ty).as_ref(), TypeEnum::TObj { .. }));
+
+        self.add_ty(TypeEnum::TConstant { ty, value, loc })
     }
 
     /// Unification would not unify rigid variables with other types, but we want to do this for
@@ -412,7 +451,7 @@ impl Unifier {
     pub fn is_concrete(&mut self, a: Type, allowed_typevars: &[Type]) -> bool {
         use TypeEnum::*;
         match &*self.get_ty(a) {
-            TRigidVar { .. } => true,
+            TRigidVar { .. } | TConstant { .. } => true,
             TVar { .. } => allowed_typevars.iter().any(|b| self.unification_table.unioned(a, *b)),
             TCall { .. } => false,
             TList { ty } => self.is_concrete(*ty, allowed_typevars),
@@ -560,8 +599,8 @@ impl Unifier {
         };
         match (&*ty_a, &*ty_b) {
             (
-                TVar { fields: fields1, id, name: name1, loc: loc1, .. },
-                TVar { fields: fields2, id: id2, name: name2, loc: loc2, .. },
+                TVar { fields: fields1, id, name: name1, loc: loc1, is_const_generic: false, .. },
+                TVar { fields: fields2, id: id2, name: name2, loc: loc2, is_const_generic: false, .. },
             ) => {
                 let new_fields = match (fields1, fields2) {
                     (None, None) => None,
@@ -616,10 +655,11 @@ impl Unifier {
                         range,
                         name: name1.or(*name2),
                         loc: loc1.or(*loc2),
+                        is_const_generic: false,
                     }),
                 );
             }
-            (TVar { fields: None, range, .. }, _) => {
+            (TVar { fields: None, range, is_const_generic: false, .. }, _) => {
                 // We check for the range of the type variable to see if unification is allowed.
                 // Note that although b may be compatible with a, we may have to constrain type
                 // variables in b to make sure that instantiations of b would always be compatible
@@ -636,7 +676,7 @@ impl Unifier {
                 self.unify_impl(x, b, false)?;
                 self.set_a_to_b(a, x);
             }
-            (TVar { fields: Some(fields), range, .. }, TTuple { ty }) => {
+            (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TTuple { ty }) => {
                 let len = ty.len() as i32;
                 for (k, v) in fields.iter() {
                     match *k {
@@ -666,7 +706,7 @@ impl Unifier {
                 self.unify_impl(x, b, false)?;
                 self.set_a_to_b(a, x);
             }
-            (TVar { fields: Some(fields), range, .. }, TList { ty }) => {
+            (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TList { ty }) => {
                 for (k, v) in fields.iter() {
                     match *k {
                         RecordKey::Int(_) => {
@@ -681,6 +721,35 @@ impl Unifier {
                 self.unify_impl(x, b, false)?;
                 self.set_a_to_b(a, x);
             }
+
+            (TVar { id: id1, range: ty1, is_const_generic: true, .. }, TVar { id: id2, range: ty2, .. }) => {
+                let ty1 = ty1[0];
+                let ty2 = ty2[0];
+
+                if id1 != id2 {
+                    self.unify_impl(ty1, ty2, false)?;
+                }
+
+                self.set_a_to_b(a, b);
+            }
+
+            (TVar { range: ty1, is_const_generic: true, .. }, TConstant { ty: ty2, .. }) => {
+                let ty1 = ty1[0];
+
+                self.unify_impl(ty1, *ty2, false)?;
+                self.set_a_to_b(a, b);
+            }
+
+            (TConstant { value: val1, ty: ty1, .. }, TConstant { value: val2, ty: ty2, .. }) => {
+                if val1 != val2 {
+                    eprintln!("VALUE MISMATCH: lhs={val1:?} rhs={val2:?} eq={}", val1 == val2);
+                    return self.incompatible_types(a, b)
+                }
+                self.unify_impl(*ty1, *ty2, false)?;
+
+                self.set_a_to_b(a, b);
+            }
+
             (TTuple { ty: ty1 }, TTuple { ty: ty2 }) => {
                 if ty1.len() != ty2.len() {
                     return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
@@ -775,7 +844,14 @@ impl Unifier {
                 if id1 != id2 {
                     self.incompatible_types(a, b)?;
                 }
-                for (x, y) in zip(params1.values(), params2.values()) {
+
+                // Sort the type arguments by its UnificationKey first, since `HashMap::iter` visits
+                // all K-V pairs "in arbitrary order"
+                let (tv1, tv2) = (
+                    params1.iter().sorted_by_key(|(k, _)| *k).map(|(_, v)| v).collect_vec(),
+                    params2.iter().sorted_by_key(|(k, _)| *k).map(|(_, v)| v).collect_vec(),
+                );
+                for (x, y) in zip(tv1, tv2) {
                     if self.unify_impl(*x, *y, false).is_err() {
                         return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
                     };
@@ -928,6 +1004,9 @@ impl Unifier {
                 };
                 n
             }
+            TypeEnum::TConstant { value, .. } => {
+                format!("const({value})")
+            }
             TypeEnum::TTuple { ty } => {
                 let mut fields =
                     ty.iter().map(|v| self.internal_stringify(*v, obj_to_name, var_to_name, notes));
@@ -983,8 +1062,8 @@ impl Unifier {
         }
     }
 
+    /// Unifies `a` and `b` together, and set the value to the value of `b`.
     fn set_a_to_b(&mut self, a: Type, b: Type) {
-        // unify a and b together, and set the value to b's value.
         let table = &mut self.unification_table;
         let ty_b = table.probe_value(b).clone();
         table.unify(a, b);
@@ -1207,6 +1286,7 @@ impl Unifier {
                             range,
                             name: name2.or(*name),
                             loc: loc2.or(*loc),
+                            is_const_generic: false,
                         };
                         Ok(Some(self.unification_table.new_key(ty.into())))
                     }

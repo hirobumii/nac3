@@ -1,3 +1,4 @@
+use crate::symbol_resolver::SymbolValue;
 use super::*;
 
 #[derive(Clone, Debug)]
@@ -12,6 +13,16 @@ pub enum TypeAnnotation {
     // can only be CustomClassKind
     Virtual(Box<TypeAnnotation>),
     TypeVar(Type),
+    /// A constant used in the context of a const-generic variable.
+    Constant {
+        /// The non-type variable associated with this constant.
+        ///
+        /// Invoking [Unifier::get_ty] on this type will return a [TypeEnum::TVar] representing the
+        /// const generic variable of which this constant is associated with.
+        ty: Type,
+        /// The constant value of this constant.
+        value: SymbolValue
+    },
     List(Box<TypeAnnotation>),
     Tuple(Vec<TypeAnnotation>),
 }
@@ -47,6 +58,7 @@ impl TypeAnnotation {
                     }
                 )
             }
+            Constant { value, .. } => format!("Const({value})"),
             Virtual(ty) => format!("virtual[{}]", ty.stringify(unifier)),
             List(ty) => format!("list[{}]", ty.stringify(unifier)),
             Tuple(types) => {
@@ -56,6 +68,12 @@ impl TypeAnnotation {
     }
 }
 
+/// Parses an AST expression `expr` into a [TypeAnnotation].
+///
+/// * `locked` - A [HashMap] containing the IDs of known definitions, mapped to a [Vec] of all
+/// generic variables associated with the definition.
+/// * `type_var` - The type variable associated with the type argument currently being parsed. Pass
+/// [None] when this function is invoked externally.
 pub fn parse_ast_to_type_annotation_kinds<T>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
@@ -64,6 +82,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
     expr: &ast::Expr<T>,
     // the key stores the type_var of this topleveldef::class, we only need this field here
     locked: HashMap<DefinitionId, Vec<Type>>,
+    type_var: Option<Type>,
 ) -> Result<TypeAnnotation, String> {
     let name_handle = |id: &StrRef,
                        unifier: &mut Unifier,
@@ -161,7 +180,8 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 }
                 let result = params_ast
                     .iter()
-                    .map(|x| {
+                    .enumerate()
+                    .map(|(idx, x)| {
                         parse_ast_to_type_annotation_kinds(
                             resolver,
                             top_level_defs,
@@ -172,6 +192,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                                 locked.insert(obj_id, type_vars.clone());
                                 locked.clone()
                             },
+                            Some(type_vars[idx]),
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -190,6 +211,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             };
             Ok(TypeAnnotation::CustomClass { id: obj_id, params: param_type_infos })
         };
+
     match &expr.node {
         ast::ExprKind::Name { id, .. } => name_handle(id, unifier, locked),
         // virtual
@@ -205,6 +227,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 primitives,
                 slice.as_ref(),
                 locked,
+                None,
             )?;
             if !matches!(def, TypeAnnotation::CustomClass { .. }) {
                 unreachable!("must be concretized custom class kind in the virtual")
@@ -225,6 +248,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 primitives,
                 slice.as_ref(),
                 locked,
+                None,
             )?;
             Ok(TypeAnnotation::List(def_ann.into()))
         }
@@ -242,6 +266,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 primitives,
                 slice.as_ref(),
                 locked,
+                None,
             )?;
             let id =
                 if let TypeEnum::TObj { obj_id, .. } = unifier.get_ty(primitives.option).as_ref() {
@@ -275,6 +300,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                         primitives,
                         e,
                         locked.clone(),
+                        None,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -288,6 +314,31 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             } else {
                 Err(format!("unsupported expression type for class name (at {})", value.location))
             }
+        }
+
+        ast::ExprKind::Constant { value, .. } => {
+            let type_var = type_var.expect("Expect type variable to be present");
+
+            let ntv_ty_enum = unifier.get_ty_immutable(type_var);
+            let TypeEnum::TVar { range: underlying_ty, .. } = ntv_ty_enum.as_ref() else {
+                unreachable!()
+            };
+            let underlying_ty = underlying_ty[0];
+
+            let value = SymbolValue::from_constant(value, underlying_ty, primitives, unifier)?;
+
+            if matches!(value, SymbolValue::Str(_) | SymbolValue::Tuple(_) | SymbolValue::OptionSome(_)) {
+                return Err(format!(
+                    "expression {} is not allowed for constant type annotation (at {})",
+                    value.to_string(),
+                    expr.location
+                ))
+            }
+
+            Ok(TypeAnnotation::Constant {
+                ty: type_var,
+                value,
+            })
         }
 
         _ => Err(format!("unsupported expression for type annotation (at {})", expr.location)),
@@ -308,94 +359,130 @@ pub fn get_type_from_type_annotation_kinds(
         TypeAnnotation::CustomClass { id: obj_id, params } => {
             let def_read = top_level_defs[obj_id.0].read();
             let class_def: &TopLevelDef = def_read.deref();
-            if let TopLevelDef::Class { fields, methods, type_vars, .. } = class_def {
-                if type_vars.len() != params.len() {
-                    Err(format!(
-                        "unexpected number of type parameters: expected {} but got {}",
-                        type_vars.len(),
-                        params.len()
-                    ))
-                } else {
-                    let param_ty = params
-                        .iter()
-                        .map(|x| {
-                            get_type_from_type_annotation_kinds(
-                                top_level_defs,
-                                unifier,
-                                primitives,
-                                x,
-                                subst_list
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
+            let TopLevelDef::Class { fields, methods, type_vars, .. } = class_def else {
+                unreachable!("should be class def here")
+            };
 
-                    let subst = {
-                        // check for compatible range
-                        // TODO: if allow type var to be applied(now this disallowed in the parse_to_type_annotation), need more check
-                        let mut result: HashMap<u32, Type> = HashMap::new();
-                        for (tvar, p) in type_vars.iter().zip(param_ty) {
-                            if let TypeEnum::TVar { id, range, fields: None, name, loc } =
-                                unifier.get_ty(*tvar).as_ref()
-                            {
-                                let ok: bool = {
-                                    // create a temp type var and unify to check compatibility
-                                    p == *tvar || {
-                                        let temp = unifier.get_fresh_var_with_range(
-                                            range.as_slice(),
-                                            *name,
-                                            *loc,
-                                        );
-                                        unifier.unify(temp.0, p).is_ok()
-                                    }
-                                };
-                                if ok {
-                                    result.insert(*id, p);
-                                } else {
-                                    return Err(format!(
-                                        "cannot apply type {} to type variable with id {:?}",
-                                        unifier.internal_stringify(
-                                            p,
-                                            &mut |id| format!("class{}", id),
-                                            &mut |id| format!("typevar{}", id),
-                                            &mut None
-                                        ),
-                                        *id
-                                    ));
+            if type_vars.len() != params.len() {
+                return Err(format!(
+                    "unexpected number of type parameters: expected {} but got {}",
+                    type_vars.len(),
+                    params.len()
+                ))
+            }
+
+            let param_ty = params
+                .iter()
+                .map(|x| {
+                    get_type_from_type_annotation_kinds(
+                        top_level_defs,
+                        unifier,
+                        primitives,
+                        x,
+                        subst_list
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let subst = {
+                // check for compatible range
+                // TODO: if allow type var to be applied(now this disallowed in the parse_to_type_annotation), need more check
+                let mut result: HashMap<u32, Type> = HashMap::new();
+                for (tvar, p) in type_vars.iter().zip(param_ty) {
+                    match unifier.get_ty(*tvar).as_ref() {
+                        TypeEnum::TVar { id, range, fields: None, name, loc, is_const_generic: false } => {
+                            let ok: bool = {
+                                // create a temp type var and unify to check compatibility
+                                p == *tvar || {
+                                    let temp = unifier.get_fresh_var_with_range(
+                                        range.as_slice(),
+                                        *name,
+                                        *loc,
+                                    );
+                                    unifier.unify(temp.0, p).is_ok()
                                 }
+                            };
+                            if ok {
+                                result.insert(*id, p);
                             } else {
-                                unreachable!("must be generic type var")
+                                return Err(format!(
+                                    "cannot apply type {} to type variable with id {:?}",
+                                    unifier.internal_stringify(
+                                        p,
+                                        &mut |id| format!("class{}", id),
+                                        &mut |id| format!("typevar{}", id),
+                                        &mut None
+                                    ),
+                                    *id
+                                ));
                             }
                         }
-                        result
-                    };
-                    let mut tobj_fields = methods
-                        .iter()
-                        .map(|(name, ty, _)| {
-                            let subst_ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
-                            // methods are immutable
-                            (*name, (subst_ty, false))
-                        })
-                        .collect::<HashMap<_, _>>();
-                    tobj_fields.extend(fields.iter().map(|(name, ty, mutability)| {
-                        let subst_ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
-                        (*name, (subst_ty, *mutability))
-                    }));
-                    let need_subst = !subst.is_empty();
-                    let ty = unifier.add_ty(TypeEnum::TObj {
-                        obj_id: *obj_id,
-                        fields: tobj_fields,
-                        params: subst,
-                    });
-                    if need_subst {
-                        subst_list.as_mut().map(|wl| wl.push(ty));
+
+                        TypeEnum::TVar { id, range, name, loc, is_const_generic: true, .. } => {
+                            let ty = range[0];
+                            let ok: bool = {
+                                // create a temp type var and unify to check compatibility
+                                p == *tvar || {
+                                    let temp = unifier.get_fresh_const_generic_var(
+                                        ty,
+                                        *name,
+                                        *loc,
+                                    );
+                                    unifier.unify(temp.0, p).is_ok()
+                                }
+                            };
+                            if ok {
+                                result.insert(*id, p);
+                            } else {
+                                return Err(format!(
+                                    "cannot apply type {} to type variable {}",
+                                    unifier.stringify(p),
+                                    name.unwrap_or_else(|| format!("typevar{id}").into()),
+                                ))
+                            }
+                        }
+
+                        _ => unreachable!("must be generic type var"),
                     }
-                    Ok(ty)
                 }
-            } else {
-                unreachable!("should be class def here")
+                result
+            };
+            let mut tobj_fields = methods
+                .iter()
+                .map(|(name, ty, _)| {
+                    let subst_ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
+                    // methods are immutable
+                    (*name, (subst_ty, false))
+                })
+                .collect::<HashMap<_, _>>();
+            tobj_fields.extend(fields.iter().map(|(name, ty, mutability)| {
+                let subst_ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
+                (*name, (subst_ty, *mutability))
+            }));
+            let need_subst = !subst.is_empty();
+            let ty = unifier.add_ty(TypeEnum::TObj {
+                obj_id: *obj_id,
+                fields: tobj_fields,
+                params: subst,
+            });
+            if need_subst {
+                subst_list.as_mut().map(|wl| wl.push(ty));
             }
+            Ok(ty)
         }
         TypeAnnotation::Primitive(ty) | TypeAnnotation::TypeVar(ty) => Ok(*ty),
+        TypeAnnotation::Constant { ty, value, .. } => {
+            let ty_enum = unifier.get_ty(*ty);
+            let (ty, loc) = match &*ty_enum {
+                TypeEnum::TVar { range: ntv_underlying_ty, loc, is_const_generic: true, .. } => {
+                    (ntv_underlying_ty[0], loc)
+                }
+                _ => unreachable!("{} ({})", unifier.stringify(*ty), ty_enum.get_type_name()),
+            };
+
+            let var = unifier.get_fresh_constant(value.clone(), ty, *loc);
+            Ok(var)
+        }
         TypeAnnotation::Virtual(ty) => {
             let ty = get_type_from_type_annotation_kinds(
                 top_level_defs,
@@ -470,7 +557,7 @@ pub fn get_type_var_contained_in_type_annotation(ann: &TypeAnnotation) -> Vec<Ty
                 result.extend(get_type_var_contained_in_type_annotation(a));
             }
         }
-        TypeAnnotation::Primitive(..) => {}
+        TypeAnnotation::Primitive(..) | TypeAnnotation::Constant { .. } => {}
     }
     result
 }

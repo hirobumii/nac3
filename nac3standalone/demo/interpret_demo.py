@@ -44,6 +44,12 @@ def Some(v: T) -> Option[T]:
 
 none = Option(None)
 
+class _ConstGenericMarker:
+    pass
+
+def ConstGeneric(name, constraint):
+    return TypeVar(name, _ConstGenericMarker, constraint)
+
 def round_away_zero(x):
     if x >= 0.0:
         return math.floor(x + 0.5)
@@ -99,6 +105,7 @@ def patch(module):
     module.uint32 = uint32
     module.uint64 = uint64
     module.TypeVar = TypeVar
+    module.ConstGeneric = ConstGeneric
     module.Generic = Generic
     module.extern = extern
     module.Option = Option

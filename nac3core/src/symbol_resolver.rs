@@ -85,7 +85,7 @@ impl SymbolValue {
                         .map(|val| SymbolValue::U64(val))
                         .map_err(|e| e.to_string())
                 } else {
-                    Err(format!("Expected {:?}, but got int", expected_ty))
+                    Err(format!("Expected {}, but got int", unifier.stringify(expected_ty)))
                 }
             }
             Constant::Tuple(t) => {

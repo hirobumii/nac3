@@ -25,7 +25,7 @@ use nac3core::{
     },
 };
 use nac3parser::{
-    ast::{Expr, ExprKind, StmtKind},
+    ast::{Constant, Expr, ExprKind, StmtKind, StrRef},
     parser,
 };
 
@@ -83,6 +83,11 @@ fn handle_typevar_definition(
 
     match &func.node {
         ExprKind::Name { id, .. } if id == &"TypeVar".into() => {
+            let ExprKind::Constant { value: Constant::Str(ty_name), .. } = &args[0].node else {
+                return Err(format!("Expected string constant for first parameter of `TypeVar`, got {:?}", &args[0].node))
+            };
+            let generic_name: StrRef = ty_name.to_string().into();
+
             let constraints = args
                 .iter()
                 .skip(1)
@@ -94,13 +99,50 @@ fn handle_typevar_definition(
                         primitives,
                         x,
                         Default::default(),
+                        None,
                     )?;
                     get_type_from_type_annotation_kinds(
                         def_list, unifier, primitives, &ty, &mut None
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(unifier.get_fresh_var_with_range(&constraints, None, None).0)
+            let loc = func.location;
+
+            if constraints.len() == 1 {
+                return Err(format!("A single constraint is not allowed (at {})", loc))
+            }
+
+            Ok(unifier.get_fresh_var_with_range(&constraints, Some(generic_name), Some(loc)).0)
+        }
+
+        ExprKind::Name { id, .. } if id == &"ConstGeneric".into() => {
+            if args.len() != 2 {
+                return Err(format!("Expected 2 arguments for `ConstGeneric`, got {}", args.len()))
+            }
+
+            let ExprKind::Constant { value: Constant::Str(ty_name), .. } = &args[0].node else {
+                return Err(format!(
+                    "Expected string constant for first parameter of `ConstGeneric`, got {:?}",
+                    &args[0].node
+                ))
+            };
+            let generic_name: StrRef = ty_name.to_string().into();
+
+            let ty = parse_ast_to_type_annotation_kinds(
+                resolver,
+                def_list,
+                unifier,
+                primitives,
+                &args[1],
+                Default::default(),
+                None,
+            )?;
+            let constraint = get_type_from_type_annotation_kinds(
+                def_list, unifier, primitives, &ty, &mut None
+            )?;
+            let loc = func.location;
+
+            Ok(unifier.get_fresh_const_generic_var(constraint, Some(generic_name), Some(loc)).0)
         }
 
         _ => Err(format!(
