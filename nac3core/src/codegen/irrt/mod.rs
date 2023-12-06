@@ -33,9 +33,9 @@ pub fn load_irrt(ctx: &Context) -> Module {
 
 // repeated squaring method adapted from GNU Scientific Library:
 // https://git.savannah.gnu.org/cgit/gsl.git/tree/sys/pow_int.c
-pub fn integer_power<'ctx, 'a>(
+pub fn integer_power<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     base: IntValue<'ctx>,
     exp: IntValue<'ctx>,
     signed: bool,
@@ -74,9 +74,9 @@ pub fn integer_power<'ctx, 'a>(
         .into_int_value()
 }
 
-pub fn calculate_len_for_slice_range<'ctx, 'a>(
+pub fn calculate_len_for_slice_range<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     start: IntValue<'ctx>,
     end: IntValue<'ctx>,
     step: IntValue<'ctx>,
@@ -151,11 +151,11 @@ pub fn calculate_len_for_slice_range<'ctx, 'a>(
 ///             ,step
 ///         )
 /// ```
-pub fn handle_slice_indices<'a, 'ctx, G: CodeGenerator>(
+pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
     start: &Option<Box<Expr<Option<Type>>>>,
     end: &Option<Box<Expr<Option<Type>>>>,
     step: &Option<Box<Expr<Option<Type>>>>,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     generator: &mut G,
     list: PointerValue<'ctx>,
 ) -> Result<Option<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>)>, String> {
@@ -260,9 +260,9 @@ pub fn handle_slice_indices<'a, 'ctx, G: CodeGenerator>(
 
 /// this function allows index out of range, since python
 /// allows index out of range in slice (`a = [1,2,3]; a[1:10] == [2,3]`).
-pub fn handle_slice_index_bound<'a, 'ctx, G: CodeGenerator>(
+pub fn handle_slice_index_bound<'ctx, G: CodeGenerator>(
     i: &Expr<Option<Type>>,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     generator: &mut G,
     length: IntValue<'ctx>,
 ) -> Result<Option<IntValue<'ctx>>, String> {
@@ -290,9 +290,9 @@ pub fn handle_slice_index_bound<'a, 'ctx, G: CodeGenerator>(
 /// This function handles 'end' **inclusively**.
 /// Order of tuples assign_idx and value_idx is ('start', 'end', 'step').
 /// Negative index should be handled before entering this function
-pub fn list_slice_assignment<'ctx, 'a>(
+pub fn list_slice_assignment<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     ty: BasicTypeEnum<'ctx>,
     dest_arr: PointerValue<'ctx>,
     dest_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
@@ -450,9 +450,9 @@ pub fn list_slice_assignment<'ctx, 'a>(
 }
 
 /// Generates a call to `isinf` in IR. Returns an `i1` representing the result.
-pub fn call_isinf<'ctx, 'a>(
+pub fn call_isinf<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &CodeGenContext<'ctx, 'a>,
+    ctx: &CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
 ) -> IntValue<'ctx> {
     let intrinsic_fn = ctx.module.get_function("__nac3_isinf").unwrap_or_else(|| {
@@ -470,9 +470,9 @@ pub fn call_isinf<'ctx, 'a>(
 }
 
 /// Generates a call to `isnan` in IR. Returns an `i1` representing the result.
-pub fn call_isnan<'ctx, 'a>(
+pub fn call_isnan<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &CodeGenContext<'ctx, 'a>,
+    ctx: &CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
 ) -> IntValue<'ctx> {
     let intrinsic_fn = ctx.module.get_function("__nac3_isnan").unwrap_or_else(|| {
@@ -490,8 +490,8 @@ pub fn call_isnan<'ctx, 'a>(
 }
 
 /// Generates a call to `gamma` in IR. Returns an `f64` representing the result.
-pub fn call_gamma<'ctx, 'a>(
-    ctx: &CodeGenContext<'ctx, 'a>,
+pub fn call_gamma<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
 ) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
@@ -509,8 +509,8 @@ pub fn call_gamma<'ctx, 'a>(
 }
 
 /// Generates a call to `gammaln` in IR. Returns an `f64` representing the result.
-pub fn call_gammaln<'ctx, 'a>(
-    ctx: &CodeGenContext<'ctx, 'a>,
+pub fn call_gammaln<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
 ) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
@@ -528,8 +528,8 @@ pub fn call_gammaln<'ctx, 'a>(
 }
 
 /// Generates a call to `j0` in IR. Returns an `f64` representing the result.
-pub fn call_j0<'ctx, 'a>(
-    ctx: &CodeGenContext<'ctx, 'a>,
+pub fn call_j0<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
 ) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();

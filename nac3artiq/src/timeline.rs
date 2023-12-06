@@ -5,13 +5,13 @@ use nac3core::codegen::CodeGenContext;
 pub trait TimeFns {
 
     /// Emits LLVM IR for `now_mu`.
-    fn emit_now_mu<'ctx, 'a>(&self, ctx: &mut CodeGenContext<'ctx, 'a>) -> BasicValueEnum<'ctx>;
+    fn emit_now_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx>;
 
     /// Emits LLVM IR for `at_mu`.
-    fn emit_at_mu<'ctx, 'a>(&self, ctx: &mut CodeGenContext<'ctx, 'a>, t: BasicValueEnum<'ctx>);
+    fn emit_at_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>, t: BasicValueEnum<'ctx>);
 
     /// Emits LLVM IR for `delay_mu`.
-    fn emit_delay_mu<'ctx, 'a>(&self, ctx: &mut CodeGenContext<'ctx, 'a>, dt: BasicValueEnum<'ctx>);
+    fn emit_delay_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>, dt: BasicValueEnum<'ctx>);
 }
 
 pub struct NowPinningTimeFns64 {}
@@ -19,7 +19,7 @@ pub struct NowPinningTimeFns64 {}
 // For FPGA design reasons, on VexRiscv with 64-bit data bus, the "now" CSR is split into two 32-bit
 // values that are each padded to 64-bits.
 impl TimeFns for NowPinningTimeFns64 {
-    fn emit_now_mu<'ctx, 'a>(&self, ctx: &mut CodeGenContext<'ctx, 'a>) -> BasicValueEnum<'ctx> {
+    fn emit_now_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
         let i64_type = ctx.ctx.i64_type();
         let i32_type = ctx.ctx.i32_type();
         let now = ctx
@@ -54,7 +54,7 @@ impl TimeFns for NowPinningTimeFns64 {
         }
     }
 
-    fn emit_at_mu<'ctx, 'a>(&self, ctx: &mut CodeGenContext<'ctx, 'a>, t: BasicValueEnum<'ctx>) {
+    fn emit_at_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>, t: BasicValueEnum<'ctx>) {
         let i32_type = ctx.ctx.i32_type();
         let i64_type = ctx.ctx.i64_type();
 
@@ -96,9 +96,9 @@ impl TimeFns for NowPinningTimeFns64 {
         }
     }
 
-    fn emit_delay_mu<'ctx, 'a>(
+    fn emit_delay_mu<'ctx>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         dt: BasicValueEnum<'ctx>,
     ) {
         let i64_type = ctx.ctx.i64_type();
@@ -168,7 +168,7 @@ pub static NOW_PINNING_TIME_FNS_64: NowPinningTimeFns64 = NowPinningTimeFns64 {}
 pub struct NowPinningTimeFns {}
 
 impl TimeFns for NowPinningTimeFns {
-    fn emit_now_mu<'ctx, 'a>(&self, ctx: &mut CodeGenContext<'ctx, 'a>) -> BasicValueEnum<'ctx> {
+    fn emit_now_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
         let i64_type = ctx.ctx.i64_type();
         let now = ctx
             .module
@@ -186,7 +186,7 @@ impl TimeFns for NowPinningTimeFns {
         }
     }
 
-    fn emit_at_mu<'ctx, 'a>(&self, ctx: &mut CodeGenContext<'ctx, 'a>, t: BasicValueEnum<'ctx>) {
+    fn emit_at_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>, t: BasicValueEnum<'ctx>) {
         let i32_type = ctx.ctx.i32_type();
         let i64_type = ctx.ctx.i64_type();
         let i64_32 = i64_type.const_int(32, false);
@@ -228,9 +228,9 @@ impl TimeFns for NowPinningTimeFns {
         }
     }
 
-    fn emit_delay_mu<'ctx, 'a>(
+    fn emit_delay_mu<'ctx>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         dt: BasicValueEnum<'ctx>,
     ) {
         let i32_type = ctx.ctx.i32_type();
@@ -285,14 +285,14 @@ pub static NOW_PINNING_TIME_FNS: NowPinningTimeFns = NowPinningTimeFns {};
 pub struct ExternTimeFns {}
 
 impl TimeFns for ExternTimeFns {
-    fn emit_now_mu<'ctx, 'a>(&self, ctx: &mut CodeGenContext<'ctx, 'a>) -> BasicValueEnum<'ctx> {
+    fn emit_now_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
         let now_mu = ctx.module.get_function("now_mu").unwrap_or_else(|| {
             ctx.module.add_function("now_mu", ctx.ctx.i64_type().fn_type(&[], false), None)
         });
         ctx.builder.build_call(now_mu, &[], "now_mu").try_as_basic_value().left().unwrap()
     }
 
-    fn emit_at_mu<'ctx, 'a>(&self, ctx: &mut CodeGenContext<'ctx, 'a>, t: BasicValueEnum<'ctx>) {
+    fn emit_at_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>, t: BasicValueEnum<'ctx>) {
         let at_mu = ctx.module.get_function("at_mu").unwrap_or_else(|| {
             ctx.module.add_function(
                 "at_mu",
@@ -303,9 +303,9 @@ impl TimeFns for ExternTimeFns {
         ctx.builder.build_call(at_mu, &[t.into()], "at_mu");
     }
 
-    fn emit_delay_mu<'ctx, 'a>(
+    fn emit_delay_mu<'ctx>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         dt: BasicValueEnum<'ctx>,
     ) {
         let delay_mu = ctx.module.get_function("delay_mu").unwrap_or_else(|| {

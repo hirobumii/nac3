@@ -74,7 +74,7 @@ fn read_unaligned<T: Copy>(data: &[u8], offset: usize) -> Result<T, ()> {
     if data.len() < offset + mem::size_of::<T>() {
         Err(())
     } else {
-        let ptr = data.as_ptr().wrapping_offset(offset as isize) as *const T;
+        let ptr = data.as_ptr().wrapping_add(offset) as *const T;
         Ok(unsafe { ptr::read_unaligned(ptr) })
     }
 }
@@ -83,7 +83,7 @@ pub fn get_ref_slice<T: Copy>(data: &[u8], offset: usize, len: usize) -> Result<
     if data.len() < offset + mem::size_of::<T>() * len {
         Err(())
     } else {
-        let ptr = data.as_ptr().wrapping_offset(offset as isize) as *const T;
+        let ptr = data.as_ptr().wrapping_add(offset) as *const T;
         Ok(unsafe { slice::from_raw_parts(ptr, len) })
     }
 }
@@ -177,7 +177,7 @@ impl<'a> Linker<'a> {
     }
 
     fn load_section(&mut self, shdr: &Elf32_Shdr, sh_name_str: &'a str, data: Vec<u8>) -> usize {
-        let mut elf_shdr = shdr.clone();
+        let mut elf_shdr = *shdr;
 
         // Maintain alignment requirement specified in sh_addralign
         let align = shdr.sh_addralign;
@@ -240,7 +240,7 @@ impl<'a> Linker<'a> {
             let get_target_section_index = || -> Result<usize, Error> {
                 self.section_map
                     .get(&(target_section as usize))
-                    .map(|&index| index)
+                    .copied()
                     .ok_or(Error::Parsing("Cannot find section with matching sh_index"))
             };
 
@@ -314,13 +314,9 @@ impl<'a> Linker<'a> {
 
                         R_RISCV_PCREL_LO12_I => {
                             let expected_offset = sym_option.map_or(0, |sym| sym.st_value);
-                            let indirect_reloc = if let Some(reloc) =
-                                relocs.iter().find(|reloc| reloc.offset() == expected_offset)
-                            {
-                                reloc
-                            } else {
-                                return None;
-                            };
+                            let indirect_reloc = relocs
+                                .iter()
+                                .find(|reloc| reloc.offset() == expected_offset)?;
                             Some(RelocInfo {
                                 defined_val: {
                                     let indirect_sym =
@@ -603,23 +599,24 @@ impl<'a> Linker<'a> {
         // Section table for the .elf paired with the section name
         // To be formalized incrementally
         // Very hashmap-like structure, but the order matters, so it is a vector
-        let mut elf_shdrs = Vec::new();
-        elf_shdrs.push(SectionRecord {
-            shdr: Elf32_Shdr {
-                sh_name: 0,
-                sh_type: 0,
-                sh_flags: 0,
-                sh_addr: 0,
-                sh_offset: 0,
-                sh_size: 0,
-                sh_link: 0,
-                sh_info: 0,
-                sh_addralign: 0,
-                sh_entsize: 0,
+        let elf_shdrs = vec![
+            SectionRecord {
+                shdr: Elf32_Shdr {
+                    sh_name: 0,
+                    sh_type: 0,
+                    sh_flags: 0,
+                    sh_addr: 0,
+                    sh_offset: 0,
+                    sh_size: 0,
+                    sh_link: 0,
+                    sh_info: 0,
+                    sh_addralign: 0,
+                    sh_entsize: 0,
+                },
+                name: "",
+                data: vec![0; 0],
             },
-            name: "",
-            data: vec![0; 0],
-        });
+        ];
         let elf_sh_data_off = mem::size_of::<Elf32_Ehdr>() + mem::size_of::<Elf32_Phdr>() * 5;
 
         // Image of the linked dynamic library, to be formalized incrementally
@@ -659,8 +656,8 @@ impl<'a> Linker<'a> {
         linker.load_section(
             &text_shdr,
             ".text",
-            (&data[text_shdr.sh_offset as usize
-                ..text_shdr.sh_offset as usize + text_shdr.sh_size as usize])
+            data[text_shdr.sh_offset as usize
+                ..text_shdr.sh_offset as usize + text_shdr.sh_size as usize]
                 .to_vec(),
         );
         linker.section_map.insert(text_shdr_index, 1);
@@ -678,8 +675,8 @@ impl<'a> Linker<'a> {
             let loaded_index = linker.load_section(
                 &arm_exidx_shdr,
                 ".ARM.exidx",
-                (&data[arm_exidx_shdr.sh_offset as usize
-                    ..arm_exidx_shdr.sh_offset as usize + arm_exidx_shdr.sh_size as usize])
+                data[arm_exidx_shdr.sh_offset as usize
+                    ..arm_exidx_shdr.sh_offset as usize + arm_exidx_shdr.sh_size as usize]
                     .to_vec(),
             );
             linker.section_map.insert(arm_exidx_shdr_index, loaded_index);
@@ -698,7 +695,7 @@ impl<'a> Linker<'a> {
             let elf_shdrs_index = linker.load_section(
                 shdr,
                 str::from_utf8(section_name).unwrap(),
-                (&data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize]).to_vec(),
+                data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize].to_vec(),
             );
             linker.section_map.insert(i, elf_shdrs_index);
         }
@@ -918,7 +915,7 @@ impl<'a> Linker<'a> {
         dynsym_names.push((0, 0));
 
         for rela_dyn_sym_index in rela_dyn_sym_indices {
-            let mut sym = linker.symtab[rela_dyn_sym_index as usize].clone();
+            let mut sym = linker.symtab[rela_dyn_sym_index as usize];
             let sym_name = name_starting_at_slice(strtab, sym.st_name as usize)
                 .map_err(|_| "cannot read symbol name from the original .strtab")?;
             let dynstr_start_index = dynstr.len();
@@ -928,7 +925,7 @@ impl<'a> Linker<'a> {
                 let elf_shdr_index = linker
                     .section_map
                     .get(&(sym.st_shndx as usize))
-                    .map(|&index| index)
+                    .copied()
                     .ok_or(Error::Parsing("Cannot find section with matching sh_index"))?;
                 let elf_shdr_offset = linker.elf_shdrs[elf_shdr_index].shdr.sh_offset;
                 sym.st_value += elf_shdr_offset;
@@ -955,7 +952,7 @@ impl<'a> Linker<'a> {
         let modinit_shdr_index = linker
             .section_map
             .get(&(modinit_sym.st_shndx as usize))
-            .map(|&index| index)
+            .copied()
             .ok_or(Error::Parsing("Cannot find section with matching sh_index"))?;
         let modinit_shdr = linker.elf_shdrs[modinit_shdr_index].shdr;
 
@@ -1013,9 +1010,8 @@ impl<'a> Linker<'a> {
         let mut hash_bucket: Vec<u32> = vec![0; dynsym.len()];
         let mut hash_chain: Vec<u32> = vec![0; dynsym.len()];
 
-        for sym_index in 1..dynsym.len() {
-            let (str_start, str_end) = dynsym_names[sym_index];
-            let hash = elf_hash(&dynstr[str_start..str_end]);
+        for (sym_index, (str_start, str_end)) in dynsym_names.iter().enumerate().take(dynsym.len()).skip(1) {
+            let hash = elf_hash(&dynstr[*str_start..*str_end]);
             let mut hash_index = hash as usize % hash_bucket.len();
 
             if hash_bucket[hash_index] == 0 {
@@ -1104,7 +1100,7 @@ impl<'a> Linker<'a> {
                 let elf_shdrs_index = linker.load_section(
                     shdr,
                     str::from_utf8(section_name).unwrap(),
-                    (&data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize])
+                    data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize]
                         .to_vec(),
                 );
                 linker.section_map.insert(i, elf_shdrs_index);
@@ -1208,7 +1204,7 @@ impl<'a> Linker<'a> {
                     let elf_shdrs_index = linker.load_section(
                         shdr,
                         section_name,
-                        (&data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize])
+                        data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize]
                             .to_vec(),
                     );
                     linker.section_map.insert(i, elf_shdrs_index);
@@ -1262,7 +1258,7 @@ impl<'a> Linker<'a> {
                 let bss_elf_index = linker.load_section(
                     shdr,
                     section_name,
-                    (&data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize])
+                    data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize]
                         .to_vec(),
                 );
                 linker.section_map.insert(bss_section_index, bss_elf_index);

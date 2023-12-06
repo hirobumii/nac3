@@ -112,7 +112,7 @@ impl CodeGenTargetMachineOptions {
     ) -> Option<TargetMachine> {
         let triple = TargetTriple::create(self.triple.as_str());
         let target = Target::from_triple(&triple)
-            .expect(format!("could not create target from target triple {}", self.triple).as_str());
+            .unwrap_or_else(|_| panic!("could not create target from target triple {}", self.triple));
 
         target.create_target_machine(
             &triple,
@@ -178,7 +178,7 @@ impl WithCall {
         WithCall { fp }
     }
 
-    pub fn run<'ctx>(&self, m: &Module<'ctx>) {
+    pub fn run(&self, m: &Module) {
         (self.fp)(m)
     }
 }
@@ -327,9 +327,11 @@ impl WorkerRegistry {
         }
 
         let pass_options = PassBuilderOptions::create();
-        let target_machine = self.llvm_options.target.create_target_machine(
-            self.llvm_options.opt_level
-        ).expect(format!("could not create target machine from properties {:?}", self.llvm_options.target).as_str());
+        let target_machine = self
+            .llvm_options
+            .target
+            .create_target_machine(self.llvm_options.opt_level)
+            .unwrap_or_else(|| panic!("could not create target machine from properties {:?}", self.llvm_options.target));
         let passes = format!("default<O{}>", self.llvm_options.opt_level as u32);
         let result = module.run_passes(passes.as_str(), &target_machine, pass_options);
         if let Err(err) = result {
@@ -500,17 +502,17 @@ fn get_llvm_abi_type<'ctx>(
     }
 }
 
-fn need_sret<'ctx>(ctx: &'ctx Context, ty: BasicTypeEnum<'ctx>) -> bool {
-    fn need_sret_impl<'ctx>(ctx: &'ctx Context, ty: BasicTypeEnum<'ctx>, maybe_large: bool) -> bool {
+fn need_sret(ty: BasicTypeEnum) -> bool {
+    fn need_sret_impl(ty: BasicTypeEnum, maybe_large: bool) -> bool {
         match ty {
             BasicTypeEnum::IntType(_) | BasicTypeEnum::PointerType(_) => false,
             BasicTypeEnum::FloatType(_) if maybe_large => false,
             BasicTypeEnum::StructType(ty) if maybe_large && ty.count_fields() <= 2 =>
-                ty.get_field_types().iter().any(|ty| need_sret_impl(ctx, *ty, false)),
+                ty.get_field_types().iter().any(|ty| need_sret_impl(*ty, false)),
             _ => true,
         }
     }
-    need_sret_impl(ctx, ty, true)
+    need_sret_impl(ty, true)
 }
 
 /// Implementation for generating LLVM IR for a function.
@@ -631,7 +633,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         Some(get_llvm_abi_type(context, &module, generator, &mut unifier, top_level_ctx.as_ref(), &mut type_cache, &primitives, ret))
     };
 
-    let has_sret = ret_type.map_or(false, |ty| need_sret(context, ty));
+    let has_sret = ret_type.map_or(false, |ty| need_sret(ty));
     let mut params = args
         .iter()
         .map(|arg| {
@@ -704,7 +706,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
             let param_val = param.into_int_value();
 
             if expected_ty.get_bit_width() == 8 && param_val.get_type().get_bit_width() == 1 {
-                bool_to_i8(&builder, &context, param_val)
+                bool_to_i8(&builder, context, param_val)
             } else {
                 param_val
             }.into()
@@ -914,8 +916,8 @@ fn bool_to_i8<'ctx>(
 /// ```
 ///
 /// Returns an `i1` [IntValue] representing the result of whether the `value` is in the range.
-fn gen_in_range_check<'ctx, 'a>(
-    ctx: &CodeGenContext<'ctx, 'a>,
+fn gen_in_range_check<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
     value: IntValue<'ctx>,
     stop: IntValue<'ctx>,
     step: IntValue<'ctx>,

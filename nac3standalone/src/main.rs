@@ -102,7 +102,7 @@ fn handle_typevar_definition(
                         None,
                     )?;
                     get_type_from_type_annotation_kinds(
-                        def_list, unifier, primitives, &ty, &mut None
+                        def_list, unifier, &ty, &mut None
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -138,7 +138,7 @@ fn handle_typevar_definition(
                 None,
             )?;
             let constraint = get_type_from_type_annotation_kinds(
-                def_list, unifier, primitives, &ty, &mut None
+                def_list, unifier, &ty, &mut None
             )?;
             let loc = func.location;
 

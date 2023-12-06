@@ -22,9 +22,9 @@ pub trait CodeGenerator {
     /// - fun: Function signature and definition ID.
     /// - params: Function parameters. Note that this does not include the object even if the
     ///   function is a class method.
-    fn gen_call<'ctx, 'a>(
+    fn gen_call<'ctx>(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         obj: Option<(Type, ValueEnum<'ctx>)>,
         fun: (&FunSignature, DefinitionId),
         params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
@@ -39,9 +39,9 @@ pub trait CodeGenerator {
     /// - signature: Function signature of the constructor.
     /// - def: Class definition for the constructor class.
     /// - params: Function parameters.
-    fn gen_constructor<'ctx, 'a>(
+    fn gen_constructor<'ctx>(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         signature: &FunSignature,
         def: &TopLevelDef,
         params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
@@ -59,9 +59,9 @@ pub trait CodeGenerator {
     ///   function is a class method.
     /// Note that this function should check if the function is generated in another thread (due to
     /// possible race condition), see the default implementation for an example.
-    fn gen_func_instance<'ctx, 'a>(
+    fn gen_func_instance<'ctx>(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         obj: Option<(Type, ValueEnum<'ctx>)>,
         fun: (&FunSignature, &mut TopLevelDef, String),
         id: usize,
@@ -70,9 +70,9 @@ pub trait CodeGenerator {
     }
 
     /// Generate the code for an expression.
-    fn gen_expr<'ctx, 'a>(
+    fn gen_expr<'ctx>(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         expr: &Expr<Option<Type>>,
     ) -> Result<Option<ValueEnum<'ctx>>, String>
     where
@@ -83,9 +83,9 @@ pub trait CodeGenerator {
 
     /// Allocate memory for a variable and return a pointer pointing to it.
     /// The default implementation places the allocations at the start of the function.
-    fn gen_var_alloc<'ctx, 'a>(
+    fn gen_var_alloc<'ctx>(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         ty: BasicTypeEnum<'ctx>,
         name: Option<&str>,
     ) -> Result<PointerValue<'ctx>, String> {
@@ -93,9 +93,9 @@ pub trait CodeGenerator {
     }
 
     /// Return a pointer pointing to the target of the expression.
-    fn gen_store_target<'ctx, 'a>(
+    fn gen_store_target<'ctx>(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         pattern: &Expr<Option<Type>>,
         name: Option<&str>,
     ) -> Result<Option<PointerValue<'ctx>>, String>
@@ -106,9 +106,9 @@ pub trait CodeGenerator {
     }
 
     /// Generate code for an assignment expression.
-    fn gen_assign<'ctx, 'a>(
+    fn gen_assign<'ctx>(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         target: &Expr<Option<Type>>,
         value: ValueEnum<'ctx>,
     ) -> Result<(), String>
@@ -120,9 +120,9 @@ pub trait CodeGenerator {
 
     /// Generate code for a while expression.
     /// Return true if the while loop must early return
-    fn gen_while<'ctx, 'a>(
+    fn gen_while(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
     ) -> Result<(), String>
     where
@@ -133,9 +133,9 @@ pub trait CodeGenerator {
 
     /// Generate code for a while expression.
     /// Return true if the while loop must early return
-    fn gen_for<'ctx, 'a>(
+    fn gen_for(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
     ) -> Result<(), String>
     where
@@ -146,9 +146,9 @@ pub trait CodeGenerator {
 
     /// Generate code for an if expression.
     /// Return true if the statement must early return
-    fn gen_if<'ctx, 'a>(
+    fn gen_if(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
     ) -> Result<(), String>
     where
@@ -157,9 +157,9 @@ pub trait CodeGenerator {
         gen_if(self, ctx, stmt)
     }
 
-    fn gen_with<'ctx, 'a>(
+    fn gen_with(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
     ) -> Result<(), String>
     where
@@ -171,9 +171,9 @@ pub trait CodeGenerator {
     /// Generate code for a statement
     ///
     /// Return true if the statement must early return
-    fn gen_stmt<'ctx, 'a>(
+    fn gen_stmt(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
     ) -> Result<(), String>
     where
@@ -183,9 +183,9 @@ pub trait CodeGenerator {
     }
 
     /// Generates code for a block statement.
-    fn gen_block<'ctx, 'a, 'b, I: Iterator<Item = &'b Stmt<Option<Type>>>>(
+    fn gen_block<'a, I: Iterator<Item = &'a Stmt<Option<Type>>>>(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'_, '_>,
         stmts: I,
     ) -> Result<(), String>
     where
@@ -195,21 +195,21 @@ pub trait CodeGenerator {
     }
 
     /// See [bool_to_i1].
-    fn bool_to_i1<'ctx, 'a>(
+    fn bool_to_i1<'ctx>(
         &self,
-        ctx: &CodeGenContext<'ctx, 'a>,
+        ctx: &CodeGenContext<'ctx, '_>,
         bool_value: IntValue<'ctx>
     ) -> IntValue<'ctx> {
         bool_to_i1(&ctx.builder, bool_value)
     }
 
     /// See [bool_to_i8].
-    fn bool_to_i8<'ctx, 'a>(
+    fn bool_to_i8<'ctx>(
         &self,
-        ctx: &CodeGenContext<'ctx, 'a>,
+        ctx: &CodeGenContext<'ctx, '_>,
         bool_value: IntValue<'ctx>
     ) -> IntValue<'ctx> {
-        bool_to_i8(&ctx.builder, &ctx.ctx, bool_value)
+        bool_to_i8(&ctx.builder, ctx.ctx, bool_value)
     }
 }
 
@@ -220,7 +220,7 @@ pub struct DefaultCodeGenerator {
 
 impl DefaultCodeGenerator {
     pub fn new(name: String, size_t: u32) -> DefaultCodeGenerator {
-        assert!(size_t == 32 || size_t == 64);
+        assert!(matches!(size_t, 32 | 64));
         DefaultCodeGenerator { name, size_t }
     }
 }

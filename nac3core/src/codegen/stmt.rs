@@ -25,8 +25,8 @@ use nac3parser::ast::{
 use std::convert::TryFrom;
 
 /// See [CodeGenerator::gen_var_alloc].
-pub fn gen_var<'ctx, 'a>(
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+pub fn gen_var<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
     ty: BasicTypeEnum<'ctx>,
     name: Option<&str>,
 ) -> Result<PointerValue<'ctx>, String> {
@@ -55,9 +55,9 @@ pub fn gen_var<'ctx, 'a>(
 }
 
 /// See [CodeGenerator::gen_store_target].
-pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_store_target<'ctx, G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     pattern: &Expr<Option<Type>>,
     name: Option<&str>,
 ) -> Result<Option<PointerValue<'ctx>>, String> {
@@ -165,9 +165,9 @@ pub fn gen_store_target<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// See [CodeGenerator::gen_assign].
-pub fn gen_assign<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_assign<'ctx, G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     target: &Expr<Option<Type>>,
     value: ValueEnum<'ctx>,
 ) -> Result<(), String> {
@@ -219,7 +219,7 @@ pub fn gen_assign<'ctx, 'a, G: CodeGenerator>(
         }
         _ => {
             let name = if let ExprKind::Name { id, .. } = &target.node {
-                format!("{}.addr", id.to_string())
+                format!("{}.addr", id)
             } else {
                 String::from("target.addr")
             };
@@ -242,9 +242,9 @@ pub fn gen_assign<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// See [CodeGenerator::gen_for].
-pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_for<G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
 ) -> Result<(), String> {
     if let StmtKind::For { iter, target, body, orelse, .. } = &stmt.node {
@@ -403,9 +403,9 @@ pub fn gen_for<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// See [CodeGenerator::gen_while].
-pub fn gen_while<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_while<G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
 ) -> Result<(), String> {
     if let StmtKind::While { test, body, orelse, .. } = &stmt.node {
@@ -472,9 +472,9 @@ pub fn gen_while<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// See [CodeGenerator::gen_if].
-pub fn gen_if<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_if<G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
 ) -> Result<(), String> {
     if let StmtKind::If { test, body, orelse, .. } = &stmt.node {
@@ -541,8 +541,8 @@ pub fn gen_if<'ctx, 'a, G: CodeGenerator>(
     Ok(())
 }
 
-pub fn final_proxy<'ctx, 'a>(
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+pub fn final_proxy<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
     target: BasicBlock<'ctx>,
     block: BasicBlock<'ctx>,
     final_data: &mut (PointerValue, Vec<BasicBlock<'ctx>>, Vec<BasicBlock<'ctx>>),
@@ -560,9 +560,9 @@ pub fn final_proxy<'ctx, 'a>(
 
 /// Inserts the declaration of the builtin function with the specified `symbol` name, and returns
 /// the function.
-pub fn get_builtins<'ctx, 'a>(
+pub fn get_builtins<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     symbol: &str,
 ) -> FunctionValue<'ctx> {
     ctx.module.get_function(symbol).unwrap_or_else(|| {
@@ -586,8 +586,8 @@ pub fn get_builtins<'ctx, 'a>(
     })
 }
 
-pub fn exn_constructor<'ctx, 'a>(
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+pub fn exn_constructor<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
     obj: Option<(Type, ValueEnum<'ctx>)>,
     _fun: (&FunSignature, DefinitionId),
     mut args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
@@ -661,9 +661,9 @@ pub fn exn_constructor<'ctx, 'a>(
 ///
 /// * `exception` - The exception thrown by the `raise` statement.
 /// * `loc` - The location where the exception is raised from.
-pub fn gen_raise<'ctx, 'a>(
+pub fn gen_raise<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     exception: Option<&BasicValueEnum<'ctx>>,
     loc: Location,
 ) {
@@ -1035,9 +1035,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// See [CodeGenerator::gen_with].
-pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_with<G: CodeGenerator>(
     _: &mut G,
-    _: &mut CodeGenContext<'ctx, 'a>,
+    _: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
 ) -> Result<(), String> {
     // TODO: Implement with statement after finishing exceptions
@@ -1045,9 +1045,9 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// Generates IR for a `return` statement.
-pub fn gen_return<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_return<G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'_, '_>,
     value: &Option<Box<Expr<Option<Type>>>>,
 ) -> Result<(), String> {
     let func = ctx.builder.get_insert_block().and_then(|bb| bb.get_parent()).unwrap();
@@ -1091,15 +1091,15 @@ pub fn gen_return<'ctx, 'a, G: CodeGenerator>(
             }
         });
         let value = value.as_ref().map(|v| v as &dyn BasicValue);
-        ctx.builder.build_return(value.into());
+        ctx.builder.build_return(value);
     }
     Ok(())
 }
 
 /// See [CodeGenerator::gen_stmt].
-pub fn gen_stmt<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_stmt<G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
 ) -> Result<(), String> {
     ctx.current_loc = stmt.location;
@@ -1193,9 +1193,9 @@ pub fn gen_stmt<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// Generates IR for a block statement contains `stmts`.
-pub fn gen_block<'ctx, 'a, 'b, G: CodeGenerator, I: Iterator<Item = &'b Stmt<Option<Type>>>>(
+pub fn gen_block<'a, G: CodeGenerator, I: Iterator<Item = &'a Stmt<Option<Type>>>>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'_, '_>,
     stmts: I,
 ) -> Result<(), String> {
     for stmt in stmts {

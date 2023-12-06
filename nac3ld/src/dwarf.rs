@@ -41,9 +41,9 @@ impl<'a> DwarfReader<'a> {
     /// offsets previously applied to the other instance.
     pub fn from_reader(other: &DwarfReader<'a>, reset_offset: bool) -> DwarfReader<'a> {
         if reset_offset {
-            DwarfReader::new(&other.base_slice, other.base_virt_addr)
+            DwarfReader::new(other.base_slice, other.base_virt_addr)
         } else {
-            DwarfReader::new(&other.slice, other.virt_addr)
+            DwarfReader::new(other.slice, other.virt_addr)
         }
     }
 
@@ -267,7 +267,7 @@ impl<'a> CFI_Record<'a> {
             0xFFFFFFFF => unimplemented!(),
 
             _ => {
-                let mut fde_reader = DwarfReader::from_reader(&cie_reader, false);
+                let mut fde_reader = DwarfReader::from_reader(cie_reader, false);
                 fde_reader.offset(length);
                 fde_reader
             }
@@ -286,7 +286,7 @@ impl<'a> CFI_Record<'a> {
         // Skip code/data alignment factors & return address register along the way as well
         // We only tackle the case where 'z' and 'R' are part of the augmentation string, otherwise
         // we cannot get the addresses to make .eh_frame_hdr
-        let mut aug_data_reader = DwarfReader::from_reader(&cie_reader, false);
+        let mut aug_data_reader = DwarfReader::from_reader(cie_reader, false);
         let mut aug_str_len = 0;
         loop {
             if aug_data_reader.read_u8() == b'\0' {

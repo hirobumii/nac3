@@ -117,7 +117,7 @@ fn create_fn_by_codegen(
                 ty: p.0,
                 default_value: None,
             }).collect(),
-            ret: ret_ty.clone(),
+            ret: ret_ty,
             vars: var_map.clone(),
         })),
         var_id: Default::default(),
@@ -163,14 +163,14 @@ fn create_fn_by_intrinsic(
             let args_val = args_ty.iter().zip_eq(args.iter())
                 .map(|(ty, arg)| {
                     arg.1.clone()
-                        .to_basic_value_enum(ctx, generator, ty.clone())
+                        .to_basic_value_enum(ctx, generator, *ty)
                         .unwrap()
                 })
                 .map_into::<BasicMetadataValueEnum>()
                 .collect_vec();
 
             let intrinsic_fn = ctx.module.get_function(intrinsic_fn).unwrap_or_else(|| {
-                let ret_llvm_ty = ctx.get_llvm_abi_type(generator, ret_ty.clone());
+                let ret_llvm_ty = ctx.get_llvm_abi_type(generator, ret_ty);
                 let param_llvm_ty = param_tys.iter()
                     .map(|p| ctx.get_llvm_abi_type(generator, *p))
                     .map_into::<BasicMetadataTypeEnum>()
@@ -229,14 +229,14 @@ fn create_fn_by_extern(
             let args_val = args_ty.iter().zip_eq(args.iter())
                 .map(|(ty, arg)| {
                     arg.1.clone()
-                        .to_basic_value_enum(ctx, generator, ty.clone())
+                        .to_basic_value_enum(ctx, generator, *ty)
                         .unwrap()
                 })
                 .map_into::<BasicMetadataValueEnum>()
                 .collect_vec();
 
                 let intrinsic_fn = ctx.module.get_function(extern_fn).unwrap_or_else(|| {
-                    let ret_llvm_ty = ctx.get_llvm_abi_type(generator, ret_ty.clone());
+                    let ret_llvm_ty = ctx.get_llvm_abi_type(generator, ret_ty);
                     let param_llvm_ty = param_tys.iter()
                         .map(|p| ctx.get_llvm_abi_type(generator, *p))
                         .map_into::<BasicMetadataTypeEnum>()
@@ -684,7 +684,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                             "conv"
                         );
 
-                        val.into()
+                        val
                     } else {
                         unreachable!();
                     };
@@ -760,7 +760,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                             "conv"
                         );
 
-                        val.into()
+                        val
                     } else {
                         unreachable!();
                     };
@@ -905,7 +905,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     .try_as_basic_value()
                     .left()
                     .unwrap();
-                Ok(Some(val.into()))
+                Ok(Some(val))
             }),
         ),
         Arc::new(RwLock::new(TopLevelDef::Function {
@@ -1174,7 +1174,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     .try_as_basic_value()
                     .left()
                     .unwrap();
-                Ok(Some(val.into()))
+                Ok(Some(val))
             }),
         ),
         create_fn_by_codegen(
@@ -1261,7 +1261,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     .try_as_basic_value()
                     .left()
                     .unwrap();
-                Ok(Some(val.into()))
+                Ok(Some(val))
             }),
         ),
         Arc::new(RwLock::new({

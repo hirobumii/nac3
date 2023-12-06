@@ -91,9 +91,9 @@ impl<'a> ArtiqCodeGenerator<'a> {
     ///
     /// Direct-`parallel` block context refers to when the generator is generating statements whose
     /// closest parent `with` statement is a `with parallel` block.
-    fn timeline_reset_start<'ctx, 'b>(
+    fn timeline_reset_start(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'b>
+        ctx: &mut CodeGenContext<'_, '_>
     ) -> Result<(), String> {
         if let Some(start) = self.start.clone() {
             let start_val = self.gen_expr(ctx, &start)?
@@ -117,9 +117,9 @@ impl<'a> ArtiqCodeGenerator<'a> {
     ///
     /// * `store_name` - The LLVM value name for the pointer to `end`. `.addr` will be appended to
     /// the end of the provided value name.
-    fn timeline_update_end_max<'ctx, 'b>(
+    fn timeline_update_end_max(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'b>,
+        ctx: &mut CodeGenContext<'_, '_>,
         end: Option<Expr<Option<Type>>>,
         store_name: Option<&str>,
     ) -> Result<(), String> {
@@ -192,9 +192,9 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
         }
     }
 
-    fn gen_call<'ctx, 'a>(
+    fn gen_call<'ctx>(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         obj: Option<(Type, ValueEnum<'ctx>)>,
         fun: (&FunSignature, DefinitionId),
         params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
@@ -210,9 +210,9 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
         Ok(result)
     }
 
-    fn gen_with<'ctx, 'a>(
+    fn gen_with(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
     ) -> Result<(), String> {
         if let StmtKind::With { items, body, .. } = &stmt.node {
@@ -360,8 +360,8 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
     }
 }
 
-fn gen_rpc_tag<'ctx, 'a>(
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+fn gen_rpc_tag(
+    ctx: &mut CodeGenContext<'_, '_>,
     ty: Type,
     buffer: &mut Vec<u8>,
 ) -> Result<(), String> {
@@ -406,8 +406,8 @@ fn gen_rpc_tag<'ctx, 'a>(
     Ok(())
 }
 
-fn rpc_codegen_callback_fn<'ctx, 'a>(
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+fn rpc_codegen_callback_fn<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
     obj: Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
@@ -617,8 +617,8 @@ fn rpc_codegen_callback_fn<'ctx, 'a>(
     Ok(Some(result))
 }
 
-pub fn attributes_writeback<'ctx, 'a>(
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+pub fn attributes_writeback(
+    ctx: &mut CodeGenContext<'_, '_>,
     generator: &mut dyn CodeGenerator,
     inner_resolver: &InnerResolver,
     host_attributes: PyObject,

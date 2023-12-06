@@ -394,8 +394,7 @@ impl Unifier {
                     Some(
                         range
                             .iter()
-                            .map(|ty| self.get_instantiations(*ty).unwrap_or_else(|| vec![*ty]))
-                            .flatten()
+                            .flat_map(|ty| self.get_instantiations(*ty).unwrap_or_else(|| vec![*ty]))
                             .collect_vec(),
                     )
                 }
@@ -492,11 +491,11 @@ impl Unifier {
         }
 
         let Call { posargs, kwargs, ret, fun, loc } = call;
-        let instantiated = self.instantiate_fun(b, &*signature);
+        let instantiated = self.instantiate_fun(b, signature);
         let r = self.get_ty(instantiated);
         let r = r.as_ref();
         let signature;
-        if let TypeEnum::TFunc(s) = &*r {
+        if let TypeEnum::TFunc(s) = r {
             signature = s;
         } else {
             unreachable!();
@@ -1197,7 +1196,7 @@ impl Unifier {
                 }
                 if new_params.is_some() || new_ret.is_some() || matches!(new_args, Cow::Owned(..)) {
                     let params = new_params.unwrap_or_else(|| params.clone());
-                    let ret = new_ret.unwrap_or_else(|| *ret);
+                    let ret = new_ret.unwrap_or(*ret);
                     let args = new_args.into_owned();
                     Some(self.add_ty(TypeEnum::TFunc(FunSignature { args, ret, vars: params })))
                 } else {
@@ -1313,7 +1312,7 @@ impl Unifier {
                     .try_collect()?;
                 if ty.iter().any(Option::is_some) {
                     Ok(Some(self.add_ty(TTuple {
-                        ty: zip(ty.into_iter(), ty1.iter()).map(|(a, b)| a.unwrap_or(*b)).collect(),
+                        ty: zip(ty, ty1.iter()).map(|(a, b)| a.unwrap_or(*b)).collect(),
                     })))
                 } else {
                     Ok(None)

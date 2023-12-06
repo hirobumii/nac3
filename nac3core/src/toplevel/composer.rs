@@ -755,7 +755,7 @@ impl TopLevelComposer {
         // unification of previously assigned typevar
         let mut unification_helper = |ty, def| {
             let target_ty =
-                get_type_from_type_annotation_kinds(&temp_def_list, unifier, primitives, &def, &mut subst_list)?;
+                get_type_from_type_annotation_kinds(&temp_def_list, unifier, &def, &mut subst_list)?;
             unifier.unify(ty, target_ty).map_err(|e| e.to_display(unifier).to_string())?;
             Ok(())
         };
@@ -918,7 +918,6 @@ impl TopLevelComposer {
                                 let ty = get_type_from_type_annotation_kinds(
                                     temp_def_list.as_ref(),
                                     unifier,
-                                    primitives_store,
                                     &type_annotation,
                                     &mut None
                                 )?;
@@ -987,7 +986,6 @@ impl TopLevelComposer {
                             get_type_from_type_annotation_kinds(
                                 &temp_def_list,
                                 unifier,
-                                primitives_store,
                                 &return_ty_annotation,
                                 &mut None
                             )?
@@ -1545,7 +1543,6 @@ impl TopLevelComposer {
                 let self_type = get_type_from_type_annotation_kinds(
                     &def_list,
                     unifier,
-                    primitives_ty,
                     &make_self_type_annotation(type_vars, *object_id),
                     &mut None
                 )?;
@@ -1714,7 +1711,6 @@ impl TopLevelComposer {
                                 let self_ty = get_type_from_type_annotation_kinds(
                                     &def_list,
                                     unifier,
-                                    primitives_ty,
                                     &ty_ann,
                                     &mut None
                                 )?;
@@ -1737,8 +1733,8 @@ impl TopLevelComposer {
                     let (type_var_subst_comb, no_range_vars) = {
                         let mut no_ranges: Vec<Type> = Vec::new();
                         let var_combs = vars
-                            .iter()
-                            .map(|(_, ty)| {
+                            .values()
+                            .map(|ty| {
                                 unifier.get_instantiations(*ty).unwrap_or_else(|| {
                                     if let TypeEnum::TVar { name, loc, is_const_generic: false, .. } = &*unifier.get_ty(*ty)
                                     {

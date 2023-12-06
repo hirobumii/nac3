@@ -53,10 +53,10 @@ impl SymbolResolver for Resolver {
         self.0.id_to_type.lock().get(&str).cloned().ok_or(format!("cannot get type of {}", str))
     }
 
-    fn get_symbol_value<'ctx, 'a>(
+    fn get_symbol_value<'ctx>(
         &self,
         _: StrRef,
-        _: &mut CodeGenContext<'ctx, 'a>,
+        _: &mut CodeGenContext<'ctx, '_>,
     ) -> Option<ValueEnum<'ctx>> {
         unimplemented!()
     }

@@ -237,7 +237,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 let ty = self.unifier.get_ty(ty);
                 let types =
                     if let TypeEnum::TTuple { ty } = &*ty { ty.clone() } else { unreachable!() };
-                let values = zip(types.into_iter(), v.iter())
+                let values = zip(types, v.iter())
                     .map_while(|(ty, v)| self.gen_const(generator, v, ty))
                     .collect_vec();
 
@@ -609,7 +609,7 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     match def {
         TopLevelDef::Class { methods, .. } => {
             // TODO: what about other fields that require alloca?
-            let fun_id = methods.iter().find(|method| method.0 == "__init__".into()).and_then(|method| Some(method.2));
+            let fun_id = methods.iter().find(|method| method.0 == "__init__".into()).map(|method| method.2);
             let ty = ctx.get_llvm_type(generator, signature.ret).into_pointer_type();
             let zelf_ty: BasicTypeEnum = ty.get_element_type().try_into().unwrap();
             let zelf: BasicValueEnum<'ctx> = ctx.builder.build_alloca(zelf_ty, "alloca").into();
@@ -631,8 +631,8 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// See [CodeGenerator::gen_func_instance].
-pub fn gen_func_instance<'ctx, 'a>(
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+pub fn gen_func_instance<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
     obj: Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, &mut TopLevelDef, String),
     id: usize,
@@ -708,9 +708,9 @@ pub fn gen_func_instance<'ctx, 'a>(
 }
 
 /// See [CodeGenerator::gen_call].
-pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_call<'ctx, G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     obj: Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
@@ -797,7 +797,7 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
                 instance_to_symbol.get(&key).cloned().ok_or_else(|| "".into())
             }
             TopLevelDef::Class { .. } => {
-                return Ok(Some(generator.gen_constructor(ctx, fun.0, &*def, params)?))
+                return Ok(Some(generator.gen_constructor(ctx, fun.0, &def, params)?))
             }
         }
     }
@@ -814,7 +814,7 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
         } else {
             Some(ctx.get_llvm_abi_type(generator, fun.0.ret))
         };
-        let has_sret = ret_type.map_or(false, |ret_type| need_sret(ctx.ctx, ret_type));
+        let has_sret = ret_type.map_or(false, |ret_type| need_sret(ret_type));
         let mut byrefs = Vec::new();
         let mut params = args.iter().enumerate()
             .map(|(i, arg)| match ctx.get_llvm_abi_type(generator, arg.ty) {
@@ -858,7 +858,7 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
     });
 
     // Convert boolean parameter values into i1
-    let param_vals = (&fun_val.get_params()).iter().zip(param_vals)
+    let param_vals = fun_val.get_params().iter().zip(param_vals)
         .map(|(p, v)| {
             if p.is_int_value() && v.is_int_value() {
                 let expected_ty = p.into_int_value().get_type();
@@ -880,8 +880,8 @@ pub fn gen_call<'ctx, 'a, G: CodeGenerator>(
 
 /// Generates three LLVM variables representing the start, stop, and step values of a [range] class
 /// respectively.
-pub fn destructure_range<'ctx, 'a>(
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+pub fn destructure_range<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
     range: PointerValue<'ctx>,
 ) -> (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>) {
     let int32 = ctx.ctx.i32_type();
@@ -903,9 +903,9 @@ pub fn destructure_range<'ctx, 'a>(
 /// Returns an instance of [PointerValue] pointing to the List structure. The List structure is
 /// defined as `type { ty*, size_t }` in LLVM, where the first element stores the pointer to the
 /// data, and the second element stores the size of the List.
-pub fn allocate_list<'ctx, 'a, G: CodeGenerator>(
+pub fn allocate_list<'ctx, G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     ty: BasicTypeEnum<'ctx>,
     length: IntValue<'ctx>,
     name: Option<&str>,
@@ -949,9 +949,9 @@ pub fn allocate_list<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// Generates LLVM IR for a [list comprehension expression][expr].
-pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     expr: &Expr<Option<Type>>,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
     if let ExprKind::ListComp { elt, generators } = &expr.node {
@@ -1129,9 +1129,9 @@ pub fn gen_comprehension<'ctx, 'a, G: CodeGenerator>(
 /// * `right` - The right-hand side of the binary operator.
 /// * `loc` - The location of the full expression.
 /// * `is_aug_assign` - Whether the binary operator expression is also an assignment operator.
-pub fn gen_binop_expr<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     left: &Expr<Option<Type>>,
     op: &Operator,
     right: &Expr<Option<Type>>,
@@ -1231,9 +1231,9 @@ pub fn gen_binop_expr<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// See [CodeGenerator::gen_expr].
-pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     expr: &Expr<Option<Type>>,
 ) -> Result<Option<ValueEnum<'ctx>>, String> {
     ctx.current_loc = expr.location;

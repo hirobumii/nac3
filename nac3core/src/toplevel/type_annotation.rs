@@ -146,7 +146,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
          slice: &ast::Expr<T>,
          unifier: &mut Unifier,
          mut locked: HashMap<DefinitionId, Vec<Type>>| {
-            if vec!["virtual".into(), "Generic".into(), "list".into(), "tuple".into(), "Option".into()].contains(id)
+            if ["virtual".into(), "Generic".into(), "list".into(), "tuple".into(), "Option".into()].contains(id)
             {
                 return Err(format!("keywords cannot be class name (at {})", expr.location));
             }
@@ -329,8 +329,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
 
             if matches!(value, SymbolValue::Str(_) | SymbolValue::Tuple(_) | SymbolValue::OptionSome(_)) {
                 return Err(format!(
-                    "expression {} is not allowed for constant type annotation (at {})",
-                    value.to_string(),
+                    "expression {value} is not allowed for constant type annotation (at {})",
                     expr.location
                 ))
             }
@@ -351,7 +350,6 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
 pub fn get_type_from_type_annotation_kinds(
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
     unifier: &mut Unifier,
-    primitives: &PrimitiveStore,
     ann: &TypeAnnotation,
     subst_list: &mut Option<Vec<Type>>
 ) -> Result<Type, String> {
@@ -371,18 +369,17 @@ pub fn get_type_from_type_annotation_kinds(
                 ))
             }
 
-            let param_ty = params
-                .iter()
-                .map(|x| {
-                    get_type_from_type_annotation_kinds(
-                        top_level_defs,
-                        unifier,
-                        primitives,
-                        x,
-                        subst_list
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+                    let param_ty = params
+                        .iter()
+                        .map(|x| {
+                            get_type_from_type_annotation_kinds(
+                                top_level_defs,
+                                unifier,
+                                x,
+                                subst_list
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
 
             let subst = {
                 // check for compatible range
@@ -466,7 +463,9 @@ pub fn get_type_from_type_annotation_kinds(
                 params: subst,
             });
             if need_subst {
-                subst_list.as_mut().map(|wl| wl.push(ty));
+                if let Some(wl) = subst_list.as_mut() {
+                    wl.push(ty);
+                }
             }
             Ok(ty)
         }
@@ -487,7 +486,6 @@ pub fn get_type_from_type_annotation_kinds(
             let ty = get_type_from_type_annotation_kinds(
                 top_level_defs,
                 unifier,
-                primitives,
                 ty.as_ref(),
                 subst_list
             )?;
@@ -497,7 +495,6 @@ pub fn get_type_from_type_annotation_kinds(
             let ty = get_type_from_type_annotation_kinds(
                 top_level_defs,
                 unifier,
-                primitives,
                 ty.as_ref(),
                 subst_list
             )?;
@@ -507,7 +504,7 @@ pub fn get_type_from_type_annotation_kinds(
             let tys = tys
                 .iter()
                 .map(|x| {
-                    get_type_from_type_annotation_kinds(top_level_defs, unifier, primitives, x, subst_list)
+                    get_type_from_type_annotation_kinds(top_level_defs, unifier, x, subst_list)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(unifier.add_ty(TypeEnum::TTuple { ty: tys }))

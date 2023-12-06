@@ -70,19 +70,19 @@ impl SymbolValue {
             Constant::Int(i) => {
                 if unifier.unioned(expected_ty, primitives.int32) {
                     i32::try_from(*i)
-                        .map(|val| SymbolValue::I32(val))
+                        .map(SymbolValue::I32)
                         .map_err(|e| e.to_string())
                 } else if unifier.unioned(expected_ty, primitives.int64) {
                     i64::try_from(*i)
-                        .map(|val| SymbolValue::I64(val))
+                        .map(SymbolValue::I64)
                         .map_err(|e| e.to_string())
                 } else if unifier.unioned(expected_ty, primitives.uint32) {
                     u32::try_from(*i)
-                        .map(|val| SymbolValue::U32(val))
+                        .map(SymbolValue::U32)
                         .map_err(|e| e.to_string())
                 } else if unifier.unioned(expected_ty, primitives.uint64) {
                     u64::try_from(*i)
-                        .map(|val| SymbolValue::U64(val))
+                        .map(SymbolValue::U64)
                         .map_err(|e| e.to_string())
                 } else {
                     Err(format!("Expected {}, but got int", unifier.stringify(expected_ty)))
@@ -96,7 +96,8 @@ impl SymbolValue {
 
                 assert_eq!(ty.len(), t.len());
 
-                let elems = t.into_iter()
+                let elems = t
+                    .iter()
                     .zip(ty)
                     .map(|(constant, ty)| Self::from_constant(constant, *ty, primitives, unifier))
                     .collect::<Result<Vec<SymbolValue>, _>>()?;
@@ -204,25 +205,25 @@ pub trait StaticValue {
     /// Returns a unique identifier for this value.
     fn get_unique_identifier(&self) -> u64;
 
-    fn get_const_obj<'ctx, 'a>(
+    fn get_const_obj<'ctx>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut dyn CodeGenerator,
     ) -> BasicValueEnum<'ctx>;
 
     /// Converts this value to a LLVM [BasicValueEnum].
-    fn to_basic_value_enum<'ctx, 'a>(
+    fn to_basic_value_enum<'ctx>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut dyn CodeGenerator,
         expected_ty: Type,
     ) -> Result<BasicValueEnum<'ctx>, String>;
 
     /// Returns a field within this value.
-    fn get_field<'ctx, 'a>(
+    fn get_field<'ctx>(
         &self,
         name: StrRef,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> Option<ValueEnum<'ctx>>;
 
     /// Returns a single element of this tuple.
@@ -292,10 +293,10 @@ pub trait SymbolResolver {
     // get the top-level definition of identifiers
     fn get_identifier_def(&self, str: StrRef) -> Result<DefinitionId, String>;
 
-    fn get_symbol_value<'ctx, 'a>(
+    fn get_symbol_value<'ctx>(
         &self,
         str: StrRef,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> Option<ValueEnum<'ctx>>;
 
     fn get_default_param_value(&self, expr: &Expr) -> Option<SymbolValue>;

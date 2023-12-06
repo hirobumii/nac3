@@ -259,9 +259,8 @@ impl Nac3 {
                 };
                 if let Err(e) = unifier.unify(in_ty, *ty) {
                     return Some(format!(
-                        "type error ({}) at parameter #{} when calling kernel function",
-                        e.to_display(unifier).to_string(),
-                        i
+                        "type error ({}) at parameter #{i} when calling kernel function",
+                        e.to_display(unifier),
                     ));
                 }
             }
@@ -1020,7 +1019,7 @@ impl Nac3 {
             let link_fn = |module: &Module| {
                 let working_directory = self.working_directory.path().to_owned();
                 target_machine
-                    .write_to_file(&module, FileType::Object, &working_directory.join("module.o"))
+                    .write_to_file(module, FileType::Object, &working_directory.join("module.o"))
                     .expect("couldn't write module to file");
 
                 let filename_path = self.working_directory.path().join("module.elf");
@@ -1037,7 +1036,7 @@ impl Nac3 {
         } else {
             let link_fn = |module: &Module| {
                 let object_mem = target_machine
-                    .write_to_memory_buffer(&module, FileType::Object)
+                    .write_to_memory_buffer(module, FileType::Object)
                     .expect("couldn't write module to object file buffer");
                 if let Ok(dyn_lib) = Linker::ld(object_mem.as_slice()) {
                     Ok(PyBytes::new(py, &dyn_lib).into())

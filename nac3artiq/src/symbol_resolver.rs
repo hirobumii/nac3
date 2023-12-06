@@ -93,9 +93,9 @@ impl StaticValue for PythonValue {
         self.id
     }
 
-    fn get_const_obj<'ctx, 'a>(
+    fn get_const_obj<'ctx>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         _: &mut dyn CodeGenerator,
     ) -> BasicValueEnum<'ctx> {
         ctx.module
@@ -148,10 +148,10 @@ impl StaticValue for PythonValue {
         }).map_err(|e| e.to_string())
     }
 
-    fn get_field<'ctx, 'a>(
+    fn get_field<'ctx>(
         &self,
         name: StrRef,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> Option<ValueEnum<'ctx>> {
         {
             let field_to_val = self.resolver.field_to_val.read();
@@ -256,9 +256,8 @@ impl InnerResolver {
                 Ok(_) => ty,
                 Err(e) => {
                     return Ok(Err(format!(
-                        "inhomogeneous type ({}) at element #{} of the list",
-                        e.to_display(unifier).to_string(),
-                        i
+                        "inhomogeneous type ({}) at element #{i} of the list",
+                        e.to_display(unifier)
                     )))
                 }
             };
@@ -294,9 +293,7 @@ impl InnerResolver {
             Ok(Ok((primitives.uint64, true)))
         } else if ty_id == self.primitive_ids.bool {
             Ok(Ok((primitives.bool, true)))
-        } else if ty_id == self.primitive_ids.float {
-            Ok(Ok((primitives.float, true)))
-        } else if ty_id == self.primitive_ids.float64 {
+        } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             Ok(Ok((primitives.float, true)))
         } else if ty_id == self.primitive_ids.exception {
             Ok(Ok((primitives.exception, true)))
@@ -577,7 +574,7 @@ impl InnerResolver {
                         object_id, methods, constructor, ..
                     } = &*def.read() {
                         if object_id == def_id && constructor.is_some() && methods.iter().any(|(s, _, _)| s == &"__init__".into()) {
-                            return constructor.clone();
+                            return *constructor;
                         }
                     }
                     None
@@ -630,7 +627,7 @@ impl InnerResolver {
                             Ok(_) => Ok(Ok(unifier.add_ty(TypeEnum::TList { ty: *ty }))),
                             Err(e) => Ok(Err(format!(
                                 "type error ({}) for the list",
-                                e.to_display(unifier).to_string()
+                                e.to_display(unifier)
                             ))),
                         },
                         Err(e) => Ok(Err(e)),
@@ -734,9 +731,8 @@ impl InnerResolver {
                             if let Err(e) = unifier.unify(ty, field_ty) {
                                 // field type mismatch
                                 return Ok(Err(format!(
-                                    "error when getting type of field `{}` ({})",
-                                    name,
-                                    e.to_display(unifier).to_string()
+                                    "error when getting type of field `{name}` ({})",
+                                    e.to_display(unifier)
                                 )));
                             }
                         }
@@ -797,11 +793,11 @@ impl InnerResolver {
         }
     }
 
-    pub fn get_obj_value<'ctx, 'a>(
+    pub fn get_obj_value<'ctx>(
         &self,
         py: Python,
         obj: &PyAny,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut dyn CodeGenerator,
         expected_ty: Type,
     ) -> PyResult<Option<BasicValueEnum<'ctx>>> {
@@ -1151,10 +1147,10 @@ impl SymbolResolver for Resolver {
         }
     }
 
-    fn get_symbol_value<'ctx, 'a>(
+    fn get_symbol_value<'ctx>(
         &self,
         id: StrRef,
-        _: &mut CodeGenContext<'ctx, 'a>,
+        _: &mut CodeGenContext<'ctx, '_>,
     ) -> Option<ValueEnum<'ctx>> {
         let sym_value = {
             let id_to_val = self.0.id_to_pyval.read();

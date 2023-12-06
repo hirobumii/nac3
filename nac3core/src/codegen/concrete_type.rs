@@ -194,7 +194,7 @@ impl ConcreteTypeStore {
                     ty: self.from_unifier_type(unifier, primitives, *ty, cache),
                 },
                 TypeEnum::TFunc(signature) => {
-                    self.from_signature(unifier, primitives, &*signature, cache)
+                    self.from_signature(unifier, primitives, signature, cache)
                 }
                 _ => unreachable!(),
             };

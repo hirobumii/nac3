@@ -53,9 +53,9 @@ impl GenCall {
         GenCall { fp }
     }
 
-    pub fn run<'ctx, 'a>(
+    pub fn run<'ctx>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         obj: Option<(Type, ValueEnum<'ctx>)>,
         fun: (&FunSignature, DefinitionId),
         args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
