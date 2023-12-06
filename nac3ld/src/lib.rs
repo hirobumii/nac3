@@ -207,7 +207,7 @@ impl<'a> Linker<'a> {
                 STN_UNDEF => None,
                 sym_index => Some(
                     self.symtab
-                        .get(sym_index as usize)
+                        .get(sym_index)
                         .ok_or("symbol out of bounds of symbol table")?,
                 ),
             };
@@ -1463,7 +1463,7 @@ impl<'a> Linker<'a> {
         // Update the EHDR
         let ehdr_ptr = linker.image.as_mut_ptr() as *mut Elf32_Ehdr;
         unsafe {
-            (*ehdr_ptr) = Elf32_Ehdr {
+            *ehdr_ptr = Elf32_Ehdr {
                 e_ident: ehdr.e_ident,
                 e_type: ET_DYN,
                 e_machine: ehdr.e_machine,

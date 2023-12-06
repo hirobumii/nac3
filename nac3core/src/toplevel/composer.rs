@@ -758,7 +758,7 @@ impl TopLevelComposer {
             let target_ty =
                 get_type_from_type_annotation_kinds(&temp_def_list, unifier, primitives, &def, &mut subst_list)?;
             unifier.unify(ty, target_ty).map_err(|e| e.to_display(unifier).to_string())?;
-            Ok(()) as Result<(), String>
+            Ok(())
         };
         for (ty, def) in type_var_to_concrete_def {
             if let Err(e) = unification_helper(ty, def) {

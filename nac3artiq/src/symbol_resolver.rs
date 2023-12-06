@@ -132,7 +132,7 @@ impl StaticValue for PythonValue {
                 PrimitiveValue::I32(val) => ctx.ctx.i32_type().const_int(*val as u64, false).into(),
                 PrimitiveValue::I64(val) => ctx.ctx.i64_type().const_int(*val as u64, false).into(),
                 PrimitiveValue::U32(val) => ctx.ctx.i32_type().const_int(*val as u64, false).into(),
-                PrimitiveValue::U64(val) => ctx.ctx.i64_type().const_int(*val as u64, false).into(),
+                PrimitiveValue::U64(val) => ctx.ctx.i64_type().const_int(*val, false).into(),
                 PrimitiveValue::F64(val) => ctx.ctx.f64_type().const_float(*val).into(),
                 PrimitiveValue::Bool(val) => ctx.ctx.i8_type().const_int(*val as u64, false).into(),
             });

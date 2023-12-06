@@ -107,7 +107,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             SymbolValue::I32(v) => self.ctx.i32_type().const_int(*v as u64, true).into(),
             SymbolValue::I64(v) => self.ctx.i64_type().const_int(*v as u64, true).into(),
             SymbolValue::U32(v) => self.ctx.i32_type().const_int(*v as u64, false).into(),
-            SymbolValue::U64(v) => self.ctx.i64_type().const_int(*v as u64, false).into(),
+            SymbolValue::U64(v) => self.ctx.i64_type().const_int(*v, false).into(),
             SymbolValue::Bool(v) => self.ctx.i8_type().const_int(*v as u64, true).into(),
             SymbolValue::Double(v) => self.ctx.f64_type().const_float(*v).into(),
             SymbolValue::Str(v) => {
