@@ -812,17 +812,17 @@ impl<'a> Inferencer<'a> {
                     {
                         let custom = Some(self.primitives.int64);
                         let v: Result<i64, _> = (*val).try_into();
-                        if v.is_ok() {
-                            return Ok(Located {
+                        return if v.is_ok() {
+                            Ok(Located {
                                 location: args[0].location,
                                 custom,
                                 node: ExprKind::Constant {
                                     value: ast::Constant::Int(*val),
                                     kind: kind.clone(),
                                 },
-                            });
+                            })
                         } else {
-                            return report_error("Integer out of bound", args[0].location)
+                            report_error("Integer out of bound", args[0].location)
                         }
                     }
                 }
@@ -832,17 +832,17 @@ impl<'a> Inferencer<'a> {
                     {
                         let custom = Some(self.primitives.uint32);
                         let v: Result<u32, _> = (*val).try_into();
-                        if v.is_ok() {
-                            return Ok(Located {
+                        return if v.is_ok() {
+                             Ok(Located {
                                 location: args[0].location,
                                 custom,
                                 node: ExprKind::Constant {
                                     value: ast::Constant::Int(*val),
                                     kind: kind.clone(),
                                 },
-                            });
+                            })
                         } else {
-                            return report_error("Integer out of bound", args[0].location)
+                            report_error("Integer out of bound", args[0].location)
                         }
                     }
                 }
@@ -852,17 +852,17 @@ impl<'a> Inferencer<'a> {
                     {
                         let custom = Some(self.primitives.uint64);
                         let v: Result<u64, _> = (*val).try_into();
-                        if v.is_ok() {
-                            return Ok(Located {
+                        return if v.is_ok() {
+                            Ok(Located {
                                 location: args[0].location,
                                 custom,
                                 node: ExprKind::Constant {
                                     value: ast::Constant::Int(*val),
                                     kind: kind.clone(),
                                 },
-                            });
+                            })
                         } else {
-                            return report_error("Integer out of bound", args[0].location)
+                            report_error("Integer out of bound", args[0].location)
                         }
                     }
                 }

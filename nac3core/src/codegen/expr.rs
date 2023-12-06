@@ -1691,7 +1691,7 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                         && id == ctx.primitives.option.get_obj_id(&ctx.unifier)
                     {
                         match val {
-                            ValueEnum::Static(v) => match v.get_field("_nac3_option".into(), ctx) {
+                            ValueEnum::Static(v) => return match v.get_field("_nac3_option".into(), ctx) {
                                 // if is none, raise exception directly
                                 None => {
                                     let err_msg = ctx.gen_string(generator, "");
@@ -1723,13 +1723,13 @@ pub fn gen_expr<'ctx, 'a, G: CodeGenerator>(
                                         .get_llvm_type(generator, value.custom.unwrap())
                                         .into_pointer_type()
                                         .const_null();
-                                    return Ok(Some(ctx.builder.build_load(
+                                    Ok(Some(ctx.builder.build_load(
                                         ptr,
                                         "unwrap_none_unreachable_load"
-                                    ).into()));
+                                    ).into()))
                                 }
-                                Some(v) => return Ok(Some(v)),
-                            }
+                                Some(v) => Ok(Some(v)),
+                            },
                             ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
                                 let not_null = ctx.builder.build_is_not_null(ptr, "unwrap_not_null");
                                 ctx.make_assert(

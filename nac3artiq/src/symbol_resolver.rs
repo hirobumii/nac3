@@ -166,10 +166,10 @@ impl StaticValue for PythonValue {
                 if ty_id == self.resolver.primitive_ids.option && name == "_nac3_option".into() {
                     let obj = self.value.getattr(py, name.to_string().as_str())?;
                     let id = self.resolver.helper.id_fn.call1(py, (&obj,))?.extract(py)?;
-                    if self.id == self.resolver.primitive_ids.none {
-                        return Ok(None)
+                    return if self.id == self.resolver.primitive_ids.none {
+                        Ok(None)
                     } else {
-                        return Ok(Some((id, obj)))
+                        Ok(Some((id, obj)))
                     }
                 }
                 let def_id = { *self.resolver.pyid_to_def.read().get(&ty_id).unwrap() };
