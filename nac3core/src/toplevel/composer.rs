@@ -102,12 +102,11 @@ impl TopLevelComposer {
                 if *func_name != simple_name.to_string() {
                     continue
                 }
-
                 builtin_ty.insert(name, *signature);
                 builtin_id.insert(name, DefinitionId(id));
             } else if let TopLevelDef::Class { name, constructor, object_id, .. } = &*def
             {
-                assert!(id == object_id.0);
+                assert_eq!(id, object_id.0);
                 if let Some(constructor) = constructor {
                     builtin_ty.insert(*name, *constructor);
                 }

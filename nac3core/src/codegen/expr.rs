@@ -1165,7 +1165,7 @@ pub fn gen_binop_expr<'ctx, 'a, G: CodeGenerator>(
         Ok(Some(ctx.gen_float_ops(op, left_val, right_val).into()))
     } else if ty1 == ctx.primitives.float && ty2 == ctx.primitives.int32 {
         // Pow is the only operator that would pass typecheck between float and int
-        assert!(*op == Operator::Pow);
+        assert_eq!(*op, Operator::Pow);
         let i32_t = ctx.ctx.i32_type();
         let pow_intr = ctx.module.get_function("llvm.powi.f64.i32").unwrap_or_else(|| {
             let f64_t = ctx.ctx.f64_type();

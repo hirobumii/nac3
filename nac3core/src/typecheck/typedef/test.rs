@@ -139,7 +139,7 @@ impl TestEnvironment {
         match &typ[..end] {
             "tuple" => {
                 let mut s = &typ[end..];
-                assert!(&s[0..1] == "[");
+                assert_eq!(&s[0..1], "[");
                 let mut ty = Vec::new();
                 while &s[0..1] != "]" {
                     let result = self.internal_parse(&s[1..], mapping);
@@ -149,14 +149,14 @@ impl TestEnvironment {
                 (self.unifier.add_ty(TypeEnum::TTuple { ty }), &s[1..])
             }
             "list" => {
-                assert!(&typ[end..end + 1] == "[");
+                assert_eq!(&typ[end..end + 1], "[");
                 let (ty, s) = self.internal_parse(&typ[end + 1..], mapping);
-                assert!(&s[0..1] == "]");
+                assert_eq!(&s[0..1], "]");
                 (self.unifier.add_ty(TypeEnum::TList { ty }), &s[1..])
             }
             "Record" => {
                 let mut s = &typ[end..];
-                assert!(&s[0..1] == "[");
+                assert_eq!(&s[0..1], "[");
                 let mut fields = HashMap::new();
                 while &s[0..1] != "]" {
                     let eq = s.find('=').unwrap();
@@ -176,7 +176,7 @@ impl TestEnvironment {
                     let te = self.unifier.get_ty(ty);
                     if let TypeEnum::TObj { params, .. } = &*te.as_ref() {
                         if !params.is_empty() {
-                            assert!(&s[0..1] == "[");
+                            assert_eq!(&s[0..1], "[");
                             let mut p = Vec::new();
                             while &s[0..1] != "]" {
                                 let result = self.internal_parse(&s[1..], mapping);

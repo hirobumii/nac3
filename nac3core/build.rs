@@ -44,7 +44,7 @@ fn main() {
 
     let regex_filter = Regex::new(r"(?ms:^define.*?\}$)|(?m:^declare.*?$)").unwrap();
     for f in regex_filter.captures_iter(&output) {
-        assert!(f.len() == 1);
+        assert_eq!(f.len(), 1);
         filtered_output.push_str(&f[0]);
         filtered_output.push('\n');
     }
