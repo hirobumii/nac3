@@ -277,7 +277,9 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                             node: ExprKind::Name { id: end, ctx: name_ctx.clone() },
                             custom: Some(ctx.primitives.int64),
                         };
-                        let end = self.gen_store_target(ctx, &end_expr, Some("end.addr"))?.unwrap();
+                        let end = self
+                            .gen_store_target(ctx, &end_expr, Some("end.addr"))?
+                            .unwrap();
                         ctx.builder.build_store(end, now);
                         self.end = Some(end_expr);
                         self.name_counter += 1;

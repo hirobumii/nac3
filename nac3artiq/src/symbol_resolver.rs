@@ -266,10 +266,12 @@ impl InnerResolver {
         Ok(Ok(ty))
     }
 
-    // handle python objects that represent types themselves
-    // primitives and class types should be themselves, use `ty_id` to check,
-    // TypeVars and GenericAlias(`A[int, bool]`) should use `ty_ty_id` to check
-    // the `bool` value returned indicates whether they are instantiated or not
+    /// handle python objects that represent types themselves
+    ///
+    /// primitives and class types should be themselves, use `ty_id` to check,
+    /// TypeVars and GenericAlias(`A[int, bool]`) should use `ty_ty_id` to check
+    ///
+    /// the `bool` value returned indicates whether they are instantiated or not
     fn get_pyty_obj_type(
         &self,
         py: Python,
@@ -345,13 +347,21 @@ impl InnerResolver {
             }
         } else if ty_ty_id == self.primitive_ids.typevar {
             let name: &str = pyty.getattr("__name__").unwrap().extract().unwrap();
-            let constraint_types = {
+            let (constraint_types, is_const_generic) = {
                 let constraints = pyty.getattr("__constraints__").unwrap();
                 let mut result: Vec<Type> = vec![];
                 let needs_defer = self.deferred_eval_store.needs_defer.load(Relaxed);
+
+                let mut is_const_generic = false;
                 for i in 0usize.. {
                     if let Ok(constr) = constraints.get_item(i) {
-                        if needs_defer {
+                        let constr_id: u64 = self.helper.id_fn.call1(py, (constr,))?.extract(py)?;
+                        if constr_id == self.primitive_ids.const_generic_dummy {
+                            is_const_generic = true;
+                            continue
+                        }
+
+                        if !is_const_generic && needs_defer {
                             result.push(unifier.get_dummy_var().0);
                         } else {
                             result.push({
@@ -375,17 +385,28 @@ impl InnerResolver {
                         break;
                     }
                 }
-                if needs_defer {
+
+                if !is_const_generic && needs_defer {
                     self.deferred_eval_store.store.write()
                         .push((result.clone(),
                                constraints.extract()?,
                                pyty.getattr("__name__")?.extract::<String>()?
                         ))
                 }
-                result
+
+                (result, is_const_generic)
             };
-            let res =
-                unifier.get_fresh_var_with_range(&constraint_types, Some(name.into()), None).0;
+
+            let res = if is_const_generic {
+                if constraint_types.len() != 1 {
+                    return Ok(Err(format!("ConstGeneric expects 1 argument, got {}", constraint_types.len())))
+                }
+
+                unifier.get_fresh_const_generic_var(constraint_types[0], Some(name.into()), None).0
+            } else {
+                unifier.get_fresh_var_with_range(&constraint_types, Some(name.into()), None).0
+            };
+
             Ok(Ok((res, true)))
         } else if ty_ty_id == self.primitive_ids.generic_alias.0
             || ty_ty_id == self.primitive_ids.generic_alias.1

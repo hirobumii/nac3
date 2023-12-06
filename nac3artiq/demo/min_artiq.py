@@ -10,7 +10,7 @@ from embedding_map import EmbeddingMap
 
 
 __all__ = [
-    "Kernel", "KernelInvariant", "virtual",
+    "Kernel", "KernelInvariant", "virtual", "ConstGeneric",
     "Option", "Some", "none", "UnwrapNoneError",
     "round64", "floor64", "ceil64",
     "extern", "kernel", "portable", "nac3",
@@ -66,6 +66,12 @@ def Some(v: T) -> Option[T]:
     return Option(v)
 
 none = Option(None)
+
+class _ConstGenericMarker:
+    pass
+
+def ConstGeneric(name, constraint):
+    return TypeVar(name, _ConstGenericMarker, constraint)
 
 def round64(x):
     return round(x)
