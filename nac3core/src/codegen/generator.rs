@@ -98,7 +98,7 @@ pub trait CodeGenerator {
         ctx: &mut CodeGenContext<'ctx, 'a>,
         pattern: &Expr<Option<Type>>,
         name: Option<&str>,
-    ) -> Result<PointerValue<'ctx>, String>
+    ) -> Result<Option<PointerValue<'ctx>>, String>
     where
         Self: Sized,
     {

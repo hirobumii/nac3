@@ -158,33 +158,41 @@ pub fn handle_slice_indices<'a, 'ctx, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     generator: &mut G,
     list: PointerValue<'ctx>,
-) -> Result<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>), String> {
+) -> Result<Option<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>)>, String> {
     let int32 = ctx.ctx.i32_type();
     let zero = int32.const_zero();
     let one = int32.const_int(1, false);
     let length = ctx.build_gep_and_load(list, &[zero, one], Some("length")).into_int_value();
     let length = ctx.builder.build_int_truncate_or_bit_cast(length, int32, "leni32");
-    Ok(match (start, end, step) {
+    Ok(Some(match (start, end, step) {
         (s, e, None) => (
-            s.as_ref().map_or_else(
-                || Ok(int32.const_zero()),
-                |s| handle_slice_index_bound(s, ctx, generator, length),
-            )?,
+            if let Some(s) = s.as_ref() {
+                match handle_slice_index_bound(s, ctx, generator, length)? {
+                    Some(v) => v,
+                    None => return Ok(None),
+                }
+            } else {
+                int32.const_zero()
+            },
             {
-                let e = e.as_ref().map_or_else(
-                    || Ok(length),
-                    |e| handle_slice_index_bound(e, ctx, generator, length),
-                )?;
+                let e = if let Some(s) = e.as_ref() {
+                    match handle_slice_index_bound(s, ctx, generator, length)? {
+                        Some(v) => v,
+                        None => return Ok(None),
+                    }
+                } else {
+                    length
+                };
                 ctx.builder.build_int_sub(e, one, "final_end")
             },
             one,
         ),
         (s, e, Some(step)) => {
-            let step = generator
-                .gen_expr(ctx, step)?
-                .unwrap()
-                .to_basic_value_enum(ctx, generator, ctx.primitives.int32)?
-                .into_int_value();
+            let step = if let Some(v) = generator.gen_expr(ctx, step)? {
+                v.to_basic_value_enum(ctx, generator, ctx.primitives.int32)?.into_int_value()
+            } else {
+                return Ok(None)
+            };
             // assert step != 0, throw exception if not
             let not_zero = ctx.builder.build_int_compare(
                 IntPredicate::NE,
@@ -205,7 +213,9 @@ pub fn handle_slice_indices<'a, 'ctx, G: CodeGenerator>(
             (
                 match s {
                     Some(s) => {
-                        let s = handle_slice_index_bound(s, ctx, generator, length)?;
+                        let Some(s) = handle_slice_index_bound(s, ctx, generator, length)? else {
+                            return Ok(None)
+                        };
                         ctx.builder
                             .build_select(
                                 ctx.builder.build_and(
@@ -228,7 +238,9 @@ pub fn handle_slice_indices<'a, 'ctx, G: CodeGenerator>(
                 },
                 match e {
                     Some(e) => {
-                        let e = handle_slice_index_bound(e, ctx, generator, length)?;
+                        let Some(e) = handle_slice_index_bound(e, ctx, generator, length)? else {
+                            return Ok(None)
+                        };
                         ctx.builder
                             .build_select(
                                 neg,
@@ -243,7 +255,7 @@ pub fn handle_slice_indices<'a, 'ctx, G: CodeGenerator>(
                 step,
             )
         }
-    })
+    }))
 }
 
 /// this function allows index out of range, since python
@@ -253,7 +265,7 @@ pub fn handle_slice_index_bound<'a, 'ctx, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     generator: &mut G,
     length: IntValue<'ctx>,
-) -> Result<IntValue<'ctx>, String> {
+) -> Result<Option<IntValue<'ctx>>, String> {
     const SYMBOL: &str = "__nac3_slice_index_bound";
     let func = ctx.module.get_function(SYMBOL).unwrap_or_else(|| {
         let i32_t = ctx.ctx.i32_type();
@@ -261,14 +273,18 @@ pub fn handle_slice_index_bound<'a, 'ctx, G: CodeGenerator>(
         ctx.module.add_function(SYMBOL, fn_t, None)
     });
 
-    let i = generator.gen_expr(ctx, i)?.unwrap().to_basic_value_enum(ctx, generator, i.custom.unwrap())?;
-    Ok(ctx
+    let i = if let Some(v) = generator.gen_expr(ctx, i)? {
+        v.to_basic_value_enum(ctx, generator, i.custom.unwrap())?
+    } else {
+        return Ok(None)
+    };
+    Ok(Some(ctx
         .builder
         .build_call(func, &[i.into(), length.into()], "bounded_ind")
         .try_as_basic_value()
         .left()
         .unwrap()
-        .into_int_value())
+        .into_int_value()))
 }
 
 /// This function handles 'end' **inclusively**.

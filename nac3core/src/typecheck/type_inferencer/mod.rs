@@ -964,6 +964,7 @@ impl<'a> Inferencer<'a> {
             ast::Constant::Str(_) => Ok(self.primitives.str),
             ast::Constant::None
                 => report_error("CPython `None` not supported (nac3 uses `none` instead)", *loc),
+            ast::Constant::Ellipsis => Ok(self.unifier.get_fresh_var(None, None).0),
             _ => report_error("not supported", *loc),
         }
     }

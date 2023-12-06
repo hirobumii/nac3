@@ -62,7 +62,7 @@ impl<'a> Inferencer<'a> {
     ) -> Result<(), String> {
         // there are some cases where the custom field is None
         if let Some(ty) = &expr.custom {
-            if !self.unifier.is_concrete(*ty, &self.function_data.bound_variables) {
+            if !matches!(&expr.node, ExprKind::Constant { value: Constant::Ellipsis, .. }) && !self.unifier.is_concrete(*ty, &self.function_data.bound_variables) {
                 return Err(format!(
                     "expected concrete type at {} but got {}",
                     expr.location,
