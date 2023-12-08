@@ -47,7 +47,7 @@ pub fn get_subst_key(
         })
         .unwrap_or_default();
     vars.extend(fun_vars.iter());
-    let sorted = vars.keys().filter(|id| filter.map(|v| v.contains(id)).unwrap_or(true)).sorted();
+    let sorted = vars.keys().filter(|id| filter.map_or(true, |v| v.contains(id))).sorted();
     sorted
         .map(|id| {
             unifier.internal_stringify(
@@ -119,7 +119,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             }
             SymbolValue::Tuple(ls) => {
                 let vals = ls.iter().map(|v| self.gen_symbol_val(generator, v, ty)).collect_vec();
-                let fields = vals.iter().map(|v| v.get_type()).collect_vec();
+                let fields = vals.iter().map(BasicValueEnum::get_type).collect_vec();
                 let ty = self.ctx.struct_type(&fields, false);
                 let ptr = gen_var(self, ty.into(), Some("tuple")).unwrap();
                 let zero = self.ctx.i32_type().const_zero();
@@ -165,7 +165,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         }
     }
 
-    /// See [get_llvm_type].
+    /// See [`get_llvm_type`].
     pub fn get_llvm_type(
         &mut self,
         generator: &mut dyn CodeGenerator,
@@ -183,7 +183,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         )
     }
 
-    /// See [get_llvm_abi_type].
+    /// See [`get_llvm_abi_type`].
     pub fn get_llvm_abi_type(
         &mut self,
         generator: &mut dyn CodeGenerator,
@@ -212,7 +212,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             Constant::Bool(v) => {
                 assert!(self.unifier.unioned(ty, self.primitives.bool));
                 let ty = self.ctx.i8_type();
-                Some(ty.const_int(if *v { 1 } else { 0 }, false).into())
+                Some(ty.const_int(u64::from(*v), false).into())
             }
             Constant::Int(val) => {
                 let ty = if self.unifier.unioned(ty, self.primitives.int32)
@@ -290,12 +290,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         rhs: BasicValueEnum<'ctx>,
         signed: bool
     ) -> BasicValueEnum<'ctx> {
-        let (lhs, rhs) =
-            if let (BasicValueEnum::IntValue(lhs), BasicValueEnum::IntValue(rhs)) = (lhs, rhs) {
-                (lhs, rhs)
-            } else {
-                unreachable!()
-            };
+        let (BasicValueEnum::IntValue(lhs), BasicValueEnum::IntValue(rhs)) = (lhs, rhs) else {
+            unreachable!()
+        };
         let float = self.ctx.f64_type();
         match (op, signed) {
             (Operator::Add, _) => self.builder.build_int_add(lhs, rhs, "add").into(),
@@ -318,7 +315,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             (Operator::BitAnd, _) => self.builder.build_and(lhs, rhs, "and").into(),
 
             // Sign-ness of bitshift operators are always determined by the left operand
-            (Operator::LShift, signed) | (Operator::RShift, signed) => {
+            (Operator::LShift | Operator::RShift, signed) => {
                 // RHS operand is always 32 bits
                 assert_eq!(rhs.get_type().get_bit_width(), 32);
 
@@ -365,11 +362,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let (lhs, rhs) = if let (BasicValueEnum::FloatValue(lhs), BasicValueEnum::FloatValue(rhs)) =
-            (lhs, rhs)
-        {
-            (lhs, rhs)
-        } else {
+        let (BasicValueEnum::FloatValue(lhs), BasicValueEnum::FloatValue(rhs)) = (lhs, rhs) else {
             unreachable!()
         };
         let float = self.ctx.f64_type();
@@ -474,7 +467,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             .collect_vec();
         let result = if let Some(target) = self.unwind_target {
             let current = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-            let then_block = self.ctx.append_basic_block(current, &format!("after.{}", call_name));
+            let then_block = self.ctx.append_basic_block(current, &format!("after.{call_name}"));
             let result = self
                 .builder
                 .build_invoke(fun, &params, then_block, target, call_name)
@@ -516,7 +509,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             let ty = self.get_llvm_type(generator, self.primitives.exception).into_pointer_type();
             let zelf_ty: BasicTypeEnum = ty.get_element_type().into_struct_type().into();
             let zelf = generator.gen_var_alloc(self, zelf_ty, Some("exn")).unwrap();
-            self.exception_val.insert(zelf).to_owned()
+            *self.exception_val.insert(zelf)
         };
         let int32 = self.ctx.i32_type();
         let zero = int32.const_zero();
@@ -556,7 +549,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         loc: Location,
     ) {
         let err_msg = self.gen_string(generator, err_msg);
-        self.make_assert_impl(generator, cond, err_name, err_msg, params, loc)
+        self.make_assert_impl(generator, cond, err_name, err_msg, params, loc);
     }
 
     pub fn make_assert_impl(
@@ -598,7 +591,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     }
 }
 
-/// See [CodeGenerator::gen_constructor].
+/// See [`CodeGenerator::gen_constructor`].
 pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -626,14 +619,14 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
             }
             Ok(zelf)
         }
-        _ => unreachable!(),
+        TopLevelDef::Function { .. } => unreachable!(),
     }
 }
 
-/// See [CodeGenerator::gen_func_instance].
+/// See [`CodeGenerator::gen_func_instance`].
 pub fn gen_func_instance<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    obj: Option<(Type, ValueEnum<'ctx>)>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, &mut TopLevelDef, String),
     id: usize,
 ) -> Result<String, String> {
@@ -683,7 +676,7 @@ pub fn gen_func_instance<'ctx>(
                 args.insert(
                     0,
                     ConcreteFuncArg { name: "self".into(), ty: zelf, default_value: None },
-                )
+                );
             } else {
                 unreachable!()
             }
@@ -707,7 +700,7 @@ pub fn gen_func_instance<'ctx>(
     }
 }
 
-/// See [CodeGenerator::gen_call].
+/// See [`CodeGenerator::gen_call`].
 pub fn gen_call<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -738,11 +731,11 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                 let old_key = ctx.get_subst_key(obj.as_ref().map(|a| a.0), fun.0, None);
                 let mut keys = fun.0.args.clone();
                 let mut mapping = HashMap::new();
-                for (key, value) in params.into_iter() {
+                for (key, value) in params {
                     mapping.insert(key.unwrap_or_else(|| keys.remove(0).name), value);
                 }
                 // default value handling
-                for k in keys.into_iter() {
+                for k in keys {
                     if mapping.get(&k.name).is_some() {
                         continue;
                     }
@@ -774,27 +767,26 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                         .map(|(i, v)| (*i, v.get_unique_identifier()))
                         .collect_vec();
                     let mut store = ctx.static_value_store.lock();
-                    match store.lookup.get(&ids) {
-                        Some(index) => *index,
-                        None => {
-                            let length = store.store.len();
-                            store.lookup.insert(ids, length);
-                            store.store.push(static_params.into_iter().collect());
-                            length
-                        }
+                    if let Some(index) = store.lookup.get(&ids) {
+                        *index
+                    } else {
+                        let length = store.store.len();
+                        store.lookup.insert(ids, length);
+                        store.store.push(static_params.into_iter().collect());
+                        length
                     }
                 };
                 // special case: extern functions
                 key = if instance_to_stmt.is_empty() {
-                    "".to_string()
+                    String::new()
                 } else {
-                    format!("{}:{}", id, old_key)
+                    format!("{id}:{old_key}")
                 };
                 param_vals = real_params
                     .into_iter()
                     .map(|(p, t)| p.to_basic_value_enum(ctx, generator, t))
                     .collect::<Result<Vec<_>, String>>()?;
-                instance_to_symbol.get(&key).cloned().ok_or_else(|| "".into())
+                instance_to_symbol.get(&key).cloned().ok_or_else(String::new)
             }
             TopLevelDef::Class { .. } => {
                 return Ok(Some(generator.gen_constructor(ctx, fun.0, &def, params)?))
@@ -900,7 +892,7 @@ pub fn destructure_range<'ctx>(
 /// Allocates a List structure with the given [type][ty] and [length]. The name of the resulting
 /// LLVM value is `{name}.addr`, or `list.addr` if [name] is not specified.
 ///
-/// Returns an instance of [PointerValue] pointing to the List structure. The List structure is
+/// Returns an instance of [`PointerValue`] pointing to the List structure. The List structure is
 /// defined as `type { ty*, size_t }` in LLVM, where the first element stores the pointer to the
 /// data, and the second element stores the size of the List.
 pub fn allocate_list<'ctx, G: CodeGenerator>(
@@ -1083,7 +1075,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             ctx.builder.build_store(len_ptr, ctx.builder.build_load(index, "index"));
         };
 
-        for cond in ifs.iter() {
+        for cond in ifs {
             let result = if let Some(v) = generator.gen_expr(ctx, cond)? {
                 v.to_basic_value_enum(ctx, generator, cond.custom.unwrap())?.into_int_value()
             } else {
@@ -1226,11 +1218,11 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
                 Some((left.custom.unwrap(), left_val.into())),
                 (&signature, fun_id),
                 vec![(None, right_val.into())],
-            ).map(|f| f.map(|f| f.into()))
+            ).map(|f| f.map(Into::into))
     }
 }
 
-/// See [CodeGenerator::gen_expr].
+/// See [`CodeGenerator::gen_expr`].
 pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -1462,7 +1454,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     ast::Unaryop::USub => ctx.builder.build_int_neg(val, "neg").into(),
                     ast::Unaryop::Invert => ctx.builder.build_not(val, "not").into(),
                     ast::Unaryop::Not => ctx.builder.build_xor(val, val.get_type().const_all_ones(), "not").into(),
-                    _ => val.into(),
+                    ast::Unaryop::UAdd => val.into(),
                 }
             } else if ty == ctx.primitives.float {
                 let val = val.into_float_value();
@@ -1574,11 +1566,11 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             let test = generator.bool_to_i1(ctx, test);
             let body_ty = body.custom.unwrap();
             let is_none = ctx.unifier.get_representative(body_ty) == ctx.primitives.none;
-            let result = if !is_none {
+            let result = if is_none {
+                None
+            } else {
                 let llvm_ty = ctx.get_llvm_type(generator, body_ty);
                 Some(ctx.builder.build_alloca(llvm_ty, "if_exp_result"))
-            } else {
-                None
             };
             let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
             let then_bb = ctx.ctx.append_basic_block(current, "then");
@@ -1640,15 +1632,14 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             let kw_iter = kw_iter.collect::<Result<Vec<_>, _>>()?;
             params.extend(kw_iter);
             let call = ctx.calls.get(&expr.location.into());
-            let signature = match call {
-                Some(call) => ctx.unifier.get_call_signature(*call).unwrap(),
-                None => {
-                    let ty = func.custom.unwrap();
-                    if let TypeEnum::TFunc(sign) = &*ctx.unifier.get_ty(ty) {
-                        sign.clone()
-                    } else {
-                        unreachable!()
-                    }
+            let signature = if let Some(call) = call {
+                ctx.unifier.get_call_signature(*call).unwrap()
+            } else {
+                let ty = func.custom.unwrap();
+                if let TypeEnum::TFunc(sign) = &*ctx.unifier.get_ty(ty) {
+                    sign.clone()
+                } else {
+                    unreachable!()
                 }
             };
             let func = func.as_ref();
@@ -1661,12 +1652,11 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         .map_err(|e| format!("{} (at {})", e, func.location))?;
                     return Ok(generator
                         .gen_call(ctx, None, (&signature, fun), params)?
-                        .map(|v| v.into()));
+                        .map(Into::into));
                 }
                 ExprKind::Attribute { value, attr, .. } => {
-                    let val = match generator.gen_expr(ctx, value)? {
-                        Some(v) => v,
-                        None => return Ok(None),
+                    let Some(val) = generator.gen_expr(ctx, value)? else {
+                        return Ok(None)
                     };
 
                     let id = if let TypeEnum::TObj { obj_id, .. } =
@@ -1745,7 +1735,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                     "unwrap_some_load"
                                 ).into()))
                             }
-                            _ => unreachable!("option must be static or ptr")
+                            ValueEnum::Dynamic(_) => unreachable!("option must be static or ptr")
                         }
                     }
 
@@ -1759,7 +1749,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             (&signature, fun_id),
                             params,
                         )?
-                        .map(|v| v.into()));
+                        .map(Into::into));
                 }
                 _ => unimplemented!(),
             }
@@ -1871,14 +1861,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         ctx.builder.build_extract_value(v, index, "tup_elem").unwrap().into()
                     }
                     Some(ValueEnum::Static(v)) => {
-                        match v.get_tuple_element(index) {
-                            Some(v) => v,
-                            None => {
-                                let tup = v
-                                    .to_basic_value_enum(ctx, generator, value.custom.unwrap())?
-                                    .into_struct_value();
-                                ctx.builder.build_extract_value(tup, index, "tup_elem").unwrap().into()
-                            }
+                        if let Some(v) = v.get_tuple_element(index) {
+                            v
+                        } else {
+                            let tup = v
+                                .to_basic_value_enum(ctx, generator, value.custom.unwrap())?
+                                .into_struct_value();
+                            ctx.builder.build_extract_value(tup, index, "tup_elem").unwrap().into()
                         }
                     }
                     None => return Ok(None),

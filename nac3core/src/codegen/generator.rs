@@ -66,7 +66,7 @@ pub trait CodeGenerator {
         fun: (&FunSignature, &mut TopLevelDef, String),
         id: usize,
     ) -> Result<String, String> {
-        gen_func_instance(ctx, obj, fun, id)
+        gen_func_instance(ctx, &obj, fun, id)
     }
 
     /// Generate the code for an expression.
@@ -194,7 +194,7 @@ pub trait CodeGenerator {
         gen_block(self, ctx, stmts)
     }
 
-    /// See [bool_to_i1].
+    /// See [`bool_to_i1`].
     fn bool_to_i1<'ctx>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
@@ -203,7 +203,7 @@ pub trait CodeGenerator {
         bool_to_i1(&ctx.builder, bool_value)
     }
 
-    /// See [bool_to_i8].
+    /// See [`bool_to_i8`].
     fn bool_to_i8<'ctx>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
@@ -219,6 +219,7 @@ pub struct DefaultCodeGenerator {
 }
 
 impl DefaultCodeGenerator {
+    #[must_use]
     pub fn new(name: String, size_t: u32) -> DefaultCodeGenerator {
         assert!(matches!(size_t, 32 | 64));
         DefaultCodeGenerator { name, size_t }
@@ -227,7 +228,7 @@ impl DefaultCodeGenerator {
 
 impl CodeGenerator for DefaultCodeGenerator {
 
-    /// Returns the name for this [CodeGenerator].
+    /// Returns the name for this [`CodeGenerator`].
     fn get_name(&self) -> &str {
         &self.name
     }

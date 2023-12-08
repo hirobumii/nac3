@@ -43,6 +43,7 @@ impl TopLevelDef {
 }
 
 impl TopLevelComposer {
+    #[must_use]
     pub fn make_primitives() -> (PrimitiveStore, Unifier) {
         let mut unifier = Unifier::new();
         let int32 = unifier.add_ty(TypeEnum::TObj {
@@ -134,22 +135,23 @@ impl TopLevelComposer {
         let primitives = PrimitiveStore {
             int32,
             int64,
+            uint32,
+            uint64,
             float,
             bool,
             none,
             range,
             str,
             exception,
-            uint32,
-            uint64,
             option,
         };
         crate::typecheck::magic_methods::set_primitives_magic_methods(&primitives, &mut unifier);
         (primitives, unifier)
     }
 
-    /// already include the definition_id of itself inside the ancestors vector
-    /// when first registering, the type_vars, fields, methods, ancestors are invalid
+    /// already include the `definition_id` of itself inside the ancestors vector
+    /// when first registering, the `type_vars`, fields, methods, ancestors are invalid
+    #[must_use]
     pub fn make_top_level_class_def(
         index: usize,
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
@@ -160,10 +162,10 @@ impl TopLevelComposer {
         TopLevelDef::Class {
             name,
             object_id: DefinitionId(index),
-            type_vars: Default::default(),
-            fields: Default::default(),
-            methods: Default::default(),
-            ancestors: Default::default(),
+            type_vars: Vec::default(),
+            fields: Vec::default(),
+            methods: Vec::default(),
+            ancestors: Vec::default(),
             constructor,
             resolver,
             loc,
@@ -171,6 +173,7 @@ impl TopLevelComposer {
     }
 
     /// when first registering, the type is a invalid value
+    #[must_use]
     pub fn make_top_level_function_def(
         name: String,
         simple_name: StrRef,
@@ -182,15 +185,16 @@ impl TopLevelComposer {
             name,
             simple_name,
             signature: ty,
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver,
             codegen_callback: None,
             loc,
         }
     }
 
+    #[must_use]
     pub fn make_class_method_name(mut class_name: String, method_name: &str) -> String {
         class_name.push('.');
         class_name.push_str(method_name);
@@ -206,7 +210,7 @@ impl TopLevelComposer {
                 return Ok((*ty, *def_id));
             }
         }
-        Err(format!("no method {} in the current class", method_name))
+        Err(format!("no method {method_name} in the current class"))
     }
 
     /// get all base class def id of a class, excluding itself. \
@@ -257,17 +261,17 @@ impl TopLevelComposer {
         let child_def = temp_def_list.get(child_id.0).unwrap();
         let child_def = child_def.read();
         if let TopLevelDef::Class { ancestors, .. } = &*child_def {
-            if !ancestors.is_empty() {
-                Some(ancestors[0].clone())
-            } else {
+            if ancestors.is_empty() {
                 None
+            } else {
+                Some(ancestors[0].clone())
             }
         } else {
             unreachable!("child must be top level class def")
         }
     }
 
-    /// get the var_id of a given TVar type
+    /// get the `var_id` of a given `TVar` type
     pub fn get_var_id(var_ty: Type, unifier: &mut Unifier) -> Result<u32, String> {
         if let TypeEnum::TVar { id, .. } = unifier.get_ty(var_ty).as_ref() {
             Ok(*id)
@@ -376,14 +380,14 @@ impl TopLevelComposer {
                 ast::StmtKind::If { body, orelse, .. } => {
                     let inited_for_sure = Self::get_all_assigned_field(body.as_slice())?
                         .intersection(&Self::get_all_assigned_field(orelse.as_slice())?)
-                        .cloned()
+                        .copied()
                         .collect::<HashSet<_>>();
                     result.extend(inited_for_sure);
                 }
                 ast::StmtKind::Try { body, orelse, finalbody, .. } => {
                     let inited_for_sure = Self::get_all_assigned_field(body.as_slice())?
                         .intersection(&Self::get_all_assigned_field(orelse.as_slice())?)
-                        .cloned()
+                        .copied()
                         .collect::<HashSet<_>>();
                     result.extend(inited_for_sure);
                     result.extend(Self::get_all_assigned_field(finalbody.as_slice())?);
@@ -391,9 +395,9 @@ impl TopLevelComposer {
                 ast::StmtKind::With { body, .. } => {
                     result.extend(Self::get_all_assigned_field(body.as_slice())?);
                 }
-                ast::StmtKind::Pass { .. } => {}
-                ast::StmtKind::Assert { .. } => {}
-                ast::StmtKind::Expr { .. } => {}
+                ast::StmtKind::Pass { .. }
+                | ast::StmtKind::Assert { .. }
+                | ast::StmtKind::Expr { .. } => {}
 
                 _ => {
                     unimplemented!()
@@ -448,14 +452,14 @@ impl TopLevelComposer {
         }
 
         let found = val.get_type_annotation(primitive, unifier);
-        if !is_compatible(&found, ty, unifier, primitive) {
+        if is_compatible(&found, ty, unifier, primitive) {
+            Ok(())
+        } else {
             Err(format!(
                 "incompatible default parameter type, expect {}, found {}",
                 ty.stringify(unifier),
                 found.stringify(unifier),
             ))
-        } else {
-            Ok(())
         }
     }
 }
@@ -470,7 +474,7 @@ pub fn parse_parameter_default_value(
                 if let Ok(v) = (*v).try_into() {
                     Ok(SymbolValue::I32(v))
                 } else {
-                    Err(format!("integer value out of range at {}", loc))
+                    Err(format!("integer value out of range at {loc}"))
                 }
             }
             Constant::Float(v) => Ok(SymbolValue::Double(*v)),
@@ -479,8 +483,7 @@ pub fn parse_parameter_default_value(
                 tuple.iter().map(|x| handle_constant(x, loc)).collect::<Result<Vec<_>, _>>()?,
             )),
             Constant::None => Err(format!(
-                "`None` is not supported, use `none` for option type instead ({})",
-                loc
+                "`None` is not supported, use `none` for option type instead ({loc})"
             )),
             _ => unimplemented!("this constant is not supported at {}", loc),
         }

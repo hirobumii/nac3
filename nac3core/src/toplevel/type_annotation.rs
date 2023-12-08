@@ -33,17 +33,16 @@ impl TypeAnnotation {
         match self {
             Primitive(ty) | TypeVar(ty) => unifier.stringify(*ty),
             CustomClass { id, params } => {
-                let class_name = match unifier.top_level {
-                    Some(ref top) => {
-                        if let TopLevelDef::Class { name, .. } =
-                            &*top.definitions.read()[id.0].read()
-                        {
-                            (*name).into()
-                        } else {
-                            unreachable!()
-                        }
+                let class_name = if let Some(ref top) = unifier.top_level {
+                    if let TopLevelDef::Class { name, .. } =
+                        &*top.definitions.read()[id.0].read()
+                    {
+                        (*name).into()
+                    } else {
+                        unreachable!()
                     }
-                    None => format!("class_def_{}", id.0),
+                } else {
+                    format!("class_def_{}", id.0)
                 };
                 format!(
                     "{}{}",
@@ -51,9 +50,9 @@ impl TypeAnnotation {
                     {
                         let param_list = params.iter().map(|p| p.stringify(unifier)).collect_vec().join(", ");
                         if param_list.is_empty() {
-                            "".into()
+                            String::new()
                         } else {
-                            format!("[{}]", param_list)
+                            format!("[{param_list}]")
                         }
                     }
                 )
@@ -68,12 +67,12 @@ impl TypeAnnotation {
     }
 }
 
-/// Parses an AST expression `expr` into a [TypeAnnotation].
+/// Parses an AST expression `expr` into a [`TypeAnnotation`].
 ///
-/// * `locked` - A [HashMap] containing the IDs of known definitions, mapped to a [Vec] of all
+/// * `locked` - A [`HashMap`] containing the IDs of known definitions, mapped to a [`Vec`] of all
 /// generic variables associated with the definition.
 /// * `type_var` - The type variable associated with the type argument currently being parsed. Pass
-/// [None] when this function is invoked externally.
+/// [`None`] when this function is invoked externally.
 pub fn parse_ast_to_type_annotation_kinds<T>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
@@ -102,7 +101,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
         } else if id == &"str".into() {
             Ok(TypeAnnotation::Primitive(primitives.str))
         } else if id == &"Exception".into() {
-            Ok(TypeAnnotation::CustomClass { id: DefinitionId(7), params: Default::default() })
+            Ok(TypeAnnotation::CustomClass { id: DefinitionId(7), params: Vec::default() })
         } else if let Ok(obj_id) = resolver.get_identifier_def(*id) {
             let type_vars = {
                 let def_read = top_level_defs[obj_id.0].try_read();
@@ -356,7 +355,7 @@ pub fn get_type_from_type_annotation_kinds(
     match ann {
         TypeAnnotation::CustomClass { id: obj_id, params } => {
             let def_read = top_level_defs[obj_id.0].read();
-            let class_def: &TopLevelDef = def_read.deref();
+            let class_def: &TopLevelDef = &def_read;
             let TopLevelDef::Class { fields, methods, type_vars, .. } = class_def else {
                 unreachable!("should be class def here")
             };
@@ -406,8 +405,8 @@ pub fn get_type_from_type_annotation_kinds(
                                     "cannot apply type {} to type variable with id {:?}",
                                     unifier.internal_stringify(
                                         p,
-                                        &mut |id| format!("class{}", id),
-                                        &mut |id| format!("typevar{}", id),
+                                        &mut |id| format!("class{id}"),
+                                        &mut |id| format!("typevar{id}"),
                                         &mut None
                                     ),
                                     *id
@@ -521,9 +520,10 @@ pub fn get_type_from_type_annotation_kinds(
 /// considered to be type variables associated with the class \
 /// \
 /// But note that here we do not make a duplication of `T`, `V`, we directly
-/// use them as they are in the TopLevelDef::Class since those in the
-/// TopLevelDef::Class.type_vars will be substitute later when seeing applications/instantiations
+/// use them as they are in the [`TopLevelDef::Class`] since those in the
+/// `TopLevelDef::Class.type_vars` will be substitute later when seeing applications/instantiations
 /// the Type of their fields and methods will also be subst when application/instantiation
+#[must_use]
 pub fn make_self_type_annotation(type_vars: &[Type], object_id: DefinitionId) -> TypeAnnotation {
     TypeAnnotation::CustomClass {
         id: object_id,
@@ -534,20 +534,18 @@ pub fn make_self_type_annotation(type_vars: &[Type], object_id: DefinitionId) ->
 /// get all the occurences of type vars contained in a type annotation
 /// e.g. `A[int, B[T], V, virtual[C[G]]]` => [T, V, G]
 /// this function will not make a duplicate of type var
+#[must_use]
 pub fn get_type_var_contained_in_type_annotation(ann: &TypeAnnotation) -> Vec<TypeAnnotation> {
     let mut result: Vec<TypeAnnotation> = Vec::new();
     match ann {
         TypeAnnotation::TypeVar(..) => result.push(ann.clone()),
-        TypeAnnotation::Virtual(ann) => {
-            result.extend(get_type_var_contained_in_type_annotation(ann.as_ref()))
+        TypeAnnotation::Virtual(ann) | TypeAnnotation::List(ann) => {
+            result.extend(get_type_var_contained_in_type_annotation(ann.as_ref()));
         }
         TypeAnnotation::CustomClass { params, .. } => {
             for p in params {
                 result.extend(get_type_var_contained_in_type_annotation(p));
             }
-        }
-        TypeAnnotation::List(ann) => {
-            result.extend(get_type_var_contained_in_type_annotation(ann.as_ref()))
         }
         TypeAnnotation::Tuple(anns) => {
             for a in anns {
@@ -569,9 +567,9 @@ pub fn check_overload_type_annotation_compatible(
         (TypeAnnotation::Primitive(a), TypeAnnotation::Primitive(b)) => a == b,
         (TypeAnnotation::TypeVar(a), TypeAnnotation::TypeVar(b)) => {
             let a = unifier.get_ty(*a);
-            let a = a.deref();
+            let a = &*a;
             let b = unifier.get_ty(*b);
-            let b = b.deref();
+            let b = &*b;
             if let (
                 TypeEnum::TVar { id: a, fields: None, .. },
                 TypeEnum::TVar { id: b, fields: None, .. },

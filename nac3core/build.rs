@@ -9,15 +9,11 @@ use std::{
 
 fn main() {
     const FILE: &str = "src/codegen/irrt/irrt.c";
-    println!("cargo:rerun-if-changed={}", FILE);
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let out_path = Path::new(&out_dir);
 
     /*
      * HACK: Sadly, clang doesn't let us emit generic LLVM bitcode.
      * Compiling for WASM32 and filtering the output with regex is the closest we can get.
      */
-
     const FLAG: &[&str] = &[
         "--target=wasm32",
         FILE,
@@ -29,6 +25,11 @@ fn main() {
         "-o",
         "-",
     ];
+
+    println!("cargo:rerun-if-changed={FILE}");
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let out_path = Path::new(&out_dir);
+
     let output = Command::new("clang-irrt")
         .args(FLAG)
         .output()
@@ -68,5 +69,5 @@ fn main() {
         .spawn()
         .unwrap();
     llvm_as.stdin.as_mut().unwrap().write_all(filtered_output.as_bytes()).unwrap();
-    assert!(llvm_as.wait().unwrap().success())
+    assert!(llvm_as.wait().unwrap().success());
 }

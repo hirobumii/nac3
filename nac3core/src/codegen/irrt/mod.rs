@@ -12,6 +12,7 @@ use inkwell::{
 };
 use nac3parser::ast::Expr;
 
+#[must_use]
 pub fn load_irrt(ctx: &Context) -> Module {
     let bitcode_buf = MemoryBuffer::create_from_memory_range(
         include_bytes!(concat!(env!("OUT_DIR"), "/irrt.bc")),
@@ -288,7 +289,7 @@ pub fn handle_slice_index_bound<'ctx, G: CodeGenerator>(
 }
 
 /// This function handles 'end' **inclusively**.
-/// Order of tuples assign_idx and value_idx is ('start', 'end', 'step').
+/// Order of tuples `assign_idx` and `value_idx` is ('start', 'end', 'step').
 /// Negative index should be handled before entering this function
 pub fn list_slice_assignment<'ctx>(
     generator: &mut dyn CodeGenerator,

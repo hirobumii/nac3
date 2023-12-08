@@ -43,15 +43,18 @@ pub struct TypeError {
 }
 
 impl TypeError {
+    #[must_use]
     pub fn new(kind: TypeErrorKind, loc: Option<Location>) -> TypeError {
         TypeError { kind, loc }
     }
 
+    #[must_use]
     pub fn at(mut self, loc: Option<Location>) -> TypeError {
         self.loc = self.loc.or(loc);
         self
     }
 
+    #[must_use]
     pub fn to_display(self, unifier: &Unifier) -> DisplayTypeError {
         DisplayTypeError { err: self, unifier }
     }
@@ -64,8 +67,8 @@ pub struct DisplayTypeError<'a> {
 
 fn loc_to_str(loc: Option<Location>) -> String {
     match loc {
-        Some(loc) => format!("(in {})", loc),
-        None => "".to_string(),
+        Some(loc) => format!("(in {loc})"),
+        None => String::new(),
     }
 }
 
@@ -75,21 +78,20 @@ impl<'a> Display for DisplayTypeError<'a> {
         let mut notes = Some(HashMap::new());
         match &self.err.kind {
             TooManyArguments { expected, got } => {
-                write!(f, "Too many arguments. Expected {} but got {}", expected, got)
+                write!(f, "Too many arguments. Expected {expected} but got {got}")
             }
             MissingArgs(args) => {
-                write!(f, "Missing arguments: {}", args)
+                write!(f, "Missing arguments: {args}")
             }
             UnknownArgName(name) => {
-                write!(f, "Unknown argument name: {}", name)
+                write!(f, "Unknown argument name: {name}")
             }
             IncorrectArgType { name, expected, got } => {
                 let expected = self.unifier.stringify_with_notes(*expected, &mut notes);
                 let got = self.unifier.stringify_with_notes(*got, &mut notes);
                 write!(
                     f,
-                    "Incorrect argument type for {}. Expected {}, but got {}",
-                    name, expected, got
+                    "Incorrect argument type for {name}. Expected {expected}, but got {got}"
                 )
             }
             FieldUnificationError { field, types, loc } => {
@@ -126,7 +128,7 @@ impl<'a> Display for DisplayTypeError<'a> {
                         );
                         if let Some(loc) = loc {
                             result?;
-                            write!(f, " (in {})", loc)?;
+                            write!(f, " (in {loc})")?;
                             return Ok(());
                         }
                         result
@@ -136,12 +138,12 @@ impl<'a> Display for DisplayTypeError<'a> {
                     {
                         let t1 = self.unifier.stringify_with_notes(*t1, &mut notes);
                         let t2 = self.unifier.stringify_with_notes(*t2, &mut notes);
-                        write!(f, "Tuple length mismatch: got {} and {}", t1, t2)
+                        write!(f, "Tuple length mismatch: got {t1} and {t2}")
                     }
                     _ => {
                         let t1 = self.unifier.stringify_with_notes(*t1, &mut notes);
                         let t2 = self.unifier.stringify_with_notes(*t2, &mut notes);
-                        write!(f, "Incompatible types: {} and {}", t1, t2)
+                        write!(f, "Incompatible types: {t1} and {t2}")
                     }
                 }
             }
@@ -150,18 +152,17 @@ impl<'a> Display for DisplayTypeError<'a> {
                     write!(f, "Cannot assign to an element of a tuple")
                 } else {
                     let t = self.unifier.stringify_with_notes(*t, &mut notes);
-                    write!(f, "Cannot assign to field {} of {}, which is immutable", name, t)
+                    write!(f, "Cannot assign to field {name} of {t}, which is immutable")
                 }
             }
             NoSuchField(name, t) => {
                 let t = self.unifier.stringify_with_notes(*t, &mut notes);
-                write!(f, "`{}::{}` field/method does not exist", t, name)
+                write!(f, "`{t}::{name}` field/method does not exist")
             }
             TupleIndexOutOfBounds { index, len } => {
                 write!(
                     f,
-                    "Tuple index out of bounds. Got {} but tuple has only {} elements",
-                    index, len
+                    "Tuple index out of bounds. Got {index} but tuple has only {len} elements"
                 )
             }
             RequiresTypeAnn => {
@@ -172,13 +173,13 @@ impl<'a> Display for DisplayTypeError<'a> {
             }
         }?;
         if let Some(loc) = self.err.loc {
-            write!(f, " at {}", loc)?;
+            write!(f, " at {loc}")?;
         }
         let notes = notes.unwrap();
         if !notes.is_empty() {
             write!(f, "\n\nNotes:")?;
             for line in notes.values() {
-                write!(f, "\n    {}", line)?;
+                write!(f, "\n    {line}")?;
             }
         }
         Ok(())

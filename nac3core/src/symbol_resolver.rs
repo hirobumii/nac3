@@ -35,10 +35,10 @@ pub enum SymbolValue {
 }
 
 impl SymbolValue {
-    /// Creates a [SymbolValue] from a [Constant].
+    /// Creates a [`SymbolValue`] from a [`Constant`].
     ///
     /// * `constant` - The constant to create the value from.
-    /// * `expected_ty` - The expected type of the [SymbolValue].
+    /// * `expected_ty` - The expected type of the [`SymbolValue`].
     pub fn from_constant(
         constant: &Constant,
         expected_ty: Type,
@@ -50,21 +50,21 @@ impl SymbolValue {
                 if unifier.unioned(expected_ty, primitives.option) {
                     Ok(SymbolValue::OptionNone)
                 } else {
-                    Err(format!("Expected {:?}, but got Option", expected_ty))
+                    Err(format!("Expected {expected_ty:?}, but got Option"))
                 }
             }
             Constant::Bool(b) => {
                 if unifier.unioned(expected_ty, primitives.bool) {
                     Ok(SymbolValue::Bool(*b))
                 } else {
-                    Err(format!("Expected {:?}, but got bool", expected_ty))
+                    Err(format!("Expected {expected_ty:?}, but got bool"))
                 }
             }
             Constant::Str(s) => {
                 if unifier.unioned(expected_ty, primitives.str) {
                     Ok(SymbolValue::Str(s.to_string()))
                 } else {
-                    Err(format!("Expected {:?}, but got str", expected_ty))
+                    Err(format!("Expected {expected_ty:?}, but got str"))
                 }
             },
             Constant::Int(i) => {
@@ -107,14 +107,14 @@ impl SymbolValue {
                 if unifier.unioned(expected_ty, primitives.float) {
                     Ok(SymbolValue::Double(*f))
                 } else {
-                    Err(format!("Expected {:?}, but got float", expected_ty))
+                    Err(format!("Expected {expected_ty:?}, but got float"))
                 }
             },
-            _ => Err(format!("Unsupported value type {:?}", constant)),
+            _ => Err(format!("Unsupported value type {constant:?}")),
         }
     }
 
-    /// Returns the [Type] representing the data type of this value.
+    /// Returns the [`Type`] representing the data type of this value.
     pub fn get_type(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> Type {
         match self {
             SymbolValue::I32(_) => primitives.int32,
@@ -133,12 +133,11 @@ impl SymbolValue {
                     ty: vs_tys,
                 })
             }
-            SymbolValue::OptionSome(_) => primitives.option,
-            SymbolValue::OptionNone => primitives.option,
+            SymbolValue::OptionSome(_) | SymbolValue::OptionNone => primitives.option,
         }
     }
 
-    /// Returns the [TypeAnnotation] representing the data type of this value.
+    /// Returns the [`TypeAnnotation`] representing the data type of this value.
     pub fn get_type_annotation(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> TypeAnnotation {
         match self {
             SymbolValue::Bool(..) => TypeAnnotation::Primitive(primitives.bool),
@@ -157,7 +156,7 @@ impl SymbolValue {
             }
             SymbolValue::OptionNone => TypeAnnotation::CustomClass {
                 id: primitives.option.get_obj_id(unifier),
-                params: Default::default(),
+                params: Vec::default(),
             },
             SymbolValue::OptionSome(v) => {
                 let ty = v.get_type_annotation(primitives, unifier);
@@ -169,7 +168,7 @@ impl SymbolValue {
         }
     }
 
-    /// Returns the [TypeEnum] representing the data type of this value.
+    /// Returns the [`TypeEnum`] representing the data type of this value.
     pub fn get_type_enum(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> Rc<TypeEnum> {
         let ty = self.get_type(primitives, unifier);
         unifier.get_ty(ty)
@@ -179,12 +178,12 @@ impl SymbolValue {
 impl Display for SymbolValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SymbolValue::I32(i) => write!(f, "{}", i),
-            SymbolValue::I64(i) => write!(f, "int64({})", i),
-            SymbolValue::U32(i) => write!(f, "uint32({})", i),
-            SymbolValue::U64(i) => write!(f, "uint64({})", i),
-            SymbolValue::Str(s) => write!(f, "\"{}\"", s),
-            SymbolValue::Double(d) => write!(f, "{}", d),
+            SymbolValue::I32(i) => write!(f, "{i}"),
+            SymbolValue::I64(i) => write!(f, "int64({i})"),
+            SymbolValue::U32(i) => write!(f, "uint32({i})"),
+            SymbolValue::U64(i) => write!(f, "uint64({i})"),
+            SymbolValue::Str(s) => write!(f, "\"{s}\""),
+            SymbolValue::Double(d) => write!(f, "{d}"),
             SymbolValue::Bool(b) => {
                 if *b {
                     write!(f, "True")
@@ -193,9 +192,9 @@ impl Display for SymbolValue {
                 }
             }
             SymbolValue::Tuple(t) => {
-                write!(f, "({})", t.iter().map(|v| format!("{}", v)).collect::<Vec<_>>().join(", "))
+                write!(f, "({})", t.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", "))
             }
-            SymbolValue::OptionSome(v) => write!(f, "Some({})", v),
+            SymbolValue::OptionSome(v) => write!(f, "Some({v})"),
             SymbolValue::OptionNone => write!(f, "none"),
         }
     }
@@ -212,7 +211,7 @@ pub trait StaticValue {
         generator: &mut dyn CodeGenerator,
     ) -> BasicValueEnum<'ctx>;
 
-    /// Converts this value to a LLVM [BasicValueEnum].
+    /// Converts this value to a LLVM [`BasicValueEnum`].
     fn to_basic_value_enum<'ctx>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -272,7 +271,7 @@ impl<'ctx> From<StructValue<'ctx>> for ValueEnum<'ctx> {
 
 impl<'ctx> ValueEnum<'ctx> {
 
-    /// Converts this [ValueEnum] to a [BasicValueEnum].
+    /// Converts this [`ValueEnum`] to a [`BasicValueEnum`].
     pub fn to_basic_value_enum<'a>(
         self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -376,39 +375,36 @@ pub fn parse_type_annotation<T>(
             Ok(primitives.exception)
         } else {
             let obj_id = resolver.get_identifier_def(*id);
-            match obj_id {
-                Ok(obj_id) => {
-                    let def = top_level_defs[obj_id.0].read();
-                    if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
-                        if !type_vars.is_empty() {
-                            return Err(format!(
-                                "Unexpected number of type parameters: expected {} but got 0",
-                                type_vars.len()
-                            ));
-                        }
-                        let fields = chain(
-                            fields.iter().map(|(k, v, m)| (*k, (*v, *m))),
-                            methods.iter().map(|(k, v, _)| (*k, (*v, false))),
-                        )
+            if let Ok(obj_id) = obj_id {
+                let def = top_level_defs[obj_id.0].read();
+                if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
+                    if !type_vars.is_empty() {
+                        return Err(format!(
+                            "Unexpected number of type parameters: expected {} but got 0",
+                            type_vars.len()
+                        ));
+                    }
+                    let fields = chain(
+                        fields.iter().map(|(k, v, m)| (*k, (*v, *m))),
+                        methods.iter().map(|(k, v, _)| (*k, (*v, false))),
+                    )
                         .collect();
-                        Ok(unifier.add_ty(TypeEnum::TObj {
-                            obj_id,
-                            fields,
-                            params: Default::default(),
-                        }))
-                    } else {
-                        Err(format!("Cannot use function name as type at {}", loc))
-                    }
+                    Ok(unifier.add_ty(TypeEnum::TObj {
+                        obj_id,
+                        fields,
+                        params: HashMap::default(),
+                    }))
+                } else {
+                    Err(format!("Cannot use function name as type at {loc}"))
                 }
-                Err(_) => {
-                    let ty = resolver
-                        .get_symbol_type(unifier, top_level_defs, primitives, *id)
-                        .map_err(|e| format!("Unknown type annotation at {}: {}", loc, e))?;
-                    if let TypeEnum::TVar { .. } = &*unifier.get_ty(ty) {
-                        Ok(ty)
-                    } else {
-                        Err(format!("Unknown type annotation {} at {}", id, loc))
-                    }
+            } else {
+                let ty = resolver
+                    .get_symbol_type(unifier, top_level_defs, primitives, *id)
+                    .map_err(|e| format!("Unknown type annotation at {loc}: {e}"))?;
+                if let TypeEnum::TVar { .. } = &*unifier.get_ty(ty) {
+                    Ok(ty)
+                } else {
+                    Err(format!("Unknown type annotation {id} at {loc}"))
                 }
             }
         }
@@ -520,7 +516,7 @@ impl dyn SymbolResolver + Send + Sync {
                     unreachable!("expected class definition")
                 }
             },
-            &mut |id| format!("typevar{}", id),
+            &mut |id| format!("typevar{id}"),
             &mut None,
         )
     }

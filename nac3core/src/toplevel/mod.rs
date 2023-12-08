@@ -3,7 +3,6 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
     iter::FromIterator,
-    ops::{Deref, DerefMut},
     sync::Arc,
 };
 
@@ -49,6 +48,7 @@ pub struct GenCall {
 }
 
 impl GenCall {
+    #[must_use]
     pub fn new(fp: GenCallCallback) -> GenCall {
         GenCall { fp }
     }

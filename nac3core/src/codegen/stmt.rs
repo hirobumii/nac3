@@ -24,7 +24,7 @@ use nac3parser::ast::{
 };
 use std::convert::TryFrom;
 
-/// See [CodeGenerator::gen_var_alloc].
+/// See [`CodeGenerator::gen_var_alloc`].
 pub fn gen_var<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ty: BasicTypeEnum<'ctx>,
@@ -54,7 +54,7 @@ pub fn gen_var<'ctx>(
     Ok(ptr)
 }
 
-/// See [CodeGenerator::gen_store_target].
+/// See [`CodeGenerator::gen_store_target`].
 pub fn gen_store_target<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -84,9 +84,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             } else {
                 return Ok(None)
             };
-            let ptr = if let BasicValueEnum::PointerValue(v) = val {
-                v
-            } else {
+            let BasicValueEnum::PointerValue(ptr) = val else {
                 unreachable!();
             };
             unsafe {
@@ -164,7 +162,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
     }))
 }
 
-/// See [CodeGenerator::gen_assign].
+/// See [`CodeGenerator::gen_assign`].
 pub fn gen_assign<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -212,14 +210,14 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 let Some(src_ind) = handle_slice_indices(&None, &None, &None, ctx, generator, value)? else {
                     return Ok(())
                 };
-                list_slice_assignment(generator, ctx, ty, ls, (start, end, step), value, src_ind)
+                list_slice_assignment(generator, ctx, ty, ls, (start, end, step), value, src_ind);
             } else {
                 unreachable!()
             }
         }
         _ => {
             let name = if let ExprKind::Name { id, .. } = &target.node {
-                format!("{}.addr", id)
+                format!("{id}.addr")
             } else {
                 String::from("target.addr")
             };
@@ -241,7 +239,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
     Ok(())
 }
 
-/// See [CodeGenerator::gen_for].
+/// See [`CodeGenerator::gen_for`].
 pub fn gen_for<G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'_, '_>,
@@ -255,7 +253,7 @@ pub fn gen_for<G: CodeGenerator>(
         let int32 = ctx.ctx.i32_type();
         let size_t = generator.get_size_type(ctx.ctx);
         let zero = int32.const_zero();
-        let current = ctx.builder.get_insert_block().and_then(|bb| bb.get_parent()).unwrap();
+        let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
         let body_bb = ctx.ctx.append_basic_block(current, "for.body");
         let cont_bb = ctx.ctx.append_basic_block(current, "for.end");
         // if there is no orelse, we just go to cont_bb
@@ -368,7 +366,7 @@ pub fn gen_for<G: CodeGenerator>(
             generator.gen_block(ctx, body.iter())?;
         }
 
-        for (k, (_, _, counter)) in var_assignment.iter() {
+        for (k, (_, _, counter)) in &var_assignment {
             let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
             if counter != counter2 {
                 *static_val = None;
@@ -387,7 +385,7 @@ pub fn gen_for<G: CodeGenerator>(
             }
         }
 
-        for (k, (_, _, counter)) in var_assignment.iter() {
+        for (k, (_, _, counter)) in &var_assignment {
             let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
             if counter != counter2 {
                 *static_val = None;
@@ -402,7 +400,7 @@ pub fn gen_for<G: CodeGenerator>(
     Ok(())
 }
 
-/// See [CodeGenerator::gen_while].
+/// See [`CodeGenerator::gen_while`].
 pub fn gen_while<G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'_, '_>,
@@ -441,7 +439,7 @@ pub fn gen_while<G: CodeGenerator>(
         };
         ctx.builder.position_at_end(body_bb);
         generator.gen_block(ctx, body.iter())?;
-        for (k, (_, _, counter)) in var_assignment.iter() {
+        for (k, (_, _, counter)) in &var_assignment {
             let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
             if counter != counter2 {
                 *static_val = None;
@@ -457,7 +455,7 @@ pub fn gen_while<G: CodeGenerator>(
                 ctx.builder.build_unconditional_branch(cont_bb);
             }
         }
-        for (k, (_, _, counter)) in var_assignment.iter() {
+        for (k, (_, _, counter)) in &var_assignment {
             let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
             if counter != counter2 {
                 *static_val = None;
@@ -471,7 +469,7 @@ pub fn gen_while<G: CodeGenerator>(
     Ok(())
 }
 
-/// See [CodeGenerator::gen_if].
+/// See [`CodeGenerator::gen_if`].
 pub fn gen_if<G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'_, '_>,
@@ -503,7 +501,7 @@ pub fn gen_if<G: CodeGenerator>(
         };
         ctx.builder.position_at_end(body_bb);
         generator.gen_block(ctx, body.iter())?;
-        for (k, (_, _, counter)) in var_assignment.iter() {
+        for (k, (_, _, counter)) in &var_assignment {
             let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
             if counter != counter2 {
                 *static_val = None;
@@ -529,7 +527,7 @@ pub fn gen_if<G: CodeGenerator>(
         if let Some(cont_bb) = cont_bb {
             ctx.builder.position_at_end(cont_bb);
         }
-        for (k, (_, _, counter)) in var_assignment.iter() {
+        for (k, (_, _, counter)) in &var_assignment {
             let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
             if counter != counter2 {
                 *static_val = None;
@@ -571,8 +569,7 @@ pub fn get_builtins<'ctx>(
                 .ctx
                 .void_type()
                 .fn_type(&[ctx.get_llvm_type(generator, ctx.primitives.exception).into()], false),
-            "__nac3_resume" => ctx.ctx.void_type().fn_type(&[], false),
-            "__nac3_end_catch" => ctx.ctx.void_type().fn_type(&[], false),
+            "__nac3_resume" | "__nac3_end_catch" => ctx.ctx.void_type().fn_type(&[], false),
             _ => unimplemented!(),
         };
         let fun = ctx.module.add_function(symbol, ty, None);
@@ -613,20 +610,20 @@ pub fn exn_constructor<'ctx>(
         let id_ptr = ctx.builder.build_in_bounds_gep(zelf, &[zero, zero], "exn.id");
         let id = ctx.resolver.get_string_id(&exception_name);
         ctx.builder.build_store(id_ptr, int32.const_int(id as u64, false));
-        let empty_string = ctx.gen_const(generator, &Constant::Str("".into()), ctx.primitives.str);
+        let empty_string = ctx.gen_const(generator, &Constant::Str(String::new()), ctx.primitives.str);
         let ptr =
             ctx.builder.build_in_bounds_gep(zelf, &[zero, int32.const_int(5, false)], "exn.msg");
-        let msg = if !args.is_empty() {
-            args.remove(0).1.to_basic_value_enum(ctx, generator, ctx.primitives.str)?
-        } else {
+        let msg = if args.is_empty() {
             empty_string.unwrap()
+        } else {
+            args.remove(0).1.to_basic_value_enum(ctx, generator, ctx.primitives.str)?
         };
         ctx.builder.build_store(ptr, msg);
-        for i in [6, 7, 8].iter() {
-            let value = if !args.is_empty() {
-                args.remove(0).1.to_basic_value_enum(ctx, generator, ctx.primitives.int64)?
-            } else {
+        for i in &[6, 7, 8] {
+            let value = if args.is_empty() {
                 ctx.ctx.i64_type().const_zero().into()
+            } else {
+                args.remove(0).1.to_basic_value_enum(ctx, generator, ctx.primitives.int64)?
             };
             let ptr = ctx.builder.build_in_bounds_gep(
                 zelf,
@@ -636,7 +633,7 @@ pub fn exn_constructor<'ctx>(
             ctx.builder.build_store(ptr, value);
         }
         // set file, func to empty string
-        for i in [1, 4].iter() {
+        for i in &[1, 4] {
             let ptr = ctx.builder.build_in_bounds_gep(
                 zelf,
                 &[zero, int32.const_int(*i, false)],
@@ -645,7 +642,7 @@ pub fn exn_constructor<'ctx>(
             ctx.builder.build_store(ptr, empty_string.unwrap());
         }
         // set ints to zero
-        for i in [2, 3].iter() {
+        for i in &[2, 3] {
             let ptr = ctx.builder.build_in_bounds_gep(
                 zelf,
                 &[zero, int32.const_int(*i, false)],
@@ -768,7 +765,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
 
         let mut clauses = Vec::new();
         let mut found_catch_all = false;
-        for handler_node in handlers.iter() {
+        for handler_node in handlers {
             let ExcepthandlerKind::ExceptHandler { type_, .. } = &handler_node.node;
             // none or Exception
             if type_.is_none()
@@ -779,30 +776,30 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
                 clauses.push(None);
                 found_catch_all = true;
                 break;
-            } else {
-                let type_ = type_.as_ref().unwrap();
-                let exn_name = ctx.resolver.get_type_name(
-                    &ctx.top_level.definitions.read(),
-                    &mut ctx.unifier,
-                    type_.custom.unwrap(),
-                );
-                let obj_id = if let TypeEnum::TObj { obj_id, .. } = &*ctx.unifier.get_ty(type_.custom.unwrap()) {
-                    *obj_id
-                } else {
-                    unreachable!()
-                };
-                let exception_name = format!("{}:{}", ctx.resolver.get_exception_id(obj_id.0), exn_name);
-                let exn_id = ctx.resolver.get_string_id(&exception_name);
-                let exn_id_global =
-                    ctx.module.add_global(ctx.ctx.i32_type(), None, &format!("exn.{}", exn_id));
-                exn_id_global.set_initializer(&ctx.ctx.i32_type().const_int(exn_id as u64, false));
-                clauses.push(Some(exn_id_global.as_pointer_value().as_basic_value_enum()));
             }
+
+            let type_ = type_.as_ref().unwrap();
+            let exn_name = ctx.resolver.get_type_name(
+                &ctx.top_level.definitions.read(),
+                &mut ctx.unifier,
+                type_.custom.unwrap(),
+            );
+            let obj_id = if let TypeEnum::TObj { obj_id, .. } = &*ctx.unifier.get_ty(type_.custom.unwrap()) {
+                *obj_id
+            } else {
+                unreachable!()
+            };
+            let exception_name = format!("{}:{}", ctx.resolver.get_exception_id(obj_id.0), exn_name);
+            let exn_id = ctx.resolver.get_string_id(&exception_name);
+            let exn_id_global =
+                ctx.module.add_global(ctx.ctx.i32_type(), None, &format!("exn.{exn_id}"));
+            exn_id_global.set_initializer(&ctx.ctx.i32_type().const_int(exn_id as u64, false));
+            clauses.push(Some(exn_id_global.as_pointer_value().as_basic_value_enum()));
         }
         let mut all_clauses = clauses.clone();
         if let Some(old_clauses) = &ctx.outer_catch_clauses {
             if !found_catch_all {
-                all_clauses.extend_from_slice(&old_clauses.0)
+                all_clauses.extend_from_slice(&old_clauses.0);
             }
         }
         let old_clauses = ctx.outer_catch_clauses.replace((all_clauses, dispatcher, exn));
@@ -819,7 +816,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.return_target = old_return;
         ctx.loop_target = old_loop_target.or(ctx.loop_target).take();
 
-        let old_unwind = if !finalbody.is_empty() {
+        let old_unwind = if finalbody.is_empty() {
+            None
+        } else {
             let final_landingpad = ctx.ctx.append_basic_block(current_fun, "try.catch.final");
             ctx.builder.position_at_end(final_landingpad);
             ctx.builder.build_landing_pad(
@@ -832,8 +831,6 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             ctx.builder.build_unconditional_branch(cleanup.unwrap());
             ctx.builder.position_at_end(body);
             ctx.unwind_target.replace(final_landingpad)
-        } else {
-            None
         };
 
         // run end_catch before continue/break/return
@@ -886,7 +883,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
 
         let mut post_handlers = Vec::new();
 
-        let exnid = if !handlers.is_empty() {
+        let exnid = if handlers.is_empty() {
+            None
+        } else {
             ctx.builder.position_at_end(dispatcher);
             unsafe {
                 let zero = ctx.ctx.i32_type().const_zero();
@@ -897,8 +896,6 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
                 );
                 Some(ctx.builder.build_load(exnid_ptr, "exnid"))
             }
-        } else {
-            None
         };
 
         for (handler_node, exn_type) in handlers.iter().zip(clauses.iter()) {
@@ -1011,7 +1008,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
                 let dest = ctx.builder.build_load(final_state, "final_dest");
                 ctx.builder.build_indirect_branch(dest, &final_targets);
             }
-            for block in final_paths.iter() {
+            for block in &final_paths {
                 if block.get_terminator().is_none() {
                     ctx.builder.position_at_end(*block);
                     ctx.builder.build_unconditional_branch(finalizer);
@@ -1034,7 +1031,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     }
 }
 
-/// See [CodeGenerator::gen_with].
+/// See [`CodeGenerator::gen_with`].
 pub fn gen_with<G: CodeGenerator>(
     _: &mut G,
     _: &mut CodeGenContext<'_, '_>,
@@ -1050,7 +1047,7 @@ pub fn gen_return<G: CodeGenerator>(
     ctx: &mut CodeGenContext<'_, '_>,
     value: &Option<Box<Expr<Option<Type>>>>,
 ) -> Result<(), String> {
-    let func = ctx.builder.get_insert_block().and_then(|bb| bb.get_parent()).unwrap();
+    let func = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let value = if let Some(v_expr) = value.as_ref() {
         if let Some(v) = generator.gen_expr(ctx, v_expr).transpose() {
             Some(
@@ -1096,7 +1093,7 @@ pub fn gen_return<G: CodeGenerator>(
     Ok(())
 }
 
-/// See [CodeGenerator::gen_stmt].
+/// See [`CodeGenerator::gen_stmt`].
 pub fn gen_stmt<G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'_, '_>,
@@ -1133,7 +1130,7 @@ pub fn gen_stmt<G: CodeGenerator>(
             let Some(value) = generator.gen_expr(ctx, value)? else {
                 return Ok(())
             };
-            for target in targets.iter() {
+            for target in targets {
                 generator.gen_assign(ctx, target, value.clone())?;
             }
         }
@@ -1185,7 +1182,7 @@ pub fn gen_stmt<G: CodeGenerator>(
                 err_msg,
                 [None, None, None],
                 stmt.location,
-            )
+            );
         }
         _ => unimplemented!()
     };

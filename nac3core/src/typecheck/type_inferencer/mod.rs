@@ -65,20 +65,20 @@ struct NaiveFolder();
 impl Fold<()> for NaiveFolder {
     type TargetU = Option<Type>;
     type Error = String;
-    fn map_user(&mut self, _: ()) -> Result<Self::TargetU, Self::Error> {
+    fn map_user(&mut self, (): ()) -> Result<Self::TargetU, Self::Error> {
         Ok(None)
     }
 }
 
 fn report_error<T>(msg: &str, location: Location) -> Result<T, String> {
-    Err(format!("{} at {}", msg, location))
+    Err(format!("{msg} at {location}"))
 }
 
 impl<'a> Fold<()> for Inferencer<'a> {
     type TargetU = Option<Type>;
     type Error = String;
 
-    fn map_user(&mut self, _: ()) -> Result<Self::TargetU, Self::Error> {
+    fn map_user(&mut self, (): ()) -> Result<Self::TargetU, Self::Error> {
         Ok(None)
     }
 
@@ -138,7 +138,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 {
                     let top_level_defs = self.top_level.definitions.read();
                     let mut naive_folder = NaiveFolder();
-                    for handler in handlers.into_iter() {
+                    for handler in handlers {
                         let ast::ExcepthandlerKind::ExceptHandler { type_, name, body } =
                             handler.node;
                         let type_ = if let Some(type_) = type_ {
@@ -226,65 +226,65 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 }
             }
             ast::StmtKind::Assign { ref mut targets, ref config_comment, .. } => {
-                for target in targets.iter_mut() {
+                for target in &mut *targets {
                     if let ExprKind::Attribute { ctx, .. } = &mut target.node {
                         *ctx = ExprContext::Store;
                     }
                 }
                 if targets.iter().all(|t| matches!(t.node, ExprKind::Name { .. })) {
-                    if let ast::StmtKind::Assign { targets, value, .. } = node.node {
-                        let value = self.fold_expr(*value)?;
-                        let value_ty = value.custom.unwrap();
-                        let targets: Result<Vec<_>, _> = targets
-                            .into_iter()
-                            .map(|target| {
-                                if let ExprKind::Name { id, ctx } = target.node {
-                                    self.defined_identifiers.insert(id);
-                                    let target_ty = if let Some(ty) = self.variable_mapping.get(&id)
-                                    {
-                                        *ty
-                                    } else {
-                                        let unifier = &mut self.unifier;
-                                        self.function_data
-                                            .resolver
-                                            .get_symbol_type(
-                                                unifier,
-                                                &self.top_level.definitions.read(),
-                                                self.primitives,
-                                                id,
-                                            )
-                                            .unwrap_or_else(|_| {
-                                                self.variable_mapping.insert(id, value_ty);
-                                                value_ty
-                                            })
-                                    };
-                                    let location = target.location;
-                                    self.unifier.unify(value_ty, target_ty).map(|_| Located {
-                                        location,
-                                        node: ExprKind::Name { id, ctx },
-                                        custom: Some(target_ty),
-                                    })
-                                } else {
-                                    unreachable!()
-                                }
-                            })
-                            .collect();
-                        let loc = node.location;
-                        let targets = targets
-                            .map_err(|e| e.at(Some(loc)).to_display(self.unifier).to_string())?;
-                        return Ok(Located {
-                            location: node.location,
-                            node: ast::StmtKind::Assign {
-                                targets,
-                                value: Box::new(value),
-                                type_comment: None,
-                                config_comment: config_comment.clone(),
-                            },
-                            custom: None,
-                        });
-                    } else {
+                    let ast::StmtKind::Assign { targets, value, .. } = node.node else {
                         unreachable!()
-                    }
+                    };
+
+                    let value = self.fold_expr(*value)?;
+                    let value_ty = value.custom.unwrap();
+                    let targets: Result<Vec<_>, _> = targets
+                        .into_iter()
+                        .map(|target| {
+                            if let ExprKind::Name { id, ctx } = target.node {
+                                self.defined_identifiers.insert(id);
+                                let target_ty = if let Some(ty) = self.variable_mapping.get(&id)
+                                {
+                                    *ty
+                                } else {
+                                    let unifier: &mut Unifier = self.unifier;
+                                    self.function_data
+                                        .resolver
+                                        .get_symbol_type(
+                                            unifier,
+                                            &self.top_level.definitions.read(),
+                                            self.primitives,
+                                            id,
+                                        )
+                                        .unwrap_or_else(|_| {
+                                            self.variable_mapping.insert(id, value_ty);
+                                            value_ty
+                                        })
+                                };
+                                let location = target.location;
+                                self.unifier.unify(value_ty, target_ty).map(|()| Located {
+                                    location,
+                                    node: ExprKind::Name { id, ctx },
+                                    custom: Some(target_ty),
+                                })
+                            } else {
+                                unreachable!()
+                            }
+                        })
+                        .collect();
+                    let loc = node.location;
+                    let targets = targets
+                        .map_err(|e| e.at(Some(loc)).to_display(self.unifier).to_string())?;
+                    return Ok(Located {
+                        location: node.location,
+                        node: ast::StmtKind::Assign {
+                            targets,
+                            value: Box::new(value),
+                            type_comment: None,
+                            config_comment: config_comment.clone(),
+                        },
+                        custom: None,
+                    });
                 }
                 for target in targets {
                     self.infer_pattern(target)?;
@@ -292,7 +292,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 fold::fold_stmt(self, node)?
             }
             ast::StmtKind::With { ref items, .. } => {
-                for item in items.iter() {
+                for item in items {
                     if let Some(var) = &item.optional_vars {
                         self.infer_pattern(var)?;
                     }
@@ -302,20 +302,21 @@ impl<'a> Fold<()> for Inferencer<'a> {
             _ => fold::fold_stmt(self, node)?,
         };
         match &stmt.node {
-            ast::StmtKind::For { .. } => {}
-            ast::StmtKind::Try { .. } => {}
+            ast::StmtKind::AnnAssign { .. }
+            | ast::StmtKind::Break { .. }
+            | ast::StmtKind::Continue { .. }
+            | ast::StmtKind::Expr { .. }
+            | ast::StmtKind::For { .. }
+            | ast::StmtKind::Pass { .. }
+            | ast::StmtKind::Try { .. } => {}
             ast::StmtKind::If { test, .. } | ast::StmtKind::While { test, .. } => {
                 self.unify(test.custom.unwrap(), self.primitives.bool, &test.location)?;
             }
             ast::StmtKind::Assign { targets, value, .. } => {
-                for target in targets.iter() {
+                for target in targets {
                     self.unify(target.custom.unwrap(), value.custom.unwrap(), &target.location)?;
                 }
             }
-            ast::StmtKind::AnnAssign { .. } | ast::StmtKind::Expr { .. } => {}
-            ast::StmtKind::Break { .. }
-            | ast::StmtKind::Continue { .. }
-            | ast::StmtKind::Pass { .. } => {}
             ast::StmtKind::Raise { exc, cause, .. } => {
                 if let Some(cause) = cause {
                     return report_error("raise ... from cause is not supported", cause.location);
@@ -334,13 +335,13 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 }
             }
             ast::StmtKind::With { items, .. } => {
-                for item in items.iter() {
+                for item in items {
                     let ty = item.context_expr.custom.unwrap();
                     // if we can simply unify without creating new types...
                     let mut fast_path = false;
                     if let TypeEnum::TObj { fields, .. } = &*self.unifier.get_ty(ty) {
                         fast_path = true;
-                        if let Some(enter) = fields.get(&"__enter__".into()).cloned() {
+                        if let Some(enter) = fields.get(&"__enter__".into()).copied() {
                             if let TypeEnum::TFunc(signature) = &*self.unifier.get_ty(enter.0) {
                                 if !signature.args.is_empty() {
                                     return report_error(
@@ -368,7 +369,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                                 stmt.location,
                             );
                         }
-                        if let Some(exit) = fields.get(&"__exit__".into()).cloned() {
+                        if let Some(exit) = fields.get(&"__exit__".into()).copied() {
                             if let TypeEnum::TFunc(signature) = &*self.unifier.get_ty(exit.0) {
                                 if !signature.args.is_empty() {
                                     return report_error(
@@ -393,13 +394,13 @@ impl<'a> Fold<()> for Inferencer<'a> {
                                 || self.unifier.get_dummy_var().0,
                                 |var| var.custom.unwrap(),
                             ),
-                            vars: Default::default(),
+                            vars: HashMap::default(),
                         });
                         let enter = self.unifier.add_ty(enter);
                         let exit = TypeEnum::TFunc(FunSignature {
                             args: vec![],
                             ret: self.unifier.get_dummy_var().0,
-                            vars: Default::default(),
+                            vars: HashMap::default(),
                         });
                         let exit = self.unifier.add_ty(exit);
                         let mut fields = HashMap::new();
@@ -489,7 +490,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                             }
                             Err(e) => {
                                 return report_error(
-                                    &format!("type error at identifier `{}` ({})", id, e),
+                                    &format!("type error at identifier `{id}` ({e})"),
                                     expr.location,
                                 );
                             }
@@ -551,7 +552,7 @@ impl<'a> Inferencer<'a> {
                 Ok(())
             }
             ExprKind::Tuple { elts, .. } => {
-                for elt in elts.iter() {
+                for elt in elts {
                     self.infer_pattern(elt)?;
                 }
                 Ok(())
@@ -637,7 +638,7 @@ impl<'a> Inferencer<'a> {
         }
 
         let mut defined_identifiers = self.defined_identifiers.clone();
-        for arg in args.args.iter() {
+        for arg in &args.args {
             let name = &arg.node.arg;
             if !defined_identifiers.contains(name) {
                 defined_identifiers.insert(*name);
@@ -649,7 +650,7 @@ impl<'a> Inferencer<'a> {
             .map(|v| (v.node.arg, self.unifier.get_fresh_var(Some(v.node.arg), Some(v.location)).0))
             .collect();
         let mut variable_mapping = self.variable_mapping.clone();
-        variable_mapping.extend(fn_args.iter().cloned());
+        variable_mapping.extend(fn_args.iter().copied());
         let ret = self.unifier.get_dummy_var().0;
 
         let mut new_context = Inferencer {
@@ -670,7 +671,7 @@ impl<'a> Inferencer<'a> {
                 .map(|(k, ty)| FuncArg { name: *k, ty: *ty, default_value: None })
                 .collect(),
             ret,
-            vars: Default::default(),
+            vars: HashMap::default(),
         };
         let body = new_context.fold_expr(body)?;
         new_context.unify(fun.ret, body.custom.unwrap(), &location)?;
@@ -739,7 +740,7 @@ impl<'a> Inferencer<'a> {
         // iter should be a list of targets...
         // actually it should be an iterator of targets, but we don't have iter type for now
         // if conditions should be bool
-        for v in ifs.iter() {
+        for v in &ifs {
             new_context.unify(v.custom.unwrap(), new_context.primitives.bool, &v.location)?;
         }
 
@@ -926,12 +927,12 @@ impl<'a> Inferencer<'a> {
     }
 
     fn infer_identifier(&mut self, id: StrRef) -> InferenceResult {
-        if let Some(ty) = self.variable_mapping.get(&id) {
-            Ok(*ty)
+        Ok(if let Some(ty) = self.variable_mapping.get(&id) {
+            *ty
         } else {
             let variable_mapping = &mut self.variable_mapping;
-            let unifier = &mut self.unifier;
-            Ok(self
+            let unifier: &mut Unifier = self.unifier;
+            self
                 .function_data
                 .resolver
                 .get_symbol_type(unifier, &self.top_level.definitions.read(), self.primitives, id)
@@ -939,8 +940,8 @@ impl<'a> Inferencer<'a> {
                     let ty = unifier.get_dummy_var().0;
                     variable_mapping.insert(id, ty);
                     ty
-                }))
-        }
+                })
+        })
     }
 
     fn infer_constant(&mut self, constant: &ast::Constant, loc: &Location) -> InferenceResult {
@@ -971,7 +972,7 @@ impl<'a> Inferencer<'a> {
 
     fn infer_list(&mut self, elts: &[ast::Expr<Option<Type>>]) -> InferenceResult {
         let ty = self.unifier.get_dummy_var().0;
-        for t in elts.iter() {
+        for t in elts {
             self.unify(ty, t.custom.unwrap(), &t.location)?;
         }
         Ok(self.unifier.add_ty(TypeEnum::TList { ty }))
@@ -992,14 +993,13 @@ impl<'a> Inferencer<'a> {
         if let TypeEnum::TObj { fields, .. } = &*self.unifier.get_ty(ty) {
             // just a fast path
             match (fields.get(&attr), ctx == &ExprContext::Store) {
-                (Some((ty, true)), _) => Ok(*ty),
-                (Some((ty, false)), false) => Ok(*ty),
+                (Some((ty, true)), _) | (Some((ty, false)), false) => Ok(*ty),
                 (Some((_, false)), true) => {
-                    report_error(&format!("Field `{}` is immutable", attr), value.location)
+                    report_error(&format!("Field `{attr}` is immutable"), value.location)
                 }
                 (None, _) => {
                     let t = self.unifier.stringify(ty);
-                    report_error(&format!("`{}::{}` field/method does not exist", t, attr), value.location)
+                    report_error(&format!("`{t}::{attr}` field/method does not exist"), value.location)
                 },
             }
         } else {

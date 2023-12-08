@@ -30,7 +30,7 @@ impl<'a> Inferencer<'a> {
                 Ok(())
             }
             ExprKind::Tuple { elts, .. } => {
-                for elt in elts.iter() {
+                for elt in elts {
                     self.check_pattern(elt, defined_identifiers)?;
                     self.should_have_value(elt)?;
                 }
@@ -98,7 +98,7 @@ impl<'a> Inferencer<'a> {
             ExprKind::List { elts, .. }
             | ExprKind::Tuple { elts, .. }
             | ExprKind::BoolOp { values: elts, .. } => {
-                for elt in elts.iter() {
+                for elt in elts {
                     self.check_expr(elt, defined_identifiers)?;
                     self.should_have_value(elt)?;
                 }
@@ -116,9 +116,8 @@ impl<'a> Inferencer<'a> {
                 // Check whether a bitwise shift has a negative RHS constant value
                 if *op == LShift || *op == RShift {
                     if let ExprKind::Constant { value, .. } = &right.node {
-                        let rhs_val = match value {
-                            Constant::Int(v) => v,
-                            _ => unreachable!(),
+                        let Constant::Int(rhs_val) = value else {
+                            unreachable!()
                         };
 
                         if *rhs_val < 0 {
@@ -158,7 +157,7 @@ impl<'a> Inferencer<'a> {
             }
             ExprKind::Lambda { args, body } => {
                 let mut defined_identifiers = defined_identifiers.clone();
-                for arg in args.args.iter() {
+                for arg in &args.args {
                     // TODO: should we check the types here?
                     if !defined_identifiers.contains(&arg.node.arg) {
                         defined_identifiers.insert(arg.node.arg);
@@ -207,13 +206,13 @@ impl<'a> Inferencer<'a> {
                 self.check_expr(iter, defined_identifiers)?;
                 self.should_have_value(iter)?;
                 let mut local_defined_identifiers = defined_identifiers.clone();
-                for stmt in orelse.iter() {
+                for stmt in orelse {
                     self.check_stmt(stmt, &mut local_defined_identifiers)?;
                 }
                 let mut local_defined_identifiers = defined_identifiers.clone();
                 self.check_pattern(target, &mut local_defined_identifiers)?;
                 self.should_have_value(target)?;
-                for stmt in body.iter() {
+                for stmt in body {
                     self.check_stmt(stmt, &mut local_defined_identifiers)?;
                 }
                 Ok(false)
@@ -226,7 +225,7 @@ impl<'a> Inferencer<'a> {
                 let body_returned = self.check_block(body, &mut body_identifiers)?;
                 let orelse_returned = self.check_block(orelse, &mut orelse_identifiers)?;
 
-                for ident in body_identifiers.iter() {
+                for ident in &body_identifiers {
                     if !defined_identifiers.contains(ident) && orelse_identifiers.contains(ident) {
                         defined_identifiers.insert(*ident);
                     }
@@ -243,7 +242,7 @@ impl<'a> Inferencer<'a> {
             }
             StmtKind::With { items, body, .. } => {
                 let mut new_defined_identifiers = defined_identifiers.clone();
-                for item in items.iter() {
+                for item in items {
                     self.check_expr(&item.context_expr, defined_identifiers)?;
                     if let Some(var) = item.optional_vars.as_ref() {
                         self.check_pattern(var, &mut new_defined_identifiers)?;
@@ -255,7 +254,7 @@ impl<'a> Inferencer<'a> {
             StmtKind::Try { body, handlers, orelse, finalbody, .. } => {
                 self.check_block(body, &mut defined_identifiers.clone())?;
                 self.check_block(orelse, &mut defined_identifiers.clone())?;
-                for handler in handlers.iter() {
+                for handler in handlers {
                     let mut defined_identifiers = defined_identifiers.clone();
                     let ast::ExcepthandlerKind::ExceptHandler { name, body, .. } = &handler.node;
                     if let Some(name) = name {
@@ -312,7 +311,7 @@ impl<'a> Inferencer<'a> {
         let mut ret = false;
         for stmt in block {
             if ret {
-                println!("warning: dead code at {:?}\n", stmt.location)
+                println!("warning: dead code at {:?}\n", stmt.location);
             }
             if self.check_stmt(stmt, defined_identifiers)? {
                 ret = true;

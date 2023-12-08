@@ -393,7 +393,7 @@ fn main() {
     let threads = (0..threads)
         .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{}", i), 64)))
         .collect();
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, f);
+    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 

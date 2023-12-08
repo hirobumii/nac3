@@ -49,7 +49,7 @@ pub fn get_exn_constructor(
         FuncArg {
             name: "msg".into(),
             ty: string,
-            default_value: Some(SymbolValue::Str("".into())),
+            default_value: Some(SymbolValue::Str(String::new())),
         },
         FuncArg { name: "param0".into(), ty: int64, default_value: Some(SymbolValue::I64(0)) },
         FuncArg { name: "param1".into(), ty: int64, default_value: Some(SymbolValue::I64(0)) },
@@ -58,20 +58,20 @@ pub fn get_exn_constructor(
     let exn_type = unifier.add_ty(TypeEnum::TObj {
         obj_id: DefinitionId(class_id),
         fields: exception_fields.iter().map(|(a, b, c)| (*a, (*b, *c))).collect(),
-        params: Default::default(),
+        params: HashMap::default(),
     });
     let signature = unifier.add_ty(TypeEnum::TFunc(FunSignature {
         args: exn_cons_args,
         ret: exn_type,
-        vars: Default::default(),
+        vars: HashMap::default(),
     }));
     let fun_def = TopLevelDef::Function {
-        name: format!("{}.__init__", name),
+        name: format!("{name}.__init__"),
         simple_name: "__init__".into(),
         signature,
-        var_id: Default::default(),
-        instance_to_symbol: Default::default(),
-        instance_to_stmt: Default::default(),
+        var_id: Vec::default(),
+        instance_to_symbol: HashMap::default(),
+        instance_to_stmt: HashMap::default(),
         resolver: None,
         codegen_callback: Some(Arc::new(GenCall::new(Box::new(exn_constructor)))),
         loc: None,
@@ -79,12 +79,12 @@ pub fn get_exn_constructor(
     let class_def = TopLevelDef::Class {
         name: name.into(),
         object_id: DefinitionId(class_id),
-        type_vars: Default::default(),
+        type_vars: Vec::default(),
         fields: exception_fields,
         methods: vec![("__init__".into(), signature, DefinitionId(cons_id))],
         ancestors: vec![
-            TypeAnnotation::CustomClass { id: DefinitionId(class_id), params: Default::default() },
-            TypeAnnotation::CustomClass { id: DefinitionId(7), params: Default::default() },
+            TypeAnnotation::CustomClass { id: DefinitionId(class_id), params: Vec::default() },
+            TypeAnnotation::CustomClass { id: DefinitionId(7), params: Vec::default() },
         ],
         constructor: Some(signature),
         resolver: None,
@@ -93,7 +93,7 @@ pub fn get_exn_constructor(
     (fun_def, class_def, signature, exn_type)
 }
 
-/// Creates a NumPy [TopLevelDef] function by code generation.
+/// Creates a NumPy [`TopLevelDef`] function by code generation.
 ///
 /// * `name`: The name of the implemented NumPy function.
 /// * `ret_ty`: The return type of this function.
@@ -120,16 +120,16 @@ fn create_fn_by_codegen(
             ret: ret_ty,
             vars: var_map.clone(),
         })),
-        var_id: Default::default(),
-        instance_to_symbol: Default::default(),
-        instance_to_stmt: Default::default(),
+        var_id: Vec::default(),
+        instance_to_symbol: HashMap::default(),
+        instance_to_stmt: HashMap::default(),
         resolver: None,
         codegen_callback: Some(Arc::new(GenCall::new(codegen_callback))),
         loc: None,
     }))
 }
 
-/// Creates a NumPy [TopLevelDef] function using an LLVM intrinsic.
+/// Creates a NumPy [`TopLevelDef`] function using an LLVM intrinsic.
 ///
 /// * `name`: The name of the implemented NumPy function.
 /// * `ret_ty`: The return type of this function.
@@ -191,7 +191,7 @@ fn create_fn_by_intrinsic(
     )
 }
 
-/// Creates a unary NumPy [TopLevelDef] function using an extern function (e.g. from `libc` or
+/// Creates a unary NumPy [`TopLevelDef`] function using an extern function (e.g. from `libc` or
 /// `libm`).
 ///
 /// * `name`: The name of the implemented NumPy function.
@@ -363,9 +363,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Class {
             name: "Exception".into(),
             object_id: DefinitionId(7),
-            type_vars: Default::default(),
+            type_vars: Vec::default(),
             fields: exception_fields,
-            methods: Default::default(),
+            methods: Vec::default(),
             ancestors: vec![],
             constructor: None,
             resolver: None,
@@ -398,7 +398,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ],
                 ancestors: vec![TypeAnnotation::CustomClass {
                     id: DefinitionId(10),
-                    params: Default::default(),
+                    params: Vec::default(),
                 }],
                 constructor: None,
                 resolver: None,
@@ -410,8 +410,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             simple_name: "is_some".into(),
             signature: is_some_ty.0,
             var_id: vec![option_ty_var_id],
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, obj, _, _, generator| {
@@ -435,8 +435,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             simple_name: "is_none".into(),
             signature: is_some_ty.0,
             var_id: vec![option_ty_var_id],
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, obj, _, _, generator| {
@@ -460,8 +460,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             simple_name: "unwrap".into(),
             signature: unwrap_ty.0,
             var_id: vec![option_ty_var_id],
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |_, _, _, _, _| {
@@ -478,9 +478,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ret: int32,
                 vars: var_map.clone(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
@@ -553,9 +553,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ret: int64,
                 vars: var_map.clone(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
@@ -624,9 +624,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ret: uint32,
                 vars: var_map.clone(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
@@ -701,9 +701,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ret: uint64,
                 vars: var_map.clone(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
@@ -777,9 +777,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ret: float,
                 vars: var_map.clone(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
@@ -927,11 +927,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     },
                 ],
                 ret: range,
-                vars: Default::default(),
+                vars: HashMap::default(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, _, args, generator| {
@@ -1013,11 +1013,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "s".into(), ty: string, default_value: None }],
                 ret: string,
-                vars: Default::default(),
+                vars: HashMap::default(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
@@ -1035,9 +1035,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ret: primitives.0.bool,
                 vars: var_map.clone(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
@@ -1283,8 +1283,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                         .collect(),
                 })),
                 var_id: vec![arg_ty.1],
-                instance_to_symbol: Default::default(),
-                instance_to_stmt: Default::default(),
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
                 resolver: None,
                 codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                     |ctx, _, fun, args, generator| {
@@ -1305,10 +1305,10 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                     None,
                                 )
                                 .into_int_value();
-                            if len.get_type().get_bit_width() != 32 {
-                                Some(ctx.builder.build_int_truncate(len, int32, "len2i32").into())
-                            } else {
+                            if len.get_type().get_bit_width() == 32 {
                                 Some(len.into())
+                            } else {
+                                Some(ctx.builder.build_int_truncate(len, int32, "len2i32").into())
                             }
                         })
                     },
@@ -1327,9 +1327,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ret: num_ty.0,
                 vars: var_map.clone(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
@@ -1389,9 +1389,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ret: num_ty.0,
                 vars: var_map.clone(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
@@ -1448,9 +1448,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ret: num_ty.0,
                 vars: var_map.clone(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
@@ -1888,8 +1888,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 vars: HashMap::from([(option_ty_var_id, option_ty_var)]),
             })),
             var_id: vec![option_ty_var_id],
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {

@@ -374,7 +374,7 @@ impl Nac3 {
                 });
 
             let (name, def_id, ty) = composer
-                .register_top_level(stmt.clone(), Some(resolver.clone()), path.clone(), false)
+                .register_top_level(stmt.clone(), Some(resolver.clone()), path, false)
                 .map_err(|e| {
                     CompileError::new_err(format!(
                         "compilation failed\n----------\n{}",
@@ -596,7 +596,7 @@ impl Nac3 {
                 threads,
                 top_level.clone(),
                 &self.llvm_options,
-                f
+                &f
             );
             registry.add_task(task);
             registry.wait_tasks_complete(handles);

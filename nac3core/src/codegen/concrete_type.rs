@@ -63,6 +63,7 @@ pub enum ConcreteTypeEnum {
 }
 
 impl ConcreteTypeStore {
+    #[must_use]
     pub fn new() -> ConcreteTypeStore {
         ConcreteTypeStore {
             store: vec![
@@ -80,6 +81,7 @@ impl ConcreteTypeStore {
         }
     }
 
+    #[must_use]
     pub fn get(&self, cty: ConcreteType) -> &ConcreteTypeEnum {
         &self.store[cty.0]
     }
