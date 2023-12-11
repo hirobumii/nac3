@@ -353,7 +353,7 @@ impl InnerResolver {
                 for i in 0usize.. {
                     if let Ok(constr) = constraints.get_item(i) {
                         let constr_id: u64 = self.helper.id_fn.call1(py, (constr,))?.extract(py)?;
-                        if constr_id == self.primitive_ids.const_generic_dummy {
+                        if constr_id == self.primitive_ids.const_generic_marker {
                             is_const_generic = true;
                             continue
                         }

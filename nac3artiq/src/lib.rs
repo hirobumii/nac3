@@ -75,7 +75,7 @@ pub struct PrimitivePythonId {
     list: u64,
     tuple: u64,
     typevar: u64,
-    const_generic_dummy: u64,
+    const_generic_marker: u64,
     none: u64,
     exception: u64,
     generic_alias: (u64, u64),
@@ -871,7 +871,7 @@ impl Nac3 {
                 .extract()
                 .unwrap(),
             typevar: get_attr_id(typing_mod, "TypeVar"),
-            const_generic_dummy: id_fn
+            const_generic_marker: id_fn
                 .call1((
                     builtins_mod.getattr("globals")
                         .and_then(|v| v.call0())
