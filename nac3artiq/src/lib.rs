@@ -776,7 +776,7 @@ fn add_exceptions(
 #[pymethods]
 impl Nac3 {
     #[new]
-    fn new(isa: &str, py: Python) -> PyResult<Self> {
+    fn new(isa: &str, artiq_builtins: &PyDict, py: Python) -> PyResult<Self> {
         let isa = match isa {
             "host" => Isa::Host,
             "rv32g" => Isa::RiscV32G,
@@ -842,44 +842,18 @@ impl Nac3 {
         let typing_mod = PyModule::import(py, "typing").unwrap();
         let types_mod = PyModule::import(py, "types").unwrap();
 
-        let get_id = |x| id_fn.call1((x,)).unwrap().extract().unwrap();
+        let get_id = |x: &PyAny| id_fn.call1((x,)).and_then(PyAny::extract).unwrap();
         let get_attr_id = |obj: &PyModule, attr| id_fn.call1((obj.getattr(attr).unwrap(),))
             .unwrap().extract().unwrap();
         let primitive_ids = PrimitivePythonId {
-            virtual_id: get_id(
-                            builtins_mod
-                            .getattr("globals")
-                            .unwrap()
-                            .call0()
-                            .unwrap()
-                            .get_item("virtual")
-                            .unwrap(
-                        )),
+            virtual_id: get_id(artiq_builtins.get_item("virtual").ok().flatten().unwrap()),
             generic_alias: (
                 get_attr_id(typing_mod, "_GenericAlias"),
                 get_attr_id(types_mod, "GenericAlias"),
             ),
-            none: id_fn
-                .call1((builtins_mod
-                    .getattr("globals")
-                    .unwrap()
-                    .call0()
-                    .unwrap()
-                    .get_item("none")
-                    .unwrap(),))
-                .unwrap()
-                .extract()
-                .unwrap(),
+            none: get_id(artiq_builtins.get_item("none").ok().flatten().unwrap()),
             typevar: get_attr_id(typing_mod, "TypeVar"),
-            const_generic_marker: id_fn
-                .call1((
-                    builtins_mod.getattr("globals")
-                        .and_then(|v| v.call0())
-                        .and_then(|v| v.get_item("_ConstGenericMarker"))
-                        .unwrap(),
-                ))
-                .and_then(PyAny::extract)
-                .unwrap(),
+            const_generic_marker: get_id(artiq_builtins.get_item("_ConstGenericMarker").ok().flatten().unwrap()),
             int: get_attr_id(builtins_mod, "int"),
             int32: get_attr_id(numpy_mod, "int32"),
             int64: get_attr_id(numpy_mod, "int64"),
@@ -891,17 +865,7 @@ impl Nac3 {
             list: get_attr_id(builtins_mod, "list"),
             tuple: get_attr_id(builtins_mod, "tuple"),
             exception: get_attr_id(builtins_mod, "Exception"),
-            option: id_fn
-                .call1((builtins_mod
-                    .getattr("globals")
-                    .unwrap()
-                    .call0()
-                    .unwrap()
-                    .get_item("Option")
-                    .unwrap(),))
-                .unwrap()
-                .extract()
-                .unwrap(),
+            option: get_id(artiq_builtins.get_item("Option").ok().flatten().unwrap()),
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
