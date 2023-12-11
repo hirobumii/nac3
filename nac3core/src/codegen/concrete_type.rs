@@ -60,6 +60,10 @@ pub enum ConcreteTypeEnum {
         ret: ConcreteType,
         vars: HashMap<u32, ConcreteType>,
     },
+    TConstant {
+        value: SymbolValue,
+        ty: ConcreteType,
+    },
 }
 
 impl ConcreteTypeStore {
@@ -198,7 +202,11 @@ impl ConcreteTypeStore {
                 TypeEnum::TFunc(signature) => {
                     self.from_signature(unifier, primitives, signature, cache)
                 }
-                _ => unreachable!(),
+                TypeEnum::TConstant { value, ty, .. } => ConcreteTypeEnum::TConstant {
+                    value: value.clone(),
+                    ty: self.from_unifier_type(unifier, primitives, *ty, cache),
+                },
+                _ => unreachable!("{:?}", ty_enum.get_type_name()),
             };
             let index = if let Some(ConcreteType(index)) = cache.get(&ty).unwrap() {
                 self.store[*index] = result;
@@ -285,6 +293,11 @@ impl ConcreteTypeStore {
                     .map(|(id, cty)| (*id, self.to_unifier_type(unifier, primitives, *cty, cache)))
                     .collect::<HashMap<_, _>>(),
             }),
+            ConcreteTypeEnum::TConstant { value, ty } => TypeEnum::TConstant {
+                value: value.clone(),
+                ty: self.to_unifier_type(unifier, primitives, *ty, cache),
+                loc: None,
+            }
         };
         let result = unifier.add_ty(result);
         if let Some(ty) = cache.get(&cty).unwrap() {
