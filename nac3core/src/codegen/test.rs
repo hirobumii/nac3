@@ -227,7 +227,7 @@ fn test_primitives() {
         threads,
         top_level,
         &llvm_options,
-        f
+        &f
     );
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
@@ -417,7 +417,7 @@ fn test_simple_call() {
         threads,
         top_level,
         &llvm_options,
-        f
+        &f
     );
     registry.add_task(task);
     registry.wait_tasks_complete(handles);

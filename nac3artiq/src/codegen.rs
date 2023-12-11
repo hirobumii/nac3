@@ -425,7 +425,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     if obj.is_some() {
         tag.push(b'O');
     }
-    for arg in fun.0.args.iter() {
+    for arg in &fun.0.args {
         gen_rpc_tag(ctx, arg.ty, &mut tag)?;
     }
     tag.push(b':');
@@ -461,7 +461,7 @@ fn rpc_codegen_callback_fn<'ctx>(
         })
         .as_pointer_value();
 
-    let arg_length = args.len() + if obj.is_some() { 1 } else { 0 };
+    let arg_length = args.len() + usize::from(obj.is_some());
 
     let stacksave = ctx.module.get_function("llvm.stacksave").unwrap_or_else(|| {
         ctx.module.add_function("llvm.stacksave", ptr_type.fn_type(&[], false), None)
@@ -484,11 +484,11 @@ fn rpc_codegen_callback_fn<'ctx>(
     // -- rpc args handling
     let mut keys = fun.0.args.clone();
     let mut mapping = HashMap::new();
-    for (key, value) in args.into_iter() {
+    for (key, value) in args {
         mapping.insert(key.unwrap_or_else(|| keys.remove(0).name), value);
     }
     // default value handling
-    for k in keys.into_iter() {
+    for k in keys {
         mapping.insert(
             k.name,
             ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty).into()
@@ -518,7 +518,7 @@ fn rpc_codegen_callback_fn<'ctx>(
             ctx.builder.build_gep(
                 args_ptr,
                 &[int32.const_int(i as u64, false)],
-                &format!("rpc.arg{}", i),
+                &format!("rpc.arg{i}"),
             )
         };
         ctx.builder.build_store(arg_ptr, arg_slot);
@@ -621,7 +621,7 @@ pub fn attributes_writeback(
     ctx: &mut CodeGenContext<'_, '_>,
     generator: &mut dyn CodeGenerator,
     inner_resolver: &InnerResolver,
-    host_attributes: PyObject,
+    host_attributes: &PyObject,
 ) -> Result<(), String> {
     Python::with_gil(|py| -> PyResult<Result<(), String>> {
         let host_attributes: &PyList = host_attributes.downcast(py)?;
@@ -631,7 +631,7 @@ pub fn attributes_writeback(
         let zero = int32.const_zero();
         let mut values = Vec::new();
         let mut scratch_buffer = Vec::new();
-        for (_, val) in globals.iter() {
+        for val in (*globals).values() {
             let val = val.as_ref(py);
             let ty = inner_resolver.get_obj_type(py, val, &mut ctx.unifier, &top_levels, &ctx.primitives)?;
             if let Err(ty) = ty {
@@ -646,7 +646,7 @@ pub fn attributes_writeback(
                     // for non-primitive attributes, they should be in another global
                     let mut attributes = Vec::new();
                     let obj = inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap();
-                    for (name, (field_ty, is_mutable)) in fields.iter() {
+                    for (name, (field_ty, is_mutable)) in fields {
                         if !is_mutable {
                             continue
                         }
@@ -683,7 +683,7 @@ pub fn attributes_writeback(
                 default_value: None
             }).collect(),
             ret: ctx.primitives.none,
-            vars: Default::default()
+            vars: HashMap::default()
         };
         let args: Vec<_> = values.into_iter().map(|(_, val)| (None, ValueEnum::Dynamic(val))).collect();
         if let Err(e) = rpc_codegen_callback_fn(ctx, None, (&fun, DefinitionId(0)), args, generator) {

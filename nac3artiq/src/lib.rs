@@ -109,7 +109,7 @@ create_exception!(nac3artiq, CompileError, exceptions::PyException);
 impl Nac3 {
     fn register_module(
         &mut self,
-        module: PyObject,
+        module: &PyObject,
         registered_class_ids: &HashSet<u64>,
     ) -> PyResult<()> {
         let (module_name, source_file) = Python::with_gil(|py| -> PyResult<(String, String)> {
@@ -118,12 +118,12 @@ impl Nac3 {
         })?;
 
         let source = fs::read_to_string(&source_file).map_err(|e| {
-            exceptions::PyIOError::new_err(format!("failed to read input file: {}", e))
+            exceptions::PyIOError::new_err(format!("failed to read input file: {e}"))
         })?;
         let parser_result = parse_program(&source, source_file.into())
-            .map_err(|e| exceptions::PySyntaxError::new_err(format!("parse error: {}", e)))?;
+            .map_err(|e| exceptions::PySyntaxError::new_err(format!("parse error: {e}")))?;
 
-        for mut stmt in parser_result.into_iter() {
+        for mut stmt in parser_result {
             let include = match stmt.node {
                 StmtKind::ClassDef {
                     ref decorator_list, ref mut body, ref mut bases, ..
@@ -197,7 +197,7 @@ impl Nac3 {
     fn report_modinit(
         arg_names: &[String],
         method_name: &str,
-        resolver: Arc<dyn SymbolResolver + Send + Sync>,
+        resolver: &Arc<dyn SymbolResolver + Send + Sync>,
         top_level_defs: &[Arc<RwLock<TopLevelDef>>],
         unifier: &mut Unifier,
         primitives: &PrimitiveStore,
@@ -205,7 +205,7 @@ impl Nac3 {
         let base_ty =
             match resolver.get_symbol_type(unifier, top_level_defs, primitives, "base".into()) {
                 Ok(ty) => ty,
-                Err(e) => return Some(format!("type error inside object launching kernel: {}", e)),
+                Err(e) => return Some(format!("type error inside object launching kernel: {e}")),
             };
 
         let fun_ty = if method_name.is_empty() {
@@ -215,8 +215,7 @@ impl Nac3 {
                 Some(t) => t.0,
                 None => {
                     return Some(format!(
-                        "object launching kernel does not have method `{}`",
-                        method_name
+                        "object launching kernel does not have method `{method_name}`"
                     ))
                 }
             }
@@ -237,8 +236,7 @@ impl Nac3 {
                     Some(n) => n,
                     None if default_value.is_none() => {
                         return Some(format!(
-                            "argument `{}` not provided when launching kernel function",
-                            name
+                            "argument `{name}` not provided when launching kernel function"
                         ))
                     }
                     _ => break,
@@ -252,8 +250,7 @@ impl Nac3 {
                     Ok(t) => t,
                     Err(e) => {
                         return Some(format!(
-                            "type error ({}) at parameter #{} when calling kernel function",
-                            e, i
+                            "type error ({e}) at parameter #{i} when calling kernel function"
                         ))
                     }
                 };
@@ -322,7 +319,7 @@ impl Nac3 {
         let mut module_to_resolver_cache: HashMap<u64, _> = HashMap::new();
 
         let mut rpc_ids = vec![];
-        for (stmt, path, module) in self.top_levels.iter() {
+        for (stmt, path, module) in &self.top_levels {
             let py_module: &PyAny = module.extract(py)?;
             let module_id: u64 = id_fn.call1((py_module,))?.extract()?;
             let helper = helper.clone();
@@ -343,7 +340,7 @@ impl Nac3 {
                     let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
                     let members: &PyDict =
                         py_module.getattr("__dict__").unwrap().downcast().unwrap();
-                    for (key, val) in members.iter() {
+                    for (key, val) in members {
                         let key: &str = key.extract().unwrap();
                         let val = id_fn.call1((val,)).unwrap().extract().unwrap();
                         name_to_pyid.insert(key.into(), val);
@@ -355,12 +352,12 @@ impl Nac3 {
                         pyid_to_type: pyid_to_type.clone(),
                         primitive_ids: self.primitive_ids.clone(),
                         global_value_ids: global_value_ids.clone(),
-                        class_names: Default::default(),
+                        class_names: Mutex::default(),
                         name_to_pyid: name_to_pyid.clone(),
                         module: module.clone(),
-                        id_to_pyval: Default::default(),
-                        id_to_primitive: Default::default(),
-                        field_to_val: Default::default(),
+                        id_to_pyval: RwLock::default(),
+                        id_to_primitive: RwLock::default(),
+                        field_to_val: RwLock::default(),
                         helper,
                         string_store: self.string_store.clone(),
                         exception_ids: self.exception_ids.clone(),
@@ -377,8 +374,7 @@ impl Nac3 {
                 .register_top_level(stmt.clone(), Some(resolver.clone()), path, false)
                 .map_err(|e| {
                     CompileError::new_err(format!(
-                        "compilation failed\n----------\n{}",
-                        e
+                        "compilation failed\n----------\n{e}"
                     ))
                 })?;
             if let Some(class_obj) = class_obj {
@@ -395,7 +391,7 @@ impl Nac3 {
                 StmtKind::ClassDef { name, body, .. } => {
                     let class_name = name.to_string();
                     let class_obj = module.getattr(py, class_name.as_str()).unwrap();
-                    for stmt in body.iter() {
+                    for stmt in body {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
                             if decorator_list.iter().any(|decorator| matches!(decorator.node, ExprKind::Name { id, .. } if id == "rpc".into())) {
                                 if name == &"__init__".into() {
@@ -429,7 +425,7 @@ impl Nac3 {
         name_to_pyid.insert("base".into(), id_fun.call1((obj,))?.extract()?);
         let mut arg_names = vec![];
         for (i, arg) in args.into_iter().enumerate() {
-            let name = format!("tmp{}", i);
+            let name = format!("tmp{i}");
             module.add(&name, arg)?;
             name_to_pyid.insert(name.clone().into(), id_fun.call1((arg,))?.extract()?);
             arg_names.push(name);
@@ -448,10 +444,10 @@ impl Nac3 {
             pyid_to_type: pyid_to_type.clone(),
             primitive_ids: self.primitive_ids.clone(),
             global_value_ids: global_value_ids.clone(),
-            class_names: Default::default(),
-            id_to_pyval: Default::default(),
-            id_to_primitive: Default::default(),
-            field_to_val: Default::default(),
+            class_names: Mutex::default(),
+            id_to_pyval: RwLock::default(),
+            id_to_primitive: RwLock::default(),
+            field_to_val: RwLock::default(),
             name_to_pyid,
             module: module.to_object(py),
             helper,
@@ -461,7 +457,7 @@ impl Nac3 {
         });
         let resolver = Arc::new(Resolver(inner_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
         let (_, def_id, _) = composer
-            .register_top_level(synthesized.pop().unwrap(), Some(resolver.clone()), "".into(), false)
+            .register_top_level(synthesized.pop().unwrap(), Some(resolver.clone()), "", false)
             .unwrap();
 
         let fun_signature =
@@ -474,16 +470,11 @@ impl Nac3 {
 
         if let Err(e) = composer.start_analysis(true) {
             // report error of __modinit__ separately
-            return if !e.contains("<nac3_synthesized_modinit>") {
-                Err(CompileError::new_err(format!(
-                    "compilation failed\n----------\n{}",
-                    e
-                )))
-            } else {
+            return if e.contains("<nac3_synthesized_modinit>") {
                 let msg = Self::report_modinit(
                     &arg_names,
                     method_name,
-                    resolver.clone(),
+                    &resolver,
                     &composer.extract_def_list(),
                     &mut composer.unifier,
                     &self.primitive,
@@ -492,6 +483,10 @@ impl Nac3 {
                     "compilation failed\n----------\n{}",
                     msg.unwrap_or(e)
                 )))
+            } else {
+                Err(CompileError::new_err(format!(
+                    "compilation failed\n----------\n{e}"
+                )))
             }
         }
         let top_level = Arc::new(composer.make_top_level_context());
@@ -499,7 +494,7 @@ impl Nac3 {
         {
             let rpc_codegen = rpc_codegen_callback();
             let defs = top_level.definitions.read();
-            for (class_data, id) in rpc_ids.iter() {
+            for (class_data, id) in &rpc_ids {
                 let mut def = defs[id.0].write();
                 match &mut *def {
                     TopLevelDef::Function { codegen_callback, .. } => {
@@ -507,7 +502,7 @@ impl Nac3 {
                     }
                     TopLevelDef::Class { methods, .. } => {
                         let (class_def, method_name) = class_data.as_ref().unwrap();
-                        for (name, _, id) in methods.iter() {
+                        for (name, _, id) in &*methods {
                             if name != method_name {
                                 continue;
                             }
@@ -537,7 +532,7 @@ impl Nac3 {
             if let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } =
                 &mut *definition
             {
-                instance_to_symbol.insert("".to_string(), "__modinit__".into());
+                instance_to_symbol.insert(String::new(), "__modinit__".into());
                 instance_to_stmt[""].clone()
             } else {
                 unreachable!()
@@ -545,7 +540,7 @@ impl Nac3 {
         };
 
         let task = CodeGenTask {
-            subst: Default::default(),
+            subst: Vec::default(),
             symbol_name: "__modinit__".to_string(),
             body: instance.body,
             signature,
@@ -562,18 +557,18 @@ impl Nac3 {
             store.from_signature(&mut composer.unifier, &self.primitive, &fun_signature, &mut cache);
         let signature = store.add_cty(signature);
         let attributes_writeback_task = CodeGenTask {
-            subst: Default::default(),
+            subst: Vec::default(),
             symbol_name: "attributes_writeback".to_string(),
-            body: Arc::new(Default::default()),
+            body: Arc::new(Vec::default()),
             signature,
             resolver,
             store,
             unifier_index: instance.unifier_id,
-            calls: Arc::new(Default::default()),
+            calls: Arc::new(HashMap::default()),
             id: 0,
         };
 
-        let membuffers: Arc<Mutex<Vec<Vec<u8>>>> = Default::default();
+        let membuffers: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
 
         let membuffer = membuffers.clone();
 
@@ -607,7 +602,7 @@ impl Nac3 {
             let builder = context.create_builder();
             let (_, module, _) = gen_func_impl(&context, &mut generator, &registry, builder, module,
                 attributes_writeback_task, |generator, ctx| {
-                    attributes_writeback(ctx, generator, inner_resolver.as_ref(), host_attributes)
+                    attributes_writeback(ctx, generator, inner_resolver.as_ref(), &host_attributes)
                 }).unwrap();
             let buffer = module.write_bitcode_to_memory();
             let buffer = buffer.as_slice().into();
@@ -671,7 +666,7 @@ impl Nac3 {
         link_fn(&main)
     }
 
-    /// Returns the [TargetTriple] used for compiling to [isa].
+    /// Returns the [`TargetTriple`] used for compiling to [isa].
     fn get_llvm_target_triple(isa: Isa) -> TargetTriple {
         match isa {
             Isa::Host => TargetMachine::get_default_triple(),
@@ -680,7 +675,7 @@ impl Nac3 {
         }
     }
 
-    /// Returns the [String] representing the target CPU used for compiling to [isa].
+    /// Returns the [`String`] representing the target CPU used for compiling to [isa].
     fn get_llvm_target_cpu(isa: Isa) -> String {
         match isa {
             Isa::Host => TargetMachine::get_host_cpu_name().to_string(),
@@ -689,7 +684,7 @@ impl Nac3 {
         }
     }
 
-    /// Returns the [String] representing the target features used for compiling to [isa].
+    /// Returns the [`String`] representing the target features used for compiling to [isa].
     fn get_llvm_target_features(isa: Isa) -> String {
         match isa {
             Isa::Host => TargetMachine::get_host_cpu_features().to_string(),
@@ -699,7 +694,7 @@ impl Nac3 {
         }
     }
 
-    /// Returns an instance of [CodeGenTargetMachineOptions] representing the target machine
+    /// Returns an instance of [`CodeGenTargetMachineOptions`] representing the target machine
     /// options used for compiling to [isa].
     fn get_llvm_target_options(isa: Isa) -> CodeGenTargetMachineOptions {
         CodeGenTargetMachineOptions {
@@ -711,7 +706,7 @@ impl Nac3 {
         }
     }
 
-    /// Returns an instance of [TargetMachine] used in compiling and linking of a program to the
+    /// Returns an instance of [`TargetMachine`] used in compiling and linking of a program to the
     /// target [isa].
     fn get_llvm_target_machine(&self) -> TargetMachine {
         Nac3::get_llvm_target_options(self.isa)
@@ -790,10 +785,9 @@ impl Nac3 {
             _ => return Err(exceptions::PyValueError::new_err("invalid ISA")),
         };
         let time_fns: &(dyn TimeFns + Sync) = match isa {
-            Isa::Host => &timeline::EXTERN_TIME_FNS,
             Isa::RiscV32G => &timeline::NOW_PINNING_TIME_FNS_64,
             Isa::RiscV32IMA => &timeline::NOW_PINNING_TIME_FNS,
-            Isa::CortexA9 => &timeline::EXTERN_TIME_FNS,
+            Isa::CortexA9 | Isa::Host => &timeline::EXTERN_TIME_FNS,
         };
         let primitive: PrimitiveStore = TopLevelComposer::make_primitives().0;
         let builtins = vec![
@@ -884,7 +878,7 @@ impl Nac3 {
                         .and_then(|v| v.get_item("_ConstGenericMarker"))
                         .unwrap(),
                 ))
-                .and_then(|v| v.extract())
+                .and_then(PyAny::extract)
                 .unwrap(),
             int: get_attr_id(builtins_mod, "int"),
             int32: get_attr_id(numpy_mod, "int32"),
@@ -919,11 +913,11 @@ impl Nac3 {
             primitive,
             builtins,
             primitive_ids,
-            top_levels: Default::default(),
-            pyid_to_def: Default::default(),
+            top_levels: Vec::default(),
+            pyid_to_def: Arc::default(),
             working_directory,
-            string_store: Default::default(),
-            exception_ids: Default::default(),
+            string_store: Arc::default(),
+            exception_ids: Arc::default(),
             deferred_eval_store: DeferredEvaluationStore::new(),
             llvm_options: CodeGenLLVMOptions {
                 opt_level: OptimizationLevel::Default,
@@ -941,11 +935,11 @@ impl Nac3 {
                 let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
                 let getmodule_fn = PyModule::import(py, "inspect")?.getattr("getmodule")?;
 
-                for function in functions.iter() {
+                for function in functions {
                     let module = getmodule_fn.call1((function,))?.extract()?;
                     modules.insert(id_fn.call1((&module,))?.extract()?, module);
                 }
-                for class in classes.iter() {
+                for class in classes {
                     let module = getmodule_fn.call1((class,))?.extract()?;
                     modules.insert(id_fn.call1((&module,))?.extract()?, module);
                     class_ids.insert(id_fn.call1((class,))?.extract()?);
@@ -954,7 +948,7 @@ impl Nac3 {
             })?;
 
         for module in modules.into_values() {
-            self.register_module(module, &class_ids)?;
+            self.register_module(&module, &class_ids)?;
         }
         Ok(())
     }
