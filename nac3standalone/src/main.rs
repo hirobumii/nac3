@@ -31,6 +31,7 @@ use nac3parser::{
 
 mod basic_symbol_resolver;
 use basic_symbol_resolver::*;
+use nac3core::toplevel::composer::ComposerConfig;
 
 /// Command-line argument parser definition.
 #[derive(Parser)]
@@ -76,8 +77,7 @@ fn handle_typevar_definition(
 ) -> Result<Type, String> {
     let ExprKind::Call { func, args, .. } = &var.node else {
         return Err(format!(
-            "expression {:?} cannot be handled as a generic parameter in global scope",
-            var
+            "expression {var:?} cannot be handled as a generic parameter in global scope"
         ))
     };
 
@@ -98,7 +98,7 @@ fn handle_typevar_definition(
                         unifier,
                         primitives,
                         x,
-                        Default::default(),
+                        HashMap::default(),
                         None,
                     )?;
                     get_type_from_type_annotation_kinds(
@@ -109,7 +109,7 @@ fn handle_typevar_definition(
             let loc = func.location;
 
             if constraints.len() == 1 {
-                return Err(format!("A single constraint is not allowed (at {})", loc))
+                return Err(format!("A single constraint is not allowed (at {loc})"))
             }
 
             Ok(unifier.get_fresh_var_with_range(&constraints, Some(generic_name), Some(loc)).0)
@@ -134,7 +134,7 @@ fn handle_typevar_definition(
                 unifier,
                 primitives,
                 &args[1],
-                Default::default(),
+                HashMap::default(),
                 None,
             )?;
             let constraint = get_type_from_type_annotation_kinds(
@@ -146,8 +146,7 @@ fn handle_typevar_definition(
         }
 
         _ => Err(format!(
-            "expression {:?} cannot be handled as a generic parameter in global scope",
-            var
+            "expression {var:?} cannot be handled as a generic parameter in global scope"
         ))
     }
 }
@@ -205,14 +204,7 @@ fn handle_assignment_pattern(
     } else {
         match &value.node {
             ExprKind::List { elts, .. } | ExprKind::Tuple { elts, .. } => {
-                if elts.len() != targets.len() {
-                    Err(format!(
-                        "number of elements to unpack does not match (expect {}, found {}) at {}",
-                        targets.len(),
-                        elts.len(),
-                        value.location
-                    ))
-                } else {
+                if elts.len() == targets.len() {
                     for (tar, val) in targets.iter().zip(elts) {
                         handle_assignment_pattern(
                             std::slice::from_ref(tar),
@@ -225,6 +217,13 @@ fn handle_assignment_pattern(
                         )?;
                     }
                     Ok(())
+                } else {
+                    Err(format!(
+                        "number of elements to unpack does not match (expect {}, found {}) at {}",
+                        targets.len(),
+                        elts.len(),
+                        value.location
+                    ))
                 }
             }
             _ => Err(format!(
@@ -265,7 +264,7 @@ fn main() {
         }
     } else {
         if threads != 1 {
-            println!("Warning: Number of threads specified in command-line but multithreading is disabled in LLVM at build time! Defaulting to single-threaded compilation")
+            println!("Warning: Number of threads specified in command-line but multithreading is disabled in LLVM at build time! Defaulting to single-threaded compilation");
         }
         1
     };
@@ -280,28 +279,28 @@ fn main() {
     let program = match fs::read_to_string(file_name.clone()) {
         Ok(program) => program,
         Err(err) => {
-            println!("Cannot open input file: {}", err);
+            println!("Cannot open input file: {err}");
             return;
         }
     };
 
     let primitive: PrimitiveStore = TopLevelComposer::make_primitives().0;
     let (mut composer, builtins_def, builtins_ty) =
-        TopLevelComposer::new(vec![], Default::default());
+        TopLevelComposer::new(vec![], ComposerConfig::default());
 
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
         id_to_type: builtins_ty.into(),
         id_to_def: builtins_def.into(),
-        class_names: Default::default(),
-        module_globals: Default::default(),
-        str_store: Default::default(),
+        class_names: Mutex::default(),
+        module_globals: Mutex::default(),
+        str_store: Mutex::default(),
     }.into();
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
 
     let parser_result = parser::parse_program(&program, file_name.into()).unwrap();
 
-    for stmt in parser_result.into_iter() {
+    for stmt in parser_result {
         match &stmt.node {
             StmtKind::Assign { targets, value, .. } => {
                 let def_list = composer.extract_def_list();
@@ -316,7 +315,7 @@ fn main() {
                     unifier,
                     primitives,
                 ) {
-                    eprintln!("{}", err);
+                    eprintln!("{err}");
                     return;
                 }
             },
@@ -325,7 +324,7 @@ fn main() {
                 if module == &Some("__future__".into()) && names.len() == 1 && names[0].name == "annotations".into() => (),
             _ => {
                 let (name, def_id, ty) =
-                    composer.register_top_level(stmt, Some(resolver.clone()), "__main__".into(), true).unwrap();
+                    composer.register_top_level(stmt, Some(resolver.clone()), "__main__", true).unwrap();
                 internal_resolver.add_id_def(name, def_id);
                 if let Some(ty) = ty {
                     internal_resolver.add_id_type(name, ty);
@@ -352,7 +351,7 @@ fn main() {
             .0]
             .write();
         if let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } = &mut *instance {
-            instance_to_symbol.insert("".to_string(), "run".to_string());
+            instance_to_symbol.insert(String::new(), "run".to_string());
             instance_to_stmt[""].clone()
         } else {
             unreachable!()
@@ -371,7 +370,7 @@ fn main() {
     };
 
     let task = CodeGenTask {
-        subst: Default::default(),
+        subst: Vec::default(),
         symbol_name: "run".to_string(),
         body: instance.body,
         signature,
@@ -382,7 +381,7 @@ fn main() {
         id: 0,
     };
 
-    let membuffers: Arc<Mutex<Vec<Vec<u8>>>> = Default::default();
+    let membuffers: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
     let membuffer = membuffers.clone();
 
     let f = Arc::new(WithCall::new(Box::new(move |module| {
@@ -391,7 +390,7 @@ fn main() {
         membuffer.lock().push(buffer);
     })));
     let threads = (0..threads)
-        .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{}", i), 64)))
+        .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{i}"), 64)))
         .collect();
     let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
     registry.add_task(task);
@@ -412,7 +411,7 @@ fn main() {
             .unwrap();
 
         if emit_llvm {
-            other.write_bitcode_to_path(Path::new(&format!("module{}.bc", idx)));
+            other.write_bitcode_to_path(Path::new(&format!("module{idx}.bc")));
         }
 
         main.link_in_module(other).unwrap();
