@@ -746,7 +746,6 @@ impl Unifier {
 
             (TConstant { value: val1, ty: ty1, .. }, TConstant { value: val2, ty: ty2, .. }) => {
                 if val1 != val2 {
-                    eprintln!("VALUE MISMATCH: lhs={val1:?} rhs={val2:?} eq={}", val1 == val2);
                     return self.incompatible_types(a, b)
                 }
                 self.unify_impl(*ty1, *ty2, false)?;
