@@ -233,11 +233,11 @@ impl TopLevelComposer {
             };
             // check cycle
             let no_cycle = result.iter().all(|x| {
-                if let TypeAnnotation::CustomClass { id, .. } = x {
-                    id.0 != p_id.0
-                } else {
+                let TypeAnnotation::CustomClass { id, .. } = x else {
                     unreachable!("must be class kind annotation")
-                }
+                };
+
+                id.0 != p_id.0
             });
             if no_cycle {
                 result.push(p);
@@ -260,14 +260,14 @@ impl TopLevelComposer {
         };
         let child_def = temp_def_list.get(child_id.0).unwrap();
         let child_def = child_def.read();
-        if let TopLevelDef::Class { ancestors, .. } = &*child_def {
-            if ancestors.is_empty() {
-                None
-            } else {
-                Some(ancestors[0].clone())
-            }
-        } else {
+        let TopLevelDef::Class { ancestors, .. } = &*child_def else {
             unreachable!("child must be top level class def")
+        };
+
+        if ancestors.is_empty() {
+            None
+        } else {
+            Some(ancestors[0].clone())
         }
     }
 
@@ -292,39 +292,38 @@ impl TopLevelComposer {
         let this = this.as_ref();
         let other = unifier.get_ty(other);
         let other = other.as_ref();
-        if let (
+        let (
             TypeEnum::TFunc(FunSignature { args: this_args, ret: this_ret, .. }),
             TypeEnum::TFunc(FunSignature { args: other_args, ret: other_ret, .. }),
-        ) = (this, other)
-        {
-            // check args
-            let args_ok = this_args
-                .iter()
-                .map(|FuncArg { name, ty, .. }| (name, type_var_to_concrete_def.get(ty).unwrap()))
-                .zip(other_args.iter().map(|FuncArg { name, ty, .. }| {
-                    (name, type_var_to_concrete_def.get(ty).unwrap())
-                }))
-                .all(|(this, other)| {
-                    if this.0 == &"self".into() && this.0 == other.0 {
-                        true
-                    } else {
-                        this.0 == other.0
-                            && check_overload_type_annotation_compatible(this.1, other.1, unifier)
-                    }
-                });
-
-            // check rets
-            let ret_ok = check_overload_type_annotation_compatible(
-                type_var_to_concrete_def.get(this_ret).unwrap(),
-                type_var_to_concrete_def.get(other_ret).unwrap(),
-                unifier,
-            );
-
-            // return
-            args_ok && ret_ok
-        } else {
+        ) = (this, other) else {
             unreachable!("this function must be called with function type")
-        }
+        };
+
+        // check args
+        let args_ok = this_args
+            .iter()
+            .map(|FuncArg { name, ty, .. }| (name, type_var_to_concrete_def.get(ty).unwrap()))
+            .zip(other_args.iter().map(|FuncArg { name, ty, .. }| {
+                (name, type_var_to_concrete_def.get(ty).unwrap())
+            }))
+            .all(|(this, other)| {
+                if this.0 == &"self".into() && this.0 == other.0 {
+                    true
+                } else {
+                    this.0 == other.0
+                        && check_overload_type_annotation_compatible(this.1, other.1, unifier)
+                }
+            });
+
+        // check rets
+        let ret_ok = check_overload_type_annotation_compatible(
+            type_var_to_concrete_def.get(this_ret).unwrap(),
+            type_var_to_concrete_def.get(other_ret).unwrap(),
+            unifier,
+        );
+
+        // return
+        args_ok && ret_ok
     }
 
     pub fn check_overload_field_type(

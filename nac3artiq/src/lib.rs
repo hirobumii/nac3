@@ -533,14 +533,13 @@ impl Nac3 {
         let instance = {
             let defs = top_level.definitions.read();
             let mut definition = defs[def_id.0].write();
-            if let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } =
-                &mut *definition
-            {
-                instance_to_symbol.insert(String::new(), "__modinit__".into());
-                instance_to_stmt[""].clone()
-            } else {
+            let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } =
+                &mut *definition else {
                 unreachable!()
-            }
+            };
+
+            instance_to_symbol.insert(String::new(), "__modinit__".into());
+            instance_to_stmt[""].clone()
         };
 
         let task = CodeGenTask {

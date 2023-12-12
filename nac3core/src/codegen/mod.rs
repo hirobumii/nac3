@@ -451,40 +451,38 @@ fn get_llvm_type<'ctx>(
                 // a struct with fields in the order of declaration
                 let top_level_defs = top_level.definitions.read();
                 let definition = top_level_defs.get(obj_id.0).unwrap();
-                let ty = if let TopLevelDef::Class { fields: fields_list, .. } =
-                    &*definition.read()
-                {
-                    let name = unifier.stringify(ty);
-                    if let Some(t) = module.get_struct_type(&name) {
-                        t.ptr_type(AddressSpace::default()).into()
-                    } else {
-                        let struct_type = ctx.opaque_struct_type(&name);
-                        type_cache.insert(
-                            unifier.get_representative(ty),
-                            struct_type.ptr_type(AddressSpace::default()).into()
-                        );
-                        let fields = fields_list
-                            .iter()
-                            .map(|f| {
-                                get_llvm_type(
-                                    ctx,
-                                    module,
-                                    generator,
-                                    unifier,
-                                    top_level,
-                                    type_cache,
-                                    primitives,
-                                    fields[&f.0].0,
-                                )
-                            })
-                            .collect_vec();
-                        struct_type.set_body(&fields, false);
-                        struct_type.ptr_type(AddressSpace::default()).into()
-                    }
-                } else {
+                let TopLevelDef::Class { fields: fields_list, .. } = &*definition.read() else {
                     unreachable!()
                 };
-                return ty;
+
+                let name = unifier.stringify(ty);
+                let ty = if let Some(t) = module.get_struct_type(&name) {
+                    t.ptr_type(AddressSpace::default()).into()
+                } else {
+                    let struct_type = ctx.opaque_struct_type(&name);
+                    type_cache.insert(
+                        unifier.get_representative(ty),
+                        struct_type.ptr_type(AddressSpace::default()).into()
+                    );
+                    let fields = fields_list
+                        .iter()
+                        .map(|f| {
+                            get_llvm_type(
+                                ctx,
+                                module,
+                                generator,
+                                unifier,
+                                top_level,
+                                type_cache,
+                                primitives,
+                                fields[&f.0].0,
+                            )
+                        })
+                        .collect_vec();
+                    struct_type.set_body(&fields, false);
+                    struct_type.ptr_type(AddressSpace::default()).into()
+                };
+                return ty
             }
             TTuple { ty } => {
                 // a struct with fields in the order present in the tuple
@@ -661,22 +659,21 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
     // NOTE: special handling of option cannot use this type cache since it contains type var,
     // handled inside get_llvm_type instead
 
-    let (args, ret) = if let ConcreteTypeEnum::TFunc { args, ret, .. } =
-        task.store.get(task.signature)
-    {
-        (
-            args.iter()
-                .map(|arg| FuncArg {
-                    name: arg.name,
-                    ty: task.store.to_unifier_type(&mut unifier, &primitives, arg.ty, &mut cache),
-                    default_value: arg.default_value.clone(),
-                })
-                .collect_vec(),
-            task.store.to_unifier_type(&mut unifier, &primitives, *ret, &mut cache),
-        )
-    } else {
+    let ConcreteTypeEnum::TFunc { args, ret, .. } =
+        task.store.get(task.signature) else {
         unreachable!()
     };
+
+    let (args, ret) = (
+        args.iter()
+            .map(|arg| FuncArg {
+                name: arg.name,
+                ty: task.store.to_unifier_type(&mut unifier, &primitives, arg.ty, &mut cache),
+                default_value: arg.default_value.clone(),
+            })
+            .collect_vec(),
+        task.store.to_unifier_type(&mut unifier, &primitives, *ret, &mut cache),
+    );
     let ret_type = if unifier.unioned(ret, primitives.none) {
         None
     } else {

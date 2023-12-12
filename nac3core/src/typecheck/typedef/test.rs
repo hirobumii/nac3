@@ -339,23 +339,21 @@ fn test_recursive_subst() {
     let int = *env.type_mapping.get("int").unwrap();
     let foo_id = *env.type_mapping.get("Foo").unwrap();
     let foo_ty = env.unifier.get_ty(foo_id);
-    let mapping: HashMap<_, _>;
     with_fields(&mut env.unifier, foo_id, |_unifier, fields| {
         fields.insert("rec".into(), (foo_id, true));
     });
-    if let TypeEnum::TObj { params, .. } = &*foo_ty {
-        mapping = params.iter().map(|(id, _)| (*id, int)).collect();
-    } else {
+    let TypeEnum::TObj { params, .. } = &*foo_ty else {
         unreachable!()
-    }
+    };
+    let mapping = params.iter().map(|(id, _)| (*id, int)).collect();
     let instantiated = env.unifier.subst(foo_id, &mapping).unwrap();
     let instantiated_ty = env.unifier.get_ty(instantiated);
-    if let TypeEnum::TObj { fields, .. } = &*instantiated_ty {
-        assert!(env.unifier.unioned(fields.get(&"a".into()).unwrap().0, int));
-        assert!(env.unifier.unioned(fields.get(&"rec".into()).unwrap().0, instantiated));
-    } else {
+
+    let TypeEnum::TObj { fields, .. } = &*instantiated_ty else {
         unreachable!()
-    }
+    };
+    assert!(env.unifier.unioned(fields.get(&"a".into()).unwrap().0, int));
+    assert!(env.unifier.unioned(fields.get(&"rec".into()).unwrap().0, instantiated));
 }
 
 #[test]

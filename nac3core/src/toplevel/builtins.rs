@@ -421,11 +421,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                         generator,
                         expect_ty,
                     )?;
-                    if let BasicValueEnum::PointerValue(ptr) = obj_val {
-                        Ok(Some(ctx.builder.build_is_not_null(ptr, "is_some").into()))
-                    } else {
+                    let BasicValueEnum::PointerValue(ptr) = obj_val else {
                         unreachable!("option must be ptr")
-                    }
+                    };
+
+                    Ok(Some(ctx.builder.build_is_not_null(ptr, "is_some").into()))
                 },
             )))),
             loc: None,
@@ -446,11 +446,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                         generator,
                         expect_ty,
                     )?;
-                    if let BasicValueEnum::PointerValue(ptr) = obj_val {
-                        Ok(Some(ctx.builder.build_is_null(ptr, "is_none").into()))
-                    } else {
+                    let BasicValueEnum::PointerValue(ptr) = obj_val else {
                         unreachable!("option must be ptr")
-                    }
+                    };
+
+                    Ok(Some(ctx.builder.build_is_null(ptr, "is_none").into()))
                 },
             )))),
             loc: None,
@@ -686,7 +686,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
 
                         val
                     } else {
-                        unreachable!();
+                        unreachable!()
                     };
                     Ok(Some(res))
                 },
@@ -762,7 +762,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
 
                         val
                     } else {
-                        unreachable!();
+                        unreachable!()
                     };
                     Ok(Some(res))
                 },
@@ -1361,7 +1361,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     } else if is_type(m_ty, n_ty) && is_type(n_ty, float) {
                         ("llvm.minnum.f64", llvm_f64)
                     } else {
-                        unreachable!();
+                        unreachable!()
                     };
                     let intrinsic = ctx.module.get_function(fun_name).unwrap_or_else(|| {
                         let fn_type = arg_ty.fn_type(&[arg_ty.into(), arg_ty.into()], false);
@@ -1423,7 +1423,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     } else if is_type(m_ty, n_ty) && is_type(n_ty, float) {
                         ("llvm.maxnum.f64", llvm_f64)
                     } else {
-                        unreachable!();
+                        unreachable!()
                     };
                     let intrinsic = ctx.module.get_function(fun_name).unwrap_or_else(|| {
                         let fn_type = arg_ty.fn_type(&[arg_ty.into(), arg_ty.into()], false);
@@ -1480,7 +1480,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                             is_float = true;
                             ("llvm.fabs.f64", llvm_f64)
                         } else {
-                            unreachable!();
+                            unreachable!()
                         };
                     let intrinsic = ctx.module.get_function(fun_name).unwrap_or_else(|| {
                         let fn_type = if is_float {

@@ -363,12 +363,11 @@ fn main() {
             .unwrap_or_else(|_| panic!("cannot find run() entry point"))
             .0]
             .write();
-        if let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } = &mut *instance {
-            instance_to_symbol.insert(String::new(), "run".to_string());
-            instance_to_stmt[""].clone()
-        } else {
+        let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } = &mut *instance else {
             unreachable!()
-        }
+        };
+        instance_to_symbol.insert(String::new(), "run".to_string());
+        instance_to_stmt[""].clone()
     };
 
     let llvm_options = CodeGenLLVMOptions {

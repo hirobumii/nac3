@@ -163,11 +163,11 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             let type_vars = {
                 let def_read = top_level_defs[obj_id.0].try_read();
                 if let Some(def_read) = def_read {
-                    if let TopLevelDef::Class { type_vars, .. } = &*def_read {
-                        type_vars.clone()
-                    } else {
+                    let TopLevelDef::Class { type_vars, .. } = &*def_read else {
                         unreachable!("must be class here")
-                    }
+                    };
+
+                    type_vars.clone()
                 } else {
                     locked.get(&obj_id).unwrap().clone()
                 }
@@ -497,13 +497,11 @@ pub fn get_type_from_type_annotation_kinds(
         TypeAnnotation::Primitive(ty) | TypeAnnotation::TypeVar(ty) => Ok(*ty),
         TypeAnnotation::Constant { ty, value, .. } => {
             let ty_enum = unifier.get_ty(*ty);
-            let (ty, loc) = match &*ty_enum {
-                TypeEnum::TVar { range: ntv_underlying_ty, loc, is_const_generic: true, .. } => {
-                    (ntv_underlying_ty[0], loc)
-                }
-                _ => unreachable!("{} ({})", unifier.stringify(*ty), ty_enum.get_type_name()),
+            let TypeEnum::TVar { range: ntv_underlying_ty, loc, is_const_generic: true, .. } = &*ty_enum else {
+                unreachable!("{} ({})", unifier.stringify(*ty), ty_enum.get_type_name());
             };
 
+            let ty = ntv_underlying_ty[0];
             let var = unifier.get_fresh_constant(value.clone(), ty, *loc);
             Ok(var)
         }
@@ -596,15 +594,14 @@ pub fn check_overload_type_annotation_compatible(
             let a = &*a;
             let b = unifier.get_ty(*b);
             let b = &*b;
-            if let (
+            let (
                 TypeEnum::TVar { id: a, fields: None, .. },
                 TypeEnum::TVar { id: b, fields: None, .. },
-            ) = (a, b)
-            {
-                a == b
-            } else {
+            ) = (a, b) else {
                 unreachable!("must be type var")
-            }
+            };
+
+            a == b
         }
         (TypeAnnotation::Virtual(a), TypeAnnotation::Virtual(b))
         | (TypeAnnotation::List(a), TypeAnnotation::List(b)) => {

@@ -241,35 +241,35 @@ impl<'a> Fold<()> for Inferencer<'a> {
                     let targets: Result<Vec<_>, _> = targets
                         .into_iter()
                         .map(|target| {
-                            if let ExprKind::Name { id, ctx } = target.node {
-                                self.defined_identifiers.insert(id);
-                                let target_ty = if let Some(ty) = self.variable_mapping.get(&id)
-                                {
-                                    *ty
-                                } else {
-                                    let unifier: &mut Unifier = self.unifier;
-                                    self.function_data
-                                        .resolver
-                                        .get_symbol_type(
-                                            unifier,
-                                            &self.top_level.definitions.read(),
-                                            self.primitives,
-                                            id,
-                                        )
-                                        .unwrap_or_else(|_| {
-                                            self.variable_mapping.insert(id, value_ty);
-                                            value_ty
-                                        })
-                                };
-                                let location = target.location;
-                                self.unifier.unify(value_ty, target_ty).map(|()| Located {
-                                    location,
-                                    node: ExprKind::Name { id, ctx },
-                                    custom: Some(target_ty),
-                                })
-                            } else {
+                            let ExprKind::Name { id, ctx } = target.node else {
                                 unreachable!()
-                            }
+                            };
+
+                            self.defined_identifiers.insert(id);
+                            let target_ty = if let Some(ty) = self.variable_mapping.get(&id)
+                            {
+                                *ty
+                            } else {
+                                let unifier: &mut Unifier = self.unifier;
+                                self.function_data
+                                    .resolver
+                                    .get_symbol_type(
+                                        unifier,
+                                        &self.top_level.definitions.read(),
+                                        self.primitives,
+                                        id,
+                                    )
+                                    .unwrap_or_else(|_| {
+                                        self.variable_mapping.insert(id, value_ty);
+                                        value_ty
+                                    })
+                            };
+                            let location = target.location;
+                            self.unifier.unify(value_ty, target_ty).map(|()| Located {
+                                location,
+                                node: ExprKind::Name { id, ctx },
+                                custom: Some(target_ty),
+                            })
                         })
                         .collect();
                     let loc = node.location;
@@ -465,12 +465,12 @@ impl<'a> Fold<()> for Inferencer<'a> {
                         let var_map = params
                             .iter()
                             .map(|(id_var, ty)| {
-                                if let TypeEnum::TVar { id, range, name, loc, .. } = &*self.unifier.get_ty(*ty) {
-                                    assert_eq!(*id, *id_var);
-                                    (*id, self.unifier.get_fresh_var_with_range(range, *name, *loc).0)
-                                } else {
+                                let TypeEnum::TVar { id, range, name, loc, .. } = &*self.unifier.get_ty(*ty) else {
                                     unreachable!()
-                                }
+                                };
+
+                                assert_eq!(*id, *id_var);
+                                (*id, self.unifier.get_fresh_var_with_range(range, *name, *loc).0)
                             })
                             .collect::<HashMap<_, _>>();
                         Some(self.unifier.subst(self.primitives.option, &var_map).unwrap())

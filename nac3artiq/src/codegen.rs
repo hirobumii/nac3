@@ -215,148 +215,148 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
         ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
     ) -> Result<(), String> {
-        if let StmtKind::With { items, body, .. } = &stmt.node {
-            if items.len() == 1 && items[0].optional_vars.is_none() {
-                let item = &items[0];
+        let StmtKind::With { items, body, .. } = &stmt.node else {
+            unreachable!()
+        };
 
-                // Behavior of parallel and sequential:
-                // Each function call (indirectly, can be inside a sequential block) within a parallel
-                // block will update the end variable to the maximum now_mu in the block.
-                // Each function call directly inside a parallel block will reset the timeline after
-                // execution. A parallel block within a sequential block (or not within any block) will
-                // set the timeline to the max now_mu within the block (and the outer max now_mu will also
-                // be updated).
-                //
-                // Implementation: We track the start and end separately.
-                // - If there is a start variable, it indicates that we are directly inside a
-                // parallel block and we have to reset the timeline after every function call.
-                // - If there is a end variable, it indicates that we are (indirectly) inside a
-                // parallel block, and we should update the max end value.
-                if let ExprKind::Name { id, ctx: name_ctx } = &item.context_expr.node {
-                    if id == &"parallel".into() || id == &"legacy_parallel".into() {
-                        let old_start = self.start.take();
-                        let old_end = self.end.take();
-                        let old_parallel_mode = self.parallel_mode;
+        if items.len() == 1 && items[0].optional_vars.is_none() {
+            let item = &items[0];
 
-                        let now = if let Some(old_start) = &old_start {
-                            self.gen_expr(ctx, old_start)?
-                                .unwrap()
-                                .to_basic_value_enum(ctx, self, old_start.custom.unwrap())?
-                        } else {
-                            self.timeline.emit_now_mu(ctx)
-                        };
+            // Behavior of parallel and sequential:
+            // Each function call (indirectly, can be inside a sequential block) within a parallel
+            // block will update the end variable to the maximum now_mu in the block.
+            // Each function call directly inside a parallel block will reset the timeline after
+            // execution. A parallel block within a sequential block (or not within any block) will
+            // set the timeline to the max now_mu within the block (and the outer max now_mu will also
+            // be updated).
+            //
+            // Implementation: We track the start and end separately.
+            // - If there is a start variable, it indicates that we are directly inside a
+            // parallel block and we have to reset the timeline after every function call.
+            // - If there is a end variable, it indicates that we are (indirectly) inside a
+            // parallel block, and we should update the max end value.
+            if let ExprKind::Name { id, ctx: name_ctx } = &item.context_expr.node {
+                if id == &"parallel".into() || id == &"legacy_parallel".into() {
+                    let old_start = self.start.take();
+                    let old_end = self.end.take();
+                    let old_parallel_mode = self.parallel_mode;
 
-                        // Emulate variable allocation, as we need to use the CodeGenContext
-                        // HashMap to store our variable due to lifetime limitation
-                        // Note: we should be able to store variables directly if generic
-                        // associative type is used by limiting the lifetime of CodeGenerator to
-                        // the LLVM Context.
-                        // The name is guaranteed to be unique as users cannot use this as variable
-                        // name.
-                        self.start = old_start.clone().map_or_else(
-                            || {
-                                let start = format!("with-{}-start", self.name_counter).into();
-                                let start_expr = Located {
-                                    // location does not matter at this point
-                                    location: stmt.location,
-                                    node: ExprKind::Name { id: start, ctx: name_ctx.clone() },
-                                    custom: Some(ctx.primitives.int64),
-                                };
-                                let start = self
-                                    .gen_store_target(ctx, &start_expr, Some("start.addr"))?
-                                    .unwrap();
-                                ctx.builder.build_store(start, now);
-                                Ok(Some(start_expr)) as Result<_, String>
-                            },
-                            |v| Ok(Some(v)),
-                        )?;
-                        let end = format!("with-{}-end", self.name_counter).into();
-                        let end_expr = Located {
-                            // location does not matter at this point
-                            location: stmt.location,
-                            node: ExprKind::Name { id: end, ctx: name_ctx.clone() },
-                            custom: Some(ctx.primitives.int64),
-                        };
-                        let end = self
-                            .gen_store_target(ctx, &end_expr, Some("end.addr"))?
-                            .unwrap();
-                        ctx.builder.build_store(end, now);
-                        self.end = Some(end_expr);
-                        self.name_counter += 1;
-                        self.parallel_mode = match id.to_string().as_str() {
-                            "parallel" => ParallelMode::Deep,
-                            "legacy_parallel" => ParallelMode::Legacy,
-                            _ => unreachable!(),
-                        };
-
-                        self.gen_block(ctx, body.iter())?;
-
-                        let current = ctx.builder.get_insert_block().unwrap();
-
-                        // if the current block is terminated, move before the terminator
-                        // we want to set the timeline before reaching the terminator
-                        // TODO: This may be unsound if there are multiple exit paths in the
-                        // block... e.g.
-                        // if ...:
-                        //     return
-                        // Perhaps we can fix this by using actual with block?
-                        let reset_position = if let Some(terminator) = current.get_terminator() {
-                            ctx.builder.position_before(&terminator);
-                            true
-                        } else {
-                            false
-                        };
-
-                        // set duration
-                        let end_expr = self.end.take().unwrap();
-                        let end_val = self
-                            .gen_expr(ctx, &end_expr)?
+                    let now = if let Some(old_start) = &old_start {
+                        self.gen_expr(ctx, old_start)?
                             .unwrap()
-                            .to_basic_value_enum(ctx, self, end_expr.custom.unwrap())?;
+                            .to_basic_value_enum(ctx, self, old_start.custom.unwrap())?
+                    } else {
+                        self.timeline.emit_now_mu(ctx)
+                    };
 
-                        // inside a sequential block
-                        if old_start.is_none() {
-                            self.timeline.emit_at_mu(ctx, end_val);
-                        }
+                    // Emulate variable allocation, as we need to use the CodeGenContext
+                    // HashMap to store our variable due to lifetime limitation
+                    // Note: we should be able to store variables directly if generic
+                    // associative type is used by limiting the lifetime of CodeGenerator to
+                    // the LLVM Context.
+                    // The name is guaranteed to be unique as users cannot use this as variable
+                    // name.
+                    self.start = old_start.clone().map_or_else(
+                        || {
+                            let start = format!("with-{}-start", self.name_counter).into();
+                            let start_expr = Located {
+                                // location does not matter at this point
+                                location: stmt.location,
+                                node: ExprKind::Name { id: start, ctx: name_ctx.clone() },
+                                custom: Some(ctx.primitives.int64),
+                            };
+                            let start = self
+                                .gen_store_target(ctx, &start_expr, Some("start.addr"))?
+                                .unwrap();
+                            ctx.builder.build_store(start, now);
+                            Ok(Some(start_expr)) as Result<_, String>
+                        },
+                        |v| Ok(Some(v)),
+                    )?;
+                    let end = format!("with-{}-end", self.name_counter).into();
+                    let end_expr = Located {
+                        // location does not matter at this point
+                        location: stmt.location,
+                        node: ExprKind::Name { id: end, ctx: name_ctx.clone() },
+                        custom: Some(ctx.primitives.int64),
+                    };
+                    let end = self
+                        .gen_store_target(ctx, &end_expr, Some("end.addr"))?
+                        .unwrap();
+                    ctx.builder.build_store(end, now);
+                    self.end = Some(end_expr);
+                    self.name_counter += 1;
+                    self.parallel_mode = match id.to_string().as_str() {
+                        "parallel" => ParallelMode::Deep,
+                        "legacy_parallel" => ParallelMode::Legacy,
+                        _ => unreachable!(),
+                    };
 
-                        // inside a parallel block, should update the outer max now_mu
-                        self.timeline_update_end_max(ctx, old_end.clone(), Some("outer.end"))?;
+                    self.gen_block(ctx, body.iter())?;
 
-                        self.parallel_mode = old_parallel_mode;
-                        self.end = old_end;
-                        self.start = old_start;
+                    let current = ctx.builder.get_insert_block().unwrap();
 
-                        if reset_position {
-                            ctx.builder.position_at_end(current);
-                        }
+                    // if the current block is terminated, move before the terminator
+                    // we want to set the timeline before reaching the terminator
+                    // TODO: This may be unsound if there are multiple exit paths in the
+                    // block... e.g.
+                    // if ...:
+                    //     return
+                    // Perhaps we can fix this by using actual with block?
+                    let reset_position = if let Some(terminator) = current.get_terminator() {
+                        ctx.builder.position_before(&terminator);
+                        true
+                    } else {
+                        false
+                    };
 
-                        return Ok(());
-                    } else if id == &"sequential".into() {
-                        // For deep parallel, temporarily take away start to avoid function calls in
-                        // the block from resetting the timeline.
-                        // This does not affect legacy parallel, as the timeline will be reset after
-                        // this block finishes execution.
-                        let start = self.start.take();
-                        self.gen_block(ctx, body.iter())?;
-                        self.start = start;
+                    // set duration
+                    let end_expr = self.end.take().unwrap();
+                    let end_val = self
+                        .gen_expr(ctx, &end_expr)?
+                        .unwrap()
+                        .to_basic_value_enum(ctx, self, end_expr.custom.unwrap())?;
 
-                        // Reset the timeline when we are exiting the sequential block
-                        // Legacy parallel does not need this, since it will be reset after codegen
-                        // for this statement is completed
-                        if self.parallel_mode == ParallelMode::Deep {
-                            self.timeline_reset_start(ctx)?;
-                        }
-
-                        return Ok(());
+                    // inside a sequential block
+                    if old_start.is_none() {
+                        self.timeline.emit_at_mu(ctx, end_val);
                     }
+
+                    // inside a parallel block, should update the outer max now_mu
+                    self.timeline_update_end_max(ctx, old_end.clone(), Some("outer.end"))?;
+
+                    self.parallel_mode = old_parallel_mode;
+                    self.end = old_end;
+                    self.start = old_start;
+
+                    if reset_position {
+                        ctx.builder.position_at_end(current);
+                    }
+
+                    return Ok(());
+                } else if id == &"sequential".into() {
+                    // For deep parallel, temporarily take away start to avoid function calls in
+                    // the block from resetting the timeline.
+                    // This does not affect legacy parallel, as the timeline will be reset after
+                    // this block finishes execution.
+                    let start = self.start.take();
+                    self.gen_block(ctx, body.iter())?;
+                    self.start = start;
+
+                    // Reset the timeline when we are exiting the sequential block
+                    // Legacy parallel does not need this, since it will be reset after codegen
+                    // for this statement is completed
+                    if self.parallel_mode == ParallelMode::Deep {
+                        self.timeline_reset_start(ctx)?;
+                    }
+
+                    return Ok(());
                 }
             }
-
-            // not parallel/sequential
-            gen_with(self, ctx, stmt)
-        } else {
-            unreachable!()
         }
+
+        // not parallel/sequential
+        gen_with(self, ctx, stmt)
     }
 }
 

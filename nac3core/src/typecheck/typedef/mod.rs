@@ -499,12 +499,9 @@ impl Unifier {
         let instantiated = self.instantiate_fun(b, signature);
         let r = self.get_ty(instantiated);
         let r = r.as_ref();
-        let signature;
-        if let TypeEnum::TFunc(s) = r {
-            signature = s;
-        } else {
-            unreachable!();
-        }
+        let TypeEnum::TFunc(signature) = r else {
+            unreachable!()
+        };
         // we check to make sure that all required arguments (those without default
         // arguments) are provided, and do not provide the same argument twice.
         let mut required = required.to_vec();
@@ -940,13 +937,12 @@ impl Unifier {
                 top_level.as_ref().map_or_else(
                     || format!("{id}"),
                     |top_level| {
-                        if let TopLevelDef::Class { name, .. } =
-                            &*top_level.definitions.read()[id].read()
-                        {
-                            name.to_string()
-                        } else {
+                        let top_level_def = &top_level.definitions.read()[id];
+                        let TopLevelDef::Class { name, .. } = &*top_level_def.read() else {
                             unreachable!("expected class definition")
-                        }
+                        };
+
+                        name.to_string()
                     },
                 )
             },

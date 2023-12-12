@@ -311,37 +311,37 @@ impl InnerResolver {
             unreachable!("none cannot be typeid")
         } else if let Some(def_id) = self.pyid_to_def.read().get(&ty_id).copied() {
             let def = defs[def_id.0].read();
-            if let TopLevelDef::Class { object_id, type_vars, fields, methods, .. } = &*def {
-                // do not handle type var param and concrete check here, and no subst
-                Ok(Ok({
-                    let ty = TypeEnum::TObj {
-                        obj_id: *object_id,
-                        params: type_vars
-                            .iter()
-                            .map(|x| {
-                                if let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*x) {
-                                    (*id, *x)
-                                } else {
-                                    unreachable!()
-                                }
-                            })
-                            .collect(),
-                        fields: {
-                            let mut res = methods
-                                .iter()
-                                .map(|(iden, ty, _)| (*iden, (*ty, false)))
-                                .collect::<HashMap<_, _>>();
-                            res.extend(fields.clone().into_iter().map(|x| (x.0, (x.1, x.2))));
-                            res
-                        },
-                    };
-                    // here also false, later instantiation use python object to check compatible
-                    (unifier.add_ty(ty), false)
-                }))
-            } else {
+            let TopLevelDef::Class { object_id, type_vars, fields, methods, .. } = &*def else {
                 // only object is supported, functions are not supported
                 unreachable!("function type is not supported, should not be queried")
-            }
+            };
+
+            // do not handle type var param and concrete check here, and no subst
+            Ok(Ok({
+                let ty = TypeEnum::TObj {
+                    obj_id: *object_id,
+                    params: type_vars
+                        .iter()
+                        .map(|x| {
+                            let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*x) else {
+                                unreachable!()
+                            };
+
+                            (*id, *x)
+                        })
+                        .collect(),
+                    fields: {
+                        let mut res = methods
+                            .iter()
+                            .map(|(iden, ty, _)| (*iden, (*ty, false)))
+                            .collect::<HashMap<_, _>>();
+                        res.extend(fields.clone().into_iter().map(|x| (x.0, (x.1, x.2))));
+                        res
+                    },
+                };
+                // here also false, later instantiation use python object to check compatible
+                (unifier.add_ty(ty), false)
+            }))
         } else if ty_ty_id == self.primitive_ids.typevar {
             let name: &str = pyty.getattr("__name__").unwrap().extract().unwrap();
             let (constraint_types, is_const_generic) = {
@@ -652,23 +652,23 @@ impl InnerResolver {
                 // if is `none`
                 let zelf_id: u64 = self.helper.id_fn.call1(py, (obj,))?.extract(py)?;
                 if zelf_id == self.primitive_ids.none {
-                    if let TypeEnum::TObj { params, .. } =
-                        unifier.get_ty_immutable(primitives.option).as_ref()
-                    {
-                        let var_map = params
-                            .iter()
-                            .map(|(id_var, ty)| {
-                                if let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(*ty) {
-                                    assert_eq!(*id, *id_var);
-                                    (*id, unifier.get_fresh_var_with_range(range, *name, *loc).0)
-                                } else {
-                                    unreachable!()
-                                }
-                            })
-                            .collect::<HashMap<_, _>>();
-                        return Ok(Ok(unifier.subst(primitives.option, &var_map).unwrap()))
-                    }
-                    unreachable!("must be tobj")
+                    let ty_enum = unifier.get_ty_immutable(primitives.option);
+                    let TypeEnum::TObj { params, .. } = ty_enum.as_ref() else {
+                        unreachable!("must be tobj")
+                    };
+
+                    let var_map = params
+                        .iter()
+                        .map(|(id_var, ty)| {
+                            let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(*ty) else {
+                                unreachable!()
+                            };
+
+                            assert_eq!(*id, *id_var);
+                            (*id, unifier.get_fresh_var_with_range(range, *name, *loc).0)
+                        })
+                        .collect::<HashMap<_, _>>();
+                    return Ok(Ok(unifier.subst(primitives.option, &var_map).unwrap()))
                 }
 
                 let ty = match self.get_obj_type(py, field_data, unifier, defs, primitives)? {
@@ -688,14 +688,13 @@ impl InnerResolver {
                 let var_map = params
                     .iter()
                     .map(|(id_var, ty)| {
-                        if let TypeEnum::TVar { id, range, name, loc, .. } =
-                            &*unifier.get_ty(*ty)
-                        {
-                            assert_eq!(*id, *id_var);
-                            (*id, unifier.get_fresh_var_with_range(range, *name, *loc).0)
-                        } else {
+                        let TypeEnum::TVar { id, range, name, loc, .. } =
+                            &*unifier.get_ty(*ty) else {
                             unreachable!()
-                        }
+                        };
+
+                        assert_eq!(*id, *id_var);
+                        (*id, unifier.get_fresh_var_with_range(range, *name, *loc).0)
                     })
                     .collect::<HashMap<_, _>>();
                 let mut instantiate_obj = || {
@@ -900,28 +899,29 @@ impl InnerResolver {
 
             Ok(Some(global.as_pointer_value().into()))
         } else if ty_id == self.primitive_ids.tuple {
-            if let TypeEnum::TTuple { ty } = ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
-                let tup_tys = ty.iter();
-                let elements: &PyTuple = obj.downcast()?;
-                assert_eq!(elements.len(), tup_tys.len());
-                let val: Result<Option<Vec<_>>, _> =
-                    elements
-                        .iter()
-                        .enumerate()
-                        .zip(tup_tys)
-                        .map(|((i, elem), ty)| self
-                            .get_obj_value(py, elem, ctx, generator, *ty).map_err(|e|
-                                super::CompileError::new_err(
-                                    format!("Error getting element {i}: {e}")
-                                )
+            let expected_ty_enum = ctx.unifier.get_ty_immutable(expected_ty);
+            let TypeEnum::TTuple { ty } = expected_ty_enum.as_ref() else {
+                unreachable!()
+            };
+
+            let tup_tys = ty.iter();
+            let elements: &PyTuple = obj.downcast()?;
+            assert_eq!(elements.len(), tup_tys.len());
+            let val: Result<Option<Vec<_>>, _> =
+                elements
+                    .iter()
+                    .enumerate()
+                    .zip(tup_tys)
+                    .map(|((i, elem), ty)| self
+                        .get_obj_value(py, elem, ctx, generator, *ty).map_err(|e|
+                            super::CompileError::new_err(
+                                format!("Error getting element {i}: {e}")
                             )
-                        ).collect();
-                let val = val?.unwrap();
-                let val = ctx.ctx.const_struct(&val, false);
-                Ok(Some(val.into()))
-            } else {
-                unreachable!("must expect tuple type")
-            }
+                        )
+                    ).collect();
+            let val = val?.unwrap();
+            let val = ctx.ctx.const_struct(&val, false);
+            Ok(Some(val.into()))
         } else if ty_id == self.primitive_ids.option {
             let option_val_ty = match ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
                 TypeEnum::TObj { obj_id, params, .. }
@@ -993,27 +993,25 @@ impl InnerResolver {
             // should be classes
             let definition =
                 top_level_defs.get(self.pyid_to_def.read().get(&ty_id).unwrap().0).unwrap().read();
-            if let TopLevelDef::Class { fields, .. } = &*definition {
-                let values: Result<Option<Vec<_>>, _> = fields
-                    .iter()
-                    .map(|(name, ty, _)| {
-                        self.get_obj_value(py, obj.getattr(name.to_string().as_str())?, ctx, generator, *ty)
-                            .map_err(|e| super::CompileError::new_err(format!("Error getting field {name}: {e}")))
-                    })
-                    .collect();
-                let values = values?;
-                if let Some(values) = values {
-                    let val = ty.const_named_struct(&values);
-                    let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
-                    });
-                    global.set_initializer(&val);
-                    Ok(Some(global.as_pointer_value().into()))
-                } else {
-                    Ok(None)
-                }
+            let TopLevelDef::Class { fields, .. } = &*definition else { unreachable!() };
+
+            let values: Result<Option<Vec<_>>, _> = fields
+                .iter()
+                .map(|(name, ty, _)| {
+                    self.get_obj_value(py, obj.getattr(name.to_string().as_str())?, ctx, generator, *ty)
+                        .map_err(|e| super::CompileError::new_err(format!("Error getting field {name}: {e}")))
+                })
+                .collect();
+            let values = values?;
+            if let Some(values) = values {
+                let val = ty.const_named_struct(&values);
+                let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
+                    ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
+                });
+                global.set_initializer(&val);
+                Ok(Some(global.as_pointer_value().into()))
             } else {
-                unreachable!()
+                Ok(None)
             }
         }
     }
@@ -1065,27 +1063,26 @@ impl InnerResolver {
 
 impl SymbolResolver for Resolver {
     fn get_default_param_value(&self, expr: &ast::Expr) -> Option<SymbolValue> {
-        match &expr.node {
-            ast::ExprKind::Name { id, .. } => {
-                Python::with_gil(|py| -> PyResult<Option<SymbolValue>> {
-                    let obj: &PyAny = self.0.module.extract(py)?;
-                    let members: &PyDict = obj.getattr("__dict__").unwrap().downcast().unwrap();
-                    let mut sym_value = None;
-                    for (key, val) in members {
-                        let key: &str = key.extract()?;
-                        if key == id.to_string() {
-                            if let Ok(Ok(v)) = self.0.get_default_param_obj_value(py, val) {
-                                sym_value = Some(v);
-                            }
-                            break;
-                        }
+        let ast::ExprKind::Name { id, .. } = &expr.node else {
+
+            unreachable!("only for resolving names")
+        };
+
+        Python::with_gil(|py| -> PyResult<Option<SymbolValue>> {
+            let obj: &PyAny = self.0.module.extract(py)?;
+            let members: &PyDict = obj.getattr("__dict__").unwrap().downcast().unwrap();
+            let mut sym_value = None;
+            for (key, val) in members {
+                let key: &str = key.extract()?;
+                if key == id.to_string() {
+                    if let Ok(Ok(v)) = self.0.get_default_param_obj_value(py, val) {
+                        sym_value = Some(v);
                     }
-                    Ok(sym_value)
-                })
-                .unwrap()
+                    break;
+                }
             }
-            _ => unreachable!("only for resolving names"),
-        }
+            Ok(sym_value)
+        }).unwrap()
     }
 
     fn get_symbol_type(
