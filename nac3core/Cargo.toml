@@ -5,7 +5,7 @@ authors = ["M-Labs"]
 edition = "2021"
 
 [dependencies]
-itertools = "0.11"
+itertools = "0.12"
 crossbeam = "0.8"
 parking_lot = "0.12"
 rayon = "1.5"
