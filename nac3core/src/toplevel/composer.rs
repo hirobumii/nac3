@@ -563,7 +563,6 @@ impl TopLevelComposer {
                         &primitive_types,
                         b,
                         vec![(*class_def_id, class_type_vars.clone())].into_iter().collect(),
-                        None,
                     )?;
 
                     if let TypeAnnotation::CustomClass { .. } = &base_ty {
@@ -904,7 +903,6 @@ impl TopLevelComposer {
                             // NOTE: since only class need this, for function
                             // it should be fine to be empty map
                             HashMap::new(),
-                            None,
                         )?;
 
                         let type_vars_within =
@@ -971,7 +969,6 @@ impl TopLevelComposer {
                             // NOTE: since only class need this, for function
                             // it should be fine to be empty map
                             HashMap::new(),
-                            None,
                         )?
                     };
 
@@ -1158,7 +1155,6 @@ impl TopLevelComposer {
                                         vec![(class_id, class_type_vars_def.clone())]
                                             .into_iter()
                                             .collect(),
-                                        None,
                                     )?
                                 };
                                 // find type vars within this method parameter type annotation
@@ -1224,7 +1220,6 @@ impl TopLevelComposer {
                                 primitives,
                                 result,
                                 vec![(class_id, class_type_vars_def.clone())].into_iter().collect(),
-                                None,
                             )?;
                             // find type vars within this return type annotation
                             let type_vars_within =
@@ -1319,7 +1314,6 @@ impl TopLevelComposer {
                                 primitives,
                                 annotation.as_ref(),
                                 vec![(class_id, class_type_vars_def.clone())].into_iter().collect(),
-                                None,
                             )?;
                             // find type vars within this return type annotation
                             let type_vars_within =
