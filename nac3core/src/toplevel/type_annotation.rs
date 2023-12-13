@@ -74,7 +74,6 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
     expr: &ast::Expr<T>,
     // the key stores the type_var of this topleveldef::class, we only need this field here
     locked: HashMap<DefinitionId, Vec<Type>>,
-    type_var: Option<Type>,
 ) -> Result<TypeAnnotation, HashSet<String>> {
     let name_handle = |id: &StrRef,
                        unifier: &mut Unifier,
@@ -195,7 +194,6 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                                 locked.insert(obj_id, type_vars.clone());
                                 locked.clone()
                             },
-                            None,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -231,7 +229,6 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 primitives,
                 slice.as_ref(),
                 locked,
-                None,
             )?;
             if !matches!(def, TypeAnnotation::CustomClass { .. }) {
                 unreachable!("must be concretized custom class kind in the virtual")
@@ -252,7 +249,6 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 primitives,
                 slice.as_ref(),
                 locked,
-                None,
             )?;
             Ok(TypeAnnotation::List(def_ann.into()))
         }
@@ -270,7 +266,6 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 primitives,
                 slice.as_ref(),
                 locked,
-                None,
             )?;
             let id =
                 if let TypeEnum::TObj { obj_id, .. } = unifier.get_ty(primitives.option).as_ref() {
@@ -304,7 +299,6 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                         primitives,
                         e,
                         locked.clone(),
-                        None,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -337,7 +331,6 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                             primitives,
                             e,
                             locked.clone(),
-                            None,
                         ),
                     }
                 })

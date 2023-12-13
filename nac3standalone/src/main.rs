@@ -104,7 +104,6 @@ fn handle_typevar_definition(
                         primitives,
                         x,
                         HashMap::default(),
-                        None,
                     )?;
                     get_type_from_type_annotation_kinds(
                         def_list, unifier, &ty, &mut None
@@ -146,7 +145,6 @@ fn handle_typevar_definition(
                 primitives,
                 &args[1],
                 HashMap::default(),
-                None,
             )?;
             let constraint = get_type_from_type_annotation_kinds(
                 def_list, unifier, &ty, &mut None
