@@ -596,11 +596,10 @@ pub fn exn_constructor<'ctx>(
     let zelf = zelf.to_basic_value_enum(ctx, generator, zelf_ty)?.into_pointer_value();
     let int32 = ctx.ctx.i32_type();
     let zero = int32.const_zero();
-    let zelf_id = {
-        let TypeEnum::TObj { obj_id, .. } = &*ctx.unifier.get_ty(zelf_ty) else {
-            unreachable!()
-        };
+    let zelf_id = if let TypeEnum::TObj { obj_id, .. } = &*ctx.unifier.get_ty(zelf_ty) {
         obj_id.0
+    } else {
+        unreachable!()
     };
     let defs = ctx.top_level.definitions.read();
     let def = defs[zelf_id].read();

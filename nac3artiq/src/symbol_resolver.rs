@@ -1064,7 +1064,6 @@ impl InnerResolver {
 impl SymbolResolver for Resolver {
     fn get_default_param_value(&self, expr: &ast::Expr) -> Option<SymbolValue> {
         let ast::ExprKind::Name { id, .. } = &expr.node else {
-
             unreachable!("only for resolving names")
         };
 

@@ -1634,7 +1634,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 let ty = func.custom.unwrap();
                 let TypeEnum::TFunc(sign) = &*ctx.unifier.get_ty(ty) else {
                     unreachable!()
-            };
+                };
 
                 sign.clone()
             };

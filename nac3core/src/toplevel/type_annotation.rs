@@ -390,17 +390,17 @@ pub fn get_type_from_type_annotation_kinds(
                 ]))
             }
 
-                    let param_ty = params
-                        .iter()
-                        .map(|x| {
-                            get_type_from_type_annotation_kinds(
-                                top_level_defs,
-                                unifier,
-                                x,
-                                subst_list
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
+            let param_ty = params
+                .iter()
+                .map(|x| {
+                    get_type_from_type_annotation_kinds(
+                        top_level_defs,
+                        unifier,
+                        x,
+                        subst_list
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
             let subst = {
                 // check for compatible range
