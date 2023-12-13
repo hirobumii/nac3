@@ -114,6 +114,41 @@ impl SymbolValue {
         }
     }
 
+    /// Creates a [`SymbolValue`] from a [`Constant`], with its type being inferred from the constant value.
+    ///
+    /// * `constant` - The constant to create the value from.
+    pub fn from_constant_inferred(
+        constant: &Constant,
+        unifier: &mut Unifier
+    ) -> Result<Self, String> {
+        match constant {
+            Constant::None => Ok(SymbolValue::OptionNone),
+            Constant::Bool(b) => Ok(SymbolValue::Bool(*b)),
+            Constant::Str(s) => Ok(SymbolValue::Str(s.to_string())),
+            Constant::Int(i) => {
+                let i = *i;
+                if i >= 0 {
+                    i32::try_from(i).map(SymbolValue::I32)
+                        .or_else(|_| i64::try_from(i).map(SymbolValue::I64))
+                        .map_err(|_| format!("Literal cannot be expressed as any integral type: {i}"))
+                } else {
+                    u32::try_from(i).map(SymbolValue::U32)
+                        .or_else(|_| u64::try_from(i).map(SymbolValue::U64))
+                        .map_err(|_| format!("Literal cannot be expressed as any integral type: {i}"))
+                }
+            }
+            Constant::Tuple(t) => {
+                let elems = t
+                    .iter()
+                    .map(|constant| Self::from_constant_inferred(constant, unifier))
+                    .collect::<Result<Vec<SymbolValue>, _>>()?;
+                Ok(SymbolValue::Tuple(elems))
+            }
+            Constant::Float(f) => Ok(SymbolValue::Double(*f)),
+            _ => Err(format!("Unsupported value type {constant:?}")),
+        }
+    }
+
     /// Returns the [`Type`] representing the data type of this value.
     pub fn get_type(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> Type {
         match self {

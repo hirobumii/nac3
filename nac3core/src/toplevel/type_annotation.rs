@@ -1,5 +1,6 @@
 use crate::symbol_resolver::SymbolValue;
 use super::*;
+use nac3parser::ast::Constant;
 
 #[derive(Clone, Debug)]
 pub enum TypeAnnotation {
@@ -13,16 +14,8 @@ pub enum TypeAnnotation {
     // can only be CustomClassKind
     Virtual(Box<TypeAnnotation>),
     TypeVar(Type),
-    /// A constant used in the context of a const-generic variable.
-    Constant {
-        /// The non-type variable associated with this constant.
-        ///
-        /// Invoking [Unifier::get_ty] on this type will return a [TypeEnum::TVar] representing the
-        /// const generic variable of which this constant is associated with.
-        ty: Type,
-        /// The constant value of this constant.
-        value: SymbolValue
-    },
+    /// A `Literal` allowing a subset of literals.
+    Literal(Vec<Constant>),
     List(Box<TypeAnnotation>),
     Tuple(Vec<TypeAnnotation>),
 }
@@ -57,7 +50,7 @@ impl TypeAnnotation {
                     }
                 )
             }
-            Constant { value, .. } => format!("Const({value})"),
+            Literal(values) => format!("Literal({})", values.iter().map(|v| format!("{v:?}")).join(", ")),
             Virtual(ty) => format!("virtual[{}]", ty.stringify(unifier)),
             List(ty) => format!("list[{}]", ty.stringify(unifier)),
             Tuple(types) => {
@@ -191,8 +184,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 }
                 let result = params_ast
                     .iter()
-                    .enumerate()
-                    .map(|(idx, x)| {
+                    .map(|x| {
                         parse_ast_to_type_annotation_kinds(
                             resolver,
                             top_level_defs,
@@ -203,7 +195,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                                 locked.insert(obj_id, type_vars.clone());
                                 locked.clone()
                             },
-                            Some(type_vars[idx]),
+                            None,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -319,6 +311,46 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             Ok(TypeAnnotation::Tuple(type_annotations))
         }
 
+        // Literal
+        ast::ExprKind::Subscript { value, slice, .. }
+        if {
+            matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"Literal".into())
+        } => {
+            let tup_elts = {
+                if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
+                    elts.as_slice()
+                } else {
+                    std::slice::from_ref(slice.as_ref())
+                }
+            };
+            let type_annotations = tup_elts
+                .iter()
+                .map(|e| {
+                    match &e.node {
+                        ast::ExprKind::Constant { value, .. } => Ok(
+                            TypeAnnotation::Literal(vec![value.clone()]),
+                        ),
+                        _ => parse_ast_to_type_annotation_kinds(
+                            resolver,
+                            top_level_defs,
+                            unifier,
+                            primitives,
+                            e,
+                            locked.clone(),
+                            None,
+                        ),
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flat_map(|type_ann| match type_ann {
+                    TypeAnnotation::Literal(values) => values,
+                    _ => unreachable!(),
+                })
+                .collect_vec();
+            Ok(TypeAnnotation::Literal(type_annotations))
+        }
+
         // custom class
         ast::ExprKind::Subscript { value, slice, .. } => {
             if let ast::ExprKind::Name { id, .. } = &value.node {
@@ -331,30 +363,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
         }
 
         ast::ExprKind::Constant { value, .. } => {
-            let type_var = type_var.expect("Expect type variable to be present");
-
-            let ntv_ty_enum = unifier.get_ty_immutable(type_var);
-            let TypeEnum::TVar { range: underlying_ty, .. } = ntv_ty_enum.as_ref() else {
-                unreachable!()
-            };
-            let underlying_ty = underlying_ty[0];
-
-            let value = SymbolValue::from_constant(value, underlying_ty, primitives, unifier)
-                .map_err(|err| HashSet::from([err]))?;
-
-            if matches!(value, SymbolValue::Str(_) | SymbolValue::Tuple(_) | SymbolValue::OptionSome(_)) {
-                return Err(HashSet::from([
-                    format!(
-                        "expression {value} is not allowed for constant type annotation (at {})",
-                        expr.location
-                    ),
-                ]))
-            }
-
-            Ok(TypeAnnotation::Constant {
-                ty: type_var,
-                value,
-            })
+            Ok(TypeAnnotation::Literal(vec![value.clone()]))
         }
 
         _ => Err(HashSet::from([
@@ -495,14 +504,13 @@ pub fn get_type_from_type_annotation_kinds(
             Ok(ty)
         }
         TypeAnnotation::Primitive(ty) | TypeAnnotation::TypeVar(ty) => Ok(*ty),
-        TypeAnnotation::Constant { ty, value, .. } => {
-            let ty_enum = unifier.get_ty(*ty);
-            let TypeEnum::TVar { range: ntv_underlying_ty, loc, is_const_generic: true, .. } = &*ty_enum else {
-                unreachable!("{} ({})", unifier.stringify(*ty), ty_enum.get_type_name());
-            };
+        TypeAnnotation::Literal(values) => {
+            let values = values.iter()
+                .map(|v| SymbolValue::from_constant_inferred(v, unifier))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|err| HashSet::from([err]))?;
 
-            let ty = ntv_underlying_ty[0];
-            let var = unifier.get_fresh_constant(value.clone(), ty, *loc);
+            let var = unifier.get_fresh_literal(values, None);
             Ok(var)
         }
         TypeAnnotation::Virtual(ty) => {
@@ -576,7 +584,7 @@ pub fn get_type_var_contained_in_type_annotation(ann: &TypeAnnotation) -> Vec<Ty
                 result.extend(get_type_var_contained_in_type_annotation(a));
             }
         }
-        TypeAnnotation::Primitive(..) | TypeAnnotation::Constant { .. } => {}
+        TypeAnnotation::Primitive(..) | TypeAnnotation::Literal { .. } => {}
     }
     result
 }
