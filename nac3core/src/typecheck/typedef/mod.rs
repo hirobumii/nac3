@@ -13,6 +13,7 @@ use super::type_error::{TypeError, TypeErrorKind};
 use super::unification_table::{UnificationKey, UnificationTable};
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::{DefinitionId, TopLevelContext, TopLevelDef};
+use crate::typecheck::type_inferencer::PrimitiveStore;
 
 #[cfg(test)]
 mod test;
@@ -211,7 +212,8 @@ pub struct Unifier {
     pub(crate) calls: Vec<Rc<Call>>,
     var_id: u32,
     unify_cache: HashSet<(Type, Type)>,
-    snapshot: Option<(usize, u32)>
+    snapshot: Option<(usize, u32)>,
+    primitive_store: Option<PrimitiveStore>,
 }
 
 impl Default for Unifier {
@@ -231,7 +233,17 @@ impl Unifier {
             unify_cache: HashSet::new(),
             top_level: None,
             snapshot: None,
+            primitive_store: None,
         }
+    }
+
+    /// Sets the [PrimitiveStore] instance within this `Unifier`.
+    ///
+    /// This function can only be invoked once. Any subsequent invocations will result in an
+    /// assertion error..
+    pub fn put_primitive_store(&mut self, primitives: &PrimitiveStore) {
+        assert!(self.primitive_store.is_none());
+        self.primitive_store.replace(primitives.clone());
     }
 
     pub unsafe fn get_unification_table(&mut self) -> &mut UnificationTable<Rc<TypeEnum>> {
@@ -252,6 +264,7 @@ impl Unifier {
             top_level: None,
             unify_cache: HashSet::new(),
             snapshot: None,
+            primitive_store: None,
         }
     }
 

@@ -580,6 +580,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         let (unifier, primitives) = &top_level_ctx.unifiers.read()[task.unifier_index];
         (Unifier::from_shared_unifier(unifier), *primitives)
     };
+    unifier.put_primitive_store(&primitives);
     unifier.top_level = Some(top_level_ctx.clone());
 
     let mut cache = HashMap::new();
