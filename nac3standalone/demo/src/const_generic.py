@@ -16,28 +16,28 @@ class HybridGenericClass2(Generic[A, T]):
 class HybridGenericClass3(Generic[T, A, B]):
     pass
 
-def make_generic_2() -> ConstGenericClass[2]:
+def make_generic_2() -> ConstGenericClass[Literal[2]]:
     return ...
 
-def make_generic2_1_2() -> ConstGeneric2Class[1, 2]:
+def make_generic2_1_2() -> ConstGeneric2Class[Literal[1], Literal[2]]:
     return ...
 
-def make_hybrid_class_2_int32() -> HybridGenericClass2[2, int32]:
+def make_hybrid_class_2_int32() -> HybridGenericClass2[Literal[2], int32]:
     return ...
 
-def make_hybrid_class_i32_0_1() -> HybridGenericClass3[int32, 0, 1]:
+def make_hybrid_class_i32_0_1() -> HybridGenericClass3[int32, Literal[0], Literal[1]]:
     return ...
 
-def consume_generic_2(instance: ConstGenericClass[2]):
+def consume_generic_2(instance: ConstGenericClass[Literal[2]]):
     pass
 
-def consume_generic2_1_2(instance: ConstGeneric2Class[1, 2]):
+def consume_generic2_1_2(instance: ConstGeneric2Class[Literal[1], Literal[2]]):
     pass
 
-def consume_hybrid_class_2_i32(instance: HybridGenericClass2[2, int32]):
+def consume_hybrid_class_2_i32(instance: HybridGenericClass2[Literal[2], int32]):
     pass
 
-def consume_hybrid_class_i32_0_1(instance: HybridGenericClass3[int32, 0, 1]):
+def consume_hybrid_class_i32_0_1(instance: HybridGenericClass3[int32, Literal[0], Literal[1]]):
     pass
 
 def f():

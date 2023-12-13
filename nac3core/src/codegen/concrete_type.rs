@@ -60,9 +60,8 @@ pub enum ConcreteTypeEnum {
         ret: ConcreteType,
         vars: HashMap<u32, ConcreteType>,
     },
-    TConstant {
-        value: SymbolValue,
-        ty: ConcreteType,
+    TLiteral {
+        values: Vec<SymbolValue>,
     },
 }
 
@@ -202,9 +201,8 @@ impl ConcreteTypeStore {
                 TypeEnum::TFunc(signature) => {
                     self.from_signature(unifier, primitives, signature, cache)
                 }
-                TypeEnum::TConstant { value, ty, .. } => ConcreteTypeEnum::TConstant {
-                    value: value.clone(),
-                    ty: self.from_unifier_type(unifier, primitives, *ty, cache),
+                TypeEnum::TLiteral { values, .. } => ConcreteTypeEnum::TLiteral {
+                    values: values.clone(),
                 },
                 _ => unreachable!("{:?}", ty_enum.get_type_name()),
             };
@@ -293,9 +291,8 @@ impl ConcreteTypeStore {
                     .map(|(id, cty)| (*id, self.to_unifier_type(unifier, primitives, *cty, cache)))
                     .collect::<HashMap<_, _>>(),
             }),
-            ConcreteTypeEnum::TConstant { value, ty } => TypeEnum::TConstant {
-                value: value.clone(),
-                ty: self.to_unifier_type(unifier, primitives, *ty, cache),
+            ConcreteTypeEnum::TLiteral { values, .. } => TypeEnum::TLiteral {
+                values: values.clone(),
                 loc: None,
             }
         };

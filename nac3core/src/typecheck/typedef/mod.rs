@@ -140,12 +140,10 @@ pub enum TypeEnum {
         is_const_generic: bool,
     },
 
-    /// A constant for substitution into a const generic variable.
-    TConstant {
+    /// A literal generic type matching `typing.Literal`.
+    TLiteral {
         /// The value of the constant.
-        value: SymbolValue,
-        /// The underlying type of the value.
-        ty: Type,
+        values: Vec<SymbolValue>,
         loc: Option<Location>,
     },
 
@@ -192,7 +190,7 @@ impl TypeEnum {
         match self {
             TypeEnum::TRigidVar { .. } => "TRigidVar",
             TypeEnum::TVar { .. } => "TVar",
-            TypeEnum::TConstant { .. } => "TConstant",
+            TypeEnum::TLiteral { .. } => "TConstant",
             TypeEnum::TTuple { .. } => "TTuple",
             TypeEnum::TList { .. } => "TList",
             TypeEnum::TObj { .. } => "TObj",
@@ -371,8 +369,7 @@ impl Unifier {
         (self.add_ty(TypeEnum::TVar { id, range, fields: None, name, loc, is_const_generic: false }), id)
     }
 
-    /// Returns a fresh type representing a constant generic variable with the given underlying type
-    /// `ty`.
+    /// Returns a fresh type representing a constant generic variable with the given underlying type `ty`.
     pub fn get_fresh_const_generic_var(
         &mut self,
         ty: Type,
@@ -384,17 +381,17 @@ impl Unifier {
         (self.add_ty(TypeEnum::TVar { id, range: vec![ty], fields: None, name, loc, is_const_generic: true }), id)
     }
 
-    /// Returns a fresh type representing a [fresh constant][TypeEnum::TConstant] with the given
-    /// `value` and type `ty`.
-    pub fn get_fresh_constant(
+    /// Returns a fresh type representing a [literal][TypeEnum::TConstant] with the given `values`.
+    pub fn get_fresh_literal(
         &mut self,
-        value: SymbolValue,
-        ty: Type,
+        values: Vec<SymbolValue>,
         loc: Option<Location>,
     ) -> Type {
-        assert!(matches!(self.get_ty(ty).as_ref(), TypeEnum::TObj { .. }));
-
-        self.add_ty(TypeEnum::TConstant { ty, value, loc })
+        let ty_enum = TypeEnum::TLiteral {
+            values: values.clone(),
+            loc
+        };
+        self.add_ty(ty_enum)
     }
 
     /// Unification would not unify rigid variables with other types, but we want to do this for
@@ -469,7 +466,7 @@ impl Unifier {
     pub fn is_concrete(&mut self, a: Type, allowed_typevars: &[Type]) -> bool {
         use TypeEnum::*;
         match &*self.get_ty(a) {
-            TRigidVar { .. } | TConstant { .. } => true,
+            TRigidVar { .. } | TLiteral { .. } => true,
             TVar { .. } => allowed_typevars.iter().any(|b| self.unification_table.unioned(a, *b)),
             TCall { .. } => false,
             TList { ty } | TVirtual { ty } => self.is_concrete(*ty, allowed_typevars),
@@ -747,18 +744,54 @@ impl Unifier {
                 self.set_a_to_b(a, b);
             }
 
-            (TVar { range: ty1, is_const_generic: true, .. }, TConstant { ty: ty2, .. }) => {
-                let ty1 = ty1[0];
+            (TVar { range: tys, is_const_generic: true, .. }, TLiteral { values, .. }) => {
+                assert_eq!(tys.len(), 1);
+                assert_eq!(values.len(), 1);
 
-                self.unify_impl(ty1, *ty2, false)?;
+                let primitives = &self.primitive_store
+                    .expect("Expected PrimitiveStore to be present");
+
+                let ty = tys[0];
+                let value= &values[0];
+                let value_ty = value.get_type(primitives, self);
+
+                // If the types don't match, try to implicitly promote integers
+                if !self.unioned(ty, value_ty) {
+
+                    let num_val = match *value {
+                        SymbolValue::I32(v) => v as i128,
+                        SymbolValue::I64(v) => v as i128,
+                        SymbolValue::U32(v) => v as i128,
+                        SymbolValue::U64(v) => v as i128,
+                        _ => return self.incompatible_types(a, b),
+                    };
+
+                    let can_convert = if self.unioned(ty, primitives.int32) {
+                        i32::try_from(num_val).is_ok()
+                    } else if self.unioned(ty, primitives.int64) {
+                        i64::try_from(num_val).is_ok()
+                    } else if self.unioned(ty, primitives.uint32) {
+                        u32::try_from(num_val).is_ok()
+                    } else if self.unioned(ty, primitives.uint64) {
+                        u64::try_from(num_val).is_ok()
+                    } else {
+                        false
+                    };
+
+                    if !can_convert {
+                        return self.incompatible_types(a, b)
+                    }
+                }
+
                 self.set_a_to_b(a, b);
             }
 
-            (TConstant { value: val1, ty: ty1, .. }, TConstant { value: val2, ty: ty2, .. }) => {
-                if val1 != val2 {
-                    return self.incompatible_types(a, b)
+            (TLiteral { values: val1, .. }, TLiteral { values: val2, .. }) => {
+                for (v1, v2) in zip(val1, val2) {
+                    if v1 != v2 {
+                        return self.incompatible_types(a, b)
+                    }
                 }
-                self.unify_impl(*ty1, *ty2, false)?;
 
                 self.set_a_to_b(a, b);
             }
@@ -1016,8 +1049,8 @@ impl Unifier {
                 };
                 n
             }
-            TypeEnum::TConstant { value, .. } => {
-                format!("const({value})")
+            TypeEnum::TLiteral { values, .. } => {
+                format!("const({})", values.iter().map(|v| format!("{v:?}")).join(", "))
             }
             TypeEnum::TTuple { ty } => {
                 let mut fields =
