@@ -148,6 +148,7 @@ impl TestEnvironment {
             uint64,
             option,
         };
+        unifier.put_primitive_store(&primitives);
         set_primitives_magic_methods(&primitives, &mut unifier);
 
         let id_to_name = [
@@ -295,6 +296,8 @@ impl TestEnvironment {
             uint64,
             option,
         };
+
+        unifier.put_primitive_store(&primitives);
 
         let (v0, id) = unifier.get_dummy_var();
 

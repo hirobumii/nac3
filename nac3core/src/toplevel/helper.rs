@@ -145,6 +145,7 @@ impl TopLevelComposer {
             exception,
             option,
         };
+        unifier.put_primitive_store(&primitives);
         crate::typecheck::magic_methods::set_primitives_magic_methods(&primitives, &mut unifier);
         (primitives, unifier)
     }
