@@ -64,7 +64,9 @@ impl SymbolResolver for Resolver {
 
     fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
         self.0.id_to_def.lock().get(&id).copied()
-            .ok_or_else(|| HashSet::from(["Undefined identifier".to_string()]))
+            .ok_or_else(|| HashSet::from([
+                format!("Undefined identifier `{id}`"),
+            ]))
     }
 
     fn get_string_id(&self, s: &str) -> i32 {
