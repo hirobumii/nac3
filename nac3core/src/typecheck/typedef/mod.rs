@@ -388,7 +388,7 @@ impl Unifier {
         loc: Option<Location>,
     ) -> Type {
         let ty_enum = TypeEnum::TLiteral {
-            values: values.clone(),
+            values: values.into_iter().dedup().collect(),
             loc
         };
         self.add_ty(ty_enum)
