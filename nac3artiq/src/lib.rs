@@ -63,6 +63,17 @@ enum Isa {
     CortexA9,
 }
 
+impl Isa {
+    /// Returns the number of bits in `size_t` for the [`Isa`].
+    fn get_size_type(&self) -> u32 {
+        if self == &Isa::Host {
+            64u32
+        } else {
+            32u32
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PrimitivePythonId {
     int: u64,
@@ -277,9 +288,11 @@ impl Nac3 {
         py: Python,
         link_fn: &dyn Fn(&Module) -> PyResult<T>,
     ) -> PyResult<T> {
+        let size_t = self.isa.get_size_type();
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
             self.builtins.clone(),
             ComposerConfig { kernel_ann: Some("Kernel"), kernel_invariant_ann: "KernelInvariant" },
+            size_t,
         );
 
         let builtins = PyModule::import(py, "builtins")?;
@@ -792,7 +805,7 @@ impl Nac3 {
             Isa::RiscV32IMA => &timeline::NOW_PINNING_TIME_FNS,
             Isa::CortexA9 | Isa::Host => &timeline::EXTERN_TIME_FNS,
         };
-        let primitive: PrimitiveStore = TopLevelComposer::make_primitives().0;
+        let primitive: PrimitiveStore = TopLevelComposer::make_primitives(isa.get_size_type()).0;
         let builtins = vec![
             (
                 "now_mu".into(),

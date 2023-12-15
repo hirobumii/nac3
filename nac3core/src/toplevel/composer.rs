@@ -37,12 +37,8 @@ pub struct TopLevelComposer {
     // number of built-in function and classes in the definition list, later skip
     pub builtin_num: usize,
     pub core_config: ComposerConfig,
-}
-
-impl Default for TopLevelComposer {
-    fn default() -> Self {
-        Self::new(vec![], ComposerConfig::default()).0
-    }
+    /// The size of a native word on the target platform.
+    pub size_t: u32,
 }
 
 impl TopLevelComposer {
@@ -52,8 +48,9 @@ impl TopLevelComposer {
     pub fn new(
         builtins: Vec<(StrRef, FunSignature, Arc<GenCall>)>,
         core_config: ComposerConfig,
+        size_t: u32,
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
-        let mut primitives = Self::make_primitives();
+        let mut primitives = Self::make_primitives(size_t);
         let mut definition_ast_list = builtins::get_builtins(&mut primitives);
         let primitives_ty = primitives.0;
         let mut unifier = primitives.1;
@@ -146,6 +143,7 @@ impl TopLevelComposer {
                 defined_names,
                 method_class,
                 core_config,
+                size_t,
             },
             builtin_id,
             builtin_ty,

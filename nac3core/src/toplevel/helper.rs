@@ -44,7 +44,7 @@ impl TopLevelDef {
 
 impl TopLevelComposer {
     #[must_use]
-    pub fn make_primitives() -> (PrimitiveStore, Unifier) {
+    pub fn make_primitives(size_t: u32) -> (PrimitiveStore, Unifier) {
         let mut unifier = Unifier::new();
         let int32 = unifier.add_ty(TypeEnum::TObj {
             obj_id: DefinitionId(0),
@@ -144,6 +144,7 @@ impl TopLevelComposer {
             str,
             exception,
             option,
+            size_t,
         };
         unifier.put_primitive_store(&primitives);
         crate::typecheck::magic_methods::set_primitives_magic_methods(&primitives, &mut unifier);

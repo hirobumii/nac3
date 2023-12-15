@@ -41,6 +41,18 @@ pub struct PrimitiveStore {
     pub str: Type,
     pub exception: Type,
     pub option: Type,
+    pub size_t: u32,
+}
+
+impl PrimitiveStore {
+    /// Returns a [Type] representing `size_t`.
+    pub fn usize(&self) -> Type {
+        match self.size_t {
+            32 => self.uint32,
+            64 => self.uint64,
+            _ => unreachable!(),
+        }
+    }
 }
 
 pub struct FunctionData {

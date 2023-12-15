@@ -286,6 +286,7 @@ fn main() {
         // The default behavior for -O<n> where n>3 defaults to O3 for both Clang and GCC
         _ => OptimizationLevel::Aggressive,
     };
+    const SIZE_T: u32 = 64;
 
     let program = match fs::read_to_string(file_name.clone()) {
         Ok(program) => program,
@@ -295,9 +296,9 @@ fn main() {
         }
     };
 
-    let primitive: PrimitiveStore = TopLevelComposer::make_primitives().0;
+    let primitive: PrimitiveStore = TopLevelComposer::make_primitives(SIZE_T).0;
     let (mut composer, builtins_def, builtins_ty) =
-        TopLevelComposer::new(vec![], ComposerConfig::default());
+        TopLevelComposer::new(vec![], ComposerConfig::default(), SIZE_T);
 
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
         id_to_type: builtins_ty.into(),
@@ -400,7 +401,7 @@ fn main() {
         membuffer.lock().push(buffer);
     })));
     let threads = (0..threads)
-        .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{i}"), 64)))
+        .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{i}"), SIZE_T)))
         .collect();
     let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
     registry.add_task(task);

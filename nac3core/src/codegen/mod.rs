@@ -614,6 +614,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         str: unifier.get_representative(primitives.str),
         exception: unifier.get_representative(primitives.exception),
         option: unifier.get_representative(primitives.option),
+        ..primitives
     };
 
     let mut type_cache: HashMap<_, _> = [
