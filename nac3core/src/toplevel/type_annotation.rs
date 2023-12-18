@@ -341,7 +341,14 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                     _ => unreachable!(),
                 })
                 .collect_vec();
-            Ok(TypeAnnotation::Literal(type_annotations))
+
+            if type_annotations.len() == 1 {
+                Ok(TypeAnnotation::Literal(type_annotations))
+            } else {
+                Err(HashSet::from([
+                    format!("multiple literal bounds are currently unsupported (at {})", value.location)
+                ]))
+            }
         }
 
         // custom class
