@@ -9,7 +9,7 @@ import pathlib
 
 from numpy import int32, int64, uint32, uint64
 from scipy import special
-from typing import TypeVar, Generic
+from typing import TypeVar, Generic, Literal
 
 T = TypeVar('T')
 class Option(Generic[T]):
@@ -107,6 +107,7 @@ def patch(module):
     module.TypeVar = TypeVar
     module.ConstGeneric = ConstGeneric
     module.Generic = Generic
+    module.Literal = Literal
     module.extern = extern
     module.Option = Option
     module.Some = Some
