@@ -529,12 +529,10 @@ impl Unifier {
             }
             required.pop();
             let (name, expected) = all_names.pop().unwrap();
-            let snapshot = self.unification_table.get_snapshot();
             self.unify_impl(expected, *t, false).map_err(|_| {
                 self.restore_snapshot();
                 TypeError::new(TypeErrorKind::IncorrectArgType { name, expected, got: *t }, *loc)
             })?;
-            self.unification_table.restore_snapshot(snapshot);
         }
         for (k, t) in kwargs {
             if let Some(i) = required.iter().position(|v| v == k) {
@@ -548,12 +546,10 @@ impl Unifier {
                     TypeError::new(TypeErrorKind::UnknownArgName(*k), *loc)
                 })?;
             let (name, expected) = all_names.remove(i);
-            let snapshot = self.unification_table.get_snapshot();
             self.unify_impl(expected, *t, false).map_err(|_| {
                 self.restore_snapshot();
                 TypeError::new(TypeErrorKind::IncorrectArgType { name, expected, got: *t }, *loc)
             })?;
-            self.unification_table.restore_snapshot(snapshot);
         }
         if !required.is_empty() {
             self.restore_snapshot();
@@ -750,21 +746,18 @@ impl Unifier {
 
             (TVar { range: tys, is_const_generic: true, .. }, TLiteral { values, .. }) => {
                 assert_eq!(tys.len(), 1);
+                assert_eq!(values.len(), 1);
 
                 let primitives = &self.primitive_store
                     .expect("Expected PrimitiveStore to be present");
 
                 let ty = tys[0];
+                let value= &values[0];
+                let value_ty = value.get_type(primitives, self);
 
-                for value in values {
-                    let value_ty = value.get_type(primitives, self);
+                // If the types don't match, try to implicitly promote integers
+                if !self.unioned(ty, value_ty) {
 
-                    if self.unioned(ty, value_ty) {
-                        self.set_a_to_b(a, b);
-                        return Ok(())
-                    }
-
-                    // The types don't match, try to implicitly promote integers
                     let num_val = match *value {
                         SymbolValue::I32(v) => v as i128,
                         SymbolValue::I64(v) => v as i128,
@@ -785,18 +778,19 @@ impl Unifier {
                         false
                     };
 
-                    if can_convert {
-                        self.set_a_to_b(a, b);
-                        return Ok(())
+                    if !can_convert {
+                        return self.incompatible_types(a, b)
                     }
                 }
 
-                return self.incompatible_types(a, b)
+                self.set_a_to_b(a, b);
             }
 
             (TLiteral { values: val1, .. }, TLiteral { values: val2, .. }) => {
-                if val2.iter().any(|val| !val1.contains(val)) {
-                    return self.incompatible_types(a, b)
+                for (v1, v2) in zip(val1, val2) {
+                    if v1 != v2 {
+                        return self.incompatible_types(a, b)
+                    }
                 }
 
                 self.set_a_to_b(a, b);
