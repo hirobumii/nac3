@@ -205,6 +205,27 @@ impl TypeEnum {
             TypeEnum::TFunc { .. } => "TFunc",
         }
     }
+
+    /// Returns a [TypeEnum] representing a generic `ndarray` type.
+    ///
+    /// * `dtype` - The datatype of the `ndarray`, or `None` if the datatype is generic.
+    /// * `ndims` - The number of dimensions of the `ndarray`, or `None` if the number of dimensions is generic.
+    #[must_use]
+    pub fn ndarray(
+        unifier: &mut Unifier,
+        dtype: Option<Type>,
+        ndims: Option<Type>,
+        primitives: &PrimitiveStore
+    ) -> TypeEnum {
+        let dtype = dtype.unwrap_or_else(|| unifier.get_fresh_var(Some("T".into()), None).0);
+        let ndims = ndims
+            .unwrap_or_else(|| unifier.get_fresh_const_generic_var(primitives.usize(), Some("N".into()), None).0);
+
+        TypeEnum::TNDArray {
+            ty: dtype,
+            ndims,
+        }
+    }
 }
 
 pub type SharedUnifier = Arc<Mutex<(UnificationTable<TypeEnum>, u32, Vec<Call>)>>;
