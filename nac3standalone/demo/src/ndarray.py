@@ -7,12 +7,6 @@ def consume_ndarray_i32_1(n: ndarray[int32, Literal[1]]):
 def consume_ndarray_2(n: ndarray[float, Literal[2]]):
     pass
 
-def consume_ndarray_i32_1(n: ndarray[int32, 1]):
-    pass
-
-def consume_ndarray_2(n: ndarray[float, 2]):
-    pass
-
 def test_ndarray_ctor():
     n = np_ndarray([1])
     consume_ndarray_1(n)
