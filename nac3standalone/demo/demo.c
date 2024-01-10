@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 
 #if __SIZEOF_POINTER__ == 8
     #define usize uint64_t
@@ -26,19 +27,19 @@ void output_bool(bool x) {
 }
 
 void output_int32(int32_t x) {
-    printf("%d\n", x);
+    printf("%"PRId32"\n", x);
 }
 
 void output_int64(int64_t x) {
-    printf("%lld\n", x);
+    printf("%"PRId64"\n", x);
 }
 
 void output_uint32(uint32_t x) {
-    printf("%u\n", x);
+    printf("%"PRIu32"\n", x);
 }
 
 void output_uint64(uint64_t x) {
-    printf("%llu\n", x);
+    printf("%"PRIu64"\n", x);
 }
 
 void output_float64(double x) {
