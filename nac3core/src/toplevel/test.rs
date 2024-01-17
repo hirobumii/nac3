@@ -111,7 +111,7 @@ impl SymbolResolver for Resolver {
     "register"
 )]
 fn test_simple_register(source: Vec<&str>) {
-    let mut composer: TopLevelComposer = Default::default();
+    let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
 
     for s in source {
         let ast = parse_program(s, Default::default()).unwrap();
@@ -131,7 +131,7 @@ fn test_simple_register(source: Vec<&str>) {
     "register"
 )]
 fn test_simple_register_without_constructor(source: &str) {
-    let mut composer: TopLevelComposer = Default::default();
+    let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
     let ast = parse_program(source, Default::default()).unwrap();
     let ast = ast[0].clone();
     composer.register_top_level(ast, None, "".into(), true).unwrap();
@@ -165,7 +165,7 @@ fn test_simple_register_without_constructor(source: &str) {
     "function compose"
 )]
 fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&str>) {
-    let mut composer: TopLevelComposer = Default::default();
+    let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
 
     let internal_resolver = Arc::new(ResolverInternal {
         id_to_def: Default::default(),
@@ -513,7 +513,7 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
 )]
 fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
     let print = false;
-    let mut composer: TopLevelComposer = Default::default();
+    let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
 
     let internal_resolver = make_internal_resolver_with_tvar(
         vec![
@@ -690,7 +690,7 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
 )]
 fn test_inference(source: Vec<&str>, res: Vec<&str>) {
     let print = true;
-    let mut composer: TopLevelComposer = Default::default();
+    let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
 
     let internal_resolver = make_internal_resolver_with_tvar(
         vec![

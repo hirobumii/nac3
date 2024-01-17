@@ -5,7 +5,8 @@ use crate::{
     },
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
-        composer::TopLevelComposer, DefinitionId, FunInstance, TopLevelContext, TopLevelDef,
+        composer::{ComposerConfig, TopLevelComposer}, DefinitionId, FunInstance, TopLevelContext,
+        TopLevelDef,
     },
     typecheck::{
         type_inferencer::{FunctionData, Inferencer, PrimitiveStore},
@@ -91,7 +92,7 @@ fn test_primitives() {
         "};
     let statements = parse_program(source, Default::default()).unwrap();
 
-    let composer: TopLevelComposer = Default::default();
+    let composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 32).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
     let top_level = Arc::new(composer.make_top_level_context());
@@ -248,7 +249,7 @@ fn test_simple_call() {
         "};
     let statements_2 = parse_program(source_2, Default::default()).unwrap();
 
-    let composer: TopLevelComposer = Default::default();
+    let composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 32).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
     let top_level = Arc::new(composer.make_top_level_context());

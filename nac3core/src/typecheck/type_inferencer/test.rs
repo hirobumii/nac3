@@ -147,6 +147,7 @@ impl TestEnvironment {
             uint32,
             uint64,
             option,
+            size_t: 64,
         };
         unifier.put_primitive_store(&primitives);
         set_primitives_magic_methods(&primitives, &mut unifier);
@@ -295,6 +296,7 @@ impl TestEnvironment {
             uint32,
             uint64,
             option,
+            size_t: 64,
         };
 
         unifier.put_primitive_store(&primitives);
