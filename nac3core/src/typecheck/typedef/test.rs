@@ -33,7 +33,6 @@ impl Unifier {
                     && ty1.iter().zip(ty2.iter()).all(|(t1, t2)| self.eq(*t1, *t2))
             }
             (TypeEnum::TList { ty: ty1 }, TypeEnum::TList { ty: ty2 })
-            | (TypeEnum::TNDArray { ty: ty1 }, TypeEnum::TNDArray { ty: ty2 })
             | (TypeEnum::TVirtual { ty: ty1 }, TypeEnum::TVirtual { ty: ty2 }) => {
                 self.eq(*ty1, *ty2)
             }
@@ -41,7 +40,7 @@ impl Unifier {
                 TypeEnum::TObj { obj_id: id1, params: params1, .. },
                 TypeEnum::TObj { obj_id: id2, params: params2, .. },
             ) => id1 == id2 && self.map_eq(params1, params2),
-            // TCall and TFunc are not yet implemented
+            // TNDArray, TLiteral, TCall and TFunc are not yet implemented
             _ => false,
         }
     }
