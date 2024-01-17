@@ -856,6 +856,7 @@ impl Nac3 {
         let builtins_mod = PyModule::import(py, "builtins").unwrap();
         let id_fn = builtins_mod.getattr("id").unwrap();
         let numpy_mod = PyModule::import(py, "numpy").unwrap();
+        let numpy_typing_mod = PyModule::import(py, "numpy.typing").unwrap();
         let typing_mod = PyModule::import(py, "typing").unwrap();
         let types_mod = PyModule::import(py, "types").unwrap();
 
@@ -880,7 +881,7 @@ impl Nac3 {
             float: get_attr_id(builtins_mod, "float"),
             float64: get_attr_id(numpy_mod, "float64"),
             list: get_attr_id(builtins_mod, "list"),
-            ndarray: get_attr_id(numpy_mod, "NDArray"),
+            ndarray: get_attr_id(numpy_typing_mod, "NDArray"),
             tuple: get_attr_id(builtins_mod, "tuple"),
             exception: get_attr_id(builtins_mod, "Exception"),
             option: get_id(artiq_builtins.get_item("Option").ok().flatten().unwrap()),
