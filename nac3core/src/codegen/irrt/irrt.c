@@ -269,3 +269,39 @@ void __nac3_ndarray_calc_nd_indices64(
         stride *= dims[i];
     }
 }
+
+uint32_t __nac3_ndarray_flatten_index(
+    const uint32_t* dims,
+    uint32_t num_dims,
+    const uint32_t* indices,
+    uint32_t num_indices
+) {
+    uint32_t idx = 0;
+    uint32_t stride = 1;
+    for (uint32_t i = num_dims - 1; i-- >= 0; ) {
+        if (i < num_indices) {
+            idx += (stride * indices[i]);
+        }
+
+        stride *= dims[i];
+    }
+    return idx;
+}
+
+uint64_t __nac3_ndarray_flatten_index64(
+    const uint64_t* dims,
+    uint64_t num_dims,
+    const uint32_t* indices,
+    uint64_t num_indices
+) {
+    uint64_t idx = 0;
+    uint64_t stride = 1;
+    for (uint64_t i = num_dims - 1; i-- >= 0; ) {
+        if (i < num_indices) {
+            idx += (stride * indices[i]);
+        }
+
+        stride *= dims[i];
+    }
+    return idx;
+}

@@ -3,7 +3,7 @@ use inkwell::values::{ArrayValue, IntValue};
 use nac3parser::ast::StrRef;
 use crate::{
     codegen::{
-        classes::ListValue,
+        classes::{ListValue, NDArrayValue},
         CodeGenContext,
         CodeGenerator,
         irrt::{
@@ -27,11 +27,10 @@ fn create_ndarray_const_shape<'ctx, 'a>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
     shape: ArrayValue<'ctx>
-) -> Result<PointerValue<'ctx>, String> {
+) -> Result<NDArrayValue<'ctx>, String> {
     let ndarray_ty_enum = TypeEnum::ndarray(&mut ctx.unifier, Some(elem_ty), None, &ctx.primitives);
     let ndarray_ty = ctx.unifier.add_ty(ndarray_ty_enum);
 
-    let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
     let llvm_pndarray_t = ctx.get_llvm_type(generator, ndarray_ty).into_pointer_type();
@@ -68,54 +67,18 @@ fn create_ndarray_const_shape<'ctx, 'a>(
         llvm_ndarray_t.into(),
         None,
     )?;
+    let ndarray = NDArrayValue::from_ptr_val(ndarray, llvm_usize, None);
 
     let num_dims = llvm_usize.const_int(shape.get_type().len() as u64, false);
+    ndarray.store_ndims(ctx, generator, num_dims);
 
-    let ndarray_num_dims = unsafe {
-        ctx.builder.build_in_bounds_gep(
-            ndarray,
-            &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-            "",
-        )
-    };
-    ctx.builder.build_store(ndarray_num_dims, num_dims);
-
-    let ndarray_dims = unsafe {
-        ctx.builder.build_in_bounds_gep(
-            ndarray,
-            &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-            "",
-        )
-    };
-
-    let ndarray_num_dims = ctx.build_gep_and_load(
-        ndarray,
-        &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-        None,
-    ).into_int_value();
-
-    ctx.builder.build_store(
-        ndarray_dims,
-        ctx.builder.build_array_alloca(
-            llvm_usize,
-            ndarray_num_dims,
-            "",
-        ),
-    );
+    let ndarray_num_dims = ndarray.load_ndims(ctx);
+    ndarray.create_dims(ctx, llvm_usize, ndarray_num_dims);
 
     for i in 0..shape.get_type().len() {
-        let ndarray_dim = ctx.build_gep_and_load(
-            ndarray,
-            &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-            None,
-        ).into_pointer_value();
-        let ndarray_dim = unsafe {
-            ctx.builder.build_in_bounds_gep(
-                ndarray_dim,
-                &[llvm_i32.const_int(i as u64, true)],
-                "",
-            )
-        };
+        let ndarray_dim = ndarray
+            .get_dims()
+            .ptr_offset(ctx, generator, llvm_usize.const_int(i as u64, true), None);
         let shape_dim = ctx.builder.build_extract_value(shape, i, "")
             .map(|val| val.into_int_value())
             .unwrap();
@@ -123,42 +86,14 @@ fn create_ndarray_const_shape<'ctx, 'a>(
         ctx.builder.build_store(ndarray_dim, shape_dim);
     }
 
-    let (ndarray_num_dims, ndarray_dims) = unsafe {
-        (
-            ctx.builder.build_in_bounds_gep(
-                ndarray,
-                &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-                ""
-            ),
-            ctx.builder.build_in_bounds_gep(
-                ndarray,
-                &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-                ""
-            ),
-        )
-    };
+    let ndarray_dims = ndarray.get_dims().get_ptr(ctx);
     let ndarray_num_elems = call_ndarray_calc_size(
         generator,
         ctx,
-        ctx.builder.build_load(ndarray_num_dims, "").into_int_value(),
-        ctx.builder.build_load(ndarray_dims, "").into_pointer_value(),
+        ndarray.load_ndims(ctx),
+        ndarray_dims,
     );
-
-    let ndarray_data = unsafe {
-        ctx.builder.build_in_bounds_gep(
-            ndarray,
-            &[llvm_i32.const_zero(), llvm_i32.const_int(2, true)],
-            "",
-        )
-    };
-    ctx.builder.build_store(
-        ndarray_data,
-        ctx.builder.build_array_alloca(
-            llvm_ndarray_data_t,
-            ndarray_num_elems,
-            ""
-        ),
-    );
+    ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
     Ok(ndarray)
 }
@@ -214,7 +149,7 @@ fn call_ndarray_empty_impl<'ctx, 'a>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
-) -> Result<PointerValue<'ctx>, String> {
+) -> Result<NDArrayValue<'ctx>, String> {
     let ndarray_ty_enum = TypeEnum::ndarray(&mut ctx.unifier, Some(elem_ty), None, &ctx.primitives);
     let ndarray_ty = ctx.unifier.add_ty(ndarray_ty_enum);
 
@@ -284,79 +219,23 @@ fn call_ndarray_empty_impl<'ctx, 'a>(
         llvm_ndarray_t.into(),
         None,
     )?;
+    let ndarray = NDArrayValue::from_ptr_val(ndarray, llvm_usize, None);
 
     let num_dims = shape.load_size(ctx, None);
+    ndarray.store_ndims(ctx, generator, num_dims);
 
-    let ndarray_num_dims = unsafe {
-        ctx.builder.build_in_bounds_gep(
-            ndarray,
-            &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-            "",
-        )
-    };
-    ctx.builder.build_store(ndarray_num_dims, num_dims);
-
-    let ndarray_dims = unsafe {
-        ctx.builder.build_in_bounds_gep(
-            ndarray,
-            &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-            "",
-        )
-    };
-
-    let ndarray_num_dims = ctx.build_gep_and_load(
-        ndarray,
-        &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-        None,
-    ).into_int_value();
-
-    ctx.builder.build_store(
-        ndarray_dims,
-        ctx.builder.build_array_alloca(
-            llvm_usize,
-            ndarray_num_dims,
-            "",
-        ),
-    );
+    let ndarray_num_dims = ndarray.load_ndims(ctx);
+    ndarray.create_dims(ctx, llvm_usize, ndarray_num_dims);
 
     call_ndarray_init_dims(generator, ctx, ndarray, shape);
 
-    let (ndarray_num_dims, ndarray_dims) = unsafe {
-        (
-            ctx.builder.build_in_bounds_gep(
-                ndarray,
-                &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-                ""
-            ),
-            ctx.builder.build_in_bounds_gep(
-                ndarray,
-                &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-                ""
-            ),
-        )
-    };
     let ndarray_num_elems = call_ndarray_calc_size(
         generator,
         ctx,
-        ctx.builder.build_load(ndarray_num_dims, "").into_int_value(),
-        ctx.builder.build_load(ndarray_dims, "").into_pointer_value(),
+        ndarray.load_ndims(ctx),
+        ndarray.get_dims().get_ptr(ctx),
     );
-
-    let ndarray_data = unsafe {
-        ctx.builder.build_in_bounds_gep(
-            ndarray,
-            &[llvm_i32.const_zero(), llvm_i32.const_int(2, true)],
-            "",
-        )
-    };
-    ctx.builder.build_store(
-        ndarray_data,
-        ctx.builder.build_array_alloca(
-            llvm_ndarray_data_t,
-            ndarray_num_elems,
-            "",
-        ),
-    );
+    ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
     Ok(ndarray)
 }
@@ -369,35 +248,19 @@ fn call_ndarray_empty_impl<'ctx, 'a>(
 fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, 'a>,
-    ndarray: PointerValue<'ctx>,
+    ndarray: NDArrayValue<'ctx>,
     value_fn: ValueFn,
 ) -> Result<(), String>
     where
         ValueFn: Fn(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, IntValue<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
 {
-    let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (num_dims, dims) = unsafe {
-        (
-            ctx.builder.build_in_bounds_gep(
-                ndarray,
-                &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-                ""
-            ),
-            ctx.builder.build_in_bounds_gep(
-                ndarray,
-                &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-                ""
-            ),
-        )
-    };
 
     let ndarray_num_elems = call_ndarray_calc_size(
         generator,
         ctx,
-        ctx.builder.build_load(num_dims, "").into_int_value(),
-        ctx.builder.build_load(dims, "").into_pointer_value(),
+        ndarray.load_ndims(ctx),
+        ndarray.get_dims().get_ptr(ctx),
     );
 
     gen_for_callback(
@@ -417,21 +280,11 @@ fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
             Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, ndarray_num_elems, ""))
         },
         |generator, ctx, i_addr| {
-            let ndarray_data = ctx.build_gep_and_load(
-                ndarray,
-                &[llvm_i32.const_zero(), llvm_i32.const_int(2, true)],
-                None
-            ).into_pointer_value();
-
             let i = ctx.builder
                 .build_load(i_addr, "")
                 .into_int_value();
             let elem = unsafe {
-                ctx.builder.build_in_bounds_gep(
-                    ndarray_data,
-                    &[i],
-                    ""
-                )
+                ndarray.get_data().ptr_to_data_flattened_unchecked(ctx, i, None)
             };
 
             let value = value_fn(generator, ctx, i)?;
@@ -459,7 +312,7 @@ fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
 fn ndarray_fill_indexed<'ctx, 'a, ValueFn>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, 'a>,
-    ndarray: PointerValue<'ctx>,
+    ndarray: NDArrayValue<'ctx>,
     value_fn: ValueFn,
 ) -> Result<(), String>
     where
@@ -491,7 +344,7 @@ fn call_ndarray_zeros_impl<'ctx, 'a>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
-) -> Result<PointerValue<'ctx>, String> {
+) -> Result<NDArrayValue<'ctx>, String> {
     let supported_types = [
         ctx.primitives.int32,
         ctx.primitives.int64,
@@ -527,7 +380,7 @@ fn call_ndarray_ones_impl<'ctx, 'a>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
-) -> Result<PointerValue<'ctx>, String> {
+) -> Result<NDArrayValue<'ctx>, String> {
     let supported_types = [
         ctx.primitives.int32,
         ctx.primitives.int64,
@@ -564,7 +417,7 @@ fn call_ndarray_full_impl<'ctx, 'a>(
     elem_ty: Type,
     shape: ListValue<'ctx>,
     fill_value: BasicValueEnum<'ctx>,
-) -> Result<PointerValue<'ctx>, String> {
+) -> Result<NDArrayValue<'ctx>, String> {
     let ndarray = call_ndarray_empty_impl(generator, ctx, elem_ty, shape)?;
     ndarray_fill_flattened(
         generator,
@@ -633,7 +486,7 @@ fn call_ndarray_eye_impl<'ctx, 'a>(
     nrows: IntValue<'ctx>,
     ncols: IntValue<'ctx>,
     offset: IntValue<'ctx>,
-) -> Result<PointerValue<'ctx>, String> {
+) -> Result<NDArrayValue<'ctx>, String> {
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
     let llvm_usize_2 = llvm_usize.array_type(2);
@@ -718,7 +571,7 @@ pub fn gen_ndarray_empty<'ctx, 'a>(
         context,
         context.primitives.float,
         ListValue::from_ptr_val(shape_arg.into_pointer_value(), llvm_usize, None),
-    )
+    ).map(NDArrayValue::into)
 }
 
 /// Generates LLVM IR for `ndarray.zeros`.
@@ -742,7 +595,7 @@ pub fn gen_ndarray_zeros<'ctx, 'a>(
         context,
         context.primitives.float,
         ListValue::from_ptr_val(shape_arg.into_pointer_value(), llvm_usize, None),
-    )
+    ).map(NDArrayValue::into)
 }
 
 /// Generates LLVM IR for `ndarray.ones`.
@@ -766,7 +619,7 @@ pub fn gen_ndarray_ones<'ctx, 'a>(
         context,
         context.primitives.float,
         ListValue::from_ptr_val(shape_arg.into_pointer_value(), llvm_usize, None),
-    )
+    ).map(NDArrayValue::into)
 }
 
 /// Generates LLVM IR for `ndarray.full`.
@@ -794,7 +647,7 @@ pub fn gen_ndarray_full<'ctx, 'a>(
         fill_value_ty,
         ListValue::from_ptr_val(shape_arg.into_pointer_value(), llvm_usize, None),
         fill_value_arg,
-    )
+    ).map(NDArrayValue::into)
 }
 
 /// Generates LLVM IR for `ndarray.eye`.
@@ -839,7 +692,7 @@ pub fn gen_ndarray_eye<'ctx, 'a>(
         nrows_arg.into_int_value(),
         ncols_arg.into_int_value(),
         offset_arg.into_int_value(),
-    )
+    ).map(NDArrayValue::into)
 }
 
 /// Generates LLVM IR for `ndarray.identity`.
@@ -866,5 +719,5 @@ pub fn gen_ndarray_identity<'ctx, 'a>(
         n_arg.into_int_value(),
         n_arg.into_int_value(),
         llvm_usize.const_zero(),
-    )
+    ).map(NDArrayValue::into)
 }
