@@ -1,18 +1,12 @@
+#include <inttypes.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <inttypes.h>
 
-#if __SIZEOF_POINTER__ == 8
-    #define usize uint64_t
-#elif __SIZEOF_POINTER__ == 4
-    #define usize uint32_t
-#else
-    #error "Unsupported platform - Platform is not 32-bit or 64-bit"
-#endif
+#define usize size_t
 
 double dbl_nan(void) {
   return NAN;
