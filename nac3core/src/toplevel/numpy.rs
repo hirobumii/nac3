@@ -3,6 +3,7 @@ use inkwell::values::{ArrayValue, IntValue};
 use nac3parser::ast::StrRef;
 use crate::{
     codegen::{
+        classes::ListValue,
         CodeGenContext,
         CodeGenerator,
         irrt::{
@@ -212,7 +213,7 @@ fn call_ndarray_empty_impl<'ctx, 'a>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
-    shape: PointerValue<'ctx>,
+    shape: ListValue<'ctx>,
 ) -> Result<PointerValue<'ctx>, String> {
     let ndarray_ty_enum = TypeEnum::ndarray(&mut ctx.unifier, Some(elem_ty), None, &ctx.primitives);
     let ndarray_ty = ctx.unifier.add_ty(ndarray_ty_enum);
@@ -239,29 +240,15 @@ fn call_ndarray_empty_impl<'ctx, 'a>(
             let i = ctx.builder
                 .build_load(i_addr, "")
                 .into_int_value();
-            let shape_len = ctx.build_gep_and_load(
-                shape,
-                &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-                None,
-            ).into_int_value();
+            let shape_len = shape.load_size(ctx, None);
 
-            Ok(ctx.builder.build_int_compare(IntPredicate::ULE, i, shape_len, ""))
+            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, shape_len, ""))
         },
         |generator, ctx, i_addr| {
-            let shape_elems = ctx.build_gep_and_load(
-                shape,
-                &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-                None
-            ).into_pointer_value();
-
             let i = ctx.builder
                 .build_load(i_addr, "")
                 .into_int_value();
-            let shape_dim = ctx.build_gep_and_load(
-                shape_elems,
-                &[i],
-                None
-            ).into_int_value();
+            let shape_dim = shape.get_data().get(ctx, generator, i, None).into_int_value();
 
             let shape_dim_gez = ctx.builder.build_int_compare(
                 IntPredicate::SGE,
@@ -298,11 +285,7 @@ fn call_ndarray_empty_impl<'ctx, 'a>(
         None,
     )?;
 
-    let num_dims = ctx.build_gep_and_load(
-        shape,
-        &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-        None
-    ).into_int_value();
+    let num_dims = shape.load_size(ctx, None);
 
     let ndarray_num_dims = unsafe {
         ctx.builder.build_in_bounds_gep(
@@ -507,7 +490,7 @@ fn call_ndarray_zeros_impl<'ctx, 'a>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
-    shape: PointerValue<'ctx>,
+    shape: ListValue<'ctx>,
 ) -> Result<PointerValue<'ctx>, String> {
     let supported_types = [
         ctx.primitives.int32,
@@ -543,7 +526,7 @@ fn call_ndarray_ones_impl<'ctx, 'a>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
-    shape: PointerValue<'ctx>,
+    shape: ListValue<'ctx>,
 ) -> Result<PointerValue<'ctx>, String> {
     let supported_types = [
         ctx.primitives.int32,
@@ -579,7 +562,7 @@ fn call_ndarray_full_impl<'ctx, 'a>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
-    shape: PointerValue<'ctx>,
+    shape: ListValue<'ctx>,
     fill_value: BasicValueEnum<'ctx>,
 ) -> Result<PointerValue<'ctx>, String> {
     let ndarray = call_ndarray_empty_impl(generator, ctx, elem_ty, shape)?;
@@ -725,6 +708,7 @@ pub fn gen_ndarray_empty<'ctx, 'a>(
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
+    let llvm_usize = generator.get_size_type(context.ctx);
     let shape_ty = fun.0.args[0].ty;
     let shape_arg = args[0].1.clone()
         .to_basic_value_enum(context, generator, shape_ty)?;
@@ -733,7 +717,7 @@ pub fn gen_ndarray_empty<'ctx, 'a>(
         generator,
         context,
         context.primitives.float,
-        shape_arg.into_pointer_value(),
+        ListValue::from_ptr_val(shape_arg.into_pointer_value(), llvm_usize, None),
     )
 }
 
@@ -748,6 +732,7 @@ pub fn gen_ndarray_zeros<'ctx, 'a>(
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
+    let llvm_usize = generator.get_size_type(context.ctx);
     let shape_ty = fun.0.args[0].ty;
     let shape_arg = args[0].1.clone()
         .to_basic_value_enum(context, generator, shape_ty)?;
@@ -756,7 +741,7 @@ pub fn gen_ndarray_zeros<'ctx, 'a>(
         generator,
         context,
         context.primitives.float,
-        shape_arg.into_pointer_value(),
+        ListValue::from_ptr_val(shape_arg.into_pointer_value(), llvm_usize, None),
     )
 }
 
@@ -771,6 +756,7 @@ pub fn gen_ndarray_ones<'ctx, 'a>(
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
+    let llvm_usize = generator.get_size_type(context.ctx);
     let shape_ty = fun.0.args[0].ty;
     let shape_arg = args[0].1.clone()
         .to_basic_value_enum(context, generator, shape_ty)?;
@@ -779,7 +765,7 @@ pub fn gen_ndarray_ones<'ctx, 'a>(
         generator,
         context,
         context.primitives.float,
-        shape_arg.into_pointer_value(),
+        ListValue::from_ptr_val(shape_arg.into_pointer_value(), llvm_usize, None),
     )
 }
 
@@ -794,6 +780,7 @@ pub fn gen_ndarray_full<'ctx, 'a>(
     assert!(obj.is_none());
     assert_eq!(args.len(), 2);
 
+    let llvm_usize = generator.get_size_type(context.ctx);
     let shape_ty = fun.0.args[0].ty;
     let shape_arg = args[0].1.clone()
         .to_basic_value_enum(context, generator, shape_ty)?;
@@ -805,7 +792,7 @@ pub fn gen_ndarray_full<'ctx, 'a>(
         generator,
         context,
         fill_value_ty,
-        shape_arg.into_pointer_value(),
+        ListValue::from_ptr_val(shape_arg.into_pointer_value(), llvm_usize, None),
         fill_value_arg,
     )
 }

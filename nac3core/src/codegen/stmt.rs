@@ -6,6 +6,7 @@ use super::{
 };
 use crate::{
     codegen::{
+        classes::ListValue,
         expr::gen_binop_expr,
         gen_in_range_check,
     },
@@ -92,6 +93,8 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
     pattern: &Expr<Option<Type>>,
     name: Option<&str>,
 ) -> Result<Option<PointerValue<'ctx>>, String> {
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
     // very similar to gen_expr, but we don't do an extra load at the end
     // and we flatten nested tuples
     Ok(Some(match &pattern.node {
@@ -132,16 +135,13 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
         ExprKind::Subscript { value, slice, .. } => {
             match ctx.unifier.get_ty_immutable(value.custom.unwrap()).as_ref() {
                 TypeEnum::TList { .. } => {
-                    let i32_type = ctx.ctx.i32_type();
-                    let zero = i32_type.const_zero();
                     let v = generator
                         .gen_expr(ctx, value)?
                         .unwrap()
                         .to_basic_value_enum(ctx, generator, value.custom.unwrap())?
                         .into_pointer_value();
-                    let len = ctx
-                        .build_gep_and_load(v, &[zero, i32_type.const_int(1, false)], Some("len"))
-                        .into_int_value();
+                    let v = ListValue::from_ptr_val(v, llvm_usize, None);
+                    let len = v.load_size(ctx, Some("len"));
                     let raw_index = generator
                         .gen_expr(ctx, slice)?
                         .unwrap()
@@ -180,12 +180,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                         [Some(raw_index), Some(len), None],
                         slice.location,
                     );
-                    unsafe {
-                        let arr_ptr = ctx
-                            .build_gep_and_load(v, &[i32_type.const_zero(), i32_type.const_zero()], Some("arr.addr"))
-                            .into_pointer_value();
-                        ctx.builder.build_gep(arr_ptr, &[index], name.unwrap_or(""))
-                    }
+                    v.get_data().ptr_offset(ctx, generator, index, name)
                 }
 
                 TypeEnum::TNDArray { .. } => {
@@ -206,6 +201,8 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
     target: &Expr<Option<Type>>,
     value: ValueEnum<'ctx>,
 ) -> Result<(), String> {
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
     match &target.node {
         ExprKind::Tuple { elts, .. } => {
             let BasicValueEnum::StructValue(v) =
@@ -233,6 +230,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 .unwrap()
                 .to_basic_value_enum(ctx, generator, ls.custom.unwrap())?
                 .into_pointer_value();
+            let ls = ListValue::from_ptr_val(ls, llvm_usize, None);
             let Some((start, end, step)) =
                 handle_slice_indices(lower, upper, step, ctx, generator, ls)? else {
                 return Ok(())
@@ -240,9 +238,10 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
             let value = value
                 .to_basic_value_enum(ctx, generator, target.custom.unwrap())?
                 .into_pointer_value();
-                let (TypeEnum::TList { ty } | TypeEnum::TNDArray { ty, .. }) = &*ctx.unifier.get_ty(target.custom.unwrap()) else {
-                    unreachable!()
-                };
+            let value = ListValue::from_ptr_val(value, llvm_usize, None);
+            let (TypeEnum::TList { ty } | TypeEnum::TNDArray { ty, .. }) = &*ctx.unifier.get_ty(target.custom.unwrap()) else {
+                unreachable!()
+            };
 
             let ty = ctx.get_llvm_type(generator, *ty);
             let Some(src_ind) = handle_slice_indices(&None, &None, &None, ctx, generator, value)? else {

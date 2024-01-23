@@ -37,6 +37,7 @@ use std::thread;
 #[cfg(debug_assertions)]
 use inkwell::types::AnyTypeEnum;
 
+pub mod classes;
 pub mod concrete_type;
 pub mod expr;
 mod generator;
@@ -997,22 +998,6 @@ fn gen_in_range_check<'ctx>(
     let hi = ctx.builder.build_select(sign, stop, value, "").into_int_value();
 
     ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp")
-}
-
-/// Checks whether the pointer `value` refers to a `list` in LLVM.
-fn assert_is_list(value: PointerValue) -> PointerValue {
-    #[cfg(debug_assertions)]
-    {
-        let llvm_shape_ty = value.get_type().get_element_type();
-        let AnyTypeEnum::StructType(llvm_shape_ty) = llvm_shape_ty else {
-            panic!("Expected struct type for `list` type, but got {llvm_shape_ty}")
-        };
-        assert_eq!(llvm_shape_ty.count_fields(), 2);
-        assert!(matches!(llvm_shape_ty.get_field_type_at_index(0), Some(BasicTypeEnum::PointerType(..))));
-        assert!(matches!(llvm_shape_ty.get_field_type_at_index(1), Some(BasicTypeEnum::IntType(..))));
-    }
-
-    value
 }
 
 /// Checks whether the pointer `value` refers to an `NDArray` in LLVM.

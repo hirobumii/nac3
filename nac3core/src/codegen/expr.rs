@@ -2,6 +2,7 @@ use std::{collections::HashMap, convert::TryInto, iter::once, iter::zip};
 
 use crate::{
     codegen::{
+        classes::ListValue,
         concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
         gen_in_range_check,
         get_llvm_type,
@@ -896,43 +897,26 @@ pub fn allocate_list<'ctx, G: CodeGenerator>(
     ty: BasicTypeEnum<'ctx>,
     length: IntValue<'ctx>,
     name: Option<&str>,
-) -> PointerValue<'ctx> {
+) -> ListValue<'ctx> {
     let size_t = generator.get_size_type(ctx.ctx);
-    let i32_t = ctx.ctx.i32_type();
     // List structure; type { ty*, size_t }
     let arr_ty = ctx.ctx
         .struct_type(&[ty.ptr_type(AddressSpace::default()).into(), size_t.into()], false);
-    let zero = ctx.ctx.i32_type().const_zero();
 
     let arr_str_ptr = ctx.builder.build_alloca(
         arr_ty, format!("{}.addr", name.unwrap_or("list")).as_str()
     );
+    let list = ListValue::from_ptr_val(arr_str_ptr, size_t, Some("list"));
 
-    unsafe {
-        // Pointer to the `length` element of the list structure
-        let len_ptr = ctx.builder.build_in_bounds_gep(
-            arr_str_ptr,
-            &[zero, i32_t.const_int(1, false)],
-            ""
-        );
-        let length = ctx.builder.build_int_z_extend(
-            length,
-            size_t,
-            ""
-        );
-        ctx.builder.build_store(len_ptr, length);
+    let length = ctx.builder.build_int_z_extend(
+        length,
+        size_t,
+        ""
+    );
+    list.store_size(ctx, generator, length);
+    list.create_data(ctx, ty, None);
 
-        // Pointer to the `data` element of the list structure
-        let arr_ptr = ctx.builder.build_array_alloca(ty, length, "");
-        let ptr_to_arr = ctx.builder.build_in_bounds_gep(
-            arr_str_ptr,
-            &[zero, i32_t.const_zero()],
-            ""
-        );
-        ctx.builder.build_store(ptr_to_arr, arr_ptr);
-    }
-
-    arr_str_ptr
+    list
 }
 
 /// Generates LLVM IR for a [list comprehension expression][expr].
@@ -1006,8 +990,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             list_alloc_size.into_int_value(),
             Some("listcomp.addr")
         );
-        list_content = ctx.build_gep_and_load(list, &[zero_size_t, zero_32], Some("listcomp.data.addr"))
-            .into_pointer_value();
+        list_content = list.get_data().get_ptr(ctx);
 
         let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
         ctx.builder.build_store(i, ctx.builder.build_int_sub(start, step, "start_init"));
@@ -1042,8 +1025,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             )
             .into_int_value();
         list = allocate_list(generator, ctx, elem_ty, length, Some("listcomp"));
-        list_content =
-            ctx.build_gep_and_load(list, &[zero_size_t, zero_32], Some("list_content")).into_pointer_value();
+        list_content = list.get_data().get_ptr(ctx);
         let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
         // counter = -1
         ctx.builder.build_store(counter, size_t.const_int(u64::MAX, true));
@@ -1065,12 +1047,9 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     }
 
     // Emits the content of `cont_bb`
-    let emit_cont_bb = |ctx: &CodeGenContext| {
+    let emit_cont_bb = |ctx: &CodeGenContext<'ctx, '_>, generator: &dyn CodeGenerator, list: ListValue<'ctx>| {
         ctx.builder.position_at_end(cont_bb);
-        let len_ptr = unsafe {
-            ctx.builder.build_gep(list, &[zero_size_t, int32.const_int(1, false)], "length")
-        };
-        ctx.builder.build_store(len_ptr, ctx.builder.build_load(index, "index"));
+        list.store_size(ctx, generator, ctx.builder.build_load(index, "index").into_int_value());
     };
 
     for cond in ifs {
@@ -1079,7 +1058,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         } else {
             // Bail if the predicate is an ellipsis - Emit cont_bb contents in case the
             // no element matches the predicate
-            emit_cont_bb(ctx);
+            emit_cont_bb(ctx, generator, list);
 
             return Ok(None)
         };
@@ -1092,7 +1071,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 
     let Some(elem) = generator.gen_expr(ctx, elt)? else {
         // Similarly, bail if the generator expression is an ellipsis, but keep cont_bb contents
-        emit_cont_bb(ctx);
+        emit_cont_bb(ctx, generator, list);
 
         return Ok(None)
     };
@@ -1104,9 +1083,9 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         .build_store(index, ctx.builder.build_int_add(i, size_t.const_int(1, false), "inc"));
     ctx.builder.build_unconditional_branch(test_bb);
 
-    emit_cont_bb(ctx);
+    emit_cont_bb(ctx, generator, list);
 
-    Ok(Some(list.into()))
+    Ok(Some(list.get_ptr().into()))
 }
 
 /// Generates LLVM IR for a [binary operator expression][expr].
@@ -1226,6 +1205,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
 ) -> Result<Option<ValueEnum<'ctx>>, String> {
     ctx.current_loc = expr.location;
     let int32 = ctx.ctx.i32_type();
+    let usize = generator.get_size_type(ctx.ctx);
     let zero = int32.const_int(0, false);
     
     let loc = ctx.debug_info.0.create_debug_location(
@@ -1296,19 +1276,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             };
             let length = generator.get_size_type(ctx.ctx).const_int(elements.len() as u64, false);
             let arr_str_ptr = allocate_list(generator, ctx, ty, length, Some("list"));
-            let arr_ptr = ctx.build_gep_and_load(arr_str_ptr, &[zero, zero], Some("list.ptr.addr"))
-                .into_pointer_value();
-            unsafe {
-                for (i, v) in elements.iter().enumerate() {
-                    let elem_ptr = ctx.builder.build_gep(
-                        arr_ptr,
-                        &[int32.const_int(i as u64, false)],
-                        "elem_ptr",
-                    );
-                    ctx.builder.build_store(elem_ptr, *v);
-                }
+            let arr_ptr = arr_str_ptr.get_data();
+            for (i, v) in elements.iter().enumerate() {
+                let elem_ptr = arr_ptr
+                    .ptr_offset(ctx, generator, usize.const_int(i as u64, false), Some("elem_ptr"));
+                ctx.builder.build_store(elem_ptr, *v);
             }
-            arr_str_ptr.into()
+            arr_str_ptr.get_ptr().into()
         }
         ExprKind::Tuple { elts, .. } => {
             let elements_val = elts
@@ -1758,9 +1732,8 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     } else {
                         return Ok(None)
                     };
+                    let v = ListValue::from_ptr_val(v, usize, Some("arr"));
                     let ty = ctx.get_llvm_type(generator, *ty);
-                    let arr_ptr = ctx.build_gep_and_load(v, &[zero, zero], Some("arr.addr"))
-                        .into_pointer_value();
                     if let ExprKind::Slice { lower, upper, step } = &slice.node {
                         let one = int32.const_int(1, false);
                         let Some((start, end, step)) =
@@ -1800,11 +1773,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             v,
                             (start, end, step),
                         );
-                        res_array_ret.into()
+                        res_array_ret.get_ptr().into()
                     } else {
-                        let len = ctx
-                            .build_gep_and_load(v, &[zero, int32.const_int(1, false)], Some("len"))
-                            .into_int_value();
+                        let len = v.load_size(ctx, Some("len"));
                         let raw_index = if let Some(v) = generator.gen_expr(ctx, slice)? {
                             v.to_basic_value_enum(ctx, generator, slice.custom.unwrap())?.into_int_value()
                         } else {
@@ -1843,7 +1814,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             [Some(raw_index), Some(len), None],
                             expr.location,
                         );
-                        ctx.build_gep_and_load(arr_ptr, &[index], None).into()
+                        v.get_data().get(ctx, generator, index, None).into()
                     }
                 }
                 TypeEnum::TNDArray { .. } => {

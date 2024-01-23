@@ -1,6 +1,11 @@
 use crate::typecheck::typedef::Type;
 
-use super::{assert_is_list, assert_is_ndarray, CodeGenContext, CodeGenerator};
+use super::{
+    classes::ListValue,
+    assert_is_ndarray,
+    CodeGenContext,
+    CodeGenerator,
+};
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     context::Context,
@@ -158,12 +163,12 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
     step: &Option<Box<Expr<Option<Type>>>>,
     ctx: &mut CodeGenContext<'ctx, '_>,
     generator: &mut G,
-    list: PointerValue<'ctx>,
+    list: ListValue<'ctx>,
 ) -> Result<Option<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>)>, String> {
     let int32 = ctx.ctx.i32_type();
     let zero = int32.const_zero();
     let one = int32.const_int(1, false);
-    let length = ctx.build_gep_and_load(list, &[zero, one], Some("length")).into_int_value();
+    let length = list.load_size(ctx, Some("length"));
     let length = ctx.builder.build_int_truncate_or_bit_cast(length, int32, "leni32");
     Ok(Some(match (start, end, step) {
         (s, e, None) => (
@@ -295,9 +300,9 @@ pub fn list_slice_assignment<'ctx>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, '_>,
     ty: BasicTypeEnum<'ctx>,
-    dest_arr: PointerValue<'ctx>,
+    dest_arr: ListValue<'ctx>,
     dest_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
-    src_arr: PointerValue<'ctx>,
+    src_arr: ListValue<'ctx>,
     src_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
 ) {
     let size_ty = generator.get_size_type(ctx.ctx);
@@ -326,21 +331,21 @@ pub fn list_slice_assignment<'ctx>(
 
     let zero = int32.const_zero();
     let one = int32.const_int(1, false);
-    let dest_arr_ptr = ctx.build_gep_and_load(dest_arr, &[zero, zero], Some("dest.addr"));
+    let dest_arr_ptr = dest_arr.get_data().get_ptr(ctx);
     let dest_arr_ptr = ctx.builder.build_pointer_cast(
-        dest_arr_ptr.into_pointer_value(),
+        dest_arr_ptr,
         elem_ptr_type,
         "dest_arr_ptr_cast",
     );
-    let dest_len = ctx.build_gep_and_load(dest_arr, &[zero, one], Some("dest.len")).into_int_value();
+    let dest_len = dest_arr.load_size(ctx, Some("dest.len"));
     let dest_len = ctx.builder.build_int_truncate_or_bit_cast(dest_len, int32, "srclen32");
-    let src_arr_ptr = ctx.build_gep_and_load(src_arr, &[zero, zero], Some("src.addr"));
+    let src_arr_ptr = src_arr.get_data().get_ptr(ctx);
     let src_arr_ptr = ctx.builder.build_pointer_cast(
-        src_arr_ptr.into_pointer_value(),
+        src_arr_ptr,
         elem_ptr_type,
         "src_arr_ptr_cast",
     );
-    let src_len = ctx.build_gep_and_load(src_arr, &[zero, one], Some("src.len")).into_int_value();
+    let src_len = src_arr.load_size(ctx, Some("src.len"));
     let src_len = ctx.builder.build_int_truncate_or_bit_cast(src_len, int32, "srclen32");
 
     // index in bound and positive should be done
@@ -443,9 +448,8 @@ pub fn list_slice_assignment<'ctx>(
     let cont_bb = ctx.ctx.append_basic_block(current, "cont");
     ctx.builder.build_conditional_branch(need_update, update_bb, cont_bb);
     ctx.builder.position_at_end(update_bb);
-    let dest_len_ptr = unsafe { ctx.builder.build_gep(dest_arr, &[zero, one], "dest_len_ptr") };
     let new_len = ctx.builder.build_int_z_extend_or_bit_cast(new_len, size_ty, "new_len");
-    ctx.builder.build_store(dest_len_ptr, new_len);
+    dest_arr.store_size(ctx, generator, new_len);
     ctx.builder.build_unconditional_branch(cont_bb);
     ctx.builder.position_at_end(cont_bb);
 }
@@ -604,17 +608,16 @@ pub fn call_ndarray_init_dims<'ctx>(
     generator: &dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: PointerValue<'ctx>,
-    shape: PointerValue<'ctx>,
+    shape: ListValue<'ctx>,
 ) {
-    assert_is_ndarray(ndarray);
-    assert_is_list(shape);
-
     let llvm_void = ctx.ctx.void_type();
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
     let llvm_pi32 = llvm_i32.ptr_type(AddressSpace::default());
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
+
+    assert_is_ndarray(ndarray);
 
     let ndarray_init_dims_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_init_dims",
@@ -639,11 +642,7 @@ pub fn call_ndarray_init_dims<'ctx>(
         &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
         None,
     );
-    let shape_data = ctx.build_gep_and_load(
-        shape,
-        &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-        None
-    );
+    let shape_data = shape.get_data();
     let ndarray_num_dims = ctx.build_gep_and_load(
         ndarray,
         &[llvm_i32.const_zero(), llvm_i32.const_zero()],
@@ -654,7 +653,7 @@ pub fn call_ndarray_init_dims<'ctx>(
         ndarray_init_dims_fn,
         &[
             ndarray_dims.into(),
-            shape_data.into(),
+            shape_data.get_ptr(ctx).into(),
             ndarray_num_dims.into(),
         ],
         "",
