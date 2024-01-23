@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     codegen::{
-        classes::ListValue,
+        classes::{ListValue, RangeValue},
         expr::gen_binop_expr,
         gen_in_range_check,
     },
@@ -321,7 +321,7 @@ pub fn gen_for<G: CodeGenerator>(
         return Ok(())
     };
     if is_iterable_range_expr {
-        let iter_val = iter_val.into_pointer_value();
+        let iter_val = RangeValue::from_ptr_val(iter_val.into_pointer_value(), Some("range"));
         // Internal variable for loop; Cannot be assigned
         let i = generator.gen_var_alloc(ctx, int32.into(), Some("for.i.addr"))?;
         // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed

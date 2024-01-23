@@ -28,7 +28,7 @@ impl<'ctx> ListValue<'ctx> {
     ) -> Result<(), String> {
         let llvm_list_ty = value.get_type().get_element_type();
         let AnyTypeEnum::StructType(llvm_list_ty) = llvm_list_ty else {
-            panic!("Expected struct type for `list` type, got {llvm_list_ty}")
+            return Err(format!("Expected struct type for `list` type, got {llvm_list_ty}"))
         };
         if llvm_list_ty.count_fields() != 2 {
             return Err(format!("Expected 2 fields in `list`, got {}", llvm_list_ty.count_fields()))
@@ -221,5 +221,162 @@ impl<'ctx> ListDataProxy<'ctx> {
     ) -> BasicValueEnum<'ctx> {
         let ptr = self.ptr_offset(ctx, generator, idx, name);
         ctx.builder.build_load(ptr, name.unwrap_or_default())
+    }
+}
+
+#[cfg(not(debug_assertions))]
+pub fn assert_is_range(_value: PointerValue) {}
+
+#[cfg(debug_assertions)]
+pub fn assert_is_range(value: PointerValue) {
+    if let Err(msg) = RangeValue::is_instance(value) {
+        panic!("{msg}")
+    }
+}
+
+/// Proxy type for accessing a `range` value in LLVM.
+#[derive(Copy, Clone)]
+pub struct RangeValue<'ctx>(PointerValue<'ctx>, Option<&'ctx str>);
+
+impl<'ctx> RangeValue<'ctx> {
+    /// Checks whether `value` is an instance of `range`, returning [Err] if `value` is not an instance.
+    pub fn is_instance(value: PointerValue<'ctx>) -> Result<(), String> {
+        let llvm_range_ty = value.get_type().get_element_type();
+        let AnyTypeEnum::ArrayType(llvm_range_ty) = llvm_range_ty else {
+            return Err(format!("Expected array type for `range` type, got {llvm_range_ty}"))
+        };
+        if llvm_range_ty.len() != 3 {
+            return Err(format!("Expected 3 elements for `range` type, got {}", llvm_range_ty.len()))
+        }
+
+        let llvm_range_elem_ty = llvm_range_ty.get_element_type();
+        let Ok(llvm_range_elem_ty) = IntType::try_from(llvm_range_elem_ty) else {
+            return Err(format!("Expected int type for `range` element type, got {llvm_range_elem_ty}"))
+        };
+        if llvm_range_elem_ty.get_bit_width() != 32 {
+            return Err(format!("Expected 32-bit int type for `range` element type, got {}",
+                               llvm_range_elem_ty.get_bit_width()))
+        }
+
+        Ok(())
+    }
+
+    /// Creates an [RangeValue] from a [PointerValue].
+    pub fn from_ptr_val(ptr: PointerValue<'ctx>, name: Option<&'ctx str>) -> Self {
+        assert_is_range(ptr);
+        RangeValue(ptr, name)
+    }
+
+    /// Returns the underlying [PointerValue] pointing to the `range` instance.
+    pub fn get_ptr(&self) -> PointerValue<'ctx> {
+        self.0
+    }
+
+    fn get_start_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+        let llvm_i32 = ctx.ctx.i32_type();
+        let var_name = self.1.map(|v| format!("{v}.start.addr")).unwrap_or_default();
+
+        unsafe {
+            ctx.builder.build_in_bounds_gep(
+                self.0,
+                &[llvm_i32.const_zero(), llvm_i32.const_int(0, false)],
+                var_name.as_str(),
+            )
+        }
+    }
+
+    fn get_end_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+        let llvm_i32 = ctx.ctx.i32_type();
+        let var_name = self.1.map(|v| format!("{v}.end.addr")).unwrap_or_default();
+
+        unsafe {
+            ctx.builder.build_in_bounds_gep(
+                self.0,
+                &[llvm_i32.const_zero(), llvm_i32.const_int(1, false)],
+                var_name.as_str(),
+            )
+        }
+    }
+
+    fn get_step_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+        let llvm_i32 = ctx.ctx.i32_type();
+        let var_name = self.1.map(|v| format!("{v}.step.addr")).unwrap_or_default();
+
+        unsafe {
+            ctx.builder.build_in_bounds_gep(
+                self.0,
+                &[llvm_i32.const_zero(), llvm_i32.const_int(2, false)],
+                var_name.as_str(),
+            )
+        }
+    }
+
+    /// Stores the `start` value into this instance.
+    pub fn store_start(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        start: IntValue<'ctx>,
+    ) {
+        debug_assert_eq!(start.get_type().get_bit_width(), 32);
+
+        let pstart = self.get_start_ptr(ctx);
+        ctx.builder.build_store(pstart, start);
+    }
+
+    /// Returns the `start` value of this `range`.
+    pub fn load_start(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
+        let pstart = self.get_start_ptr(ctx);
+        let var_name = name
+            .map(|v| v.to_string())
+            .or_else(|| self.1.map(|v| format!("{v}.start")))
+            .unwrap_or_default();
+
+        ctx.builder.build_load(pstart, var_name.as_str()).into_int_value()
+    }
+
+    /// Stores the `end` value into this instance.
+    pub fn store_end(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        end: IntValue<'ctx>,
+    ) {
+        debug_assert_eq!(end.get_type().get_bit_width(), 32);
+
+        let pend = self.get_start_ptr(ctx);
+        ctx.builder.build_store(pend, end);
+    }
+
+    /// Returns the `end` value of this `range`.
+    pub fn load_end(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
+        let pend = self.get_end_ptr(ctx);
+        let var_name = name
+            .map(|v| v.to_string())
+            .or_else(|| self.1.map(|v| format!("{v}.end")))
+            .unwrap_or_default();
+
+        ctx.builder.build_load(pend, var_name.as_str()).into_int_value()
+    }
+
+    /// Stores the `step` value into this instance.
+    pub fn store_step(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        step: IntValue<'ctx>,
+    ) {
+        debug_assert_eq!(step.get_type().get_bit_width(), 32);
+
+        let pstep = self.get_start_ptr(ctx);
+        ctx.builder.build_store(pstep, step);
+    }
+
+    /// Returns the `step` value of this `range`.
+    pub fn load_step(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
+        let pstep = self.get_step_ptr(ctx);
+        let var_name = name
+            .map(|v| v.to_string())
+            .or_else(|| self.1.map(|v| format!("{v}.step")))
+            .unwrap_or_default();
+
+        ctx.builder.build_load(pstep, var_name.as_str()).into_int_value()
     }
 }

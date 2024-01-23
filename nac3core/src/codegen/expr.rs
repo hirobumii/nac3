@@ -2,7 +2,7 @@ use std::{collections::HashMap, convert::TryInto, iter::once, iter::zip};
 
 use crate::{
     codegen::{
-        classes::ListValue,
+        classes::{ListValue, RangeValue},
         concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
         gen_in_range_check,
         get_llvm_type,
@@ -870,18 +870,11 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
 /// respectively.
 pub fn destructure_range<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    range: PointerValue<'ctx>,
+    range: RangeValue<'ctx>,
 ) -> (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>) {
-    let int32 = ctx.ctx.i32_type();
-    let start = ctx
-        .build_gep_and_load(range, &[int32.const_zero(), int32.const_int(0, false)], Some("range.start"))
-        .into_int_value();
-    let end = ctx
-        .build_gep_and_load(range, &[int32.const_zero(), int32.const_int(1, false)], Some("range.stop"))
-        .into_int_value();
-    let step = ctx
-        .build_gep_and_load(range, &[int32.const_zero(), int32.const_int(2, false)], Some("range.step"))
-        .into_int_value();
+    let start = range.load_start(ctx, None);
+    let end = range.load_end(ctx, None);
+    let step = range.load_step(ctx, None);
     (start, end, step)
 }
 
@@ -965,7 +958,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let list_content;
 
     if is_range {
-        let iter_val = iter_val.into_pointer_value();
+        let iter_val = RangeValue::from_ptr_val(iter_val.into_pointer_value(), Some("range"));
         let (start, stop, step) = destructure_range(ctx, iter_val);
         let diff = ctx.builder.build_int_sub(stop, start, "diff");
         // add 1 to the length as the value is rounded to zero

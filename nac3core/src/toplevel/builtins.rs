@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     codegen::{
+        classes::RangeValue,
         expr::destructure_range,
         irrt::{
             calculate_len_for_slice_range,
@@ -1453,7 +1454,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                         let arg_ty = fun.0.args[0].ty;
                         let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
                         Ok(if ctx.unifier.unioned(arg_ty, range_ty) {
-                            let arg = arg.into_pointer_value();
+                            let arg = RangeValue::from_ptr_val(arg.into_pointer_value(), Some("range"));
                             let (start, end, step) = destructure_range(ctx, arg);
                             Some(calculate_len_for_slice_range(generator, ctx, start, end, step).into())
                         } else {
