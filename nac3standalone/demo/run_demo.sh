@@ -17,6 +17,9 @@ while [ $# -ge 1 ]; do
     --lli)
       use_lli=1
       ;;
+    --debug)
+      debug=1
+      ;;
     *)
       nac3args+=("$1")
       ;;
@@ -24,7 +27,9 @@ while [ $# -ge 1 ]; do
   shift
 done
 
-if [ -e ../../target/release/nac3standalone ]; then
+if [ -n "$debug" ] && [ -e ../../target/debug/nac3standalone ]; then
+    nac3standalone=../../target/debug/nac3standalone
+elif [ -e ../../target/release/nac3standalone ]; then
     nac3standalone=../../target/release/nac3standalone
 else
     # used by Nix builds
