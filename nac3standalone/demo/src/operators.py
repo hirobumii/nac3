@@ -21,8 +21,8 @@ def run() -> int32:
     test_uint32()
     test_int64()
     test_uint64()
-    test_A()
-    test_B()
+    # test_A()
+    # test_B()
     return 0
 
 def test_int32():
@@ -173,91 +173,92 @@ def test_uint64():
     a >>= uint32(b)
     output_uint64(a)
 
-class A:
-    a: int32
-    def __init__(self, a: int32):
-        self.a = a
-    
-    def __add__(self, other: A) -> A:
-        output_int32(self.a + other.a)
-        return A(self.a + other.a)
-
-    def __sub__(self, other: A) -> A:
-        output_int32(self.a - other.a)
-        return A(self.a - other.a)
-
-def test_A():
-    a = A(17)
-    b = A(3)
-    
-    c = a + b
-    # fail due to alloca in __add__ function
-    # output_int32(c.a)
-
-    a += b
-    # fail due to alloca in __add__ function
-    # output_int32(a.a)
-    
-    a = A(17)
-    b = A(3)
-    d = a - b
-    # fail due to alloca in __add__ function
-    # output_int32(c.a)
-
-    a -= b
-    # fail due to alloca in __add__ function
-    # output_int32(a.a)
-
-    a = A(17)
-    b = A(3)
-    a.__add__(b)
-    a.__sub__(b)
-
-
-class B:
-    a: int32
-    def __init__(self, a: int32):
-        self.a = a
-    
-    def __add__(self, other: B) -> B:
-        output_int32(self.a + other.a)
-        return B(self.a + other.a)
-
-    def __sub__(self, other: B) -> B:
-        output_int32(self.a - other.a)
-        return B(self.a - other.a)
-    
-    def __iadd__(self, other: B) -> B:
-        output_int32(self.a + other.a + 24)
-        return B(self.a + other.a + 24)
-
-    def __isub__(self, other: B) -> B:
-        output_int32(self.a - other.a - 24)
-        return B(self.a - other.a - 24)
-
-def test_B():
-    a = B(17)
-    b = B(3)
-    
-    c = a + b
-    # fail due to alloca in __add__ function
-    # output_int32(c.a)
-
-    a += b
-    # fail due to alloca in __add__ function
-    # output_int32(a.a)
-    
-    a = B(17)
-    b = B(3)
-    d = a - b
-    # fail due to alloca in __add__ function
-    # output_int32(c.a)
-
-    a -= b
-    # fail due to alloca in __add__ function
-    # output_int32(a.a)
-
-    a = B(17)
-    b = B(3)
-    a.__add__(b)
-    a.__sub__(b)
+# FIXME Fix returning objects of non-primitive types; Currently this is disabled in the function checker
+# class A:
+#     a: int32
+#     def __init__(self, a: int32):
+#         self.a = a
+#
+#     def __add__(self, other: A) -> A:
+#         output_int32(self.a + other.a)
+#         return A(self.a + other.a)
+#
+#     def __sub__(self, other: A) -> A:
+#         output_int32(self.a - other.a)
+#         return A(self.a - other.a)
+#
+# def test_A():
+#     a = A(17)
+#     b = A(3)
+#
+#     c = a + b
+#     # fail due to alloca in __add__ function
+#     # output_int32(c.a)
+#
+#     a += b
+#     # fail due to alloca in __add__ function
+#     # output_int32(a.a)
+#
+#     a = A(17)
+#     b = A(3)
+#     d = a - b
+#     # fail due to alloca in __add__ function
+#     # output_int32(c.a)
+#
+#     a -= b
+#     # fail due to alloca in __add__ function
+#     # output_int32(a.a)
+#
+#     a = A(17)
+#     b = A(3)
+#     a.__add__(b)
+#     a.__sub__(b)
+#
+#
+# class B:
+#     a: int32
+#     def __init__(self, a: int32):
+#         self.a = a
+#
+#     def __add__(self, other: B) -> B:
+#         output_int32(self.a + other.a)
+#         return B(self.a + other.a)
+#
+#     def __sub__(self, other: B) -> B:
+#         output_int32(self.a - other.a)
+#         return B(self.a - other.a)
+#
+#     def __iadd__(self, other: B) -> B:
+#         output_int32(self.a + other.a + 24)
+#         return B(self.a + other.a + 24)
+#
+#     def __isub__(self, other: B) -> B:
+#         output_int32(self.a - other.a - 24)
+#         return B(self.a - other.a - 24)
+#
+# def test_B():
+#     a = B(17)
+#     b = B(3)
+#
+#     c = a + b
+#     # fail due to alloca in __add__ function
+#     # output_int32(c.a)
+#
+#     a += b
+#     # fail due to alloca in __add__ function
+#     # output_int32(a.a)
+#
+#     a = B(17)
+#     b = B(3)
+#     d = a - b
+#     # fail due to alloca in __add__ function
+#     # output_int32(c.a)
+#
+#     a -= b
+#     # fail due to alloca in __add__ function
+#     # output_int32(a.a)
+#
+#     a = B(17)
+#     b = B(3)
+#     a.__add__(b)
+#     a.__sub__(b)

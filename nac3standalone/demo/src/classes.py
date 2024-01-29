@@ -23,8 +23,8 @@ class A:
     def get_a(self) -> int32:
         return self.a
     
-    def get_b(self) -> B:
-        return self.b
+    # def get_b(self) -> B:
+    #     return self.b
 
 
 def run() -> int32:
