@@ -337,8 +337,9 @@ impl<'a> Inferencer<'a> {
                         if !self.check_return_value_ty(ret_ty) {
                             return Err(HashSet::from([
                                 format!(
-                                    "return value of type {} must be a primitive of a tuple of primitives",
+                                    "return value of type {} must be a primitive of a tuple of primitives at {:?}",
                                     self.unifier.stringify(ret_ty),
+                                    value.location,
                                 ),
                             ]))
                         }
