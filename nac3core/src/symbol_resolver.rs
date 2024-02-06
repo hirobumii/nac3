@@ -16,7 +16,7 @@ use crate::{
     },
 };
 use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue};
-use itertools::{chain, izip};
+use itertools::{chain, Itertools, izip};
 use nac3parser::ast::{Constant, Expr, Location, StrRef};
 use parking_lot::RwLock;
 
@@ -354,7 +354,7 @@ pub trait SymbolResolver {
 }
 
 thread_local! {
-    static IDENTIFIER_ID: [StrRef; 12] = [
+    static IDENTIFIER_ID: [StrRef; 13] = [
         "int32".into(),
         "int64".into(),
         "float".into(),
@@ -367,6 +367,7 @@ thread_local! {
         "Exception".into(),
         "uint32".into(),
         "uint64".into(),
+        "Literal".into(),
     ];
 }
 
@@ -392,6 +393,7 @@ pub fn parse_type_annotation<T>(
     let exn_id = ids[9];
     let uint32_id = ids[10];
     let uint64_id = ids[11];
+    let literal_id = ids[12];
 
     let name_handling = |id: &StrRef, loc: Location, unifier: &mut Unifier| {
         if *id == int32_id {
@@ -491,6 +493,27 @@ pub fn parse_type_annotation<T>(
                     "Expected multiple elements for tuple".into()
                 ]))
             }
+        } else if *id == literal_id {
+            let mut parse_literal = |elt: &Expr<T>| {
+                let ty = parse_type_annotation(resolver, top_level_defs, unifier, primitives, elt)?;
+                let ty_enum = &*unifier.get_ty_immutable(ty);
+                match ty_enum {
+                    TypeEnum::TLiteral { values, .. } => Ok(values.clone()),
+                    _ => Err(HashSet::from([
+                        format!("Expected literal in type argument for Literal at {}", elt.location),
+                    ]))
+                }
+            };
+
+            let values = if let Tuple { elts, .. } = &slice.node {
+                elts.iter()
+                    .map(|elt| parse_literal(elt))
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                vec![parse_literal(slice)?]
+            }.into_iter().flatten().collect_vec();
+
+            Ok(unifier.get_fresh_literal(values, Some(slice.location)))
         } else {
             let types = if let Tuple { elts, .. } = &slice.node {
                 elts.iter()
@@ -554,6 +577,9 @@ pub fn parse_type_annotation<T>(
                 ]))
             }
         }
+        Constant { value, .. } => SymbolValue::from_constant_inferred(value, unifier)
+            .map(|v| unifier.get_fresh_literal(vec![v], Some(expr.location.clone())))
+            .map_err(|err| HashSet::from([err])),
         _ => Err(HashSet::from([
             format!("unsupported type expression at {}", expr.location),
         ])),
