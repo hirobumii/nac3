@@ -278,12 +278,13 @@ uint32_t __nac3_ndarray_flatten_index(
 ) {
     uint32_t idx = 0;
     uint32_t stride = 1;
-    for (uint32_t i = num_dims - 1; i-- >= 0; ) {
-        if (i < num_indices) {
-            idx += (stride * indices[i]);
+    for (uint32_t i = 0; i < num_dims; ++i) {
+        uint32_t ri = num_dims - i - 1;
+        if (ri < num_indices) {
+            idx += (stride * indices[ri]);
         }
 
-        stride *= dims[i];
+        stride *= dims[ri];
     }
     return idx;
 }
@@ -296,12 +297,13 @@ uint64_t __nac3_ndarray_flatten_index64(
 ) {
     uint64_t idx = 0;
     uint64_t stride = 1;
-    for (uint64_t i = num_dims - 1; i-- >= 0; ) {
-        if (i < num_indices) {
-            idx += (stride * indices[i]);
+    for (uint64_t i = 0; i < num_dims; ++i) {
+        uint64_t ri = num_dims - i - 1;
+        if (ri < num_indices) {
+            idx += (stride * indices[ri]);
         }
 
-        stride *= dims[i];
+        stride *= dims[ri];
     }
     return idx;
 }
