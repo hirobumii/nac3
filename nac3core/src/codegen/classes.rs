@@ -1,12 +1,12 @@
 use inkwell::{
     IntPredicate,
     types::{AnyTypeEnum, BasicTypeEnum, IntType, PointerType},
-    values::{BasicValueEnum, IntValue, PointerValue},
+    values::{ArrayValue, BasicValueEnum, IntValue, PointerValue},
 };
 use crate::codegen::{
     CodeGenContext,
     CodeGenerator,
-    irrt::{call_ndarray_calc_size, call_ndarray_flatten_index},
+    irrt::{call_ndarray_calc_size, call_ndarray_flatten_index, call_ndarray_flatten_index_const},
     stmt::gen_for_callback,
 };
 
@@ -725,7 +725,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         let Ok(indices_elem_ty) = IntType::try_from(indices_elem_ty) else {
             panic!("Expected list[int32] but got {indices_elem_ty}")
         };
-        assert_eq!(indices_elem_ty.get_bit_width(), 32, "Expected list[int32] but got {indices_elem_ty}");
+        debug_assert_eq!(indices_elem_ty.get_bit_width(), 32, "Expected list[int32] but got {indices_elem_ty}");
 
         let index = call_ndarray_flatten_index(
             generator,
@@ -740,6 +740,92 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
                 &[index],
                 name.unwrap_or_default(),
             )
+        }
+    }
+
+    pub unsafe fn ptr_offset_unchecked_const(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        generator: &mut dyn CodeGenerator,
+        indices: ArrayValue<'ctx>,
+        name: Option<&str>,
+    ) -> PointerValue<'ctx> {
+        let index = call_ndarray_flatten_index_const(
+            generator,
+            ctx,
+            self.0,
+            indices,
+        ).unwrap();
+
+        unsafe {
+            ctx.builder.build_in_bounds_gep(
+                self.get_ptr(ctx),
+                &[index],
+                name.unwrap_or_default(),
+            )
+        }
+    }
+
+    /// Returns the pointer to the data at the index specified by `indices`.
+    pub fn ptr_offset_const(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        generator: &mut dyn CodeGenerator,
+        indices: ArrayValue<'ctx>,
+        name: Option<&str>,
+    ) -> PointerValue<'ctx> {
+        let llvm_usize = generator.get_size_type(ctx.ctx);
+
+        let indices_elem_ty = indices.get_type().get_element_type();
+        let Ok(indices_elem_ty) = IntType::try_from(indices_elem_ty) else {
+            panic!("Expected [int32] but got [{indices_elem_ty}]")
+        };
+        assert_eq!(indices_elem_ty.get_bit_width(), 32, "Expected [int32] but got [{indices_elem_ty}]");
+
+        let nidx_leq_ndims = ctx.builder.build_int_compare(
+            IntPredicate::SLE,
+            llvm_usize.const_int(indices.get_type().len() as u64, false),
+            self.0.load_ndims(ctx),
+            ""
+        );
+        ctx.make_assert(
+            generator,
+            nidx_leq_ndims,
+            "0:IndexError",
+            "invalid index to scalar variable",
+            [None, None, None],
+            ctx.current_loc,
+        );
+
+        for idx in 0..indices.get_type().len() {
+            let i = llvm_usize.const_int(idx as u64, false);
+
+            let dim_idx = ctx.builder
+                .build_extract_value(indices, idx, "")
+                .map(|v| v.into_int_value())
+                .map(|v| ctx.builder.build_int_z_extend_or_bit_cast(v, llvm_usize, ""))
+                .unwrap();
+            let dim_sz = self.0.get_dims().get(ctx, generator, i, None);
+
+            let dim_lt = ctx.builder.build_int_compare(
+                IntPredicate::SLT,
+                dim_idx,
+                dim_sz,
+                ""
+            );
+
+            ctx.make_assert(
+                generator,
+                dim_lt,
+                "0:IndexError",
+                "index {0} is out of bounds for axis 0 with size {1}",
+                [Some(dim_idx), Some(dim_sz), None],
+                ctx.current_loc,
+            );
+        }
+
+        unsafe {
+            self.ptr_offset_unchecked_const(ctx, generator, indices, name)
         }
     }
 
@@ -844,6 +930,17 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         }
     }
 
+    pub unsafe fn get_unsafe_const(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        generator: &mut dyn CodeGenerator,
+        indices: ArrayValue<'ctx>,
+        name: Option<&str>,
+    ) -> BasicValueEnum<'ctx> {
+        let ptr = self.ptr_offset_unchecked_const(ctx, generator, indices, name);
+        ctx.builder.build_load(ptr, name.unwrap_or_default())
+    }
+
     pub unsafe fn get_unsafe(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -852,6 +949,18 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
         let ptr = self.ptr_offset_unchecked(ctx, generator, indices, name);
+        ctx.builder.build_load(ptr, name.unwrap_or_default())
+    }
+
+    /// Returns the data at the index specified by `indices`.
+    pub fn get_const(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        generator: &mut dyn CodeGenerator,
+        indices: ArrayValue<'ctx>,
+        name: Option<&str>,
+    ) -> BasicValueEnum<'ctx> {
+        let ptr = self.ptr_offset_const(ctx, generator, indices, name);
         ctx.builder.build_load(ptr, name.unwrap_or_default())
     }
 
