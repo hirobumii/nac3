@@ -732,10 +732,10 @@ pub fn call_ndarray_flatten_index<'ctx>(
     let ndarray_flatten_index_fn = ctx.module.get_function(ndarray_flatten_index_fn_name).unwrap_or_else(|| {
         let fn_type = llvm_usize.fn_type(
             &[
+                llvm_pusize.into(),
                 llvm_usize.into(),
-                llvm_pusize.into(),
                 llvm_pi32.into(),
-                llvm_pusize.into(),
+                llvm_usize.into(),
             ],
             false,
         );
@@ -752,10 +752,10 @@ pub fn call_ndarray_flatten_index<'ctx>(
         .build_call(
             ndarray_flatten_index_fn,
             &[
-                ndarray_num_dims.into(),
                 ndarray_dims.get_ptr(ctx).into(),
+                ndarray_num_dims.into(),
+                indices.into(),
                 indices_size.into(),
-                indices_data.get_ptr(ctx).into(),
             ],
             "",
         )
