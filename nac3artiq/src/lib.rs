@@ -642,7 +642,13 @@ impl Nac3 {
         let builder = context.create_builder();
         let modinit_return = main.get_function("__modinit__").unwrap().get_last_basic_block().unwrap().get_terminator().unwrap();
         builder.position_before(&modinit_return);
-        builder.build_call(main.get_function("attributes_writeback").unwrap(), &[], "attributes_writeback");
+        builder
+            .build_call(
+                main.get_function("attributes_writeback").unwrap(),
+                &[],
+                "attributes_writeback",
+            )
+            .unwrap();
 
         main.link_in_module(load_irrt(&context))
             .map_err(|err| CompileError::new_err(err.to_string()))?;

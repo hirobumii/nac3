@@ -25,10 +25,11 @@ use crate::{
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     types::{BasicType, BasicMetadataTypeEnum},
-    values::{BasicValue, BasicMetadataValueEnum},
+    values::{BasicValue, BasicMetadataValueEnum, CallSiteValue},
     FloatPredicate,
     IntPredicate
 };
+use itertools::Either;
 use crate::toplevel::numpy::gen_ndarray_identity;
 
 type BuiltinInfo = Vec<(Arc<RwLock<TopLevelDef>>, Option<Stmt>)>;
@@ -189,11 +190,10 @@ fn create_fn_by_intrinsic(
                 ctx.module.add_function(intrinsic_fn, fn_type, None)
             });
 
-            let call = ctx.builder
-                .build_call(intrinsic_fn, args_val.as_slice(), name);
-
-            let val = call.try_as_basic_value()
-                .left()
+            let val = ctx.builder
+                .build_call(intrinsic_fn, args_val.as_slice(), name)
+                .map(CallSiteValue::try_as_basic_value)
+                .map(Either::unwrap_left)
                 .unwrap();
             Ok(val.into())
         }),
@@ -267,11 +267,10 @@ fn create_fn_by_extern(
                     func
                 });
 
-                let call = ctx.builder
-                    .build_call(intrinsic_fn, &args_val, name);
-
-                let val = call.try_as_basic_value()
-                    .left()
+                let val = ctx.builder
+                    .build_call(intrinsic_fn, &args_val, name)
+                    .map(CallSiteValue::try_as_basic_value)
+                    .map(Either::unwrap_left)
                     .unwrap();
                 Ok(val.into())
         }),
@@ -459,7 +458,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                         unreachable!("option must be ptr")
                     };
 
-                    Ok(Some(ctx.builder.build_is_not_null(ptr, "is_some").into()))
+                    Ok(Some(ctx.builder
+                        .build_is_not_null(ptr, "is_some")
+                        .map(Into::into)
+                        .unwrap()
+                    ))
                 },
             )))),
             loc: None,
@@ -484,7 +487,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                         unreachable!("option must be ptr")
                     };
 
-                    Ok(Some(ctx.builder.build_is_null(ptr, "is_none").into()))
+                    Ok(Some(ctx.builder
+                        .build_is_null(ptr, "is_none")
+                        .map(Into::into)
+                        .unwrap()
+                    ))
                 },
             )))),
             loc: None,
@@ -554,7 +561,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                     ctx.ctx.i32_type(),
                                     "zext",
                                 )
-                                .into(),
+                                .map(Into::into)
+                                .unwrap(),
                         )
                     } else if ctx.unifier.unioned(arg_ty, int32)
                         || ctx.unifier.unioned(arg_ty, uint32)
@@ -570,7 +578,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                     ctx.ctx.i32_type(),
                                     "trunc",
                                 )
-                                .into(),
+                                .map(Into::into)
+                                .unwrap(),
                         )
                     } else if ctx.unifier.unioned(arg_ty, float) {
                         let to_int64 = ctx
@@ -579,13 +588,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                 arg.into_float_value(),
                                 ctx.ctx.i64_type(),
                                 "",
-                            );
+                            )
+                            .unwrap();
                         let val = ctx.builder
-                            .build_int_truncate(
-                                to_int64,
-                                ctx.ctx.i32_type(),
-                                "conv",
-                            );
+                            .build_int_truncate(to_int64, ctx.ctx.i32_type(), "conv")
+                            .unwrap();
 
                         Some(val.into())
                     } else {
@@ -632,7 +639,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                         ctx.ctx.i64_type(),
                                         "zext",
                                     )
-                                    .into(),
+                                    .map(Into::into)
+                                    .unwrap(),
                             )
                         } else if ctx.unifier.unioned(arg_ty, int32) {
                             Some(
@@ -642,7 +650,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                         ctx.ctx.i64_type(),
                                         "sext",
                                     )
-                                    .into(),
+                                    .map(Into::into)
+                                    .unwrap(),
                             )
                         } else if ctx.unifier.unioned(arg_ty, int64)
                             || ctx.unifier.unioned(arg_ty, uint64)
@@ -656,7 +665,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                     ctx.ctx.i64_type(),
                                     "fptosi",
                                 )
-                                .into();
+                                .map(Into::into)
+                                .unwrap();
                             Some(val)
                         } else {
                             unreachable!()
@@ -695,7 +705,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let res = if ctx.unifier.unioned(arg_ty, boolean) {
                         ctx.builder
                             .build_int_z_extend(arg.into_int_value(), ctx.ctx.i64_type(), "zext")
-                            .into()
+                            .map(Into::into)
+                            .unwrap()
                     } else if ctx.unifier.unioned(arg_ty, int32)
                         || ctx.unifier.unioned(arg_ty, uint32)
                     {
@@ -705,34 +716,45 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     {
                         ctx.builder
                             .build_int_truncate(arg.into_int_value(), ctx.ctx.i32_type(), "trunc")
-                            .into()
+                            .map(Into::into)
+                            .unwrap()
                     } else if ctx.unifier.unioned(arg_ty, float) {
                         let llvm_i32 = ctx.ctx.i32_type();
                         let llvm_i64 = ctx.ctx.i64_type();
 
                         let arg = arg.into_float_value();
                         let arg_gez = ctx.builder
-                            .build_float_compare(FloatPredicate::OGE, arg, arg.get_type().const_zero(), "");
+                            .build_float_compare(
+                                FloatPredicate::OGE,
+                                arg,
+                                arg.get_type().const_zero(),
+                                "",
+                            )
+                            .unwrap();
 
                         let to_int32 = ctx.builder
                             .build_float_to_signed_int(
                                 arg,
                                 llvm_i32,
-                                ""
-                            );
+                                "",
+                            )
+                            .unwrap();
                         let to_uint64 = ctx.builder
                             .build_float_to_unsigned_int(
                                 arg,
                                 llvm_i64,
-                                ""
-                            );
+                                "",
+                            )
+                            .unwrap();
 
-                        let val = ctx.builder.build_select(
-                            arg_gez,
-                            ctx.builder.build_int_truncate(to_uint64, llvm_i32, ""),
-                            to_int32,
-                            "conv"
-                        );
+                        let val = ctx.builder
+                            .build_select(
+                                arg_gez,
+                                ctx.builder.build_int_truncate(to_uint64, llvm_i32, "").unwrap(),
+                                to_int32,
+                                "conv",
+                            )
+                            .unwrap();
 
                         val
                     } else {
@@ -774,11 +796,13 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     {
                         ctx.builder
                             .build_int_z_extend(arg.into_int_value(), ctx.ctx.i64_type(), "zext")
-                            .into()
+                            .map(Into::into)
+                            .unwrap()
                     } else if ctx.unifier.unioned(arg_ty, int32) {
                         ctx.builder
                             .build_int_s_extend(arg.into_int_value(), ctx.ctx.i64_type(), "sext")
-                            .into()
+                            .map(Into::into)
+                            .unwrap()
                     } else if ctx.unifier.unioned(arg_ty, int64)
                         || ctx.unifier.unioned(arg_ty, uint64)
                     {
@@ -788,27 +812,24 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
 
                         let arg = arg.into_float_value();
                         let arg_gez = ctx.builder
-                            .build_float_compare(FloatPredicate::OGE, arg, arg.get_type().const_zero(), "");
+                            .build_float_compare(
+                                FloatPredicate::OGE,
+                                arg,
+                                arg.get_type().const_zero(),
+                                "",
+                            )
+                            .unwrap();
 
                         let to_int64 = ctx.builder
-                            .build_float_to_signed_int(
-                                arg,
-                                llvm_i64,
-                                ""
-                            );
+                            .build_float_to_signed_int(arg, llvm_i64, "")
+                            .unwrap();
                         let to_uint64 = ctx.builder
-                            .build_float_to_unsigned_int(
-                                arg,
-                                llvm_i64,
-                                ""
-                            );
+                            .build_float_to_unsigned_int(arg, llvm_i64, "")
+                            .unwrap();
 
-                        let val = ctx.builder.build_select(
-                            arg_gez,
-                            to_uint64,
-                            to_int64,
-                            "conv"
-                        );
+                        let val = ctx.builder
+                            .build_select(arg_gez, to_uint64, to_int64, "conv")
+                            .unwrap();
 
                         val
                     } else {
@@ -852,14 +873,16 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                             let val = ctx
                                 .builder
                                 .build_signed_int_to_float(arg, ctx.ctx.f64_type(), "sitofp")
-                                .into();
+                                .map(Into::into)
+                                .unwrap();
                             Some(val)
                         } else if [uint32, uint64].iter().any(|ty| ctx.unifier.unioned(arg_ty, *ty)) {
                             let arg = arg.into_int_value();
                             let val = ctx
                                 .builder
                                 .build_unsigned_int_to_float(arg, ctx.ctx.f64_type(), "uitofp")
-                                .into();
+                                .map(Into::into)
+                                .unwrap();
                             Some(val)
                         } else if ctx.unifier.unioned(arg_ty, float) {
                             Some(arg)
@@ -1002,11 +1025,12 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 let val = ctx
                     .builder
                     .build_call(intrinsic_fn, &[arg.into()], "")
-                    .try_as_basic_value()
-                    .left()
+                    .map(CallSiteValue::try_as_basic_value)
+                    .map(Either::unwrap_left)
                     .unwrap();
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "round");
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "round")
+                    .unwrap();
                 Ok(Some(val_toint.into()))
             }),
         ),
@@ -1032,11 +1056,12 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 let val = ctx
                     .builder
                     .build_call(intrinsic_fn, &[arg.into()], "")
-                    .try_as_basic_value()
-                    .left()
+                    .map(CallSiteValue::try_as_basic_value)
+                    .map(Either::unwrap_left)
                     .unwrap();
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "round");
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "round")
+                    .unwrap();
                 Ok(Some(val_toint.into()))
             }),
         ),
@@ -1061,8 +1086,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 let val = ctx
                     .builder
                     .build_call(intrinsic_fn, &[arg.into()], "")
-                    .try_as_basic_value()
-                    .left()
+                    .map(CallSiteValue::try_as_basic_value)
+                    .map(Either::unwrap_left)
                     .unwrap();
                 Ok(Some(val))
             }),
@@ -1119,12 +1144,14 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                         Some(step) => {
                             let step = step.into_int_value();
                             // assert step != 0, throw exception if not
-                            let not_zero = ctx.builder.build_int_compare(
-                                IntPredicate::NE,
-                                step,
-                                step.get_type().const_zero(),
-                                "range_step_ne",
-                            );
+                            let not_zero = ctx.builder
+                                .build_int_compare(
+                                    IntPredicate::NE,
+                                    step,
+                                    step.get_type().const_zero(),
+                                    "range_step_ne",
+                                )
+                                .unwrap();
                             ctx.make_assert(
                                 generator,
                                 not_zero,
@@ -1146,20 +1173,24 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let ty = int32.array_type(3);
                     let ptr = generator.gen_var_alloc(ctx, ty.into(), Some("range")).unwrap();
                     unsafe {
-                        let a = ctx.builder.build_in_bounds_gep(ptr, &[zero, zero], "start");
-                        let b = ctx.builder.build_in_bounds_gep(
-                            ptr,
-                            &[zero, int32.const_int(1, false)],
-                            "end",
-                        );
+                        let a = ctx.builder
+                            .build_in_bounds_gep(ptr, &[zero, zero], "start")
+                            .unwrap();
+                        let b = ctx.builder
+                            .build_in_bounds_gep(
+                                ptr,
+                                &[zero, int32.const_int(1, false)],
+                                "end",
+                            )
+                            .unwrap();
                         let c = ctx.builder.build_in_bounds_gep(
-                            ptr,
-                            &[zero, int32.const_int(2, false)],
-                            "step",
-                        );
-                        ctx.builder.build_store(a, start);
-                        ctx.builder.build_store(b, stop);
-                        ctx.builder.build_store(c, step);
+                                ptr,
+                                &[zero, int32.const_int(2, false)],
+                                "step",
+                            ).unwrap();
+                        ctx.builder.build_store(a, start).unwrap();
+                        ctx.builder.build_store(b, stop).unwrap();
+                        ctx.builder.build_store(c, step).unwrap();
                     }
                     Ok(Some(ptr.into()))
                 },
@@ -1217,7 +1248,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                     arg.into_int_value(),
                                     "bool",
                                 )
-                                .into(),
+                                .map(Into::into)
+                                .unwrap(),
                         )
                     } else if ctx.unifier.unioned(arg_ty, int64) {
                         Some(
@@ -1228,7 +1260,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                     arg.into_int_value(),
                                     "bool",
                                 )
-                                .into(),
+                                .map(Into::into)
+                                .unwrap(),
                         )
                     } else if ctx.unifier.unioned(arg_ty, float) {
                         let val = ctx
@@ -1240,7 +1273,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                 ctx.ctx.f64_type().const_zero(),
                                 "bool",
                             )
-                            .into();
+                            .map(Into::into)
+                            .unwrap();
                         Some(val)
                     } else {
                         unreachable!()
@@ -1271,11 +1305,12 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 let val = ctx
                     .builder
                     .build_call(intrinsic_fn, &[arg.into()], "")
-                    .try_as_basic_value()
-                    .left()
+                    .map(CallSiteValue::try_as_basic_value)
+                    .map(Either::unwrap_left)
                     .unwrap();
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "floor");
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "floor")
+                    .unwrap();
                 Ok(Some(val_toint.into()))
             }),
         ),
@@ -1301,11 +1336,12 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 let val = ctx
                     .builder
                     .build_call(intrinsic_fn, &[arg.into()], "")
-                    .try_as_basic_value()
-                    .left()
+                    .map(CallSiteValue::try_as_basic_value)
+                    .map(Either::unwrap_left)
                     .unwrap();
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "floor");
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "floor")
+                    .unwrap();
                 Ok(Some(val_toint.into()))
             }),
         ),
@@ -1330,8 +1366,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 let val = ctx
                     .builder
                     .build_call(intrinsic_fn, &[arg.into()], "")
-                    .try_as_basic_value()
-                    .left()
+                    .map(CallSiteValue::try_as_basic_value)
+                    .map(Either::unwrap_left)
                     .unwrap();
                 Ok(Some(val))
             }),
@@ -1358,11 +1394,12 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 let val = ctx
                     .builder
                     .build_call(intrinsic_fn, &[arg.into()], "")
-                    .try_as_basic_value()
-                    .left()
+                    .map(CallSiteValue::try_as_basic_value)
+                    .map(Either::unwrap_left)
                     .unwrap();
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "ceil");
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "ceil")
+                    .unwrap();
                 Ok(Some(val_toint.into()))
             }),
         ),
@@ -1388,11 +1425,12 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 let val = ctx
                     .builder
                     .build_call(intrinsic_fn, &[arg.into()], "")
-                    .try_as_basic_value()
-                    .left()
+                    .map(CallSiteValue::try_as_basic_value)
+                    .map(Either::unwrap_left)
                     .unwrap();
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "ceil");
+                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "ceil")
+                    .unwrap();
                 Ok(Some(val_toint.into()))
             }),
         ),
@@ -1417,8 +1455,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 let val = ctx
                     .builder
                     .build_call(intrinsic_fn, &[arg.into()], "")
-                    .try_as_basic_value()
-                    .left()
+                    .map(CallSiteValue::try_as_basic_value)
+                    .map(Either::unwrap_left)
                     .unwrap();
                 Ok(Some(val))
             }),
@@ -1472,7 +1510,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                     if len.get_type().get_bit_width() == 32 {
                                         Some(len.into())
                                     } else {
-                                        Some(ctx.builder.build_int_truncate(len, int32, "len2i32").into())
+                                        Some(ctx.builder
+                                            .build_int_truncate(len, int32, "len2i32")
+                                            .map(Into::into)
+                                            .unwrap()
+                                        )
                                     }
                                 }
                                 TypeEnum::TNDArray { .. } => {
@@ -1486,7 +1528,11 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                     ).into_int_value();
 
                                     if len.get_type().get_bit_width() != 32 {
-                                        Some(ctx.builder.build_int_truncate(len, llvm_i32, "len").into())
+                                       Some(ctx.builder
+                                           .build_int_truncate(len, llvm_i32, "len")
+                                           .map(Into::into)
+                                           .unwrap()
+                                       )
                                     } else {
                                         Some(len.into())
                                     }
@@ -1553,8 +1599,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let val = ctx
                         .builder
                         .build_call(intrinsic, &[m_val.into(), n_val.into()], "min")
-                        .try_as_basic_value()
-                        .left()
+                        .map(CallSiteValue::try_as_basic_value)
+                        .map(Either::unwrap_left)
                         .unwrap();
                     Ok(val.into())
                 },
@@ -1615,8 +1661,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let val = ctx
                         .builder
                         .build_call(intrinsic, &[m_val.into(), n_val.into()], "max")
-                        .try_as_basic_value()
-                        .left()
+                        .map(CallSiteValue::try_as_basic_value)
+                        .map(Either::unwrap_left)
                         .unwrap();
                     Ok(val.into())
                 },
@@ -1684,8 +1730,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                             },
                             "abs",
                         )
-                        .try_as_basic_value()
-                        .left()
+                        .map(CallSiteValue::try_as_basic_value)
+                        .map(Either::unwrap_left)
                         .unwrap();
                     Ok(val.into())
                 },
@@ -2079,7 +2125,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let arg_ty = fun.0.args[0].ty;
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
                     let alloca = generator.gen_var_alloc(ctx, arg_val.get_type(), Some("alloca_some")).unwrap();
-                    ctx.builder.build_store(alloca, arg_val);
+                    ctx.builder.build_store(alloca, arg_val).unwrap();
                     Ok(Some(alloca.into()))
                 },
             )))),

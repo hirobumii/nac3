@@ -11,9 +11,10 @@ use inkwell::{
     memory_buffer::MemoryBuffer,
     module::Module,
     types::{BasicTypeEnum, IntType},
-    values::{ArrayValue, FloatValue, IntValue, PointerValue},
+    values::{ArrayValue, BasicValueEnum, CallSiteValue, FloatValue, IntValue, PointerValue},
     AddressSpace, IntPredicate,
 };
+use itertools::Either;
 use nac3parser::ast::Expr;
 
 #[must_use]
@@ -63,7 +64,7 @@ pub fn integer_power<'ctx>(
         exp,
         exp.get_type().const_zero(),
         "assert_int_pow_ge_0",
-    );
+    ).unwrap();
     ctx.make_assert(
         generator,
         ge_zero,
@@ -74,9 +75,10 @@ pub fn integer_power<'ctx>(
     );
     ctx.builder
         .build_call(pow_fun, &[base.into(), exp.into()], "call_int_pow")
-        .try_as_basic_value()
-        .unwrap_left()
-        .into_int_value()
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_int_value))
+        .map(Either::unwrap_left)
+        .unwrap()
 }
 
 pub fn calculate_len_for_slice_range<'ctx>(
@@ -99,7 +101,7 @@ pub fn calculate_len_for_slice_range<'ctx>(
         step,
         step.get_type().const_zero(),
         "range_step_ne",
-    );
+    ).unwrap();
     ctx.make_assert(
         generator,
         not_zero,
@@ -110,10 +112,10 @@ pub fn calculate_len_for_slice_range<'ctx>(
     );
     ctx.builder
         .build_call(len_func, &[start.into(), end.into(), step.into()], "calc_len")
-        .try_as_basic_value()
-        .left()
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_int_value))
+        .map(Either::unwrap_left)
         .unwrap()
-        .into_int_value()
 }
 
 /// NOTE: the output value of the end index of this function should be compared ***inclusively***,
@@ -168,7 +170,7 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
     let zero = int32.const_zero();
     let one = int32.const_int(1, false);
     let length = list.load_size(ctx, Some("length"));
-    let length = ctx.builder.build_int_truncate_or_bit_cast(length, int32, "leni32");
+    let length = ctx.builder.build_int_truncate_or_bit_cast(length, int32, "leni32").unwrap();
     Ok(Some(match (start, end, step) {
         (s, e, None) => (
             if let Some(s) = s.as_ref() {
@@ -188,7 +190,7 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                 } else {
                     length
                 };
-                ctx.builder.build_int_sub(e, one, "final_end")
+                ctx.builder.build_int_sub(e, one, "final_end").unwrap()
             },
             one,
         ),
@@ -204,7 +206,7 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                 step,
                 step.get_type().const_zero(),
                 "range_step_ne",
-            );
+            ).unwrap();
             ctx.make_assert(
                 generator,
                 not_zero,
@@ -213,8 +215,8 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                 [None, None, None],
                 ctx.current_loc,
             );
-            let len_id = ctx.builder.build_int_sub(length, one, "lenmin1");
-            let neg = ctx.builder.build_int_compare(IntPredicate::SLT, step, zero, "step_is_neg");
+            let len_id = ctx.builder.build_int_sub(length, one, "lenmin1").unwrap();
+            let neg = ctx.builder.build_int_compare(IntPredicate::SLT, step, zero, "step_is_neg").unwrap();
             (
                 match s {
                     Some(s) => {
@@ -229,17 +231,20 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                                         s,
                                         length,
                                         "s_eq_len",
-                                    ),
+                                    ).unwrap(),
                                     neg,
                                     "should_minus_one",
-                                ),
-                                ctx.builder.build_int_sub(s, one, "s_min"),
+                                ).unwrap(),
+                                ctx.builder.build_int_sub(s, one, "s_min").unwrap(),
                                 s,
                                 "final_start",
                             )
-                            .into_int_value()
+                            .map(BasicValueEnum::into_int_value)
+                            .unwrap()
                     }
-                    None => ctx.builder.build_select(neg, len_id, zero, "stt").into_int_value(),
+                    None => ctx.builder.build_select(neg, len_id, zero, "stt")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap(),
                 },
                 match e {
                     Some(e) => {
@@ -249,13 +254,16 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                         ctx.builder
                             .build_select(
                                 neg,
-                                ctx.builder.build_int_add(e, one, "end_add_one"),
-                                ctx.builder.build_int_sub(e, one, "end_sub_one"),
+                                ctx.builder.build_int_add(e, one, "end_add_one").unwrap(),
+                                ctx.builder.build_int_sub(e, one, "end_sub_one").unwrap(),
                                 "final_end",
                             )
-                            .into_int_value()
+                            .map(BasicValueEnum::into_int_value)
+                            .unwrap()
                     }
-                    None => ctx.builder.build_select(neg, zero, len_id, "end").into_int_value(),
+                    None => ctx.builder.build_select(neg, zero, len_id, "end")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap(),
                 },
                 step,
             )
@@ -286,10 +294,10 @@ pub fn handle_slice_index_bound<'ctx, G: CodeGenerator>(
     Ok(Some(ctx
         .builder
         .build_call(func, &[i.into(), length.into()], "bounded_ind")
-        .try_as_basic_value()
-        .left()
-        .unwrap()
-        .into_int_value()))
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_int_value))
+        .map(Either::unwrap_left)
+        .unwrap()))
 }
 
 /// This function handles 'end' **inclusively**.
@@ -335,17 +343,17 @@ pub fn list_slice_assignment<'ctx>(
         dest_arr_ptr,
         elem_ptr_type,
         "dest_arr_ptr_cast",
-    );
+    ).unwrap();
     let dest_len = dest_arr.load_size(ctx, Some("dest.len"));
-    let dest_len = ctx.builder.build_int_truncate_or_bit_cast(dest_len, int32, "srclen32");
+    let dest_len = ctx.builder.build_int_truncate_or_bit_cast(dest_len, int32, "srclen32").unwrap();
     let src_arr_ptr = src_arr.get_data().get_ptr(ctx);
     let src_arr_ptr = ctx.builder.build_pointer_cast(
         src_arr_ptr,
         elem_ptr_type,
         "src_arr_ptr_cast",
-    );
+    ).unwrap();
     let src_len = src_arr.load_size(ctx, Some("src.len"));
-    let src_len = ctx.builder.build_int_truncate_or_bit_cast(src_len, int32, "srclen32");
+    let src_len = ctx.builder.build_int_truncate_or_bit_cast(src_len, int32, "srclen32").unwrap();
 
     // index in bound and positive should be done
     // assert if dest.step == 1 then len(src) <= len(dest) else len(src) == len(dest), and
@@ -357,12 +365,13 @@ pub fn list_slice_assignment<'ctx>(
                 src_idx.2,
                 zero,
                 "is_neg",
-            ),
-            ctx.builder.build_int_sub(src_idx.1, one, "e_min_one"),
-            ctx.builder.build_int_add(src_idx.1, one, "e_add_one"),
+            ).unwrap(),
+            ctx.builder.build_int_sub(src_idx.1, one, "e_min_one").unwrap(),
+            ctx.builder.build_int_add(src_idx.1, one, "e_add_one").unwrap(),
             "final_e",
         )
-        .into_int_value();
+        .map(BasicValueEnum::into_int_value)
+        .unwrap();
     let dest_end = ctx.builder
         .build_select(
             ctx.builder.build_int_compare(
@@ -370,12 +379,13 @@ pub fn list_slice_assignment<'ctx>(
                 dest_idx.2,
                 zero,
                 "is_neg",
-            ),
-            ctx.builder.build_int_sub(dest_idx.1, one, "e_min_one"),
-            ctx.builder.build_int_add(dest_idx.1, one, "e_add_one"),
+            ).unwrap(),
+            ctx.builder.build_int_sub(dest_idx.1, one, "e_min_one").unwrap(),
+            ctx.builder.build_int_add(dest_idx.1, one, "e_add_one").unwrap(),
             "final_e",
         )
-        .into_int_value();
+        .map(BasicValueEnum::into_int_value)
+        .unwrap();
     let src_slice_len =
         calculate_len_for_slice_range(generator, ctx, src_idx.0, src_end, src_idx.2);
     let dest_slice_len =
@@ -385,21 +395,21 @@ pub fn list_slice_assignment<'ctx>(
         src_slice_len,
         dest_slice_len,
         "slice_src_eq_dest",
-    );
+    ).unwrap();
     let src_slt_dest = ctx.builder.build_int_compare(
         IntPredicate::SLT,
         src_slice_len,
         dest_slice_len,
         "slice_src_slt_dest",
-    );
+    ).unwrap();
     let dest_step_eq_one = ctx.builder.build_int_compare(
         IntPredicate::EQ,
         dest_idx.2,
         dest_idx.2.get_type().const_int(1, false),
         "slice_dest_step_eq_one",
-    );
-    let cond_1 = ctx.builder.build_and(dest_step_eq_one, src_slt_dest, "slice_cond_1");
-    let cond = ctx.builder.build_or(src_eq_dest, cond_1, "slice_cond");
+    ).unwrap();
+    let cond_1 = ctx.builder.build_and(dest_step_eq_one, src_slt_dest, "slice_cond_1").unwrap();
+    let cond = ctx.builder.build_or(src_eq_dest, cond_1, "slice_cond").unwrap();
     ctx.make_assert(
         generator,
         cond,
@@ -429,27 +439,31 @@ pub fn list_slice_assignment<'ctx>(
                     BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
                     _ => unreachable!(),
                 };
-                ctx.builder.build_int_truncate_or_bit_cast(s, int32, "size")
+                ctx.builder.build_int_truncate_or_bit_cast(s, int32, "size").unwrap()
             }
             .into(),
         ];
         ctx.builder
             .build_call(slice_assign_fun, args.as_slice(), "slice_assign")
-            .try_as_basic_value()
-            .unwrap_left()
-            .into_int_value()
+            .map(CallSiteValue::try_as_basic_value)
+            .map(|v| v.map_left(BasicValueEnum::into_int_value))
+            .map(Either::unwrap_left)
+            .unwrap()
     };
     // update length
-    let need_update =
-        ctx.builder.build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update");
+    let need_update = ctx.builder
+        .build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update")
+        .unwrap();
     let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
     let update_bb = ctx.ctx.append_basic_block(current, "update");
     let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-    ctx.builder.build_conditional_branch(need_update, update_bb, cont_bb);
+    ctx.builder.build_conditional_branch(need_update, update_bb, cont_bb).unwrap();
     ctx.builder.position_at_end(update_bb);
-    let new_len = ctx.builder.build_int_z_extend_or_bit_cast(new_len, size_ty, "new_len");
+    let new_len = ctx.builder
+        .build_int_z_extend_or_bit_cast(new_len, size_ty, "new_len")
+        .unwrap();
     dest_arr.store_size(ctx, generator, new_len);
-    ctx.builder.build_unconditional_branch(cont_bb);
+    ctx.builder.build_unconditional_branch(cont_bb).unwrap();
     ctx.builder.position_at_end(cont_bb);
 }
 
@@ -466,9 +480,10 @@ pub fn call_isinf<'ctx>(
 
     let ret = ctx.builder
         .build_call(intrinsic_fn, &[v.into()], "isinf")
-        .try_as_basic_value()
-        .unwrap_left()
-        .into_int_value();
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_int_value))
+        .map(Either::unwrap_left)
+        .unwrap();
 
     generator.bool_to_i1(ctx, ret)
 }
@@ -486,9 +501,10 @@ pub fn call_isnan<'ctx>(
 
     let ret = ctx.builder
         .build_call(intrinsic_fn, &[v.into()], "isnan")
-        .try_as_basic_value()
-        .unwrap_left()
-        .into_int_value();
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_int_value))
+        .map(Either::unwrap_left)
+        .unwrap();
 
     generator.bool_to_i1(ctx, ret)
 }
@@ -507,9 +523,10 @@ pub fn call_gamma<'ctx>(
 
     ctx.builder
         .build_call(intrinsic_fn, &[v.into()], "gamma")
-        .try_as_basic_value()
-        .unwrap_left()
-        .into_float_value()
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
 }
 
 /// Generates a call to `gammaln` in IR. Returns an `f64` representing the result.
@@ -526,9 +543,10 @@ pub fn call_gammaln<'ctx>(
 
     ctx.builder
         .build_call(intrinsic_fn, &[v.into()], "gammaln")
-        .try_as_basic_value()
-        .unwrap_left()
-        .into_float_value()
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
 }
 
 /// Generates a call to `j0` in IR. Returns an `f64` representing the result.
@@ -545,9 +563,10 @@ pub fn call_j0<'ctx>(
 
     ctx.builder
         .build_call(intrinsic_fn, &[v.into()], "j0")
-        .try_as_basic_value()
-        .unwrap_left()
-        .into_float_value()
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
 }
 
 /// Generates a call to `__nac3_ndarray_calc_size`. Returns an [IntValue] representing the
@@ -592,9 +611,10 @@ pub fn call_ndarray_calc_size<'ctx>(
             ],
             "",
         )
-        .try_as_basic_value()
-        .unwrap_left()
-        .into_int_value()
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_int_value))
+        .map(Either::unwrap_left)
+        .unwrap()
 }
 
 /// Generates a call to `__nac3_ndarray_init_dims`.
@@ -638,15 +658,17 @@ pub fn call_ndarray_init_dims<'ctx>(
     let shape_data = shape.get_data();
     let ndarray_num_dims = ndarray.load_ndims(ctx);
 
-    ctx.builder.build_call(
-        ndarray_init_dims_fn,
-        &[
-            ndarray_dims.get_ptr(ctx).into(),
-            shape_data.get_ptr(ctx).into(),
-            ndarray_num_dims.into(),
-        ],
-        "",
-    );
+    ctx.builder
+        .build_call(
+            ndarray_init_dims_fn,
+            &[
+                ndarray_dims.get_ptr(ctx).into(),
+                shape_data.get_ptr(ctx).into(),
+                ndarray_num_dims.into(),
+            ],
+            "",
+        )
+        .unwrap();
 }
 
 /// Generates a call to `__nac3_ndarray_calc_nd_indices`.
@@ -691,18 +713,20 @@ pub fn call_ndarray_calc_nd_indices<'ctx>(
         llvm_usize,
         ndarray_num_dims,
         "",
-    );
+    ).unwrap();
 
-    ctx.builder.build_call(
-        ndarray_calc_nd_indices_fn,
-        &[
-            index.into(),
-            ndarray_dims.get_ptr(ctx).into(),
-            ndarray_num_dims.into(),
-            indices.into(),
-        ],
-        "",
-    );
+    ctx.builder
+        .build_call(
+            ndarray_calc_nd_indices_fn,
+            &[
+                index.into(),
+                ndarray_dims.get_ptr(ctx).into(),
+                ndarray_num_dims.into(),
+                indices.into(),
+            ],
+            "",
+        )
+        .unwrap();
 
     Ok(indices)
 }
@@ -766,9 +790,9 @@ fn call_ndarray_flatten_index_impl<'ctx>(
             ],
             "",
         )
-        .try_as_basic_value()
-        .map_left(|v| v.into_int_value())
-        .left()
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_int_value))
+        .map(Either::unwrap_left)
         .unwrap();
 
     Ok(index)
@@ -828,8 +852,8 @@ pub fn call_ndarray_flatten_index_const<'ctx>(
                 &[ctx.ctx.i32_type().const_int(i as u64, false)],
                 ""
             )
-        };
-        ctx.builder.build_store(elem_ptr, v);
+        }.unwrap();
+        ctx.builder.build_store(elem_ptr, v).unwrap();
     }
 
     call_ndarray_flatten_index_impl(

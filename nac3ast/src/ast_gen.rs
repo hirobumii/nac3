@@ -5,10 +5,10 @@ pub use crate::constant::*;
 
 use std::{fmt, collections::HashMap, cell::RefCell};
 use parking_lot::{Mutex, MutexGuard};
-use string_interner::{DefaultBackend, DefaultSymbol, StringInterner, symbol::SymbolU32};
+use string_interner::{DefaultBackend, StringInterner, symbol::SymbolU32};
 use fxhash::FxBuildHasher;
 
-pub type Interner = StringInterner<DefaultBackend<DefaultSymbol>, FxBuildHasher>;
+pub type Interner = StringInterner<DefaultBackend, FxBuildHasher>;
 lazy_static! {
     static ref INTERNER: Mutex<Interner> = Mutex::new(StringInterner::with_hasher(FxBuildHasher::default()));
 }

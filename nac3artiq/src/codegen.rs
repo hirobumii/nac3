@@ -12,7 +12,11 @@ use nac3core::{
 use nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef};
 
 use inkwell::{
-    context::Context, module::Linkage, types::IntType, values::BasicValueEnum, AddressSpace,
+    context::Context, 
+    module::Linkage, 
+    types::IntType, 
+    values::{BasicValueEnum, CallSiteValue}, 
+    AddressSpace,
 };
 
 use pyo3::{PyObject, PyResult, Python, types::{PyDict, PyList}};
@@ -25,6 +29,7 @@ use std::{
     hash::{Hash, Hasher},
     sync::Arc,
 };
+use itertools::Either;
 
 /// The parallelism mode within a block.
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -139,15 +144,15 @@ impl<'a> ArtiqCodeGenerator<'a> {
             let max = ctx
                 .builder
                 .build_call(smax, &[old_end.into(), now.into()], "smax")
-                .try_as_basic_value()
-                .left()
+                .map(CallSiteValue::try_as_basic_value)
+                .map(Either::unwrap_left)
                 .unwrap();
             let end_store = self.gen_store_target(
                 ctx,
                 &end,
                 store_name.map(|name| format!("{name}.addr")).as_deref())?
                 .unwrap();
-            ctx.builder.build_store(end_store, max);
+            ctx.builder.build_store(end_store, max).unwrap();
         }
 
         Ok(())
@@ -268,7 +273,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                             let start = self
                                 .gen_store_target(ctx, &start_expr, Some("start.addr"))?
                                 .unwrap();
-                            ctx.builder.build_store(start, now);
+                            ctx.builder.build_store(start, now).unwrap();
                             Ok(Some(start_expr)) as Result<_, String>
                         },
                         |v| Ok(Some(v)),
@@ -283,7 +288,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                     let end = self
                         .gen_store_target(ctx, &end_expr, Some("end.addr"))?
                         .unwrap();
-                    ctx.builder.build_store(end, now);
+                    ctx.builder.build_store(end, now).unwrap();
                     self.end = Some(end_expr);
                     self.name_counter += 1;
                     self.parallel_mode = match id.to_string().as_str() {
@@ -477,12 +482,14 @@ fn rpc_codegen_callback_fn<'ctx>(
         )
     });
 
-    let stackptr = ctx.builder.build_call(stacksave, &[], "rpc.stack");
-    let args_ptr = ctx.builder.build_array_alloca(
-        ptr_type,
-        ctx.ctx.i32_type().const_int(arg_length as u64, false),
-        "argptr",
-    );
+    let stackptr = ctx.builder.build_call(stacksave, &[], "rpc.stack").unwrap();
+    let args_ptr = ctx.builder
+        .build_array_alloca(
+            ptr_type,
+            ctx.ctx.i32_type().const_int(arg_length as u64, false),
+            "argptr",
+        )
+        .unwrap();
 
     // -- rpc args handling
     let mut keys = fun.0.args.clone();
@@ -515,16 +522,16 @@ fn rpc_codegen_callback_fn<'ctx>(
 
     for (i, arg) in real_params.iter().enumerate() {
         let arg_slot = generator.gen_var_alloc(ctx, arg.get_type(), Some(&format!("rpc.arg{i}"))).unwrap();
-        ctx.builder.build_store(arg_slot, *arg);
-        let arg_slot = ctx.builder.build_bitcast(arg_slot, ptr_type, "rpc.arg");
+        ctx.builder.build_store(arg_slot, *arg).unwrap();
+        let arg_slot = ctx.builder.build_bitcast(arg_slot, ptr_type, "rpc.arg").unwrap();
         let arg_ptr = unsafe {
             ctx.builder.build_gep(
                 args_ptr,
                 &[int32.const_int(i as u64, false)],
                 &format!("rpc.arg{i}"),
             )
-        };
-        ctx.builder.build_store(arg_ptr, arg_slot);
+        }.unwrap();
+        ctx.builder.build_store(arg_ptr, arg_slot).unwrap();
     }
 
     // call
@@ -542,18 +549,22 @@ fn rpc_codegen_callback_fn<'ctx>(
             None,
         )
     });
-    ctx.builder.build_call(
-        rpc_send,
-        &[service_id.into(), tag_ptr.into(), args_ptr.into()],
-        "rpc.send",
-    );
+    ctx.builder
+        .build_call(
+            rpc_send,
+            &[service_id.into(), tag_ptr.into(), args_ptr.into()],
+            "rpc.send",
+        )
+        .unwrap();
 
     // reclaim stack space used by arguments
-    ctx.builder.build_call(
-        stackrestore,
-        &[stackptr.try_as_basic_value().unwrap_left().into()],
-        "rpc.stackrestore",
-    );
+    ctx.builder
+        .build_call(
+            stackrestore,
+            &[stackptr.try_as_basic_value().unwrap_left().into()],
+            "rpc.stackrestore",
+        )
+        .unwrap();
 
     // -- receive value:
     // T result = {
@@ -581,41 +592,45 @@ fn rpc_codegen_callback_fn<'ctx>(
 
     let ret_ty = ctx.get_llvm_abi_type(generator, fun.0.ret);
     let need_load = !ret_ty.is_pointer_type();
-    let slot = ctx.builder.build_alloca(ret_ty, "rpc.ret.slot");
-    let slotgen = ctx.builder.build_bitcast(slot, ptr_type, "rpc.ret.ptr");
-    ctx.builder.build_unconditional_branch(head_bb);
+    let slot = ctx.builder.build_alloca(ret_ty, "rpc.ret.slot").unwrap();
+    let slotgen = ctx.builder.build_bitcast(slot, ptr_type, "rpc.ret.ptr").unwrap();
+    ctx.builder.build_unconditional_branch(head_bb).unwrap();
     ctx.builder.position_at_end(head_bb);
 
-    let phi = ctx.builder.build_phi(ptr_type, "rpc.ptr");
+    let phi = ctx.builder.build_phi(ptr_type, "rpc.ptr").unwrap();
     phi.add_incoming(&[(&slotgen, prehead_bb)]);
     let alloc_size = ctx
         .build_call_or_invoke(rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
         .unwrap()
         .into_int_value();
-    let is_done = ctx.builder.build_int_compare(
-        inkwell::IntPredicate::EQ,
-        int32.const_zero(),
-        alloc_size,
-        "rpc.done",
-    );
+    let is_done = ctx.builder
+        .build_int_compare(
+            inkwell::IntPredicate::EQ,
+            int32.const_zero(),
+            alloc_size,
+            "rpc.done",
+        )
+        .unwrap();
 
-    ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb);
+    ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb).unwrap();
     ctx.builder.position_at_end(alloc_bb);
 
-    let alloc_ptr = ctx.builder.build_array_alloca(ptr_type, alloc_size, "rpc.alloc");
-    let alloc_ptr = ctx.builder.build_bitcast(alloc_ptr, ptr_type, "rpc.alloc.ptr");
+    let alloc_ptr = ctx.builder.build_array_alloca(ptr_type, alloc_size, "rpc.alloc").unwrap();
+    let alloc_ptr = ctx.builder.build_bitcast(alloc_ptr, ptr_type, "rpc.alloc.ptr").unwrap();
     phi.add_incoming(&[(&alloc_ptr, alloc_bb)]);
-    ctx.builder.build_unconditional_branch(head_bb);
+    ctx.builder.build_unconditional_branch(head_bb).unwrap();
 
     ctx.builder.position_at_end(tail_bb);
 
-    let result = ctx.builder.build_load(slot, "rpc.result");
+    let result = ctx.builder.build_load(slot, "rpc.result").unwrap();
     if need_load {
-        ctx.builder.build_call(
-            stackrestore,
-            &[stackptr.try_as_basic_value().unwrap_left().into()],
-            "rpc.stackrestore",
-        );
+        ctx.builder
+            .build_call(
+                stackrestore,
+                &[stackptr.try_as_basic_value().unwrap_left().into()],
+                "rpc.stackrestore",
+            )
+            .unwrap();
     }
     Ok(Some(result))
 }

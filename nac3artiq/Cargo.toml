@@ -12,13 +12,13 @@ crate-type = ["cdylib"]
 itertools = "0.12"
 pyo3 = { version = "0.20", features = ["extension-module"] }
 parking_lot = "0.12"
-tempfile = "3.8"
+tempfile = "3.10"
 nac3parser = { path = "../nac3parser" }
 nac3core = { path = "../nac3core" }
 nac3ld = { path = "../nac3ld" }
 
 [dependencies.inkwell]
-version = "0.2"
+version = "0.4"
 default-features = false
 features = ["llvm14-0", "target-x86", "target-arm", "target-riscv", "no-libffi-linking"]
 

@@ -1,5 +1,5 @@
 use inkwell::{AddressSpace, IntPredicate, types::BasicType, values::{BasicValueEnum, PointerValue}};
-use inkwell::values::{ArrayValue, IntValue};
+use inkwell::values::{AggregateValueEnum, ArrayValue, IntValue};
 use nac3parser::ast::StrRef;
 use crate::{
     codegen::{
@@ -39,18 +39,14 @@ fn create_ndarray_const_shape<'ctx, 'a>(
     assert!(llvm_ndarray_data_t.is_sized());
 
     for i in 0..shape.get_type().len() {
-        let shape_dim = ctx.builder.build_extract_value(
-            shape,
-            i,
-            "",
-        ).unwrap();
+        let shape_dim = ctx.builder
+            .build_extract_value(shape, i, "")
+            .map(BasicValueEnum::into_int_value)
+            .unwrap();
 
-        let shape_dim_gez = ctx.builder.build_int_compare(
-            IntPredicate::SGE,
-            shape_dim.into_int_value(),
-            llvm_usize.const_zero(),
-            ""
-        );
+        let shape_dim_gez = ctx.builder
+            .build_int_compare(IntPredicate::SGE, shape_dim, llvm_usize.const_zero(), "")
+            .unwrap();
 
         ctx.make_assert(
             generator,
@@ -80,10 +76,10 @@ fn create_ndarray_const_shape<'ctx, 'a>(
             .get_dims()
             .ptr_offset(ctx, generator, llvm_usize.const_int(i as u64, true), None);
         let shape_dim = ctx.builder.build_extract_value(shape, i, "")
-            .map(|val| val.into_int_value())
+            .map(BasicValueEnum::into_int_value)
             .unwrap();
 
-        ctx.builder.build_store(ndarray_dim, shape_dim);
+        ctx.builder.build_store(ndarray_dim, shape_dim).unwrap();
     }
 
     let ndarray_dims = ndarray.get_dims().get_ptr(ctx);
@@ -167,30 +163,29 @@ fn call_ndarray_empty_impl<'ctx, 'a>(
         ctx,
         |generator, ctx| {
             let i = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
-            ctx.builder.build_store(i, llvm_usize.const_zero());
+            ctx.builder.build_store(i, llvm_usize.const_zero()).unwrap();
 
             Ok(i)
         },
         |_, ctx, i_addr| {
             let i = ctx.builder
                 .build_load(i_addr, "")
-                .into_int_value();
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
             let shape_len = shape.load_size(ctx, None);
 
-            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, shape_len, ""))
+            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, shape_len, "").unwrap())
         },
         |generator, ctx, i_addr| {
             let i = ctx.builder
                 .build_load(i_addr, "")
-                .into_int_value();
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
             let shape_dim = shape.get_data().get(ctx, generator, i, None).into_int_value();
 
-            let shape_dim_gez = ctx.builder.build_int_compare(
-                IntPredicate::SGE,
-                shape_dim,
-                llvm_i32.const_zero(),
-                ""
-            );
+            let shape_dim_gez = ctx.builder
+                .build_int_compare(IntPredicate::SGE, shape_dim, llvm_i32.const_zero(), "")
+                .unwrap();
 
             ctx.make_assert(
                 generator,
@@ -206,9 +201,10 @@ fn call_ndarray_empty_impl<'ctx, 'a>(
         |_, ctx, i_addr| {
             let i = ctx.builder
                 .build_load(i_addr, "")
-                .into_int_value();
-            let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "");
-            ctx.builder.build_store(i_addr, i);
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "").unwrap();
+            ctx.builder.build_store(i_addr, i).unwrap();
 
             Ok(())
         },
@@ -268,36 +264,39 @@ fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
         ctx,
         |generator, ctx| {
             let i = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
-            ctx.builder.build_store(i, llvm_usize.const_zero());
+            ctx.builder.build_store(i, llvm_usize.const_zero()).unwrap();
 
             Ok(i)
         },
         |_, ctx, i_addr| {
             let i = ctx.builder
                 .build_load(i_addr, "")
-                .into_int_value();
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
 
-            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, ndarray_num_elems, ""))
+            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, ndarray_num_elems, "").unwrap())
         },
         |generator, ctx, i_addr| {
             let i = ctx.builder
                 .build_load(i_addr, "")
-                .into_int_value();
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
             let elem = unsafe {
                 ndarray.get_data().ptr_to_data_flattened_unchecked(ctx, i, None)
             };
 
             let value = value_fn(generator, ctx, i)?;
-            ctx.builder.build_store(elem, value);
+            ctx.builder.build_store(elem, value).unwrap();
 
             Ok(())
         },
         |_, ctx, i_addr| {
             let i = ctx.builder
                 .build_load(i_addr, "")
-                .into_int_value();
-            let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "");
-            ctx.builder.build_store(i_addr, i);
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "").unwrap();
+            ctx.builder.build_store(i_addr, i).unwrap();
 
             Ok(())
         },
@@ -451,16 +450,18 @@ fn call_ndarray_full_impl<'ctx, 'a>(
                     ctx.module.add_function(memcpy_fn_name.as_str(), fn_type, None)
                 });
 
-                ctx.builder.build_call(
-                    memcpy_fn,
-                    &[
-                        copy.into(),
-                        fill_value.into(),
-                        fill_value.get_type().size_of().unwrap().into(),
-                        llvm_i1.const_zero().into(),
-                    ],
-                    "",
-                );
+                ctx.builder
+                    .build_call(
+                        memcpy_fn,
+                        &[
+                            copy.into(),
+                            fill_value.into(),
+                            fill_value.get_type().size_of().unwrap().into(),
+                            llvm_i1.const_zero().into(),
+                        ],
+                        "",
+                    )
+                    .unwrap();
 
                 copy.into()
             } else if fill_value.is_int_value() || fill_value.is_float_value() {
@@ -494,18 +495,19 @@ fn call_ndarray_eye_impl<'ctx, 'a>(
     let shape_addr = generator.gen_var_alloc(ctx, llvm_usize_2.into(), None)?;
 
     let shape = ctx.builder.build_load(shape_addr, "")
-        .into_array_value();
-
-    let nrows = ctx.builder.build_int_z_extend_or_bit_cast(nrows, llvm_usize, "");
-    let shape = ctx.builder
-        .build_insert_value(shape, nrows, 0, "")
-        .map(|val| val.into_array_value())
+        .map(BasicValueEnum::into_array_value)
         .unwrap();
 
-    let ncols = ctx.builder.build_int_z_extend_or_bit_cast(ncols, llvm_usize, "");
+    let nrows = ctx.builder.build_int_z_extend_or_bit_cast(nrows, llvm_usize, "").unwrap();
+    let shape = ctx.builder
+        .build_insert_value(shape, nrows, 0, "")
+        .map(AggregateValueEnum::into_array_value)
+        .unwrap();
+
+    let ncols = ctx.builder.build_int_z_extend_or_bit_cast(ncols, llvm_usize, "").unwrap();
     let shape = ctx.builder
         .build_insert_value(shape, ncols, 1, "")
-        .map(|val| val.into_array_value())
+        .map(AggregateValueEnum::into_array_value)
         .unwrap();
 
     let ndarray = create_ndarray_const_shape(generator, ctx, elem_ty, shape)?;
@@ -526,22 +528,21 @@ fn call_ndarray_eye_impl<'ctx, 'a>(
                 None,
             ).into_int_value();
 
-            let col_with_offset = ctx.builder.build_int_add(
-                col,
-                ctx.builder.build_int_z_extend_or_bit_cast(offset, llvm_usize, ""),
-                ""
-            );
-            let is_on_diag = ctx.builder.build_int_compare(
-                IntPredicate::EQ,
-                row,
-                col_with_offset,
-                ""
-            );
+            let col_with_offset = ctx.builder
+                .build_int_add(
+                    col,
+                    ctx.builder.build_int_z_extend_or_bit_cast(offset, llvm_usize, "").unwrap(),
+                    "",
+                )
+                .unwrap();
+            let is_on_diag = ctx.builder
+                .build_int_compare(IntPredicate::EQ, row, col_with_offset, "")
+                .unwrap();
 
             let zero = ndarray_zero_value(generator, ctx, elem_ty);
             let one = ndarray_one_value(generator, ctx, elem_ty);
 
-            let value = ctx.builder.build_select(is_on_diag, one, zero, "");
+            let value = ctx.builder.build_select(is_on_diag, one, zero, "").unwrap();
 
             Ok(value)
         },

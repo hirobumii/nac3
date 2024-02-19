@@ -47,7 +47,7 @@ pub fn gen_var<'ctx>(
     ctx.builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
     ctx.builder.set_current_debug_location(di_loc);
 
-    let ptr = ctx.builder.build_alloca(ty, name.unwrap_or(""));
+    let ptr = ctx.builder.build_alloca(ty, name.unwrap_or("")).unwrap();
 
     ctx.builder.position_at_end(current);
     ctx.builder.set_current_debug_location(di_loc);
@@ -78,7 +78,7 @@ pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx>>(
     ctx.builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
     ctx.builder.set_current_debug_location(di_loc);
 
-    let ptr = ctx.builder.build_array_alloca(ty, size, name.unwrap_or(""));
+    let ptr = ctx.builder.build_array_alloca(ty, size, name.unwrap_or("")).unwrap();
 
     ctx.builder.position_at_end(current);
     ctx.builder.set_current_debug_location(di_loc);
@@ -130,7 +130,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                     ],
                     name.unwrap_or(""),
                 )
-            }
+            }.unwrap()
         }
         ExprKind::Subscript { value, slice, .. } => {
             match ctx.unifier.get_ty_immutable(value.custom.unwrap()).as_ref() {
@@ -147,31 +147,34 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                         .unwrap()
                         .to_basic_value_enum(ctx, generator, slice.custom.unwrap())?
                         .into_int_value();
-                    let raw_index = ctx.builder.build_int_s_extend(
-                        raw_index,
-                        generator.get_size_type(ctx.ctx),
-                        "sext",
-                    );
+                    let raw_index = ctx.builder
+                        .build_int_s_extend(raw_index, generator.get_size_type(ctx.ctx), "sext")
+                        .unwrap();
                     // handle negative index
-                    let is_negative = ctx.builder.build_int_compare(
-                        IntPredicate::SLT,
-                        raw_index,
-                        generator.get_size_type(ctx.ctx).const_zero(),
-                        "is_neg",
-                    );
-                    let adjusted = ctx.builder.build_int_add(raw_index, len, "adjusted");
+                    let is_negative = ctx.builder
+                        .build_int_compare(
+                            IntPredicate::SLT,
+                            raw_index,
+                            generator.get_size_type(ctx.ctx).const_zero(),
+                            "is_neg",
+                        )
+                        .unwrap();
+                    let adjusted = ctx.builder.build_int_add(raw_index, len, "adjusted").unwrap();
                     let index = ctx
                         .builder
                         .build_select(is_negative, adjusted, raw_index, "index")
-                        .into_int_value();
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
                     // unsigned less than is enough, because negative index after adjustment is
                     // bigger than the length (for unsigned cmp)
-                    let bound_check = ctx.builder.build_int_compare(
-                        IntPredicate::ULT,
-                        index,
-                        len,
-                        "inbound",
-                    );
+                    let bound_check = ctx.builder
+                        .build_int_compare(
+                            IntPredicate::ULT,
+                            index,
+                            len,
+                            "inbound",
+                        )
+                        .unwrap();
                     ctx.make_assert(
                         generator,
                         bound_check,
@@ -267,7 +270,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 }
             }
             let val = value.to_basic_value_enum(ctx, generator, target.custom.unwrap())?;
-            ctx.builder.build_store(ptr, val);
+            ctx.builder.build_store(ptr, val).unwrap();
         }
     };
     Ok(())
@@ -330,10 +333,12 @@ pub fn gen_for<G: CodeGenerator>(
         };
         let (start, stop, step) = destructure_range(ctx, iter_val);
 
-        ctx.builder.build_store(i, start);
+        ctx.builder.build_store(i, start).unwrap();
 
         // Check "If step is zero, ValueError is raised."
-        let rangenez = ctx.builder.build_int_compare(IntPredicate::NE, step, int32.const_zero(), "");
+        let rangenez = ctx.builder
+            .build_int_compare(IntPredicate::NE, step, int32.const_zero(), "")
+            .unwrap();
         ctx.make_assert(
             generator,
             rangenez,
@@ -342,37 +347,46 @@ pub fn gen_for<G: CodeGenerator>(
             [None, None, None],
             ctx.current_loc
         );
-        ctx.builder.build_unconditional_branch(cond_bb);
+        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
 
         {
             ctx.builder.position_at_end(cond_bb);
-            ctx.builder.build_conditional_branch(
-                gen_in_range_check(
-                    ctx,
-                    ctx.builder.build_load(i, "").into_int_value(),
-                    stop,
-                    step
-                ),
-                body_bb,
-                orelse_bb,
-            );
+            ctx.builder
+                .build_conditional_branch(
+                    gen_in_range_check(
+                        ctx,
+                        ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
+                        stop,
+                        step,
+                    ),
+                    body_bb,
+                    orelse_bb,
+                )
+                .unwrap();
         }
 
         ctx.builder.position_at_end(incr_bb);
-        let next_i = ctx.builder.build_int_add(
-            ctx.builder.build_load(i, "").into_int_value(),
-            step,
-            "inc",
-        );
-        ctx.builder.build_store(i, next_i);
-        ctx.builder.build_unconditional_branch(cond_bb);
+        let next_i = ctx.builder
+            .build_int_add(
+                ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
+                step,
+                "inc",
+            )
+            .unwrap();
+        ctx.builder.build_store(i, next_i).unwrap();
+        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
 
         ctx.builder.position_at_end(body_bb);
-        ctx.builder.build_store(target_i, ctx.builder.build_load(i, "").into_int_value());
+        ctx.builder
+            .build_store(
+                target_i,
+                ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
+            )
+            .unwrap();
         generator.gen_block(ctx, body.iter())?;
     } else {
         let index_addr = generator.gen_var_alloc(ctx, size_t.into(), Some("for.index.addr"))?;
-        ctx.builder.build_store(index_addr, size_t.const_zero());
+        ctx.builder.build_store(index_addr, size_t.const_zero()).unwrap();
         let len = ctx
             .build_gep_and_load(
                 iter_val.into_pointer_value(),
@@ -380,24 +394,30 @@ pub fn gen_for<G: CodeGenerator>(
                 Some("len")
             )
             .into_int_value();
-        ctx.builder.build_unconditional_branch(cond_bb);
+        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
 
         ctx.builder.position_at_end(cond_bb);
-        let index = ctx.builder.build_load(index_addr, "for.index").into_int_value();
-        let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, index, len, "cond");
-        ctx.builder.build_conditional_branch(cmp, body_bb, orelse_bb);
+        let index = ctx.builder
+            .build_load(index_addr, "for.index")
+            .map(BasicValueEnum::into_int_value)
+            .unwrap();
+        let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, index, len, "cond").unwrap();
+        ctx.builder.build_conditional_branch(cmp, body_bb, orelse_bb).unwrap();
 
         ctx.builder.position_at_end(incr_bb);
-        let index = ctx.builder.build_load(index_addr, "").into_int_value();
-        let inc = ctx.builder.build_int_add(index, size_t.const_int(1, true), "inc");
-        ctx.builder.build_store(index_addr, inc);
-        ctx.builder.build_unconditional_branch(cond_bb);
+        let index = ctx.builder.build_load(index_addr, "").map(BasicValueEnum::into_int_value).unwrap();
+        let inc = ctx.builder.build_int_add(index, size_t.const_int(1, true), "inc").unwrap();
+        ctx.builder.build_store(index_addr, inc).unwrap();
+        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
 
         ctx.builder.position_at_end(body_bb);
         let arr_ptr = ctx
             .build_gep_and_load(iter_val.into_pointer_value(), &[zero, zero], Some("arr.addr"))
             .into_pointer_value();
-        let index = ctx.builder.build_load(index_addr, "for.index").into_int_value();
+        let index = ctx.builder
+            .build_load(index_addr, "for.index")
+            .map(BasicValueEnum::into_int_value)
+            .unwrap();
         let val = ctx.build_gep_and_load(arr_ptr, &[index], Some("val"));
         generator.gen_assign(ctx, target, val.into())?;
         generator.gen_block(ctx, body.iter())?;
@@ -411,14 +431,14 @@ pub fn gen_for<G: CodeGenerator>(
     }
 
     if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(incr_bb);
+        ctx.builder.build_unconditional_branch(incr_bb).unwrap();
     }
 
     if !orelse.is_empty() {
         ctx.builder.position_at_end(orelse_bb);
         generator.gen_block(ctx, orelse.iter())?;
         if !ctx.is_terminated() {
-            ctx.builder.build_unconditional_branch(cont_bb);
+            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
         }
     }
 
@@ -476,12 +496,12 @@ pub fn gen_for_callback<'ctx, 'a, I, InitFn, CondFn, BodyFn, UpdateFn>(
     // store loop bb information and restore it later
     let loop_bb = ctx.loop_target.replace((update_bb, cont_bb));
 
-    ctx.builder.build_unconditional_branch(init_bb);
+    ctx.builder.build_unconditional_branch(init_bb).unwrap();
 
     let loop_var = {
         ctx.builder.position_at_end(init_bb);
         let result = init(generator, ctx)?;
-        ctx.builder.build_unconditional_branch(cond_bb);
+        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
 
         result
     };
@@ -489,19 +509,17 @@ pub fn gen_for_callback<'ctx, 'a, I, InitFn, CondFn, BodyFn, UpdateFn>(
     ctx.builder.position_at_end(cond_bb);
     let cond = cond(generator, ctx, loop_var.clone())?;
     assert_eq!(cond.get_type().get_bit_width(), ctx.ctx.bool_type().get_bit_width());
-    ctx.builder.build_conditional_branch(
-        cond,
-        body_bb,
-        cont_bb
-    );
+    ctx.builder
+        .build_conditional_branch(cond, body_bb, cont_bb)
+        .unwrap();
 
     ctx.builder.position_at_end(body_bb);
     body(generator, ctx, loop_var.clone())?;
-    ctx.builder.build_unconditional_branch(update_bb);
+    ctx.builder.build_unconditional_branch(update_bb).unwrap();
 
     ctx.builder.position_at_end(update_bb);
     update(generator, ctx, loop_var)?;
-    ctx.builder.build_unconditional_branch(cond_bb);
+    ctx.builder.build_unconditional_branch(cond_bb).unwrap();
 
     ctx.builder.position_at_end(cont_bb);
     ctx.loop_target = loop_bb;
@@ -532,14 +550,14 @@ pub fn gen_while<G: CodeGenerator>(
         if orelse.is_empty() { cont_bb } else { ctx.ctx.append_basic_block(current, "while.orelse") };
     // store loop bb information and restore it later
     let loop_bb = ctx.loop_target.replace((test_bb, cont_bb));
-    ctx.builder.build_unconditional_branch(test_bb);
+    ctx.builder.build_unconditional_branch(test_bb).unwrap();
     ctx.builder.position_at_end(test_bb);
     let test = if let Some(v) = generator.gen_expr(ctx, test)? {
         v.to_basic_value_enum(ctx, generator, test.custom.unwrap())?
     } else {
         for bb in [body_bb, cont_bb] {
             ctx.builder.position_at_end(bb);
-            ctx.builder.build_unreachable();
+            ctx.builder.build_unreachable().unwrap();
         }
 
         return Ok(())
@@ -548,7 +566,9 @@ pub fn gen_while<G: CodeGenerator>(
         unreachable!()
     };
 
-    ctx.builder.build_conditional_branch(generator.bool_to_i1(ctx, test), body_bb, orelse_bb);
+    ctx.builder
+        .build_conditional_branch(generator.bool_to_i1(ctx, test), body_bb, orelse_bb)
+        .unwrap();
 
     ctx.builder.position_at_end(body_bb);
     generator.gen_block(ctx, body.iter())?;
@@ -559,13 +579,13 @@ pub fn gen_while<G: CodeGenerator>(
         }
     }
     if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(test_bb);
+        ctx.builder.build_unconditional_branch(test_bb).unwrap();
     }
     if !orelse.is_empty() {
         ctx.builder.position_at_end(orelse_bb);
         generator.gen_block(ctx, orelse.iter())?;
         if !ctx.is_terminated() {
-            ctx.builder.build_unconditional_branch(cont_bb);
+            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
         }
     }
     for (k, (_, _, counter)) in &var_assignment {
@@ -605,13 +625,15 @@ pub fn gen_if<G: CodeGenerator>(
     } else {
         ctx.ctx.append_basic_block(current, "if.orelse")
     };
-    ctx.builder.build_unconditional_branch(test_bb);
+    ctx.builder.build_unconditional_branch(test_bb).unwrap();
     ctx.builder.position_at_end(test_bb);
     let test = generator
         .gen_expr(ctx, test)
         .and_then(|v| v.map(|v| v.to_basic_value_enum(ctx, generator, test.custom.unwrap())).transpose())?;
     if let Some(BasicValueEnum::IntValue(test)) = test {
-        ctx.builder.build_conditional_branch(generator.bool_to_i1(ctx, test), body_bb, orelse_bb);
+        ctx.builder
+            .build_conditional_branch(generator.bool_to_i1(ctx, test), body_bb, orelse_bb)
+            .unwrap();
     };
     ctx.builder.position_at_end(body_bb);
     generator.gen_block(ctx, body.iter())?;
@@ -626,7 +648,7 @@ pub fn gen_if<G: CodeGenerator>(
         if cont_bb.is_none() {
             cont_bb = Some(ctx.ctx.append_basic_block(current, "cont"));
         }
-        ctx.builder.build_unconditional_branch(cont_bb.unwrap());
+        ctx.builder.build_unconditional_branch(cont_bb.unwrap()).unwrap();
     }
     if !orelse.is_empty() {
         ctx.builder.position_at_end(orelse_bb);
@@ -635,7 +657,7 @@ pub fn gen_if<G: CodeGenerator>(
             if cont_bb.is_none() {
                 cont_bb = Some(ctx.ctx.append_basic_block(current, "cont"));
             }
-            ctx.builder.build_unconditional_branch(cont_bb.unwrap());
+            ctx.builder.build_unconditional_branch(cont_bb.unwrap()).unwrap();
         }
     }
     if let Some(cont_bb) = cont_bb {
@@ -661,7 +683,7 @@ pub fn final_proxy<'ctx>(
     let prev = ctx.builder.get_insert_block().unwrap();
     ctx.builder.position_at_end(block);
     unsafe {
-        ctx.builder.build_store(*final_state, target.get_address().unwrap());
+        ctx.builder.build_store(*final_state, target.get_address().unwrap()).unwrap();
     }
     ctx.builder.position_at_end(prev);
     final_targets.push(target);
@@ -718,48 +740,43 @@ pub fn exn_constructor<'ctx>(
     };
     let exception_name = format!("{}:{}", ctx.resolver.get_exception_id(zelf_id), zelf_name);
     unsafe {
-        let id_ptr = ctx.builder.build_in_bounds_gep(zelf, &[zero, zero], "exn.id");
+        let id_ptr = ctx.builder.build_in_bounds_gep(zelf, &[zero, zero], "exn.id").unwrap();
         let id = ctx.resolver.get_string_id(&exception_name);
-        ctx.builder.build_store(id_ptr, int32.const_int(id as u64, false));
+        ctx.builder.build_store(id_ptr, int32.const_int(id as u64, false)).unwrap();
         let empty_string = ctx.gen_const(generator, &Constant::Str(String::new()), ctx.primitives.str);
-        let ptr =
-            ctx.builder.build_in_bounds_gep(zelf, &[zero, int32.const_int(5, false)], "exn.msg");
+        let ptr = ctx.builder
+            .build_in_bounds_gep(zelf, &[zero, int32.const_int(5, false)], "exn.msg")
+            .unwrap();
         let msg = if args.is_empty() {
             empty_string.unwrap()
         } else {
             args.remove(0).1.to_basic_value_enum(ctx, generator, ctx.primitives.str)?
         };
-        ctx.builder.build_store(ptr, msg);
+        ctx.builder.build_store(ptr, msg).unwrap();
         for i in &[6, 7, 8] {
             let value = if args.is_empty() {
                 ctx.ctx.i64_type().const_zero().into()
             } else {
                 args.remove(0).1.to_basic_value_enum(ctx, generator, ctx.primitives.int64)?
             };
-            let ptr = ctx.builder.build_in_bounds_gep(
-                zelf,
-                &[zero, int32.const_int(*i, false)],
-                "exn.param",
-            );
-            ctx.builder.build_store(ptr, value);
+            let ptr = ctx.builder
+                .build_in_bounds_gep(zelf, &[zero, int32.const_int(*i, false)], "exn.param")
+                .unwrap();
+            ctx.builder.build_store(ptr, value).unwrap();
         }
         // set file, func to empty string
         for i in &[1, 4] {
-            let ptr = ctx.builder.build_in_bounds_gep(
-                zelf,
-                &[zero, int32.const_int(*i, false)],
-                "exn.str",
-            );
-            ctx.builder.build_store(ptr, empty_string.unwrap());
+            let ptr = ctx.builder
+                .build_in_bounds_gep(zelf, &[zero, int32.const_int(*i, false)], "exn.str")
+                .unwrap();
+            ctx.builder.build_store(ptr, empty_string.unwrap()).unwrap();
         }
         // set ints to zero
         for i in &[2, 3] {
-            let ptr = ctx.builder.build_in_bounds_gep(
-                zelf,
-                &[zero, int32.const_int(*i, false)],
-                "exn.ints",
-            );
-            ctx.builder.build_store(ptr, zero);
+            let ptr = ctx.builder
+                .build_in_bounds_gep(zelf, &[zero, int32.const_int(*i, false)], "exn.ints")
+                .unwrap();
+            ctx.builder.build_store(ptr, zero).unwrap();
         }
     }
     Ok(Some(zelf.into()))
@@ -780,34 +797,26 @@ pub fn gen_raise<'ctx>(
             let int32 = ctx.ctx.i32_type();
             let zero = int32.const_zero();
             let exception = exception.into_pointer_value();
-            let file_ptr = ctx.builder.build_in_bounds_gep(
-                exception,
-                &[zero, int32.const_int(1, false)],
-                "file_ptr",
-            );
+            let file_ptr = ctx.builder
+                .build_in_bounds_gep(exception, &[zero, int32.const_int(1, false)], "file_ptr")
+                .unwrap();
             let filename = ctx.gen_string(generator, loc.file.0);
-            ctx.builder.build_store(file_ptr, filename);
-            let row_ptr = ctx.builder.build_in_bounds_gep(
-                exception,
-                &[zero, int32.const_int(2, false)],
-                "row_ptr",
-            );
-            ctx.builder.build_store(row_ptr, int32.const_int(loc.row as u64, false));
-            let col_ptr = ctx.builder.build_in_bounds_gep(
-                exception,
-                &[zero, int32.const_int(3, false)],
-                "col_ptr",
-            );
-            ctx.builder.build_store(col_ptr, int32.const_int(loc.column as u64, false));
+            ctx.builder.build_store(file_ptr, filename).unwrap();
+            let row_ptr = ctx.builder
+                .build_in_bounds_gep(exception, &[zero, int32.const_int(2, false)], "row_ptr")
+                .unwrap();
+            ctx.builder.build_store(row_ptr, int32.const_int(loc.row as u64, false)).unwrap();
+            let col_ptr = ctx.builder
+                .build_in_bounds_gep(exception, &[zero, int32.const_int(3, false)], "col_ptr")
+                .unwrap();
+            ctx.builder.build_store(col_ptr, int32.const_int(loc.column as u64, false)).unwrap();
 
             let current_fun = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
             let fun_name = ctx.gen_string(generator, current_fun.get_name().to_str().unwrap());
-            let name_ptr = ctx.builder.build_in_bounds_gep(
-                exception,
-                &[zero, int32.const_int(4, false)],
-                "name_ptr",
-            );
-            ctx.builder.build_store(name_ptr, fun_name);
+            let name_ptr = ctx.builder
+                .build_in_bounds_gep(exception, &[zero, int32.const_int(4, false)], "name_ptr")
+                .unwrap();
+            ctx.builder.build_store(name_ptr, fun_name).unwrap();
         }
 
         let raise = get_builtins(generator, ctx, "__nac3_raise");
@@ -817,7 +826,7 @@ pub fn gen_raise<'ctx>(
         let resume = get_builtins(generator, ctx, "__nac3_resume");
         ctx.build_call_or_invoke(resume, &[], "resume");
     }
-    ctx.builder.build_unreachable();
+    ctx.builder.build_unreachable().unwrap();
 }
 
 /// Generates IR for a `try` statement.
@@ -844,7 +853,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     let dispatcher = ctx.ctx.append_basic_block(current_fun, "try.dispatch");
     let mut dispatcher_end = dispatcher;
     ctx.builder.position_at_end(dispatcher);
-    let exn = ctx.builder.build_phi(exception_type, "exn");
+    let exn = ctx.builder.build_phi(exception_type, "exn").unwrap();
     ctx.builder.position_at_end(current_block);
 
     let mut cleanup = None;
@@ -868,8 +877,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         } else {
             let return_target = ctx.ctx.append_basic_block(current_fun, "try.return_target");
             ctx.builder.position_at_end(return_target);
-            let return_value = ctx.return_buffer.map(|v| ctx.builder.build_load(v, "$ret"));
-            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue));
+            let return_value = ctx.return_buffer
+                .map(|v| ctx.builder.build_load(v, "$ret").unwrap());
+            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue)).unwrap();
             ctx.builder.position_at_end(current_block);
             final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap());
         }
@@ -935,14 +945,16 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     } else {
         let final_landingpad = ctx.ctx.append_basic_block(current_fun, "try.catch.final");
         ctx.builder.position_at_end(final_landingpad);
-        ctx.builder.build_landing_pad(
-            ctx.ctx.struct_type(&[ptr_type.into(), exception_type], false),
-            personality,
-            &[],
-            true,
-            "try.catch.final",
-        );
-        ctx.builder.build_unconditional_branch(cleanup.unwrap());
+        ctx.builder
+            .build_landing_pad(
+                ctx.ctx.struct_type(&[ptr_type.into(), exception_type], false),
+                personality,
+                &[],
+                true,
+                "try.catch.final",
+            )
+            .unwrap();
+        ctx.builder.build_unconditional_branch(cleanup.unwrap()).unwrap();
         ctx.builder.position_at_end(body);
         ctx.unwind_target.replace(final_landingpad)
     };
@@ -956,7 +968,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
                                target: BasicBlock<'ctx>,
                                block: BasicBlock<'ctx>| {
         ctx.builder.position_at_end(block);
-        ctx.builder.build_unconditional_branch(target);
+        ctx.builder.build_unconditional_branch(target).unwrap();
         ctx.builder.position_at_end(body);
     };
     let redirect = if has_cleanup {
@@ -972,9 +984,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "try.break");
         let continue_proxy = ctx.ctx.append_basic_block(current_fun, "try.continue");
         ctx.builder.position_at_end(break_proxy);
-        ctx.builder.build_call(end_catch, &[], "end_catch");
+        ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
         ctx.builder.position_at_end(continue_proxy);
-        ctx.builder.build_call(end_catch, &[], "end_catch");
+        ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
         ctx.builder.position_at_end(body);
         redirect(ctx, break_target, break_proxy);
         redirect(ctx, continue_target, continue_proxy);
@@ -983,12 +995,12 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     }
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "try.return");
     ctx.builder.position_at_end(return_proxy);
-    ctx.builder.build_call(end_catch, &[], "end_catch");
+    ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
     let return_target = ctx.return_target.take().unwrap_or_else(|| {
         let doreturn = ctx.ctx.append_basic_block(current_fun, "try.doreturn");
         ctx.builder.position_at_end(doreturn);
-        let return_value = ctx.return_buffer.map(|v| ctx.builder.build_load(v, "$ret"));
-        ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue));
+        let return_value = ctx.return_buffer.map(|v| ctx.builder.build_load(v, "$ret").unwrap());
+        ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue)).unwrap();
         doreturn
     });
     redirect(ctx, return_target, return_proxy);
@@ -1003,12 +1015,14 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(dispatcher);
         unsafe {
             let zero = ctx.ctx.i32_type().const_zero();
-            let exnid_ptr = ctx.builder.build_gep(
-                exn.as_basic_value().into_pointer_value(),
-                &[zero, zero],
-                "exnidptr",
-            );
-            Some(ctx.builder.build_load(exnid_ptr, "exnid"))
+            let exnid_ptr = ctx.builder
+                .build_gep(
+                    exn.as_basic_value().into_pointer_value(),
+                    &[zero, zero],
+                    "exnidptr",
+                )
+                .unwrap();
+            Some(ctx.builder.build_load(exnid_ptr, "exnid").unwrap())
         }
     };
 
@@ -1020,14 +1034,14 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             let exn_ty = ctx.get_llvm_type(generator, type_.as_ref().unwrap().custom.unwrap());
             let exn_store = generator.gen_var_alloc(ctx, exn_ty, Some("try.exn_store.addr"))?;
             ctx.var_assignment.insert(*name, (exn_store, None, 0));
-            ctx.builder.build_store(exn_store, exn.as_basic_value());
+            ctx.builder.build_store(exn_store, exn.as_basic_value()).unwrap();
         }
         generator.gen_block(ctx, body.iter())?;
         let current = ctx.builder.get_insert_block().unwrap();
         // only need to call end catch if not terminated
         // otherwise, we already handled in return/break/continue/raise
         if current.get_terminator().is_none() {
-            ctx.builder.build_call(end_catch, &[], "end_catch");
+            ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
         }
         post_handlers.push(current);
         ctx.builder.position_at_end(dispatcher_end);
@@ -1038,12 +1052,15 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             let expected_id = ctx
                 .builder
                 .build_load(exn_type.into_pointer_value(), "expected_id")
-                .into_int_value();
-            let result = ctx.builder.build_int_compare(IntPredicate::EQ, actual_id, expected_id, "exncheck");
-            ctx.builder.build_conditional_branch(result, handler_bb, dispatcher_cont);
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let result = ctx.builder
+                .build_int_compare(IntPredicate::EQ, actual_id, expected_id, "exncheck")
+                .unwrap();
+            ctx.builder.build_conditional_branch(result, handler_bb, dispatcher_cont).unwrap();
             dispatcher_end = dispatcher_cont;
         } else {
-            ctx.builder.build_unconditional_branch(handler_bb);
+            ctx.builder.build_unconditional_branch(handler_bb).unwrap();
             break;
         }
     }
@@ -1066,21 +1083,22 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             has_cleanup,
             "try.landingpad",
         )
-        .into_struct_value();
+        .map(BasicValueEnum::into_struct_value)
+        .unwrap();
     let exn_val = ctx.builder.build_extract_value(landingpad_value, 1, "exn").unwrap();
-    ctx.builder.build_unconditional_branch(dispatcher);
+    ctx.builder.build_unconditional_branch(dispatcher).unwrap();
     exn.add_incoming(&[(&exn_val, landingpad)]);
 
     if dispatcher_end.get_terminator().is_none() {
         ctx.builder.position_at_end(dispatcher_end);
         if let Some(cleanup) = cleanup {
-            ctx.builder.build_unconditional_branch(cleanup);
+            ctx.builder.build_unconditional_branch(cleanup).unwrap();
         } else if let Some((_, outer_dispatcher, phi)) = ctx.outer_catch_clauses {
             phi.add_incoming(&[(&exn_val, dispatcher_end)]);
-            ctx.builder.build_unconditional_branch(outer_dispatcher);
+            ctx.builder.build_unconditional_branch(outer_dispatcher).unwrap();
         } else {
             ctx.build_call_or_invoke(resume, &[], "resume");
-            ctx.builder.build_unreachable();
+            ctx.builder.build_unreachable().unwrap();
         }
     }
 
@@ -1088,16 +1106,16 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         let tail = ctx.ctx.append_basic_block(current_fun, "try.tail");
         if body.get_terminator().is_none() {
             ctx.builder.position_at_end(body);
-            ctx.builder.build_unconditional_branch(tail);
+            ctx.builder.build_unconditional_branch(tail).unwrap();
         }
         if matches!(cleanup, Some(cleanup) if cleanup.get_terminator().is_none()) {
             ctx.builder.position_at_end(cleanup.unwrap());
-            ctx.builder.build_unconditional_branch(tail);
+            ctx.builder.build_unconditional_branch(tail).unwrap();
         }
         for post_handler in post_handlers {
             if post_handler.get_terminator().is_none() {
                 ctx.builder.position_at_end(post_handler);
-                ctx.builder.build_unconditional_branch(tail);
+                ctx.builder.build_unconditional_branch(tail).unwrap();
             }
         }
         ctx.builder.position_at_end(tail);
@@ -1108,7 +1126,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         generator.gen_block(ctx, finalbody.iter())?;
         if !ctx.is_terminated() {
             ctx.build_call_or_invoke(resume, &[], "resume");
-            ctx.builder.build_unreachable();
+            ctx.builder.build_unreachable().unwrap();
         }
 
         // normal path
@@ -1119,22 +1137,22 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(finalizer);
         generator.gen_block(ctx, finalbody.iter())?;
         if !ctx.is_terminated() {
-            let dest = ctx.builder.build_load(final_state, "final_dest");
-            ctx.builder.build_indirect_branch(dest, &final_targets);
+            let dest = ctx.builder.build_load(final_state, "final_dest").unwrap();
+            ctx.builder.build_indirect_branch(dest, &final_targets).unwrap();
         }
         for block in &final_paths {
             if block.get_terminator().is_none() {
                 ctx.builder.position_at_end(*block);
-                ctx.builder.build_unconditional_branch(finalizer);
+                ctx.builder.build_unconditional_branch(finalizer).unwrap();
             }
         }
         for block in [body].iter().chain(post_handlers.iter()) {
             if block.get_terminator().is_none() {
                 ctx.builder.position_at_end(*block);
                 unsafe {
-                    ctx.builder.build_store(final_state, tail.get_address().unwrap());
+                    ctx.builder.build_store(final_state, tail.get_address().unwrap()).unwrap();
                 }
-                ctx.builder.build_unconditional_branch(finalizer);
+                ctx.builder.build_unconditional_branch(finalizer).unwrap();
             }
         }
         ctx.builder.position_at_end(tail);
@@ -1173,13 +1191,13 @@ pub fn gen_return<G: CodeGenerator>(
     };
     if let Some(return_target) = ctx.return_target {
         if let Some(value) = value {
-            ctx.builder.build_store(ctx.return_buffer.unwrap(), value);
+            ctx.builder.build_store(ctx.return_buffer.unwrap(), value).unwrap();
         }
-        ctx.builder.build_unconditional_branch(return_target);
+        ctx.builder.build_unconditional_branch(return_target).unwrap();
     } else if ctx.need_sret {
         // sret
-        ctx.builder.build_store(ctx.return_buffer.unwrap(), value.unwrap());
-        ctx.builder.build_return(None);
+        ctx.builder.build_store(ctx.return_buffer.unwrap(), value.unwrap()).unwrap();
+        ctx.builder.build_return(None).unwrap();
     } else {
         // Remap boolean return type into i1
         let value = value.map(|v| {
@@ -1200,7 +1218,7 @@ pub fn gen_return<G: CodeGenerator>(
             }
         });
         let value = value.as_ref().map(|v| v as &dyn BasicValue);
-        ctx.builder.build_return(value);
+        ctx.builder.build_return(value).unwrap();
     }
     Ok(())
 }
@@ -1247,10 +1265,10 @@ pub fn gen_stmt<G: CodeGenerator>(
             }
         }
         StmtKind::Continue { .. } => {
-            ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().0);
+            ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().0).unwrap();
         }
         StmtKind::Break { .. } => {
-            ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().1);
+            ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().1).unwrap();
         }
         StmtKind::If { .. } => generator.gen_if(ctx, stmt)?,
         StmtKind::While { .. } => generator.gen_while(ctx, stmt)?,

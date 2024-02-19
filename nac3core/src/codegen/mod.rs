@@ -763,10 +763,9 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
             &primitives,
             arg.ty,
         );
-        let alloca = builder.build_alloca(
-            local_type,
-            &format!("{}.addr", &arg.name.to_string()),
-        );
+        let alloca = builder
+            .build_alloca(local_type, &format!("{}.addr", &arg.name.to_string()))
+            .unwrap();
 
         // Remap boolean parameters into i8
         let param = if local_type.is_int_type() && param.is_int_value() {
@@ -782,14 +781,14 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
             param
         };
 
-        builder.build_store(alloca, param);
+        builder.build_store(alloca, param).unwrap();
         var_assignment.insert(arg.name, (alloca, None, 0));
     }
 
     let return_buffer = if has_sret {
         Some(fn_val.get_nth_param(0).unwrap().into_pointer_value())
     } else {
-        fn_type.get_return_type().map(|v| builder.build_alloca(v, "$ret"))
+        fn_type.get_return_type().map(|v| builder.build_alloca(v, "$ret").unwrap())
     };
 
     let static_values = {
@@ -801,7 +800,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         *static_val = Some(v);
     }
 
-    builder.build_unconditional_branch(body_bb);
+    builder.build_unconditional_branch(body_bb).unwrap();
     builder.position_at_end(body_bb);
 
     let (dibuilder, compile_unit) = module.create_debug_info_builder(
@@ -895,7 +894,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
 
     // after static analysis, only void functions can have no return at the end.
     if !code_gen_context.is_terminated() {
-        code_gen_context.builder.build_return(None);
+        code_gen_context.builder.build_return(None).unwrap();
     }
 
     code_gen_context.builder.unset_current_debug_location();
@@ -937,12 +936,14 @@ fn bool_to_i1<'ctx>(builder: &Builder<'ctx>, bool_value: IntValue<'ctx>) -> IntV
     if bool_value.get_type().get_bit_width() == 1 {
         bool_value
     } else {
-        builder.build_int_compare(
-            IntPredicate::NE,
-            bool_value,
-            bool_value.get_type().const_zero(),
-            "tobool"
-        )
+        builder
+            .build_int_compare(
+                IntPredicate::NE,
+                bool_value,
+                bool_value.get_type().const_zero(),
+                "tobool",
+            )
+            .unwrap()
     }
 }
 
@@ -955,16 +956,18 @@ fn bool_to_i8<'ctx>(
     let value_bits = bool_value.get_type().get_bit_width();
     match value_bits {
         8 => bool_value,
-        1 => builder.build_int_z_extend(bool_value, ctx.i8_type(), "frombool"),
+        1 => builder.build_int_z_extend(bool_value, ctx.i8_type(), "frombool").unwrap(),
         _ => bool_to_i8(
             builder,
             ctx,
-            builder.build_int_compare(
-                IntPredicate::NE,
-                bool_value,
-                bool_value.get_type().const_zero(),
-                ""
-            )
+            builder
+                .build_int_compare(
+                    IntPredicate::NE,
+                    bool_value,
+                    bool_value.get_type().const_zero(),
+                    "",
+                )
+                .unwrap()
         ),
     }
 }
@@ -990,9 +993,13 @@ fn gen_in_range_check<'ctx>(
     stop: IntValue<'ctx>,
     step: IntValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let sign = ctx.builder.build_int_compare(IntPredicate::SGT, step, ctx.ctx.i32_type().const_zero(), "");
-    let lo = ctx.builder.build_select(sign, value, stop, "").into_int_value();
-    let hi = ctx.builder.build_select(sign, stop, value, "").into_int_value();
+    let sign = ctx.builder.build_int_compare(IntPredicate::SGT, step, ctx.ctx.i32_type().const_zero(), "").unwrap();
+    let lo = ctx.builder.build_select(sign, value, stop, "")
+        .map(BasicValueEnum::into_int_value)
+        .unwrap();
+    let hi = ctx.builder.build_select(sign, stop, value, "")
+        .map(BasicValueEnum::into_int_value)
+        .unwrap();
 
-    ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp")
+    ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp").unwrap()
 }
