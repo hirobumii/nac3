@@ -1,3 +1,11 @@
+@extern
+def output_int32(x: int32):
+    ...
+
+@extern
+def output_float64(x: float):
+    ...
+
 def consume_ndarray_1(n: ndarray[float, Literal[1]]):
     pass
 
@@ -17,20 +25,27 @@ def test_ndarray_empty():
 
 def test_ndarray_zeros():
     n: ndarray[float, 1] = np_zeros([1])
+    output_float64(n[0])
     consume_ndarray_1(n)
 
 def test_ndarray_ones():
     n: ndarray[float, 1] = np_ones([1])
+    output_float64(n[0])
     consume_ndarray_1(n)
 
 def test_ndarray_full():
     n_float: ndarray[float, 1] = np_full([1], 2.0)
+    output_float64(n_float[0])
     consume_ndarray_1(n_float)
     n_i32: ndarray[int32, 1] = np_full([1], 2)
+    output_int32(n_i32[0])
     consume_ndarray_i32_1(n_i32)
 
 def test_ndarray_eye():
     n: ndarray[float, 2] = np_eye(2)
+    n0: ndarray[float, 1] = n[0]
+    v: float = n0[0]
+    output_float64(v)
     consume_ndarray_2(n)
 
 def test_ndarray_identity():
