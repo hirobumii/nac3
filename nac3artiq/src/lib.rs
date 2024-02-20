@@ -65,8 +65,8 @@ enum Isa {
 
 impl Isa {
     /// Returns the number of bits in `size_t` for the [`Isa`].
-    fn get_size_type(&self) -> u32 {
-        if self == &Isa::Host {
+    fn get_size_type(self) -> u32 {
+        if self == Isa::Host {
             64u32
         } else {
             32u32

@@ -55,7 +55,7 @@ pub fn gen_var<'ctx>(
     Ok(ptr)
 }
 
-/// See [CodeGenerator::gen_array_var_alloc].
+/// See [`CodeGenerator::gen_array_var_alloc`].
 pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx>>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     ty: T,
@@ -484,7 +484,7 @@ pub fn gen_for_callback<'ctx, 'a, I, InitFn, CondFn, BodyFn, UpdateFn>(
         BodyFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
         UpdateFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
 {
-    let current = ctx.builder.get_insert_block().and_then(|bb| bb.get_parent()).unwrap();
+    let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let init_bb = ctx.ctx.append_basic_block(current, "for.init");
     // The BB containing the loop condition check
     let cond_bb = ctx.ctx.append_basic_block(current, "for.cond");

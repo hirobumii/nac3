@@ -52,6 +52,7 @@ pub struct PrimitiveStore {
 
 impl PrimitiveStore {
     /// Returns a [Type] representing `size_t`.
+    #[must_use]
     pub fn usize(&self) -> Type {
         match self.size_t {
             32 => self.uint32,
@@ -1074,6 +1075,7 @@ impl<'a> Inferencer<'a> {
         Ok(Located { location, custom: Some(ret), node: ExprKind::Call { func, args, keywords } })
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn infer_identifier(&mut self, id: StrRef) -> InferenceResult {
         Ok(if let Some(ty) = self.variable_mapping.get(&id) {
             *ty
@@ -1126,6 +1128,7 @@ impl<'a> Inferencer<'a> {
         Ok(self.unifier.add_ty(TypeEnum::TList { ty }))
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn infer_tuple(&mut self, elts: &[ast::Expr<Option<Type>>]) -> InferenceResult {
         let ty = elts.iter().map(|x| x.custom.unwrap()).collect();
         Ok(self.unifier.add_ty(TypeEnum::TTuple { ty }))
@@ -1242,18 +1245,18 @@ impl<'a> Inferencer<'a> {
         &mut self,
         value: &ast::Expr<Option<Type>>,
         dummy_tvar: Type,
-        ndims: &Type,
+        ndims: Type,
     ) -> InferenceResult {
         debug_assert!(matches!(
             &*self.unifier.get_ty_immutable(dummy_tvar),
             TypeEnum::TVar { is_const_generic: false, .. }
         ));
 
-        let constrained_ty = self.unifier.add_ty(TypeEnum::TNDArray { ty: dummy_tvar, ndims: *ndims });
+        let constrained_ty = self.unifier.add_ty(TypeEnum::TNDArray { ty: dummy_tvar, ndims });
         self.constrain(value.custom.unwrap(), constrained_ty, &value.location)?;
 
-        let TypeEnum::TLiteral { values, .. } = &*self.unifier.get_ty_immutable(*ndims) else {
-            panic!("Expected TLiteral for TNDArray.ndims, got {}", self.unifier.stringify(*ndims))
+        let TypeEnum::TLiteral { values, .. } = &*self.unifier.get_ty_immutable(ndims) else {
+            panic!("Expected TLiteral for TNDArray.ndims, got {}", self.unifier.stringify(ndims))
         };
 
         let ndims = values.iter()
@@ -1320,7 +1323,7 @@ impl<'a> Inferencer<'a> {
             }
             ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
                 if let TypeEnum::TNDArray { ndims, .. } = &*self.unifier.get_ty(value.custom.unwrap()) {
-                    self.infer_subscript_ndarray(value, ty, ndims)
+                    self.infer_subscript_ndarray(value, ty, *ndims)
                 } else {
                     // the index is a constant, so value can be a sequence.
                     let ind: Option<i32> = (*val).try_into().ok();
@@ -1350,7 +1353,7 @@ impl<'a> Inferencer<'a> {
                     }
                     TypeEnum::TNDArray { ndims, .. } => {
                         self.constrain(slice.custom.unwrap(), self.primitives.usize(), &slice.location)?;
-                        self.infer_subscript_ndarray(value, ty, ndims)
+                        self.infer_subscript_ndarray(value, ty, *ndims)
                     }
                     _ => unreachable!(),
                 }

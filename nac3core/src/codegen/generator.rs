@@ -94,9 +94,9 @@ pub trait CodeGenerator {
 
     /// Allocate memory for a variable and return a pointer pointing to it.
     /// The default implementation places the allocations at the start of the function.
-    fn gen_array_var_alloc<'ctx, 'a>(
+    fn gen_array_var_alloc<'ctx>(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         ty: BasicTypeEnum<'ctx>,
         size: IntValue<'ctx>,
         name: Option<&str>,

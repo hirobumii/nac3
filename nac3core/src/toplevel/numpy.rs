@@ -21,10 +21,10 @@ use crate::{
 /// Creates an `NDArray` instance from a constant shape.
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
-/// * `shape` - The shape of the `NDArray`, represented as an LLVM [ArrayValue].
-fn create_ndarray_const_shape<'ctx, 'a>(
+/// * `shape` - The shape of the `NDArray`, represented as an LLVM [`ArrayValue`].
+fn create_ndarray_const_shape<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     shape: ArrayValue<'ctx>
 ) -> Result<NDArrayValue<'ctx>, String> {
@@ -94,9 +94,9 @@ fn create_ndarray_const_shape<'ctx, 'a>(
     Ok(ndarray)
 }
 
-fn ndarray_zero_value<'ctx, 'a>(
+fn ndarray_zero_value<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
 ) -> BasicValueEnum<'ctx> {
     if [ctx.primitives.int32, ctx.primitives.uint32].iter().any(|ty| ctx.unifier.unioned(elem_ty, *ty)) {
@@ -108,15 +108,15 @@ fn ndarray_zero_value<'ctx, 'a>(
     } else if ctx.unifier.unioned(elem_ty, ctx.primitives.bool) {
         ctx.ctx.bool_type().const_zero().into()
     } else if ctx.unifier.unioned(elem_ty, ctx.primitives.str) {
-        ctx.gen_string(generator, "").into()
+        ctx.gen_string(generator, "")
     } else {
         unreachable!()
     }
 }
 
-fn ndarray_one_value<'ctx, 'a>(
+fn ndarray_one_value<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
 ) -> BasicValueEnum<'ctx> {
     if [ctx.primitives.int32, ctx.primitives.uint32].iter().any(|ty| ctx.unifier.unioned(elem_ty, *ty)) {
@@ -130,7 +130,7 @@ fn ndarray_one_value<'ctx, 'a>(
     } else if ctx.unifier.unioned(elem_ty, ctx.primitives.bool) {
         ctx.ctx.bool_type().const_int(1, false).into()
     } else if ctx.unifier.unioned(elem_ty, ctx.primitives.str) {
-        ctx.gen_string(generator, "1").into()
+        ctx.gen_string(generator, "1")
     } else {
         unreachable!()
     }
@@ -138,11 +138,11 @@ fn ndarray_one_value<'ctx, 'a>(
 
 /// LLVM-typed implementation for generating the implementation for constructing an `NDArray`.
 ///
-/// * `elem_ty` - The element type of the NDArray.
-/// * `shape` - The `shape` parameter used to construct the NDArray.
-fn call_ndarray_empty_impl<'ctx, 'a>(
+/// * `elem_ty` - The element type of the `NDArray`.
+/// * `shape` - The `shape` parameter used to construct the `NDArray`.
+fn call_ndarray_empty_impl<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
 ) -> Result<NDArrayValue<'ctx>, String> {
@@ -308,14 +308,14 @@ fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
 ///
 /// Note that this differs from `ndarray.fill`, which instead replaces all first-dimension elements
 /// with the given value (as opposed to all elements within the array).
-fn ndarray_fill_indexed<'ctx, 'a, ValueFn>(
+fn ndarray_fill_indexed<'ctx, ValueFn>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
     value_fn: ValueFn,
 ) -> Result<(), String>
     where
-        ValueFn: Fn(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, PointerValue<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
+        ValueFn: Fn(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, '_>, PointerValue<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
 {
     ndarray_fill_flattened(
         generator,
@@ -327,7 +327,7 @@ fn ndarray_fill_indexed<'ctx, 'a, ValueFn>(
                 ctx,
                 idx,
                 ndarray,
-            )?;
+            );
 
             value_fn(generator, ctx, indices)
         }
@@ -336,11 +336,11 @@ fn ndarray_fill_indexed<'ctx, 'a, ValueFn>(
 
 /// LLVM-typed implementation for generating the implementation for `ndarray.zeros`.
 ///
-/// * `elem_ty` - The element type of the NDArray.
-/// * `shape` - The `shape` parameter used to construct the NDArray.
-fn call_ndarray_zeros_impl<'ctx, 'a>(
+/// * `elem_ty` - The element type of the `NDArray`.
+/// * `shape` - The `shape` parameter used to construct the `NDArray`.
+fn call_ndarray_zeros_impl<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
 ) -> Result<NDArrayValue<'ctx>, String> {
@@ -372,11 +372,11 @@ fn call_ndarray_zeros_impl<'ctx, 'a>(
 
 /// LLVM-typed implementation for generating the implementation for `ndarray.ones`.
 ///
-/// * `elem_ty` - The element type of the NDArray.
-/// * `shape` - The `shape` parameter used to construct the NDArray.
-fn call_ndarray_ones_impl<'ctx, 'a>(
+/// * `elem_ty` - The element type of the `NDArray`.
+/// * `shape` - The `shape` parameter used to construct the `NDArray`.
+fn call_ndarray_ones_impl<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
 ) -> Result<NDArrayValue<'ctx>, String> {
@@ -408,11 +408,11 @@ fn call_ndarray_ones_impl<'ctx, 'a>(
 
 /// LLVM-typed implementation for generating the implementation for `ndarray.ones`.
 ///
-/// * `elem_ty` - The element type of the NDArray.
-/// * `shape` - The `shape` parameter used to construct the NDArray.
-fn call_ndarray_full_impl<'ctx, 'a>(
+/// * `elem_ty` - The element type of the `NDArray`.
+/// * `shape` - The `shape` parameter used to construct the `NDArray`.
+fn call_ndarray_full_impl<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
     fill_value: BasicValueEnum<'ctx>,
@@ -465,7 +465,7 @@ fn call_ndarray_full_impl<'ctx, 'a>(
 
                 copy.into()
             } else if fill_value.is_int_value() || fill_value.is_float_value() {
-                fill_value.into()
+                fill_value
             } else {
                 unreachable!()
             };
@@ -479,10 +479,10 @@ fn call_ndarray_full_impl<'ctx, 'a>(
 
 /// LLVM-typed implementation for generating the implementation for `ndarray.eye`.
 ///
-/// * `elem_ty` - The element type of the NDArray.
-fn call_ndarray_eye_impl<'ctx, 'a>(
+/// * `elem_ty` - The element type of the `NDArray`.
+fn call_ndarray_eye_impl<'ctx>(
     generator: &mut dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     nrows: IntValue<'ctx>,
     ncols: IntValue<'ctx>,
@@ -552,11 +552,11 @@ fn call_ndarray_eye_impl<'ctx, 'a>(
 }
 
 /// Generates LLVM IR for `ndarray.empty`.
-pub fn gen_ndarray_empty<'ctx, 'a>(
-    context: &mut CodeGenContext<'ctx, 'a>,
-    obj: Option<(Type, ValueEnum<'ctx>)>,
+pub fn gen_ndarray_empty<'ctx>(
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
-    args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
     generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
@@ -576,11 +576,11 @@ pub fn gen_ndarray_empty<'ctx, 'a>(
 }
 
 /// Generates LLVM IR for `ndarray.zeros`.
-pub fn gen_ndarray_zeros<'ctx, 'a>(
-    context: &mut CodeGenContext<'ctx, 'a>,
-    obj: Option<(Type, ValueEnum<'ctx>)>,
+pub fn gen_ndarray_zeros<'ctx>(
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
-    args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
     generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
@@ -600,11 +600,11 @@ pub fn gen_ndarray_zeros<'ctx, 'a>(
 }
 
 /// Generates LLVM IR for `ndarray.ones`.
-pub fn gen_ndarray_ones<'ctx, 'a>(
-    context: &mut CodeGenContext<'ctx, 'a>,
-    obj: Option<(Type, ValueEnum<'ctx>)>,
+pub fn gen_ndarray_ones<'ctx>(
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
-    args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
     generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
@@ -624,11 +624,11 @@ pub fn gen_ndarray_ones<'ctx, 'a>(
 }
 
 /// Generates LLVM IR for `ndarray.full`.
-pub fn gen_ndarray_full<'ctx, 'a>(
-    context: &mut CodeGenContext<'ctx, 'a>,
-    obj: Option<(Type, ValueEnum<'ctx>)>,
+pub fn gen_ndarray_full<'ctx>(
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
-    args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
     generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
@@ -652,11 +652,11 @@ pub fn gen_ndarray_full<'ctx, 'a>(
 }
 
 /// Generates LLVM IR for `ndarray.eye`.
-pub fn gen_ndarray_eye<'ctx, 'a>(
-    context: &mut CodeGenContext<'ctx, 'a>,
-    obj: Option<(Type, ValueEnum<'ctx>)>,
+pub fn gen_ndarray_eye<'ctx>(
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
-    args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
     generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
@@ -668,7 +668,7 @@ pub fn gen_ndarray_eye<'ctx, 'a>(
 
     let ncols_ty = fun.0.args[1].ty;
     let ncols_arg = args.iter()
-        .find(|arg| arg.0.map(|name| name == fun.0.args[1].name).unwrap_or(false))
+        .find(|arg| arg.0.is_some_and(|name| name == fun.0.args[1].name))
         .map(|arg| arg.1.clone().to_basic_value_enum(context, generator, ncols_ty))
         .unwrap_or_else(|| {
             args[0].1.clone().to_basic_value_enum(context, generator, nrows_ty)
@@ -676,7 +676,7 @@ pub fn gen_ndarray_eye<'ctx, 'a>(
 
     let offset_ty = fun.0.args[2].ty;
     let offset_arg = args.iter()
-        .find(|arg| arg.0.map(|name| name == fun.0.args[2].name).unwrap_or(false))
+        .find(|arg| arg.0.is_some_and(|name| name == fun.0.args[2].name))
         .map(|arg| arg.1.clone().to_basic_value_enum(context, generator, offset_ty))
         .unwrap_or_else(|| {
             Ok(context.gen_symbol_val(
@@ -697,11 +697,11 @@ pub fn gen_ndarray_eye<'ctx, 'a>(
 }
 
 /// Generates LLVM IR for `ndarray.identity`.
-pub fn gen_ndarray_identity<'ctx, 'a>(
-    context: &mut CodeGenContext<'ctx, 'a>,
-    obj: Option<(Type, ValueEnum<'ctx>)>,
+pub fn gen_ndarray_identity<'ctx>(
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
-    args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
     generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());

@@ -1350,9 +1350,9 @@ impl TopLevelComposer {
                         ]))
                     }
                 }
-                ast::StmtKind::Assign { .. } => {}, // we don't class attributes
-                ast::StmtKind::Pass { .. } => {}
-                ast::StmtKind::Expr { value: _, .. } => {} // typically a docstring; ignoring all expressions matches CPython behavior
+                ast::StmtKind::Assign { .. } // we don't class attributes
+                | ast::StmtKind::Expr { value: _, .. } // typically a docstring; ignoring all expressions matches CPython behavior
+                | ast::StmtKind::Pass { .. } => {}
                 _ => {
                     return Err(HashSet::from([
                         format!(

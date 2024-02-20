@@ -206,7 +206,7 @@ impl TypeEnum {
         }
     }
 
-    /// Returns a [TypeEnum] representing a generic `ndarray` type.
+    /// Returns a [`TypeEnum`] representing a generic `ndarray` type.
     ///
     /// * `dtype` - The datatype of the `ndarray`, or `None` if the datatype is generic.
     /// * `ndims` - The number of dimensions of the `ndarray`, or `None` if the number of dimensions is generic.
@@ -262,13 +262,13 @@ impl Unifier {
         }
     }
 
-    /// Sets the [PrimitiveStore] instance within this `Unifier`.
+    /// Sets the [`PrimitiveStore`] instance within this `Unifier`.
     ///
     /// This function can only be invoked once. Any subsequent invocations will result in an
-    /// assertion error..
+    /// assertion error.
     pub fn put_primitive_store(&mut self, primitives: &PrimitiveStore) {
         assert!(self.primitive_store.is_none());
-        self.primitive_store.replace(primitives.clone());
+        self.primitive_store.replace(*primitives);
     }
 
     pub unsafe fn get_unification_table(&mut self) -> &mut UnificationTable<Rc<TypeEnum>> {
@@ -496,18 +496,22 @@ impl Unifier {
     pub fn is_concrete(&mut self, a: Type, allowed_typevars: &[Type]) -> bool {
         use TypeEnum::*;
         match &*self.get_ty(a) {
-            TRigidVar { .. } | TLiteral { .. } => true,
+            TRigidVar { .. } 
+            | TLiteral { .. }
+            // functions are instantiated for each call sites, so the function type can contain
+            // type variables.
+            | TFunc { .. } => true,
+
             TVar { .. } => allowed_typevars.iter().any(|b| self.unification_table.unioned(a, *b)),
             TCall { .. } => false,
-            TList { ty } | TVirtual { ty } => self.is_concrete(*ty, allowed_typevars),
-            TNDArray { ty, .. } => self.is_concrete(*ty, allowed_typevars),
+            TList { ty } 
+            | TVirtual { ty }
+            | TNDArray { ty, .. } => self.is_concrete(*ty, allowed_typevars),
+
             TTuple { ty } => ty.iter().all(|ty| self.is_concrete(*ty, allowed_typevars)),
             TObj { params: vars, .. } => {
                 vars.values().all(|ty| self.is_concrete(*ty, allowed_typevars))
             }
-            // functions are instantiated for each call sites, so the function type can contain
-            // type variables.
-            TFunc { .. } => true,
         }
     }
 
@@ -748,8 +752,7 @@ impl Unifier {
                 self.unify_impl(x, b, false)?;
                 self.set_a_to_b(a, x);
             }
-            (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TList { ty }) |
-            (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TNDArray { ty, .. }) => {
+            (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TList { ty } | TNDArray { ty, .. }) => {
                 for (k, v) in fields {
                     match *k {
                         RecordKey::Int(_) => {
@@ -795,7 +798,7 @@ impl Unifier {
                         SymbolValue::I64(v) => v as i128,
                         SymbolValue::U32(v) => v as i128,
                         SymbolValue::U64(v) => v as i128,
-                        _ => return self.incompatible_types(a, b),
+                        _ => return Self::incompatible_types(a, b),
                     };
 
                     let can_convert = if self.unioned(ty, primitives.int32) {
@@ -811,7 +814,7 @@ impl Unifier {
                     };
 
                     if !can_convert {
-                        return self.incompatible_types(a, b)
+                        return Self::incompatible_types(a, b)
                     }
                 }
 
@@ -836,7 +839,7 @@ impl Unifier {
                         let v2i = symbol_value_to_int(v2);
 
                         if v1i != v2i {
-                            return self.incompatible_types(a, b)
+                            return Self::incompatible_types(a, b)
                         }
                     }
                 }
@@ -863,10 +866,10 @@ impl Unifier {
             }
             (TNDArray { ty: ty1, ndims: ndims1 }, TNDArray { ty: ty2, ndims: ndims2 }) => {
                 if self.unify_impl(*ty1, *ty2, false).is_err() {
-                    return self.incompatible_types(a, b)
+                    return Self::incompatible_types(a, b)
                 }
                 if self.unify_impl(*ndims1, *ndims2, false).is_err() {
-                    return self.incompatible_types(a, b)
+                    return Self::incompatible_types(a, b)
                 }
                 self.set_a_to_b(a, b);
             }
@@ -945,7 +948,7 @@ impl Unifier {
                 TObj { obj_id: id2, params: params2, .. },
             ) => {
                 if id1 != id2 {
-                    self.incompatible_types(a, b)?;
+                    Self::incompatible_types(a, b)?;
                 }
 
                 // Sort the type arguments by its UnificationKey first, since `HashMap::iter` visits
@@ -1015,7 +1018,7 @@ impl Unifier {
             }
             _ => {
                 if swapped {
-                    return self.incompatible_types(a, b);
+                    return Self::incompatible_types(a, b);
                 }
 
                 self.unify_impl(b, a, true)?;
@@ -1179,7 +1182,7 @@ impl Unifier {
         table.set_value(a, ty_b);
     }
 
-    fn incompatible_types(&mut self, a: Type, b: Type) -> Result<(), TypeError> {
+    fn incompatible_types(a: Type, b: Type) -> Result<(), TypeError> {
         Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None))
     }
 
@@ -1326,7 +1329,7 @@ impl Unifier {
                     None
                 }
             }
-            _ => {
+            TypeEnum::TCall(_) => {
                 unreachable!("{} not expected", ty.get_type_name())
             }
         }

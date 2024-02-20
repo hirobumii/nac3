@@ -408,6 +408,7 @@ pub struct CodeGenTask {
 ///
 /// This function is used to obtain the in-memory representation of `ty`, e.g. a `bool` variable
 /// would be represented by an `i8`.
+#[allow(clippy::too_many_arguments)]
 fn get_llvm_type<'ctx>(
     ctx: &'ctx Context,
     module: &Module<'ctx>,
@@ -543,6 +544,7 @@ fn get_llvm_type<'ctx>(
 /// ABI representation is that the in-memory representation must be at least byte-sized and must
 /// be byte-aligned for the variable to be addressable in memory, whereas there is no such
 /// restriction for ABI representations.
+#[allow(clippy::too_many_arguments)]
 fn get_llvm_abi_type<'ctx>(
     ctx: &'ctx Context,
     module: &Module<'ctx>,
@@ -809,7 +811,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         /* filename */
         &task
             .body
-            .get(0)
+            .first()
             .map_or_else(
                 || "<nac3_internal>".to_string(),
                 |f| f.location.file.0.to_string(),
@@ -839,7 +841,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         inkwell::debug_info::DIFlags::PUBLIC,
     );
     let (row, col) =
-        task.body.get(0).map_or_else(|| (0, 0), |b| (b.location.row, b.location.column));
+        task.body.first().map_or_else(|| (0, 0), |b| (b.location.row, b.location.column));
     let func_scope: DISubprogram<'_> = dibuilder.create_function(
         /* scope */ compile_unit.as_debug_info_scope(),
         /* func name */ symbol,

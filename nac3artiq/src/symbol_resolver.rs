@@ -662,10 +662,10 @@ impl InnerResolver {
                         self.get_list_elem_type(py, obj, len, unifier, defs, primitives)?;
                     match actual_ty {
                         Ok(t) => match unifier.unify(*ty, t) {
-                            Ok(_) => Ok(Ok(unifier.add_ty(TypeEnum::TNDArray { ty: *ty, ndims: *ndims }))),
+                            Ok(()) => Ok(Ok(unifier.add_ty(TypeEnum::TNDArray { ty: *ty, ndims: *ndims }))),
                             Err(e) => Ok(Err(format!(
                                 "type error ({}) for the ndarray",
-                                e.to_display(unifier).to_string()
+                                e.to_display(unifier),
                             ))),
                         },
                         Err(e) => Ok(Err(e)),

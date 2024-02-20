@@ -1180,22 +1180,21 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
             }
         };
 
-        let signature = match ctx.calls.get(&loc.into()) {
-            Some(call) => ctx.unifier.get_call_signature(*call).unwrap(),
-            None => {
-                let left_enum_ty = ctx.unifier.get_ty_immutable(left.custom.unwrap());
-                let TypeEnum::TObj { fields, .. } = left_enum_ty.as_ref() else {
-                    unreachable!("must be tobj")
-                };
+        let signature = if let Some(call) = ctx.calls.get(&loc.into()) {
+            ctx.unifier.get_call_signature(*call).unwrap()
+        } else {
+            let left_enum_ty = ctx.unifier.get_ty_immutable(left.custom.unwrap());
+            let TypeEnum::TObj { fields, .. } = left_enum_ty.as_ref() else {
+                unreachable!("must be tobj")
+            };
 
-                let fn_ty = fields.get(&op_name).unwrap().0;
-                let fn_ty_enum = ctx.unifier.get_ty_immutable(fn_ty);
-                let TypeEnum::TFunc(sig) = fn_ty_enum.as_ref() else {
-                    unreachable!()
-                };
+            let fn_ty = fields.get(&op_name).unwrap().0;
+            let fn_ty_enum = ctx.unifier.get_ty_immutable(fn_ty);
+            let TypeEnum::TFunc(sig) = fn_ty_enum.as_ref() else {
+                unreachable!()
+            };
 
-                sig.clone()
-            },
+            sig.clone()
         };
         let fun_id = {
             let defs = ctx.top_level.definitions.read();
@@ -1380,7 +1379,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                     .unwrap(),
                 ctx.builder
                     .build_int_mul(
-                        ndarray_num_dims.into(),
+                        ndarray_num_dims,
                         llvm_usize.size_of(),
                         "",
                     )
@@ -1426,7 +1425,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                     .unwrap(),
                 ctx.builder
                     .build_int_mul(
-                        ndarray_num_elems.into(),
+                        ndarray_num_elems,
                         llvm_ndarray_data_t.size_of().unwrap(),
                         "",
                     )
@@ -2078,7 +2077,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         *ty,
                         *ndims,
                         v,
-                        &*slice,
+                        slice,
                     )
                 }
                 TypeEnum::TTuple { .. } => {

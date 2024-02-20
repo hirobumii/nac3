@@ -58,13 +58,15 @@ impl<'ctx> ListValue<'ctx> {
         Ok(())
     }
 
-    /// Creates an [ListValue] from a [PointerValue].
+    /// Creates an [`ListValue`] from a [`PointerValue`].
+    #[must_use]
     pub fn from_ptr_val(ptr: PointerValue<'ctx>, llvm_usize: IntType<'ctx>, name: Option<&'ctx str>) -> Self {
         assert_is_list(ptr, llvm_usize);
         ListValue(ptr, name)
     }
 
-    /// Returns the underlying [PointerValue] pointing to the `list` instance.
+    /// Returns the underlying [`PointerValue`] pointing to the `list` instance.
+    #[must_use]
     pub fn get_ptr(&self) -> PointerValue<'ctx> {
         self.0
     }
@@ -119,8 +121,9 @@ impl<'ctx> ListValue<'ctx> {
 
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
     /// on the field.
+    #[must_use]
     pub fn get_data(&self) -> ListDataProxy<'ctx> {
-        ListDataProxy(self.clone())
+        ListDataProxy(*self)
     }
 
     /// Stores the `size` of this `list` into this instance.
@@ -140,7 +143,7 @@ impl<'ctx> ListValue<'ctx> {
     pub fn load_size(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
         let psize = self.get_size_ptr(ctx);
         let var_name = name
-            .map(|v| v.to_string())
+            .map(ToString::to_string)
             .or_else(|| self.1.map(|v| format!("{v}.size")))
             .unwrap_or_default();
 
@@ -164,6 +167,9 @@ impl<'ctx> ListDataProxy<'ctx> {
             .unwrap()
     }
 
+    /// # Safety
+    /// 
+    /// This function should be called with a valid index.
     pub unsafe fn ptr_offset_unchecked(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
@@ -211,6 +217,9 @@ impl<'ctx> ListDataProxy<'ctx> {
         }
     }
 
+    /// # Safety
+    ///
+    /// This function should be called with a valid index.
     pub unsafe fn get_unchecked(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -271,13 +280,15 @@ impl<'ctx> RangeValue<'ctx> {
         Ok(())
     }
 
-    /// Creates an [RangeValue] from a [PointerValue].
+    /// Creates an [`RangeValue`] from a [`PointerValue`].
+    #[must_use]
     pub fn from_ptr_val(ptr: PointerValue<'ctx>, name: Option<&'ctx str>) -> Self {
         assert_is_range(ptr);
         RangeValue(ptr, name)
     }
 
-    /// Returns the underlying [PointerValue] pointing to the `range` instance.
+    /// Returns the underlying [`PointerValue`] pointing to the `range` instance.
+    #[must_use]
     pub fn get_ptr(&self) -> PointerValue<'ctx> {
         self.0
     }
@@ -337,7 +348,7 @@ impl<'ctx> RangeValue<'ctx> {
     pub fn load_start(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
         let pstart = self.get_start_ptr(ctx);
         let var_name = name
-            .map(|v| v.to_string())
+            .map(ToString::to_string)
             .or_else(|| self.1.map(|v| format!("{v}.start")))
             .unwrap_or_default();
 
@@ -362,7 +373,7 @@ impl<'ctx> RangeValue<'ctx> {
     pub fn load_end(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
         let pend = self.get_end_ptr(ctx);
         let var_name = name
-            .map(|v| v.to_string())
+            .map(ToString::to_string)
             .or_else(|| self.1.map(|v| format!("{v}.end")))
             .unwrap_or_default();
 
@@ -387,7 +398,7 @@ impl<'ctx> RangeValue<'ctx> {
     pub fn load_step(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
         let pstep = self.get_step_ptr(ctx);
         let var_name = name
-            .map(|v| v.to_string())
+            .map(ToString::to_string)
             .or_else(|| self.1.map(|v| format!("{v}.step")))
             .unwrap_or_default();
 
@@ -458,7 +469,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         Ok(())
     }
 
-    /// Creates an [NDArrayValue] from a [PointerValue].
+    /// Creates an [`NDArrayValue`] from a [`PointerValue`].
+    #[must_use]
     pub fn from_ptr_val(
         ptr: PointerValue<'ctx>,
         llvm_usize: IntType<'ctx>,
@@ -468,7 +480,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         NDArrayValue(ptr, name)
     }
 
-    /// Returns the underlying [PointerValue] pointing to the `NDArray` instance.
+    /// Returns the underlying [`PointerValue`] pointing to the `NDArray` instance.
+    #[must_use]
     pub fn get_ptr(&self) -> PointerValue<'ctx> {
         self.0
     }
@@ -539,8 +552,9 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 
     /// Returns a proxy object to the field storing the size of each dimension of this `NDArray`.
+    #[must_use]
     pub fn get_dims(&self) -> NDArrayDimsProxy<'ctx> {
-        NDArrayDimsProxy(self.clone())
+        NDArrayDimsProxy(*self)
     }
 
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
@@ -575,8 +589,9 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 
     /// Returns a proxy object to the field storing the data of this `NDArray`.
+    #[must_use]
     pub fn get_data(&self) -> NDArrayDataProxy<'ctx> {
-        NDArrayDataProxy(self.clone())
+        NDArrayDataProxy(*self)
     }
 }
 
@@ -665,6 +680,9 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
             .unwrap()
     }
 
+    /// # Safety
+    ///
+    /// This function should be called with a valid index.
     pub unsafe fn ptr_to_data_flattened_unchecked(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
@@ -710,6 +728,9 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         }
     }
 
+    /// # Safety
+    ///
+    /// This function should be called with a valid index.
     pub unsafe fn get_flattened_unchecked(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -732,6 +753,9 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         ctx.builder.build_load(ptr, name.unwrap_or_default()).unwrap()
     }
 
+    /// # Safety
+    ///
+    /// This function should be called with valid indices.
     pub unsafe fn ptr_offset_unchecked(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
@@ -750,7 +774,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
             ctx,
             self.0,
             indices,
-        ).unwrap();
+        );
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
@@ -761,6 +785,9 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         }
     }
 
+    /// # Safety
+    ///
+    /// This function should be called with valid indices.
     pub unsafe fn ptr_offset_unchecked_const(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -773,7 +800,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
             ctx,
             self.0,
             indices,
-        ).unwrap();
+        );
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
@@ -953,6 +980,9 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         }
     }
 
+    /// # Safety
+    ///
+    /// This function should be called with valid indices.
     pub unsafe fn get_unsafe_const(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -964,6 +994,9 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         ctx.builder.build_load(ptr, name.unwrap_or_default()).unwrap()
     }
 
+    /// # Safety
+    ///
+    /// This function should be called with valid indices.
     pub unsafe fn get_unsafe(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,

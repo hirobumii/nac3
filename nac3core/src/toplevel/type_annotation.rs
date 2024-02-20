@@ -519,7 +519,7 @@ pub fn get_type_from_type_annotation_kinds(
         TypeAnnotation::Primitive(ty) | TypeAnnotation::TypeVar(ty) => Ok(*ty),
         TypeAnnotation::Literal(values) => {
             let values = values.iter()
-                .map(|v| SymbolValue::from_constant_inferred(v, unifier))
+                .map(SymbolValue::from_constant_inferred)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| HashSet::from([err]))?;
 

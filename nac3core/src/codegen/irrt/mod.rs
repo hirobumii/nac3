@@ -569,11 +569,11 @@ pub fn call_j0<'ctx>(
         .unwrap()
 }
 
-/// Generates a call to `__nac3_ndarray_calc_size`. Returns an [IntValue] representing the
+/// Generates a call to `__nac3_ndarray_calc_size`. Returns an [`IntValue`] representing the
 /// calculated total size.
 ///
-/// * `num_dims` - An [IntValue] containing the number of dimensions.
-/// * `dims` - A [PointerValue] to an array containing the size of each dimensions.
+/// * `num_dims` - An [`IntValue`] containing the number of dimensions.
+/// * `dims` - A [`PointerValue`] to an array containing the size of each dimension.
 pub fn call_ndarray_calc_size<'ctx>(
     generator: &dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -619,9 +619,9 @@ pub fn call_ndarray_calc_size<'ctx>(
 
 /// Generates a call to `__nac3_ndarray_init_dims`.
 ///
-/// * `ndarray` - LLVM pointer to the NDArray. This value must be the LLVM representation of an
+/// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
 /// `NDArray`.
-/// * `shape` - LLVM pointer to the `shape` of the NDArray. This value must be the LLVM
+/// * `shape` - LLVM pointer to the `shape` of the `NDArray`. This value must be the LLVM
 /// representation of a `list`.
 pub fn call_ndarray_init_dims<'ctx>(
     generator: &dyn CodeGenerator,
@@ -674,14 +674,14 @@ pub fn call_ndarray_init_dims<'ctx>(
 /// Generates a call to `__nac3_ndarray_calc_nd_indices`.
 ///
 /// * `index` - The index to compute the multidimensional index for.
-/// * `ndarray` - LLVM pointer to the NDArray. This value must be the LLVM representation of an
+/// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
 /// `NDArray`.
 pub fn call_ndarray_calc_nd_indices<'ctx>(
     generator: &dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, '_>,
     index: IntValue<'ctx>,
     ndarray: NDArrayValue<'ctx>,
-) -> Result<PointerValue<'ctx>, String> {
+) -> PointerValue<'ctx> {
     let llvm_void = ctx.ctx.void_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
@@ -728,7 +728,7 @@ pub fn call_ndarray_calc_nd_indices<'ctx>(
         )
         .unwrap();
 
-    Ok(indices)
+    indices
 }
 
 fn call_ndarray_flatten_index_impl<'ctx>(
@@ -737,7 +737,7 @@ fn call_ndarray_flatten_index_impl<'ctx>(
     ndarray: NDArrayValue<'ctx>,
     indices: PointerValue<'ctx>,
     indices_size: IntValue<'ctx>,
-) -> Result<IntValue<'ctx>, String> {
+) -> IntValue<'ctx> {
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
@@ -746,7 +746,7 @@ fn call_ndarray_flatten_index_impl<'ctx>(
 
     debug_assert_eq!(
         IntType::try_from(indices.get_type().get_element_type())
-            .map(|itype| itype.get_bit_width())
+            .map(IntType::get_bit_width)
             .unwrap_or_default(),
         llvm_i32.get_bit_width(),
         "Expected i32 value for argument `indices` to `call_ndarray_flatten_index_impl`"
@@ -795,13 +795,13 @@ fn call_ndarray_flatten_index_impl<'ctx>(
         .map(Either::unwrap_left)
         .unwrap();
 
-    Ok(index)
+    index
 }
 
 /// Generates a call to `__nac3_ndarray_flatten_index`. Returns the flattened index for the
 /// multidimensional index.
 ///
-/// * `ndarray` - LLVM pointer to the NDArray. This value must be the LLVM representation of an
+/// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
 /// `NDArray`.
 /// * `indices` - The multidimensional index to compute the flattened index for.
 pub fn call_ndarray_flatten_index<'ctx>(
@@ -809,7 +809,7 @@ pub fn call_ndarray_flatten_index<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
     indices: ListValue<'ctx>,
-) -> Result<IntValue<'ctx>, String> {
+) -> IntValue<'ctx> {
     let indices_size = indices.load_size(ctx, None);
     let indices_data = indices.get_data();
 
@@ -824,7 +824,7 @@ pub fn call_ndarray_flatten_index<'ctx>(
 /// Generates a call to `__nac3_ndarray_flatten_index`. Returns the flattened index for the
 /// multidimensional index.
 ///
-/// * `ndarray` - LLVM pointer to the NDArray. This value must be the LLVM representation of an
+/// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
 /// `NDArray`.
 /// * `indices` - The multidimensional index to compute the flattened index for.
 pub fn call_ndarray_flatten_index_const<'ctx>(
@@ -832,7 +832,7 @@ pub fn call_ndarray_flatten_index_const<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
     indices: ArrayValue<'ctx>,
-) -> Result<IntValue<'ctx>, String> {
+) -> IntValue<'ctx> {
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
     let indices_size = indices.get_type().len();
@@ -841,7 +841,7 @@ pub fn call_ndarray_flatten_index_const<'ctx>(
         indices.get_type().get_element_type(),
         llvm_usize.const_int(indices_size as u64, false),
         None
-    )?;
+    ).unwrap();
     for i in 0..indices_size {
         let v = ctx.builder.build_extract_value(indices, i, "")
             .unwrap()

@@ -119,7 +119,6 @@ impl SymbolValue {
     /// * `constant` - The constant to create the value from.
     pub fn from_constant_inferred(
         constant: &Constant,
-        unifier: &mut Unifier
     ) -> Result<Self, String> {
         match constant {
             Constant::None => Ok(SymbolValue::OptionNone),
@@ -140,7 +139,7 @@ impl SymbolValue {
             Constant::Tuple(t) => {
                 let elems = t
                     .iter()
-                    .map(|constant| Self::from_constant_inferred(constant, unifier))
+                    .map(Self::from_constant_inferred)
                     .collect::<Result<Vec<SymbolValue>, _>>()?;
                 Ok(SymbolValue::Tuple(elems))
             }
@@ -507,7 +506,7 @@ pub fn parse_type_annotation<T>(
 
             let values = if let Tuple { elts, .. } = &slice.node {
                 elts.iter()
-                    .map(|elt| parse_literal(elt))
+                    .map(&mut parse_literal)
                     .collect::<Result<Vec<_>, _>>()?
             } else {
                 vec![parse_literal(slice)?]
@@ -577,8 +576,8 @@ pub fn parse_type_annotation<T>(
                 ]))
             }
         }
-        Constant { value, .. } => SymbolValue::from_constant_inferred(value, unifier)
-            .map(|v| unifier.get_fresh_literal(vec![v], Some(expr.location.clone())))
+        Constant { value, .. } => SymbolValue::from_constant_inferred(value)
+            .map(|v| unifier.get_fresh_literal(vec![v], Some(expr.location)))
             .map_err(|err| HashSet::from([err])),
         _ => Err(HashSet::from([
             format!("unsupported type expression at {}", expr.location),

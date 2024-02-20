@@ -18,6 +18,7 @@ use crate::{
         gen_ndarray_empty,
         gen_ndarray_eye,
         gen_ndarray_full,
+        gen_ndarray_identity,
         gen_ndarray_ones,
         gen_ndarray_zeros,
     },
@@ -30,7 +31,6 @@ use inkwell::{
     IntPredicate
 };
 use itertools::Either;
-use crate::toplevel::numpy::gen_ndarray_identity;
 
 type BuiltinInfo = Vec<(Arc<RwLock<TopLevelDef>>, Option<Stmt>)>;
 
@@ -903,7 +903,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             // type variable
             &[(list_int32, "shape")],
             Box::new(|ctx, obj, fun, args, generator| {
-                gen_ndarray_empty(ctx, obj, fun, args, generator)
+                gen_ndarray_empty(ctx, &obj, fun, &args, generator)
                     .map(|val| Some(val.as_basic_value_enum()))
             }),
         ),
@@ -916,7 +916,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             // type variable
             &[(list_int32, "shape")],
             Box::new(|ctx, obj, fun, args, generator| {
-                gen_ndarray_empty(ctx, obj, fun, args, generator)
+                gen_ndarray_empty(ctx, &obj, fun, &args, generator)
                     .map(|val| Some(val.as_basic_value_enum()))
             }),
         ),
@@ -929,7 +929,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             // type variable
             &[(list_int32, "shape")],
             Box::new(|ctx, obj, fun, args, generator| {
-                gen_ndarray_zeros(ctx, obj, fun, args, generator)
+                gen_ndarray_zeros(ctx, &obj, fun, &args, generator)
                     .map(|val| Some(val.as_basic_value_enum()))
             }),
         ),
@@ -942,7 +942,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             // type variable
             &[(list_int32, "shape")],
             Box::new(|ctx, obj, fun, args, generator| {
-                gen_ndarray_ones(ctx, obj, fun, args, generator)
+                gen_ndarray_ones(ctx, &obj, fun, &args, generator)
                     .map(|val| Some(val.as_basic_value_enum()))
             }),
         ),
@@ -958,7 +958,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 // type variable
                 &[(list_int32, "shape"), (tv, "fill_value")],
                 Box::new(|ctx, obj, fun, args, generator| {
-                    gen_ndarray_full(ctx, obj, fun, args, generator)
+                    gen_ndarray_full(ctx, &obj, fun, &args, generator)
                         .map(|val| Some(val.as_basic_value_enum()))
                 }),
             )
@@ -980,13 +980,13 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 ret: ndarray_float_2d,
                 vars: var_map.clone(),
             })),
-            var_id: Default::default(),
-            instance_to_symbol: Default::default(),
-            instance_to_stmt: Default::default(),
+            var_id: Vec::default(),
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, obj, fun, args, generator| {
-                    gen_ndarray_eye(ctx, obj, fun, args, generator)
+                    gen_ndarray_eye(ctx, &obj, fun, &args, generator)
                         .map(|val| Some(val.as_basic_value_enum()))
                 },
             )))),
@@ -999,7 +999,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             ndarray_float_2d,
             &[(int32, "n")],
             Box::new(|ctx, obj, fun, args, generator| {
-                gen_ndarray_identity(ctx, obj, fun, args, generator)
+                gen_ndarray_identity(ctx, &obj, fun, &args, generator)
                     .map(|val| Some(val.as_basic_value_enum()))
             }),
         ),
@@ -1527,14 +1527,14 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                         None,
                                     ).into_int_value();
 
-                                    if len.get_type().get_bit_width() != 32 {
+                                    if len.get_type().get_bit_width() == 32 {
+                                        Some(len.into())
+                                    } else {
                                        Some(ctx.builder
                                            .build_int_truncate(len, llvm_i32, "len")
                                            .map(Into::into)
                                            .unwrap()
                                        )
-                                    } else {
-                                        Some(len.into())
                                     }
                                 }
                                 _ => unreachable!(),
