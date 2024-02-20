@@ -153,6 +153,12 @@ impl<'ctx> ListValue<'ctx> {
     }
 }
 
+impl<'ctx> From<ListValue<'ctx>> for PointerValue<'ctx> {
+    fn from(value: ListValue<'ctx>) -> Self {
+        value.get_ptr()
+    }
+}
+
 /// Proxy type for accessing the `data` array of an `list` instance in LLVM.
 #[derive(Copy, Clone)]
 pub struct ListDataProxy<'ctx>(ListValue<'ctx>);
@@ -408,6 +414,12 @@ impl<'ctx> RangeValue<'ctx> {
     }
 }
 
+impl<'ctx> From<RangeValue<'ctx>> for PointerValue<'ctx> {
+    fn from(value: RangeValue<'ctx>) -> Self {
+        value.get_ptr()
+    }
+}
+
 #[cfg(not(debug_assertions))]
 pub fn assert_is_ndarray<'ctx>(_value: PointerValue<'ctx>, _llvm_usize: IntType<'ctx>) {}
 
@@ -595,9 +607,9 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 }
 
-impl<'ctx> Into<PointerValue<'ctx>> for NDArrayValue<'ctx> {
-    fn into(self) -> PointerValue<'ctx> {
-        self.get_ptr()
+impl<'ctx> From<NDArrayValue<'ctx>> for PointerValue<'ctx> {
+    fn from(value: NDArrayValue<'ctx>) -> Self {
+        value.get_ptr()
     }
 }
 
