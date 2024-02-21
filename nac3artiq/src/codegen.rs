@@ -1,6 +1,7 @@
 use nac3core::{
     codegen::{
         expr::gen_call,
+        llvm_intrinsics::{call_int_smax, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_with},
         CodeGenContext, CodeGenerator,
     },
@@ -15,7 +16,7 @@ use inkwell::{
     context::Context, 
     module::Linkage, 
     types::IntType, 
-    values::{BasicValueEnum, CallSiteValue}, 
+    values::BasicValueEnum,
     AddressSpace,
 };
 
@@ -29,7 +30,6 @@ use std::{
     hash::{Hash, Hasher},
     sync::Arc,
 };
-use itertools::Either;
 
 /// The parallelism mode within a block.
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -133,20 +133,12 @@ impl<'a> ArtiqCodeGenerator<'a> {
                 .unwrap()
                 .to_basic_value_enum(ctx, self, end.custom.unwrap())?;
             let now = self.timeline.emit_now_mu(ctx);
-            let smax = ctx.module.get_function("llvm.smax.i64").unwrap_or_else(|| {
-                let i64 = ctx.ctx.i64_type();
-                ctx.module.add_function(
-                    "llvm.smax.i64",
-                    i64.fn_type(&[i64.into(), i64.into()], false),
-                    None,
-                )
-            });
-            let max = ctx
-                .builder
-                .build_call(smax, &[old_end.into(), now.into()], "smax")
-                .map(CallSiteValue::try_as_basic_value)
-                .map(Either::unwrap_left)
-                .unwrap();
+            let max = call_int_smax(
+                ctx, 
+                old_end.into_int_value(), 
+                now.into_int_value(), 
+                Some("smax")
+            );
             let end_store = self.gen_store_target(
                 ctx,
                 &end,
@@ -471,18 +463,7 @@ fn rpc_codegen_callback_fn<'ctx>(
 
     let arg_length = args.len() + usize::from(obj.is_some());
 
-    let stacksave = ctx.module.get_function("llvm.stacksave").unwrap_or_else(|| {
-        ctx.module.add_function("llvm.stacksave", ptr_type.fn_type(&[], false), None)
-    });
-    let stackrestore = ctx.module.get_function("llvm.stackrestore").unwrap_or_else(|| {
-        ctx.module.add_function(
-            "llvm.stackrestore",
-            ctx.ctx.void_type().fn_type(&[ptr_type.into()], false),
-            None,
-        )
-    });
-
-    let stackptr = ctx.builder.build_call(stacksave, &[], "rpc.stack").unwrap();
+    let stackptr = call_stacksave(ctx, Some("rpc.stack"));
     let args_ptr = ctx.builder
         .build_array_alloca(
             ptr_type,
@@ -558,13 +539,7 @@ fn rpc_codegen_callback_fn<'ctx>(
         .unwrap();
 
     // reclaim stack space used by arguments
-    ctx.builder
-        .build_call(
-            stackrestore,
-            &[stackptr.try_as_basic_value().unwrap_left().into()],
-            "rpc.stackrestore",
-        )
-        .unwrap();
+    call_stackrestore(ctx, stackptr);
 
     // -- receive value:
     // T result = {
@@ -624,13 +599,7 @@ fn rpc_codegen_callback_fn<'ctx>(
 
     let result = ctx.builder.build_load(slot, "rpc.result").unwrap();
     if need_load {
-        ctx.builder
-            .build_call(
-                stackrestore,
-                &[stackptr.try_as_basic_value().unwrap_left().into()],
-                "rpc.stackrestore",
-            )
-            .unwrap();
+        call_stackrestore(ctx, stackptr);
     }
     Ok(Some(result))
 }

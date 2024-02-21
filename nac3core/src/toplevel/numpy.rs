@@ -1,4 +1,4 @@
-use inkwell::{AddressSpace, IntPredicate, types::BasicType, values::{BasicValueEnum, PointerValue}};
+use inkwell::{IntPredicate, types::BasicType, values::{BasicValueEnum, PointerValue}};
 use inkwell::values::{AggregateValueEnum, ArrayValue, IntValue};
 use nac3parser::ast::StrRef;
 use crate::{
@@ -11,6 +11,7 @@ use crate::{
             call_ndarray_calc_size,
             call_ndarray_init_dims,
         },
+        llvm_intrinsics::call_memcpy_generic,
         stmt::gen_for_callback
     },
     symbol_resolver::ValueEnum,
@@ -406,7 +407,7 @@ fn call_ndarray_ones_impl<'ctx>(
     Ok(ndarray)
 }
 
-/// LLVM-typed implementation for generating the implementation for `ndarray.ones`.
+/// LLVM-typed implementation for generating the implementation for `ndarray.full`.
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
 /// * `shape` - The `shape` parameter used to construct the `NDArray`.
@@ -424,44 +425,17 @@ fn call_ndarray_full_impl<'ctx>(
         ndarray,
         |generator, ctx, _| {
             let value = if fill_value.is_pointer_value() {
-                let llvm_void = ctx.ctx.void_type();
                 let llvm_i1 = ctx.ctx.bool_type();
-                let llvm_i8 = ctx.ctx.i8_type();
-                let llvm_usize = generator.get_size_type(ctx.ctx);
-                let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
 
                 let copy = generator.gen_var_alloc(ctx, fill_value.get_type(), None)?;
 
-                let memcpy_fn_name = format!(
-                    "llvm.memcpy.p0i8.p0i8.i{}",
-                    generator.get_size_type(ctx.ctx).get_bit_width(),
+                call_memcpy_generic(
+                    ctx,
+                    copy,
+                    fill_value.into_pointer_value(),
+                    fill_value.get_type().size_of().map(Into::into).unwrap(),
+                    llvm_i1.const_zero(),
                 );
-                let memcpy_fn = ctx.module.get_function(memcpy_fn_name.as_str()).unwrap_or_else(|| {
-                    let fn_type = llvm_void.fn_type(
-                        &[
-                            llvm_pi8.into(),
-                            llvm_pi8.into(),
-                            llvm_usize.into(),
-                            llvm_i1.into(),
-                        ],
-                        false,
-                    );
-
-                    ctx.module.add_function(memcpy_fn_name.as_str(), fn_type, None)
-                });
-
-                ctx.builder
-                    .build_call(
-                        memcpy_fn,
-                        &[
-                            copy.into(),
-                            fill_value.into(),
-                            fill_value.get_type().size_of().unwrap().into(),
-                            llvm_i1.const_zero().into(),
-                        ],
-                        "",
-                    )
-                    .unwrap();
 
                 copy.into()
             } else if fill_value.is_int_value() || fill_value.is_float_value() {

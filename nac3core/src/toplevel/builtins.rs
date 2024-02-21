@@ -3,25 +3,12 @@ use crate::{
     codegen::{
         classes::RangeValue,
         expr::destructure_range,
-        irrt::{
-            calculate_len_for_slice_range,
-            call_gamma,
-            call_gammaln,
-            call_isinf,
-            call_isnan,
-            call_j0,
-        },
+        irrt::*,
+        llvm_intrinsics::*,
         stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
-    toplevel::numpy::{
-        gen_ndarray_empty,
-        gen_ndarray_eye,
-        gen_ndarray_full,
-        gen_ndarray_identity,
-        gen_ndarray_ones,
-        gen_ndarray_zeros,
-    },
+    toplevel::numpy::*,
 };
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
@@ -1010,26 +997,15 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             int32,
             &[(float, "n")],
             Box::new(|ctx, _, _, args, generator| {
-                let llvm_f64 = ctx.ctx.f64_type();
                 let llvm_i32 = ctx.ctx.i32_type();
 
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
+                    .into_float_value();
 
-                let intrinsic_fn = ctx.module.get_function("llvm.round.f64").unwrap_or_else(|| {
-                        let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
-
-                        ctx.module.add_function("llvm.round.f64", fn_type, None)
-                    });
-
-                let val = ctx
-                    .builder
-                    .build_call(intrinsic_fn, &[arg.into()], "")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap();
+                let val = call_float_round(ctx, arg, None);
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "round")
+                    .build_float_to_signed_int(val, llvm_i32, "round")
                     .unwrap();
                 Ok(Some(val_toint.into()))
             }),
@@ -1041,26 +1017,15 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             int64,
             &[(float, "n")],
             Box::new(|ctx, _, _, args, generator| {
-                let llvm_f64 = ctx.ctx.f64_type();
                 let llvm_i64 = ctx.ctx.i64_type();
 
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
+                    .into_float_value();
 
-                let intrinsic_fn = ctx.module.get_function("llvm.round.f64").unwrap_or_else(|| {
-                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
-
-                    ctx.module.add_function("llvm.round.f64", fn_type, None)
-                });
-
-                let val = ctx
-                    .builder
-                    .build_call(intrinsic_fn, &[arg.into()], "")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap();
+                let val = call_float_round(ctx, arg, None);
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "round")
+                    .build_float_to_signed_int(val, llvm_i64, "round")
                     .unwrap();
                 Ok(Some(val_toint.into()))
             }),
@@ -1072,24 +1037,13 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             float,
             &[(float, "n")],
             Box::new(|ctx, _, _, args, generator| {
-                let llvm_f64 = ctx.ctx.f64_type();
-
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
+                    .into_float_value();
 
-                let intrinsic_fn = ctx.module.get_function("llvm.roundeven.f64").unwrap_or_else(|| {
-                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
+                let val = call_float_roundeven(ctx, arg, None);
 
-                    ctx.module.add_function("llvm.roundeven.f64", fn_type, None)
-                });
-
-                let val = ctx
-                    .builder
-                    .build_call(intrinsic_fn, &[arg.into()], "")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap();
-                Ok(Some(val))
+                Ok(Some(val.into()))
             }),
         ),
         Arc::new(RwLock::new(TopLevelDef::Function {
@@ -1290,26 +1244,15 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             int32,
             &[(float, "n")],
             Box::new(|ctx, _, _, args, generator| {
-                let llvm_f64 = ctx.ctx.f64_type();
                 let llvm_i32 = ctx.ctx.i32_type();
 
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
+                    .into_float_value();
 
-                let intrinsic_fn = ctx.module.get_function("llvm.floor.f64").unwrap_or_else(|| {
-                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
-
-                    ctx.module.add_function("llvm.floor.f64", fn_type, None)
-                });
-
-                let val = ctx
-                    .builder
-                    .build_call(intrinsic_fn, &[arg.into()], "")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap();
+                let val = call_float_floor(ctx, arg, None);
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "floor")
+                    .build_float_to_signed_int(val, llvm_i32, "floor")
                     .unwrap();
                 Ok(Some(val_toint.into()))
             }),
@@ -1321,26 +1264,15 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             int64,
             &[(float, "n")],
             Box::new(|ctx, _, _, args, generator| {
-                let llvm_f64 = ctx.ctx.f64_type();
                 let llvm_i64 = ctx.ctx.i64_type();
 
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
+                    .into_float_value();
 
-                let intrinsic_fn = ctx.module.get_function("llvm.floor.f64").unwrap_or_else(|| {
-                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
-
-                    ctx.module.add_function("llvm.floor.f64", fn_type, None)
-                });
-
-                let val = ctx
-                    .builder
-                    .build_call(intrinsic_fn, &[arg.into()], "")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap();
+                let val = call_float_floor(ctx, arg, None);
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "floor")
+                    .build_float_to_signed_int(val, llvm_i64, "floor")
                     .unwrap();
                 Ok(Some(val_toint.into()))
             }),
@@ -1352,24 +1284,12 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             float,
             &[(float, "n")],
             Box::new(|ctx, _, _, args, generator| {
-                let llvm_f64 = ctx.ctx.f64_type();
-
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
+                    .into_float_value();
 
-                let intrinsic_fn = ctx.module.get_function("llvm.floor.f64").unwrap_or_else(|| {
-                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
-
-                    ctx.module.add_function("llvm.floor.f64", fn_type, None)
-                });
-
-                let val = ctx
-                    .builder
-                    .build_call(intrinsic_fn, &[arg.into()], "")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap();
-                Ok(Some(val))
+                let val = call_float_floor(ctx, arg, None);
+                Ok(Some(val.into()))
             }),
         ),
         create_fn_by_codegen(
@@ -1379,26 +1299,15 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             int32,
             &[(float, "n")],
             Box::new(|ctx, _, _, args, generator| {
-                let llvm_f64 = ctx.ctx.f64_type();
                 let llvm_i32 = ctx.ctx.i32_type();
 
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
+                    .into_float_value();
 
-                let intrinsic_fn = ctx.module.get_function("llvm.ceil.f64").unwrap_or_else(|| {
-                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
-
-                    ctx.module.add_function("llvm.ceil.f64", fn_type, None)
-                });
-
-                let val = ctx
-                    .builder
-                    .build_call(intrinsic_fn, &[arg.into()], "")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap();
+                let val = call_float_ceil(ctx, arg, None);
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i32, "ceil")
+                    .build_float_to_signed_int(val, llvm_i32, "ceil")
                     .unwrap();
                 Ok(Some(val_toint.into()))
             }),
@@ -1410,26 +1319,15 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             int64,
             &[(float, "n")],
             Box::new(|ctx, _, _, args, generator| {
-                let llvm_f64 = ctx.ctx.f64_type();
                 let llvm_i64 = ctx.ctx.i64_type();
 
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
+                    .into_float_value();
 
-                let intrinsic_fn = ctx.module.get_function("llvm.ceil.f64").unwrap_or_else(|| {
-                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
-
-                    ctx.module.add_function("llvm.ceil.f64", fn_type, None)
-                });
-
-                let val = ctx
-                    .builder
-                    .build_call(intrinsic_fn, &[arg.into()], "")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap();
+                let val = call_float_ceil(ctx, arg, None);
                 let val_toint = ctx.builder
-                    .build_float_to_signed_int(val.into_float_value(), llvm_i64, "ceil")
+                    .build_float_to_signed_int(val, llvm_i64, "ceil")
                     .unwrap();
                 Ok(Some(val_toint.into()))
             }),
@@ -1441,24 +1339,12 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             float,
             &[(float, "n")],
             Box::new(|ctx, _, _, args, generator| {
-                let llvm_f64 = ctx.ctx.f64_type();
-
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?;
+                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
+                    .into_float_value();
 
-                let intrinsic_fn = ctx.module.get_function("llvm.ceil.f64").unwrap_or_else(|| {
-                    let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
-
-                    ctx.module.add_function("llvm.ceil.f64", fn_type, None)
-                });
-
-                let val = ctx
-                    .builder
-                    .build_call(intrinsic_fn, &[arg.into()], "")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap();
-                Ok(Some(val))
+                let val = call_float_ceil(ctx, arg, None);
+                Ok(Some(val.into()))
             }),
         ),
         Arc::new(RwLock::new({
@@ -1568,40 +1454,38 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let uint32 = ctx.primitives.uint32;
                     let uint64 = ctx.primitives.uint64;
                     let float = ctx.primitives.float;
-                    let llvm_i8 = ctx.ctx.i8_type().as_basic_type_enum();
-                    let llvm_i32 = ctx.ctx.i32_type().as_basic_type_enum();
-                    let llvm_i64 = ctx.ctx.i64_type().as_basic_type_enum();
-                    let llvm_f64 = ctx.ctx.f64_type().as_basic_type_enum();
                     let m_ty = fun.0.args[0].ty;
                     let n_ty = fun.0.args[1].ty;
                     let m_val = args[0].1.clone().to_basic_value_enum(ctx, generator, m_ty)?;
                     let n_val = args[1].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
                     let mut is_type = |a: Type, b: Type| ctx.unifier.unioned(a, b);
-                    let (fun_name, arg_ty) = if is_type(m_ty, n_ty) && is_type(n_ty, boolean) {
-                        ("llvm.umin.i8", llvm_i8)
-                    } else if is_type(m_ty, n_ty) && is_type(n_ty, int32) {
-                        ("llvm.smin.i32", llvm_i32)
-                    } else if is_type(m_ty, n_ty) && is_type(n_ty, int64) {
-                        ("llvm.smin.i64", llvm_i64)
-                    } else if is_type(m_ty, n_ty) && is_type(n_ty, uint32) {
-                        ("llvm.umin.i32", llvm_i32)
-                    } else if is_type(m_ty, n_ty) && is_type(n_ty, uint64) {
-                        ("llvm.umin.i64", llvm_i64)
+                    if !is_type(m_ty, n_ty) {
+                        unreachable!()
+                    }
+                    let val: BasicValueEnum = if [boolean, uint32, uint64].iter().any(|t| is_type(n_ty, *t)) {
+                        call_int_umin(
+                            ctx,
+                            m_val.into_int_value(),
+                            n_val.into_int_value(),
+                            Some("min"),
+                        ).into()
+                    } else if [int32, int64].iter().any(|t| is_type(n_ty, *t)) {
+                        call_int_smin(
+                            ctx,
+                            m_val.into_int_value(),
+                            n_val.into_int_value(),
+                            Some("min"),
+                        ).into()
                     } else if is_type(m_ty, n_ty) && is_type(n_ty, float) {
-                        ("llvm.minnum.f64", llvm_f64)
+                        call_float_minnum(
+                            ctx,
+                            m_val.into_float_value(),
+                            n_val.into_float_value(),
+                            Some("min"),
+                        ).into()
                     } else {
                         unreachable!()
                     };
-                    let intrinsic = ctx.module.get_function(fun_name).unwrap_or_else(|| {
-                        let fn_type = arg_ty.fn_type(&[arg_ty.into(), arg_ty.into()], false);
-                        ctx.module.add_function(fun_name, fn_type, None)
-                    });
-                    let val = ctx
-                        .builder
-                        .build_call(intrinsic, &[m_val.into(), n_val.into()], "min")
-                        .map(CallSiteValue::try_as_basic_value)
-                        .map(Either::unwrap_left)
-                        .unwrap();
                     Ok(val.into())
                 },
             )))),
@@ -1630,40 +1514,38 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let uint32 = ctx.primitives.uint32;
                     let uint64 = ctx.primitives.uint64;
                     let float = ctx.primitives.float;
-                    let llvm_i8 = ctx.ctx.i8_type().as_basic_type_enum();
-                    let llvm_i32 = ctx.ctx.i32_type().as_basic_type_enum();
-                    let llvm_i64 = ctx.ctx.i64_type().as_basic_type_enum();
-                    let llvm_f64 = ctx.ctx.f64_type().as_basic_type_enum();
                     let m_ty = fun.0.args[0].ty;
                     let n_ty = fun.0.args[1].ty;
                     let m_val = args[0].1.clone().to_basic_value_enum(ctx, generator, m_ty)?;
                     let n_val = args[1].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
                     let mut is_type = |a: Type, b: Type| ctx.unifier.unioned(a, b);
-                    let (fun_name, arg_ty) = if is_type(m_ty, n_ty) && is_type(n_ty, boolean) {
-                        ("llvm.umax.i8", llvm_i8)
-                    } else if is_type(m_ty, n_ty) && is_type(n_ty, int32) {
-                        ("llvm.smax.i32", llvm_i32)
-                    } else if is_type(m_ty, n_ty) && is_type(n_ty, int64) {
-                        ("llvm.smax.i64", llvm_i64)
-                    } else if is_type(m_ty, n_ty) && is_type(n_ty, uint32) {
-                        ("llvm.umax.i32", llvm_i32)
-                    } else if is_type(m_ty, n_ty) && is_type(n_ty, uint64) {
-                        ("llvm.umax.i64", llvm_i64)
+                    if !is_type(m_ty, n_ty) {
+                        unreachable!()
+                    }
+                    let val: BasicValueEnum = if [boolean, uint32, uint64].iter().any(|t| is_type(n_ty, *t)) {
+                        call_int_umax(
+                            ctx,
+                            m_val.into_int_value(),
+                            n_val.into_int_value(),
+                            Some("max"),
+                        ).into()
+                    } else if [int32, int64].iter().any(|t| is_type(n_ty, *t)) {
+                        call_int_smax(
+                            ctx,
+                            m_val.into_int_value(),
+                            n_val.into_int_value(),
+                            Some("max"),
+                        ).into()
                     } else if is_type(m_ty, n_ty) && is_type(n_ty, float) {
-                        ("llvm.maxnum.f64", llvm_f64)
+                        call_float_maxnum(
+                            ctx,
+                            m_val.into_float_value(),
+                            n_val.into_float_value(),
+                            Some("max"),
+                        ).into()
                     } else {
                         unreachable!()
                     };
-                    let intrinsic = ctx.module.get_function(fun_name).unwrap_or_else(|| {
-                        let fn_type = arg_ty.fn_type(&[arg_ty.into(), arg_ty.into()], false);
-                        ctx.module.add_function(fun_name, fn_type, None)
-                    });
-                    let val = ctx
-                        .builder
-                        .build_call(intrinsic, &[m_val.into(), n_val.into()], "max")
-                        .map(CallSiteValue::try_as_basic_value)
-                        .map(Either::unwrap_left)
-                        .unwrap();
                     Ok(val.into())
                 },
             )))),
@@ -1690,49 +1572,27 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     let uint64 = ctx.primitives.uint64;
                     let float = ctx.primitives.float;
                     let llvm_i1 = ctx.ctx.bool_type();
-                    let llvm_i32 = ctx.ctx.i32_type().as_basic_type_enum();
-                    let llvm_i64 = ctx.ctx.i64_type().as_basic_type_enum();
-                    let llvm_f64 = ctx.ctx.f64_type().as_basic_type_enum();
                     let n_ty = fun.0.args[0].ty;
                     let n_val = args[0].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
                     let mut is_type = |a: Type, b: Type| ctx.unifier.unioned(a, b);
-                    let mut is_float = false;
-                    let (fun_name, arg_ty) =
-                        if is_type(n_ty, boolean) || is_type(n_ty, uint32) || is_type(n_ty, uint64)
-                        {
-                            return Ok(n_val.into());
-                        } else if is_type(n_ty, int32) {
-                            ("llvm.abs.i32", llvm_i32)
-                        } else if is_type(n_ty, int64) {
-                            ("llvm.abs.i64", llvm_i64)
-                        } else if is_type(n_ty, float) {
-                            is_float = true;
-                            ("llvm.fabs.f64", llvm_f64)
-                        } else {
-                            unreachable!()
-                        };
-                    let intrinsic = ctx.module.get_function(fun_name).unwrap_or_else(|| {
-                        let fn_type = if is_float {
-                            arg_ty.fn_type(&[arg_ty.into()], false)
-                        } else {
-                            arg_ty.fn_type(&[arg_ty.into(), llvm_i1.into()], false)
-                        };
-                        ctx.module.add_function(fun_name, fn_type, None)
-                    });
-                    let val = ctx
-                        .builder
-                        .build_call(
-                            intrinsic,
-                            &if is_float {
-                                vec![n_val.into()]
-                            } else {
-                                vec![n_val.into(), llvm_i1.const_int(0, false).into()]
-                            },
-                            "abs",
-                        )
-                        .map(CallSiteValue::try_as_basic_value)
-                        .map(Either::unwrap_left)
-                        .unwrap();
+                    let val: BasicValueEnum = if [boolean, uint32, uint64].iter().any(|t| is_type(n_ty, *t)) {
+                        n_val
+                    } else if [int32, int64].iter().any(|t| is_type(n_ty, *t)) {
+                        call_int_abs(
+                            ctx,
+                            n_val.into_int_value(),
+                            llvm_i1.const_zero(),
+                            Some("abs"),
+                        ).into()
+                    } else if is_type(n_ty, float) {
+                        call_float_fabs(
+                            ctx,
+                            n_val.into_float_value(),
+                            Some("abs"),
+                        ).into()
+                    } else {
+                        unreachable!()
+                    };
                     Ok(val.into())
                 },
             )))),

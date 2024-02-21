@@ -1,13 +1,13 @@
 use inkwell::{
     IntPredicate,
     types::{AnyTypeEnum, BasicTypeEnum, IntType, PointerType},
-    values::{ArrayValue, BasicValueEnum, CallSiteValue, IntValue, PointerValue},
+    values::{ArrayValue, BasicValueEnum, IntValue, PointerValue},
 };
-use itertools::Either;
 use crate::codegen::{
     CodeGenContext,
     CodeGenerator,
     irrt::{call_ndarray_calc_size, call_ndarray_flatten_index, call_ndarray_flatten_index_const},
+    llvm_intrinsics::call_int_umin,
     stmt::gen_for_callback,
 };
 
@@ -924,22 +924,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
                 let indices_len = indices.load_size(ctx, None);
                 let ndarray_len = self.0.load_ndims(ctx);
 
-                let min_fn_name = format!("llvm.umin.i{}", llvm_usize.get_bit_width());
-                let min_fn = ctx.module.get_function(min_fn_name.as_str()).unwrap_or_else(|| {
-                    let fn_type = llvm_usize.fn_type(
-                        &[llvm_usize.into(), llvm_usize.into()],
-                        false
-                    );
-                    ctx.module.add_function(min_fn_name.as_str(), fn_type, None)
-                });
-
-                let len = ctx
-                    .builder
-                    .build_call(min_fn, &[indices_len.into(), ndarray_len.into()], "")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(|v| v.map_left(BasicValueEnum::into_int_value))
-                    .map(Either::unwrap_left)
-                    .unwrap();
+                let len = call_int_umin(ctx, indices_len, ndarray_len, None);
 
                 let i = ctx.builder.build_load(i_addr, "")
                     .map(BasicValueEnum::into_int_value)

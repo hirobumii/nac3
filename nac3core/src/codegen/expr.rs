@@ -8,6 +8,7 @@ use crate::{
         get_llvm_type,
         get_llvm_abi_type,
         irrt::*,
+        llvm_intrinsics::{call_expect, call_float_floor, call_float_pow, call_float_powi},
         stmt::{gen_raise, gen_var},
         CodeGenContext, CodeGenTask,
     },
@@ -30,7 +31,7 @@ use nac3parser::ast::{
     self, Boolop, Comprehension, Constant, Expr, ExprKind, Location, Operator, StrRef,
 };
 
-use super::{CodeGenerator, need_sret};
+use super::{CodeGenerator, llvm_intrinsics::call_memcpy_generic, need_sret};
 
 pub fn get_subst_key(
     unifier: &mut Unifier,
@@ -371,7 +372,6 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         let (BasicValueEnum::FloatValue(lhs), BasicValueEnum::FloatValue(rhs)) = (lhs, rhs) else {
             unreachable!()
         };
-        let float = self.ctx.f64_type();
         match op {
             Operator::Add => self.builder.build_float_add(lhs, rhs, "fadd").map(Into::into).unwrap(),
             Operator::Sub => self.builder.build_float_sub(lhs, rhs, "fsub").map(Into::into).unwrap(),
@@ -380,28 +380,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             Operator::Mod => self.builder.build_float_rem(lhs, rhs, "fmod").map(Into::into).unwrap(),
             Operator::FloorDiv => {
                 let div = self.builder.build_float_div(lhs, rhs, "fdiv").unwrap();
-                let floor_intrinsic =
-                    self.module.get_function("llvm.floor.f64").unwrap_or_else(|| {
-                        let fn_type = float.fn_type(&[float.into()], false);
-                        self.module.add_function("llvm.floor.f64", fn_type, None)
-                    });
-                self.builder
-                    .build_call(floor_intrinsic, &[div.into()], "floor")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap()
+                call_float_floor(self, div, Some("floor")).into()
             }
-            Operator::Pow => {
-                let pow_intrinsic = self.module.get_function("llvm.pow.f64").unwrap_or_else(|| {
-                    let fn_type = float.fn_type(&[float.into(), float.into()], false);
-                    self.module.add_function("llvm.pow.f64", fn_type, None)
-                });
-                self.builder
-                    .build_call(pow_intrinsic, &[lhs.into(), rhs.into()], "f_pow")
-                    .map(CallSiteValue::try_as_basic_value)
-                    .map(Either::unwrap_left)
-                    .unwrap()
-            }
+            Operator::Pow => call_float_pow(self, lhs, rhs, Some("f_pow")).into(),
             // special implementation?
             _ => unimplemented!(),
         }
@@ -585,24 +566,11 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     ) {
         let i1 = self.ctx.bool_type();
         let i1_true = i1.const_all_ones();
-        let expect_fun = self.module.get_function("llvm.expect.i1").unwrap_or_else(|| {
-            self.module.add_function(
-                "llvm.expect.i1",
-                i1.fn_type(&[i1.into(), i1.into()], false),
-                None,
-            )
-        });
         // we assume that the condition is most probably true, so the normal path is the most
         // probable path
         // even if this assumption is violated, it does not matter as exception unwinding is
         // slow anyway...
-        let cond = self
-            .builder
-            .build_call(expect_fun, &[cond.into(), i1_true.into()], "expect")
-            .map(CallSiteValue::try_as_basic_value)
-            .map(|v| v.map_left(BasicValueEnum::into_int_value))
-            .map(Either::unwrap_left)
-            .unwrap();
+        let cond = call_expect(self, cond, i1_true, Some("expect"));
         let current_fun = self.builder.get_insert_block().unwrap().get_parent().unwrap();
         let then_block = self.ctx.append_basic_block(current_fun, "succ");
         let exn_block = self.ctx.append_basic_block(current_fun, "fail");
@@ -1150,17 +1118,12 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
     } else if ty1 == ctx.primitives.float && ty2 == ctx.primitives.int32 {
         // Pow is the only operator that would pass typecheck between float and int
         assert_eq!(*op, Operator::Pow);
-        let i32_t = ctx.ctx.i32_type();
-        let pow_intr = ctx.module.get_function("llvm.powi.f64.i32").unwrap_or_else(|| {
-            let f64_t = ctx.ctx.f64_type();
-            let ty = f64_t.fn_type(&[f64_t.into(), i32_t.into()], false);
-            ctx.module.add_function("llvm.powi.f64.i32", ty, None)
-        });
-        let res = ctx.builder
-            .build_call(pow_intr, &[left_val.into(), right_val.into()], "f_pow_i")
-            .map(CallSiteValue::try_as_basic_value)
-            .map(Either::unwrap_left)
-            .unwrap();
+        let res = call_float_powi(
+            ctx,
+            left_val.into_float_value(),
+            right_val.into_int_value(),
+            Some("f_pow_i")
+        );
         Ok(Some(res.into()))
     } else {
         let left_ty_enum = ctx.unifier.get_ty_immutable(left.custom.unwrap());
@@ -1229,11 +1192,8 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
     v: NDArrayValue<'ctx>,
     slice: &Expr<Option<Type>>,
 ) -> Result<Option<ValueEnum<'ctx>>, String> {
-    let llvm_void = ctx.ctx.void_type();
     let llvm_i1 = ctx.ctx.bool_type();
-    let llvm_i8 = ctx.ctx.i8_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
-    let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
 
     let TypeEnum::TLiteral { values, .. } = &*ctx.unifier.get_ty_immutable(ndims) else {
         unreachable!()
@@ -1333,24 +1293,6 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         let ndarray_num_dims = ndarray.load_ndims(ctx);
         ndarray.create_dims(ctx, llvm_usize, ndarray_num_dims);
 
-        let memcpy_fn_name = format!(
-            "llvm.memcpy.p0i8.p0i8.i{}",
-            generator.get_size_type(ctx.ctx).get_bit_width(),
-        );
-        let memcpy_fn = ctx.module.get_function(memcpy_fn_name.as_str()).unwrap_or_else(|| {
-            let fn_type = llvm_void.fn_type(
-                &[
-                    llvm_pi8.into(),
-                    llvm_pi8.into(),
-                    llvm_usize.into(),
-                    llvm_i1.into(),
-                ],
-                false,
-            );
-
-            ctx.module.add_function(memcpy_fn_name.as_str(), fn_type, None)
-        });
-
         let ndarray_num_dims = ndarray.load_ndims(ctx);
         let v_dims_src_ptr = v.get_dims().ptr_offset(
             ctx,
@@ -1358,37 +1300,16 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
             llvm_usize.const_int(1, false),
             None,
         );
-        ctx.builder.build_call(
-            memcpy_fn,
-            &[
-                ctx.builder
-                    .build_bitcast(
-                        ndarray.get_dims().get_ptr(ctx),
-                        llvm_pi8,
-                        "",
-                    )
-                    .map(Into::into)
-                    .unwrap(),
-                ctx.builder
-                    .build_bitcast(
-                        v_dims_src_ptr,
-                        llvm_pi8,
-                        "",
-                    )
-                    .map(Into::into)
-                    .unwrap(),
-                ctx.builder
-                    .build_int_mul(
-                        ndarray_num_dims,
-                        llvm_usize.size_of(),
-                        "",
-                    )
-                    .map(Into::into)
-                    .unwrap(),
-                llvm_i1.const_zero().into(),
-            ],
-            "",
-        ).unwrap();
+        call_memcpy_generic(
+            ctx,
+            ndarray.get_dims().get_ptr(ctx),
+            v_dims_src_ptr,
+            ctx.builder
+                .build_int_mul(ndarray_num_dims, llvm_usize.size_of(), "")
+                .map(Into::into)
+                .unwrap(),
+            llvm_i1.const_zero(),
+        );
 
         let ndarray_num_elems = call_ndarray_calc_size(
             generator,
@@ -1404,37 +1325,16 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
             ctx.ctx.i32_type().const_array(&[index]),
             None
         );
-        ctx.builder.build_call(
-            memcpy_fn,
-            &[
-                ctx.builder
-                    .build_bitcast(
-                        ndarray.get_data().get_ptr(ctx),
-                        llvm_pi8,
-                        "",
-                    )
-                    .map(Into::into)
-                    .unwrap(),
-                ctx.builder
-                    .build_bitcast(
-                        v_data_src_ptr,
-                        llvm_pi8,
-                        "",
-                    )
-                    .map(Into::into)
-                    .unwrap(),
-                ctx.builder
-                    .build_int_mul(
-                        ndarray_num_elems,
-                        llvm_ndarray_data_t.size_of().unwrap(),
-                        "",
-                    )
-                    .map(Into::into)
-                    .unwrap(),
-                llvm_i1.const_zero().into(),
-            ],
-            "",
-        ).unwrap();
+        call_memcpy_generic(
+            ctx,
+            ndarray.get_data().get_ptr(ctx),
+            v_data_src_ptr,
+            ctx.builder
+                .build_int_mul(ndarray_num_elems, llvm_ndarray_data_t.size_of().unwrap(), "")
+                .map(Into::into)
+                .unwrap(),
+            llvm_i1.const_zero(),
+        );
 
         Ok(Some(v.get_ptr().into()))
     }
