@@ -5,6 +5,68 @@ use nac3parser::ast::{Constant, Location};
 
 use super::*;
 
+/// Structure storing [`DefinitionId`] for primitive types.
+#[derive(Clone, Copy)]
+pub struct PrimitiveDefinitionIds {
+    pub int32: DefinitionId,
+    pub int64: DefinitionId,
+    pub uint32: DefinitionId,
+    pub uint64: DefinitionId,
+    pub float: DefinitionId,
+    pub bool: DefinitionId,
+    pub none: DefinitionId,
+    pub range: DefinitionId,
+    pub str: DefinitionId,
+    pub exception: DefinitionId,
+    pub option: DefinitionId,
+    pub ndarray: DefinitionId,
+}
+
+impl PrimitiveDefinitionIds {
+    /// Returns all [`DefinitionId`] of primitives as a [`Vec`].
+    ///
+    /// There are no guarantees on ordering of the IDs.
+    #[must_use]
+    fn as_vec(&self) -> Vec<DefinitionId> {
+        vec![
+            self.int32,
+            self.int64,
+            self.uint32,
+            self.uint64,
+            self.float,
+            self.bool,
+            self.none,
+            self.range,
+            self.str,
+            self.exception,
+            self.option,
+            self.ndarray,
+        ]
+    }
+
+    /// Returns the primitive with the largest [`DefinitionId`].
+    #[must_use]
+    pub fn max_id(&self) -> DefinitionId {
+        self.as_vec().into_iter().max().unwrap()
+    }
+}
+
+/// The [definition IDs][DefinitionId] for primitive types.
+pub const PRIMITIVE_DEF_IDS: PrimitiveDefinitionIds = PrimitiveDefinitionIds {
+    int32: DefinitionId(0),
+    int64: DefinitionId(1),
+    uint32: DefinitionId(8),
+    uint64: DefinitionId(9),
+    float: DefinitionId(2),
+    bool: DefinitionId(3),
+    none: DefinitionId(4),
+    range: DefinitionId(5),
+    str: DefinitionId(6),
+    exception: DefinitionId(7),
+    option: DefinitionId(10),
+    ndarray: DefinitionId(14),
+};
+
 impl TopLevelDef {
     pub fn to_string(&self, unifier: &mut Unifier) -> String {
         match self {
@@ -47,42 +109,42 @@ impl TopLevelComposer {
     pub fn make_primitives(size_t: u32) -> (PrimitiveStore, Unifier) {
         let mut unifier = Unifier::new();
         let int32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(0),
+            obj_id: PRIMITIVE_DEF_IDS.int32,
             fields: HashMap::new(),
             params: HashMap::new(),
         });
         let int64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(1),
+            obj_id: PRIMITIVE_DEF_IDS.int64,
             fields: HashMap::new(),
             params: HashMap::new(),
         });
         let float = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(2),
+            obj_id: PRIMITIVE_DEF_IDS.float,
             fields: HashMap::new(),
             params: HashMap::new(),
         });
         let bool = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(3),
+            obj_id: PRIMITIVE_DEF_IDS.bool,
             fields: HashMap::new(),
             params: HashMap::new(),
         });
         let none = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(4),
+            obj_id: PRIMITIVE_DEF_IDS.none,
             fields: HashMap::new(),
             params: HashMap::new(),
         });
         let range = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(5),
+            obj_id: PRIMITIVE_DEF_IDS.range,
             fields: HashMap::new(),
             params: HashMap::new(),
         });
         let str = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(6),
+            obj_id: PRIMITIVE_DEF_IDS.str,
             fields: HashMap::new(),
             params: HashMap::new(),
         });
         let exception = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(7),
+            obj_id: PRIMITIVE_DEF_IDS.exception,
             fields: vec![
                 ("__name__".into(), (int32, true)),
                 ("__file__".into(), (str, true)),
@@ -99,12 +161,12 @@ impl TopLevelComposer {
             params: HashMap::new(),
         });
         let uint32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(8),
+            obj_id: PRIMITIVE_DEF_IDS.uint32,
             fields: HashMap::new(),
             params: HashMap::new(),
         });
         let uint64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(9),
+            obj_id: PRIMITIVE_DEF_IDS.uint64,
             fields: HashMap::new(),
             params: HashMap::new(),
         });
@@ -121,7 +183,7 @@ impl TopLevelComposer {
             vars: HashMap::from([(option_type_var.1, option_type_var.0)]),
         }));
         let option = unifier.add_ty(TypeEnum::TObj {
-            obj_id: DefinitionId(10),
+            obj_id: PRIMITIVE_DEF_IDS.option,
             fields: vec![
                 ("is_some".into(), (is_some_type_fun_ty, true)),
                 ("is_none".into(), (is_some_type_fun_ty, true)),
@@ -155,7 +217,7 @@ impl TopLevelComposer {
     /// when first registering, the `type_vars`, fields, methods, ancestors are invalid
     #[must_use]
     pub fn make_top_level_class_def(
-        index: usize,
+        obj_id: DefinitionId,
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
         name: StrRef,
         constructor: Option<Type>,
@@ -163,7 +225,7 @@ impl TopLevelComposer {
     ) -> TopLevelDef {
         TopLevelDef::Class {
             name,
-            object_id: DefinitionId(index),
+            object_id: obj_id,
             type_vars: Vec::default(),
             fields: Vec::default(),
             methods: Vec::default(),

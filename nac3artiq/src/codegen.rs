@@ -6,7 +6,7 @@ use nac3core::{
         CodeGenContext, CodeGenerator,
     },
     symbol_resolver::ValueEnum,
-    toplevel::{DefinitionId, GenCall},
+    toplevel::{DefinitionId, GenCall, helper::PRIMITIVE_DEF_IDS},
     typecheck::typedef::{FunSignature, FuncArg, Type, TypeEnum}
 };
 
@@ -681,7 +681,7 @@ pub fn attributes_writeback(
             vars: HashMap::default()
         };
         let args: Vec<_> = values.into_iter().map(|(_, val)| (None, ValueEnum::Dynamic(val))).collect();
-        if let Err(e) = rpc_codegen_callback_fn(ctx, None, (&fun, DefinitionId(0)), args, generator) {
+        if let Err(e) = rpc_codegen_callback_fn(ctx, None, (&fun, PRIMITIVE_DEF_IDS.int32), args, generator) {
             return Ok(Err(e));
         }
         Ok(Ok(()))

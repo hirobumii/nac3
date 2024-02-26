@@ -221,7 +221,7 @@ impl TopLevelComposer {
                 let constructor_ty = self.unifier.get_dummy_var().0;
                 let mut class_def_ast = (
                     Arc::new(RwLock::new(Self::make_top_level_class_def(
-                        class_def_id,
+                        DefinitionId(class_def_id),
                         resolver.clone(),
                         fully_qualified_class_name,
                         Some(constructor_ty),

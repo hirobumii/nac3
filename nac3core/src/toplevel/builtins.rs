@@ -8,6 +8,7 @@ use crate::{
         stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
+    toplevel::helper::PRIMITIVE_DEF_IDS,
     toplevel::numpy::*,
 };
 use inkwell::{
@@ -81,7 +82,7 @@ pub fn get_exn_constructor(
         methods: vec![("__init__".into(), signature, DefinitionId(cons_id))],
         ancestors: vec![
             TypeAnnotation::CustomClass { id: DefinitionId(class_id), params: Vec::default() },
-            TypeAnnotation::CustomClass { id: DefinitionId(7), params: Vec::default() },
+            TypeAnnotation::CustomClass { id: PRIMITIVE_DEF_IDS.exception, params: Vec::default() },
         ],
         constructor: Some(signature),
         resolver: None,
@@ -332,49 +333,49 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         };
     let top_level_def_list = vec![
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            0,
+            PRIMITIVE_DEF_IDS.int32,
             None,
             "int32".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            1,
+            PRIMITIVE_DEF_IDS.int64,
             None,
             "int64".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            2,
+            PRIMITIVE_DEF_IDS.float,
             None,
             "float".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            3,
+            PRIMITIVE_DEF_IDS.bool,
             None,
             "bool".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            4,
+            PRIMITIVE_DEF_IDS.none,
             None,
             "none".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            5,
+            PRIMITIVE_DEF_IDS.range,
             None,
             "range".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            6,
+            PRIMITIVE_DEF_IDS.str,
             None,
             "str".into(),
             None,
@@ -382,7 +383,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         ))),
         Arc::new(RwLock::new(TopLevelDef::Class {
             name: "Exception".into(),
-            object_id: DefinitionId(7),
+            object_id: PRIMITIVE_DEF_IDS.exception,
             type_vars: Vec::default(),
             fields: exception_fields,
             methods: Vec::default(),
@@ -392,14 +393,14 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             loc: None,
         })),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            8,
+            PRIMITIVE_DEF_IDS.uint32,
             None,
             "uint32".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            9,
+            PRIMITIVE_DEF_IDS.uint64,
             None,
             "uint64".into(),
             None,
@@ -408,7 +409,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new({
             TopLevelDef::Class {
                 name: "Option".into(),
-                object_id: DefinitionId(10),
+                object_id: PRIMITIVE_DEF_IDS.option,
                 type_vars: vec![option_ty_var],
                 fields: vec![],
                 methods: vec![
@@ -417,7 +418,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     ("unwrap".into(), unwrap_ty.0, DefinitionId(13)),
                 ],
                 ancestors: vec![TypeAnnotation::CustomClass {
-                    id: DefinitionId(10),
+                    id: PRIMITIVE_DEF_IDS.option,
                     params: Vec::default(),
                 }],
                 constructor: None,
@@ -504,7 +505,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
 
             Arc::new(RwLock::new(TopLevelDef::Class {
                 name: "ndarray".into(),
-                object_id: DefinitionId(14),
+                object_id: PRIMITIVE_DEF_IDS.ndarray,
                 type_vars: vec![tvar.0, ndims.0],
                 fields: Vec::default(),
                 methods: Vec::default(),

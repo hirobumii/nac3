@@ -1,4 +1,5 @@
 use crate::symbol_resolver::SymbolValue;
+use crate::toplevel::helper::PRIMITIVE_DEF_IDS;
 use super::*;
 use nac3parser::ast::Constant;
 
@@ -93,7 +94,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
         } else if id == &"str".into() {
             Ok(TypeAnnotation::Primitive(primitives.str))
         } else if id == &"Exception".into() {
-            Ok(TypeAnnotation::CustomClass { id: DefinitionId(7), params: Vec::default() })
+            Ok(TypeAnnotation::CustomClass { id: PRIMITIVE_DEF_IDS.exception, params: Vec::default() })
         } else if let Ok(obj_id) = resolver.get_identifier_def(*id) {
             let type_vars = {
                 let def_read = top_level_defs[obj_id.0].try_read();
@@ -491,7 +492,7 @@ pub fn get_type_from_type_annotation_kinds(
                 (*name, (subst_ty, *mutability))
             }));
             let need_subst = !subst.is_empty();
-            let ty = if obj_id == &DefinitionId(14) {
+            let ty = if obj_id == &PRIMITIVE_DEF_IDS.ndarray {
                 assert_eq!(subst.len(), 2);
                 let tv_tys = subst.iter()
                     .sorted_by_key(|(k, _)| *k)
