@@ -1,6 +1,11 @@
 use crate::{
     symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{TopLevelContext, TopLevelDef},
+    toplevel::{
+        helper::PRIMITIVE_DEF_IDS, 
+        numpy::unpack_ndarray_tvars, 
+        TopLevelContext, 
+        TopLevelDef,
+    },
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
@@ -417,7 +422,6 @@ fn get_llvm_type<'ctx>(
     unifier: &mut Unifier,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
-    primitives: &PrimitiveStore,
     ty: Type,
 ) -> BasicTypeEnum<'ctx> {
     use TypeEnum::*;
@@ -427,28 +431,50 @@ fn get_llvm_type<'ctx>(
         let ty_enum = unifier.get_ty(ty);
         let result = match &*ty_enum {
             TObj { obj_id, fields, .. } => {
-                // check to avoid treating primitives other than Option as classes
-                if obj_id.0 <= 10 {
-                    match (unifier.get_ty(ty).as_ref(), unifier.get_ty(primitives.option).as_ref())
-                    {
-                        (
-                            TObj { obj_id, params, .. },
-                            TObj { obj_id: opt_id, .. },
-                        ) if *obj_id == *opt_id => {
-                            return get_llvm_type(
+                // check to avoid treating non-class primitives as classes
+                if obj_id.0 <= PRIMITIVE_DEF_IDS.max_id().0 {
+                    return match &*unifier.get_ty_immutable(ty) {
+                        TObj { obj_id, params, .. } if *obj_id == PRIMITIVE_DEF_IDS.option => {
+                            get_llvm_type(
                                 ctx,
                                 module,
                                 generator,
                                 unifier,
                                 top_level,
                                 type_cache,
-                                primitives,
                                 *params.iter().next().unwrap().1,
                             )
                             .ptr_type(AddressSpace::default())
-                            .into();
+                            .into()
                         }
-                        _ => unreachable!("must be option type"),
+
+                        TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                            let llvm_usize = generator.get_size_type(ctx);
+                            let (dtype, _) = unpack_ndarray_tvars(unifier, ty);
+                            let element_type = get_llvm_type(
+                                ctx, 
+                                module, 
+                                generator, 
+                                unifier, 
+                                top_level, 
+                                type_cache, 
+                                dtype,
+                            );
+
+                            // struct NDArray { num_dims: size_t, dims: size_t*, data: T* }
+                            //
+                            // * num_dims: Number of dimensions in the array
+                            // * dims: Pointer to an array containing the size of each dimension
+                            // * data: Pointer to an array containing the array data
+                            let fields = [
+                                llvm_usize.into(),
+                                llvm_usize.ptr_type(AddressSpace::default()).into(),
+                                element_type.ptr_type(AddressSpace::default()).into(),
+                            ];
+                            ctx.struct_type(&fields, false).ptr_type(AddressSpace::default()).into()
+                        }
+
+                        _ => unreachable!("LLVM type for primitive {} is missing", unifier.stringify(ty)),
                     }
                 }
                 // a struct with fields in the order of declaration
@@ -477,7 +503,6 @@ fn get_llvm_type<'ctx>(
                                 unifier,
                                 top_level,
                                 type_cache,
-                                primitives,
                                 fields[&f.0].0,
                             )
                         })
@@ -493,7 +518,7 @@ fn get_llvm_type<'ctx>(
                     .iter()
                     .map(|ty| {
                         get_llvm_type(
-                            ctx, module, generator, unifier, top_level, type_cache, primitives, *ty,
+                            ctx, module, generator, unifier, top_level, type_cache, *ty,
                         )
                     })
                     .collect_vec();
@@ -502,29 +527,11 @@ fn get_llvm_type<'ctx>(
             TList { ty } => {
                 // a struct with an integer and a pointer to an array
                 let element_type = get_llvm_type(
-                    ctx, module, generator, unifier, top_level, type_cache, primitives, *ty,
+                    ctx, module, generator, unifier, top_level, type_cache, *ty,
                 );
                 let fields = [
                     element_type.ptr_type(AddressSpace::default()).into(),
                     generator.get_size_type(ctx).into(),
-                ];
-                ctx.struct_type(&fields, false).ptr_type(AddressSpace::default()).into()
-            }
-            TNDArray { ty, .. } => {
-                let llvm_usize = generator.get_size_type(ctx);
-                let element_type = get_llvm_type(
-                    ctx, module, generator, unifier, top_level, type_cache, primitives, *ty,
-                );
-
-                // struct NDArray { num_dims: size_t, dims: size_t*, data: T* }
-                //
-                // * num_dims: Number of dimensions in the array
-                // * dims: Pointer to an array containing the size of each dimension
-                // * data: Pointer to an array containing the array data
-                let fields = [
-                    llvm_usize.into(),
-                    llvm_usize.ptr_type(AddressSpace::default()).into(),
-                    element_type.ptr_type(AddressSpace::default()).into(),
                 ];
                 ctx.struct_type(&fields, false).ptr_type(AddressSpace::default()).into()
             }
@@ -561,7 +568,7 @@ fn get_llvm_abi_type<'ctx>(
     return if unifier.unioned(ty, primitives.bool) {
         ctx.bool_type().into()
     } else {
-        get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, primitives, ty)
+        get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, ty)
     }
 }
 
@@ -763,7 +770,6 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
             &mut unifier,
             top_level_ctx.as_ref(),
             &mut type_cache,
-            &primitives,
             arg.ty,
         );
         let alloca = builder

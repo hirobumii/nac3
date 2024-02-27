@@ -10,7 +10,12 @@ use crate::{
         expr::gen_binop_expr,
         gen_in_range_check,
     },
-    toplevel::{DefinitionId, TopLevelDef},
+    toplevel::{
+        DefinitionId,
+        helper::PRIMITIVE_DEF_IDS,
+        numpy::unpack_ndarray_tvars,
+        TopLevelDef,
+    },
     typecheck::typedef::{FunSignature, Type, TypeEnum},
 };
 use inkwell::{
@@ -186,7 +191,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                     v.get_data().ptr_offset(ctx, generator, index, name)
                 }
 
-                TypeEnum::TNDArray { .. } => {
+                TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
                     todo!()
                 }
 
@@ -242,11 +247,15 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 .to_basic_value_enum(ctx, generator, target.custom.unwrap())?
                 .into_pointer_value();
             let value = ListValue::from_ptr_val(value, llvm_usize, None);
-            let (TypeEnum::TList { ty } | TypeEnum::TNDArray { ty, .. }) = &*ctx.unifier.get_ty(target.custom.unwrap()) else {
-                unreachable!()
+            let ty = match &*ctx.unifier.get_ty_immutable(target.custom.unwrap()) {
+                TypeEnum::TList { ty } => *ty,
+                TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                    unpack_ndarray_tvars(&mut ctx.unifier, target.custom.unwrap()).0
+                }
+                _ => unreachable!(),
             };
 
-            let ty = ctx.get_llvm_type(generator, *ty);
+            let ty = ctx.get_llvm_type(generator, ty);
             let Some(src_ind) = handle_slice_indices(&None, &None, &None, ctx, generator, value)? else {
                 return Ok(())
             };

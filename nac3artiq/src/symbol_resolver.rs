@@ -2,7 +2,12 @@ use inkwell::{types::BasicType, values::BasicValueEnum, AddressSpace};
 use nac3core::{
     codegen::{CodeGenContext, CodeGenerator},
     symbol_resolver::{StaticValue, SymbolResolver, SymbolValue, ValueEnum},
-    toplevel::{DefinitionId, TopLevelDef},
+    toplevel::{
+        DefinitionId, 
+        helper::PRIMITIVE_DEF_IDS, 
+        numpy::{make_ndarray_ty, unpack_ndarray_tvars},
+        TopLevelDef,
+    },
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{Type, TypeEnum, Unifier},
@@ -306,7 +311,7 @@ impl InnerResolver {
             // do not handle type var param and concrete check here
             let var = unifier.get_dummy_var().0;
             let ndims = unifier.get_fresh_const_generic_var(primitives.usize(), None, None).0;
-            let ndarray = unifier.add_ty(TypeEnum::TNDArray { ty: var, ndims });
+            let ndarray = make_ndarray_ty(unifier, primitives, Some(var), Some(ndims));
             Ok(Ok((ndarray, false)))
         } else if ty_id == self.primitive_ids.tuple {
             // do not handle type var param and concrete check here
@@ -452,7 +457,7 @@ impl InnerResolver {
                         )));
                     }
                 }
-                TypeEnum::TNDArray { .. } => {
+                TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
                     if args.len() != 2 {
                         return Ok(Err(format!(
                             "type list needs exactly 2 type parameters, found {}",
@@ -648,11 +653,12 @@ impl InnerResolver {
                     }
                 }
             }
-            (TypeEnum::TNDArray { ty, ndims }, false) => {
+            (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                let (ty, ndims) = unpack_ndarray_tvars(unifier, extracted_ty);
                 let len: usize = self.helper.len_fn.call1(py, (obj,))?.extract(py)?;
                 if len == 0 {
                     assert!(matches!(
-                        &*unifier.get_ty(*ty),
+                        &*unifier.get_ty(ty),
                         TypeEnum::TVar { fields: None, range, .. }
                             if range.is_empty()
                     ));
@@ -661,8 +667,17 @@ impl InnerResolver {
                     let actual_ty =
                         self.get_list_elem_type(py, obj, len, unifier, defs, primitives)?;
                     match actual_ty {
-                        Ok(t) => match unifier.unify(*ty, t) {
-                            Ok(()) => Ok(Ok(unifier.add_ty(TypeEnum::TNDArray { ty: *ty, ndims: *ndims }))),
+                        Ok(t) => match unifier.unify(ty, t) {
+                            Ok(()) => {
+                                let ndarray_ty = make_ndarray_ty(
+                                    unifier,
+                                    primitives,
+                                    Some(ty),
+                                    Some(ndims),
+                                );
+
+                                Ok(Ok(ndarray_ty))
+                            }
                             Err(e) => Ok(Err(format!(
                                 "type error ({}) for the ndarray",
                                 e.to_display(unifier),

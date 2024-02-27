@@ -1,5 +1,6 @@
 use inkwell::{IntPredicate, types::BasicType, values::{BasicValueEnum, PointerValue}};
 use inkwell::values::{AggregateValueEnum, ArrayValue, IntValue};
+use itertools::Itertools;
 use nac3parser::ast::StrRef;
 use crate::{
     codegen::{
@@ -15,9 +16,67 @@ use crate::{
         stmt::gen_for_callback
     },
     symbol_resolver::ValueEnum,
-    toplevel::DefinitionId,
-    typecheck::typedef::{FunSignature, Type, TypeEnum},
+    toplevel::{DefinitionId, helper::PRIMITIVE_DEF_IDS},
+    typecheck::{
+        type_inferencer::PrimitiveStore,
+        typedef::{FunSignature, Mapping, Type, TypeEnum, Unifier},
+    },
 };
+
+/// Creates a `ndarray` [`Type`] with the given type arguments.
+/// 
+/// * `dtype` - The element type of the `ndarray`, or [`None`] if the type variable is not
+/// specialized.
+/// * `ndims` - The number of dimensions of the `ndarray`, or [`None`] if the type variable is not
+/// specialized.
+pub fn make_ndarray_ty(
+    unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
+    dtype: Option<Type>,
+    ndims: Option<Type>,
+) -> Type {
+    let ndarray = primitives.ndarray;
+
+    let TypeEnum::TObj { obj_id, params, .. } = &*unifier.get_ty_immutable(ndarray) else {
+        panic!("Expected `ndarray` to be TObj, but got {}", unifier.stringify(ndarray))
+    };
+    debug_assert_eq!(*obj_id, PRIMITIVE_DEF_IDS.ndarray);
+
+    let tvar_ids = params.iter()
+        .map(|(obj_id, _)| *obj_id)
+        .sorted()
+        .collect_vec();
+    debug_assert_eq!(tvar_ids.len(), 2);
+
+    let mut tvar_subst = Mapping::new();
+    if let Some(dtype) = dtype {
+        tvar_subst.insert(tvar_ids[0], dtype);
+    }
+    if let Some(ndims) = ndims {
+        tvar_subst.insert(tvar_ids[1], ndims);
+    }
+
+    unifier.subst(ndarray, &tvar_subst).unwrap_or(ndarray)
+}
+
+/// Unpacks the type variables of `ndarray` into a tuple. The elements of the tuple corresponds to
+/// `dtype` (the element type) and `ndims` (the number of dimensions) of the `ndarray` respectively.
+pub fn unpack_ndarray_tvars(
+    unifier: &mut Unifier,
+    ndarray: Type,
+) -> (Type, Type) {
+    let TypeEnum::TObj { obj_id, params, .. } = &*unifier.get_ty_immutable(ndarray) else {
+        panic!("Expected `ndarray` to be TObj, but got {}", unifier.stringify(ndarray))
+    };
+    debug_assert_eq!(*obj_id, PRIMITIVE_DEF_IDS.ndarray);
+    debug_assert_eq!(params.len(), 2);
+
+    params.iter()
+        .sorted_by_key(|(obj_id, _)| *obj_id)
+        .map(|(_, ty)| *ty)
+        .collect_tuple()
+        .unwrap()
+}
 
 /// Creates an `NDArray` instance from a constant shape.
 ///
@@ -29,8 +88,7 @@ fn create_ndarray_const_shape<'ctx>(
     elem_ty: Type,
     shape: ArrayValue<'ctx>
 ) -> Result<NDArrayValue<'ctx>, String> {
-    let ndarray_ty_enum = TypeEnum::ndarray(&mut ctx.unifier, Some(elem_ty), None, &ctx.primitives);
-    let ndarray_ty = ctx.unifier.add_ty(ndarray_ty_enum);
+    let ndarray_ty = make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(elem_ty), None);
 
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
@@ -147,8 +205,12 @@ fn call_ndarray_empty_impl<'ctx>(
     elem_ty: Type,
     shape: ListValue<'ctx>,
 ) -> Result<NDArrayValue<'ctx>, String> {
-    let ndarray_ty_enum = TypeEnum::ndarray(&mut ctx.unifier, Some(elem_ty), None, &ctx.primitives);
-    let ndarray_ty = ctx.unifier.add_ty(ndarray_ty_enum);
+    let ndarray_ty = make_ndarray_ty(
+        &mut ctx.unifier,
+        &ctx.primitives,
+        Some(elem_ty),
+        None,
+    );
 
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);

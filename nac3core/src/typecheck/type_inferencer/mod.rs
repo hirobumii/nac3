@@ -5,7 +5,14 @@ use std::{cell::RefCell, sync::Arc};
 
 use super::typedef::{Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, Unifier};
 use super::{magic_methods::*, typedef::CallId};
-use crate::{symbol_resolver::{SymbolResolver, SymbolValue}, toplevel::TopLevelContext};
+use crate::{
+    symbol_resolver::{SymbolResolver, SymbolValue}, 
+    toplevel::{
+        helper::PRIMITIVE_DEF_IDS,
+        numpy::{make_ndarray_ty, unpack_ndarray_tvars},
+        TopLevelContext,
+    },
+};
 use itertools::izip;
 use nac3parser::ast::{
     self,
@@ -47,6 +54,7 @@ pub struct PrimitiveStore {
     pub str: Type,
     pub exception: Type,
     pub option: Type,
+    pub ndarray: Type,
     pub size_t: u32,
 }
 
@@ -226,7 +234,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 } else {
                     let list_like_ty = match &*self.unifier.get_ty(iter.custom.unwrap()) {
                         TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty: target.custom.unwrap() }),
-                        TypeEnum::TNDArray { .. } => todo!(),
+                        TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => todo!(),
                         _ => unreachable!(),
                     };
                     self.unify(list_like_ty, iter.custom.unwrap(), &iter.location)?;
@@ -916,10 +924,12 @@ impl<'a> Inferencer<'a> {
                 vec![SymbolValue::U64(ndims)],
                 None,
             );
-            let ret = self.unifier.add_ty(TypeEnum::TNDArray {
-                ty: self.primitives.float,
-                ndims
-            });
+            let ret = make_ndarray_ty(
+                self.unifier,
+                self.primitives,
+                Some(self.primitives.float),
+                Some(ndims),
+            );
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
                     FuncArg {
@@ -966,11 +976,12 @@ impl<'a> Inferencer<'a> {
                 vec![SymbolValue::U64(ndims)],
                 None,
             );
-
-            let ret = self.unifier.add_ty(TypeEnum::TNDArray {
-                ty,
-                ndims
-            });
+            let ret = make_ndarray_ty(
+                self.unifier,
+                self.primitives,
+                Some(ty),
+                Some(ndims),
+            );
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
                     FuncArg {
@@ -1252,11 +1263,16 @@ impl<'a> Inferencer<'a> {
             TypeEnum::TVar { is_const_generic: false, .. }
         ));
 
-        let constrained_ty = self.unifier.add_ty(TypeEnum::TNDArray { ty: dummy_tvar, ndims });
+        let constrained_ty = make_ndarray_ty(
+            self.unifier,
+            self.primitives,
+            Some(dummy_tvar),
+            Some(ndims),
+        );
         self.constrain(value.custom.unwrap(), constrained_ty, &value.location)?;
 
         let TypeEnum::TLiteral { values, .. } = &*self.unifier.get_ty_immutable(ndims) else {
-            panic!("Expected TLiteral for TNDArray.ndims, got {}", self.unifier.stringify(ndims))
+            panic!("Expected TLiteral for ndarray.ndims, got {}", self.unifier.stringify(ndims))
         };
 
         let ndims = values.iter()
@@ -1264,10 +1280,10 @@ impl<'a> Inferencer<'a> {
                 SymbolValue::U64(v) => Ok(v),
                 SymbolValue::U32(v) => Ok(v as u64),
                 SymbolValue::I32(v) => u64::try_from(v).map_err(|_| HashSet::from([
-                    format!("Expected non-negative literal for TNDArray.ndims, got {v}"),
+                    format!("Expected non-negative literal for ndarray.ndims, got {v}"),
                 ])),
                 SymbolValue::I64(v) => u64::try_from(v).map_err(|_| HashSet::from([
-                    format!("Expected non-negative literal for TNDArray.ndims, got {v}"),
+                    format!("Expected non-negative literal for ndarray.ndims, got {v}"),
                 ])),
                 _ => unreachable!(),
             })
@@ -1292,10 +1308,12 @@ impl<'a> Inferencer<'a> {
                 ndims.into_iter().map(|v| SymbolValue::U64(v - 1)).collect(),
                 None,
             );
-            let subscripted_ty = self.unifier.add_ty(TypeEnum::TNDArray {
-                ty: dummy_tvar,
-                ndims: ndims_min_one_ty,
-            });
+            let subscripted_ty = make_ndarray_ty(
+                self.unifier,
+                self.primitives,
+                Some(dummy_tvar),
+                Some(ndims_min_one_ty),
+            );
 
             Ok(subscripted_ty)
         }
@@ -1315,27 +1333,36 @@ impl<'a> Inferencer<'a> {
                 }
                 let list_like_ty = match &*self.unifier.get_ty(value.custom.unwrap()) {
                     TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty }),
-                    TypeEnum::TNDArray { ndims, .. } => self.unifier.add_ty(TypeEnum::TNDArray { ty, ndims: *ndims }),
+                    TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                        let (_, ndims) = unpack_ndarray_tvars(self.unifier, value.custom.unwrap());
+
+                        make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims))
+                    }
+
                     _ => unreachable!()
                 };
                 self.constrain(value.custom.unwrap(), list_like_ty, &value.location)?;
                 Ok(list_like_ty)
             }
             ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
-                if let TypeEnum::TNDArray { ndims, .. } = &*self.unifier.get_ty(value.custom.unwrap()) {
-                    self.infer_subscript_ndarray(value, ty, *ndims)
-                } else {
-                    // the index is a constant, so value can be a sequence.
-                    let ind: Option<i32> = (*val).try_into().ok();
-                    let ind = ind.ok_or_else(|| HashSet::from(["Index must be int32".to_string()]))?;
-                    let map = once((
-                        ind.into(),
-                        RecordField::new(ty, ctx == &ExprContext::Store, Some(value.location)),
-                    ))
-                        .collect();
-                    let seq = self.unifier.add_record(map);
-                    self.constrain(value.custom.unwrap(), seq, &value.location)?;
-                    Ok(ty)
+                match &*self.unifier.get_ty(value.custom.unwrap()) {
+                    TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                        let (_, ndims) = unpack_ndarray_tvars(self.unifier, value.custom.unwrap());
+                        self.infer_subscript_ndarray(value, ty, ndims)
+                    }
+                    _ => {
+                        // the index is a constant, so value can be a sequence.
+                        let ind: Option<i32> = (*val).try_into().ok();
+                        let ind = ind.ok_or_else(|| HashSet::from(["Index must be int32".to_string()]))?;
+                        let map = once((
+                            ind.into(),
+                            RecordField::new(ty, ctx == &ExprContext::Store, Some(value.location)),
+                        ))
+                            .collect();
+                        let seq = self.unifier.add_record(map);
+                        self.constrain(value.custom.unwrap(), seq, &value.location)?;
+                        Ok(ty)
+                    }
                 }
             }
             _ => {
@@ -1351,9 +1378,11 @@ impl<'a> Inferencer<'a> {
                         self.constrain(value.custom.unwrap(), list, &value.location)?;
                         Ok(ty)
                     }
-                    TypeEnum::TNDArray { ndims, .. } => {
+                    TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                        let (_, ndims) = unpack_ndarray_tvars(self.unifier, value.custom.unwrap());
+
                         self.constrain(slice.custom.unwrap(), self.primitives.usize(), &slice.location)?;
-                        self.infer_subscript_ndarray(value, ty, *ndims)
+                        self.infer_subscript_ndarray(value, ty, ndims)
                     }
                     _ => unreachable!(),
                 }

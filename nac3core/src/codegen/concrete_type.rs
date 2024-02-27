@@ -47,10 +47,6 @@ pub enum ConcreteTypeEnum {
     TList {
         ty: ConcreteType,
     },
-    TNDArray {
-        ty: ConcreteType,
-        ndims: ConcreteType,
-    },
     TObj {
         obj_id: DefinitionId,
         fields: HashMap<StrRef, (ConcreteType, bool)>,
@@ -171,10 +167,6 @@ impl ConcreteTypeStore {
                 TypeEnum::TList { ty } => ConcreteTypeEnum::TList {
                     ty: self.from_unifier_type(unifier, primitives, *ty, cache),
                 },
-                TypeEnum::TNDArray { ty, ndims } => ConcreteTypeEnum::TNDArray {
-                    ty: self.from_unifier_type(unifier, primitives, *ty, cache),
-                    ndims: self.from_unifier_type(unifier, primitives, *ndims, cache),
-                },
                 TypeEnum::TObj { obj_id, fields, params } => ConcreteTypeEnum::TObj {
                     obj_id: *obj_id,
                     fields: fields
@@ -267,12 +259,6 @@ impl ConcreteTypeStore {
             },
             ConcreteTypeEnum::TList { ty } => {
                 TypeEnum::TList { ty: self.to_unifier_type(unifier, primitives, *ty, cache) }
-            }
-            ConcreteTypeEnum::TNDArray { ty, ndims } => {
-                TypeEnum::TNDArray {
-                    ty: self.to_unifier_type(unifier, primitives, *ty, cache),
-                    ndims: self.to_unifier_type(unifier, primitives, *ndims, cache),
-                }
             }
             ConcreteTypeEnum::TVirtual { ty } => {
                 TypeEnum::TVirtual { ty: self.to_unifier_type(unifier, primitives, *ty, cache) }

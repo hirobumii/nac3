@@ -1,6 +1,7 @@
 use std::convert::TryInto;
 
 use crate::symbol_resolver::SymbolValue;
+use crate::typecheck::typedef::Mapping;
 use nac3parser::ast::{Constant, Location};
 
 use super::*;
@@ -194,6 +195,23 @@ impl TopLevelComposer {
             params: HashMap::from([(option_type_var.1, option_type_var.0)]),
         });
 
+        let size_t_ty = match size_t {
+            32 => uint32,
+            64 => uint64,
+            _ => unreachable!(),
+        };
+
+        let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
+        let ndarray_ndims_tvar = unifier.get_fresh_const_generic_var(size_t_ty, Some("ndarray_ndims".into()), None);
+        let ndarray = unifier.add_ty(TypeEnum::TObj {
+            obj_id: PRIMITIVE_DEF_IDS.ndarray,
+            fields: Mapping::new(),
+            params: Mapping::from([
+                (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
+                (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
+            ])
+        });
+
         let primitives = PrimitiveStore {
             int32,
             int64,
@@ -206,6 +224,7 @@ impl TopLevelComposer {
             str,
             exception,
             option,
+            ndarray,
             size_t,
         };
         unifier.put_primitive_store(&primitives);

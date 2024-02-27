@@ -274,14 +274,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
     let boolean = primitives.0.bool;
     let range = primitives.0.range;
     let string = primitives.0.str;
-    let ndarray = {
-        let ndarray_ty = TypeEnum::ndarray(&mut primitives.1, None, None, &primitives.0);
-        primitives.1.add_ty(ndarray_ty)
-    };
-    let ndarray_float = {
-        let ndarray_ty_enum = TypeEnum::ndarray(&mut primitives.1, Some(float), None, &primitives.0);
-        primitives.1.add_ty(ndarray_ty_enum)
-    };
+    let ndarray = primitives.0.ndarray;
+    let ndarray_float = make_ndarray_ty(&mut primitives.1, &primitives.0, Some(float), None);
     let ndarray_float_2d = {
         let value = match primitives.0.size_t {
             64 => SymbolValue::U64(2u64),
@@ -293,10 +287,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             loc: None,
         });
 
-        primitives.1.add_ty(TypeEnum::TNDArray {
-            ty: float,
-            ndims,
-        })
+        make_ndarray_ty(&mut primitives.1, &primitives.0, Some(float), Some(ndims))
     };
     let list_int32 = primitives.1.add_ty(TypeEnum::TList { ty: int32 });
     let num_ty = primitives.1.get_fresh_var_with_range(
@@ -1352,7 +1343,12 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             let tvar = primitives.1.get_fresh_var(Some("L".into()), None);
             let list = primitives.1.add_ty(TypeEnum::TList { ty: tvar.0 });
             let ndims = primitives.1.get_fresh_const_generic_var(primitives.0.uint64, Some("N".into()), None);
-            let ndarray = primitives.1.add_ty(TypeEnum::TNDArray { ty: tvar.0, ndims: ndims.0 });
+            let ndarray = make_ndarray_ty(
+                &mut primitives.1,
+                &primitives.0,
+                Some(tvar.0),
+                Some(ndims.0),
+            );
 
             let arg_ty = primitives.1.get_fresh_var_with_range(
                 &[list, ndarray, primitives.0.range],
@@ -1404,7 +1400,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                         )
                                     }
                                 }
-                                TypeEnum::TNDArray { .. } => {
+                                TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
                                     let llvm_i32 = ctx.ctx.i32_type();
                                     let i32_zero = llvm_i32.const_zero();
 

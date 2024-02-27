@@ -13,7 +13,12 @@ use crate::{
         CodeGenContext, CodeGenTask,
     },
     symbol_resolver::{SymbolValue, ValueEnum},
-    toplevel::{DefinitionId, TopLevelDef},
+    toplevel::{
+        DefinitionId, 
+        helper::PRIMITIVE_DEF_IDS,
+        numpy::make_ndarray_ty,
+        TopLevelDef,
+    },
     typecheck::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier},
         magic_methods::{binop_name, binop_assign_name},
@@ -181,7 +186,6 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             &mut self.unifier,
             self.top_level,
             &mut self.type_cache,
-            &self.primitives,
             ty,
         )
     }
@@ -1204,23 +1208,25 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
             SymbolValue::U64(v) => Ok(v),
             SymbolValue::U32(v) => Ok(v as u64),
             SymbolValue::I32(v) => u64::try_from(v)
-                .map_err(|_| format!("Expected non-negative literal for TNDArray.ndims, got {v}")),
+                .map_err(|_| format!("Expected non-negative literal for ndarray.ndims, got {v}")),
             SymbolValue::I64(v) => u64::try_from(v)
-                .map_err(|_| format!("Expected non-negative literal for TNDArray.ndims, got {v}")),
+                .map_err(|_| format!("Expected non-negative literal for ndarray.ndims, got {v}")),
             _ => unreachable!(),
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     assert!(!ndims.is_empty());
 
-    let ndarray_ty_enum = TypeEnum::TNDArray {
-        ty,
-        ndims: ctx.unifier.get_fresh_literal(
-            ndims.iter().map(|v| SymbolValue::U64(v - 1)).collect(),
-            None,
-        ),
-    };
-    let ndarray_ty = ctx.unifier.add_ty(ndarray_ty_enum);
+    let ndarray_ndims_ty = ctx.unifier.get_fresh_literal(
+        ndims.iter().map(|v| SymbolValue::U64(v - 1)).collect(),
+        None,
+    );
+    let ndarray_ty = make_ndarray_ty(
+        &mut ctx.unifier,
+        &ctx.primitives,
+        Some(ty),
+        Some(ndarray_ndims_ty),
+    );
     let llvm_pndarray_t = ctx.get_llvm_type(generator, ndarray_ty).into_pointer_type();
     let llvm_ndarray_t = llvm_pndarray_t.get_element_type().into_struct_type();
     let llvm_ndarray_data_t = ctx.get_llvm_type(generator, ty).as_basic_type_enum();
@@ -1963,7 +1969,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         v.get_data().get(ctx, generator, index, None).into()
                     }
                 }
-                TypeEnum::TNDArray { ty, ndims } => {
+                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                    let (ty, ndims) = params.iter()
+                        .sorted_by_key(|(var_id, _)| *var_id)
+                        .map(|(_, ty)| ty)
+                        .collect_tuple()
+                        .unwrap();
+
                     let v = if let Some(v) = generator.gen_expr(ctx, value)? {
                         v.to_basic_value_enum(ctx, generator, value.custom.unwrap())?.into_pointer_value()
                     } else {

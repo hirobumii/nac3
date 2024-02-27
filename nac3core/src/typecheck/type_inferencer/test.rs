@@ -135,6 +135,11 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: HashMap::new(),
         });
+        let ndarray = unifier.add_ty(TypeEnum::TObj {
+            obj_id: PRIMITIVE_DEF_IDS.ndarray,
+            fields: HashMap::new(),
+            params: HashMap::new(),
+        });
         let primitives = PrimitiveStore {
             int32,
             int64,
@@ -147,6 +152,7 @@ impl TestEnvironment {
             uint32,
             uint64,
             option,
+            ndarray,
             size_t: 64,
         };
         unifier.put_primitive_store(&primitives);
@@ -262,6 +268,11 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: HashMap::new(),
         });
+        let ndarray = unifier.add_ty(TypeEnum::TObj {
+            obj_id: PRIMITIVE_DEF_IDS.ndarray,
+            fields: HashMap::new(),
+            params: HashMap::new(),
+        });
         identifier_mapping.insert("None".into(), none);
         for (i, name) in ["int32", "int64", "float", "bool", "none", "range", "str", "Exception"]
             .iter()
@@ -296,6 +307,7 @@ impl TestEnvironment {
             uint32,
             uint64,
             option,
+            ndarray,
             size_t: 64,
         };
 

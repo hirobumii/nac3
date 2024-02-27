@@ -40,7 +40,7 @@ impl Unifier {
                 TypeEnum::TObj { obj_id: id1, params: params1, .. },
                 TypeEnum::TObj { obj_id: id2, params: params2, .. },
             ) => id1 == id2 && self.map_eq(params1, params2),
-            // TNDArray, TLiteral, TCall and TFunc are not yet implemented
+            // TLiteral, TCall and TFunc are not yet implemented
             _ => false,
         }
     }
