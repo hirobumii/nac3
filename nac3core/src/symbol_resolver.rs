@@ -8,7 +8,7 @@ use crate::{
     toplevel::{DefinitionId, TopLevelDef, type_annotation::TypeAnnotation},
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, TypeEnum, Unifier},
+        typedef::{Type, TypeEnum, Unifier, VarMap},
     },
 };
 use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue};
@@ -426,7 +426,7 @@ pub fn parse_type_annotation<T>(
                     Ok(unifier.add_ty(TypeEnum::TObj {
                         obj_id,
                         fields,
-                        params: HashMap::default(),
+                        params: VarMap::default(),
                     }))
                 } else {
                     Err(HashSet::from([
@@ -515,7 +515,7 @@ pub fn parse_type_annotation<T>(
                         ),
                     ]))
                 }
-                let mut subst = HashMap::new();
+                let mut subst = VarMap::new();
                 for (var, ty) in izip!(type_vars.iter(), types.iter()) {
                     let id = if let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*var) {
                         *id

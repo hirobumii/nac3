@@ -10,6 +10,7 @@ use crate::{
     symbol_resolver::SymbolValue,
     toplevel::helper::PRIMITIVE_DEF_IDS,
     toplevel::numpy::*,
+    typecheck::typedef::VarMap,
 };
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
@@ -56,12 +57,12 @@ pub fn get_exn_constructor(
     let exn_type = unifier.add_ty(TypeEnum::TObj {
         obj_id: DefinitionId(class_id),
         fields: exception_fields.iter().map(|(a, b, c)| (*a, (*b, *c))).collect(),
-        params: HashMap::default(),
+        params: VarMap::default(),
     });
     let signature = unifier.add_ty(TypeEnum::TFunc(FunSignature {
         args: exn_cons_args,
         ret: exn_type,
-        vars: HashMap::default(),
+        vars: VarMap::default(),
     }));
     let fun_def = TopLevelDef::Function {
         name: format!("{name}.__init__"),
@@ -100,7 +101,7 @@ pub fn get_exn_constructor(
 /// * `codegen_callback`: A lambda generating LLVM IR for the implementation of this function.
 fn create_fn_by_codegen(
     primitives: &mut (PrimitiveStore, Unifier),
-    var_map: &HashMap<u32, Type>,
+    var_map: &VarMap,
     name: &'static str,
     ret_ty: Type,
     param_ty: &[(Type, &'static str)],
@@ -136,7 +137,7 @@ fn create_fn_by_codegen(
 /// * `intrinsic_fn`: The fully-qualified name of the LLVM intrinsic function.
 fn create_fn_by_intrinsic(
     primitives: &mut (PrimitiveStore, Unifier),
-    var_map: &HashMap<u32, Type>,
+    var_map: &VarMap,
     name: &'static str,
     ret_ty: Type,
     params: &[(Type, &'static str)],
@@ -200,7 +201,7 @@ fn create_fn_by_intrinsic(
 /// already implied by the C ABI.
 fn create_fn_by_extern(
     primitives: &mut (PrimitiveStore, Unifier),
-    var_map: &HashMap<u32, Type>,
+    var_map: &VarMap,
     name: &'static str,
     ret_ty: Type,
     params: &[(Type, &'static str)],
@@ -295,7 +296,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Some("N".into()),
         None,
     );
-    let var_map: HashMap<_, _> = vec![(num_ty.1, num_ty.0)].into_iter().collect();
+    let var_map: VarMap = vec![(num_ty.1, num_ty.0)].into_iter().collect();
     let exception_fields = vec![
         ("__name__".into(), int32, true),
         ("__file__".into(), string, true),
@@ -1057,7 +1058,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                     },
                 ],
                 ret: range,
-                vars: HashMap::default(),
+                vars: VarMap::default(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -1149,7 +1150,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "s".into(), ty: string, default_value: None }],
                 ret: string,
-                vars: HashMap::default(),
+                vars: VarMap::default(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -1971,7 +1972,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "n".into(), ty: option_ty_var, default_value: None }],
                 ret: primitives.0.option,
-                vars: HashMap::from([(option_ty_var_id, option_ty_var)]),
+                vars: VarMap::from([(option_ty_var_id, option_ty_var)]),
             })),
             var_id: vec![option_ty_var_id],
             instance_to_symbol: HashMap::default(),

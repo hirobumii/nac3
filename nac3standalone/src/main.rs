@@ -17,12 +17,14 @@ use nac3core::{
     },
     symbol_resolver::SymbolResolver,
     toplevel::{
-        composer::TopLevelComposer, helper::parse_parameter_default_value, type_annotation::*,
+        composer::{ComposerConfig, TopLevelComposer},
+        helper::parse_parameter_default_value, 
+        type_annotation::*,
         TopLevelDef,
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{FunSignature, Type, Unifier},
+        typedef::{FunSignature, Type, Unifier, VarMap},
     },
 };
 use nac3parser::{
@@ -32,7 +34,6 @@ use nac3parser::{
 
 mod basic_symbol_resolver;
 use basic_symbol_resolver::*;
-use nac3core::toplevel::composer::ComposerConfig;
 
 /// Command-line argument parser definition.
 #[derive(Parser)]
@@ -345,7 +346,7 @@ fn main() {
         }
     }
 
-    let signature = FunSignature { args: vec![], ret: primitive.int32, vars: HashMap::new() };
+    let signature = FunSignature { args: vec![], ret: primitive.int32, vars: VarMap::new() };
     let mut store = ConcreteTypeStore::new();
     let mut cache = HashMap::new();
     let signature = store.from_signature(&mut composer.unifier, &primitive, &signature, &mut cache);

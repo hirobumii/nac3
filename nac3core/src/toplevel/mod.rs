@@ -8,7 +8,7 @@ use std::{
 
 use super::codegen::CodeGenContext;
 use super::typecheck::type_inferencer::PrimitiveStore;
-use super::typecheck::typedef::{FunSignature, FuncArg, SharedUnifier, Type, TypeEnum, Unifier};
+use super::typecheck::typedef::{FunSignature, FuncArg, SharedUnifier, Type, TypeEnum, Unifier, VarMap};
 use crate::{
     codegen::CodeGenerator,
     symbol_resolver::{SymbolResolver, ValueEnum},
@@ -76,7 +76,7 @@ impl Debug for GenCall {
 pub struct FunInstance {
     pub body: Arc<Vec<Stmt<Option<Type>>>>,
     pub calls: Arc<HashMap<CodeLocation, CallId>>,
-    pub subst: HashMap<u32, Type>,
+    pub subst: VarMap,
     pub unifier_id: usize,
 }
 

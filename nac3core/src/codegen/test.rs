@@ -25,6 +25,7 @@ use nac3parser::{
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use crate::typecheck::typedef::VarMap;
 
 struct Resolver {
     id_to_type: HashMap<StrRef, Type>,
@@ -111,7 +112,7 @@ fn test_primitives() {
             FuncArg { name: "b".into(), ty: primitives.int32, default_value: None },
         ],
         ret: primitives.int32,
-        vars: HashMap::new(),
+        vars: VarMap::new(),
     };
 
     let mut store = ConcreteTypeStore::new();
@@ -258,7 +259,7 @@ fn test_simple_call() {
     let signature = FunSignature {
         args: vec![FuncArg { name: "a".into(), ty: primitives.int32, default_value: None }],
         ret: primitives.int32,
-        vars: HashMap::new(),
+        vars: VarMap::new(),
     };
     let fun_ty = unifier.add_ty(TypeEnum::TFunc(signature.clone()));
     let mut store = ConcreteTypeStore::new();

@@ -415,7 +415,7 @@ pub fn get_type_from_type_annotation_kinds(
             let subst = {
                 // check for compatible range
                 // TODO: if allow type var to be applied(now this disallowed in the parse_to_type_annotation), need more check
-                let mut result: HashMap<u32, Type> = HashMap::new();
+                let mut result = VarMap::new();
                 for (tvar, p) in type_vars.iter().zip(param_ty) {
                     match unifier.get_ty(*tvar).as_ref() {
                         TypeEnum::TVar { id, range, fields: None, name, loc, is_const_generic: false } => {

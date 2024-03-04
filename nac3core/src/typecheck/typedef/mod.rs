@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -25,7 +25,14 @@ pub type Type = UnificationKey;
 pub struct CallId(pub(super) usize);
 
 pub type Mapping<K, V = Type> = HashMap<K, V>;
-type VarMap = Mapping<u32>;
+
+/// A [`Mapping`] sorted by its key.
+/// 
+/// This type is recommended for mappings that should be stored and/or iterated by its sorted key.
+pub type SortedMapping<K, V = Type> = BTreeMap<K, V>;
+
+/// A [`BTreeMap`] storing the mapping between type variable ID and [unifier type][`Type`].
+pub type VarMap = SortedMapping<u32>;
 
 #[derive(Clone)]
 pub struct Call {
@@ -1276,12 +1283,12 @@ impl Unifier {
 
     fn subst_map<K>(
         &mut self,
-        map: &Mapping<K>,
+        map: &SortedMapping<K>,
         mapping: &VarMap,
         cache: &mut HashMap<Type, Option<Type>>,
-    ) -> Option<Mapping<K>>
+    ) -> Option<SortedMapping<K>>
     where
-        K: std::hash::Hash + Eq + Clone,
+        K: Ord + Eq + Clone,
     {
         let mut map2 = None;
         for (k, v) in map {

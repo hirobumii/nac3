@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use crate::symbol_resolver::SymbolValue;
-use crate::typecheck::typedef::Mapping;
+use crate::typecheck::typedef::{Mapping, VarMap};
 use nac3parser::ast::{Constant, Location};
 
 use super::*;
@@ -112,37 +112,37 @@ impl TopLevelComposer {
         let int32 = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.int32,
             fields: HashMap::new(),
-            params: HashMap::new(),
+            params: VarMap::new(),
         });
         let int64 = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.int64,
             fields: HashMap::new(),
-            params: HashMap::new(),
+            params: VarMap::new(),
         });
         let float = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.float,
             fields: HashMap::new(),
-            params: HashMap::new(),
+            params: VarMap::new(),
         });
         let bool = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.bool,
             fields: HashMap::new(),
-            params: HashMap::new(),
+            params: VarMap::new(),
         });
         let none = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.none,
             fields: HashMap::new(),
-            params: HashMap::new(),
+            params: VarMap::new(),
         });
         let range = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.range,
             fields: HashMap::new(),
-            params: HashMap::new(),
+            params: VarMap::new(),
         });
         let str = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.str,
             fields: HashMap::new(),
-            params: HashMap::new(),
+            params: VarMap::new(),
         });
         let exception = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.exception,
@@ -159,29 +159,29 @@ impl TopLevelComposer {
             ]
             .into_iter()
             .collect::<HashMap<_, _>>(),
-            params: HashMap::new(),
+            params: VarMap::new(),
         });
         let uint32 = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.uint32,
             fields: HashMap::new(),
-            params: HashMap::new(),
+            params: VarMap::new(),
         });
         let uint64 = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.uint64,
             fields: HashMap::new(),
-            params: HashMap::new(),
+            params: VarMap::new(),
         });
 
         let option_type_var = unifier.get_fresh_var(Some("option_type_var".into()), None);
         let is_some_type_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
             ret: bool,
-            vars: HashMap::from([(option_type_var.1, option_type_var.0)]),
+            vars: VarMap::from([(option_type_var.1, option_type_var.0)]),
         }));
         let unwrap_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
             ret: option_type_var.0,
-            vars: HashMap::from([(option_type_var.1, option_type_var.0)]),
+            vars: VarMap::from([(option_type_var.1, option_type_var.0)]),
         }));
         let option = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.option,
@@ -192,7 +192,7 @@ impl TopLevelComposer {
             ]
             .into_iter()
             .collect::<HashMap<_, _>>(),
-            params: HashMap::from([(option_type_var.1, option_type_var.0)]),
+            params: VarMap::from([(option_type_var.1, option_type_var.0)]),
         });
 
         let size_t_ty = match size_t {
@@ -206,10 +206,10 @@ impl TopLevelComposer {
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.ndarray,
             fields: Mapping::new(),
-            params: Mapping::from([
+            params: VarMap::from([
                 (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
                 (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
-            ])
+            ]),
         });
 
         let primitives = PrimitiveStore {

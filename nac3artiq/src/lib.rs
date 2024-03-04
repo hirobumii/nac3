@@ -16,7 +16,7 @@ use inkwell::{
 use itertools::Itertools;
 use nac3core::codegen::{CodeGenLLVMOptions, CodeGenTargetMachineOptions, gen_func_impl};
 use nac3core::toplevel::builtins::get_exn_constructor;
-use nac3core::typecheck::typedef::{TypeEnum, Unifier};
+use nac3core::typecheck::typedef::{TypeEnum, Unifier, VarMap};
 use nac3parser::{
     ast::{ExprKind, Stmt, StmtKind, StrRef},
     parser::parse_program,
@@ -476,7 +476,7 @@ impl Nac3 {
             .unwrap();
 
         let fun_signature =
-            FunSignature { args: vec![], ret: self.primitive.none, vars: HashMap::new() };
+            FunSignature { args: vec![], ret: self.primitive.none, vars: VarMap::new() };
         let mut store = ConcreteTypeStore::new();
         let mut cache = HashMap::new();
         let signature =
@@ -816,7 +816,7 @@ impl Nac3 {
         let builtins = vec![
             (
                 "now_mu".into(),
-                FunSignature { args: vec![], ret: primitive.int64, vars: HashMap::new() },
+                FunSignature { args: vec![], ret: primitive.int64, vars: VarMap::new() },
                 Arc::new(GenCall::new(Box::new(move |ctx, _, _, _, _| {
                     Ok(Some(time_fns.emit_now_mu(ctx)))
                 }))),
@@ -830,7 +830,7 @@ impl Nac3 {
                         default_value: None,
                     }],
                     ret: primitive.none,
-                    vars: HashMap::new(),
+                    vars: VarMap::new(),
                 },
                 Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args, generator| {
                     let arg_ty = fun.0.args[0].ty;
@@ -848,7 +848,7 @@ impl Nac3 {
                         default_value: None,
                     }],
                     ret: primitive.none,
-                    vars: HashMap::new(),
+                    vars: VarMap::new(),
                 },
                 Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args, generator| {
                     let arg_ty = fun.0.args[0].ty;

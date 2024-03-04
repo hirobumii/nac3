@@ -3,7 +3,7 @@ use crate::{
     toplevel::DefinitionId,
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier},
+        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
     },
 };
 
@@ -274,7 +274,7 @@ impl ConcreteTypeStore {
                 params: params
                     .iter()
                     .map(|(id, cty)| (*id, self.to_unifier_type(unifier, primitives, *cty, cache)))
-                    .collect::<HashMap<_, _>>(),
+                    .collect::<VarMap>(),
             },
             ConcreteTypeEnum::TFunc { args, ret, vars } => TypeEnum::TFunc(FunSignature {
                 args: args
@@ -289,7 +289,7 @@ impl ConcreteTypeStore {
                 vars: vars
                     .iter()
                     .map(|(id, cty)| (*id, self.to_unifier_type(unifier, primitives, *cty, cache)))
-                    .collect::<HashMap<_, _>>(),
+                    .collect::<VarMap>(),
             }),
             ConcreteTypeEnum::TLiteral { values, .. } => TypeEnum::TLiteral {
                 values: values.clone(),

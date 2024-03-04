@@ -1,6 +1,6 @@
 use crate::typecheck::{
     type_inferencer::*,
-    typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier},
+    typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
 };
 use nac3parser::ast::StrRef;
 use nac3parser::ast::{Cmpop, Operator, Unaryop};
@@ -102,9 +102,9 @@ pub fn impl_binop(
         };
 
         let function_vars = if let Some(var_id) = other_var_id {
-            vec![(var_id, other_ty)].into_iter().collect::<HashMap<_, _>>()
+            vec![(var_id, other_ty)].into_iter().collect::<VarMap>()
         } else {
-            HashMap::new()
+            VarMap::new()
         };
 
         for op in ops {
@@ -149,7 +149,7 @@ pub fn impl_unaryop(unifier: &mut Unifier, ty: Type, ret_ty: Type, ops: &[Unaryo
                 (
                     unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         ret: ret_ty,
-                        vars: HashMap::new(),
+                        vars: VarMap::new(),
                         args: vec![],
                     })),
                     false,
@@ -173,7 +173,7 @@ pub fn impl_cmpop(
                 (
                     unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         ret: store.bool,
-                        vars: HashMap::new(),
+                        vars: VarMap::new(),
                         args: vec![FuncArg {
                             ty: other_ty,
                             default_value: None,

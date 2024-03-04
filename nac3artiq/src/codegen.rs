@@ -7,7 +7,7 @@ use nac3core::{
     },
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, GenCall, helper::PRIMITIVE_DEF_IDS},
-    typecheck::typedef::{FunSignature, FuncArg, Type, TypeEnum}
+    typecheck::typedef::{FunSignature, FuncArg, Type, TypeEnum, VarMap}
 };
 
 use nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef};
@@ -667,7 +667,7 @@ pub fn attributes_writeback(
                 default_value: None
             }).collect(),
             ret: ctx.primitives.none,
-            vars: HashMap::default()
+            vars: VarMap::default()
         };
         let args: Vec<_> = values.into_iter().map(|(_, val)| (None, ValueEnum::Dynamic(val))).collect();
         if let Err(e) = rpc_codegen_callback_fn(ctx, None, (&fun, PRIMITIVE_DEF_IDS.int32), args, generator) {

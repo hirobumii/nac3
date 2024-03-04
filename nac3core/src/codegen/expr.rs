@@ -20,7 +20,7 @@ use crate::{
         TopLevelDef,
     },
     typecheck::{
-        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier},
+        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
         magic_methods::{binop_name, binop_assign_name},
     },
 };
@@ -41,7 +41,7 @@ use super::{CodeGenerator, llvm_intrinsics::call_memcpy_generic, need_sret};
 pub fn get_subst_key(
     unifier: &mut Unifier,
     obj: Option<Type>,
-    fun_vars: &HashMap<u32, Type>,
+    fun_vars: &VarMap,
     filter: Option<&Vec<u32>>,
 ) -> String {
     let mut vars = obj

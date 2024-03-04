@@ -3,7 +3,7 @@ use std::convert::{From, TryInto};
 use std::iter::once;
 use std::{cell::RefCell, sync::Arc};
 
-use super::typedef::{Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, Unifier};
+use super::typedef::{Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, Unifier, VarMap};
 use super::{magic_methods::*, typedef::CallId};
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue}, 
@@ -425,13 +425,13 @@ impl<'a> Fold<()> for Inferencer<'a> {
                                 || self.unifier.get_dummy_var().0,
                                 |var| var.custom.unwrap(),
                             ),
-                            vars: HashMap::default(),
+                            vars: VarMap::default(),
                         });
                         let enter = self.unifier.add_ty(enter);
                         let exit = TypeEnum::TFunc(FunSignature {
                             args: vec![],
                             ret: self.unifier.get_dummy_var().0,
-                            vars: HashMap::default(),
+                            vars: VarMap::default(),
                         });
                         let exit = self.unifier.add_ty(exit);
                         let mut fields = HashMap::new();
@@ -503,7 +503,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                                 assert_eq!(*id, *id_var);
                                 (*id, self.unifier.get_fresh_var_with_range(range, *name, *loc).0)
                             })
-                            .collect::<HashMap<_, _>>();
+                            .collect::<VarMap>();
                         Some(self.unifier.subst(self.primitives.option, &var_map).unwrap())
                     } else {
                         unreachable!("must be tobj")
@@ -704,7 +704,7 @@ impl<'a> Inferencer<'a> {
                 .map(|(k, ty)| FuncArg { name: *k, ty: *ty, default_value: None })
                 .collect(),
             ret,
-            vars: HashMap::default(),
+            vars: VarMap::default(),
         };
         let body = new_context.fold_expr(body)?;
         new_context.unify(fun.ret, body.custom.unwrap(), &location)?;
@@ -939,7 +939,7 @@ impl<'a> Inferencer<'a> {
                     },
                 ],
                 ret,
-                vars: HashMap::new(),
+                vars: VarMap::new(),
             }));
 
             return Ok(Some(Located {
@@ -996,7 +996,7 @@ impl<'a> Inferencer<'a> {
                     },
                 ],
                 ret,
-                vars: HashMap::new(),
+                vars: VarMap::new(),
             }));
 
             return Ok(Some(Located {

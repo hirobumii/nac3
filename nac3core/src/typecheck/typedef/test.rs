@@ -45,9 +45,9 @@ impl Unifier {
         }
     }
 
-    fn map_eq<K>(&mut self, map1: &Mapping<K>, map2: &Mapping<K>) -> bool
+    fn map_eq<K>(&mut self, map1: &SortedMapping<K>, map2: &SortedMapping<K>) -> bool
     where
-        K: std::hash::Hash + Eq + Clone,
+        K: Ord + Eq + Clone,
     {
         if map1.len() != map2.len() {
             return false;
@@ -91,7 +91,7 @@ impl TestEnvironment {
             unifier.add_ty(TypeEnum::TObj {
                 obj_id: DefinitionId(0),
                 fields: HashMap::new(),
-                params: HashMap::new(),
+                params: VarMap::new(),
             }),
         );
         type_mapping.insert(
@@ -99,7 +99,7 @@ impl TestEnvironment {
             unifier.add_ty(TypeEnum::TObj {
                 obj_id: DefinitionId(1),
                 fields: HashMap::new(),
-                params: HashMap::new(),
+                params: VarMap::new(),
             }),
         );
         type_mapping.insert(
@@ -107,7 +107,7 @@ impl TestEnvironment {
             unifier.add_ty(TypeEnum::TObj {
                 obj_id: DefinitionId(2),
                 fields: HashMap::new(),
-                params: HashMap::new(),
+                params: VarMap::new(),
             }),
         );
         let (v0, id) = unifier.get_dummy_var();
@@ -116,7 +116,7 @@ impl TestEnvironment {
             unifier.add_ty(TypeEnum::TObj {
                 obj_id: DefinitionId(3),
                 fields: [("a".into(), (v0, true))].iter().cloned().collect::<HashMap<_, _>>(),
-                params: [(id, v0)].iter().cloned().collect::<HashMap<_, _>>(),
+                params: [(id, v0)].iter().cloned().collect::<VarMap>(),
             }),
         );
 
@@ -363,7 +363,7 @@ fn test_virtual() {
     let fun = env.unifier.add_ty(TypeEnum::TFunc(FunSignature {
         args: vec![],
         ret: int,
-        vars: HashMap::new(),
+        vars: VarMap::new(),
     }));
     let bar = env.unifier.add_ty(TypeEnum::TObj {
         obj_id: DefinitionId(5),
@@ -371,7 +371,7 @@ fn test_virtual() {
             .iter()
             .cloned()
             .collect::<HashMap<StrRef, _>>(),
-        params: HashMap::new(),
+        params: VarMap::new(),
     });
     let v0 = env.unifier.get_dummy_var().0;
     let v1 = env.unifier.get_dummy_var().0;

@@ -10,7 +10,7 @@ use nac3core::{
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, TypeEnum, Unifier},
+        typedef::{Type, TypeEnum, Unifier, VarMap},
     },
 };
 use nac3parser::ast::{self, StrRef};
@@ -519,7 +519,7 @@ impl InnerResolver {
                             .iter()
                             .zip(args.iter())
                             .map(|((id, _), ty)| (*id, *ty))
-                            .collect::<HashMap<_, _>>()
+                            .collect::<VarMap>()
                     };
                     Ok(Ok((unifier.subst(origin_ty, &subst).unwrap_or(origin_ty), true)))
                 }
@@ -722,7 +722,7 @@ impl InnerResolver {
                             assert_eq!(*id, *id_var);
                             (*id, unifier.get_fresh_var_with_range(range, *name, *loc).0)
                         })
-                        .collect::<HashMap<_, _>>();
+                        .collect::<VarMap>();
                     return Ok(Ok(unifier.subst(primitives.option, &var_map).unwrap()))
                 }
 
@@ -734,7 +734,7 @@ impl InnerResolver {
                         )))
                     }
                 };
-                let new_var_map: HashMap<_, _> = params.iter().map(|(id, _)| (*id, ty)).collect();
+                let new_var_map: VarMap = params.iter().map(|(id, _)| (*id, ty)).collect();
                 let res = unifier.subst(extracted_ty, &new_var_map).unwrap_or(extracted_ty);
                 Ok(Ok(res))
             }
@@ -751,7 +751,7 @@ impl InnerResolver {
                         assert_eq!(*id, *id_var);
                         (*id, unifier.get_fresh_var_with_range(range, *name, *loc).0)
                     })
-                    .collect::<HashMap<_, _>>();
+                    .collect::<VarMap>();
                 let mut instantiate_obj = || {
                     // loop through non-function fields of the class to get the instantiated value
                     for field in fields {

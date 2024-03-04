@@ -4,7 +4,10 @@ use std::rc::Rc;
 use crate::{
     codegen::{expr::get_subst_key, stmt::exn_constructor},
     symbol_resolver::SymbolValue,
-    typecheck::type_inferencer::{FunctionData, Inferencer},
+    typecheck::{
+        type_inferencer::{FunctionData, Inferencer},
+        typedef::VarMap,
+    },
 };
 
 use super::*;
@@ -844,7 +847,7 @@ impl TopLevelComposer {
             let resolver = resolver.unwrap();
             let resolver = &**resolver;
 
-            let mut function_var_map: HashMap<u32, Type> = HashMap::new();
+            let mut function_var_map = VarMap::new();
             let arg_types = {
                 // make sure no duplicate parameter
                 let mut defined_parameter_name: HashSet<_> = HashSet::new();
@@ -1082,7 +1085,7 @@ impl TopLevelComposer {
                     let (method_dummy_ty, method_id) =
                         Self::get_class_method_def_info(class_methods_def, *name)?;
 
-                    let mut method_var_map: HashMap<u32, Type> = HashMap::new();
+                    let mut method_var_map = VarMap::new();
 
                     let arg_types: Vec<FuncArg> = {
                         // check method parameters cannot have same name
@@ -1574,7 +1577,7 @@ impl TopLevelComposer {
                             },
                         ],
                         ret: self_type,
-                        vars: HashMap::default(),
+                        vars: VarMap::default(),
                     }));
                     let cons_fun = TopLevelDef::Function {
                         name: format!("{}.{}", class_name, "__init__"),
@@ -1598,7 +1601,7 @@ impl TopLevelComposer {
                 // get the class constructor type correct
                 let (contor_args, contor_type_vars) = {
                     let mut constructor_args: Vec<FuncArg> = Vec::new();
-                    let mut type_vars: HashMap<u32, Type> = HashMap::new();
+                    let mut type_vars = VarMap::new();
                     for (name, func_sig, id) in methods {
                         if *name == init_str_id {
                             init_id = Some(*id);
@@ -1749,13 +1752,13 @@ impl TopLevelComposer {
                         })
                         .multi_cartesian_product()
                         .collect_vec();
-                    let mut result: Vec<HashMap<u32, Type>> = Vec::default();
+                    let mut result: Vec<VarMap> = Vec::default();
                     for comb in var_combs {
                         result.push(vars.keys().copied().zip(comb).collect());
                     }
                     // NOTE: if is empty, means no type var, append a empty subst, ok to do this?
                     if result.is_empty() {
-                        result.push(HashMap::new());
+                        result.push(VarMap::new());
                     }
                     (result, no_ranges)
                 };
@@ -1795,7 +1798,7 @@ impl TopLevelComposer {
                                             None
                                         }
                                     })
-                                    .collect::<HashMap<_, _>>()
+                                    .collect::<VarMap>()
                             };
                             unifier.subst(self_type, &subst_for_self).unwrap_or(self_type)
                         })

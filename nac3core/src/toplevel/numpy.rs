@@ -19,7 +19,7 @@ use crate::{
     toplevel::{DefinitionId, helper::PRIMITIVE_DEF_IDS},
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{FunSignature, Mapping, Type, TypeEnum, Unifier},
+        typedef::{FunSignature, Type, TypeEnum, Unifier, VarMap},
     },
 };
 
@@ -48,7 +48,7 @@ pub fn make_ndarray_ty(
         .collect_vec();
     debug_assert_eq!(tvar_ids.len(), 2);
 
-    let mut tvar_subst = Mapping::new();
+    let mut tvar_subst = VarMap::new();
     if let Some(dtype) = dtype {
         tvar_subst.insert(tvar_ids[0], dtype);
     }
