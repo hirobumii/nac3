@@ -323,6 +323,17 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         } else {
             unreachable!()
         };
+    let (
+        (ndarray_dtype_ty, _), 
+        (ndarray_ndims_ty, _),
+    ) = if let TypeEnum::TObj { params, .. } = &*primitives.1.get_ty(primitives.0.ndarray) {
+        (
+            params.iter().next().map(|(var_id, ty)| (*ty, *var_id)).unwrap(),
+            params.iter().nth(1).map(|(var_id, ty)| (*ty, *var_id)).unwrap(),
+        )
+    } else {
+        unreachable!()
+    };
     let top_level_def_list = vec![
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
             PRIMITIVE_DEF_IDS.int32,
@@ -491,22 +502,17 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             )))),
             loc: None,
         })),
-        {
-            let tvar = primitives.1.get_fresh_var(Some("T".into()), None);
-            let ndims = primitives.1.get_fresh_const_generic_var(primitives.0.uint64, Some("N".into()), None);
-
-            Arc::new(RwLock::new(TopLevelDef::Class {
-                name: "ndarray".into(),
-                object_id: PRIMITIVE_DEF_IDS.ndarray,
-                type_vars: vec![tvar.0, ndims.0],
-                fields: Vec::default(),
-                methods: Vec::default(),
-                ancestors: Vec::default(),
-                constructor: None,
-                resolver: None,
-                loc: None,
-            }))
-        },
+        Arc::new(RwLock::new(TopLevelDef::Class {
+            name: "ndarray".into(),
+            object_id: PRIMITIVE_DEF_IDS.ndarray,
+            type_vars: vec![ndarray_dtype_ty, ndarray_ndims_ty],
+            fields: Vec::default(),
+            methods: Vec::default(),
+            ancestors: Vec::default(),
+            constructor: None,
+            resolver: None,
+            loc: None,
+        })),
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "int32".into(),
             simple_name: "int32".into(),
