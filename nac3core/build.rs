@@ -14,11 +14,15 @@ fn main() {
      * HACK: Sadly, clang doesn't let us emit generic LLVM bitcode.
      * Compiling for WASM32 and filtering the output with regex is the closest we can get.
      */
-    const FLAG: &[&str] = &[
+    let flags: &[&str] = &[
         "--target=wasm32",
         FILE,
         "-fno-discard-value-names",
-        "-O3",
+        match env::var("PROFILE").as_deref() {
+            Ok("debug") => "-O0",
+            Ok("release") => "-O3",
+            flavor => panic!("Unknown or missing build flavor {:?}", flavor),
+        },
         "-emit-llvm",
         "-S",
         "-Wall",
@@ -32,7 +36,7 @@ fn main() {
     let out_path = Path::new(&out_dir);
 
     let output = Command::new("clang-irrt")
-        .args(FLAG)
+        .args(flags)
         .output()
         .map(|o| {
             assert!(o.status.success(), "{}", std::str::from_utf8(&o.stderr).unwrap());
