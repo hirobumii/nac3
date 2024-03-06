@@ -416,9 +416,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 type_vars: vec![option_ty_var],
                 fields: vec![],
                 methods: vec![
-                    ("is_some".into(), is_some_ty.0, DefinitionId(11)),
-                    ("is_none".into(), is_some_ty.0, DefinitionId(12)),
-                    ("unwrap".into(), unwrap_ty.0, DefinitionId(13)),
+                    ("is_some".into(), is_some_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.option.0 + 1)),
+                    ("is_none".into(), is_some_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.option.0 + 2)),
+                    ("unwrap".into(), unwrap_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.option.0 + 3)),
                 ],
                 ancestors: vec![TypeAnnotation::CustomClass {
                     id: PRIMITIVE_DEF_IDS.option,
