@@ -10,7 +10,6 @@ use crate::{
         irrt::{
             call_ndarray_calc_nd_indices,
             call_ndarray_calc_size,
-            call_ndarray_init_dims,
         },
         llvm_intrinsics::call_memcpy_generic,
         stmt::gen_for_callback
@@ -76,6 +75,161 @@ pub fn unpack_ndarray_tvars(
         .map(|(_, ty)| *ty)
         .collect_tuple()
         .unwrap()
+}
+
+/// Creates an `NDArray` instance from a dynamic shape.
+///
+/// * `elem_ty` - The element type of the `NDArray`.
+/// * `shape` - The shape of the `NDArray`.
+/// * `shape_len_fn` - A function that retrieves the number of dimensions from `shape`.
+/// * `shape_data_fn` - A function that retrieves the size of a dimension from `shape`.
+fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
+    generator: &mut dyn CodeGenerator,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    elem_ty: Type,
+    shape: &V,
+    shape_len_fn: LenFn,
+    shape_data_fn: DataFn,
+) -> Result<NDArrayValue<'ctx>, String>
+    where
+        LenFn: Fn(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, &V) -> Result<IntValue<'ctx>, String>,
+        DataFn: Fn(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, &V, IntValue<'ctx>) -> Result<IntValue<'ctx>, String>,
+{
+    let ndarray_ty = make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(elem_ty), None);
+
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    let llvm_pndarray_t = ctx.get_llvm_type(generator, ndarray_ty).into_pointer_type();
+    let llvm_ndarray_t = llvm_pndarray_t.get_element_type().into_struct_type();
+    let llvm_ndarray_data_t = ctx.get_llvm_type(generator, elem_ty).as_basic_type_enum();
+    assert!(llvm_ndarray_data_t.is_sized());
+
+    // Assert that all dimensions are non-negative
+    gen_for_callback(
+        generator,
+        ctx,
+        |generator, ctx| {
+            let i = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
+            ctx.builder.build_store(i, llvm_usize.const_zero()).unwrap();
+
+            Ok(i)
+        },
+        |generator, ctx, i_addr| {
+            let i = ctx.builder
+                .build_load(i_addr, "")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let shape_len = shape_len_fn(generator, ctx, shape)?;
+            debug_assert!(shape_len.get_type().get_bit_width() <= llvm_usize.get_bit_width());
+
+            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, shape_len, "").unwrap())
+        },
+        |generator, ctx, i_addr| {
+            let i = ctx.builder
+                .build_load(i_addr, "")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let shape_dim = shape_data_fn(generator, ctx, shape, i)?;
+            debug_assert!(shape_dim.get_type().get_bit_width() <= llvm_usize.get_bit_width());
+
+            let shape_dim_gez = ctx.builder
+                .build_int_compare(IntPredicate::SGE, shape_dim, shape_dim.get_type().const_zero(), "")
+                .unwrap();
+
+            ctx.make_assert(
+                generator,
+                shape_dim_gez,
+                "0:ValueError",
+                "negative dimensions not supported",
+                [None, None, None],
+                ctx.current_loc,
+            );
+
+            Ok(())
+        },
+        |_, ctx, i_addr| {
+            let i = ctx.builder
+                .build_load(i_addr, "")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "").unwrap();
+            ctx.builder.build_store(i_addr, i).unwrap();
+
+            Ok(())
+        },
+    )?;
+
+    let ndarray = generator.gen_var_alloc(
+        ctx,
+        llvm_ndarray_t.into(),
+        None,
+    )?;
+    let ndarray = NDArrayValue::from_ptr_val(ndarray, llvm_usize, None);
+
+    let num_dims = shape_len_fn(generator, ctx, shape)?;
+    ndarray.store_ndims(ctx, generator, num_dims);
+
+    let ndarray_num_dims = ndarray.load_ndims(ctx);
+    ndarray.create_dims(ctx, llvm_usize, ndarray_num_dims);
+
+    // Copy the dimension sizes from shape to ndarray.dims
+    gen_for_callback(
+        generator,
+        ctx,
+        |generator, ctx| {
+            let i = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
+            ctx.builder.build_store(i, llvm_usize.const_zero()).unwrap();
+
+            Ok(i)
+        },
+        |generator, ctx, i_addr| {
+            let i = ctx.builder
+                .build_load(i_addr, "")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let shape_len = shape_len_fn(generator, ctx, shape)?;
+            debug_assert!(shape_len.get_type().get_bit_width() <= llvm_usize.get_bit_width());
+
+            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, shape_len, "").unwrap())
+        },
+        |generator, ctx, i_addr| {
+            let i = ctx.builder
+                .build_load(i_addr, "")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let shape_dim = shape_data_fn(generator, ctx, shape, i)?;
+            debug_assert!(shape_dim.get_type().get_bit_width() <= llvm_usize.get_bit_width());
+            let shape_dim = ctx.builder
+                .build_int_z_extend(shape_dim, llvm_usize, "")
+                .unwrap();
+
+            let ndarray_pdim = ndarray.get_dims().ptr_offset(ctx, generator, i, None);
+
+            ctx.builder.build_store(ndarray_pdim, shape_dim).unwrap();
+
+            Ok(())
+        },
+        |_, ctx, i_addr| {
+            let i = ctx.builder
+                .build_load(i_addr, "")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "").unwrap();
+            ctx.builder.build_store(i_addr, i).unwrap();
+
+            Ok(())
+        },
+    )?;
+
+    let ndarray_num_elems = call_ndarray_calc_size(
+        generator,
+        ctx,
+        ndarray.load_ndims(ctx),
+        ndarray.get_dims().get_ptr(ctx),
+    );
+    ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
+
+    Ok(ndarray)
 }
 
 /// Creates an `NDArray` instance from a constant shape.
@@ -205,98 +359,18 @@ fn call_ndarray_empty_impl<'ctx>(
     elem_ty: Type,
     shape: ListValue<'ctx>,
 ) -> Result<NDArrayValue<'ctx>, String> {
-    let ndarray_ty = make_ndarray_ty(
-        &mut ctx.unifier,
-        &ctx.primitives,
-        Some(elem_ty),
-        None,
-    );
-
-    let llvm_i32 = ctx.ctx.i32_type();
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let llvm_pndarray_t = ctx.get_llvm_type(generator, ndarray_ty).into_pointer_type();
-    let llvm_ndarray_t = llvm_pndarray_t.get_element_type().into_struct_type();
-    let llvm_ndarray_data_t = ctx.get_llvm_type(generator, elem_ty).as_basic_type_enum();
-    assert!(llvm_ndarray_data_t.is_sized());
-
-    // Assert that all dimensions are non-negative
-    gen_for_callback(
+    create_ndarray_dyn_shape(
         generator,
         ctx,
-        |generator, ctx| {
-            let i = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
-            ctx.builder.build_store(i, llvm_usize.const_zero()).unwrap();
-
-            Ok(i)
+        elem_ty,
+        &shape,
+        |_, ctx, shape| {
+            Ok(shape.load_size(ctx, None))
         },
-        |_, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let shape_len = shape.load_size(ctx, None);
-
-            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, shape_len, "").unwrap())
+        |generator, ctx, shape, idx| {
+            Ok(shape.get_data().get(ctx, generator, idx, None).into_int_value())
         },
-        |generator, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let shape_dim = shape.get_data().get(ctx, generator, i, None).into_int_value();
-
-            let shape_dim_gez = ctx.builder
-                .build_int_compare(IntPredicate::SGE, shape_dim, llvm_i32.const_zero(), "")
-                .unwrap();
-
-            ctx.make_assert(
-                generator,
-                shape_dim_gez,
-                "0:ValueError",
-                "negative dimensions not supported",
-                [None, None, None],
-                ctx.current_loc,
-            );
-
-            Ok(())
-        },
-        |_, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "").unwrap();
-            ctx.builder.build_store(i_addr, i).unwrap();
-
-            Ok(())
-        },
-    )?;
-
-    let ndarray = generator.gen_var_alloc(
-        ctx,
-        llvm_ndarray_t.into(),
-        None,
-    )?;
-    let ndarray = NDArrayValue::from_ptr_val(ndarray, llvm_usize, None);
-
-    let num_dims = shape.load_size(ctx, None);
-    ndarray.store_ndims(ctx, generator, num_dims);
-
-    let ndarray_num_dims = ndarray.load_ndims(ctx);
-    ndarray.create_dims(ctx, llvm_usize, ndarray_num_dims);
-
-    call_ndarray_init_dims(generator, ctx, ndarray, shape);
-
-    let ndarray_num_elems = call_ndarray_calc_size(
-        generator,
-        ctx,
-        ndarray.load_ndims(ctx),
-        ndarray.get_dims().get_ptr(ctx),
-    );
-    ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
-
-    Ok(ndarray)
+    )
 }
 
 /// Generates LLVM IR for populating the entire `NDArray` using a lambda with its flattened index as

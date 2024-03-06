@@ -617,60 +617,6 @@ pub fn call_ndarray_calc_size<'ctx>(
         .unwrap()
 }
 
-/// Generates a call to `__nac3_ndarray_init_dims`.
-///
-/// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
-/// `NDArray`.
-/// * `shape` - LLVM pointer to the `shape` of the `NDArray`. This value must be the LLVM
-/// representation of a `list`.
-pub fn call_ndarray_init_dims<'ctx>(
-    generator: &dyn CodeGenerator,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    ndarray: NDArrayValue<'ctx>,
-    shape: ListValue<'ctx>,
-) {
-    let llvm_void = ctx.ctx.void_type();
-    let llvm_i32 = ctx.ctx.i32_type();
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let llvm_pi32 = llvm_i32.ptr_type(AddressSpace::default());
-    let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
-
-    let ndarray_init_dims_fn_name = match llvm_usize.get_bit_width() {
-        32 => "__nac3_ndarray_init_dims",
-        64 => "__nac3_ndarray_init_dims64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw)
-    };
-    let ndarray_init_dims_fn = ctx.module.get_function(ndarray_init_dims_fn_name).unwrap_or_else(|| {
-        let fn_type = llvm_void.fn_type(
-            &[
-                llvm_pusize.into(),
-                llvm_pi32.into(),
-                llvm_usize.into(),
-            ],
-            false,
-        );
-
-        ctx.module.add_function(ndarray_init_dims_fn_name, fn_type, None)
-    });
-
-    let ndarray_dims = ndarray.get_dims();
-    let shape_data = shape.get_data();
-    let ndarray_num_dims = ndarray.load_ndims(ctx);
-
-    ctx.builder
-        .build_call(
-            ndarray_init_dims_fn,
-            &[
-                ndarray_dims.get_ptr(ctx).into(),
-                shape_data.get_ptr(ctx).into(),
-                ndarray_num_dims.into(),
-            ],
-            "",
-        )
-        .unwrap();
-}
-
 /// Generates a call to `__nac3_ndarray_calc_nd_indices`.
 ///
 /// * `index` - The index to compute the multidimensional index for.

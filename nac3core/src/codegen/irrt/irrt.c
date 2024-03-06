@@ -224,24 +224,6 @@ uint64_t __nac3_ndarray_calc_size64(
     return num_elems;
 }
 
-void __nac3_ndarray_init_dims(
-    uint32_t *ndarray_dims,
-    const int32_t *shape_data,
-    uint32_t shape_len
-) {
-    __builtin_memcpy(ndarray_dims, shape_data, shape_len * sizeof(int32_t));
-}
-
-void __nac3_ndarray_init_dims64(
-    uint64_t *ndarray_dims,
-    const int32_t *shape_data,
-    uint64_t shape_len
-) {
-    for (uint64_t i = 0; i < shape_len; ++i) {
-        ndarray_dims[i] = (uint64_t) shape_data[i];
-    }
-}
-
 void __nac3_ndarray_calc_nd_indices(
     uint32_t index,
     const uint32_t* dims,
