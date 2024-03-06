@@ -1342,7 +1342,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
             llvm_i1.const_zero(),
         );
 
-        Ok(Some(v.get_ptr().into()))
+        Ok(Some(ndarray.get_ptr().into()))
     }
 }
 
