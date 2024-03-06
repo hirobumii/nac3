@@ -203,9 +203,25 @@ impl TopLevelComposer {
 
         let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
         let ndarray_ndims_tvar = unifier.get_fresh_const_generic_var(size_t_ty, Some("ndarray_ndims".into()), None);
+        let ndarray_fill_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
+            args: vec![
+                FuncArg {
+                    name: "value".into(),
+                    ty: ndarray_dtype_tvar.0,
+                    default_value: None,
+                },
+            ],
+            ret: none,
+            vars: VarMap::from([
+                (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
+                (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
+            ]),
+        }));
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.ndarray,
-            fields: Mapping::new(),
+            fields: Mapping::from([
+                ("fill".into(), (ndarray_fill_fun_ty, true)),
+            ]),
             params: VarMap::from([
                 (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
                 (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),

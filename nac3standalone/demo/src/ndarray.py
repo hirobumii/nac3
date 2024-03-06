@@ -52,6 +52,14 @@ def test_ndarray_identity():
     n: ndarray[float, 2] = np_identity(2)
     consume_ndarray_2(n)
 
+def test_ndarray_fill():
+    n: ndarray[float, 2] = np_empty([2, 2])
+    n.fill(1.0)
+    output_float64(n[0][0])
+    output_float64(n[0][1])
+    output_float64(n[1][0])
+    output_float64(n[1][1])
+
 def run() -> int32:
     test_ndarray_ctor()
     test_ndarray_empty()
@@ -60,5 +68,6 @@ def run() -> int32:
     test_ndarray_full()
     test_ndarray_eye()
     test_ndarray_identity()
+    test_ndarray_fill()
 
     return 0

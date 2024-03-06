@@ -323,17 +323,27 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         } else {
             unreachable!()
         };
-    let (
-        (ndarray_dtype_ty, _), 
-        (ndarray_ndims_ty, _),
-    ) = if let TypeEnum::TObj { params, .. } = &*primitives.1.get_ty(primitives.0.ndarray) {
-        (
-            params.iter().next().map(|(var_id, ty)| (*ty, *var_id)).unwrap(),
-            params.iter().nth(1).map(|(var_id, ty)| (*ty, *var_id)).unwrap(),
-        )
-    } else {
+
+    let TypeEnum::TObj {
+        fields: ndarray_fields,
+        params: ndarray_params,
+        ..
+    } = &*primitives.1.get_ty(primitives.0.ndarray) else {
         unreachable!()
     };
+
+    let (ndarray_dtype_ty, ndarray_dtype_var_id) = ndarray_params
+        .iter()
+        .next()
+        .map(|(var_id, ty)| (*ty, *var_id))
+        .unwrap();
+    let (ndarray_ndims_ty, ndarray_ndims_var_id) = ndarray_params
+        .iter()
+        .nth(1)
+        .map(|(var_id, ty)| (*ty, *var_id))
+        .unwrap();
+    let ndarray_fill_ty = *ndarray_fields.get(&"fill".into()).unwrap();
+
     let top_level_def_list = vec![
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
             PRIMITIVE_DEF_IDS.int32,
@@ -507,10 +517,28 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             object_id: PRIMITIVE_DEF_IDS.ndarray,
             type_vars: vec![ndarray_dtype_ty, ndarray_ndims_ty],
             fields: Vec::default(),
-            methods: Vec::default(),
+            methods: vec![
+                ("fill".into(), ndarray_fill_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 1)),
+            ],
             ancestors: Vec::default(),
             constructor: None,
             resolver: None,
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.fill".into(),
+            simple_name: "fill".into(),
+            signature: ndarray_fill_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |ctx, obj, fun, args, generator| {
+                    gen_ndarray_fill(ctx, &obj, fun, &args, generator)?;
+                    Ok(None)
+                },
+            )))),
             loc: None,
         })),
         Arc::new(RwLock::new(TopLevelDef::Function {

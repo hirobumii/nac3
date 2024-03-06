@@ -375,9 +375,6 @@ fn call_ndarray_empty_impl<'ctx>(
 
 /// Generates LLVM IR for populating the entire `NDArray` using a lambda with its flattened index as
 /// its input.
-///
-/// Note that this differs from `ndarray.fill`, which instead replaces all first-dimension elements
-/// with the given value (as opposed to all elements within the array).
 fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, 'a>,
@@ -441,10 +438,7 @@ fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
 }
 
 /// Generates LLVM IR for populating the entire `NDArray` using a lambda with the dimension-indices
-/// as its input
-///
-/// Note that this differs from `ndarray.fill`, which instead replaces all first-dimension elements
-/// with the given value (as opposed to all elements within the array).
+/// as its input.
 fn ndarray_fill_indexed<'ctx, ValueFn>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -831,4 +825,57 @@ pub fn gen_ndarray_identity<'ctx>(
         n_arg.into_int_value(),
         llvm_usize.const_zero(),
     ).map(NDArrayValue::into)
+}
+
+/// Generates LLVM IR for `ndarray.fill`.
+pub fn gen_ndarray_fill<'ctx>(
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+) -> Result<(), String> {
+    assert!(obj.is_some());
+    assert_eq!(args.len(), 1);
+
+    let llvm_usize = generator.get_size_type(context.ctx);
+
+    let this_ty = obj.as_ref().unwrap().0;
+    let this_arg = obj.as_ref().unwrap().1.clone()
+        .to_basic_value_enum(context, generator, this_ty)?
+        .into_pointer_value();
+    let value_ty = fun.0.args[0].ty;
+    let value_arg = args[0].1.clone()
+        .to_basic_value_enum(context, generator, value_ty)?;
+
+    ndarray_fill_flattened(
+        generator,
+        context,
+        NDArrayValue::from_ptr_val(this_arg, llvm_usize, None),
+        |generator, ctx, _| {
+            let value = if value_arg.is_pointer_value() {
+                let llvm_i1 = ctx.ctx.bool_type();
+
+                let copy = generator.gen_var_alloc(ctx, value_arg.get_type(), None)?;
+
+                call_memcpy_generic(
+                    ctx,
+                    copy,
+                    value_arg.into_pointer_value(),
+                    value_arg.get_type().size_of().map(Into::into).unwrap(),
+                    llvm_i1.const_zero(),
+                );
+
+                copy.into()
+            } else if value_arg.is_int_value() || value_arg.is_float_value() {
+                value_arg
+            } else {
+                unreachable!()
+            };
+
+            Ok(value)
+        }
+    )?;
+
+    Ok(())
 }
