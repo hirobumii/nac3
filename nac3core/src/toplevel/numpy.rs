@@ -654,6 +654,56 @@ fn call_ndarray_eye_impl<'ctx>(
     Ok(ndarray)
 }
 
+/// LLVM-typed implementation for generating the implementation for `ndarray.copy`.
+///
+/// * `elem_ty` - The element type of the `NDArray`.
+fn ndarray_copy_impl<'ctx>(
+    generator: &mut dyn CodeGenerator,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    elem_ty: Type,
+    this: NDArrayValue<'ctx>,
+) -> Result<NDArrayValue<'ctx>, String> {
+    let llvm_i1 = ctx.ctx.bool_type();
+
+    let ndarray = create_ndarray_dyn_shape(
+        generator,
+        ctx,
+        elem_ty,
+        &this,
+        |_, ctx, shape| {
+            Ok(shape.load_ndims(ctx))
+        },
+        |generator, ctx, shape, idx| {
+            Ok(shape.get_dims().get(ctx, generator, idx, None))
+        },
+    )?;
+
+    let len = call_ndarray_calc_size(
+        generator,
+        ctx,
+        ndarray.load_ndims(ctx),
+        ndarray.get_dims().get_ptr(ctx),
+    );
+    let sizeof_ty = ctx.get_llvm_type(generator, elem_ty);
+    let len_bytes = ctx.builder
+        .build_int_mul(
+            len,
+            sizeof_ty.size_of().unwrap(),
+            "",
+        )
+        .unwrap();
+
+    call_memcpy_generic(
+        ctx,
+        ndarray.get_data().get_ptr(ctx),
+        this.get_data().get_ptr(ctx),
+        len_bytes,
+        llvm_i1.const_zero(),
+    );
+
+    Ok(ndarray)
+}
+
 /// Generates LLVM IR for `ndarray.empty`.
 pub fn gen_ndarray_empty<'ctx>(
     context: &mut CodeGenContext<'ctx, '_>,
@@ -823,6 +873,36 @@ pub fn gen_ndarray_identity<'ctx>(
         n_arg.into_int_value(),
         n_arg.into_int_value(),
         llvm_usize.const_zero(),
+    ).map(NDArrayValue::into)
+}
+
+/// Generates LLVM IR for `ndarray.copy`.
+pub fn gen_ndarray_copy<'ctx>(
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    _fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+) -> Result<PointerValue<'ctx>, String> {
+    assert!(obj.is_some());
+    assert!(args.is_empty());
+
+    let llvm_usize = generator.get_size_type(context.ctx);
+
+    let this_ty = obj.as_ref().unwrap().0;
+    let (this_elem_ty, _) = unpack_ndarray_tvars(&mut context.unifier, this_ty);
+    let this_arg = obj
+        .as_ref()
+        .unwrap()
+        .1
+        .clone()
+        .to_basic_value_enum(context, generator, this_ty)?;
+
+    ndarray_copy_impl(
+        generator,
+        context,
+        this_elem_ty,
+        NDArrayValue::from_ptr_val(this_arg.into_pointer_value(), llvm_usize, None),
     ).map(NDArrayValue::into)
 }
 

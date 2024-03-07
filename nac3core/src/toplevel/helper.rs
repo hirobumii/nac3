@@ -203,6 +203,15 @@ impl TopLevelComposer {
 
         let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
         let ndarray_ndims_tvar = unifier.get_fresh_const_generic_var(size_t_ty, Some("ndarray_ndims".into()), None);
+        let ndarray_copy_fun_ret_ty = unifier.get_fresh_var(None, None);
+        let ndarray_copy_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
+            args: vec![],
+            ret: ndarray_copy_fun_ret_ty.0,
+            vars: VarMap::from([
+                (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
+                (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
+            ]),
+        }));
         let ndarray_fill_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![
                 FuncArg {
@@ -220,6 +229,7 @@ impl TopLevelComposer {
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.ndarray,
             fields: Mapping::from([
+                ("copy".into(), (ndarray_copy_fun_ty, true)),
                 ("fill".into(), (ndarray_fill_fun_ty, true)),
             ]),
             params: VarMap::from([
@@ -227,6 +237,8 @@ impl TopLevelComposer {
                 (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
             ]),
         });
+
+        unifier.unify(ndarray_copy_fun_ret_ty.0, ndarray).unwrap();
 
         let primitives = PrimitiveStore {
             int32,

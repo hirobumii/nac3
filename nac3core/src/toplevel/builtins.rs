@@ -342,6 +342,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         .nth(1)
         .map(|(var_id, ty)| (*ty, *var_id))
         .unwrap();
+    let ndarray_copy_ty = *ndarray_fields.get(&"copy".into()).unwrap();
     let ndarray_fill_ty = *ndarray_fields.get(&"fill".into()).unwrap();
 
     let top_level_def_list = vec![
@@ -518,11 +519,28 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             type_vars: vec![ndarray_dtype_ty, ndarray_ndims_ty],
             fields: Vec::default(),
             methods: vec![
-                ("fill".into(), ndarray_fill_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 1)),
+                ("copy".into(), ndarray_copy_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 1)),
+                ("fill".into(), ndarray_fill_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 2)),
             ],
             ancestors: Vec::default(),
             constructor: None,
             resolver: None,
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.copy".into(),
+            simple_name: "copy".into(),
+            signature: ndarray_copy_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |ctx, obj, fun, args, generator| {
+                    gen_ndarray_copy(ctx, &obj, fun, &args, generator)
+                        .map(|val| Some(val.as_basic_value_enum()))
+                },
+            )))),
             loc: None,
         })),
         Arc::new(RwLock::new(TopLevelDef::Function {
