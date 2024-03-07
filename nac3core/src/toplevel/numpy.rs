@@ -635,7 +635,7 @@ fn call_ndarray_eye_impl<'ctx>(
             let col_with_offset = ctx.builder
                 .build_int_add(
                     col,
-                    ctx.builder.build_int_z_extend_or_bit_cast(offset, llvm_usize, "").unwrap(),
+                    ctx.builder.build_int_s_extend_or_bit_cast(offset, llvm_usize, "").unwrap(),
                     "",
                 )
                 .unwrap();
