@@ -205,8 +205,8 @@ uint32_t __nac3_ndarray_calc_size(
     uint32_t num_elems = 1;
     for (uint32_t i = 0; i < list_len; ++i) {
         uint64_t val = list_data[i];
-        __builtin_assume(val >= 0);
-        num_elems *= list_data[i];
+        __builtin_assume(val > 0);
+        num_elems *= val;
     }
     return num_elems;
 }
@@ -218,8 +218,8 @@ uint64_t __nac3_ndarray_calc_size64(
     uint64_t num_elems = 1;
     for (uint64_t i = 0; i < list_len; ++i) {
         uint64_t val = list_data[i];
-        __builtin_assume(val >= 0);
-       num_elems *= list_data[i];
+        __builtin_assume(val > 0);
+       num_elems *= val;
     }
     return num_elems;
 }
@@ -233,6 +233,7 @@ void __nac3_ndarray_calc_nd_indices(
     uint32_t stride = 1;
     for (uint32_t dim = 0; dim < num_dims; dim++) {
         uint32_t i = num_dims - dim - 1;
+        __builtin_assume(dims[i] > 0);
         idxs[i] = (index / stride) % dims[i];
         stride *= dims[i];
     }
@@ -247,6 +248,7 @@ void __nac3_ndarray_calc_nd_indices64(
     uint64_t stride = 1;
     for (uint64_t dim = 0; dim < num_dims; dim++) {
         uint64_t i = num_dims - dim - 1;
+        __builtin_assume(dims[i] > 0);
         idxs[i] = (index / stride) % dims[i];
         stride *= dims[i];
     }
@@ -266,6 +268,7 @@ uint32_t __nac3_ndarray_flatten_index(
             idx += (stride * indices[ri]);
         }
 
+        __builtin_assume(dims[i] > 0);
         stride *= dims[ri];
     }
     return idx;
@@ -285,6 +288,7 @@ uint64_t __nac3_ndarray_flatten_index64(
             idx += (stride * indices[ri]);
         }
 
+        __builtin_assume(dims[i] > 0);
         stride *= dims[ri];
     }
     return idx;
