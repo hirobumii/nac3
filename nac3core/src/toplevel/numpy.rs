@@ -592,7 +592,6 @@ fn call_ndarray_eye_impl<'ctx>(
     ncols: IntValue<'ctx>,
     offset: IntValue<'ctx>,
 ) -> Result<NDArrayValue<'ctx>, String> {
-    let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
     let llvm_usize_2 = llvm_usize.array_type(2);
 
@@ -623,12 +622,12 @@ fn call_ndarray_eye_impl<'ctx>(
         |generator, ctx, indices| {
             let row = ctx.build_gep_and_load(
                 indices,
-                &[llvm_i32.const_zero()],
+                &[llvm_usize.const_int(0, false)],
                 None,
             ).into_int_value();
             let col = ctx.build_gep_and_load(
                 indices,
-                &[llvm_i32.const_int(1, true)],
+                &[llvm_usize.const_int(1, false)],
                 None,
             ).into_int_value();
 
