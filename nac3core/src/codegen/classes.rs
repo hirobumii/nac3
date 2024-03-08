@@ -980,7 +980,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     /// # Safety
     ///
     /// This function should be called with valid indices.
-    pub unsafe fn get_unsafe_const(
+    pub unsafe fn get_unchecked_const(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut dyn CodeGenerator,
@@ -994,7 +994,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     /// # Safety
     ///
     /// This function should be called with valid indices.
-    pub unsafe fn get_unsafe(
+    pub unsafe fn get_unchecked(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &dyn CodeGenerator,
