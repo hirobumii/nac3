@@ -536,6 +536,84 @@ pub fn gen_for_callback<'ctx, 'a, I, InitFn, CondFn, BodyFn, UpdateFn>(
     Ok(())
 }
 
+/// Generates a C-style monotonically-increasing `for` construct using lambdas, similar to the 
+/// following C code:
+///
+/// ```c
+/// for (int x = init_val; x /* < or <= ; see `max_val` */ max_val; x += incr_val) {
+///     body(x);
+/// }
+/// ```
+/// 
+/// * `init_val` - The initial value of the loop variable. The type of this value will also be used 
+/// as the type of the loop variable.
+/// * `max_val` - A tuple containing the maximum value of the loop variable, and whether the maximum
+/// value should be treated as inclusive (as opposed to exclusive).
+/// * `body` - A lambda containing IR statements within the loop body.
+/// * `incr_val` - The value to increment the loop variable on each iteration.
+pub fn gen_for_callback_incrementing<'ctx, 'a, BodyFn>(
+    generator: &mut dyn CodeGenerator,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    init_val: IntValue<'ctx>,
+    max_val: (IntValue<'ctx>, bool),
+    body: BodyFn,
+    incr_val: IntValue<'ctx>,
+) -> Result<(), String>
+    where
+        BodyFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, IntValue<'ctx>) -> Result<(), String>,
+{
+    let init_val_t = init_val.get_type();
+
+    gen_for_callback(
+        generator,
+        ctx,
+        |generator, ctx| {
+            let i_addr = generator.gen_var_alloc(ctx, init_val_t.into(), None)?;
+            ctx.builder.build_store(i_addr, init_val).unwrap();
+
+            Ok(i_addr)
+        },
+        |_, ctx, i_addr| {
+            let cmp_op = if max_val.1 {
+                IntPredicate::ULE
+            } else {
+                IntPredicate::ULT
+            };
+
+            let i = ctx.builder
+                .build_load(i_addr, "")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let max_val = ctx.builder
+                .build_int_z_extend_or_bit_cast(max_val.0, init_val_t, "")
+                .unwrap();
+
+            Ok(ctx.builder.build_int_compare(cmp_op, i, max_val, "").unwrap())
+        },
+        |generator, ctx, i_addr| {
+            let i = ctx.builder
+                .build_load(i_addr, "")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+
+            body(generator, ctx, i)
+        },
+        |_, ctx, i_addr| {
+            let i = ctx.builder
+                .build_load(i_addr, "")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let incr_val = ctx.builder
+                .build_int_z_extend_or_bit_cast(incr_val, init_val_t, "")
+                .unwrap();
+            let i = ctx.builder.build_int_add(i, incr_val, "").unwrap();
+            ctx.builder.build_store(i_addr, i).unwrap();
+
+            Ok(())
+        },
+    )
+}
+
 /// See [`CodeGenerator::gen_while`].
 pub fn gen_while<G: CodeGenerator>(
     generator: &mut G,

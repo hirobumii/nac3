@@ -14,7 +14,7 @@ use crate::{
             call_ndarray_calc_size,
         },
         llvm_intrinsics::call_memcpy_generic,
-        stmt::gen_for_callback
+        stmt::gen_for_callback_incrementing,
     },
     symbol_resolver::ValueEnum,
     toplevel::{
@@ -52,30 +52,13 @@ fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
     assert!(llvm_ndarray_data_t.is_sized());
 
     // Assert that all dimensions are non-negative
-    gen_for_callback(
+    let shape_len = shape_len_fn(generator, ctx, shape)?;
+    gen_for_callback_incrementing(
         generator,
         ctx,
-        |generator, ctx| {
-            let i = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
-            ctx.builder.build_store(i, llvm_usize.const_zero()).unwrap();
-
-            Ok(i)
-        },
-        |generator, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let shape_len = shape_len_fn(generator, ctx, shape)?;
-            debug_assert!(shape_len.get_type().get_bit_width() <= llvm_usize.get_bit_width());
-
-            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, shape_len, "").unwrap())
-        },
-        |generator, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
+        llvm_usize.const_zero(),
+        (shape_len, false),
+        |generator, ctx, i| {
             let shape_dim = shape_data_fn(generator, ctx, shape, i)?;
             debug_assert!(shape_dim.get_type().get_bit_width() <= llvm_usize.get_bit_width());
 
@@ -94,16 +77,7 @@ fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
 
             Ok(())
         },
-        |_, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "").unwrap();
-            ctx.builder.build_store(i_addr, i).unwrap();
-
-            Ok(())
-        },
+        llvm_usize.const_int(1, false),
     )?;
 
     let ndarray = generator.gen_var_alloc(
@@ -120,30 +94,13 @@ fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
     ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
 
     // Copy the dimension sizes from shape to ndarray.dims
-    gen_for_callback(
+    let shape_len = shape_len_fn(generator, ctx, shape)?;
+    gen_for_callback_incrementing(
         generator,
         ctx,
-        |generator, ctx| {
-            let i = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
-            ctx.builder.build_store(i, llvm_usize.const_zero()).unwrap();
-
-            Ok(i)
-        },
-        |generator, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let shape_len = shape_len_fn(generator, ctx, shape)?;
-            debug_assert!(shape_len.get_type().get_bit_width() <= llvm_usize.get_bit_width());
-
-            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, shape_len, "").unwrap())
-        },
-        |generator, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
+        llvm_usize.const_zero(),
+        (shape_len, false),
+        |generator, ctx, i| {
             let shape_dim = shape_data_fn(generator, ctx, shape, i)?;
             debug_assert!(shape_dim.get_type().get_bit_width() <= llvm_usize.get_bit_width());
             let shape_dim = ctx.builder
@@ -158,16 +115,7 @@ fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
 
             Ok(())
         },
-        |_, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "").unwrap();
-            ctx.builder.build_store(i_addr, i).unwrap();
-
-            Ok(())
-        },
+        llvm_usize.const_int(1, false),
     )?;
 
     let ndarray_num_elems = call_ndarray_calc_size(
@@ -342,28 +290,12 @@ fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
         ndarray.dim_sizes().as_ptr_value(ctx),
     );
 
-    gen_for_callback(
+    gen_for_callback_incrementing(
         generator,
         ctx,
-        |generator, ctx| {
-            let i = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
-            ctx.builder.build_store(i, llvm_usize.const_zero()).unwrap();
-
-            Ok(i)
-        },
-        |_, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-
-            Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, ndarray_num_elems, "").unwrap())
-        },
-        |generator, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
+        llvm_usize.const_zero(),
+        (ndarray_num_elems, false),
+        |generator, ctx, i| {
             let elem = unsafe {
                 ndarray.data().ptr_to_data_flattened_unchecked(ctx, i, None)
             };
@@ -373,16 +305,7 @@ fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
 
             Ok(())
         },
-        |_, ctx, i_addr| {
-            let i = ctx.builder
-                .build_load(i_addr, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "").unwrap();
-            ctx.builder.build_store(i_addr, i).unwrap();
-
-            Ok(())
-        },
+        llvm_usize.const_int(1, false),
     )
 }
 

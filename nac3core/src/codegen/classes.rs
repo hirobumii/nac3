@@ -8,7 +8,7 @@ use crate::codegen::{
     CodeGenerator,
     irrt::{call_ndarray_calc_size, call_ndarray_flatten_index, call_ndarray_flatten_index_const},
     llvm_intrinsics::call_int_umin,
-    stmt::gen_for_callback,
+    stmt::gen_for_callback_incrementing,
 };
 
 #[cfg(not(debug_assertions))]
@@ -940,30 +940,15 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
             ctx.current_loc,
         );
 
-        gen_for_callback(
+        let indices_len = indices.load_size(ctx, None);
+        let ndarray_len = self.0.load_ndims(ctx);
+        let len = call_int_umin(ctx, indices_len, ndarray_len, None);
+        gen_for_callback_incrementing(
             generator,
             ctx,
-            |generator, ctx| {
-                let i = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
-                ctx.builder.build_store(i, llvm_usize.const_zero()).unwrap();
-
-                Ok(i)
-            },
-            |_, ctx, i_addr| {
-                let indices_len = indices.load_size(ctx, None);
-                let ndarray_len = self.0.load_ndims(ctx);
-
-                let len = call_int_umin(ctx, indices_len, ndarray_len, None);
-
-                let i = ctx.builder.build_load(i_addr, "")
-                    .map(BasicValueEnum::into_int_value)
-                    .unwrap();
-                Ok(ctx.builder.build_int_compare(IntPredicate::SLT, i, len, "").unwrap())
-            },
-            |generator, ctx, i_addr| {
-                let i = ctx.builder.build_load(i_addr, "")
-                    .map(BasicValueEnum::into_int_value)
-                    .unwrap();
+            llvm_usize.const_zero(),
+            (len, false),
+            |generator, ctx, i| {
                 let (dim_idx, dim_sz) = unsafe {
                     (
                         indices.data().get_unchecked(ctx, i, None).into_int_value(),
@@ -989,16 +974,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
 
                 Ok(())
             },
-            |_, ctx, i_addr| {
-                let i = ctx.builder
-                    .build_load(i_addr, "")
-                    .map(BasicValueEnum::into_int_value)
-                    .unwrap();
-                let i = ctx.builder.build_int_add(i, llvm_usize.const_int(1, true), "").unwrap();
-                ctx.builder.build_store(i_addr, i).unwrap();
-
-                Ok(())
-            },
+            llvm_usize.const_int(1, false),
         ).unwrap();
 
         unsafe {
