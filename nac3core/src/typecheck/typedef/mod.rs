@@ -699,7 +699,7 @@ impl Unifier {
                 self.set_a_to_b(a, x);
             }
             (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TTuple { ty }) => {
-                let len = ty.len() as i32;
+                let len = i32::try_from(ty.len()).unwrap();
                 for (k, v) in fields {
                     match *k {
                         RecordKey::Int(i) => {

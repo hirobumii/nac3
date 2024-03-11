@@ -74,7 +74,8 @@ impl SymbolResolver for Resolver {
         if let Some(id) = str_store.get(s) {
             *id
         } else {
-            let id = str_store.len() as i32;
+            let id = i32::try_from(str_store.len())
+                .expect("Symbol resolver string store size exceeds max capacity (i32::MAX)");
             str_store.insert(s.to_string(), id);
             id
         }

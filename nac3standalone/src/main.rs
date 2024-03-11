@@ -247,6 +247,8 @@ fn handle_assignment_pattern(
 }
 
 fn main() {
+    const SIZE_T: u32 = usize::BITS;
+
     let cli = CommandLineArgs::parse();
     let CommandLineArgs {
         file_name,
@@ -287,7 +289,6 @@ fn main() {
         // The default behavior for -O<n> where n>3 defaults to O3 for both Clang and GCC
         _ => OptimizationLevel::Aggressive,
     };
-    const SIZE_T: u32 = 64;
 
     let program = match fs::read_to_string(file_name.clone()) {
         Ok(program) => program,

@@ -21,7 +21,7 @@ fn main() {
         match env::var("PROFILE").as_deref() {
             Ok("debug") => "-O0",
             Ok("release") => "-O3",
-            flavor => panic!("Unknown or missing build flavor {:?}", flavor),
+            flavor => panic!("Unknown or missing build flavor {flavor:?}"),
         },
         "-emit-llvm",
         "-S",
