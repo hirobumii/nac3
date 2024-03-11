@@ -5,11 +5,14 @@ use crate::{
         expr::destructure_range,
         irrt::*,
         llvm_intrinsics::*,
+        numpy::*,
         stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
-    toplevel::helper::PRIMITIVE_DEF_IDS,
-    toplevel::numpy::*,
+    toplevel::{
+        helper::PRIMITIVE_DEF_IDS,
+        numpy::make_ndarray_ty,
+    },
     typecheck::typedef::VarMap,
 };
 use inkwell::{

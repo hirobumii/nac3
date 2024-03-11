@@ -45,6 +45,7 @@ pub mod expr;
 mod generator;
 pub mod irrt;
 pub mod llvm_intrinsics;
+pub mod numpy;
 pub mod stmt;
 
 #[cfg(test)]
