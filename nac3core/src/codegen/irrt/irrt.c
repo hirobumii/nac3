@@ -8,6 +8,8 @@ typedef unsigned _BitInt(64) uint64_t;
 # define MAX(a, b) (a > b ? a : b)
 # define MIN(a, b) (a > b ? b : a)
 
+# define NULL ((void *) 0)
+
 // adapted from GNU Scientific Library: https://git.savannah.gnu.org/cgit/gsl.git/tree/sys/pow_int.c
 // need to make sure `exp >= 0` before calling this function
 #define DEF_INT_EXP(T) T __nac3_int_exp_##T( \
@@ -292,4 +294,88 @@ uint64_t __nac3_ndarray_flatten_index64(
         stride *= dims[ri];
     }
     return idx;
+}
+
+void __nac3_ndarray_calc_broadcast(
+    const uint32_t *lhs_dims,
+    uint32_t lhs_ndims,
+    const uint32_t *rhs_dims,
+    uint32_t rhs_ndims,
+    uint32_t *out_dims
+) {
+    uint32_t max_ndims = lhs_ndims > rhs_ndims ? lhs_ndims : rhs_ndims;
+
+    for (uint32_t i = 0; i < max_ndims; ++i) {
+        uint32_t *lhs_dim_sz = i < lhs_ndims ? &lhs_dims[lhs_ndims - i - 1] : NULL;
+        uint32_t *rhs_dim_sz = i < rhs_ndims ? &rhs_dims[rhs_ndims - i - 1] : NULL;
+        uint32_t *out_dim = &out_dims[max_ndims - i - 1];
+
+        if (lhs_dim_sz == NULL) {
+            *out_dim = *rhs_dim_sz;
+        } else if (rhs_dim_sz == NULL) {
+            *out_dim = *lhs_dim_sz;
+        } else if (*lhs_dim_sz == 1) {
+            *out_dim = *rhs_dim_sz;
+        } else if (*rhs_dim_sz == 1) {
+            *out_dim = *lhs_dim_sz;
+        } else if (*lhs_dim_sz == *rhs_dim_sz) {
+            *out_dim = *lhs_dim_sz;
+        } else {
+            __builtin_unreachable();
+        }
+    }
+}
+
+void __nac3_ndarray_calc_broadcast64(
+    const uint64_t *lhs_dims,
+    uint64_t lhs_ndims,
+    const uint64_t *rhs_dims,
+    uint64_t rhs_ndims,
+    uint64_t *out_dims
+) {
+    uint64_t max_ndims = lhs_ndims > rhs_ndims ? lhs_ndims : rhs_ndims;
+
+    for (uint64_t i = 0; i < max_ndims; ++i) {
+        uint64_t *lhs_dim_sz = i < lhs_ndims ? &lhs_dims[lhs_ndims - i - 1] : NULL;
+        uint64_t *rhs_dim_sz = i < rhs_ndims ? &rhs_dims[rhs_ndims - i - 1] : NULL;
+        uint64_t *out_dim = &out_dims[max_ndims - i - 1];
+
+        if (lhs_dim_sz == NULL) {
+            *out_dim = *rhs_dim_sz;
+        } else if (rhs_dim_sz == NULL) {
+            *out_dim = *lhs_dim_sz;
+        } else if (*lhs_dim_sz == 1) {
+            *out_dim = *rhs_dim_sz;
+        } else if (*rhs_dim_sz == 1) {
+            *out_dim = *lhs_dim_sz;
+        } else if (*lhs_dim_sz == *rhs_dim_sz) {
+            *out_dim = *lhs_dim_sz;
+        } else {
+            __builtin_unreachable();
+        }
+    }
+}
+
+void __nac3_ndarray_calc_broadcast_idx(
+    const uint32_t *src_dims,
+    uint32_t src_ndims,
+    const uint32_t *in_idx,
+    uint32_t *out_idx
+) {
+    for (uint32_t i = 0; i < src_ndims; ++i) {
+        uint32_t src_i = src_ndims - i - 1;
+        out_idx[src_i] = src_dims[src_i] == 1 ? 0 : in_idx[src_i];
+    }
+}
+
+void __nac3_ndarray_calc_broadcast_idx64(
+    const uint64_t *src_dims,
+    uint64_t src_ndims,
+    const uint32_t *in_idx,
+    uint32_t *out_idx
+) {
+    for (uint64_t i = 0; i < src_ndims; ++i) {
+        uint64_t src_i = src_ndims - i - 1;
+        out_idx[src_i] = src_dims[src_i] == 1 ? 0 : (uint32_t) in_idx[src_i];
+    }
 }
