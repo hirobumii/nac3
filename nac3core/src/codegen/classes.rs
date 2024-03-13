@@ -67,19 +67,19 @@ impl<'ctx> ListValue<'ctx> {
 
     /// Returns the underlying [`PointerValue`] pointing to the `list` instance.
     #[must_use]
-    pub fn get_ptr(&self) -> PointerValue<'ctx> {
+    pub fn as_ptr_value(&self) -> PointerValue<'ctx> {
         self.0
     }
 
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
     /// on the field.
-    fn get_data_pptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn pptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.1.map(|v| format!("{v}.data.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.get_ptr(),
+                self.as_ptr_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_zero()],
                 var_name.as_str(),
             ).unwrap()
@@ -87,7 +87,7 @@ impl<'ctx> ListValue<'ctx> {
     }
 
     /// Returns the pointer to the field storing the size of this `list`.
-    fn get_size_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn ptr_to_size(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.1.map(|v| format!("{v}.size.addr")).unwrap_or_default();
 
@@ -102,7 +102,7 @@ impl<'ctx> ListValue<'ctx> {
 
     /// Stores the array of data elements `data` into this instance.
     fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
-        ctx.builder.build_store(self.get_data_pptr(ctx), data).unwrap();
+        ctx.builder.build_store(self.pptr_to_data(ctx), data).unwrap();
     }
 
     /// Convenience method for creating a new array storing data elements with the given element
@@ -122,7 +122,7 @@ impl<'ctx> ListValue<'ctx> {
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
     /// on the field.
     #[must_use]
-    pub fn get_data(&self) -> ListDataProxy<'ctx> {
+    pub fn data(&self) -> ListDataProxy<'ctx> {
         ListDataProxy(*self)
     }
 
@@ -135,13 +135,13 @@ impl<'ctx> ListValue<'ctx> {
     ) {
         debug_assert_eq!(size.get_type(), generator.get_size_type(ctx.ctx));
 
-        let psize = self.get_size_ptr(ctx);
+        let psize = self.ptr_to_size(ctx);
         ctx.builder.build_store(psize, size).unwrap();
     }
 
     /// Returns the size of this `list` as a value.
     pub fn load_size(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
-        let psize = self.get_size_ptr(ctx);
+        let psize = self.ptr_to_size(ctx);
         let var_name = name
             .map(ToString::to_string)
             .or_else(|| self.1.map(|v| format!("{v}.size")))
@@ -155,7 +155,7 @@ impl<'ctx> ListValue<'ctx> {
 
 impl<'ctx> From<ListValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: ListValue<'ctx>) -> Self {
-        value.get_ptr()
+        value.as_ptr_value()
     }
 }
 
@@ -165,10 +165,10 @@ pub struct ListDataProxy<'ctx>(ListValue<'ctx>);
 
 impl<'ctx> ListDataProxy<'ctx> {
     /// Returns the single-indirection pointer to the array.
-    pub fn get_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    pub fn as_ptr_value(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let var_name = self.0.1.map(|v| format!("{v}.data")).unwrap_or_default();
 
-        ctx.builder.build_load(self.0.get_data_pptr(ctx), var_name.as_str())
+        ctx.builder.build_load(self.0.pptr_to_data(ctx), var_name.as_str())
             .map(BasicValueEnum::into_pointer_value)
             .unwrap()
     }
@@ -187,7 +187,7 @@ impl<'ctx> ListDataProxy<'ctx> {
             .unwrap_or_default();
 
         ctx.builder.build_in_bounds_gep(
-            self.get_ptr(ctx),
+            self.as_ptr_value(ctx),
             &[idx],
             var_name.as_str(),
         ).unwrap()
@@ -295,11 +295,11 @@ impl<'ctx> RangeValue<'ctx> {
 
     /// Returns the underlying [`PointerValue`] pointing to the `range` instance.
     #[must_use]
-    pub fn get_ptr(&self) -> PointerValue<'ctx> {
+    pub fn as_ptr_value(&self) -> PointerValue<'ctx> {
         self.0
     }
 
-    fn get_start_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn ptr_to_start(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.1.map(|v| format!("{v}.start.addr")).unwrap_or_default();
 
@@ -312,7 +312,7 @@ impl<'ctx> RangeValue<'ctx> {
         }
     }
 
-    fn get_end_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn ptr_to_end(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.1.map(|v| format!("{v}.end.addr")).unwrap_or_default();
 
@@ -325,7 +325,7 @@ impl<'ctx> RangeValue<'ctx> {
         }
     }
 
-    fn get_step_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn ptr_to_step(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.1.map(|v| format!("{v}.step.addr")).unwrap_or_default();
 
@@ -346,13 +346,13 @@ impl<'ctx> RangeValue<'ctx> {
     ) {
         debug_assert_eq!(start.get_type().get_bit_width(), 32);
 
-        let pstart = self.get_start_ptr(ctx);
+        let pstart = self.ptr_to_start(ctx);
         ctx.builder.build_store(pstart, start).unwrap();
     }
 
     /// Returns the `start` value of this `range`.
     pub fn load_start(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
-        let pstart = self.get_start_ptr(ctx);
+        let pstart = self.ptr_to_start(ctx);
         let var_name = name
             .map(ToString::to_string)
             .or_else(|| self.1.map(|v| format!("{v}.start")))
@@ -371,13 +371,13 @@ impl<'ctx> RangeValue<'ctx> {
     ) {
         debug_assert_eq!(end.get_type().get_bit_width(), 32);
 
-        let pend = self.get_start_ptr(ctx);
+        let pend = self.ptr_to_start(ctx);
         ctx.builder.build_store(pend, end).unwrap();
     }
 
     /// Returns the `end` value of this `range`.
     pub fn load_end(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
-        let pend = self.get_end_ptr(ctx);
+        let pend = self.ptr_to_end(ctx);
         let var_name = name
             .map(ToString::to_string)
             .or_else(|| self.1.map(|v| format!("{v}.end")))
@@ -396,13 +396,13 @@ impl<'ctx> RangeValue<'ctx> {
     ) {
         debug_assert_eq!(step.get_type().get_bit_width(), 32);
 
-        let pstep = self.get_start_ptr(ctx);
+        let pstep = self.ptr_to_start(ctx);
         ctx.builder.build_store(pstep, step).unwrap();
     }
 
     /// Returns the `step` value of this `range`.
     pub fn load_step(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
-        let pstep = self.get_step_ptr(ctx);
+        let pstep = self.ptr_to_step(ctx);
         let var_name = name
             .map(ToString::to_string)
             .or_else(|| self.1.map(|v| format!("{v}.step")))
@@ -416,7 +416,7 @@ impl<'ctx> RangeValue<'ctx> {
 
 impl<'ctx> From<RangeValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: RangeValue<'ctx>) -> Self {
-        value.get_ptr()
+        value.as_ptr_value()
     }
 }
 
@@ -494,12 +494,12 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Returns the underlying [`PointerValue`] pointing to the `NDArray` instance.
     #[must_use]
-    pub fn get_ptr(&self) -> PointerValue<'ctx> {
+    pub fn as_ptr_value(&self) -> PointerValue<'ctx> {
         self.0
     }
 
     /// Returns the pointer to the field storing the number of dimensions of this `NDArray`.
-    fn get_ndims(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn ptr_to_ndims(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.1.map(|v| format!("{v}.ndims.addr")).unwrap_or_default();
 
@@ -521,13 +521,13 @@ impl<'ctx> NDArrayValue<'ctx> {
     ) {
         debug_assert_eq!(ndims.get_type(), generator.get_size_type(ctx.ctx));
 
-        let pndims = self.get_ndims(ctx);
+        let pndims = self.ptr_to_ndims(ctx);
         ctx.builder.build_store(pndims, ndims).unwrap();
     }
 
     /// Returns the number of dimensions of this `NDArray` as a value.
     pub fn load_ndims(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        let pndims = self.get_ndims(ctx);
+        let pndims = self.ptr_to_ndims(ctx);
         ctx.builder.build_load(pndims, "")
             .map(BasicValueEnum::into_int_value)
             .unwrap()
@@ -535,13 +535,13 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Returns the double-indirection pointer to the `dims` array, as if by calling `getelementptr`
     /// on the field.
-    fn get_dims_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn ptr_to_dims(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.1.map(|v| format!("{v}.dims.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.get_ptr(),
+                self.as_ptr_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
                 var_name.as_str(),
             ).unwrap()
@@ -549,35 +549,35 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 
     /// Stores the array of dimension sizes `dims` into this instance.
-    fn store_dims(&self, ctx: &CodeGenContext<'ctx, '_>, dims: PointerValue<'ctx>) {
-        ctx.builder.build_store(self.get_dims_ptr(ctx), dims).unwrap();
+    fn store_dim_sizes(&self, ctx: &CodeGenContext<'ctx, '_>, dims: PointerValue<'ctx>) {
+        ctx.builder.build_store(self.ptr_to_dims(ctx), dims).unwrap();
     }
 
     /// Convenience method for creating a new array storing dimension sizes with the given `size`.
-    pub fn create_dims(
+    pub fn create_dim_sizes(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
         llvm_usize: IntType<'ctx>,
         size: IntValue<'ctx>,
     ) {
-        self.store_dims(ctx, ctx.builder.build_array_alloca(llvm_usize, size, "").unwrap());
+        self.store_dim_sizes(ctx, ctx.builder.build_array_alloca(llvm_usize, size, "").unwrap());
     }
 
     /// Returns a proxy object to the field storing the size of each dimension of this `NDArray`.
     #[must_use]
-    pub fn get_dims(&self) -> NDArrayDimsProxy<'ctx> {
+    pub fn dim_sizes(&self) -> NDArrayDimsProxy<'ctx> {
         NDArrayDimsProxy(*self)
     }
 
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
     /// on the field.
-    fn get_data_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn ptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.1.map(|v| format!("{v}.data.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.get_ptr(),
+                self.as_ptr_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_int(2, true)],
                 var_name.as_str(),
             ).unwrap()
@@ -586,7 +586,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Stores the array of data elements `data` into this instance.
     fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
-        ctx.builder.build_store(self.get_data_ptr(ctx), data).unwrap();
+        ctx.builder.build_store(self.ptr_to_data(ctx), data).unwrap();
     }
 
     /// Convenience method for creating a new array storing data elements with the given element
@@ -602,14 +602,14 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Returns a proxy object to the field storing the data of this `NDArray`.
     #[must_use]
-    pub fn get_data(&self) -> NDArrayDataProxy<'ctx> {
+    pub fn data(&self) -> NDArrayDataProxy<'ctx> {
         NDArrayDataProxy(*self)
     }
 }
 
 impl<'ctx> From<NDArrayValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: NDArrayValue<'ctx>) -> Self {
-        value.get_ptr()
+        value.as_ptr_value()
     }
 }
 
@@ -619,10 +619,10 @@ pub struct NDArrayDimsProxy<'ctx>(NDArrayValue<'ctx>);
 
 impl<'ctx> NDArrayDimsProxy<'ctx> {
     /// Returns the single-indirection pointer to the array.
-    pub fn get_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    pub fn as_ptr_value(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let var_name = self.0.1.map(|v| format!("{v}.dims")).unwrap_or_default();
 
-        ctx.builder.build_load(self.0.get_dims_ptr(ctx), var_name.as_str())
+        ctx.builder.build_load(self.0.ptr_to_dims(ctx), var_name.as_str())
             .map(BasicValueEnum::into_pointer_value)
             .unwrap()
     }
@@ -656,7 +656,7 @@ impl<'ctx> NDArrayDimsProxy<'ctx> {
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.get_ptr(ctx),
+                self.as_ptr_value(ctx),
                 &[idx],
                 var_name.as_str(),
             ).unwrap()
@@ -684,10 +684,10 @@ pub struct NDArrayDataProxy<'ctx>(NDArrayValue<'ctx>);
 
 impl<'ctx> NDArrayDataProxy<'ctx> {
     /// Returns the single-indirection pointer to the array.
-    pub fn get_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    pub fn as_ptr_value(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let var_name = self.0.1.map(|v| format!("{v}.data")).unwrap_or_default();
 
-        ctx.builder.build_load(self.0.get_data_ptr(ctx), var_name.as_str())
+        ctx.builder.build_load(self.0.ptr_to_data(ctx), var_name.as_str())
             .map(BasicValueEnum::into_pointer_value)
             .unwrap()
     }
@@ -702,7 +702,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         ctx.builder.build_in_bounds_gep(
-            self.get_ptr(ctx),
+            self.as_ptr_value(ctx),
             &[idx],
             name.unwrap_or_default(),
         ).unwrap()
@@ -717,7 +717,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let ndims = self.0.load_ndims(ctx);
-        let dims = self.0.get_dims().get_ptr(ctx);
+        let dims = self.0.dim_sizes().as_ptr_value(ctx);
         let data_sz = call_ndarray_calc_size(generator, ctx, ndims, dims);
 
         let in_range = ctx.builder.build_int_compare(
@@ -775,7 +775,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
         indices: ListValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        let indices_elem_ty = indices.get_data().get_ptr(ctx).get_type().get_element_type();
+        let indices_elem_ty = indices.data().as_ptr_value(ctx).get_type().get_element_type();
         let Ok(indices_elem_ty) = IntType::try_from(indices_elem_ty) else {
             panic!("Expected list[int32] but got {indices_elem_ty}")
         };
@@ -790,7 +790,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.get_ptr(ctx),
+                self.as_ptr_value(ctx),
                 &[index],
                 name.unwrap_or_default(),
             ).unwrap()
@@ -816,7 +816,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.get_ptr(ctx),
+                self.as_ptr_value(ctx),
                 &[index],
                 name.unwrap_or_default(),
             )
@@ -862,7 +862,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
                 .map(BasicValueEnum::into_int_value)
                 .map(|v| ctx.builder.build_int_z_extend_or_bit_cast(v, llvm_usize, "").unwrap())
                 .unwrap();
-            let dim_sz = self.0.get_dims().get(ctx, generator, i, None);
+            let dim_sz = self.0.dim_sizes().get(ctx, generator, i, None);
 
             let dim_lt = ctx.builder.build_int_compare(
                 IntPredicate::SLT,
@@ -937,8 +937,8 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
                     .unwrap();
                 let (dim_idx, dim_sz) = unsafe {
                     (
-                        indices.get_data().get_unchecked(ctx, i, None).into_int_value(),
-                        self.0.get_dims().get(ctx, generator, i, None),
+                        indices.data().get_unchecked(ctx, i, None).into_int_value(),
+                        self.0.dim_sizes().get(ctx, generator, i, None),
                     )
                 };
 

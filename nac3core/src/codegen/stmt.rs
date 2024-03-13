@@ -188,7 +188,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                         [Some(raw_index), Some(len), None],
                         slice.location,
                     );
-                    v.get_data().ptr_offset(ctx, generator, index, name)
+                    v.data().ptr_offset(ctx, generator, index, name)
                 }
 
                 TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {

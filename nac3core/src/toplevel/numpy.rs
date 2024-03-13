@@ -170,7 +170,7 @@ fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
     ndarray.store_ndims(ctx, generator, num_dims);
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
-    ndarray.create_dims(ctx, llvm_usize, ndarray_num_dims);
+    ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
 
     // Copy the dimension sizes from shape to ndarray.dims
     gen_for_callback(
@@ -203,7 +203,7 @@ fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
                 .build_int_z_extend(shape_dim, llvm_usize, "")
                 .unwrap();
 
-            let ndarray_pdim = ndarray.get_dims().ptr_offset(ctx, generator, i, None);
+            let ndarray_pdim = ndarray.dim_sizes().ptr_offset(ctx, generator, i, None);
 
             ctx.builder.build_store(ndarray_pdim, shape_dim).unwrap();
 
@@ -225,7 +225,7 @@ fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
         generator,
         ctx,
         ndarray.load_ndims(ctx),
-        ndarray.get_dims().get_ptr(ctx),
+        ndarray.dim_sizes().as_ptr_value(ctx),
     );
     ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
@@ -282,11 +282,11 @@ fn create_ndarray_const_shape<'ctx>(
     ndarray.store_ndims(ctx, generator, num_dims);
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
-    ndarray.create_dims(ctx, llvm_usize, ndarray_num_dims);
+    ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
 
     for i in 0..shape.get_type().len() {
         let ndarray_dim = ndarray
-            .get_dims()
+            .dim_sizes()
             .ptr_offset(ctx, generator, llvm_usize.const_int(i as u64, true), None);
         let shape_dim = ctx.builder.build_extract_value(shape, i, "")
             .map(BasicValueEnum::into_int_value)
@@ -295,7 +295,7 @@ fn create_ndarray_const_shape<'ctx>(
         ctx.builder.build_store(ndarray_dim, shape_dim).unwrap();
     }
 
-    let ndarray_dims = ndarray.get_dims().get_ptr(ctx);
+    let ndarray_dims = ndarray.dim_sizes().as_ptr_value(ctx);
     let ndarray_num_elems = call_ndarray_calc_size(
         generator,
         ctx,
@@ -368,7 +368,7 @@ fn call_ndarray_empty_impl<'ctx>(
             Ok(shape.load_size(ctx, None))
         },
         |generator, ctx, shape, idx| {
-            Ok(shape.get_data().get(ctx, generator, idx, None).into_int_value())
+            Ok(shape.data().get(ctx, generator, idx, None).into_int_value())
         },
     )
 }
@@ -390,7 +390,7 @@ fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
         generator,
         ctx,
         ndarray.load_ndims(ctx),
-        ndarray.get_dims().get_ptr(ctx),
+        ndarray.dim_sizes().as_ptr_value(ctx),
     );
 
     gen_for_callback(
@@ -416,7 +416,7 @@ fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
                 .map(BasicValueEnum::into_int_value)
                 .unwrap();
             let elem = unsafe {
-                ndarray.get_data().ptr_to_data_flattened_unchecked(ctx, i, None)
+                ndarray.data().ptr_to_data_flattened_unchecked(ctx, i, None)
             };
 
             let value = value_fn(generator, ctx, i)?;
@@ -674,7 +674,7 @@ fn ndarray_copy_impl<'ctx>(
             Ok(shape.load_ndims(ctx))
         },
         |generator, ctx, shape, idx| {
-            Ok(shape.get_dims().get(ctx, generator, idx, None))
+            Ok(shape.dim_sizes().get(ctx, generator, idx, None))
         },
     )?;
 
@@ -682,7 +682,7 @@ fn ndarray_copy_impl<'ctx>(
         generator,
         ctx,
         ndarray.load_ndims(ctx),
-        ndarray.get_dims().get_ptr(ctx),
+        ndarray.dim_sizes().as_ptr_value(ctx),
     );
     let sizeof_ty = ctx.get_llvm_type(generator, elem_ty);
     let len_bytes = ctx.builder
@@ -695,8 +695,8 @@ fn ndarray_copy_impl<'ctx>(
 
     call_memcpy_generic(
         ctx,
-        ndarray.get_data().get_ptr(ctx),
-        this.get_data().get_ptr(ctx),
+        ndarray.data().as_ptr_value(ctx),
+        this.data().as_ptr_value(ctx),
         len_bytes,
         llvm_i1.const_zero(),
     );

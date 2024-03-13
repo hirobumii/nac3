@@ -978,7 +978,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             list_alloc_size.into_int_value(),
             Some("listcomp.addr")
         );
-        list_content = list.get_data().get_ptr(ctx);
+        list_content = list.data().as_ptr_value(ctx);
 
         let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
         ctx.builder
@@ -1011,7 +1011,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             )
             .into_int_value();
         list = allocate_list(generator, ctx, elem_ty, length, Some("listcomp"));
-        list_content = list.get_data().get_ptr(ctx);
+        list_content = list.data().as_ptr_value(ctx);
         let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
         // counter = -1
         ctx.builder.build_store(counter, size_t.const_int(u64::MAX, true)).unwrap();
@@ -1075,7 +1075,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 
     emit_cont_bb(ctx, generator, list);
 
-    Ok(Some(list.get_ptr().into()))
+    Ok(Some(list.as_ptr_value().into()))
 }
 
 /// Generates LLVM IR for a [binary operator expression][expr].
@@ -1255,7 +1255,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
             return Ok(None)
         };
 
-        Ok(Some(v.get_data()
+        Ok(Some(v.data()
             .get_const(
                 ctx,
                 generator,
@@ -1297,10 +1297,10 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         );
 
         let ndarray_num_dims = ndarray.load_ndims(ctx);
-        ndarray.create_dims(ctx, llvm_usize, ndarray_num_dims);
+        ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
 
         let ndarray_num_dims = ndarray.load_ndims(ctx);
-        let v_dims_src_ptr = v.get_dims().ptr_offset(
+        let v_dims_src_ptr = v.dim_sizes().ptr_offset(
             ctx,
             generator,
             llvm_usize.const_int(1, false),
@@ -1308,7 +1308,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         );
         call_memcpy_generic(
             ctx,
-            ndarray.get_dims().get_ptr(ctx),
+            ndarray.dim_sizes().as_ptr_value(ctx),
             v_dims_src_ptr,
             ctx.builder
                 .build_int_mul(ndarray_num_dims, llvm_usize.size_of(), "")
@@ -1321,11 +1321,11 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
             generator,
             ctx,
             ndarray.load_ndims(ctx),
-            ndarray.get_dims().get_ptr(ctx),
+            ndarray.dim_sizes().as_ptr_value(ctx),
         );
         ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
-        let v_data_src_ptr = v.get_data().ptr_offset_const(
+        let v_data_src_ptr = v.data().ptr_offset_const(
             ctx,
             generator,
             ctx.ctx.i32_type().const_array(&[index]),
@@ -1333,7 +1333,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         );
         call_memcpy_generic(
             ctx,
-            ndarray.get_data().get_ptr(ctx),
+            ndarray.data().as_ptr_value(ctx),
             v_data_src_ptr,
             ctx.builder
                 .build_int_mul(ndarray_num_elems, llvm_ndarray_data_t.size_of().unwrap(), "")
@@ -1342,7 +1342,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
             llvm_i1.const_zero(),
         );
 
-        Ok(Some(ndarray.get_ptr().into()))
+        Ok(Some(ndarray.as_ptr_value().into()))
     }
 }
 
@@ -1425,13 +1425,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             };
             let length = generator.get_size_type(ctx.ctx).const_int(elements.len() as u64, false);
             let arr_str_ptr = allocate_list(generator, ctx, ty, length, Some("list"));
-            let arr_ptr = arr_str_ptr.get_data();
+            let arr_ptr = arr_str_ptr.data();
             for (i, v) in elements.iter().enumerate() {
                 let elem_ptr = arr_ptr
                     .ptr_offset(ctx, generator, usize.const_int(i as u64, false), Some("elem_ptr"));
                 ctx.builder.build_store(elem_ptr, *v).unwrap();
             }
-            arr_str_ptr.get_ptr().into()
+            arr_str_ptr.as_ptr_value().into()
         }
         ExprKind::Tuple { elts, .. } => {
             let elements_val = elts
@@ -1924,7 +1924,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             v,
                             (start, end, step),
                         );
-                        res_array_ret.get_ptr().into()
+                        res_array_ret.as_ptr_value().into()
                     } else {
                         let len = v.load_size(ctx, Some("len"));
                         let raw_index = if let Some(v) = generator.gen_expr(ctx, slice)? {
@@ -1966,7 +1966,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             [Some(raw_index), Some(len), None],
                             expr.location,
                         );
-                        v.get_data().get(ctx, generator, index, None).into()
+                        v.data().get(ctx, generator, index, None).into()
                     }
                 }
                 TypeEnum::TObj { obj_id, params, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {

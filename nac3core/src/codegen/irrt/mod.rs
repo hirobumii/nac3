@@ -338,7 +338,7 @@ pub fn list_slice_assignment<'ctx>(
 
     let zero = int32.const_zero();
     let one = int32.const_int(1, false);
-    let dest_arr_ptr = dest_arr.get_data().get_ptr(ctx);
+    let dest_arr_ptr = dest_arr.data().as_ptr_value(ctx);
     let dest_arr_ptr = ctx.builder.build_pointer_cast(
         dest_arr_ptr,
         elem_ptr_type,
@@ -346,7 +346,7 @@ pub fn list_slice_assignment<'ctx>(
     ).unwrap();
     let dest_len = dest_arr.load_size(ctx, Some("dest.len"));
     let dest_len = ctx.builder.build_int_truncate_or_bit_cast(dest_len, int32, "srclen32").unwrap();
-    let src_arr_ptr = src_arr.get_data().get_ptr(ctx);
+    let src_arr_ptr = src_arr.data().as_ptr_value(ctx);
     let src_arr_ptr = ctx.builder.build_pointer_cast(
         src_arr_ptr,
         elem_ptr_type,
@@ -653,7 +653,7 @@ pub fn call_ndarray_calc_nd_indices<'ctx>(
     });
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
-    let ndarray_dims = ndarray.get_dims();
+    let ndarray_dims = ndarray.dim_sizes();
 
     let indices = ctx.builder.build_array_alloca(
         llvm_usize,
@@ -666,7 +666,7 @@ pub fn call_ndarray_calc_nd_indices<'ctx>(
             ndarray_calc_nd_indices_fn,
             &[
                 index.into(),
-                ndarray_dims.get_ptr(ctx).into(),
+                ndarray_dims.as_ptr_value(ctx).into(),
                 ndarray_num_dims.into(),
                 indices.into(),
             ],
@@ -723,13 +723,13 @@ fn call_ndarray_flatten_index_impl<'ctx>(
     });
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
-    let ndarray_dims = ndarray.get_dims();
+    let ndarray_dims = ndarray.dim_sizes();
 
     let index = ctx.builder
         .build_call(
             ndarray_flatten_index_fn,
             &[
-                ndarray_dims.get_ptr(ctx).into(),
+                ndarray_dims.as_ptr_value(ctx).into(),
                 ndarray_num_dims.into(),
                 indices.into(),
                 indices_size.into(),
@@ -757,13 +757,13 @@ pub fn call_ndarray_flatten_index<'ctx>(
     indices: ListValue<'ctx>,
 ) -> IntValue<'ctx> {
     let indices_size = indices.load_size(ctx, None);
-    let indices_data = indices.get_data();
+    let indices_data = indices.data();
 
     call_ndarray_flatten_index_impl(
         generator,
         ctx,
         ndarray,
-        indices_data.get_ptr(ctx),
+        indices_data.as_ptr_value(ctx),
         indices_size,
     )
 }
