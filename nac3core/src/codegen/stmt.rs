@@ -546,7 +546,7 @@ pub fn gen_for_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn>(
 ///     body(x);
 /// }
 /// ```
-/// 
+///
 /// * `init_val` - The initial value of the loop variable. The type of this value will also be used 
 /// as the type of the loop variable.
 /// * `max_val` - A tuple containing the maximum value of the loop variable, and whether the maximum

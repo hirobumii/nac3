@@ -17,6 +17,7 @@ use crate::{
         get_llvm_abi_type,
         irrt::*,
         llvm_intrinsics::{call_expect, call_float_floor, call_float_pow, call_float_powi},
+        numpy,
         stmt::{gen_raise, gen_var},
         CodeGenContext, CodeGenTask,
     },
@@ -24,7 +25,7 @@ use crate::{
     toplevel::{
         DefinitionId, 
         helper::PRIMITIVE_DEF_IDS,
-        numpy::make_ndarray_ty,
+        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         TopLevelDef,
     },
     typecheck::{
@@ -1129,6 +1130,78 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             Some("f_pow_i")
         );
         Ok(Some(res.into()))
+    } else if ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) || ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+        let llvm_usize = generator.get_size_type(ctx.ctx);
+
+        let is_ndarray1 = ty1.obj_id(&ctx.unifier)
+            .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+        let is_ndarray2 = ty2.obj_id(&ctx.unifier)
+            .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+
+        if is_ndarray1 && is_ndarray2 {
+            let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty1);
+            let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty2);
+
+            assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
+
+            let left_val = NDArrayValue::from_ptr_val(
+                left_val.into_pointer_value(),
+                llvm_usize,
+                None
+            );
+            let res = numpy::ndarray_elementwise_binop_impl(
+                generator,
+                ctx,
+                ndarray_dtype1,
+                if is_aug_assign { Some(left_val) } else { None },
+                (left_val.as_ptr_value().into(), false),
+                (right_val, false),
+                |generator, ctx, (lhs, rhs)| {
+                    gen_binop_expr_with_values(
+                        generator,
+                        ctx,
+                        (&Some(ndarray_dtype1), lhs),
+                        op,
+                        (&Some(ndarray_dtype2), rhs),
+                        ctx.current_loc,
+                        is_aug_assign,
+                    )?.unwrap().to_basic_value_enum(ctx, generator, ndarray_dtype1)
+                },
+            )?;
+
+            Ok(Some(res.as_ptr_value().into()))
+        } else {
+            let (ndarray_dtype, _) = unpack_ndarray_var_tys(
+                &mut ctx.unifier,
+                if is_ndarray1 { ty1 } else { ty2 },
+            );
+            let ndarray_val = NDArrayValue::from_ptr_val(
+                if is_ndarray1 { left_val } else { right_val }.into_pointer_value(),
+                llvm_usize,
+                None,
+            );
+            let res = numpy::ndarray_elementwise_binop_impl(
+                generator,
+                ctx,
+                ndarray_dtype,
+                if is_aug_assign { Some(ndarray_val) } else { None },
+                (left_val, !is_ndarray1),
+                (right_val, !is_ndarray2),
+                |generator, ctx, (lhs, rhs)| {
+                    gen_binop_expr_with_values(
+                        generator,
+                        ctx,
+                        (&Some(ndarray_dtype), lhs),
+                        op,
+                        (&Some(ndarray_dtype), rhs),
+                        ctx.current_loc,
+                        is_aug_assign,
+                    )?.unwrap().to_basic_value_enum(ctx, generator, ndarray_dtype)
+                },
+            )?;
+
+            Ok(Some(res.as_ptr_value().into()))
+        }
     } else {
         let left_ty_enum = ctx.unifier.get_ty_immutable(left_ty.unwrap());
         let TypeEnum::TObj { fields, obj_id, .. } = left_ty_enum.as_ref() else {

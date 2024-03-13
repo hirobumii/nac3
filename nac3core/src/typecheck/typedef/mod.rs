@@ -774,12 +774,8 @@ impl Unifier {
 
                 // If the types don't match, try to implicitly promote integers
                 if !self.unioned(ty, value_ty) {
-                    let num_val = match *value {
-                        SymbolValue::I32(v) => v as i128,
-                        SymbolValue::I64(v) => v as i128,
-                        SymbolValue::U32(v) => v as i128,
-                        SymbolValue::U64(v) => v as i128,
-                        _ => return Self::incompatible_types(a, b),
+                    let Ok(num_val) = i128::try_from(value.clone()) else {
+                        return Self::incompatible_types(a, b)
                     };
 
                     let can_convert = if self.unioned(ty, primitives.int32) {

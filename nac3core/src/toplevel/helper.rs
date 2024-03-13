@@ -1,6 +1,7 @@
 use std::convert::TryInto;
 
 use crate::symbol_resolver::SymbolValue;
+use crate::toplevel::numpy::subst_ndarray_tvars;
 use crate::typecheck::typedef::{Mapping, VarMap};
 use nac3parser::ast::{Constant, Location};
 
@@ -231,11 +232,57 @@ impl TopLevelComposer {
                 (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
             ]),
         }));
+        let ndarray_binop_fun_other_ty = unifier.get_fresh_var(None, None);
+        let ndarray_binop_fun_ret_ty = unifier.get_fresh_var(None, None);
+        let ndarray_binop_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
+            args: vec![
+                FuncArg {
+                    name: "other".into(),
+                    ty: ndarray_binop_fun_other_ty.0,
+                    default_value: None,
+                },
+            ],
+            ret: ndarray_binop_fun_ret_ty.0,
+            vars: VarMap::from([
+                (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
+                (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
+            ]),
+        }));
+        let ndarray_truediv_fun_other_ty = unifier.get_fresh_var(None, None);
+        let ndarray_truediv_fun_ret_ty = unifier.get_fresh_var(None, None);
+        let ndarray_truediv_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
+            args: vec![
+                FuncArg {
+                    name: "other".into(),
+                    ty: ndarray_truediv_fun_other_ty.0,
+                    default_value: None,
+                },
+            ],
+            ret: ndarray_truediv_fun_ret_ty.0,
+            vars: VarMap::from([
+                (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
+                (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
+            ]),
+        }));
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.ndarray,
             fields: Mapping::from([
                 ("copy".into(), (ndarray_copy_fun_ty, true)),
                 ("fill".into(), (ndarray_fill_fun_ty, true)),
+                ("__add__".into(), (ndarray_binop_fun_ty, true)),
+                ("__sub__".into(), (ndarray_binop_fun_ty, true)),
+                ("__mul__".into(), (ndarray_binop_fun_ty, true)),
+                ("__truediv__".into(), (ndarray_truediv_fun_ty, true)),
+                ("__floordiv__".into(), (ndarray_binop_fun_ty, true)),
+                ("__mod__".into(), (ndarray_binop_fun_ty, true)),
+                ("__pow__".into(), (ndarray_binop_fun_ty, true)),
+                ("__iadd__".into(), (ndarray_binop_fun_ty, true)),
+                ("__isub__".into(), (ndarray_binop_fun_ty, true)),
+                ("__imul__".into(), (ndarray_binop_fun_ty, true)),
+                ("__itruediv__".into(), (ndarray_truediv_fun_ty, true)),
+                ("__ifloordiv__".into(), (ndarray_binop_fun_ty, true)),
+                ("__imod__".into(), (ndarray_binop_fun_ty, true)),
+                ("__ipow__".into(), (ndarray_binop_fun_ty, true)),
             ]),
             params: VarMap::from([
                 (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
@@ -243,7 +290,16 @@ impl TopLevelComposer {
             ]),
         });
 
+        let ndarray_usized_ndims_tvar = unifier.get_fresh_const_generic_var(size_t_ty, Some("ndarray_ndims".into()), None);
+        let ndarray_unsized = subst_ndarray_tvars(&mut unifier, ndarray, Some(ndarray_usized_ndims_tvar.0), None);
+
         unifier.unify(ndarray_copy_fun_ret_ty.0, ndarray).unwrap();
+        unifier.unify(ndarray_binop_fun_other_ty.0, ndarray_unsized).unwrap();
+        unifier.unify(ndarray_binop_fun_ret_ty.0, ndarray).unwrap();
+
+        let ndarray_float = subst_ndarray_tvars(&mut unifier, ndarray, Some(float), None);
+        unifier.unify(ndarray_truediv_fun_other_ty.0, ndarray).unwrap();
+        unifier.unify(ndarray_truediv_fun_ret_ty.0, ndarray_float).unwrap();
 
         let primitives = PrimitiveStore {
             int32,

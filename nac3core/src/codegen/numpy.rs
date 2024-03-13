@@ -18,6 +18,8 @@ use crate::{
         CodeGenContext,
         CodeGenerator,
         irrt::{
+            call_ndarray_calc_broadcast,
+            call_ndarray_calc_broadcast_index,
             call_ndarray_calc_nd_indices,
             call_ndarray_calc_size,
         },
@@ -338,6 +340,98 @@ fn ndarray_fill_indexed<'ctx, G, ValueFn>(
     )
 }
 
+/// Generates the LLVM IR for checking whether the source `ndarray` can be broadcast to the shape of
+/// the target `ndarray`.
+fn ndarray_assert_is_broadcastable<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    target: NDArrayValue<'ctx>,
+    source: NDArrayValue<'ctx>,
+) {
+    let array_ndims = source.load_ndims(ctx);
+    let broadcast_size = target.load_ndims(ctx);
+
+    ctx.make_assert(
+        generator,
+        ctx.builder.build_int_compare(IntPredicate::ULE, array_ndims, broadcast_size, "").unwrap(),
+        "0:ValueError",
+        "operands cannot be broadcast together",
+        [None, None, None],
+        ctx.current_loc,
+    );
+}
+
+/// Generates the LLVM IR for populating the entire `NDArray` from two `ndarray` or scalar value
+/// with broadcast-compatible shapes.
+fn ndarray_broadcast_fill<'ctx, G, ValueFn>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    res: NDArrayValue<'ctx>,
+    lhs: (BasicValueEnum<'ctx>, bool),
+    rhs: (BasicValueEnum<'ctx>, bool),
+    value_fn: ValueFn,
+) -> Result<NDArrayValue<'ctx>, String>
+    where
+        G: CodeGenerator + ?Sized,
+        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, (BasicValueEnum<'ctx>, BasicValueEnum<'ctx>)) -> Result<BasicValueEnum<'ctx>, String>,
+{
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    let (lhs_val, lhs_scalar) = lhs;
+    let (rhs_val, rhs_scalar) = rhs;
+
+    assert!(!(lhs_scalar && rhs_scalar),
+            "One of the operands must be a ndarray instance: `{}`, `{}`",
+            lhs_val.get_type(),
+            rhs_val.get_type());
+
+    // Assert that all ndarray operands are broadcastable to the target size
+    if !lhs_scalar {
+        let lhs_val = NDArrayValue::from_ptr_val(lhs_val.into_pointer_value(), llvm_usize, None);
+        ndarray_assert_is_broadcastable(generator, ctx, res, lhs_val);
+    }
+
+    if !rhs_scalar {
+        let rhs_val = NDArrayValue::from_ptr_val(rhs_val.into_pointer_value(), llvm_usize, None);
+        ndarray_assert_is_broadcastable(generator, ctx, res, rhs_val);
+    }
+
+    ndarray_fill_indexed(
+        generator,
+        ctx,
+        res,
+        |generator, ctx, idx| {
+            let lhs_elem = if lhs_scalar {
+                lhs_val
+            } else {
+                let lhs = NDArrayValue::from_ptr_val(lhs_val.into_pointer_value(), llvm_usize, None);
+                let lhs_idx = call_ndarray_calc_broadcast_index(generator, ctx, lhs, &idx);
+
+                unsafe {
+                    lhs.data().get_unchecked(ctx, generator, lhs_idx, None)
+                }
+            };
+
+            let rhs_elem = if rhs_scalar {
+                rhs_val
+            } else {
+                let rhs = NDArrayValue::from_ptr_val(rhs_val.into_pointer_value(), llvm_usize, None);
+                let rhs_idx = call_ndarray_calc_broadcast_index(generator, ctx, rhs, &idx);
+                
+                unsafe {
+                    rhs.data().get_unchecked(ctx, generator, rhs_idx, None)
+                }
+            };
+
+            debug_assert_eq!(lhs_elem.get_type(), rhs_elem.get_type());
+
+            value_fn(generator, ctx, (lhs_elem, rhs_elem))
+        },
+    )?;
+
+    Ok(res)
+}
+
 /// LLVM-typed implementation for generating the implementation for `ndarray.zeros`.
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
@@ -558,6 +652,107 @@ fn ndarray_copy_impl<'ctx, G: CodeGenerator + ?Sized>(
         len_bytes,
         llvm_i1.const_zero(),
     );
+
+    Ok(ndarray)
+}
+
+/// LLVM-typed implementation for computing elementwise binary operations on two input operands.
+///
+/// If the operand is a `ndarray`, the broadcast index corresponding to each element in the output 
+/// is computed, the element accessed and used as an operand of the `value_fn` arguments tuple. 
+/// Otherwise, the operand is treated as a scalar value, and is used as an operand of the 
+/// `value_fn` arguments tuple for all output elements.
+///
+/// The second element of the tuple indicates whether to treat the operand value as a `ndarray`
+/// (which would be accessed by its broadcast index) or as a scalar value (which would be 
+/// broadcast to all elements).
+///
+/// * `elem_ty` - The element type of the `NDArray`.
+/// * `res` - The `ndarray` instance to write results into, or [`None`] if the result should be
+/// written to a new `ndarray`.
+/// * `value_fn` - Function mapping the two input elements into the result.
+///
+/// # Panic
+///
+/// This function will panic if neither input operands (`lhs` or `rhs`) is a `ndarray`.
+pub fn ndarray_elementwise_binop_impl<'ctx, G, ValueFn>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    elem_ty: Type,
+    res: Option<NDArrayValue<'ctx>>,
+    lhs: (BasicValueEnum<'ctx>, bool),
+    rhs: (BasicValueEnum<'ctx>, bool),
+    value_fn: ValueFn,
+) -> Result<NDArrayValue<'ctx>, String>
+    where
+        G: CodeGenerator,
+        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, (BasicValueEnum<'ctx>, BasicValueEnum<'ctx>)) -> Result<BasicValueEnum<'ctx>, String>,
+{
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    let (lhs_val, lhs_scalar) = lhs;
+    let (rhs_val, rhs_scalar) = rhs;
+
+    assert!(!(lhs_scalar && rhs_scalar),
+            "One of the operands must be a ndarray instance: `{}`, `{}`",
+            lhs_val.get_type(),
+            rhs_val.get_type());
+
+    let ndarray = res.unwrap_or_else(|| {
+        if lhs_scalar && rhs_scalar {
+            let lhs_val = NDArrayValue::from_ptr_val(lhs_val.into_pointer_value(), llvm_usize, None);
+            let rhs_val = NDArrayValue::from_ptr_val(rhs_val.into_pointer_value(), llvm_usize, None);
+
+            let ndarray_dims = call_ndarray_calc_broadcast(generator, ctx, lhs_val, rhs_val);
+
+            create_ndarray_dyn_shape(
+                generator,
+                ctx,
+                elem_ty,
+                &ndarray_dims,
+                |generator, ctx, v| {
+                    Ok(v.size(ctx, generator))
+                },
+                |generator, ctx, v, idx| {
+                    unsafe {
+                        Ok(v.get_typed_unchecked(ctx, generator, idx, None))
+                    }
+                },
+            ).unwrap()
+        } else {
+            let ndarray = NDArrayValue::from_ptr_val(
+                if lhs_scalar { rhs_val } else { lhs_val }.into_pointer_value(),
+                llvm_usize,
+                None,
+            );
+
+            create_ndarray_dyn_shape(
+                generator,
+                ctx,
+                elem_ty,
+                &ndarray,
+                |_, ctx, v| {
+                    Ok(v.load_ndims(ctx))
+                },
+                |generator, ctx, v, idx| {
+                    unsafe {
+                        Ok(v.dim_sizes().get_typed_unchecked(ctx, generator, idx, None))
+                    }
+                },
+            ).unwrap()
+        }
+    });
+
+    ndarray_broadcast_fill(
+        generator,
+        ctx,
+        ndarray,
+        lhs,
+        rhs,
+        |generator, ctx, elems| {
+            value_fn(generator, ctx, elems)
+        },
+    )?;
 
     Ok(ndarray)
 }

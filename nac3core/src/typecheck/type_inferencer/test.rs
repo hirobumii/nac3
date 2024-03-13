@@ -135,10 +135,15 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: VarMap::new(),
         });
+        let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
+        let ndarray_ndims_tvar = unifier.get_fresh_const_generic_var(uint64, Some("ndarray_ndims".into()), None);
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.ndarray,
             fields: HashMap::new(),
-            params: VarMap::new(),
+            params: VarMap::from([
+                (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
+                (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
+            ]),
         });
         let primitives = PrimitiveStore {
             int32,

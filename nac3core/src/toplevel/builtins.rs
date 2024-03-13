@@ -299,6 +299,8 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Some("N".into()),
         None,
     );
+    let size_t = primitives.0.usize();
+
     let var_map: VarMap = vec![(num_ty.1, num_ty.0)].into_iter().collect();
     let exception_fields = vec![
         ("__name__".into(), int32, true),
@@ -345,8 +347,27 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         .nth(1)
         .map(|(var_id, ty)| (*ty, *var_id))
         .unwrap();
+    let ndarray_usized_ndims_tvar = primitives.1.get_fresh_const_generic_var(
+        size_t, 
+        Some("ndarray_ndims".into()), 
+        None,
+    );
     let ndarray_copy_ty = *ndarray_fields.get(&"copy".into()).unwrap();
     let ndarray_fill_ty = *ndarray_fields.get(&"fill".into()).unwrap();
+    let ndarray_add_ty = *ndarray_fields.get(&"__add__".into()).unwrap();
+    let ndarray_sub_ty = *ndarray_fields.get(&"__sub__".into()).unwrap();
+    let ndarray_mul_ty = *ndarray_fields.get(&"__mul__".into()).unwrap();
+    let ndarray_truediv_ty = *ndarray_fields.get(&"__truediv__".into()).unwrap();
+    let ndarray_floordiv_ty = *ndarray_fields.get(&"__floordiv__".into()).unwrap();
+    let ndarray_mod_ty = *ndarray_fields.get(&"__mod__".into()).unwrap();
+    let ndarray_pow_ty = *ndarray_fields.get(&"__pow__".into()).unwrap();
+    let ndarray_iadd_ty = *ndarray_fields.get(&"__iadd__".into()).unwrap();
+    let ndarray_isub_ty = *ndarray_fields.get(&"__isub__".into()).unwrap();
+    let ndarray_imul_ty = *ndarray_fields.get(&"__imul__".into()).unwrap();
+    let ndarray_itruediv_ty = *ndarray_fields.get(&"__itruediv__".into()).unwrap();
+    let ndarray_ifloordiv_ty = *ndarray_fields.get(&"__ifloordiv__".into()).unwrap();
+    let ndarray_imod_ty = *ndarray_fields.get(&"__imod__".into()).unwrap();
+    let ndarray_ipow_ty = *ndarray_fields.get(&"__ipow__".into()).unwrap();
 
     let top_level_def_list = vec![
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
@@ -524,6 +545,20 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             methods: vec![
                 ("copy".into(), ndarray_copy_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 1)),
                 ("fill".into(), ndarray_fill_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 2)),
+                ("__add__".into(), ndarray_add_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 3)),
+                ("__sub__".into(), ndarray_sub_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 4)),
+                ("__mul__".into(), ndarray_mul_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 5)),
+                ("__truediv__".into(), ndarray_mul_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 6)),
+                ("__floordiv__".into(), ndarray_mul_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 7)),
+                ("__mod__".into(), ndarray_mul_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 8)),
+                ("__pow__".into(), ndarray_mul_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 9)),
+                ("__iadd__".into(), ndarray_iadd_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 10)),
+                ("__isub__".into(), ndarray_isub_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 11)),
+                ("__imul__".into(), ndarray_imul_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 12)),
+                ("__itruediv__".into(), ndarray_mul_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 13)),
+                ("__ifloordiv__".into(), ndarray_mul_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 14)),
+                ("__imod__".into(), ndarray_mul_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 15)),
+                ("__ipow__".into(), ndarray_imul_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 16)),
             ],
             ancestors: Vec::default(),
             constructor: None,
@@ -558,6 +593,216 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                 |ctx, obj, fun, args, generator| {
                     gen_ndarray_fill(ctx, &obj, fun, &args, generator)?;
                     Ok(None)
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__add__".into(),
+            simple_name: "__add__".into(),
+            signature: ndarray_add_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__sub__".into(),
+            simple_name: "__sub__".into(),
+            signature: ndarray_sub_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__mul__".into(),
+            simple_name: "__mul__".into(),
+            signature: ndarray_mul_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__truediv__".into(),
+            simple_name: "__truediv__".into(),
+            signature: ndarray_truediv_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__floordiv__".into(),
+            simple_name: "__floordiv__".into(),
+            signature: ndarray_floordiv_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__mod__".into(),
+            simple_name: "__mod__".into(),
+            signature: ndarray_mod_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__pow__".into(),
+            simple_name: "__pow__".into(),
+            signature: ndarray_pow_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__iadd__".into(),
+            simple_name: "__iadd__".into(),
+            signature: ndarray_iadd_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id, ndarray_usized_ndims_tvar.1],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__isub__".into(),
+            simple_name: "__isub__".into(),
+            signature: ndarray_isub_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__imul__".into(),
+            simple_name: "__imul__".into(),
+            signature: ndarray_imul_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__itruediv__".into(),
+            simple_name: "__itruediv__".into(),
+            signature: ndarray_itruediv_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__ifloordiv__".into(),
+            simple_name: "__ifloordiv__".into(),
+            signature: ndarray_ifloordiv_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__imod__".into(),
+            simple_name: "__imod__".into(),
+            signature: ndarray_imod_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
+                },
+            )))),
+            loc: None,
+        })),
+        Arc::new(RwLock::new(TopLevelDef::Function {
+            name: "ndarray.__ipow__".into(),
+            simple_name: "__ipow__".into(),
+            signature: ndarray_ipow_ty.0,
+            var_id: vec![ndarray_dtype_var_id, ndarray_ndims_var_id],
+            instance_to_symbol: HashMap::default(),
+            instance_to_stmt: HashMap::default(),
+            resolver: None,
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                |_, _, _, _, _| {
+                    unreachable!("handled in gen_expr")
                 },
             )))),
             loc: None,

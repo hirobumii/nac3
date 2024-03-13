@@ -11,7 +11,7 @@ use crate::codegen::{
     stmt::gen_for_callback_incrementing,
 };
 
-/// An LLVM value that is array-like, i.e. it contains a contiguous, sequenced collection of 
+/// An LLVM value that is array-like, i.e. it contains a contiguous, sequenced collection of
 /// elements.
 pub trait ArrayLikeValue<'ctx> {
     /// Returns the element type of this array-like value.

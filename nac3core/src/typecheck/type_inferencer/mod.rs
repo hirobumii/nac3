@@ -1203,8 +1203,11 @@ impl<'a> Inferencer<'a> {
         right: &ast::Expr<Option<Type>>,
         is_aug_assign: bool,
     ) -> InferenceResult {
+        let left_ty = left.custom.unwrap();
+        let right_ty = right.custom.unwrap();
+
         let method = if let TypeEnum::TObj { fields, .. } =
-            self.unifier.get_ty_immutable(left.custom.unwrap()).as_ref()
+            self.unifier.get_ty_immutable(left_ty).as_ref()
         {
             let (binop_name, binop_assign_name) = (
                 binop_name(op).into(),
@@ -1219,12 +1222,26 @@ impl<'a> Inferencer<'a> {
         } else {
             binop_name(op).into()
         };
+
+        let ret = if is_aug_assign {
+            // The type of augmented assignment operator should never change
+            Some(left_ty)
+        } else {
+            typeof_binop(
+                self.unifier,
+                self.primitives,
+                op,
+                left_ty,
+                right_ty,
+            ).map_err(|e| HashSet::from([format!("{e} (at {location})")]))?
+        };
+
         self.build_method_call(
             location,
             method,
-            left.custom.unwrap(),
-            vec![right.custom.unwrap()],
-            None,
+            left_ty,
+            vec![right_ty],
+            ret,
         )
     }
 
