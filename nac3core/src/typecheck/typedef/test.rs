@@ -45,9 +45,9 @@ impl Unifier {
         }
     }
 
-    fn map_eq<K>(&mut self, map1: &SortedMapping<K>, map2: &SortedMapping<K>) -> bool
-    where
-        K: Ord + Eq + Clone,
+    fn map_eq<K>(&mut self, map1: &IndexMapping<K>, map2: &IndexMapping<K>) -> bool 
+        where
+            K: std::hash::Hash + Eq + Clone 
     {
         if map1.len() != map2.len() {
             return false;

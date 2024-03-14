@@ -1,10 +1,11 @@
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::{borrow::Cow, collections::HashSet};
 use std::iter::zip;
+use indexmap::IndexMap;
 use itertools::Itertools;
 
 use nac3parser::ast::{Location, StrRef};
@@ -25,14 +26,10 @@ pub type Type = UnificationKey;
 pub struct CallId(pub(super) usize);
 
 pub type Mapping<K, V = Type> = HashMap<K, V>;
+pub type IndexMapping<K, V = Type> = IndexMap<K, V>;
 
-/// A [`Mapping`] sorted by its key.
-/// 
-/// This type is recommended for mappings that should be stored and/or iterated by its sorted key.
-pub type SortedMapping<K, V = Type> = BTreeMap<K, V>;
-
-/// A [`BTreeMap`] storing the mapping between type variable ID and [unifier type][`Type`].
-pub type VarMap = SortedMapping<u32>;
+/// The mapping between type variable ID and [unifier type][`Type`].
+pub type VarMap = IndexMapping<u32>;
 
 #[derive(Clone)]
 pub struct Call {
@@ -920,8 +917,8 @@ impl Unifier {
                 // Sort the type arguments by its UnificationKey first, since `HashMap::iter` visits
                 // all K-V pairs "in arbitrary order"
                 let (tv1, tv2) = (
-                    params1.iter().sorted_by_key(|(k, _)| *k).map(|(_, v)| v).collect_vec(),
-                    params2.iter().sorted_by_key(|(k, _)| *k).map(|(_, v)| v).collect_vec(),
+                    params1.iter().map(|(_, v)| v).collect_vec(),
+                    params2.iter().map(|(_, v)| v).collect_vec(),
                 );
                 for (x, y) in zip(tv1, tv2) {
                     if self.unify_impl(*x, *y, false).is_err() {
@@ -1097,11 +1094,9 @@ impl Unifier {
                 if params.is_empty() {
                     name
                 } else {
-                    let params = params
+                    let mut params = params
                         .iter()
                         .map(|(_, v)| self.internal_stringify(*v, obj_to_name, var_to_name, notes));
-                    // sort to preserve order
-                    let mut params = params.sorted();
                     format!("{}[{}]", name, params.join(", "))
                 }
             }
@@ -1283,12 +1278,12 @@ impl Unifier {
 
     fn subst_map<K>(
         &mut self,
-        map: &SortedMapping<K>,
+        map: &IndexMapping<K>,
         mapping: &VarMap,
         cache: &mut HashMap<Type, Option<Type>>,
-    ) -> Option<SortedMapping<K>>
-    where
-        K: Ord + Eq + Clone,
+    ) -> Option<IndexMapping<K>>
+        where
+            K: std::hash::Hash + Eq + Clone,
     {
         let mut map2 = None;
         for (k, v) in map {

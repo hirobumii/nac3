@@ -10,7 +10,7 @@ use crate::{
     },
     typecheck::{
         type_inferencer::{FunctionData, Inferencer, PrimitiveStore},
-        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier},
+        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
     },
 };
 use indoc::indoc;
@@ -25,7 +25,6 @@ use nac3parser::{
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use crate::typecheck::typedef::VarMap;
 
 struct Resolver {
     id_to_type: HashMap<StrRef, Type>,

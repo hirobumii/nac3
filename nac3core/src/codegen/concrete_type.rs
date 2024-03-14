@@ -9,6 +9,7 @@ use crate::{
 
 use nac3parser::ast::StrRef;
 use std::collections::HashMap;
+use indexmap::IndexMap;
 
 pub struct ConcreteTypeStore {
     store: Vec<ConcreteTypeEnum>,
@@ -50,7 +51,7 @@ pub enum ConcreteTypeEnum {
     TObj {
         obj_id: DefinitionId,
         fields: HashMap<StrRef, (ConcreteType, bool)>,
-        params: HashMap<u32, ConcreteType>,
+        params: IndexMap<u32, ConcreteType>,
     },
     TVirtual {
         ty: ConcreteType,

@@ -1926,9 +1926,8 @@ impl TopLevelComposer {
                             ret_str,
                             name,
                             ast.as_ref().unwrap().location
-                        ),
-                    ]))
-                        }
+                        ),]))
+                    }
 
                     instance_to_stmt.insert(
                         get_subst_key(unifier, self_type, &subst, Some(&vars.keys().copied().collect())),

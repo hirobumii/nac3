@@ -59,7 +59,7 @@ pub fn get_subst_key(
             params.clone()
         })
         .unwrap_or_default();
-    vars.extend(fun_vars.iter());
+    vars.extend(fun_vars);
     let sorted = vars.keys().filter(|id| filter.map_or(true, |v| v.contains(id))).sorted();
     sorted
         .map(|id| {
@@ -1983,7 +1983,6 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 }
                 TypeEnum::TObj { obj_id, params, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
                     let (ty, ndims) = params.iter()
-                        .sorted_by_key(|(var_id, _)| *var_id)
                         .map(|(_, ty)| ty)
                         .collect_tuple()
                         .unwrap();

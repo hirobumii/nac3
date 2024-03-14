@@ -1,5 +1,6 @@
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::helper::PRIMITIVE_DEF_IDS;
+use crate::typecheck::typedef::VarMap;
 use super::*;
 use nac3parser::ast::Constant;
 

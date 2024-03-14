@@ -28,7 +28,6 @@ pub fn make_ndarray_ty(
 
     let tvar_ids = params.iter()
         .map(|(obj_id, _)| *obj_id)
-        .sorted()
         .collect_vec();
     debug_assert_eq!(tvar_ids.len(), 2);
 
