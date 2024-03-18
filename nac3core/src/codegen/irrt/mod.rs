@@ -1,7 +1,7 @@
 use crate::typecheck::typedef::Type;
 
 use super::{
-    classes::{ListValue, NDArrayValue},
+    classes::{ArrayLikeIndexer, ArrayLikeValue, ListValue, NDArrayValue, UntypedArrayLikeMutator},
     CodeGenContext,
     CodeGenerator,
 };
@@ -338,7 +338,7 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
 
     let zero = int32.const_zero();
     let one = int32.const_int(1, false);
-    let dest_arr_ptr = dest_arr.data().as_ptr_value(ctx);
+    let dest_arr_ptr = dest_arr.data().base_ptr(ctx, generator);
     let dest_arr_ptr = ctx.builder.build_pointer_cast(
         dest_arr_ptr,
         elem_ptr_type,
@@ -346,7 +346,7 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
     ).unwrap();
     let dest_len = dest_arr.load_size(ctx, Some("dest.len"));
     let dest_len = ctx.builder.build_int_truncate_or_bit_cast(dest_len, int32, "srclen32").unwrap();
-    let src_arr_ptr = src_arr.data().as_ptr_value(ctx);
+    let src_arr_ptr = src_arr.data().base_ptr(ctx, generator);
     let src_arr_ptr = ctx.builder.build_pointer_cast(
         src_arr_ptr,
         elem_ptr_type,
@@ -574,12 +574,14 @@ pub fn call_j0<'ctx>(
 ///
 /// * `num_dims` - An [`IntValue`] containing the number of dimensions.
 /// * `dims` - A [`PointerValue`] to an array containing the size of each dimension.
-pub fn call_ndarray_calc_size<'ctx, G: CodeGenerator + ?Sized>(
+pub fn call_ndarray_calc_size<'ctx, G, Dims>(
     generator: &G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    num_dims: IntValue<'ctx>,
-    dims: PointerValue<'ctx>,
-) -> IntValue<'ctx> {
+    ctx: &CodeGenContext<'ctx, '_>,
+    dims: &Dims,
+) -> IntValue<'ctx>
+    where
+        G: CodeGenerator + ?Sized,
+        Dims: ArrayLikeIndexer<'ctx>, {
     let llvm_i64 = ctx.ctx.i64_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
@@ -606,8 +608,8 @@ pub fn call_ndarray_calc_size<'ctx, G: CodeGenerator + ?Sized>(
         .build_call(
             ndarray_calc_size_fn,
             &[
-                dims.into(),
-                num_dims.into(),
+                dims.base_ptr(ctx, generator).into(),
+                dims.size(ctx, generator).into(),
             ],
             "",
         )
@@ -666,7 +668,7 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
             ndarray_calc_nd_indices_fn,
             &[
                 index.into(),
-                ndarray_dims.as_ptr_value(ctx).into(),
+                ndarray_dims.base_ptr(ctx, generator).into(),
                 ndarray_num_dims.into(),
                 indices.into(),
             ],
@@ -677,13 +679,15 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     indices
 }
 
-fn call_ndarray_flatten_index_impl<'ctx, G: CodeGenerator + ?Sized>(
+fn call_ndarray_flatten_index_impl<'ctx, G, Indices>(
     generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
-    indices: PointerValue<'ctx>,
-    indices_size: IntValue<'ctx>,
-) -> IntValue<'ctx> {
+    indices: &Indices,
+) -> IntValue<'ctx>
+    where
+        G: CodeGenerator + ?Sized,
+        Indices: ArrayLikeIndexer<'ctx>, {
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
@@ -691,14 +695,14 @@ fn call_ndarray_flatten_index_impl<'ctx, G: CodeGenerator + ?Sized>(
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
     debug_assert_eq!(
-        IntType::try_from(indices.get_type().get_element_type())
+        IntType::try_from(indices.element_type(ctx, generator))
             .map(IntType::get_bit_width)
             .unwrap_or_default(),
         llvm_i32.get_bit_width(),
         "Expected i32 value for argument `indices` to `call_ndarray_flatten_index_impl`"
     );
     debug_assert_eq!(
-        indices_size.get_type().get_bit_width(),
+        indices.size(ctx, generator).get_type().get_bit_width(),
         llvm_usize.get_bit_width(),
         "Expected usize integer value for argument `indices_size` to `call_ndarray_flatten_index_impl`"
     );
@@ -729,10 +733,10 @@ fn call_ndarray_flatten_index_impl<'ctx, G: CodeGenerator + ?Sized>(
         .build_call(
             ndarray_flatten_index_fn,
             &[
-                ndarray_dims.as_ptr_value(ctx).into(),
+                ndarray_dims.base_ptr(ctx, generator).into(),
                 ndarray_num_dims.into(),
-                indices.into(),
-                indices_size.into(),
+                indices.base_ptr(ctx, generator).into(),
+                indices.size(ctx, generator).into(),
             ],
             "",
         )
@@ -750,21 +754,21 @@ fn call_ndarray_flatten_index_impl<'ctx, G: CodeGenerator + ?Sized>(
 /// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
 /// `NDArray`.
 /// * `indices` - The multidimensional index to compute the flattened index for.
-pub fn call_ndarray_flatten_index<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
-    ctx: &CodeGenContext<'ctx, '_>,
+pub fn call_ndarray_flatten_index<'ctx, G, Index>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
-    indices: ListValue<'ctx>,
-) -> IntValue<'ctx> {
-    let indices_size = indices.load_size(ctx, None);
-    let indices_data = indices.data();
+    indices: &Index,
+) -> IntValue<'ctx>
+    where
+        G: CodeGenerator + ?Sized,
+        Index: ArrayLikeIndexer<'ctx>, {
 
     call_ndarray_flatten_index_impl(
         generator,
         ctx,
         ndarray,
-        indices_data.as_ptr_value(ctx),
-        indices_size,
+        indices,
     )
 }
 /// Generates a call to `__nac3_ndarray_flatten_index`. Returns the flattened index for the
@@ -786,27 +790,27 @@ pub fn call_ndarray_flatten_index_const<'ctx, G: CodeGenerator + ?Sized>(
         ctx,
         indices.get_type().get_element_type(),
         llvm_usize.const_int(indices_size as u64, false),
-        None
+        None,
     ).unwrap();
     for i in 0..indices_size {
         let v = ctx.builder.build_extract_value(indices, i, "")
             .unwrap()
             .into_int_value();
-        let elem_ptr = unsafe {
-            ctx.builder.build_in_bounds_gep(
-                indices_alloca,
-                &[ctx.ctx.i32_type().const_int(i as u64, false)],
-                ""
-            )
-        }.unwrap();
-        ctx.builder.build_store(elem_ptr, v).unwrap();
+
+        unsafe {
+            indices_alloca.set_unchecked(
+                ctx,
+                generator,
+                ctx.ctx.i32_type().const_int(i as u64, false),
+                v.into(),
+            );
+        }
     }
 
     call_ndarray_flatten_index_impl(
         generator,
         ctx,
         ndarray,
-        indices_alloca,
-        llvm_usize.const_int(indices_size as u64, false),
+        &indices_alloca,
     )
 }

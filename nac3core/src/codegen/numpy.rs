@@ -6,7 +6,14 @@ use inkwell::{
 use nac3parser::ast::StrRef;
 use crate::{
     codegen::{
-        classes::{ListValue, NDArrayValue},
+        classes::{
+            ArrayLikeIndexer,
+            ArrayLikeValue,
+            ListValue,
+            NDArrayValue,
+            TypedArrayLikeAccessor,
+            UntypedArrayLikeAccessor,
+        },
         CodeGenContext,
         CodeGenerator,
         irrt::{
@@ -109,7 +116,7 @@ fn create_ndarray_dyn_shape<'ctx, 'a, G, V, LenFn, DataFn>(
                 .unwrap();
 
             let ndarray_pdim = unsafe {
-                ndarray.dim_sizes().ptr_offset_unchecked(ctx, i, None)
+                ndarray.dim_sizes().ptr_offset_unchecked(ctx, generator, i, None)
             };
 
             ctx.builder.build_store(ndarray_pdim, shape_dim).unwrap();
@@ -122,8 +129,7 @@ fn create_ndarray_dyn_shape<'ctx, 'a, G, V, LenFn, DataFn>(
     let ndarray_num_elems = call_ndarray_calc_size(
         generator,
         ctx,
-        ndarray.load_ndims(ctx),
-        ndarray.dim_sizes().as_ptr_value(ctx),
+        &ndarray.dim_sizes().as_slice_value(ctx, generator),
     );
     ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
@@ -193,12 +199,10 @@ fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
         ctx.builder.build_store(ndarray_dim, shape_dim).unwrap();
     }
 
-    let ndarray_dims = ndarray.dim_sizes().as_ptr_value(ctx);
     let ndarray_num_elems = call_ndarray_calc_size(
         generator,
         ctx,
-        ndarray.load_ndims(ctx),
-        ndarray_dims,
+        &ndarray.dim_sizes().as_slice_value(ctx, generator),
     );
     ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
@@ -288,8 +292,7 @@ fn ndarray_fill_flattened<'ctx, 'a, G, ValueFn>(
     let ndarray_num_elems = call_ndarray_calc_size(
         generator,
         ctx,
-        ndarray.load_ndims(ctx),
-        ndarray.dim_sizes().as_ptr_value(ctx),
+        &ndarray.dim_sizes().as_slice_value(ctx, generator),
     );
 
     gen_for_callback_incrementing(
@@ -299,7 +302,7 @@ fn ndarray_fill_flattened<'ctx, 'a, G, ValueFn>(
         (ndarray_num_elems, false),
         |generator, ctx, i| {
             let elem = unsafe {
-                ndarray.data().ptr_to_data_flattened_unchecked(ctx, i, None)
+                ndarray.data().ptr_offset_unchecked(ctx, generator, i, None)
             };
 
             let value = value_fn(generator, ctx, i)?;
@@ -548,16 +551,15 @@ fn ndarray_copy_impl<'ctx, G: CodeGenerator + ?Sized>(
         |_, ctx, shape| {
             Ok(shape.load_ndims(ctx))
         },
-        |_, ctx, shape, idx| {
-            unsafe { Ok(shape.dim_sizes().get_unchecked(ctx, idx, None)) }
+        |generator, ctx, shape, idx| {
+            unsafe { Ok(shape.dim_sizes().get_typed_unchecked(ctx, generator, idx, None)) }
         },
     )?;
 
     let len = call_ndarray_calc_size(
         generator,
         ctx,
-        ndarray.load_ndims(ctx),
-        ndarray.dim_sizes().as_ptr_value(ctx),
+        &ndarray.dim_sizes().as_slice_value(ctx, generator),
     );
     let sizeof_ty = ctx.get_llvm_type(generator, elem_ty);
     let len_bytes = ctx.builder
@@ -570,8 +572,8 @@ fn ndarray_copy_impl<'ctx, G: CodeGenerator + ?Sized>(
 
     call_memcpy_generic(
         ctx,
-        ndarray.data().as_ptr_value(ctx),
-        this.data().as_ptr_value(ctx),
+        ndarray.data().base_ptr(ctx, generator),
+        this.data().base_ptr(ctx, generator),
         len_bytes,
         llvm_i1.const_zero(),
     );

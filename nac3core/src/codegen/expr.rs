@@ -2,7 +2,14 @@ use std::{collections::HashMap, convert::TryInto, iter::once, iter::zip};
 
 use crate::{
     codegen::{
-        classes::{ListValue, NDArrayValue, RangeValue},
+        classes::{
+            ArrayLikeIndexer,
+            ArrayLikeValue,
+            ListValue,
+            NDArrayValue,
+            RangeValue,
+            UntypedArrayLikeAccessor,
+        },
         concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
         gen_in_range_check,
         get_llvm_type,
@@ -982,7 +989,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             list_alloc_size.into_int_value(),
             Some("listcomp.addr")
         );
-        list_content = list.data().as_ptr_value(ctx);
+        list_content = list.data().base_ptr(ctx, generator);
 
         let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
         ctx.builder
@@ -1015,7 +1022,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             )
             .into_int_value();
         list = allocate_list(generator, ctx, elem_ty, length, Some("listcomp"));
-        list_content = list.data().as_ptr_value(ctx);
+        list_content = list.data().base_ptr(ctx, generator);
         let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
         // counter = -1
         ctx.builder.build_store(counter, size_t.const_int(u64::MAX, true)).unwrap();
@@ -1260,7 +1267,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         };
 
         Ok(Some(v.data()
-            .get_const(
+            .get(
                 ctx,
                 generator,
                 ctx.ctx.i32_type().const_array(&[index]),
@@ -1307,13 +1314,14 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         let v_dims_src_ptr = unsafe {
             v.dim_sizes().ptr_offset_unchecked(
                 ctx,
+                generator,
                 llvm_usize.const_int(1, false),
                 None,
             )
         };
         call_memcpy_generic(
             ctx,
-            ndarray.dim_sizes().as_ptr_value(ctx),
+            ndarray.dim_sizes().base_ptr(ctx, generator),
             v_dims_src_ptr,
             ctx.builder
                 .build_int_mul(ndarray_num_dims, llvm_usize.size_of(), "")
@@ -1325,12 +1333,11 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         let ndarray_num_elems = call_ndarray_calc_size(
             generator,
             ctx,
-            ndarray.load_ndims(ctx),
-            ndarray.dim_sizes().as_ptr_value(ctx),
+            &ndarray.dim_sizes().as_slice_value(ctx, generator),
         );
         ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
-        let v_data_src_ptr = v.data().ptr_offset_const(
+        let v_data_src_ptr = v.data().ptr_offset(
             ctx,
             generator,
             ctx.ctx.i32_type().const_array(&[index]),
@@ -1338,7 +1345,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         );
         call_memcpy_generic(
             ctx,
-            ndarray.data().as_ptr_value(ctx),
+            ndarray.data().base_ptr(ctx, generator),
             v_data_src_ptr,
             ctx.builder
                 .build_int_mul(ndarray_num_elems, llvm_ndarray_data_t.size_of().unwrap(), "")

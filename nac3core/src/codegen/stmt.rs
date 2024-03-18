@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     codegen::{
-        classes::{ListValue, RangeValue},
+        classes::{ArrayLikeIndexer, ArraySliceValue, ListValue, RangeValue},
         expr::gen_binop_expr,
         gen_in_range_check,
     },
@@ -65,8 +65,8 @@ pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx>>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     ty: T,
     size: IntValue<'ctx>,
-    name: Option<&str>,
-) -> Result<PointerValue<'ctx>, String> {
+    name: Option<&'ctx str>,
+) -> Result<ArraySliceValue<'ctx>, String> {
     // Restore debug location
     let di_loc = ctx.debug_info.0.create_debug_location(
         ctx.ctx,
@@ -84,6 +84,7 @@ pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx>>(
     ctx.builder.set_current_debug_location(di_loc);
 
     let ptr = ctx.builder.build_array_alloca(ty, size, name.unwrap_or("")).unwrap();
+    let ptr = ArraySliceValue::from_ptr_val(ptr, size, name);
 
     ctx.builder.position_at_end(current);
     ctx.builder.set_current_debug_location(di_loc);

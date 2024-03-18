@@ -1,5 +1,5 @@
 use crate::{
-    codegen::{expr::*, stmt::*, bool_to_i1, bool_to_i8, CodeGenContext},
+    codegen::{classes::ArraySliceValue, expr::*, stmt::*, bool_to_i1, bool_to_i8, CodeGenContext},
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::typedef::{FunSignature, Type},
@@ -99,8 +99,8 @@ pub trait CodeGenerator {
         ctx: &mut CodeGenContext<'ctx, '_>,
         ty: BasicTypeEnum<'ctx>,
         size: IntValue<'ctx>,
-        name: Option<&str>,
-    ) -> Result<PointerValue<'ctx>, String> {
+        name: Option<&'ctx str>,
+    ) -> Result<ArraySliceValue<'ctx>, String> {
         gen_array_var(ctx, ty, size, name)
     }
 
