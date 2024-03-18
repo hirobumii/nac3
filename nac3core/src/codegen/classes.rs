@@ -627,6 +627,26 @@ impl<'ctx> NDArrayDimsProxy<'ctx> {
             .unwrap()
     }
 
+    /// # Safety
+    ///
+    /// This function should be called with a valid index.
+    pub unsafe fn ptr_offset_unchecked(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        idx: IntValue<'ctx>,
+        name: Option<&str>,
+    ) -> PointerValue<'ctx> {
+        let var_name = name
+            .map(|v| format!("{v}.addr"))
+            .unwrap_or_default();
+
+        ctx.builder.build_in_bounds_gep(
+            self.as_ptr_value(ctx),
+            &[idx],
+            var_name.as_str(),
+        ).unwrap()
+    }
+
     /// Returns the pointer to the size of the `idx`-th dimension.
     pub fn ptr_offset(
         &self,
@@ -650,17 +670,24 @@ impl<'ctx> NDArrayDimsProxy<'ctx> {
             ctx.current_loc,
         );
 
-        let var_name = name
-            .map(|v| format!("{v}.addr"))
-            .unwrap_or_default();
-
         unsafe {
-            ctx.builder.build_in_bounds_gep(
-                self.as_ptr_value(ctx),
-                &[idx],
-                var_name.as_str(),
-            ).unwrap()
+            self.ptr_offset_unchecked(ctx, idx, name)
         }
+    }
+
+    /// # Safety
+    ///
+    /// This function should be called with a valid index.
+    pub unsafe fn get_unchecked(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        idx: IntValue<'ctx>,
+        name: Option<&str>,
+    ) -> IntValue<'ctx> {
+        let ptr = self.ptr_offset_unchecked(ctx, idx, name);
+        ctx.builder.build_load(ptr, name.unwrap_or_default())
+            .map(BasicValueEnum::into_int_value)
+            .unwrap()
     }
 
     /// Returns the size of the `idx`-th dimension.
@@ -862,7 +889,9 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
                 .map(BasicValueEnum::into_int_value)
                 .map(|v| ctx.builder.build_int_z_extend_or_bit_cast(v, llvm_usize, "").unwrap())
                 .unwrap();
-            let dim_sz = self.0.dim_sizes().get(ctx, generator, i, None);
+            let dim_sz = unsafe {
+                self.0.dim_sizes().get_unchecked(ctx, i, None)
+            };
 
             let dim_lt = ctx.builder.build_int_compare(
                 IntPredicate::SLT,
@@ -938,7 +967,7 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
                 let (dim_idx, dim_sz) = unsafe {
                     (
                         indices.data().get_unchecked(ctx, i, None).into_int_value(),
-                        self.0.dim_sizes().get(ctx, generator, i, None),
+                        self.0.dim_sizes().get_unchecked(ctx, i, None),
                     )
                 };
 

@@ -150,7 +150,9 @@ fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
                 .build_int_z_extend(shape_dim, llvm_usize, "")
                 .unwrap();
 
-            let ndarray_pdim = ndarray.dim_sizes().ptr_offset(ctx, generator, i, None);
+            let ndarray_pdim = unsafe {
+                ndarray.dim_sizes().ptr_offset_unchecked(ctx, i, None)
+            };
 
             ctx.builder.build_store(ndarray_pdim, shape_dim).unwrap();
 
@@ -620,8 +622,8 @@ fn ndarray_copy_impl<'ctx>(
         |_, ctx, shape| {
             Ok(shape.load_ndims(ctx))
         },
-        |generator, ctx, shape, idx| {
-            Ok(shape.dim_sizes().get(ctx, generator, idx, None))
+        |_, ctx, shape, idx| {
+            unsafe { Ok(shape.dim_sizes().get_unchecked(ctx, idx, None)) }
         },
     )?;
 

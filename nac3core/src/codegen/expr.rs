@@ -1300,12 +1300,13 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
 
         let ndarray_num_dims = ndarray.load_ndims(ctx);
-        let v_dims_src_ptr = v.dim_sizes().ptr_offset(
-            ctx,
-            generator,
-            llvm_usize.const_int(1, false),
-            None,
-        );
+        let v_dims_src_ptr = unsafe {
+            v.dim_sizes().ptr_offset_unchecked(
+                ctx,
+                llvm_usize.const_int(1, false),
+                None,
+            )
+        };
         call_memcpy_generic(
             ctx,
             ndarray.dim_sizes().as_ptr_value(ctx),
