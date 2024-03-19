@@ -16,9 +16,7 @@ pub fn assert_is_list<'ctx>(_value: PointerValue<'ctx>, _llvm_usize: IntType<'ct
 
 #[cfg(debug_assertions)]
 pub fn assert_is_list<'ctx>(value: PointerValue<'ctx>, llvm_usize: IntType<'ctx>) {
-    if let Err(msg) = ListValue::is_instance(value, llvm_usize) {
-        panic!("{msg}")
-    }
+    ListValue::is_instance(value, llvm_usize).unwrap();
 }
 
 /// Proxy type for accessing a `list` value in LLVM.
@@ -254,9 +252,7 @@ pub fn assert_is_range(_value: PointerValue) {}
 
 #[cfg(debug_assertions)]
 pub fn assert_is_range(value: PointerValue) {
-    if let Err(msg) = RangeValue::is_instance(value) {
-        panic!("{msg}")
-    }
+    RangeValue::is_instance(value).unwrap();
 }
 
 /// Proxy type for accessing a `range` value in LLVM.
@@ -425,9 +421,7 @@ pub fn assert_is_ndarray<'ctx>(_value: PointerValue<'ctx>, _llvm_usize: IntType<
 
 #[cfg(debug_assertions)]
 pub fn assert_is_ndarray<'ctx>(value: PointerValue<'ctx>, llvm_usize: IntType<'ctx>) {
-    if let Err(msg) = NDArrayValue::is_instance(value, llvm_usize) {
-        panic!("{msg}")
-    }
+    NDArrayValue::is_instance(value, llvm_usize).unwrap();
 }
 
 /// Proxy type for accessing an `NDArray` value in LLVM.
