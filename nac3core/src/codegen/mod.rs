@@ -416,10 +416,10 @@ pub struct CodeGenTask {
 /// This function is used to obtain the in-memory representation of `ty`, e.g. a `bool` variable
 /// would be represented by an `i8`.
 #[allow(clippy::too_many_arguments)]
-fn get_llvm_type<'ctx>(
+fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &'ctx Context,
     module: &Module<'ctx>,
-    generator: &mut dyn CodeGenerator,
+    generator: &mut G,
     unifier: &mut Unifier,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
@@ -554,10 +554,10 @@ fn get_llvm_type<'ctx>(
 /// be byte-aligned for the variable to be addressable in memory, whereas there is no such
 /// restriction for ABI representations.
 #[allow(clippy::too_many_arguments)]
-fn get_llvm_abi_type<'ctx>(
+fn get_llvm_abi_type<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &'ctx Context,
     module: &Module<'ctx>,
-    generator: &mut dyn CodeGenerator,
+    generator: &mut G,
     unifier: &mut Unifier,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,

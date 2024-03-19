@@ -39,8 +39,8 @@ pub fn load_irrt(ctx: &Context) -> Module {
 
 // repeated squaring method adapted from GNU Scientific Library:
 // https://git.savannah.gnu.org/cgit/gsl.git/tree/sys/pow_int.c
-pub fn integer_power<'ctx>(
-    generator: &mut dyn CodeGenerator,
+pub fn integer_power<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     base: IntValue<'ctx>,
     exp: IntValue<'ctx>,
@@ -81,8 +81,8 @@ pub fn integer_power<'ctx>(
         .unwrap()
 }
 
-pub fn calculate_len_for_slice_range<'ctx>(
-    generator: &mut dyn CodeGenerator,
+pub fn calculate_len_for_slice_range<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     start: IntValue<'ctx>,
     end: IntValue<'ctx>,
@@ -303,8 +303,8 @@ pub fn handle_slice_index_bound<'ctx, G: CodeGenerator>(
 /// This function handles 'end' **inclusively**.
 /// Order of tuples `assign_idx` and `value_idx` is ('start', 'end', 'step').
 /// Negative index should be handled before entering this function
-pub fn list_slice_assignment<'ctx>(
-    generator: &mut dyn CodeGenerator,
+pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     ty: BasicTypeEnum<'ctx>,
     dest_arr: ListValue<'ctx>,
@@ -468,8 +468,8 @@ pub fn list_slice_assignment<'ctx>(
 }
 
 /// Generates a call to `isinf` in IR. Returns an `i1` representing the result.
-pub fn call_isinf<'ctx>(
-    generator: &mut dyn CodeGenerator,
+pub fn call_isinf<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
 ) -> IntValue<'ctx> {
@@ -489,8 +489,8 @@ pub fn call_isinf<'ctx>(
 }
 
 /// Generates a call to `isnan` in IR. Returns an `i1` representing the result.
-pub fn call_isnan<'ctx>(
-    generator: &mut dyn CodeGenerator,
+pub fn call_isnan<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
 ) -> IntValue<'ctx> {
@@ -574,8 +574,8 @@ pub fn call_j0<'ctx>(
 ///
 /// * `num_dims` - An [`IntValue`] containing the number of dimensions.
 /// * `dims` - A [`PointerValue`] to an array containing the size of each dimension.
-pub fn call_ndarray_calc_size<'ctx>(
-    generator: &dyn CodeGenerator,
+pub fn call_ndarray_calc_size<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     num_dims: IntValue<'ctx>,
     dims: PointerValue<'ctx>,
@@ -622,8 +622,8 @@ pub fn call_ndarray_calc_size<'ctx>(
 /// * `index` - The index to compute the multidimensional index for.
 /// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
 /// `NDArray`.
-pub fn call_ndarray_calc_nd_indices<'ctx>(
-    generator: &dyn CodeGenerator,
+pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     index: IntValue<'ctx>,
     ndarray: NDArrayValue<'ctx>,
@@ -677,8 +677,8 @@ pub fn call_ndarray_calc_nd_indices<'ctx>(
     indices
 }
 
-fn call_ndarray_flatten_index_impl<'ctx>(
-    generator: &dyn CodeGenerator,
+fn call_ndarray_flatten_index_impl<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
     indices: PointerValue<'ctx>,
@@ -750,8 +750,8 @@ fn call_ndarray_flatten_index_impl<'ctx>(
 /// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
 /// `NDArray`.
 /// * `indices` - The multidimensional index to compute the flattened index for.
-pub fn call_ndarray_flatten_index<'ctx>(
-    generator: &dyn CodeGenerator,
+pub fn call_ndarray_flatten_index<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
     indices: ListValue<'ctx>,
@@ -773,8 +773,8 @@ pub fn call_ndarray_flatten_index<'ctx>(
 /// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
 /// `NDArray`.
 /// * `indices` - The multidimensional index to compute the flattened index for.
-pub fn call_ndarray_flatten_index_const<'ctx>(
-    generator: &mut dyn CodeGenerator,
+pub fn call_ndarray_flatten_index_const<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
     indices: ArrayValue<'ctx>,

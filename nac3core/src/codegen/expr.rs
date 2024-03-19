@@ -103,9 +103,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         index
     }
 
-    pub fn gen_symbol_val(
+    pub fn gen_symbol_val<G: CodeGenerator + ?Sized>(
         &mut self,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         val: &SymbolValue,
         ty: Type,
     ) -> BasicValueEnum<'ctx> {
@@ -174,9 +174,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     }
 
     /// See [`get_llvm_type`].
-    pub fn get_llvm_type(
+    pub fn get_llvm_type<G: CodeGenerator + ?Sized>(
         &mut self,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         ty: Type,
     ) -> BasicTypeEnum<'ctx> {
         get_llvm_type(
@@ -191,9 +191,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     }
 
     /// See [`get_llvm_abi_type`].
-    pub fn get_llvm_abi_type(
+    pub fn get_llvm_abi_type<G: CodeGenerator + ?Sized>(
         &mut self,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         ty: Type,
     ) -> BasicTypeEnum<'ctx> {
         get_llvm_abi_type(
@@ -209,9 +209,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     }
 
     /// Generates an LLVM variable for a [constant value][value] with a given [type][ty].
-    pub fn gen_const(
+    pub fn gen_const<G: CodeGenerator + ?Sized>(
         &mut self,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         value: &Constant,
         ty: Type,
     ) -> Option<BasicValueEnum<'ctx>> {
@@ -291,9 +291,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     }
 
     /// Generates a binary operation `op` between two integral operands `lhs` and `rhs`.
-    pub fn gen_int_ops(
+    pub fn gen_int_ops<G: CodeGenerator + ?Sized>(
         &mut self,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         op: &Operator,
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
@@ -492,17 +492,21 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     }
 
     /// Helper function for generating a LLVM variable storing a [String].
-    pub fn gen_string<S: Into<String>>(
+    pub fn gen_string<G, S>(
         &mut self,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         s: S,
-    ) -> BasicValueEnum<'ctx> {
+    ) -> BasicValueEnum<'ctx>
+        where
+            G: CodeGenerator + ?Sized,
+            S: Into<String>,
+    {
         self.gen_const(generator, &Constant::Str(s.into()), self.primitives.str).unwrap()
     }
 
-    pub fn raise_exn(
+    pub fn raise_exn<G: CodeGenerator + ?Sized>(
         &mut self,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         name: &str,
         msg: BasicValueEnum<'ctx>,
         params: [Option<IntValue<'ctx>>; 3],
@@ -546,9 +550,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         gen_raise(generator, self, Some(&zelf.into()), loc);
     }
 
-    pub fn make_assert(
+    pub fn make_assert<G: CodeGenerator + ?Sized>(
         &mut self,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         cond: IntValue<'ctx>,
         err_name: &str,
         err_msg: &str,
@@ -559,9 +563,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         self.make_assert_impl(generator, cond, err_name, err_msg, params, loc);
     }
 
-    pub fn make_assert_impl(
+    pub fn make_assert_impl<G: CodeGenerator + ?Sized>(
         &mut self,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         cond: IntValue<'ctx>,
         err_name: &str,
         err_msg: BasicValueEnum<'ctx>,
@@ -878,7 +882,7 @@ pub fn destructure_range<'ctx>(
 /// Returns an instance of [`PointerValue`] pointing to the List structure. The List structure is
 /// defined as `type { ty*, size_t }` in LLVM, where the first element stores the pointer to the
 /// data, and the second element stores the size of the List.
-pub fn allocate_list<'ctx, G: CodeGenerator>(
+pub fn allocate_list<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     ty: BasicTypeEnum<'ctx>,

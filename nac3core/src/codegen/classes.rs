@@ -125,10 +125,10 @@ impl<'ctx> ListValue<'ctx> {
     }
 
     /// Stores the `size` of this `list` into this instance.
-    pub fn store_size(
+    pub fn store_size<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
-        generator: &dyn CodeGenerator,
+        generator: &G,
         size: IntValue<'ctx>,
     ) {
         debug_assert_eq!(size.get_type(), generator.get_size_type(ctx.ctx));
@@ -192,10 +192,10 @@ impl<'ctx> ListDataProxy<'ctx> {
     }
 
     /// Returns the pointer to the data at the `idx`-th index.
-    pub fn ptr_offset(
+    pub fn ptr_offset<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         idx: IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -235,10 +235,10 @@ impl<'ctx> ListDataProxy<'ctx> {
     }
 
     /// Returns the data at the `idx`-th flattened index.
-    pub fn get(
+    pub fn get<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         idx: IntValue<'ctx>,
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
@@ -507,10 +507,10 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 
     /// Stores the number of dimensions `ndims` into this instance.
-    pub fn store_ndims(
+    pub fn store_ndims<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
-        generator: &dyn CodeGenerator,
+        generator: &G,
         ndims: IntValue<'ctx>,
     ) {
         debug_assert_eq!(ndims.get_type(), generator.get_size_type(ctx.ctx));
@@ -642,10 +642,10 @@ impl<'ctx> NDArrayDimsProxy<'ctx> {
     }
 
     /// Returns the pointer to the size of the `idx`-th dimension.
-    pub fn ptr_offset(
+    pub fn ptr_offset<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         idx: IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -685,10 +685,10 @@ impl<'ctx> NDArrayDimsProxy<'ctx> {
     }
 
     /// Returns the size of the `idx`-th dimension.
-    pub fn get(
+    pub fn get<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         idx: IntValue<'ctx>,
         name: Option<&str>,
     ) -> IntValue<'ctx> {
@@ -730,10 +730,10 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     }
 
     /// Returns the pointer to the data at the `idx`-th flattened index.
-    pub fn ptr_to_data_flattened(
+    pub fn ptr_to_data_flattened<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         idx: IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -775,10 +775,10 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     }
 
     /// Returns the data at the `idx`-th flattened index.
-    pub fn get_flattened(
+    pub fn get_flattened<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         idx: IntValue<'ctx>,
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
@@ -789,10 +789,10 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     /// # Safety
     ///
     /// This function should be called with valid indices.
-    pub unsafe fn ptr_offset_unchecked(
+    pub unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
-        generator: &dyn CodeGenerator,
+        generator: &G,
         indices: ListValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -821,10 +821,10 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     /// # Safety
     ///
     /// This function should be called with valid indices.
-    pub unsafe fn ptr_offset_unchecked_const(
+    pub unsafe fn ptr_offset_unchecked_const<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         indices: ArrayValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -845,10 +845,10 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     }
 
     /// Returns the pointer to the data at the index specified by `indices`.
-    pub fn ptr_offset_const(
+    pub fn ptr_offset_const<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         indices: ArrayValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -910,10 +910,10 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     }
 
     /// Returns the pointer to the data at the index specified by `indices`.
-    pub fn ptr_offset(
+    pub fn ptr_offset<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         indices: ListValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -979,10 +979,10 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     /// # Safety
     ///
     /// This function should be called with valid indices.
-    pub unsafe fn get_unchecked_const(
+    pub unsafe fn get_unchecked_const<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         indices: ArrayValue<'ctx>,
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
@@ -993,10 +993,10 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     /// # Safety
     ///
     /// This function should be called with valid indices.
-    pub unsafe fn get_unchecked(
+    pub unsafe fn get_unchecked<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &dyn CodeGenerator,
+        generator: &G,
         indices: ListValue<'ctx>,
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
@@ -1005,10 +1005,10 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     }
 
     /// Returns the data at the index specified by `indices`.
-    pub fn get_const(
+    pub fn get_const<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         indices: ArrayValue<'ctx>,
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
@@ -1017,10 +1017,10 @@ impl<'ctx> NDArrayDataProxy<'ctx> {
     }
 
     /// Returns the data at the index specified by `indices`.
-    pub fn get(
+    pub fn get<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        generator: &mut G,
         indices: ListValue<'ctx>,
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {

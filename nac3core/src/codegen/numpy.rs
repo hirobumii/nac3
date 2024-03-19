@@ -30,8 +30,8 @@ use crate::{
 /// * `shape` - The shape of the `NDArray`.
 /// * `shape_len_fn` - A function that retrieves the number of dimensions from `shape`.
 /// * `shape_data_fn` - A function that retrieves the size of a dimension from `shape`.
-fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
-    generator: &mut dyn CodeGenerator,
+fn create_ndarray_dyn_shape<'ctx, 'a, G, V, LenFn, DataFn>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
     shape: &V,
@@ -39,8 +39,9 @@ fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
     shape_data_fn: DataFn,
 ) -> Result<NDArrayValue<'ctx>, String>
     where
-        LenFn: Fn(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, &V) -> Result<IntValue<'ctx>, String>,
-        DataFn: Fn(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, &V, IntValue<'ctx>) -> Result<IntValue<'ctx>, String>,
+        G: CodeGenerator + ?Sized,
+        LenFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>, &V) -> Result<IntValue<'ctx>, String>,
+        DataFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>, &V, IntValue<'ctx>) -> Result<IntValue<'ctx>, String>,
 {
     let ndarray_ty = make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(elem_ty), None);
 
@@ -133,8 +134,8 @@ fn create_ndarray_dyn_shape<'ctx, 'a, V, LenFn, DataFn>(
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
 /// * `shape` - The shape of the `NDArray`, represented as an LLVM [`ArrayValue`].
-fn create_ndarray_const_shape<'ctx>(
-    generator: &mut dyn CodeGenerator,
+fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     shape: ArrayValue<'ctx>
@@ -204,8 +205,8 @@ fn create_ndarray_const_shape<'ctx>(
     Ok(ndarray)
 }
 
-fn ndarray_zero_value<'ctx>(
-    generator: &mut dyn CodeGenerator,
+fn ndarray_zero_value<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
 ) -> BasicValueEnum<'ctx> {
@@ -224,8 +225,8 @@ fn ndarray_zero_value<'ctx>(
     }
 }
 
-fn ndarray_one_value<'ctx>(
-    generator: &mut dyn CodeGenerator,
+fn ndarray_one_value<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
 ) -> BasicValueEnum<'ctx> {
@@ -250,8 +251,8 @@ fn ndarray_one_value<'ctx>(
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
 /// * `shape` - The `shape` parameter used to construct the `NDArray`.
-fn call_ndarray_empty_impl<'ctx>(
-    generator: &mut dyn CodeGenerator,
+fn call_ndarray_empty_impl<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
@@ -272,14 +273,15 @@ fn call_ndarray_empty_impl<'ctx>(
 
 /// Generates LLVM IR for populating the entire `NDArray` using a lambda with its flattened index as
 /// its input.
-fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
-    generator: &mut dyn CodeGenerator,
+fn ndarray_fill_flattened<'ctx, 'a, G, ValueFn>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     ndarray: NDArrayValue<'ctx>,
     value_fn: ValueFn,
 ) -> Result<(), String>
     where
-        ValueFn: Fn(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, IntValue<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
+        G: CodeGenerator + ?Sized,
+        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>, IntValue<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
 {
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
@@ -311,14 +313,15 @@ fn ndarray_fill_flattened<'ctx, 'a, ValueFn>(
 
 /// Generates LLVM IR for populating the entire `NDArray` using a lambda with the dimension-indices
 /// as its input.
-fn ndarray_fill_indexed<'ctx, ValueFn>(
-    generator: &mut dyn CodeGenerator,
+fn ndarray_fill_indexed<'ctx, G, ValueFn>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
     value_fn: ValueFn,
 ) -> Result<(), String>
     where
-        ValueFn: Fn(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, '_>, PointerValue<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
+        G: CodeGenerator + ?Sized,
+        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, PointerValue<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
 {
     ndarray_fill_flattened(
         generator,
@@ -341,8 +344,8 @@ fn ndarray_fill_indexed<'ctx, ValueFn>(
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
 /// * `shape` - The `shape` parameter used to construct the `NDArray`.
-fn call_ndarray_zeros_impl<'ctx>(
-    generator: &mut dyn CodeGenerator,
+fn call_ndarray_zeros_impl<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
@@ -377,8 +380,8 @@ fn call_ndarray_zeros_impl<'ctx>(
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
 /// * `shape` - The `shape` parameter used to construct the `NDArray`.
-fn call_ndarray_ones_impl<'ctx>(
-    generator: &mut dyn CodeGenerator,
+fn call_ndarray_ones_impl<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
@@ -413,8 +416,8 @@ fn call_ndarray_ones_impl<'ctx>(
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
 /// * `shape` - The `shape` parameter used to construct the `NDArray`.
-fn call_ndarray_full_impl<'ctx>(
-    generator: &mut dyn CodeGenerator,
+fn call_ndarray_full_impl<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     shape: ListValue<'ctx>,
@@ -456,8 +459,8 @@ fn call_ndarray_full_impl<'ctx>(
 /// LLVM-typed implementation for generating the implementation for `ndarray.eye`.
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
-fn call_ndarray_eye_impl<'ctx>(
-    generator: &mut dyn CodeGenerator,
+fn call_ndarray_eye_impl<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     nrows: IntValue<'ctx>,
@@ -529,8 +532,8 @@ fn call_ndarray_eye_impl<'ctx>(
 /// LLVM-typed implementation for generating the implementation for `ndarray.copy`.
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
-fn ndarray_copy_impl<'ctx>(
-    generator: &mut dyn CodeGenerator,
+fn ndarray_copy_impl<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
     this: NDArrayValue<'ctx>,

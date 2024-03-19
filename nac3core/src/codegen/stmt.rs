@@ -478,8 +478,8 @@ pub fn gen_for<G: CodeGenerator>(
 /// executing. The result value must be an `i1` indicating if the loop should continue.
 /// * `body` - A lambda containing IR statements within the loop body.
 /// * `update` - A lambda containing IR statements updating loop variables.
-pub fn gen_for_callback<'ctx, 'a, I, InitFn, CondFn, BodyFn, UpdateFn>(
-    generator: &mut dyn CodeGenerator,
+pub fn gen_for_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     init: InitFn,
     cond: CondFn,
@@ -487,11 +487,12 @@ pub fn gen_for_callback<'ctx, 'a, I, InitFn, CondFn, BodyFn, UpdateFn>(
     update: UpdateFn,
 ) -> Result<(), String>
     where
+        G: CodeGenerator + ?Sized,
         I: Clone,
-        InitFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>) -> Result<I, String>,
-        CondFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, I) -> Result<IntValue<'ctx>, String>,
-        BodyFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
-        UpdateFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
+        InitFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<I, String>,
+        CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<IntValue<'ctx>, String>,
+        BodyFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
+        UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
 {
     let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let init_bb = ctx.ctx.append_basic_block(current, "for.init");
@@ -551,8 +552,8 @@ pub fn gen_for_callback<'ctx, 'a, I, InitFn, CondFn, BodyFn, UpdateFn>(
 /// value should be treated as inclusive (as opposed to exclusive).
 /// * `body` - A lambda containing IR statements within the loop body.
 /// * `incr_val` - The value to increment the loop variable on each iteration.
-pub fn gen_for_callback_incrementing<'ctx, 'a, BodyFn>(
-    generator: &mut dyn CodeGenerator,
+pub fn gen_for_callback_incrementing<'ctx, 'a, G, BodyFn>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     init_val: IntValue<'ctx>,
     max_val: (IntValue<'ctx>, bool),
@@ -560,7 +561,8 @@ pub fn gen_for_callback_incrementing<'ctx, 'a, BodyFn>(
     incr_val: IntValue<'ctx>,
 ) -> Result<(), String>
     where
-        BodyFn: FnOnce(&mut dyn CodeGenerator, &mut CodeGenContext<'ctx, 'a>, IntValue<'ctx>) -> Result<(), String>,
+        G: CodeGenerator + ?Sized,
+        BodyFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, IntValue<'ctx>) -> Result<(), String>,
 {
     let init_val_t = init_val.get_type();
 
@@ -779,8 +781,8 @@ pub fn final_proxy<'ctx>(
 
 /// Inserts the declaration of the builtin function with the specified `symbol` name, and returns
 /// the function.
-pub fn get_builtins<'ctx>(
-    generator: &mut dyn CodeGenerator,
+pub fn get_builtins<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     symbol: &str,
 ) -> FunctionValue<'ctx> {
@@ -873,8 +875,8 @@ pub fn exn_constructor<'ctx>(
 ///
 /// * `exception` - The exception thrown by the `raise` statement.
 /// * `loc` - The location where the exception is raised from.
-pub fn gen_raise<'ctx>(
-    generator: &mut dyn CodeGenerator,
+pub fn gen_raise<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     exception: Option<&BasicValueEnum<'ctx>>,
     loc: Location,
