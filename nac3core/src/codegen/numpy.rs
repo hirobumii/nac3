@@ -1,7 +1,7 @@
 use inkwell::{
     IntPredicate, 
     types::BasicType, 
-    values::{AggregateValueEnum, ArrayValue, BasicValueEnum, IntValue, PointerValue}
+    values::{BasicValueEnum, IntValue, PointerValue}
 };
 use nac3parser::ast::StrRef;
 use crate::{
@@ -140,12 +140,12 @@ fn create_ndarray_dyn_shape<'ctx, 'a, G, V, LenFn, DataFn>(
 /// Creates an `NDArray` instance from a constant shape.
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
-/// * `shape` - The shape of the `NDArray`, represented as an LLVM [`ArrayValue`].
+/// * `shape` - The shape of the `NDArray`, represented am array of [`IntValue`]s.
 fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
-    shape: ArrayValue<'ctx>
+    shape: &[IntValue<'ctx>],
 ) -> Result<NDArrayValue<'ctx>, String> {
     let ndarray_ty = make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(elem_ty), None);
 
@@ -156,14 +156,9 @@ fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
     let llvm_ndarray_data_t = ctx.get_llvm_type(generator, elem_ty).as_basic_type_enum();
     assert!(llvm_ndarray_data_t.is_sized());
 
-    for i in 0..shape.get_type().len() {
-        let shape_dim = ctx.builder
-            .build_extract_value(shape, i, "")
-            .map(BasicValueEnum::into_int_value)
-            .unwrap();
-
+    for shape_dim in shape {
         let shape_dim_gez = ctx.builder
-            .build_int_compare(IntPredicate::SGE, shape_dim, llvm_usize.const_zero(), "")
+            .build_int_compare(IntPredicate::SGE, *shape_dim, llvm_usize.const_zero(), "")
             .unwrap();
 
         ctx.make_assert(
@@ -183,21 +178,20 @@ fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
     )?;
     let ndarray = NDArrayValue::from_ptr_val(ndarray, llvm_usize, None);
 
-    let num_dims = llvm_usize.const_int(shape.get_type().len() as u64, false);
+    let num_dims = llvm_usize.const_int(shape.len() as u64, false);
     ndarray.store_ndims(ctx, generator, num_dims);
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
     ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
 
-    for i in 0..shape.get_type().len() {
-        let ndarray_dim = ndarray
-            .dim_sizes()
-            .ptr_offset(ctx, generator, llvm_usize.const_int(i as u64, true), None);
-        let shape_dim = ctx.builder.build_extract_value(shape, i, "")
-            .map(BasicValueEnum::into_int_value)
-            .unwrap();
+    for (i, shape_dim) in shape.iter().enumerate() {
+        let ndarray_dim = unsafe {
+            ndarray
+                .dim_sizes()
+                .ptr_offset_unchecked(ctx, generator, llvm_usize.const_int(i as u64, true), None)
+        };
 
-        ctx.builder.build_store(ndarray_dim, shape_dim).unwrap();
+        ctx.builder.build_store(ndarray_dim, *shape_dim).unwrap();
     }
 
     let ndarray_num_elems = call_ndarray_calc_size(
@@ -473,27 +467,16 @@ fn call_ndarray_eye_impl<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<NDArrayValue<'ctx>, String> {
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
-    let llvm_usize_2 = llvm_usize.array_type(2);
-
-    let shape_addr = generator.gen_var_alloc(ctx, llvm_usize_2.into(), None)?;
-
-    let shape = ctx.builder.build_load(shape_addr, "")
-        .map(BasicValueEnum::into_array_value)
-        .unwrap();
 
     let nrows = ctx.builder.build_int_z_extend_or_bit_cast(nrows, llvm_usize, "").unwrap();
-    let shape = ctx.builder
-        .build_insert_value(shape, nrows, 0, "")
-        .map(AggregateValueEnum::into_array_value)
-        .unwrap();
-
     let ncols = ctx.builder.build_int_z_extend_or_bit_cast(ncols, llvm_usize, "").unwrap();
-    let shape = ctx.builder
-        .build_insert_value(shape, ncols, 1, "")
-        .map(AggregateValueEnum::into_array_value)
-        .unwrap();
 
-    let ndarray = create_ndarray_const_shape(generator, ctx, elem_ty, shape)?;
+    let ndarray = create_ndarray_const_shape(
+        generator,
+        ctx,
+        elem_ty,
+        &[nrows, ncols],
+    )?;
 
     ndarray_fill_indexed(
         generator,

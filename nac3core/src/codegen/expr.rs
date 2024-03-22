@@ -5,6 +5,7 @@ use crate::{
         classes::{
             ArrayLikeIndexer,
             ArrayLikeValue,
+            ArraySliceValue,
             ListValue,
             NDArrayValue,
             RangeValue,
@@ -1265,12 +1266,14 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         } else {
             return Ok(None)
         };
+        let index_addr = generator.gen_var_alloc(ctx, index.get_type().into(), None)?;
+        ctx.builder.build_store(index_addr, index).unwrap();
 
         Ok(Some(v.data()
             .get(
                 ctx,
                 generator,
-                ctx.ctx.i32_type().const_array(&[index]),
+                ArraySliceValue::from_ptr_val(index_addr, llvm_usize.const_int(1, false), None),
                 None,
             )
             .into()))
@@ -1286,6 +1289,8 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         } else {
             return Ok(None)
         };
+        let index_addr = generator.gen_var_alloc(ctx, index.get_type().into(), None)?;
+        ctx.builder.build_store(index_addr, index).unwrap();
 
         // Create a new array, remove the top dimension from the dimension-size-list, and copy the
         // elements over
@@ -1340,7 +1345,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         let v_data_src_ptr = v.data().ptr_offset(
             ctx,
             generator,
-            ctx.ctx.i32_type().const_array(&[index]),
+            ArraySliceValue::from_ptr_val(index_addr, llvm_usize.const_int(1, false), None),
             None
         );
         call_memcpy_generic(

@@ -8,7 +8,6 @@ use super::{
         ListValue,
         NDArrayValue,
         TypedArrayLikeAdapter,
-        UntypedArrayLikeMutator,
     },
     CodeGenContext,
     CodeGenerator,
@@ -19,7 +18,7 @@ use inkwell::{
     memory_buffer::MemoryBuffer,
     module::Module,
     types::{BasicTypeEnum, IntType},
-    values::{ArrayValue, BasicValueEnum, CallSiteValue, FloatValue, IntValue},
+    values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue},
     AddressSpace, IntPredicate,
 };
 use itertools::Either;
@@ -783,48 +782,5 @@ pub fn call_ndarray_flatten_index<'ctx, G, Index>(
         ctx,
         ndarray,
         indices,
-    )
-}
-/// Generates a call to `__nac3_ndarray_flatten_index`. Returns the flattened index for the
-/// multidimensional index.
-///
-/// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
-/// `NDArray`.
-/// * `indices` - The multidimensional index to compute the flattened index for.
-pub fn call_ndarray_flatten_index_const<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    ndarray: NDArrayValue<'ctx>,
-    indices: ArrayValue<'ctx>,
-) -> IntValue<'ctx> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let indices_size = indices.get_type().len();
-    let indices_alloca = generator.gen_array_var_alloc(
-        ctx,
-        indices.get_type().get_element_type(),
-        llvm_usize.const_int(indices_size as u64, false),
-        None,
-    ).unwrap();
-    for i in 0..indices_size {
-        let v = ctx.builder.build_extract_value(indices, i, "")
-            .unwrap()
-            .into_int_value();
-
-        unsafe {
-            indices_alloca.set_unchecked(
-                ctx,
-                generator,
-                ctx.ctx.i32_type().const_int(i as u64, false),
-                v.into(),
-            );
-        }
-    }
-
-    call_ndarray_flatten_index_impl(
-        generator,
-        ctx,
-        ndarray,
-        &indices_alloca,
     )
 }
