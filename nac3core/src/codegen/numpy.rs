@@ -12,6 +12,7 @@ use crate::{
             ListValue,
             NDArrayValue,
             TypedArrayLikeAccessor,
+            TypedArrayLikeAdapter,
             UntypedArrayLikeAccessor,
         },
         CodeGenContext,
@@ -324,7 +325,7 @@ fn ndarray_fill_indexed<'ctx, G, ValueFn>(
 ) -> Result<(), String>
     where
         G: CodeGenerator + ?Sized,
-        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, PointerValue<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
+        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, TypedArrayLikeAdapter<'ctx, IntValue<'ctx>>) -> Result<BasicValueEnum<'ctx>, String>,
 {
     ndarray_fill_flattened(
         generator,
@@ -499,16 +500,12 @@ fn call_ndarray_eye_impl<'ctx, G: CodeGenerator + ?Sized>(
         ctx,
         ndarray,
         |generator, ctx, indices| {
-            let row = ctx.build_gep_and_load(
-                indices,
-                &[llvm_usize.const_int(0, false)],
-                None,
-            ).into_int_value();
-            let col = ctx.build_gep_and_load(
-                indices,
-                &[llvm_usize.const_int(1, false)],
-                None,
-            ).into_int_value();
+            let (row, col) = unsafe {
+                (
+                    indices.get_typed_unchecked(ctx, generator, llvm_usize.const_zero(), None),
+                    indices.get_typed_unchecked(ctx, generator, llvm_usize.const_int(1, false), None),
+                )
+            };
 
             let col_with_offset = ctx.builder
                 .build_int_add(

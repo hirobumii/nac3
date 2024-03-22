@@ -1,7 +1,15 @@
 use crate::typecheck::typedef::Type;
 
 use super::{
-    classes::{ArrayLikeIndexer, ArrayLikeValue, ListValue, NDArrayValue, UntypedArrayLikeMutator},
+    classes::{
+        ArrayLikeIndexer,
+        ArrayLikeValue,
+        ArraySliceValue,
+        ListValue,
+        NDArrayValue,
+        TypedArrayLikeAdapter,
+        UntypedArrayLikeMutator,
+    },
     CodeGenContext,
     CodeGenerator,
 };
@@ -11,7 +19,7 @@ use inkwell::{
     memory_buffer::MemoryBuffer,
     module::Module,
     types::{BasicTypeEnum, IntType},
-    values::{ArrayValue, BasicValueEnum, CallSiteValue, FloatValue, IntValue, PointerValue},
+    values::{ArrayValue, BasicValueEnum, CallSiteValue, FloatValue, IntValue},
     AddressSpace, IntPredicate,
 };
 use itertools::Either;
@@ -630,7 +638,7 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     index: IntValue<'ctx>,
     ndarray: NDArrayValue<'ctx>,
-) -> PointerValue<'ctx> {
+) -> TypedArrayLikeAdapter<'ctx, IntValue<'ctx>> {
     let llvm_void = ctx.ctx.void_type();
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
@@ -678,7 +686,11 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
         )
         .unwrap();
 
-    indices
+    TypedArrayLikeAdapter::from(
+        ArraySliceValue::from_ptr_val(indices, ndarray_num_dims, None),
+        Box::new(|_, v| v.into_int_value()),
+        Box::new(|_, v| v.into()),
+    )
 }
 
 fn call_ndarray_flatten_index_impl<'ctx, G, Indices>(

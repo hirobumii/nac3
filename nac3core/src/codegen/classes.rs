@@ -1,12 +1,12 @@
 use inkwell::{
     IntPredicate,
     types::{AnyTypeEnum, BasicTypeEnum, IntType, PointerType},
-    values::{ArrayValue, BasicValueEnum, IntValue, PointerValue},
+    values::{BasicValueEnum, IntValue, PointerValue},
 };
 use crate::codegen::{
     CodeGenContext,
     CodeGenerator,
-    irrt::{call_ndarray_calc_size, call_ndarray_flatten_index, call_ndarray_flatten_index_const},
+    irrt::{call_ndarray_calc_size, call_ndarray_flatten_index},
     llvm_intrinsics::call_int_umin,
     stmt::gen_for_callback_incrementing,
 };
@@ -1161,98 +1161,6 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
 
 impl<'ctx> UntypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayDataProxy<'ctx, '_> {}
 impl<'ctx> UntypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayDataProxy<'ctx, '_> {}
-
-impl<'ctx> ArrayLikeIndexer<'ctx, ArrayValue<'ctx>> for NDArrayDataProxy<'ctx, '_> {
-    unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
-        indices: ArrayValue<'ctx>,
-        name: Option<&str>,
-    ) -> PointerValue<'ctx> {
-        let index = call_ndarray_flatten_index_const(
-            generator,
-            ctx,
-            *self.0,
-            indices,
-        );
-
-        unsafe {
-            ctx.builder.build_in_bounds_gep(
-                self.base_ptr(ctx, generator),
-                &[index],
-                name.unwrap_or_default(),
-            )
-        }.unwrap()
-    }
-
-    fn ptr_offset<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
-        indices: ArrayValue<'ctx>,
-        name: Option<&str>,
-    ) -> PointerValue<'ctx> {
-        let llvm_usize = generator.get_size_type(ctx.ctx);
-
-        let indices_elem_ty = indices.get_type().get_element_type();
-        let Ok(indices_elem_ty) = IntType::try_from(indices_elem_ty) else {
-            panic!("Expected [int32] but got [{indices_elem_ty}]")
-        };
-        assert_eq!(indices_elem_ty.get_bit_width(), 32, "Expected [int32] but got [{indices_elem_ty}]");
-
-        let nidx_leq_ndims = ctx.builder.build_int_compare(
-            IntPredicate::SLE,
-            llvm_usize.const_int(indices.get_type().len() as u64, false),
-            self.0.load_ndims(ctx),
-            ""
-        ).unwrap();
-        ctx.make_assert(
-            generator,
-            nidx_leq_ndims,
-            "0:IndexError",
-            "invalid index to scalar variable",
-            [None, None, None],
-            ctx.current_loc,
-        );
-
-        for idx in 0..indices.get_type().len() {
-            let i = llvm_usize.const_int(idx as u64, false);
-
-            let dim_idx = ctx.builder
-                .build_extract_value(indices, idx, "")
-                .map(BasicValueEnum::into_int_value)
-                .map(|v| ctx.builder.build_int_z_extend_or_bit_cast(v, llvm_usize, "").unwrap())
-                .unwrap();
-            let dim_sz = unsafe {
-                self.0.dim_sizes().get_typed_unchecked(ctx, generator, i, None)
-            };
-
-            let dim_lt = ctx.builder.build_int_compare(
-                IntPredicate::SLT,
-                dim_idx,
-                dim_sz,
-                ""
-            ).unwrap();
-
-            ctx.make_assert(
-                generator,
-                dim_lt,
-                "0:IndexError",
-                "index {0} is out of bounds for axis 0 with size {1}",
-                [Some(dim_idx), Some(dim_sz), None],
-                ctx.current_loc,
-            );
-        }
-
-        unsafe {
-            self.ptr_offset_unchecked(ctx, generator, indices, name)
-        }
-    }
-}
-
-impl<'ctx> UntypedArrayLikeAccessor<'ctx, ArrayValue<'ctx>> for NDArrayDataProxy<'ctx, '_> {}
-impl<'ctx> UntypedArrayLikeMutator<'ctx, ArrayValue<'ctx>> for NDArrayDataProxy<'ctx, '_> {}
 
 impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index> for NDArrayDataProxy<'ctx, '_> {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
