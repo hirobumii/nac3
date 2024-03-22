@@ -243,13 +243,13 @@ void __nac3_ndarray_calc_nd_indices64(
     uint64_t index,
     const uint64_t* dims,
     uint64_t num_dims,
-    uint64_t* idxs
+    uint32_t* idxs
 ) {
     uint64_t stride = 1;
     for (uint64_t dim = 0; dim < num_dims; dim++) {
         uint64_t i = num_dims - dim - 1;
         __builtin_assume(dims[i] > 0);
-        idxs[i] = (index / stride) % dims[i];
+        idxs[i] = (uint32_t) ((index / stride) % dims[i]);
         stride *= dims[i];
     }
 }

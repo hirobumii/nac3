@@ -1326,6 +1326,9 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index> 
                         self.0.dim_sizes().get_typed_unchecked(ctx, generator, i, None),
                     )
                 };
+                let dim_idx = ctx.builder
+                    .build_int_z_extend_or_bit_cast(dim_idx, dim_sz.get_type(), "")
+                    .unwrap();
 
                 let dim_lt = ctx.builder.build_int_compare(
                     IntPredicate::SLT,

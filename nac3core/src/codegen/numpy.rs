@@ -470,6 +470,7 @@ fn call_ndarray_eye_impl<'ctx, G: CodeGenerator + ?Sized>(
     ncols: IntValue<'ctx>,
     offset: IntValue<'ctx>,
 ) -> Result<NDArrayValue<'ctx>, String> {
+    let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
     let llvm_usize_2 = llvm_usize.array_type(2);
 
@@ -512,7 +513,7 @@ fn call_ndarray_eye_impl<'ctx, G: CodeGenerator + ?Sized>(
             let col_with_offset = ctx.builder
                 .build_int_add(
                     col,
-                    ctx.builder.build_int_s_extend_or_bit_cast(offset, llvm_usize, "").unwrap(),
+                    ctx.builder.build_int_s_extend_or_bit_cast(offset, llvm_i32, "").unwrap(),
                     "",
                 )
                 .unwrap();

@@ -619,7 +619,8 @@ pub fn call_ndarray_calc_size<'ctx, G, Dims>(
         .unwrap()
 }
 
-/// Generates a call to `__nac3_ndarray_calc_nd_indices`.
+/// Generates a call to `__nac3_ndarray_calc_nd_indices`. Returns a [`TypeArrayLikeAdpater`]
+/// containing `i32` indices of the flattened index.
 ///
 /// * `index` - The index to compute the multidimensional index for.
 /// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
@@ -631,8 +632,9 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     ndarray: NDArrayValue<'ctx>,
 ) -> PointerValue<'ctx> {
     let llvm_void = ctx.ctx.void_type();
+    let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
-
+    let llvm_pi32 = llvm_i32.ptr_type(AddressSpace::default());
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
     let ndarray_calc_nd_indices_fn_name = match llvm_usize.get_bit_width() {
@@ -646,7 +648,7 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
                 llvm_usize.into(),
                 llvm_pusize.into(),
                 llvm_usize.into(),
-                llvm_pusize.into(),
+                llvm_pi32.into(),
             ],
             false,
         );
@@ -658,7 +660,7 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     let ndarray_dims = ndarray.dim_sizes();
 
     let indices = ctx.builder.build_array_alloca(
-        llvm_usize,
+        llvm_i32,
         ndarray_num_dims,
         "",
     ).unwrap();
