@@ -170,13 +170,13 @@ impl SymbolValue {
     /// Returns the [`TypeAnnotation`] representing the data type of this value.
     pub fn get_type_annotation(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> TypeAnnotation {
         match self {
-            SymbolValue::Bool(..) => TypeAnnotation::Primitive(primitives.bool),
-            SymbolValue::Double(..) => TypeAnnotation::Primitive(primitives.float),
-            SymbolValue::I32(..) => TypeAnnotation::Primitive(primitives.int32),
-            SymbolValue::I64(..) => TypeAnnotation::Primitive(primitives.int64),
-            SymbolValue::U32(..) => TypeAnnotation::Primitive(primitives.uint32),
-            SymbolValue::U64(..) => TypeAnnotation::Primitive(primitives.uint64),
-            SymbolValue::Str(..) => TypeAnnotation::Primitive(primitives.str),
+            SymbolValue::Bool(..)
+            | SymbolValue::Double(..)
+            | SymbolValue::I32(..)
+            | SymbolValue::I64(..)
+            | SymbolValue::U32(..)
+            | SymbolValue::U64(..)
+            | SymbolValue::Str(..) => TypeAnnotation::Primitive(self.get_type(primitives, unifier)),
             SymbolValue::Tuple(vs) => {
                 let vs_tys = vs
                     .iter()
@@ -226,6 +226,38 @@ impl Display for SymbolValue {
             }
             SymbolValue::OptionSome(v) => write!(f, "Some({v})"),
             SymbolValue::OptionNone => write!(f, "none"),
+        }
+    }
+}
+
+impl TryFrom<SymbolValue> for u64 {
+    type Error = ();
+
+    /// Tries to convert a [`SymbolValue`] into a [`u64`], returning [`Err`] if the value is not
+    /// numeric or if the value cannot be converted into a `u64` without overflow.
+    fn try_from(value: SymbolValue) -> Result<Self, Self::Error> {
+        match value {
+            SymbolValue::I32(v) => u64::try_from(v).map_err(|_| ()),
+            SymbolValue::I64(v) => u64::try_from(v).map_err(|_| ()),
+            SymbolValue::U32(v) => Ok(v as u64),
+            SymbolValue::U64(v) => Ok(v),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<SymbolValue> for i128 {
+    type Error = ();
+
+    /// Tries to convert a [`SymbolValue`] into a [`i128`], returning [`Err`] if the value is not
+    /// numeric.
+    fn try_from(value: SymbolValue) -> Result<Self, Self::Error> {
+        match value {
+            SymbolValue::I32(v) => Ok(v as i128),
+            SymbolValue::I64(v) => Ok(v as i128),
+            SymbolValue::U32(v) => Ok(v as i128),
+            SymbolValue::U64(v) => Ok(v as i128),
+            _ => Err(()),
         }
     }
 }
