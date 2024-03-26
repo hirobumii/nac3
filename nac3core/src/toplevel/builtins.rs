@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     codegen::{
-        classes::RangeValue,
+        classes::{ArrayLikeValue, NDArrayValue, RangeValue, TypedArrayLikeAccessor},
         expr::destructure_range,
         irrt::*,
         llvm_intrinsics::*,
@@ -1458,13 +1458,37 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                 }
                                 TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
                                     let llvm_i32 = ctx.ctx.i32_type();
-                                    let i32_zero = llvm_i32.const_zero();
+                                    let llvm_usize = generator.get_size_type(ctx.ctx);
 
-                                    let len = ctx.build_gep_and_load(
+                                    let arg = NDArrayValue::from_ptr_val(
                                         arg.into_pointer_value(),
-                                        &[i32_zero, i32_zero],
-                                        None,
-                                    ).into_int_value();
+                                        llvm_usize,
+                                        None
+                                    );
+
+                                    let ndims = arg.dim_sizes().size(ctx, generator);
+                                    ctx.make_assert(
+                                        generator,
+                                        ctx.builder.build_int_compare(
+                                            IntPredicate::NE,
+                                            ndims,
+                                            llvm_usize.const_zero(),
+                                            "",
+                                        ).unwrap(),
+                                        "0:TypeError",
+                                        "len() of unsized object",
+                                        [None, None, None],
+                                        ctx.current_loc,
+                                    );
+
+                                    let len = unsafe {
+                                        arg.dim_sizes().get_typed_unchecked(
+                                            ctx,
+                                            generator,
+                                            llvm_usize.const_zero(),
+                                            None,
+                                        )
+                                    };
 
                                     if len.get_type().get_bit_width() == 32 {
                                         Some(len.into())
