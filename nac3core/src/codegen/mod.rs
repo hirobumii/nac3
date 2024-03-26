@@ -2,7 +2,7 @@ use crate::{
     symbol_resolver::{StaticValue, SymbolResolver},
     toplevel::{
         helper::PRIMITIVE_DEF_IDS, 
-        numpy::unpack_ndarray_tvars, 
+        numpy::unpack_ndarray_var_tys, 
         TopLevelContext, 
         TopLevelDef,
     },
@@ -451,7 +451,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
 
                         TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
                             let llvm_usize = generator.get_size_type(ctx);
-                            let (dtype, _) = unpack_ndarray_tvars(unifier, ty);
+                            let (dtype, _) = unpack_ndarray_var_tys(unifier, ty);
                             let element_type = get_llvm_type(
                                 ctx, 
                                 module, 

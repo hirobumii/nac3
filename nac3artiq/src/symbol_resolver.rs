@@ -5,7 +5,7 @@ use nac3core::{
     toplevel::{
         DefinitionId, 
         helper::PRIMITIVE_DEF_IDS, 
-        numpy::{make_ndarray_ty, unpack_ndarray_tvars},
+        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         TopLevelDef,
     },
     typecheck::{
@@ -665,7 +665,7 @@ impl InnerResolver {
                 }
             }
             (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
-                let (ty, ndims) = unpack_ndarray_tvars(unifier, extracted_ty);
+                let (ty, ndims) = unpack_ndarray_var_tys(unifier, extracted_ty);
                 let len: usize = self.helper.len_fn.call1(py, (obj,))?.extract(py)?;
                 if len == 0 {
                     assert!(matches!(

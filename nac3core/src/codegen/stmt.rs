@@ -13,7 +13,7 @@ use crate::{
     toplevel::{
         DefinitionId,
         helper::PRIMITIVE_DEF_IDS,
-        numpy::unpack_ndarray_tvars,
+        numpy::unpack_ndarray_var_tys,
         TopLevelDef,
     },
     typecheck::typedef::{FunSignature, Type, TypeEnum},
@@ -251,7 +251,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
             let ty = match &*ctx.unifier.get_ty_immutable(target.custom.unwrap()) {
                 TypeEnum::TList { ty } => *ty,
                 TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
-                    unpack_ndarray_tvars(&mut ctx.unifier, target.custom.unwrap()).0
+                    unpack_ndarray_var_tys(&mut ctx.unifier, target.custom.unwrap()).0
                 }
                 _ => unreachable!(),
             };

@@ -27,7 +27,7 @@ use crate::{
     symbol_resolver::ValueEnum,
     toplevel::{
         DefinitionId,
-        numpy::{make_ndarray_ty, unpack_ndarray_tvars},
+        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
     },
     typecheck::typedef::{FunSignature, Type},
 };
@@ -748,7 +748,7 @@ pub fn gen_ndarray_copy<'ctx>(
     let llvm_usize = generator.get_size_type(context.ctx);
 
     let this_ty = obj.as_ref().unwrap().0;
-    let (this_elem_ty, _) = unpack_ndarray_tvars(&mut context.unifier, this_ty);
+    let (this_elem_ty, _) = unpack_ndarray_var_tys(&mut context.unifier, this_ty);
     let this_arg = obj
         .as_ref()
         .unwrap()

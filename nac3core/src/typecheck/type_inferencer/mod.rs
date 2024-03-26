@@ -9,7 +9,7 @@ use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue}, 
     toplevel::{
         helper::PRIMITIVE_DEF_IDS,
-        numpy::{make_ndarray_ty, unpack_ndarray_tvars},
+        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         TopLevelContext,
     },
 };
@@ -1344,7 +1344,7 @@ impl<'a> Inferencer<'a> {
                 let list_like_ty = match &*self.unifier.get_ty(value.custom.unwrap()) {
                     TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty }),
                     TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
-                        let (_, ndims) = unpack_ndarray_tvars(self.unifier, value.custom.unwrap());
+                        let (_, ndims) = unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
 
                         make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims))
                     }
@@ -1357,7 +1357,7 @@ impl<'a> Inferencer<'a> {
             ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
                 match &*self.unifier.get_ty(value.custom.unwrap()) {
                     TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
-                        let (_, ndims) = unpack_ndarray_tvars(self.unifier, value.custom.unwrap());
+                        let (_, ndims) = unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
                         self.infer_subscript_ndarray(value, ty, ndims)
                     }
                     _ => {
@@ -1389,7 +1389,7 @@ impl<'a> Inferencer<'a> {
                         Ok(ty)
                     }
                     TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
-                        let (_, ndims) = unpack_ndarray_tvars(self.unifier, value.custom.unwrap());
+                        let (_, ndims) = unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
 
                         let valid_index_tys = [
                             self.primitives.int32,
