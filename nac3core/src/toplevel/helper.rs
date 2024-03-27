@@ -549,7 +549,7 @@ impl TopLevelComposer {
                     TypeAnnotation::CustomClass { id: e_id, params: e_param },
                 ) => {
                     *f_id == *e_id
-                        && *f_id == primitive.option.get_obj_id(unifier)
+                        && *f_id == primitive.option.obj_id(unifier).unwrap()
                         && (f_param.is_empty()
                             || (f_param.len() == 1
                                 && e_param.len() == 1

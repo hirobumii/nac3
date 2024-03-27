@@ -185,13 +185,13 @@ impl SymbolValue {
                 TypeAnnotation::Tuple(vs_tys)
             }
             SymbolValue::OptionNone => TypeAnnotation::CustomClass {
-                id: primitives.option.get_obj_id(unifier),
+                id: primitives.option.obj_id(unifier).unwrap(),
                 params: Vec::default(),
             },
             SymbolValue::OptionSome(v) => {
                 let ty = v.get_type_annotation(primitives, unifier);
                 TypeAnnotation::CustomClass {
-                    id: primitives.option.get_obj_id(unifier),
+                    id: primitives.option.obj_id(unifier).unwrap(),
                     params: vec![ty],
                 }
             }

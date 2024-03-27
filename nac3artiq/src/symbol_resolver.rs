@@ -710,7 +710,7 @@ impl InnerResolver {
             // special handling for option type since its class member layout in python side
             // is special and cannot be mapped directly to a nac3 type as below
             (TypeEnum::TObj { obj_id, params, .. }, false)
-                if *obj_id == primitives.option.get_obj_id(unifier) =>
+                if *obj_id == primitives.option.obj_id(unifier).unwrap() =>
             {
                 let Ok(field_data) = obj.getattr("_nac3_option") else {
                     unreachable!("cannot be None")
@@ -993,7 +993,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.option {
             let option_val_ty = match ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
                 TypeEnum::TObj { obj_id, params, .. }
-                    if *obj_id == ctx.primitives.option.get_obj_id(&ctx.unifier) =>
+                    if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
                 {
                     *params.iter().next().unwrap().1
                 }

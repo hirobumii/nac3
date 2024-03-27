@@ -624,7 +624,7 @@ pub fn attributes_writeback(
             let ty = ty.unwrap();
             match &*ctx.unifier.get_ty(ty) {
                 TypeEnum::TObj { fields, obj_id, .. }
-                    if *obj_id != ctx.primitives.option.get_obj_id(&ctx.unifier) =>
+                    if *obj_id != ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
                 {
                     // we only care about primitive attributes
                     // for non-primitive attributes, they should be in another global

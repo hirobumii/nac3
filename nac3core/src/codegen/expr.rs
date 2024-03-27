@@ -154,7 +154,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             SymbolValue::OptionSome(v) => {
                 let ty = match self.unifier.get_ty_immutable(ty).as_ref() {
                     TypeEnum::TObj { obj_id, params, .. }
-                        if *obj_id == self.primitives.option.get_obj_id(&self.unifier) =>
+                        if *obj_id == self.primitives.option.obj_id(&self.unifier).unwrap() =>
                     {
                         *params.iter().next().unwrap().1
                     }
@@ -168,7 +168,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             SymbolValue::OptionNone => {
                 let ty = match self.unifier.get_ty_immutable(ty).as_ref() {
                     TypeEnum::TObj { obj_id, params, .. }
-                        if *obj_id == self.primitives.option.get_obj_id(&self.unifier) =>
+                        if *obj_id == self.primitives.option.obj_id(&self.unifier).unwrap() =>
                     {
                         *params.iter().next().unwrap().1
                     }
@@ -1924,7 +1924,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     // directly generate code for option.unwrap
                     // since it needs to return static value to optimize for kernel invariant
                     if attr == &"unwrap".into()
-                        && id == ctx.primitives.option.get_obj_id(&ctx.unifier)
+                        && id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap()
                     {
                         match val {
                             ValueEnum::Static(v) => return match v.get_field("_nac3_option".into(), ctx) {
