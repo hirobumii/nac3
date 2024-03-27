@@ -549,7 +549,9 @@ impl<'a> Fold<()> for Inferencer<'a> {
             ExprKind::BinOp { left, op, right } => {
                 Some(self.infer_bin_ops(expr.location, left, op, right, false)?)
             }
-            ExprKind::UnaryOp { op, operand } => Some(self.infer_unary_ops(op, operand)?),
+            ExprKind::UnaryOp { op, operand } => {
+                Some(self.infer_unary_ops(expr.location, op, operand)?)
+            }
             ExprKind::Compare { left, ops, comparators } => {
                 Some(self.infer_compare(left, ops, comparators)?)
             }
@@ -1247,11 +1249,20 @@ impl<'a> Inferencer<'a> {
 
     fn infer_unary_ops(
         &mut self,
+        location: Location,
         op: &ast::Unaryop,
         operand: &ast::Expr<Option<Type>>,
     ) -> InferenceResult {
         let method = unaryop_name(op).into();
-        self.build_method_call(operand.location, method, operand.custom.unwrap(), vec![], None)
+
+        let ret = typeof_unaryop(
+            self.unifier,
+            self.primitives,
+            op,
+            operand.custom.unwrap(),
+        ).map_err(|e| HashSet::from([format!("{e} (at {location})")]))?;
+
+        self.build_method_call(operand.location, method, operand.custom.unwrap(), vec![], ret)
     }
 
     fn infer_compare(

@@ -1296,7 +1296,7 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
 /// Generates LLVM IR for a unary operator expression using the [`Type`] and
 /// [LLVM value][`BasicValueEnum`] of the operands.
 pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
-    _generator: &mut G,
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     op: &ast::Unaryop,
     operand: (&Option<Type>, BasicValueEnum<'ctx>),
@@ -1336,6 +1336,33 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
                 .unwrap(),
             _ => val.into(),
         }
+    } else if ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+
+        let val = NDArrayValue::from_ptr_val(
+            val.into_pointer_value(),
+            llvm_usize,
+            None,
+        );
+
+        let res = numpy::ndarray_elementwise_unaryop_impl(
+            generator,
+            ctx,
+            ndarray_dtype,
+            None,
+            val,
+            |generator, ctx, val| {
+                gen_unaryop_expr_with_values(
+                    generator,
+                    ctx,
+                    op,
+                    (&Some(ndarray_dtype), val)
+                )?.unwrap().to_basic_value_enum(ctx, generator, ndarray_dtype)
+            },
+        )?;
+
+        res.as_ptr_value().into()
     } else {
         unimplemented!()
     })) 

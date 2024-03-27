@@ -466,6 +466,23 @@ pub fn typeof_binop(
     }))
 }
 
+pub fn typeof_unaryop(
+    unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
+    op: &Unaryop,
+    operand: Type,
+) -> Result<Option<Type>, String> {
+    if *op == Unaryop::Not && operand.obj_id(unifier).is_some_and(|id| id == primitives.ndarray.obj_id(unifier).unwrap()) {
+        return Err("The truth value of an array with more than one element is ambiguous".to_string())
+    }
+
+    Ok(if operand.obj_id(unifier).is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id)) {
+        Some(operand)
+    } else {
+        None
+    })
+}
+
 pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifier) {
     let PrimitiveStore {
         int32: int32_t,
@@ -525,4 +542,6 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     impl_div(unifier, store, ndarray_t, &[ndarray_t, ndarray_dtype_t], None);
     impl_floordiv(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
     impl_mod(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
+    impl_sign(unifier, store, ndarray_t, Some(ndarray_t));
+    impl_invert(unifier, store, ndarray_t, Some(ndarray_t));
 }

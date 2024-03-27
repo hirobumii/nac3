@@ -340,6 +340,31 @@ fn ndarray_fill_indexed<'ctx, G, ValueFn>(
     )
 }
 
+fn ndarray_fill_mapping<'ctx, G, MapFn>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    src: NDArrayValue<'ctx>,
+    dest: NDArrayValue<'ctx>,
+    map_fn: MapFn,
+) -> Result<(), String>
+    where
+        G: CodeGenerator + ?Sized,
+        MapFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, BasicValueEnum<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
+{
+    ndarray_fill_flattened(
+        generator,
+        ctx,
+        dest,
+        |generator, ctx, i| {
+            let elem = unsafe {
+                src.data().get_unchecked(ctx, generator, i, None)
+            };
+
+            map_fn(generator, ctx, elem)
+        },
+    )
+}
+
 /// Generates the LLVM IR for checking whether the source `ndarray` can be broadcast to the shape of
 /// the target `ndarray`.
 fn ndarray_assert_is_broadcastable<'ctx, G: CodeGenerator + ?Sized>(
@@ -654,6 +679,48 @@ fn ndarray_copy_impl<'ctx, G: CodeGenerator + ?Sized>(
     );
 
     Ok(ndarray)
+}
+
+pub fn ndarray_elementwise_unaryop_impl<'ctx, G, MapFn>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    elem_ty: Type,
+    res: Option<NDArrayValue<'ctx>>,
+    operand: NDArrayValue<'ctx>,
+    map_fn: MapFn,
+) -> Result<NDArrayValue<'ctx>, String>
+    where
+        G: CodeGenerator,
+        MapFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, BasicValueEnum<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
+{
+    let res = res.unwrap_or_else(|| {
+        create_ndarray_dyn_shape(
+            generator,
+            ctx,
+            elem_ty,
+            &operand,
+            |_, ctx, v| {
+                Ok(v.load_ndims(ctx))
+            },
+            |generator, ctx, v, idx| {
+                unsafe {
+                    Ok(v.dim_sizes().get_typed_unchecked(ctx, generator, idx, None))
+                }
+            },
+        ).unwrap()
+    });
+
+    ndarray_fill_mapping(
+        generator,
+        ctx,
+        operand,
+        res,
+        |generator, ctx, elem| {
+            map_fn(generator, ctx, elem)
+        }
+    )?;
+
+    Ok(res)
 }
 
 /// LLVM-typed implementation for computing elementwise binary operations on two input operands.

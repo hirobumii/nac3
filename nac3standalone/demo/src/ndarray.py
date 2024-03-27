@@ -1,4 +1,8 @@
 @extern
+def output_bool(x: bool):
+    ...
+
+@extern
 def output_int32(x: int32):
     ...
 
@@ -6,9 +10,19 @@ def output_int32(x: int32):
 def output_float64(x: float):
     ...
 
+def output_ndarray_bool_2(n: ndarray[bool, Literal[2]]):
+    for r in range(len(n)):
+        for c in range(len(n[r])):
+            output_bool(n[r][c])
+
 def output_ndarray_int32_1(n: ndarray[int32, Literal[1]]):
     for i in range(len(n)):
         output_int32(n[i])
+
+def output_ndarray_int32_2(n: ndarray[int32, Literal[2]]):
+    for r in range(len(n)):
+        for c in range(len(n[r])):
+            output_int32(n[r][c])
 
 def output_ndarray_float_1(n: ndarray[float, Literal[1]]):
     for i in range(len(n)):
@@ -408,6 +422,39 @@ def test_ndarray_ipow_broadcast_scalar():
 
     output_ndarray_float_2(x)
 
+def test_ndarray_pos():
+    x_int32 = np_full([2, 2], -2)
+    y_int32 = +x_int32
+
+    output_ndarray_int32_2(x_int32)
+    output_ndarray_int32_2(y_int32)
+
+    x_float = np_full([2, 2], -2.0)
+    y_float = +x_float
+
+    output_ndarray_float_2(x_float)
+    output_ndarray_float_2(y_float)
+
+def test_ndarray_neg():
+    x_int32 = np_full([2, 2], -2)
+    y_int32 = -x_int32
+
+    output_ndarray_int32_2(x_int32)
+    output_ndarray_int32_2(y_int32)
+
+    x_float = np_full([2, 2], 2.0)
+    y_float = -x_float
+
+    output_ndarray_float_2(x_float)
+    output_ndarray_float_2(y_float)
+
+def test_ndarray_inv():
+    x_int32 = np_full([2, 2], -2)
+    y_int32 = ~x_int32
+
+    output_ndarray_int32_2(x_int32)
+    output_ndarray_int32_2(y_int32)
+
 def run() -> int32:
     test_ndarray_ctor()
     test_ndarray_empty()
@@ -467,5 +514,8 @@ def run() -> int32:
     test_ndarray_ipow()
     test_ndarray_ipow_broadcast()
     test_ndarray_ipow_broadcast_scalar()
+    test_ndarray_pos()
+    test_ndarray_neg()
+    test_ndarray_inv()
 
     return 0
