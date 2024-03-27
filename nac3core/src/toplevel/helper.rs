@@ -45,10 +45,15 @@ impl PrimitiveDefinitionIds {
         ]
     }
 
+    /// Returns an iterator over all [`DefinitionId`]s of this instance in indeterminate order.
+    pub fn iter(&self) -> impl Iterator<Item=DefinitionId> {
+        self.as_vec().into_iter()
+    }
+
     /// Returns the primitive with the largest [`DefinitionId`].
     #[must_use]
     pub fn max_id(&self) -> DefinitionId {
-        self.as_vec().into_iter().max().unwrap()
+        self.iter().max().unwrap()
     }
 }
 
