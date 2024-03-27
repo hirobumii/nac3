@@ -455,6 +455,174 @@ def test_ndarray_inv():
     output_ndarray_int32_2(x_int32)
     output_ndarray_int32_2(y_int32)
 
+def test_ndarray_eq():
+    x = np_identity(2)
+    y = x == np_full([2, 2], 0.0)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_eq_broadcast():
+    x = np_identity(2)
+    y = x == np_full([2], 0.0)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_eq_broadcast_lhs_scalar():
+    x = np_identity(2)
+    y = 0.0 == x
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_eq_broadcast_rhs_scalar():
+    x = np_identity(2)
+    y = x == 0.0
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_ne():
+    x = np_identity(2)
+    y = x != np_full([2, 2], 0.0)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_ne_broadcast():
+    x = np_identity(2)
+    y = x != np_full([2], 0.0)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_ne_broadcast_lhs_scalar():
+    x = np_identity(2)
+    y = 0.0 != x
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_ne_broadcast_rhs_scalar():
+    x = np_identity(2)
+    y = x != 0.0
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_lt():
+    x = np_identity(2)
+    y = x < np_full([2, 2], 1.0)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_lt_broadcast():
+    x = np_identity(2)
+    y = x < np_full([2], 1.0)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_lt_broadcast_lhs_scalar():
+    x = np_identity(2)
+    y = 1.0 < x
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_lt_broadcast_rhs_scalar():
+    x = np_identity(2)
+    y = x < 1.0
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_le():
+    x = np_identity(2)
+    y = x <= np_full([2, 2], 0.5)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_le_broadcast():
+    x = np_identity(2)
+    y = x <= np_full([2], 0.5)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_le_broadcast_lhs_scalar():
+    x = np_identity(2)
+    y = 0.5 <= x
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_le_broadcast_rhs_scalar():
+    x = np_identity(2)
+    y = x <= 0.5
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_gt():
+    x = np_identity(2)
+    y = x > np_full([2, 2], 0.0)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_gt_broadcast():
+    x = np_identity(2)
+    y = x > np_full([2], 0.0)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_gt_broadcast_lhs_scalar():
+    x = np_identity(2)
+    y = 0.0 > x
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_gt_broadcast_rhs_scalar():
+    x = np_identity(2)
+    y = x > 0.0
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_ge():
+    x = np_identity(2)
+    y = x >= np_full([2, 2], 0.5)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_ge_broadcast():
+    x = np_identity(2)
+    y = x >= np_full([2], 0.5)
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_ge_broadcast_lhs_scalar():
+    x = np_identity(2)
+    y = 0.5 >= x
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
+def test_ndarray_ge_broadcast_rhs_scalar():
+    x = np_identity(2)
+    y = x >= 0.5
+
+    output_ndarray_float_2(x)
+    output_ndarray_bool_2(y)
+
 def run() -> int32:
     test_ndarray_ctor()
     test_ndarray_empty()
@@ -517,5 +685,29 @@ def run() -> int32:
     test_ndarray_pos()
     test_ndarray_neg()
     test_ndarray_inv()
+    test_ndarray_eq()
+    test_ndarray_eq_broadcast()
+    test_ndarray_eq_broadcast_lhs_scalar()
+    test_ndarray_eq_broadcast_rhs_scalar()
+    test_ndarray_ne()
+    test_ndarray_ne_broadcast()
+    test_ndarray_ne_broadcast_lhs_scalar()
+    test_ndarray_ne_broadcast_rhs_scalar()
+    test_ndarray_lt()
+    test_ndarray_lt_broadcast()
+    test_ndarray_lt_broadcast_lhs_scalar()
+    test_ndarray_lt_broadcast_rhs_scalar()
+    test_ndarray_lt()
+    test_ndarray_le_broadcast()
+    test_ndarray_le_broadcast_lhs_scalar()
+    test_ndarray_le_broadcast_rhs_scalar()
+    test_ndarray_gt()
+    test_ndarray_gt_broadcast()
+    test_ndarray_gt_broadcast_lhs_scalar()
+    test_ndarray_gt_broadcast_rhs_scalar()
+    test_ndarray_gt()
+    test_ndarray_ge_broadcast()
+    test_ndarray_ge_broadcast_lhs_scalar()
+    test_ndarray_ge_broadcast_rhs_scalar()
 
     return 0

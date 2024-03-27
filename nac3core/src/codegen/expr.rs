@@ -1390,12 +1390,92 @@ pub fn gen_unaryop_expr<'ctx, G: CodeGenerator>(
 /// Generates LLVM IR for a comparison operator expression using the [`Type`] and
 /// [LLVM value][`BasicValueEnum`] of the operands.
 pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
-    _generator: &mut G,
+    generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     left: (Option<Type>, BasicValueEnum<'ctx>),
     ops: &[ast::Cmpop],
     comparators: &[(Option<Type>, BasicValueEnum<'ctx>)],
 ) -> Result<Option<ValueEnum<'ctx>>, String> {
+    debug_assert_eq!(comparators.len(), ops.len());
+
+    if comparators.len() == 1 {
+        let left_ty = ctx.unifier.get_representative(left.0.unwrap());
+        let right_ty = ctx.unifier.get_representative(comparators[0].0.unwrap());
+
+        if left_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) || right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+            let llvm_usize = generator.get_size_type(ctx.ctx);
+
+            let (Some(left_ty), lhs) = left else { unreachable!() };
+            let (Some(right_ty), rhs) = comparators[0] else { unreachable!() };
+            let op = ops[0].clone();
+
+            let is_ndarray1 = left_ty.obj_id(&ctx.unifier)
+                .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+            let is_ndarray2 = right_ty.obj_id(&ctx.unifier)
+                .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+
+            return if is_ndarray1 && is_ndarray2 {
+                let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, left_ty);
+                let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, right_ty);
+            
+                assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
+            
+                let left_val = NDArrayValue::from_ptr_val(
+                    lhs.into_pointer_value(),
+                    llvm_usize,
+                    None
+                );
+                let res = numpy::ndarray_elementwise_binop_impl(
+                    generator,
+                    ctx,
+                    ctx.primitives.bool,
+                    None,
+                    (left_val.as_ptr_value().into(), false),
+                    (rhs, false),
+                    |generator, ctx, (lhs, rhs)| {
+                        let val = gen_cmpop_expr_with_values(
+                            generator,
+                            ctx,
+                            (Some(ndarray_dtype1), lhs),
+                            &[op.clone()],
+                            &[(Some(ndarray_dtype2), rhs)],
+                        )?.unwrap().to_basic_value_enum(ctx, generator, ctx.primitives.bool)?;
+
+                        Ok(generator.bool_to_i8(ctx, val.into_int_value()).into())
+                    },
+                )?;
+            
+                Ok(Some(res.as_ptr_value().into()))
+            } else {
+                let (ndarray_dtype, _) = unpack_ndarray_var_tys(
+                    &mut ctx.unifier,
+                    if is_ndarray1 { left_ty } else { right_ty },
+                );
+                let res = numpy::ndarray_elementwise_binop_impl(
+                    generator,
+                    ctx,
+                    ctx.primitives.bool,
+                    None,
+                    (lhs, !is_ndarray1),
+                    (rhs, !is_ndarray2),
+                    |generator, ctx, (lhs, rhs)| {
+                        let val = gen_cmpop_expr_with_values(
+                            generator,
+                            ctx,
+                            (Some(ndarray_dtype), lhs),
+                            &[op.clone()],
+                            &[(Some(ndarray_dtype), rhs)],
+                        )?.unwrap().to_basic_value_enum(ctx, generator, ctx.primitives.bool)?;
+
+                        Ok(generator.bool_to_i8(ctx, val.into_int_value()).into())
+                    },
+                )?;
+            
+                Ok(Some(res.as_ptr_value().into()))
+            }
+        }
+    }
+
     let cmp_val = izip!(chain(once(&left), comparators.iter()), comparators.iter(), ops.iter(),)
         .fold(Ok(None), |prev: Result<Option<_>, String>, (lhs, rhs, op)| {
             let (left_ty, lhs) = lhs;
@@ -1451,7 +1531,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                     let lhs = lhs.into_float_value();
                     let rhs = rhs.into_float_value();
-    
+
                     let op = match op {
                         ast::Cmpop::Eq | ast::Cmpop::Is => inkwell::FloatPredicate::OEQ,
                         ast::Cmpop::NotEq => inkwell::FloatPredicate::ONE,
@@ -1465,6 +1545,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 } else {
                     unimplemented!()
                 };
+
             Ok(prev?.map(|v| ctx.builder.build_and(v, current, "cmp").unwrap()).or(Some(current)))
         })?;
     

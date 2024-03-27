@@ -483,6 +483,33 @@ pub fn typeof_unaryop(
     })
 }
 
+/// Returns the return type given a comparison operator and its primitive operands.
+pub fn typeof_cmpop(
+    unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
+    _op: &Cmpop,
+    lhs: Type,
+    rhs: Type,
+) -> Result<Option<Type>, String> {
+    let is_left_ndarray = lhs
+        .obj_id(unifier)
+        .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+    let is_right_ndarray = rhs
+        .obj_id(unifier)
+        .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+
+    Ok(Some(if is_left_ndarray || is_right_ndarray {
+        let brd = typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?;
+        let (_, ndims) = unpack_ndarray_var_tys(unifier, brd);
+
+        make_ndarray_ty(unifier, primitives, Some(primitives.bool), Some(ndims))
+    } else if unifier.unioned(lhs, rhs) {
+        primitives.bool
+    } else {
+        return Ok(None)
+    }))
+}
+
 pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifier) {
     let PrimitiveStore {
         int32: int32_t,
@@ -508,8 +535,8 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
         impl_mod(unifier, store, t, &[t, ndarray_int_t], None);
         impl_invert(unifier, store, t, Some(t));
         impl_not(unifier, store, t, Some(bool_t));
-        impl_comparison(unifier, store, t, &[t], Some(bool_t));
-        impl_eq(unifier, store, t, &[t], Some(bool_t));
+        impl_comparison(unifier, store, t, &[t, ndarray_int_t], None);
+        impl_eq(unifier, store, t, &[t, ndarray_int_t], None);
     }
     for t in [int32_t, int64_t] {
         impl_sign(unifier, store, t, Some(t));
@@ -525,12 +552,13 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     impl_mod(unifier, store, float_t, &[float_t, ndarray_float_t], None);
     impl_sign(unifier, store, float_t, Some(float_t));
     impl_not(unifier, store, float_t, Some(bool_t));
-    impl_comparison(unifier, store, float_t, &[float_t], Some(bool_t));
-    impl_eq(unifier, store, float_t, &[float_t], Some(bool_t));
+    impl_comparison(unifier, store, float_t, &[float_t, ndarray_float_t], None);
+    impl_eq(unifier, store, float_t, &[float_t, ndarray_float_t], None);
 
     /* bool ======== */
+    let ndarray_bool_t = make_ndarray_ty(unifier, store, Some(bool_t), None);
     impl_not(unifier, store, bool_t, Some(bool_t));
-    impl_eq(unifier, store, bool_t, &[bool_t], Some(bool_t));
+    impl_eq(unifier, store, bool_t, &[bool_t, ndarray_bool_t], None);
 
     /* ndarray ===== */
     let ndarray_usized_ndims_tvar = unifier.get_fresh_const_generic_var(size_t, Some("ndarray_ndims".into()), None);
@@ -544,4 +572,6 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     impl_mod(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
     impl_sign(unifier, store, ndarray_t, Some(ndarray_t));
     impl_invert(unifier, store, ndarray_t, Some(ndarray_t));
+    impl_eq(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
+    impl_comparison(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
 }

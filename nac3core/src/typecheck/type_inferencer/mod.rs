@@ -1271,22 +1271,45 @@ impl<'a> Inferencer<'a> {
         ops: &[ast::Cmpop],
         comparators: &[ast::Expr<Option<Type>>],
     ) -> InferenceResult {
-        let boolean = self.primitives.bool;
+        if ops.len() > 1 && once(left).chain(comparators).any(|expr| expr.custom.unwrap().obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)) {
+            return Err(HashSet::from([String::from("Comparator chaining with ndarray types not supported")]))
+        }
+
         for (a, b, c) in izip!(once(left).chain(comparators), comparators, ops) {
             let method = comparison_name(c)
                 .ok_or_else(|| HashSet::from([
                     "unsupported comparator".to_string()
                 ]))?
                 .into();
+
+            let ret = typeof_cmpop(
+                self.unifier,
+                self.primitives,
+                c,
+                a.custom.unwrap(),
+                b.custom.unwrap(),
+            ).map_err(|e| HashSet::from([format!("{e} (at {})", b.location)]))?;
+            
             self.build_method_call(
                 a.location,
                 method,
                 a.custom.unwrap(),
                 vec![b.custom.unwrap()],
-                Some(boolean),
+                ret,
             )?;
         }
-        Ok(boolean)
+
+        let res_lhs = comparators.iter().rev().nth(1).unwrap_or(left);
+        let res_rhs = comparators.iter().rev().nth(0).unwrap();
+        let res_op = ops.iter().rev().nth(0).unwrap();
+
+        Ok(typeof_cmpop(
+            self.unifier,
+            self.primitives,
+            res_op,
+            res_lhs.custom.unwrap(),
+            res_rhs.custom.unwrap(),
+        ).unwrap().unwrap())
     }
 
     /// Infers the type of a subscript expression on an `ndarray`.
