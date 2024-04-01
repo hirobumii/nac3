@@ -697,24 +697,24 @@ pub fn gen_ndarray_eye<'ctx>(
         .to_basic_value_enum(context, generator, nrows_ty)?;
 
     let ncols_ty = fun.0.args[1].ty;
-    let ncols_arg = args.iter()
-        .find(|arg| arg.0.is_some_and(|name| name == fun.0.args[1].name))
-        .map(|arg| arg.1.clone().to_basic_value_enum(context, generator, ncols_ty))
-        .unwrap_or_else(|| {
-            args[0].1.clone().to_basic_value_enum(context, generator, nrows_ty)
-        })?;
+    let ncols_arg = if let Some(arg) = 
+        args.iter().find(|arg| arg.0.is_some_and(|name| name == fun.0.args[1].name)) {
+        arg.1.clone().to_basic_value_enum(context, generator, ncols_ty)
+    } else {
+        args[0].1.clone().to_basic_value_enum(context, generator, nrows_ty)
+    }?;
 
     let offset_ty = fun.0.args[2].ty;
-    let offset_arg = args.iter()
-        .find(|arg| arg.0.is_some_and(|name| name == fun.0.args[2].name))
-        .map(|arg| arg.1.clone().to_basic_value_enum(context, generator, offset_ty))
-        .unwrap_or_else(|| {
-            Ok(context.gen_symbol_val(
-                generator,
-                fun.0.args[2].default_value.as_ref().unwrap(),
-                offset_ty
-            ))
-        })?;
+    let offset_arg = if let Some(arg) =
+        args.iter().find(|arg| arg.0.is_some_and(|name| name == fun.0.args[2].name)) {
+        arg.1.clone().to_basic_value_enum(context, generator, offset_ty) 
+    } else {
+        Ok(context.gen_symbol_val(
+            generator,
+            fun.0.args[2].default_value.as_ref().unwrap(),
+            offset_ty
+        )) 
+    }?;
 
     call_ndarray_eye_impl(
         generator,

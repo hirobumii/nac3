@@ -248,6 +248,14 @@ impl Unifier {
         self.primitive_store.replace(*primitives);
     }
 
+    /// Returns the [`UnificationTable`] associated with this `Unifier`.
+    /// 
+    /// # Safety
+    /// 
+    /// The use of this function is discouraged under most circumstances. Only use this function if
+    /// in-place manipulation of type variables and/or type fields is necessary, otherwise prefer to
+    /// [add a new type][`Unifier::add_ty`] and [unify the type][`Unifier::unify`] with an existing
+    /// type.
     pub unsafe fn get_unification_table(&mut self) -> &mut UnificationTable<Rc<TypeEnum>> {
         &mut self.unification_table
     }

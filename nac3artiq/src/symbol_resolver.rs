@@ -38,10 +38,15 @@ pub enum PrimitiveValue {
     Bool(bool),
 }
 
+/// An entry in the [`DeferredEvaluationStore`], containing the deferred types, a [`PyObject`]
+/// representing the `__constraints__` of the type variables, and the name of the type to be
+/// instantiated.
+type DeferredEvaluationEntry = (Vec<Type>, PyObject, String);
+
 #[derive(Clone)]
 pub struct DeferredEvaluationStore {
     needs_defer: Arc<AtomicBool>,
-    store: Arc<RwLock<Vec<(Vec<Type>, PyObject, String)>>>,
+    store: Arc<RwLock<Vec<DeferredEvaluationEntry>>>,
 }
 
 impl DeferredEvaluationStore {
@@ -53,12 +58,18 @@ impl DeferredEvaluationStore {
     }
 }
 
+/// A class field as stored in the [`InnerResolver`], represented by the ID and name of the 
+/// associated [`PythonValue`].
+type ResolverField = (u64, StrRef);
+/// A class field as stored in Python, represented by the `id()` and [`PyObject`] of the field.
+type PyFieldHandle = (u64, PyObject);
+
 pub struct InnerResolver {
     pub id_to_type: RwLock<HashMap<StrRef, Type>>,
     pub id_to_def: RwLock<HashMap<StrRef, DefinitionId>>,
     pub id_to_pyval: RwLock<HashMap<StrRef, (u64, PyObject)>>,
     pub id_to_primitive: RwLock<HashMap<u64, PrimitiveValue>>,
-    pub field_to_val: RwLock<HashMap<(u64, StrRef), Option<(u64, PyObject)>>>,
+    pub field_to_val: RwLock<HashMap<ResolverField, Option<PyFieldHandle>>>,
     pub global_value_ids: Arc<RwLock<HashMap<u64, PyObject>>>,
     pub class_names: Mutex<HashMap<StrRef, Type>>,
     pub pyid_to_def: Arc<RwLock<HashMap<u64, DefinitionId>>>,
