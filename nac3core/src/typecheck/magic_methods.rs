@@ -476,10 +476,24 @@ pub fn typeof_unaryop(
         return Err("The truth value of an array with more than one element is ambiguous".to_string())
     }
 
-    Ok(if operand.obj_id(unifier).is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id)) {
-        Some(operand)
-    } else {
-        None
+    Ok(match *op {
+        Unaryop::Not => {
+            match operand.obj_id(unifier) {
+                Some(v) if v == PRIMITIVE_DEF_IDS.ndarray => Some(operand),
+                Some(_) => Some(primitives.bool),
+                _ => None
+            }
+        }
+
+        Unaryop::Invert
+        | Unaryop::UAdd
+        | Unaryop::USub => {
+            if operand.obj_id(unifier).is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id)) {
+                Some(operand)
+            } else {
+                None
+            }
+        }
     })
 }
 
