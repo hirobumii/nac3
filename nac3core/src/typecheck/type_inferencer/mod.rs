@@ -553,7 +553,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 Some(self.infer_unary_ops(expr.location, op, operand)?)
             }
             ExprKind::Compare { left, ops, comparators } => {
-                Some(self.infer_compare(left, ops, comparators)?)
+                Some(self.infer_compare(expr.location, left, ops, comparators)?)
             }
             ExprKind::Subscript { value, slice, ctx, .. } => {
                 Some(self.infer_subscript(value.as_ref(), slice.as_ref(), ctx)?)
@@ -1269,11 +1269,12 @@ impl<'a> Inferencer<'a> {
             operand.custom.unwrap(),
         ).map_err(|e| HashSet::from([format!("{e} (at {location})")]))?;
 
-        self.build_method_call(operand.location, method, operand.custom.unwrap(), vec![], ret)
+        self.build_method_call(location, method, operand.custom.unwrap(), vec![], ret)
     }
 
     fn infer_compare(
         &mut self,
+        location: Location,
         left: &ast::Expr<Option<Type>>,
         ops: &[ast::Cmpop],
         comparators: &[ast::Expr<Option<Type>>],
@@ -1282,6 +1283,7 @@ impl<'a> Inferencer<'a> {
             return Err(HashSet::from([String::from("Comparator chaining with ndarray types not supported")]))
         }
 
+        let mut res = None;
         for (a, b, c) in izip!(once(left).chain(comparators), comparators, ops) {
             let method = comparison_name(c)
                 .ok_or_else(|| HashSet::from([
@@ -1296,27 +1298,17 @@ impl<'a> Inferencer<'a> {
                 a.custom.unwrap(),
                 b.custom.unwrap(),
             ).map_err(|e| HashSet::from([format!("{e} (at {})", b.location)]))?;
-            
-            self.build_method_call(
-                a.location,
+
+            res.replace(self.build_method_call(
+                location,
                 method,
                 a.custom.unwrap(),
                 vec![b.custom.unwrap()],
                 ret,
-            )?;
+            )?);
         }
 
-        let res_lhs = comparators.iter().rev().nth(1).unwrap_or(left);
-        let res_rhs = comparators.iter().rev().nth(0).unwrap();
-        let res_op = ops.iter().rev().nth(0).unwrap();
-
-        Ok(typeof_cmpop(
-            self.unifier,
-            self.primitives,
-            res_op,
-            res_lhs.custom.unwrap(),
-            res_rhs.custom.unwrap(),
-        ).unwrap().unwrap())
+        Ok(res.unwrap())
     }
 
     /// Infers the type of a subscript expression on an `ndarray`.
