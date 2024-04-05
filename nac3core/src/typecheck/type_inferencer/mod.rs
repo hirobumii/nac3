@@ -4,7 +4,7 @@ use std::iter::once;
 use std::{cell::RefCell, sync::Arc};
 
 use super::typedef::{Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, Unifier, VarMap};
-use super::{magic_methods::*, typedef::CallId};
+use super::{magic_methods::*, type_error::TypeError, typedef::CallId};
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue}, 
     toplevel::{
@@ -628,7 +628,14 @@ impl<'a> Inferencer<'a> {
                                 loc: Some(location),
                             };
                             if let Some(ret) = ret {
-                                self.unifier.unify(sign.ret, ret).unwrap();
+                                self.unifier.unify(sign.ret, ret)
+                                    .map_err(|err| {
+                                        format!("Cannot unify {} <: {} - {:?}",
+                                                self.unifier.stringify(sign.ret),
+                                                self.unifier.stringify(ret),
+                                                TypeError::new(err.kind, Some(location)))
+                                    })
+                                    .unwrap();
                             }
                             let required: Vec<_> = sign
                                 .args
