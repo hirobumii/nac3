@@ -29,6 +29,7 @@ use nac3parser::ast::{
     Constant, ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKind, StrRef,
 };
 use std::convert::TryFrom;
+use itertools::Itertools;
 
 /// See [`CodeGenerator::gen_var_alloc`].
 pub fn gen_var<'ctx>(
@@ -692,6 +693,243 @@ pub fn gen_while<G: CodeGenerator>(
     ctx.loop_target = loop_bb;
 
     Ok(())
+}
+
+/// Generates a C-style chained-`if` construct using lambdas, similar to the following C code:
+/// 
+/// ```c
+/// T val;
+/// if (ifts[0].cond()) {
+///   val = ifts[0].then();
+/// } else if (ifts[1].cond()) {
+///   val = ifts[1].then();
+/// } else if /* ... */
+/// else {
+///   if (else_fn) {
+///     val = else_fn();
+///   } else {
+///     __builtin_unreachable();
+///   }
+/// }
+/// ```
+/// 
+/// - `ifts` - A slice of tuples containing the condition and body of a branch respectively. The 
+/// branches will be generated in the order as appears in the slice.
+/// - `else_fn` - The body to generate if no other branches evaluates to `true`. If [`None`], a call
+/// to `__builtin_unreachable` will be generated instead.
+pub fn gen_chained_if_expr_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn, R>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ifts: &[(CondFn, ThenFn)],
+    else_fn: Option<ElseFn>,
+) -> Result<Option<BasicValueEnum<'ctx>>, String>
+    where
+        G: CodeGenerator + ?Sized,
+        CondFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
+        ThenFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<Option<R>, String>,
+        ElseFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<Option<R>, String>,
+        R: BasicValue<'ctx>,
+{
+    assert!(!ifts.is_empty());
+
+    let current_bb = ctx.builder.get_insert_block().unwrap();
+    let current_fn = current_bb.get_parent().unwrap();
+
+    let end_bb = ctx.ctx.append_basic_block(current_fn, "if.end");
+
+    let vals = {
+        let mut vals = ifts.iter()
+            .map(|(cond, then)| -> Result<_, String> {
+                let then_bb = ctx.ctx.insert_basic_block_after(current_bb, "if.then");
+                let else_bb = ctx.ctx.insert_basic_block_after(current_bb, "if.else");
+
+                let cond = cond(generator, ctx)?;
+                assert_eq!(cond.get_type().get_bit_width(), ctx.ctx.bool_type().get_bit_width());
+                ctx.builder.build_conditional_branch(cond, then_bb, else_bb).unwrap();
+
+                ctx.builder.position_at_end(then_bb);
+                let val = then(generator, ctx)?;
+
+                if !ctx.is_terminated() {
+                    ctx.builder.build_unconditional_branch(end_bb).unwrap();
+                }
+
+                ctx.builder.position_at_end(else_bb);
+
+                Ok((val, then_bb))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if let Some(else_fn) = else_fn {
+            let else_bb = ctx.builder.get_insert_block().unwrap();
+            let else_val = else_fn(generator, ctx)?;
+            vals.push((else_val, else_bb));
+
+            if !ctx.is_terminated() {
+                ctx.builder.build_unconditional_branch(end_bb).unwrap();
+            }
+        } else {
+            ctx.builder.build_unreachable().unwrap();
+        }
+
+        vals
+    };
+
+    ctx.builder.position_at_end(end_bb);
+    let phi = if vals.is_empty() {
+        None
+    } else {
+        let llvm_val_ty = vals.iter()
+            .filter_map(|(val, _)| val.as_ref().map(|v| v.as_basic_value_enum().get_type()))
+            .reduce(|acc, ty| {
+                assert_eq!(acc, ty);
+                acc
+            })
+            .unwrap();
+
+        let phi = ctx.builder.build_phi(llvm_val_ty, "").unwrap();
+        vals.into_iter()
+            .filter_map(|(val, bb)| val.map(|v| (v, bb)))
+            .for_each(|(val, bb)| phi.add_incoming(&[(&val.as_basic_value_enum(), bb)]));
+
+        Some(phi.as_basic_value())
+    };
+
+    Ok(phi)
+}
+
+/// Generates a C-style chained-`if` construct using lambdas, similar to the following C code:
+///
+/// ```c
+/// if (ifts[0].cond()) {
+///   ifts[0].then();
+/// } else if (ifts[1].cond()) {
+///   ifts[1].then();
+/// } else if /* ... */
+/// else {
+///   if (else_fn) {
+///     else_fn();
+///   } else {
+///     __builtin_unreachable();
+///   }
+/// }
+/// ```
+/// 
+/// This function mainly serves as an abstraction over [`gen_chained_if_expr_callback`] when a value
+/// does not need to be returned from the `if` construct.
+///
+/// - `ifts` - A slice of tuples containing the condition and body of a branch respectively. The 
+/// branches will be generated in the order as appears in the slice.
+/// - `else_fn` - The body to generate if no other branches evaluates to `true`. If [`None`], a call
+/// to `__builtin_unreachable` will be generated instead.
+pub fn gen_chained_if_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ifts: &[(CondFn, ThenFn)],
+    else_fn: &Option<ElseFn>,
+) -> Result<(), String>
+    where
+        G: CodeGenerator + ?Sized,
+        CondFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
+        ThenFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+        ElseFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+{
+    let res = gen_chained_if_expr_callback(
+        generator,
+        ctx,
+        ifts.iter()
+            .map(|(cond, then)| {
+                (
+                    cond,
+                    |generator: &mut G, ctx: &mut CodeGenContext<'ctx, 'a>| {
+                        then(generator, ctx)?;
+                        Ok(None::<BasicValueEnum<'ctx>>)
+                    },
+                )
+            })
+            .collect_vec()
+            .as_slice(),
+        else_fn
+            .as_ref()
+            .map(|else_fn| |generator: &mut G, ctx: &mut CodeGenContext<'ctx, 'a>| {
+                else_fn(generator, ctx)?;
+                Ok(None)
+            }),
+    )?;
+
+    assert!(res.is_none());
+
+    Ok(())
+}
+
+/// Generates a C-style chained-`if` construct using lambdas, similar to the following C code:
+///
+/// ```c
+/// T val;
+/// if (cond_fn()) {
+///   val = then_fn();
+/// } else {
+///   val = else_fn();
+/// }
+/// ```
+///
+/// This function mainly serves as an abstraction over [`gen_chained_if_expr_callback`] for a basic
+/// `if`-`else` construct that returns a value.
+pub fn gen_if_else_expr_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn, R>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    cond_fn: CondFn,
+    then_fn: ThenFn,
+    else_fn: ElseFn,
+) -> Result<Option<BasicValueEnum<'ctx>>, String>
+    where
+        G: CodeGenerator + ?Sized,
+        CondFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
+        ThenFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<Option<R>, String>,
+        ElseFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<Option<R>, String>,
+        R: BasicValue<'ctx>,
+{
+    gen_chained_if_expr_callback(
+        generator,
+        ctx,
+        &[(cond_fn, then_fn)],
+        Some(else_fn),
+    )
+}
+
+/// Generates a C-style chained-`if` construct using lambdas, similar to the following C code:
+///
+/// ```c
+/// if (cond_fn()) {
+///   then_fn();
+/// } else {
+///   if (else_fn) {
+///     else_fn();
+///   }
+/// }
+/// ```
+///
+/// This function mainly serves as an abstraction over [`gen_chained_if_expr_callback`] for a basic
+/// `if`-`else` construct that does not return a value.
+pub fn gen_if_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    cond_fn: CondFn,
+    then_fn: ThenFn,
+    else_fn: &Option<ElseFn>,
+) -> Result<(), String>
+    where
+        G: CodeGenerator + ?Sized,
+        CondFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
+        ThenFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+        ElseFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+{
+    gen_chained_if_callback(
+        generator,
+        ctx,
+        &[(cond_fn, then_fn)],
+        else_fn,
+    )
 }
 
 /// See [`CodeGenerator::gen_if`].
