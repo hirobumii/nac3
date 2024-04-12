@@ -509,28 +509,32 @@ pub fn gen_for_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn>(
 
     ctx.builder.build_unconditional_branch(init_bb).unwrap();
 
-    let loop_var = {
-        ctx.builder.position_at_end(init_bb);
-        let result = init(generator, ctx)?;
+    ctx.builder.position_at_end(init_bb);
+    let loop_var = init(generator, ctx)?;
+    if !ctx.is_terminated() {
         ctx.builder.build_unconditional_branch(cond_bb).unwrap();
-
-        result
-    };
+    }
 
     ctx.builder.position_at_end(cond_bb);
     let cond = cond(generator, ctx, loop_var.clone())?;
     assert_eq!(cond.get_type().get_bit_width(), ctx.ctx.bool_type().get_bit_width());
-    ctx.builder
-        .build_conditional_branch(cond, body_bb, cont_bb)
-        .unwrap();
+    if !ctx.is_terminated() {
+        ctx.builder
+            .build_conditional_branch(cond, body_bb, cont_bb)
+            .unwrap();
+    }
 
     ctx.builder.position_at_end(body_bb);
     body(generator, ctx, loop_var.clone())?;
-    ctx.builder.build_unconditional_branch(update_bb).unwrap();
+    if !ctx.is_terminated() {
+        ctx.builder.build_unconditional_branch(update_bb).unwrap();
+    }
 
     ctx.builder.position_at_end(update_bb);
     update(generator, ctx, loop_var)?;
-    ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+    if !ctx.is_terminated() {
+        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+    }
 
     ctx.builder.position_at_end(cont_bb);
     ctx.loop_target = loop_bb;
