@@ -455,6 +455,12 @@ def test_ndarray_inv():
     output_ndarray_int32_2(x_int32)
     output_ndarray_int32_2(y_int32)
 
+    x_bool = np_full([2, 2], True)
+    y_bool = ~x_bool
+
+    output_ndarray_bool_2(x_bool)
+    output_ndarray_bool_2(y_bool)
+
 def test_ndarray_eq():
     x = np_identity(2)
     y = x == np_full([2, 2], 0.0)

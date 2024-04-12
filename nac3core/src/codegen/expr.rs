@@ -1308,7 +1308,14 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
         let val = val.into_int_value();
         match op {
             ast::Unaryop::Invert | ast::Unaryop::Not => {
-                ctx.builder.build_not(val, "not").map(Into::into).unwrap()
+                let not = ctx.builder.build_not(val, "not").unwrap();
+                let not_bool = ctx.builder.build_and(
+                    not,
+                    not.get_type().const_int(1, false),
+                    "",
+                ).unwrap();
+
+                not_bool.into()
             }
             _ => val.into(),
         }
