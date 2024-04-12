@@ -472,23 +472,47 @@ pub fn typeof_unaryop(
     op: &Unaryop,
     operand: Type,
 ) -> Result<Option<Type>, String> {
-    if *op == Unaryop::Not && operand.obj_id(unifier).is_some_and(|id| id == primitives.ndarray.obj_id(unifier).unwrap()) {
+    let operand_obj_id = operand.obj_id(unifier);
+
+    if *op == Unaryop::Not && operand_obj_id.is_some_and(|id| id == primitives.ndarray.obj_id(unifier).unwrap()) {
         return Err("The truth value of an array with more than one element is ambiguous".to_string())
     }
 
     Ok(match *op {
         Unaryop::Not => {
-            match operand.obj_id(unifier) {
+            match operand_obj_id {
                 Some(v) if v == PRIMITIVE_DEF_IDS.ndarray => Some(operand),
                 Some(_) => Some(primitives.bool),
                 _ => None
             }
         }
 
-        Unaryop::Invert
-        | Unaryop::UAdd
+        Unaryop::Invert => {
+            if operand_obj_id.is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
+                Some(primitives.int32)
+            } else if operand_obj_id.is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id)) {
+                Some(operand)
+            } else {
+                None
+            }
+        }
+
+        Unaryop::UAdd
         | Unaryop::USub => {
-            if operand.obj_id(unifier).is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id)) {
+            if operand_obj_id.is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                let (dtype, _) = unpack_ndarray_var_tys(unifier, operand);
+                if dtype.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
+                    return Err(if *op == Unaryop::UAdd {
+                        "The ufunc 'positive' cannot be applied to ndarray[bool, N]".to_string()
+                    } else {
+                        "The numpy boolean negative, the `-` operator, is not supported, use the `~` operator function instead.".to_string()
+                    })
+                }
+
+                Some(operand)
+            } else if operand_obj_id.is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
+                Some(primitives.int32)
+            } else if operand_obj_id.is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id)) {
                 Some(operand)
             } else {
                 None
@@ -571,7 +595,9 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
 
     /* bool ======== */
     let ndarray_bool_t = make_ndarray_ty(unifier, store, Some(bool_t), None);
+    impl_invert(unifier, store, bool_t, Some(int32_t));
     impl_not(unifier, store, bool_t, Some(bool_t));
+    impl_sign(unifier, store, bool_t, Some(int32_t));
     impl_eq(unifier, store, bool_t, &[bool_t, ndarray_bool_t], None);
 
     /* ndarray ===== */

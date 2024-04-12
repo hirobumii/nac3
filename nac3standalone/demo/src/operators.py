@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 @extern
+def output_bool(x: bool):
+    ...
+
+@extern
 def output_int32(x: int32):
     ...
 @extern
@@ -17,6 +21,7 @@ def output_float64(x: float):
     ...
 
 def run() -> int32:
+    test_bool()
     test_int32()
     test_uint32()
     test_int64()
@@ -24,6 +29,18 @@ def run() -> int32:
     # test_A()
     # test_B()
     return 0
+
+def test_bool():
+    t = True
+    f = False
+    output_bool(not t)
+    output_bool(not f)
+    output_int32(~t)
+    output_int32(~f)
+    output_int32(+t)
+    output_int32(+f)
+    output_int32(-t)
+    output_int32(-f)
 
 def test_int32():
     a = 17

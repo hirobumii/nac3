@@ -30,7 +30,7 @@ use crate::{
     },
     typecheck::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
-        magic_methods::{binop_name, binop_assign_name},
+        magic_methods::{binop_name, binop_assign_name, unaryop_name},
     },
 };
 use inkwell::{
@@ -1306,18 +1306,27 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
 
     Ok(Some(if ty == ctx.primitives.bool {
         let val = val.into_int_value();
-        match op {
-            ast::Unaryop::Invert | ast::Unaryop::Not => {
-                let not = ctx.builder.build_not(val, "not").unwrap();
-                let not_bool = ctx.builder.build_and(
-                    not,
-                    not.get_type().const_int(1, false),
-                    "",
-                ).unwrap();
+        if *op == ast::Unaryop::Not {
+            let not = ctx.builder.build_not(val, "not").unwrap();
+            let not_bool = ctx.builder.build_and(
+                not,
+                not.get_type().const_int(1, false),
+                "",
+            ).unwrap();
+    
+            not_bool.into()
+        } else {
+            let llvm_i32 = ctx.ctx.i32_type();
 
-                not_bool.into()
-            }
-            _ => val.into(),
+            gen_unaryop_expr_with_values(
+                generator,
+                ctx,
+                op,
+                (
+                    &Some(ctx.primitives.int32),
+                    ctx.builder.build_int_z_extend(val, llvm_i32, "").map(Into::into).unwrap()
+                ),
+            )?.unwrap()
         }
     } else if [ctx.primitives.int32, ctx.primitives.int64, ctx.primitives.uint32, ctx.primitives.uint64].contains(&ty) {
         let val = val.into_int_value();
@@ -1353,6 +1362,18 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             None,
         );
 
+        // ndarray uses `~` rather than `not` to perform elementwise inversion, convert it before
+        // passing it to the elementwise codegen function
+        let op = if ndarray_dtype.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
+            if *op == ast::Unaryop::Invert {
+                &ast::Unaryop::Not
+            } else {
+                unreachable!("ufunc {} not supported for ndarray[bool, N]", unaryop_name(op))
+            }
+        } else {
+            op
+        };
+
         let res = numpy::ndarray_elementwise_unaryop_impl(
             generator,
             ctx,
@@ -1364,7 +1385,7 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
                     generator,
                     ctx,
                     op,
-                    (&Some(ndarray_dtype), val)
+                    (&Some(ndarray_dtype), val),
                 )?.unwrap().to_basic_value_enum(ctx, generator, ndarray_dtype)
             },
         )?;
