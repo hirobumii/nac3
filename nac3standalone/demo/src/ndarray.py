@@ -79,6 +79,13 @@ def test_ndarray_copy():
     output_ndarray_float_2(x)
     output_ndarray_float_2(y)
 
+def test_ndarray_neg_idx():
+    x = np_identity(2)
+
+    for i in range(-1, -3, -1):
+        for j in range(-1, -3, -1):
+            output_float64(x[i][j])
+
 def test_ndarray_add():
     x = np_identity(2)
     y = x + np_ones([2, 2])
@@ -639,6 +646,7 @@ def run() -> int32:
     test_ndarray_identity()
     test_ndarray_fill()
     test_ndarray_copy()
+    test_ndarray_neg_idx()
     test_ndarray_add()
     test_ndarray_add_broadcast()
     test_ndarray_add_broadcast_lhs_scalar()
