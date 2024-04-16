@@ -1719,7 +1719,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                     v.dim_sizes().get_typed_unchecked(
                         ctx,
                         generator,
-                        llvm_usize.const_zero(),
+                        &llvm_usize.const_zero(),
                         None,
                     )
                 };
@@ -1746,7 +1746,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
             .get(
                 ctx,
                 generator,
-                ArraySliceValue::from_ptr_val(index_addr, llvm_usize.const_int(1, false), None),
+                &ArraySliceValue::from_ptr_val(index_addr, llvm_usize.const_int(1, false), None),
                 None,
             )
             .into()))
@@ -1781,7 +1781,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
             v.dim_sizes().ptr_offset_unchecked(
                 ctx,
                 generator,
-                llvm_usize.const_int(1, false),
+                &llvm_usize.const_int(1, false),
                 None,
             )
         };
@@ -1806,7 +1806,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         let v_data_src_ptr = v.data().ptr_offset(
             ctx,
             generator,
-            ArraySliceValue::from_ptr_val(index_addr, llvm_usize.const_int(1, false), None),
+            &ArraySliceValue::from_ptr_val(index_addr, llvm_usize.const_int(1, false), None),
             None
         );
         call_memcpy_generic(
@@ -1906,7 +1906,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             let arr_ptr = arr_str_ptr.data();
             for (i, v) in elements.iter().enumerate() {
                 let elem_ptr = arr_ptr
-                    .ptr_offset(ctx, generator, usize.const_int(i as u64, false), Some("elem_ptr"));
+                    .ptr_offset(ctx, generator, &usize.const_int(i as u64, false), Some("elem_ptr"));
                 ctx.builder.build_store(elem_ptr, *v).unwrap();
             }
             arr_str_ptr.as_ptr_value().into()
@@ -2324,7 +2324,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             [Some(raw_index), Some(len), None],
                             expr.location,
                         );
-                        v.data().get(ctx, generator, index, None).into()
+                        v.data().get(ctx, generator, &index, None).into()
                     }
                 }
                 TypeEnum::TObj { obj_id, params, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {

@@ -119,7 +119,7 @@ fn create_ndarray_dyn_shape<'ctx, 'a, G, V, LenFn, DataFn>(
                 .unwrap();
 
             let ndarray_pdim = unsafe {
-                ndarray.dim_sizes().ptr_offset_unchecked(ctx, generator, i, None)
+                ndarray.dim_sizes().ptr_offset_unchecked(ctx, generator, &i, None)
             };
 
             ctx.builder.build_store(ndarray_pdim, shape_dim).unwrap();
@@ -190,7 +190,7 @@ fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
         let ndarray_dim = unsafe {
             ndarray
                 .dim_sizes()
-                .ptr_offset_unchecked(ctx, generator, llvm_usize.const_int(i as u64, true), None)
+                .ptr_offset_unchecked(ctx, generator, &llvm_usize.const_int(i as u64, true), None)
         };
 
         ctx.builder.build_store(ndarray_dim, *shape_dim).unwrap();
@@ -267,7 +267,7 @@ fn call_ndarray_empty_impl<'ctx, G: CodeGenerator + ?Sized>(
             Ok(shape.load_size(ctx, None))
         },
         |generator, ctx, shape, idx| {
-            Ok(shape.data().get(ctx, generator, idx, None).into_int_value())
+            Ok(shape.data().get(ctx, generator, &idx, None).into_int_value())
         },
     )
 }
@@ -299,7 +299,7 @@ fn ndarray_fill_flattened<'ctx, 'a, G, ValueFn>(
         (ndarray_num_elems, false),
         |generator, ctx, i| {
             let elem = unsafe {
-                ndarray.data().ptr_offset_unchecked(ctx, generator, i, None)
+                ndarray.data().ptr_offset_unchecked(ctx, generator, &i, None)
             };
 
             let value = value_fn(generator, ctx, i)?;
@@ -321,7 +321,7 @@ fn ndarray_fill_indexed<'ctx, G, ValueFn>(
 ) -> Result<(), String>
     where
         G: CodeGenerator + ?Sized,
-        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, TypedArrayLikeAdapter<'ctx, IntValue<'ctx>>) -> Result<BasicValueEnum<'ctx>, String>,
+        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, &TypedArrayLikeAdapter<'ctx, IntValue<'ctx>>) -> Result<BasicValueEnum<'ctx>, String>,
 {
     ndarray_fill_flattened(
         generator,
@@ -335,7 +335,7 @@ fn ndarray_fill_indexed<'ctx, G, ValueFn>(
                 ndarray,
             );
 
-            value_fn(generator, ctx, indices)
+            value_fn(generator, ctx, &indices)
         }
     )
 }
@@ -357,7 +357,7 @@ fn ndarray_fill_mapping<'ctx, G, MapFn>(
         dest,
         |generator, ctx, i| {
             let elem = unsafe {
-                src.data().get_unchecked(ctx, generator, i, None)
+                src.data().get_unchecked(ctx, generator, &i, None)
             };
 
             map_fn(generator, ctx, elem)
@@ -430,10 +430,10 @@ fn ndarray_broadcast_fill<'ctx, G, ValueFn>(
                 lhs_val
             } else {
                 let lhs = NDArrayValue::from_ptr_val(lhs_val.into_pointer_value(), llvm_usize, None);
-                let lhs_idx = call_ndarray_calc_broadcast_index(generator, ctx, lhs, &idx);
+                let lhs_idx = call_ndarray_calc_broadcast_index(generator, ctx, lhs, idx);
 
                 unsafe {
-                    lhs.data().get_unchecked(ctx, generator, lhs_idx, None)
+                    lhs.data().get_unchecked(ctx, generator, &lhs_idx, None)
                 }
             };
 
@@ -441,10 +441,10 @@ fn ndarray_broadcast_fill<'ctx, G, ValueFn>(
                 rhs_val
             } else {
                 let rhs = NDArrayValue::from_ptr_val(rhs_val.into_pointer_value(), llvm_usize, None);
-                let rhs_idx = call_ndarray_calc_broadcast_index(generator, ctx, rhs, &idx);
+                let rhs_idx = call_ndarray_calc_broadcast_index(generator, ctx, rhs, idx);
                 
                 unsafe {
-                    rhs.data().get_unchecked(ctx, generator, rhs_idx, None)
+                    rhs.data().get_unchecked(ctx, generator, &rhs_idx, None)
                 }
             };
 
@@ -604,8 +604,8 @@ fn call_ndarray_eye_impl<'ctx, G: CodeGenerator + ?Sized>(
         |generator, ctx, indices| {
             let (row, col) = unsafe {
                 (
-                    indices.get_typed_unchecked(ctx, generator, llvm_usize.const_zero(), None),
-                    indices.get_typed_unchecked(ctx, generator, llvm_usize.const_int(1, false), None),
+                    indices.get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None),
+                    indices.get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None),
                 )
             };
 
@@ -652,7 +652,7 @@ fn ndarray_copy_impl<'ctx, G: CodeGenerator + ?Sized>(
             Ok(shape.load_ndims(ctx))
         },
         |generator, ctx, shape, idx| {
-            unsafe { Ok(shape.dim_sizes().get_typed_unchecked(ctx, generator, idx, None)) }
+            unsafe { Ok(shape.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None)) }
         },
     )?;
 
@@ -704,7 +704,7 @@ pub fn ndarray_elementwise_unaryop_impl<'ctx, G, MapFn>(
             },
             |generator, ctx, v, idx| {
                 unsafe {
-                    Ok(v.dim_sizes().get_typed_unchecked(ctx, generator, idx, None))
+                    Ok(v.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None))
                 }
             },
         ).unwrap()
@@ -782,7 +782,7 @@ pub fn ndarray_elementwise_binop_impl<'ctx, G, ValueFn>(
                 },
                 |generator, ctx, v, idx| {
                     unsafe {
-                        Ok(v.get_typed_unchecked(ctx, generator, idx, None))
+                        Ok(v.get_typed_unchecked(ctx, generator, &idx, None))
                     }
                 },
             ).unwrap()
@@ -803,7 +803,7 @@ pub fn ndarray_elementwise_binop_impl<'ctx, G, ValueFn>(
                 },
                 |generator, ctx, v, idx| {
                     unsafe {
-                        Ok(v.dim_sizes().get_typed_unchecked(ctx, generator, idx, None))
+                        Ok(v.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None))
                     }
                 },
             ).unwrap()

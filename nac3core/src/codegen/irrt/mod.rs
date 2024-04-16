@@ -833,8 +833,8 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
             let idx = ctx.builder.build_int_sub(min_ndims, idx, "").unwrap();
             let (lhs_dim_sz, rhs_dim_sz) = unsafe {
                 (
-                    lhs.dim_sizes().get_typed_unchecked(ctx, generator, idx, None),
-                    rhs.dim_sizes().get_typed_unchecked(ctx, generator, idx, None),
+                    lhs.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None),
+                    rhs.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None),
                 )
             };
 
@@ -955,7 +955,7 @@ pub fn call_ndarray_calc_broadcast_index<'ctx, G: CodeGenerator + ?Sized, Broadc
         broadcast_idx.ptr_offset_unchecked(
             ctx,
             generator,
-            llvm_usize.const_zero(),
+            &llvm_usize.const_zero(),
             None
         )
     };

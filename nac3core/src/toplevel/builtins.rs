@@ -1730,7 +1730,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
                                         arg.dim_sizes().get_typed_unchecked(
                                             ctx,
                                             generator,
-                                            llvm_usize.const_zero(),
+                                            &llvm_usize.const_zero(),
                                             None,
                                         )
                                     };

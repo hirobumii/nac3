@@ -58,7 +58,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>>: ArrayLikeValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx>;
 
@@ -67,7 +67,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>>: ArrayLikeValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx>;
 }
@@ -81,7 +81,7 @@ pub trait UntypedArrayLikeAccessor<'ctx, Index = IntValue<'ctx>>: ArrayLikeIndex
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
         let ptr = self.ptr_offset_unchecked(ctx, generator, idx, name);
@@ -93,7 +93,7 @@ pub trait UntypedArrayLikeAccessor<'ctx, Index = IntValue<'ctx>>: ArrayLikeIndex
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
         let ptr = self.ptr_offset(ctx, generator, idx, name);
@@ -110,7 +110,7 @@ pub trait UntypedArrayLikeMutator<'ctx, Index = IntValue<'ctx>>: ArrayLikeIndexe
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         value: BasicValueEnum<'ctx>,
     ) {
         let ptr = self.ptr_offset_unchecked(ctx, generator, idx, None);
@@ -122,7 +122,7 @@ pub trait UntypedArrayLikeMutator<'ctx, Index = IntValue<'ctx>>: ArrayLikeIndexe
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         value: BasicValueEnum<'ctx>,
     ) {
         let ptr = self.ptr_offset(ctx, generator, idx, None);
@@ -142,7 +142,7 @@ pub trait TypedArrayLikeAccessor<'ctx, T, Index = IntValue<'ctx>>: UntypedArrayL
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         name: Option<&str>,
     ) -> T {
         let value = self.get_unchecked(ctx, generator, idx, name);
@@ -154,7 +154,7 @@ pub trait TypedArrayLikeAccessor<'ctx, T, Index = IntValue<'ctx>>: UntypedArrayL
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         name: Option<&str>,
     ) -> T {
         let value = self.get(ctx, generator, idx, name);
@@ -174,7 +174,7 @@ pub trait TypedArrayLikeMutator<'ctx, T, Index = IntValue<'ctx>>: UntypedArrayLi
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         value: T,
     ) {
         let value = self.upcast_from_type(ctx, value);
@@ -186,7 +186,7 @@ pub trait TypedArrayLikeMutator<'ctx, T, Index = IntValue<'ctx>>: UntypedArrayLi
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         value: T,
     ) {
         let value = self.upcast_from_type(ctx, value);
@@ -255,7 +255,7 @@ impl<'ctx, T, Index, Adapted> ArrayLikeIndexer<'ctx, Index> for TypedArrayLikeAd
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         self.adapted.ptr_offset_unchecked(ctx, generator, idx, name)
@@ -265,7 +265,7 @@ impl<'ctx, T, Index, Adapted> ArrayLikeIndexer<'ctx, Index> for TypedArrayLikeAd
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: Index,
+        idx: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         self.adapted.ptr_offset(ctx, generator, idx, name)
@@ -345,7 +345,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: IntValue<'ctx>,
+        idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let var_name = name
@@ -354,7 +354,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
 
         ctx.builder.build_in_bounds_gep(
             self.base_ptr(ctx, generator),
-            &[idx],
+            &[*idx],
             var_name.as_str(),
         ).unwrap()
     }
@@ -363,13 +363,13 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: IntValue<'ctx>,
+        idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         debug_assert_eq!(idx.get_type(), generator.get_size_type(ctx.ctx));
 
         let size = self.size(ctx, generator);
-        let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, idx, size, "").unwrap();
+        let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "").unwrap();
         ctx.make_assert(
             generator,
             in_range,
@@ -573,7 +573,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: IntValue<'ctx>,
+        idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let var_name = name
@@ -582,7 +582,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
 
         ctx.builder.build_in_bounds_gep(
             self.base_ptr(ctx, generator),
-            &[idx],
+            &[*idx],
             var_name.as_str(),
         ).unwrap()
     }
@@ -591,13 +591,13 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: IntValue<'ctx>,
+        idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         debug_assert_eq!(idx.get_type(), generator.get_size_type(ctx.ctx));
 
         let size = self.size(ctx, generator);
-        let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, idx, size, "").unwrap();
+        let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "").unwrap();
         ctx.make_assert(
             generator,
             in_range,
@@ -1015,7 +1015,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_>
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: IntValue<'ctx>,
+        idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let var_name = name
@@ -1024,7 +1024,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_>
 
         ctx.builder.build_in_bounds_gep(
             self.base_ptr(ctx, generator),
-            &[idx],
+            &[*idx],
             var_name.as_str(),
         ).unwrap()
     }
@@ -1033,13 +1033,13 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_>
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: IntValue<'ctx>,
+        idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let size = self.size(ctx, generator);
         let in_range = ctx.builder.build_int_compare(
             IntPredicate::ULT,
-            idx,
+            *idx,
             size,
             ""
         ).unwrap();
@@ -1048,7 +1048,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_>
             in_range,
             "0:IndexError",
             "index {0} is out of bounds for axis 0 with size {1}",
-            [Some(idx), Some(self.0.load_ndims(ctx)), None],
+            [Some(*idx), Some(self.0.load_ndims(ctx)), None],
             ctx.current_loc,
         );
 
@@ -1120,12 +1120,12 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: IntValue<'ctx>,
+        idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         ctx.builder.build_in_bounds_gep(
             self.base_ptr(ctx, generator),
-            &[idx],
+            &[*idx],
             name.unwrap_or_default(),
         ).unwrap()
     }
@@ -1134,13 +1134,13 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        idx: IntValue<'ctx>,
+        idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let data_sz = self.size(ctx, generator);
         let in_range = ctx.builder.build_int_compare(
             IntPredicate::ULT,
-            idx,
+            *idx,
             data_sz,
             ""
         ).unwrap();
@@ -1149,7 +1149,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
             in_range,
             "0:IndexError",
             "index {0} is out of bounds with size {1}",
-            [Some(idx), Some(self.0.load_ndims(ctx)), None],
+            [Some(*idx), Some(self.0.load_ndims(ctx)), None],
             ctx.current_loc,
         );
 
@@ -1167,12 +1167,15 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index> 
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        indices: Index,
+        indices: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let llvm_usize = generator.get_size_type(ctx.ctx);
 
-        let indices_elem_ty = indices.ptr_offset(ctx, generator, llvm_usize.const_zero(), None).get_type().get_element_type();
+        let indices_elem_ty = indices
+            .ptr_offset(ctx, generator, &llvm_usize.const_zero(), None)
+            .get_type()
+            .get_element_type();
         let Ok(indices_elem_ty) = IntType::try_from(indices_elem_ty) else {
             panic!("Expected list[int32] but got {indices_elem_ty}")
         };
@@ -1182,7 +1185,7 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index> 
             generator,
             ctx,
             *self.0,
-            &indices,
+            indices,
         );
 
         unsafe {
@@ -1198,7 +1201,7 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index> 
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
-        indices: Index,
+        indices: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let llvm_usize = generator.get_size_type(ctx.ctx);
@@ -1230,8 +1233,8 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index> 
             |generator, ctx, i| {
                 let (dim_idx, dim_sz) = unsafe {
                     (
-                        indices.get_unchecked(ctx, generator, i, None).into_int_value(),
-                        self.0.dim_sizes().get_typed_unchecked(ctx, generator, i, None),
+                        indices.get_unchecked(ctx, generator, &i, None).into_int_value(),
+                        self.0.dim_sizes().get_typed_unchecked(ctx, generator, &i, None),
                     )
                 };
                 let dim_idx = ctx.builder
