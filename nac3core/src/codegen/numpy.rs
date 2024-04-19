@@ -1,9 +1,5 @@
-use inkwell::{
-    IntPredicate, 
-    types::BasicType, 
-    values::{BasicValueEnum, IntValue, PointerValue}
-};
-use nac3parser::ast::StrRef;
+use inkwell::{IntPredicate, OptimizationLevel, types::BasicType, values::{BasicValueEnum, IntValue, PointerValue}};
+use nac3parser::ast::{Operator, StrRef};
 use crate::{
     codegen::{
         classes::{
@@ -14,17 +10,20 @@ use crate::{
             TypedArrayLikeAccessor,
             TypedArrayLikeAdapter,
             UntypedArrayLikeAccessor,
+            UntypedArrayLikeMutator,
         },
         CodeGenContext,
         CodeGenerator,
+        expr::gen_binop_expr_with_values,
         irrt::{
             call_ndarray_calc_broadcast,
             call_ndarray_calc_broadcast_index,
             call_ndarray_calc_nd_indices,
             call_ndarray_calc_size,
         },
-        llvm_intrinsics::call_memcpy_generic,
-        stmt::gen_for_callback_incrementing,
+        llvm_intrinsics,
+        llvm_intrinsics::{call_memcpy_generic},
+        stmt::{gen_for_callback_incrementing, gen_if_else_expr_callback},
     },
     symbol_resolver::ValueEnum,
     toplevel::{
@@ -85,6 +84,8 @@ fn create_ndarray_dyn_shape<'ctx, 'a, G, V, LenFn, DataFn>(
                 [None, None, None],
                 ctx.current_loc,
             );
+            
+            // TODO: Disallow dim_sz > u32_MAX
 
             Ok(())
         },
@@ -171,6 +172,8 @@ fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
             [None, None, None],
             ctx.current_loc,
         );
+
+        // TODO: Disallow dim_sz > u32_MAX
     }
 
     let ndarray = generator.gen_var_alloc(
@@ -819,6 +822,319 @@ pub fn ndarray_elementwise_binop_impl<'ctx, G, ValueFn>(
         |generator, ctx, elems| {
             value_fn(generator, ctx, elems)
         },
+    )?;
+
+    Ok(ndarray)
+}
+
+/// LLVM-typed implementation for computing matrix multiplication between two 2D `ndarray`s.
+///
+/// * `elem_ty` - The element type of the `NDArray`.
+/// * `res` - The `ndarray` instance to write results into, or [`None`] if the result should be
+/// written to a new `ndarray`.
+pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    elem_ty: Type,
+    res: Option<NDArrayValue<'ctx>>,
+    lhs: NDArrayValue<'ctx>,
+    rhs: NDArrayValue<'ctx>,
+) -> Result<NDArrayValue<'ctx>, String> {
+    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    if cfg!(debug_assertions) {
+        let lhs_ndims = lhs.load_ndims(ctx);
+        let rhs_ndims = rhs.load_ndims(ctx);
+
+        // lhs.ndims == 2
+        ctx.make_assert(
+            generator,
+            ctx.builder.build_int_compare(
+                IntPredicate::EQ,
+                lhs_ndims,
+                llvm_usize.const_int(2, false),
+                "",
+            ).unwrap(),
+            "0:ValueError",
+            "",
+            [None, None, None],
+            ctx.current_loc,
+        );
+
+        // rhs.ndims == 2
+        ctx.make_assert(
+            generator,
+            ctx.builder.build_int_compare(
+                IntPredicate::EQ,
+                rhs_ndims,
+                llvm_usize.const_int(2, false),
+                "",
+            ).unwrap(),
+            "0:ValueError",
+            "",
+            [None, None, None],
+            ctx.current_loc,
+        );
+
+        if let Some(res) = res {
+            let res_ndims = res.load_ndims(ctx);
+            let res_dim0 = unsafe {
+                res.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+            };
+            let res_dim1 = unsafe {
+                res.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
+            };
+            let lhs_dim0 = unsafe {
+                lhs.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+            };
+            let rhs_dim1 = unsafe {
+                rhs.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
+            };
+
+            // res.ndims == 2
+            ctx.make_assert(
+                generator,
+                ctx.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    res_ndims,
+                    llvm_usize.const_int(2, false),
+                    "",
+                ).unwrap(),
+                "0:ValueError",
+                "",
+                [None, None, None],
+                ctx.current_loc,
+            );
+
+            // res.dims[0] == lhs.dims[0]
+            ctx.make_assert(
+                generator,
+                ctx.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    lhs_dim0,
+                    res_dim0,
+                    "",
+                ).unwrap(),
+                "0:ValueError",
+                "",
+                [None, None, None],
+                ctx.current_loc,
+            );
+
+            // res.dims[1] == rhs.dims[0]
+            ctx.make_assert(
+                generator,
+                ctx.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    rhs_dim1,
+                    res_dim1,
+                    "",
+                ).unwrap(),
+                "0:ValueError",
+                "",
+                [None, None, None],
+                ctx.current_loc,
+            );
+        }
+    }
+
+    if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+        let lhs_dim1 = unsafe {
+            lhs.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
+        };
+        let rhs_dim0 = unsafe {
+            rhs.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+        };
+
+        // lhs.dims[1] == rhs.dims[0]
+        ctx.make_assert(
+            generator,
+            ctx.builder.build_int_compare(
+                IntPredicate::EQ,
+                lhs_dim1,
+                rhs_dim0,
+                "",
+            ).unwrap(),
+            "0:ValueError",
+            "",
+            [None, None, None],
+            ctx.current_loc,
+        );
+    }
+
+    let lhs = if res.is_some_and(|res| res.as_ptr_value() == lhs.as_ptr_value()) {
+        ndarray_copy_impl(generator, ctx, elem_ty, lhs)?
+    } else {
+        lhs
+    };
+
+    let ndarray = res.unwrap_or_else(|| {
+        create_ndarray_dyn_shape(
+            generator,
+            ctx,
+            elem_ty,
+            &(lhs, rhs),
+            |_, _, _| {
+                Ok(llvm_usize.const_int(2, false))
+            },
+            |generator, ctx, (lhs, rhs), idx| {
+                gen_if_else_expr_callback(
+                    generator,
+                    ctx,
+                    |_, ctx| {
+                        Ok(ctx.builder.build_int_compare(
+                            IntPredicate::EQ,
+                            idx,
+                            llvm_usize.const_zero(),
+                            "",
+                        ).unwrap())
+                    },
+                    |generator, ctx| {
+                        Ok(Some(unsafe {
+                            lhs.dim_sizes().get_typed_unchecked(
+                                ctx,
+                                generator,
+                                &llvm_usize.const_zero(),
+                                None,
+                            )
+                        }))
+                    },
+                    |generator, ctx| {
+                        Ok(Some(unsafe {
+                            rhs.dim_sizes().get_typed_unchecked(
+                                ctx,
+                                generator,
+                                &llvm_usize.const_int(1, false),
+                                None,
+                            )
+                        }))
+                    },
+                ).map(|v| v.map(BasicValueEnum::into_int_value).unwrap())
+            },
+        ).unwrap()
+    });
+
+    let llvm_ndarray_ty = ctx.get_llvm_type(generator, elem_ty);
+
+    ndarray_fill_indexed(
+        generator,
+        ctx,
+        ndarray,
+        |generator, ctx, idx| {
+            llvm_intrinsics::call_expect(
+                ctx,
+                idx.size(ctx, generator).get_type().const_int(2, false),
+                idx.size(ctx, generator),
+                None,
+            );
+
+            let common_dim = {
+                let lhs_idx1 = unsafe {
+                    lhs.dim_sizes().get_typed_unchecked(
+                        ctx,
+                        generator,
+                        &llvm_usize.const_int(1, false),
+                        None,
+                    )
+                };
+                let rhs_idx0 = unsafe {
+                    rhs.dim_sizes().get_typed_unchecked(
+                        ctx,
+                        generator,
+                        &llvm_usize.const_zero(),
+                        None,
+                    )
+                };
+
+                let idx = llvm_intrinsics::call_expect(ctx, rhs_idx0, lhs_idx1, None);
+
+                ctx.builder.build_int_truncate(idx, llvm_i32, "").unwrap()
+            };
+
+            let idx0 = unsafe {
+                let idx0 = idx.get_typed_unchecked(
+                    ctx,
+                    generator,
+                    &llvm_usize.const_zero(),
+                    None,
+                );
+
+                ctx.builder.build_int_truncate(idx0, llvm_i32, "").unwrap()
+            };
+            let idx1 = unsafe {
+                let idx1 = idx.get_typed_unchecked(
+                    ctx,
+                    generator,
+                    &llvm_usize.const_int(1, false),
+                    None,
+                );
+
+                ctx.builder.build_int_truncate(idx1, llvm_i32, "").unwrap()
+            };
+
+            let result_addr = generator.gen_var_alloc(ctx, llvm_ndarray_ty, None)?;
+            let result_identity = ndarray_zero_value(generator, ctx, elem_ty);
+            ctx.builder.build_store(result_addr, result_identity).unwrap();
+
+            gen_for_callback_incrementing(
+                generator,
+                ctx,
+                llvm_i32.const_zero(),
+                (common_dim, false),
+                |generator, ctx, i| {
+                    let i = ctx.builder.build_int_truncate(i, llvm_i32, "").unwrap();
+
+                    let ab_idx = generator.gen_array_var_alloc(
+                        ctx,
+                        llvm_i32.into(),
+                        llvm_usize.const_int(2, false),
+                        None,
+                    )?;
+
+                    let a = unsafe {
+                        ab_idx.set_unchecked(ctx, generator, &llvm_usize.const_zero(), idx0.into());
+                        ab_idx.set_unchecked(ctx, generator, &llvm_usize.const_int(1, false), i.into());
+
+                        lhs.data().get_unchecked(ctx, generator, &ab_idx, None)
+                    };
+                    let b = unsafe {
+                        ab_idx.set_unchecked(ctx, generator, &llvm_usize.const_zero(), i.into());
+                        ab_idx.set_unchecked(ctx, generator, &llvm_usize.const_int(1, false), idx1.into());
+
+                        rhs.data().get_unchecked(ctx, generator, &ab_idx, None)
+                    };
+
+                    let a_mul_b = gen_binop_expr_with_values(
+                        generator,
+                        ctx,
+                        (&Some(elem_ty), a),
+                        &Operator::Mult,
+                        (&Some(elem_ty), b),
+                        ctx.current_loc,
+                        false,
+                    )?.unwrap().to_basic_value_enum(ctx, generator, elem_ty)?;
+
+                    let result = ctx.builder.build_load(result_addr, "").unwrap();
+                    let result = gen_binop_expr_with_values(
+                        generator,
+                        ctx,
+                        (&Some(elem_ty), result),
+                        &Operator::Add,
+                        (&Some(elem_ty), a_mul_b),
+                        ctx.current_loc,
+                        false,
+                    )?.unwrap().to_basic_value_enum(ctx, generator, elem_ty)?;
+                    ctx.builder.build_store(result_addr, result).unwrap();
+
+                    Ok(())
+                },
+                llvm_usize.const_int(1, false),
+            )?;
+
+            let result = ctx.builder.build_load(result_addr, "").unwrap();
+            Ok(result)
+        }
     )?;
 
     Ok(ndarray)

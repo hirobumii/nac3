@@ -429,6 +429,19 @@ def test_ndarray_ipow_broadcast_scalar():
 
     output_ndarray_float_2(x)
 
+def test_ndarray_matmul():
+    x = np_identity(2)
+    y = x @ np_ones([2, 2])
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(y)
+
+def test_ndarray_imatmul():
+    x = np_identity(2)
+    x @= np_ones([2, 2])
+
+    output_ndarray_float_2(x)
+
 def test_ndarray_pos():
     x_int32 = np_full([2, 2], -2)
     y_int32 = +x_int32
@@ -696,6 +709,8 @@ def run() -> int32:
     test_ndarray_ipow()
     test_ndarray_ipow_broadcast()
     test_ndarray_ipow_broadcast_scalar()
+    test_ndarray_matmul()
+    test_ndarray_imatmul()
     test_ndarray_pos()
     test_ndarray_neg()
     test_ndarray_inv()

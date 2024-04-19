@@ -495,14 +495,14 @@ pub fn gen_for_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn>(
         BodyFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
         UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
 {
-    let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
-    let init_bb = ctx.ctx.append_basic_block(current, "for.init");
+    let current_bb = ctx.builder.get_insert_block().unwrap();
+    let init_bb = ctx.ctx.insert_basic_block_after(current_bb, "for.init");
     // The BB containing the loop condition check
-    let cond_bb = ctx.ctx.append_basic_block(current, "for.cond");
-    let body_bb = ctx.ctx.append_basic_block(current, "for.body");
+    let cond_bb = ctx.ctx.insert_basic_block_after(init_bb, "for.cond");
+    let body_bb = ctx.ctx.insert_basic_block_after(cond_bb, "for.body");
     // The BB containing the increment expression
-    let update_bb = ctx.ctx.append_basic_block(current, "for.update");
-    let cont_bb = ctx.ctx.append_basic_block(current, "for.end");
+    let update_bb = ctx.ctx.insert_basic_block_after(body_bb, "for.update");
+    let cont_bb = ctx.ctx.insert_basic_block_after(update_bb, "for.end");
 
     // store loop bb information and restore it later
     let loop_bb = ctx.loop_target.replace((update_bb, cont_bb));
@@ -719,12 +719,10 @@ pub fn gen_if_else_expr_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn, R>(
         R: BasicValue<'ctx>,
 {
     let current_bb = ctx.builder.get_insert_block().unwrap();
-    let current_fn = current_bb.get_parent().unwrap();
-
-    let end_bb = ctx.ctx.append_basic_block(current_fn, "if.end");
 
     let then_bb = ctx.ctx.insert_basic_block_after(current_bb, "if.then");
-    let else_bb = ctx.ctx.insert_basic_block_after(current_bb, "if.else");
+    let else_bb = ctx.ctx.insert_basic_block_after(then_bb, "if.else");
+    let end_bb = ctx.ctx.insert_basic_block_after(else_bb, "if.end");
 
     let cond = cond_fn(generator, ctx)?;
     assert_eq!(cond.get_type().get_bit_width(), ctx.ctx.bool_type().get_bit_width());
@@ -742,6 +740,7 @@ pub fn gen_if_else_expr_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn, R>(
         ctx.builder.build_unconditional_branch(end_bb).unwrap();
     }
 
+    ctx.builder.position_at_end(end_bb);
     let phi = match (then_val, else_val) {
         (Some(tv), Some(ev)) => {
             let tv_ty = tv.as_basic_value_enum().get_type();

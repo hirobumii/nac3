@@ -291,6 +291,17 @@ pub fn impl_mod(
     impl_binop(unifier, store, ty, other_ty, ret_ty, &[Operator::Mod]);
 }
 
+/// [Operator::MatMult]
+pub fn impl_matmul(
+    unifier: &mut Unifier,
+    store: &PrimitiveStore,
+    ty: Type,
+    other_ty: &[Type],
+    ret_ty: Option<Type>, 
+) {
+    impl_binop(unifier, store, ty, other_ty, ret_ty, &[Operator::MatMult])
+}
+
 /// `UAdd`, `USub`
 pub fn impl_sign(unifier: &mut Unifier, _store: &PrimitiveStore, ty: Type, ret_ty: Option<Type>) {
     impl_unaryop(unifier, ty, ret_ty, &[Unaryop::UAdd, Unaryop::USub]);
@@ -431,7 +442,38 @@ pub fn typeof_binop(
             }
         }
 
-        Operator::MatMult => typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?,
+        Operator::MatMult => {
+            let (_, lhs_ndims) = unpack_ndarray_var_tys(unifier, lhs);
+            let lhs_ndims = match &*unifier.get_ty_immutable(lhs_ndims) {
+                TypeEnum::TLiteral { values, .. } => {
+                    assert_eq!(values.len(), 1);
+                    u64::try_from(values[0].clone()).unwrap()
+                }
+                _ => unreachable!(),
+            };
+            let (_, rhs_ndims) = unpack_ndarray_var_tys(unifier, rhs);
+            let rhs_ndims = match &*unifier.get_ty_immutable(rhs_ndims) {
+                TypeEnum::TLiteral { values, .. } => {
+                    assert_eq!(values.len(), 1);
+                    u64::try_from(values[0].clone()).unwrap()
+                }
+                _ => unreachable!(),
+            };
+
+            match (lhs_ndims, rhs_ndims) {
+                (2, 2) => typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?,
+                (lhs, rhs) if lhs == 0 || rhs == 0 => {
+                    return Err(format!(
+                        "Input operand {} does not have enough dimensions (has {lhs}, requires {rhs})",
+                        (rhs == 0) as u8
+                    ))
+                }
+                (lhs, rhs) => {
+                    return Err(format!("ndarray.__matmul__ on {lhs}D and {rhs}D operands not supported"))
+                }
+            }
+        }
+
         Operator::Div => {
             if is_left_ndarray || is_right_ndarray {
                 typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?
@@ -610,6 +652,7 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     impl_div(unifier, store, ndarray_t, &[ndarray_t, ndarray_dtype_t], None);
     impl_floordiv(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
     impl_mod(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
+    impl_matmul(unifier, store, ndarray_t, &[ndarray_t], Some(ndarray_t));
     impl_sign(unifier, store, ndarray_t, Some(ndarray_t));
     impl_invert(unifier, store, ndarray_t, Some(ndarray_t));
     impl_eq(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);

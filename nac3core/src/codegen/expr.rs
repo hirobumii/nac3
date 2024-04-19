@@ -384,7 +384,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         rhs: BasicValueEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let (BasicValueEnum::FloatValue(lhs), BasicValueEnum::FloatValue(rhs)) = (lhs, rhs) else {
-            unreachable!()
+            unreachable!("Expected (FloatValue, FloatValue), got ({}, {})", lhs.get_type(), rhs.get_type())
         };
         match op {
             Operator::Add => self.builder.build_float_add(lhs, rhs, "fadd").map(Into::into).unwrap(),
@@ -589,8 +589,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         // even if this assumption is violated, it does not matter as exception unwinding is
         // slow anyway...
         let cond = call_expect(self, cond, i1_true, Some("expect"));
-        let current_fun = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-        let then_block = self.ctx.append_basic_block(current_fun, "succ");
+        let current_bb = self.builder.get_insert_block().unwrap();
+        let current_fun = current_bb.get_parent().unwrap();
+        let then_block = self.ctx.insert_basic_block_after(current_bb, "succ");
         let exn_block = self.ctx.append_basic_block(current_fun, "fail");
         self.builder.build_conditional_branch(cond, then_block, exn_block).unwrap();
         self.builder.position_at_end(exn_block);
@@ -1148,27 +1149,45 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             let left_val = NDArrayValue::from_ptr_val(
                 left_val.into_pointer_value(),
                 llvm_usize,
-                None
+                None,
             );
-            let res = numpy::ndarray_elementwise_binop_impl(
-                generator,
-                ctx,
-                ndarray_dtype1,
-                if is_aug_assign { Some(left_val) } else { None },
-                (left_val.as_ptr_value().into(), false),
-                (right_val, false),
-                |generator, ctx, (lhs, rhs)| {
-                    gen_binop_expr_with_values(
-                        generator,
-                        ctx,
-                        (&Some(ndarray_dtype1), lhs),
-                        op,
-                        (&Some(ndarray_dtype2), rhs),
-                        ctx.current_loc,
-                        is_aug_assign,
-                    )?.unwrap().to_basic_value_enum(ctx, generator, ndarray_dtype1)
-                },
-            )?;
+            let right_val = NDArrayValue::from_ptr_val(
+                right_val.into_pointer_value(),
+                llvm_usize,
+                None,
+            );
+
+            let res = if *op == Operator::MatMult {
+                // MatMult is the only binop which is not an elementwise op
+                numpy::ndarray_matmul_2d(
+                    generator,
+                    ctx,
+                    ndarray_dtype1,
+                    if is_aug_assign { Some(left_val) } else { None },
+                    left_val,
+                    right_val,
+                )?
+            } else {
+                numpy::ndarray_elementwise_binop_impl(
+                    generator,
+                    ctx,
+                    ndarray_dtype1,
+                    if is_aug_assign { Some(left_val) } else { None },
+                    (left_val.as_ptr_value().into(), false),
+                    (right_val.as_ptr_value().into(), false),
+                    |generator, ctx, (lhs, rhs)| {
+                        gen_binop_expr_with_values(
+                            generator,
+                            ctx,
+                            (&Some(ndarray_dtype1), lhs),
+                            op,
+                            (&Some(ndarray_dtype2), rhs),
+                            ctx.current_loc,
+                            is_aug_assign,
+                        )?.unwrap().to_basic_value_enum(ctx, generator, ndarray_dtype1)
+                    },
+                )?
+            };
 
             Ok(Some(res.as_ptr_value().into()))
         } else {
