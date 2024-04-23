@@ -53,6 +53,13 @@ impl GenCall {
         GenCall { fp }
     }
 
+    /// Creates a dummy instance of [`GenCall`], which invokes [`unreachable!()`] with the given 
+    /// `reason`.
+    #[must_use]
+    pub fn create_dummy(reason: String) -> GenCall {
+        Self::new(Box::new(move |_, _, _, _, _| unreachable!("{reason}")))
+    }
+
     pub fn run<'ctx>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,

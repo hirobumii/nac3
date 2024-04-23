@@ -514,11 +514,9 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             instance_to_symbol: HashMap::default(),
             instance_to_stmt: HashMap::default(),
             resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |_, _, _, _, _| {
-                    unreachable!("handled in gen_expr")
-                },
-            )))),
+            codegen_callback: Some(Arc::new(GenCall::create_dummy(
+                String::from("handled in gen_expr"),
+            ))),
             loc: None,
         })),
         Arc::new(RwLock::new(TopLevelDef::Class {
