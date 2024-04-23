@@ -108,7 +108,7 @@ fn create_fn_by_codegen(
     name: &'static str,
     ret_ty: Type,
     param_ty: &[(Type, &'static str)],
-    codegen_callback: GenCallCallback,
+    codegen_callback: Box<GenCallCallback>,
 ) -> Arc<RwLock<TopLevelDef>> {
     Arc::new(RwLock::new(TopLevelDef::Function {
         name: name.into(),

@@ -32,7 +32,7 @@ use type_annotation::*;
 #[cfg(test)]
 mod test;
 
-type GenCallCallback = Box<
+type GenCallCallback = 
     dyn for<'ctx, 'a> Fn(
             &mut CodeGenContext<'ctx, 'a>,
             Option<(Type, ValueEnum<'ctx>)>,
@@ -41,16 +41,15 @@ type GenCallCallback = Box<
             &mut dyn CodeGenerator,
         ) -> Result<Option<BasicValueEnum<'ctx>>, String>
         + Send
-        + Sync,
->;
+        + Sync;
 
 pub struct GenCall {
-    fp: GenCallCallback,
+    fp: Box<GenCallCallback>,
 }
 
 impl GenCall {
     #[must_use]
-    pub fn new(fp: GenCallCallback) -> GenCall {
+    pub fn new(fp: Box<GenCallCallback>) -> GenCall {
         GenCall { fp }
     }
 
