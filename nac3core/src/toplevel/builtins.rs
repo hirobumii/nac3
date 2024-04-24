@@ -4,7 +4,7 @@ use crate::{
         classes::{ArrayLikeValue, NDArrayValue, RangeValue, TypedArrayLikeAccessor},
         expr::destructure_range,
         irrt::*,
-        llvm_intrinsics::*,
+        llvm_intrinsics,
         numpy::*,
         stmt::exn_constructor,
     },
@@ -1054,7 +1054,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = call_float_round(ctx, arg, None);
+                let val = llvm_intrinsics::call_float_round(ctx, arg, None);
                 let val_toint = ctx.builder
                     .build_float_to_signed_int(val, llvm_i32, "round")
                     .unwrap();
@@ -1074,7 +1074,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = call_float_round(ctx, arg, None);
+                let val = llvm_intrinsics::call_float_round(ctx, arg, None);
                 let val_toint = ctx.builder
                     .build_float_to_signed_int(val, llvm_i64, "round")
                     .unwrap();
@@ -1092,7 +1092,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = call_float_roundeven(ctx, arg, None);
+                let val = llvm_intrinsics::call_float_roundeven(ctx, arg, None);
 
                 Ok(Some(val.into()))
             }),
@@ -1301,7 +1301,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = call_float_floor(ctx, arg, None);
+                let val = llvm_intrinsics::call_float_floor(ctx, arg, None);
                 let val_toint = ctx.builder
                     .build_float_to_signed_int(val, llvm_i32, "floor")
                     .unwrap();
@@ -1321,7 +1321,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = call_float_floor(ctx, arg, None);
+                let val = llvm_intrinsics::call_float_floor(ctx, arg, None);
                 let val_toint = ctx.builder
                     .build_float_to_signed_int(val, llvm_i64, "floor")
                     .unwrap();
@@ -1339,7 +1339,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = call_float_floor(ctx, arg, None);
+                let val = llvm_intrinsics::call_float_floor(ctx, arg, None);
                 Ok(Some(val.into()))
             }),
         ),
@@ -1356,7 +1356,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = call_float_ceil(ctx, arg, None);
+                let val = llvm_intrinsics::call_float_ceil(ctx, arg, None);
                 let val_toint = ctx.builder
                     .build_float_to_signed_int(val, llvm_i32, "ceil")
                     .unwrap();
@@ -1376,7 +1376,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = call_float_ceil(ctx, arg, None);
+                let val = llvm_intrinsics::call_float_ceil(ctx, arg, None);
                 let val_toint = ctx.builder
                     .build_float_to_signed_int(val, llvm_i64, "ceil")
                     .unwrap();
@@ -1394,7 +1394,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = call_float_ceil(ctx, arg, None);
+                let val = llvm_intrinsics::call_float_ceil(ctx, arg, None);
                 Ok(Some(val.into()))
             }),
         ),
@@ -1543,21 +1543,21 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                         unreachable!()
                     }
                     let val: BasicValueEnum = if [boolean, uint32, uint64].iter().any(|t| is_type(n_ty, *t)) {
-                        call_int_umin(
+                        llvm_intrinsics::call_int_umin(
                             ctx,
                             m_val.into_int_value(),
                             n_val.into_int_value(),
                             Some("min"),
                         ).into()
                     } else if [int32, int64].iter().any(|t| is_type(n_ty, *t)) {
-                        call_int_smin(
+                        llvm_intrinsics::call_int_smin(
                             ctx,
                             m_val.into_int_value(),
                             n_val.into_int_value(),
                             Some("min"),
                         ).into()
                     } else if is_type(m_ty, n_ty) && is_type(n_ty, float) {
-                        call_float_minnum(
+                        llvm_intrinsics::call_float_minnum(
                             ctx,
                             m_val.into_float_value(),
                             n_val.into_float_value(),
@@ -1603,21 +1603,21 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                         unreachable!()
                     }
                     let val: BasicValueEnum = if [boolean, uint32, uint64].iter().any(|t| is_type(n_ty, *t)) {
-                        call_int_umax(
+                        llvm_intrinsics::call_int_umax(
                             ctx,
                             m_val.into_int_value(),
                             n_val.into_int_value(),
                             Some("max"),
                         ).into()
                     } else if [int32, int64].iter().any(|t| is_type(n_ty, *t)) {
-                        call_int_smax(
+                        llvm_intrinsics::call_int_smax(
                             ctx,
                             m_val.into_int_value(),
                             n_val.into_int_value(),
                             Some("max"),
                         ).into()
                     } else if is_type(m_ty, n_ty) && is_type(n_ty, float) {
-                        call_float_maxnum(
+                        llvm_intrinsics::call_float_maxnum(
                             ctx,
                             m_val.into_float_value(),
                             n_val.into_float_value(),
@@ -1658,14 +1658,14 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     let val: BasicValueEnum = if [boolean, uint32, uint64].iter().any(|t| is_type(n_ty, *t)) {
                         n_val
                     } else if [int32, int64].iter().any(|t| is_type(n_ty, *t)) {
-                        call_int_abs(
+                        llvm_intrinsics::call_int_abs(
                             ctx,
                             n_val.into_int_value(),
                             llvm_i1.const_zero(),
                             Some("abs"),
                         ).into()
                     } else if is_type(n_ty, float) {
-                        call_float_fabs(
+                        llvm_intrinsics::call_float_fabs(
                             ctx,
                             n_val.into_float_value(),
                             Some("abs"),
