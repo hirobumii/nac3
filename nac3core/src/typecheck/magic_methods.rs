@@ -291,7 +291,7 @@ pub fn impl_mod(
     impl_binop(unifier, store, ty, other_ty, ret_ty, &[Operator::Mod]);
 }
 
-/// [Operator::MatMult]
+/// [`Operator::MatMult`]
 pub fn impl_matmul(
     unifier: &mut Unifier,
     store: &PrimitiveStore,
@@ -299,7 +299,7 @@ pub fn impl_matmul(
     other_ty: &[Type],
     ret_ty: Option<Type>, 
 ) {
-    impl_binop(unifier, store, ty, other_ty, ret_ty, &[Operator::MatMult])
+    impl_binop(unifier, store, ty, other_ty, ret_ty, &[Operator::MatMult]);
 }
 
 /// `UAdd`, `USub`
