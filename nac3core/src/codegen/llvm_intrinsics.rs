@@ -311,6 +311,29 @@ pub fn call_memcpy_generic<'ctx>(
     call_memcpy(ctx, dest, src, len, is_volatile);
 }
 
+/// Invokes the [`llvm.sqrt`](https://llvm.org/docs/LangRef.html#llvm-sqrt-intrinsic) intrinsic.
+pub fn call_float_sqrt<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    val: FloatValue<'ctx>,
+    name: Option<&str>,
+) -> FloatValue<'ctx> {
+    let llvm_float_t = val.get_type();
+
+    let fn_name = format!("llvm.sqrt.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
+    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
+        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
+
+        ctx.module.add_function(fn_name.as_str(), fn_type, None)
+    });
+
+    ctx.builder
+        .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
+}
+
 /// Invokes the [`llvm.powi`](https://llvm.org/docs/LangRef.html#llvm-powi-intrinsic) intrinsic.
 pub fn call_float_powi<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
@@ -340,6 +363,52 @@ pub fn call_float_powi<'ctx>(
         .unwrap()
 }
 
+/// Invokes the [`llvm.sin`](https://llvm.org/docs/LangRef.html#llvm-sin-intrinsic) intrinsic.
+pub fn call_float_sin<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    val: FloatValue<'ctx>,
+    name: Option<&str>,
+) -> FloatValue<'ctx> {
+    let llvm_float_t = val.get_type();
+
+    let fn_name = format!("llvm.sin.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
+    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
+        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
+
+        ctx.module.add_function(fn_name.as_str(), fn_type, None)
+    });
+
+    ctx.builder
+        .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
+}
+
+/// Invokes the [`llvm.cos`](https://llvm.org/docs/LangRef.html#llvm-cos-intrinsic) intrinsic.
+pub fn call_float_cos<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    val: FloatValue<'ctx>,
+    name: Option<&str>,
+) -> FloatValue<'ctx> {
+    let llvm_float_t = val.get_type();
+
+    let fn_name = format!("llvm.cos.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
+    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
+        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
+
+        ctx.module.add_function(fn_name.as_str(), fn_type, None)
+    });
+
+    ctx.builder
+        .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
+}
+
 /// Invokes the [`llvm.pow`](https://llvm.org/docs/LangRef.html#llvm-pow-intrinsic) intrinsic.
 pub fn call_float_pow<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
@@ -360,6 +429,122 @@ pub fn call_float_pow<'ctx>(
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into(), power.into()], name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
+}
+
+/// Invokes the [`llvm.exp`](https://llvm.org/docs/LangRef.html#llvm-exp-intrinsic) intrinsic.
+pub fn call_float_exp<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    val: FloatValue<'ctx>,
+    name: Option<&str>,
+) -> FloatValue<'ctx> {
+    let llvm_float_t = val.get_type();
+
+    let fn_name = format!("llvm.exp.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
+    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
+        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
+
+        ctx.module.add_function(fn_name.as_str(), fn_type, None)
+    });
+
+    ctx.builder
+        .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
+}
+
+/// Invokes the [`llvm.exp2`](https://llvm.org/docs/LangRef.html#llvm-exp2-intrinsic) intrinsic.
+pub fn call_float_exp2<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    val: FloatValue<'ctx>,
+    name: Option<&str>,
+) -> FloatValue<'ctx> {
+    let llvm_float_t = val.get_type();
+
+    let fn_name = format!("llvm.exp2.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
+    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
+        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
+
+        ctx.module.add_function(fn_name.as_str(), fn_type, None)
+    });
+
+    ctx.builder
+        .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
+}
+
+
+/// Invokes the [`llvm.log`](https://llvm.org/docs/LangRef.html#llvm-log-intrinsic) intrinsic.
+pub fn call_float_log<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    val: FloatValue<'ctx>,
+    name: Option<&str>,
+) -> FloatValue<'ctx> {
+    let llvm_float_t = val.get_type();
+
+    let fn_name = format!("llvm.log.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
+    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
+        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
+
+        ctx.module.add_function(fn_name.as_str(), fn_type, None)
+    });
+
+    ctx.builder
+        .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
+}
+
+/// Invokes the [`llvm.log10`](https://llvm.org/docs/LangRef.html#llvm-log10-intrinsic) intrinsic.
+pub fn call_float_log10<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    val: FloatValue<'ctx>,
+    name: Option<&str>,
+) -> FloatValue<'ctx> {
+    let llvm_float_t = val.get_type();
+
+    let fn_name = format!("llvm.log10.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
+    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
+        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
+
+        ctx.module.add_function(fn_name.as_str(), fn_type, None)
+    });
+
+    ctx.builder
+        .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
+}
+
+/// Invokes the [`llvm.log2`](https://llvm.org/docs/LangRef.html#llvm-log2-intrinsic) intrinsic.
+pub fn call_float_log2<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    val: FloatValue<'ctx>,
+    name: Option<&str>,
+) -> FloatValue<'ctx> {
+    let llvm_float_t = val.get_type();
+
+    let fn_name = format!("llvm.log2.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
+    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
+        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
+
+        ctx.module.add_function(fn_name.as_str(), fn_type, None)
+    });
+
+    ctx.builder
+        .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
         .map(CallSiteValue::try_as_basic_value)
         .map(|v| v.map_left(BasicValueEnum::into_float_value))
         .map(Either::unwrap_left)
@@ -436,6 +621,32 @@ pub fn call_float_maxnum<'ctx>(
 
     ctx.builder
         .build_call(intrinsic_fn, &[val1.into(), val2.into()], name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_float_value))
+        .map(Either::unwrap_left)
+        .unwrap()
+}
+
+/// Invokes the [`llvm.copysign`](https://llvm.org/docs/LangRef.html#llvm-copysign-intrinsic) intrinsic.
+pub fn call_float_copysign<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    mag: FloatValue<'ctx>,
+    sgn: FloatValue<'ctx>,
+    name: Option<&str>,
+) -> FloatValue<'ctx> {
+    debug_assert_eq!(mag.get_type(), sgn.get_type());
+
+    let llvm_float_t = mag.get_type();
+
+    let fn_name = format!("llvm.copysign.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
+    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
+        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into(), llvm_float_t.into()], false);
+
+        ctx.module.add_function(fn_name.as_str(), fn_type, None)
+    });
+
+    ctx.builder
+        .build_call(intrinsic_fn, &[mag.into(), sgn.into()], name.unwrap_or_default())
         .map(CallSiteValue::try_as_basic_value)
         .map(|v| v.map_left(BasicValueEnum::into_float_value))
         .map(Either::unwrap_left)

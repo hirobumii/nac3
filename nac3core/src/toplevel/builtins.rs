@@ -1,10 +1,10 @@
 use super::*;
 use crate::{
     codegen::{
+        builtin_fns,
         classes::{ArrayLikeValue, NDArrayValue, RangeValue, TypedArrayLikeAccessor},
         expr::destructure_range,
         irrt::*,
-        llvm_intrinsics,
         numpy::*,
         stmt::exn_constructor,
     },
@@ -19,7 +19,6 @@ use inkwell::{
     attributes::{Attribute, AttributeLoc},
     types::{BasicType, BasicMetadataTypeEnum},
     values::{BasicValue, BasicMetadataValueEnum, CallSiteValue},
-    FloatPredicate,
     IntPredicate
 };
 use itertools::Either;
@@ -579,63 +578,10 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let PrimitiveStore {
-                        int32,
-                        int64,
-                        uint32,
-                        uint64,
-                        float,
-                        bool: boolean,
-                        ..
-                    } = ctx.primitives;
-
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    Ok(if ctx.unifier.unioned(arg_ty, boolean) {
-                        Some(
-                            ctx.builder
-                                .build_int_z_extend(
-                                    arg.into_int_value(),
-                                    ctx.ctx.i32_type(),
-                                    "zext",
-                                )
-                                .map(Into::into)
-                                .unwrap(),
-                        )
-                    } else if ctx.unifier.unioned(arg_ty, int32)
-                        || ctx.unifier.unioned(arg_ty, uint32)
-                    {
-                        Some(arg)
-                    } else if ctx.unifier.unioned(arg_ty, int64)
-                        || ctx.unifier.unioned(arg_ty, uint64)
-                    {
-                        Some(
-                            ctx.builder
-                                .build_int_truncate(
-                                    arg.into_int_value(),
-                                    ctx.ctx.i32_type(),
-                                    "trunc",
-                                )
-                                .map(Into::into)
-                                .unwrap(),
-                        )
-                    } else if ctx.unifier.unioned(arg_ty, float) {
-                        let to_int64 = ctx
-                            .builder
-                            .build_float_to_signed_int(
-                                arg.into_float_value(),
-                                ctx.ctx.i64_type(),
-                                "",
-                            )
-                            .unwrap();
-                        let val = ctx.builder
-                            .build_int_truncate(to_int64, ctx.ctx.i32_type(), "conv")
-                            .unwrap();
 
-                        Some(val.into())
-                    } else {
-                        unreachable!()
-                    })
+                    Ok(Some(builtin_fns::call_int32(ctx, (arg_ty, arg)).into()))
                 },
             )))),
             loc: None,
@@ -654,62 +600,10 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let PrimitiveStore {
-                        int32,
-                        int64,
-                        uint32,
-                        uint64,
-                        float,
-                        bool: boolean,
-                        ..
-                    } = ctx.primitives;
-
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    Ok(
-                        if ctx.unifier.unioned(arg_ty, boolean)
-                            || ctx.unifier.unioned(arg_ty, uint32)
-                        {
-                            Some(
-                                ctx.builder
-                                    .build_int_z_extend(
-                                        arg.into_int_value(),
-                                        ctx.ctx.i64_type(),
-                                        "zext",
-                                    )
-                                    .map(Into::into)
-                                    .unwrap(),
-                            )
-                        } else if ctx.unifier.unioned(arg_ty, int32) {
-                            Some(
-                                ctx.builder
-                                    .build_int_s_extend(
-                                        arg.into_int_value(),
-                                        ctx.ctx.i64_type(),
-                                        "sext",
-                                    )
-                                    .map(Into::into)
-                                    .unwrap(),
-                            )
-                        } else if ctx.unifier.unioned(arg_ty, int64)
-                            || ctx.unifier.unioned(arg_ty, uint64)
-                        {
-                            Some(arg)
-                        } else if ctx.unifier.unioned(arg_ty, float) {
-                            let val = ctx
-                                .builder
-                                .build_float_to_signed_int(
-                                    arg.into_float_value(),
-                                    ctx.ctx.i64_type(),
-                                    "fptosi",
-                                )
-                                .map(Into::into)
-                                .unwrap();
-                            Some(val)
-                        } else {
-                            unreachable!()
-                        },
-                    )
+
+                    Ok(Some(builtin_fns::call_int64(ctx, (arg_ty, arg)).into()))
                 },
             )))),
             loc: None,
@@ -728,77 +622,10 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let PrimitiveStore {
-                        int32,
-                        int64,
-                        uint32,
-                        uint64,
-                        float,
-                        bool: boolean,
-                        ..
-                    } = ctx.primitives;
-
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    let res = if ctx.unifier.unioned(arg_ty, boolean) {
-                        ctx.builder
-                            .build_int_z_extend(arg.into_int_value(), ctx.ctx.i64_type(), "zext")
-                            .map(Into::into)
-                            .unwrap()
-                    } else if ctx.unifier.unioned(arg_ty, int32)
-                        || ctx.unifier.unioned(arg_ty, uint32)
-                    {
-                        arg
-                    } else if ctx.unifier.unioned(arg_ty, int64)
-                        || ctx.unifier.unioned(arg_ty, uint64)
-                    {
-                        ctx.builder
-                            .build_int_truncate(arg.into_int_value(), ctx.ctx.i32_type(), "trunc")
-                            .map(Into::into)
-                            .unwrap()
-                    } else if ctx.unifier.unioned(arg_ty, float) {
-                        let llvm_i32 = ctx.ctx.i32_type();
-                        let llvm_i64 = ctx.ctx.i64_type();
 
-                        let arg = arg.into_float_value();
-                        let arg_gez = ctx.builder
-                            .build_float_compare(
-                                FloatPredicate::OGE,
-                                arg,
-                                arg.get_type().const_zero(),
-                                "",
-                            )
-                            .unwrap();
-
-                        let to_int32 = ctx.builder
-                            .build_float_to_signed_int(
-                                arg,
-                                llvm_i32,
-                                "",
-                            )
-                            .unwrap();
-                        let to_uint64 = ctx.builder
-                            .build_float_to_unsigned_int(
-                                arg,
-                                llvm_i64,
-                                "",
-                            )
-                            .unwrap();
-
-                        let val = ctx.builder
-                            .build_select(
-                                arg_gez,
-                                ctx.builder.build_int_truncate(to_uint64, llvm_i32, "").unwrap(),
-                                to_int32,
-                                "conv",
-                            )
-                            .unwrap();
-
-                        val
-                    } else {
-                        unreachable!()
-                    };
-                    Ok(Some(res))
+                    Ok(Some(builtin_fns::call_uint32(ctx, (arg_ty, arg)).into()))
                 },
             )))),
             loc: None,
@@ -817,63 +644,10 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let PrimitiveStore {
-                        int32,
-                        int64,
-                        uint32,
-                        uint64,
-                        float,
-                        bool: boolean,
-                        ..
-                    } = ctx.primitives;
-
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    let res = if ctx.unifier.unioned(arg_ty, uint32)
-                        || ctx.unifier.unioned(arg_ty, boolean)
-                    {
-                        ctx.builder
-                            .build_int_z_extend(arg.into_int_value(), ctx.ctx.i64_type(), "zext")
-                            .map(Into::into)
-                            .unwrap()
-                    } else if ctx.unifier.unioned(arg_ty, int32) {
-                        ctx.builder
-                            .build_int_s_extend(arg.into_int_value(), ctx.ctx.i64_type(), "sext")
-                            .map(Into::into)
-                            .unwrap()
-                    } else if ctx.unifier.unioned(arg_ty, int64)
-                        || ctx.unifier.unioned(arg_ty, uint64)
-                    {
-                        arg
-                    } else if ctx.unifier.unioned(arg_ty, float) {
-                        let llvm_i64 = ctx.ctx.i64_type();
 
-                        let arg = arg.into_float_value();
-                        let arg_gez = ctx.builder
-                            .build_float_compare(
-                                FloatPredicate::OGE,
-                                arg,
-                                arg.get_type().const_zero(),
-                                "",
-                            )
-                            .unwrap();
-
-                        let to_int64 = ctx.builder
-                            .build_float_to_signed_int(arg, llvm_i64, "")
-                            .unwrap();
-                        let to_uint64 = ctx.builder
-                            .build_float_to_unsigned_int(arg, llvm_i64, "")
-                            .unwrap();
-
-                        let val = ctx.builder
-                            .build_select(arg_gez, to_uint64, to_int64, "conv")
-                            .unwrap();
-
-                        val
-                    } else {
-                        unreachable!()
-                    };
-                    Ok(Some(res))
+                    Ok(Some(builtin_fns::call_uint64(ctx, (arg_ty, arg)).into()))
                 },
             )))),
             loc: None,
@@ -892,42 +666,10 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let PrimitiveStore {
-                        int32,
-                        int64,
-                        uint32,
-                        uint64,
-                        float,
-                        bool: boolean,
-                        ..
-                    } = ctx.primitives;
-
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    Ok(
-                        if [boolean, int32, int64].iter().any(|ty| ctx.unifier.unioned(arg_ty, *ty))
-                        {
-                            let arg = arg.into_int_value();
-                            let val = ctx
-                                .builder
-                                .build_signed_int_to_float(arg, ctx.ctx.f64_type(), "sitofp")
-                                .map(Into::into)
-                                .unwrap();
-                            Some(val)
-                        } else if [uint32, uint64].iter().any(|ty| ctx.unifier.unioned(arg_ty, *ty)) {
-                            let arg = arg.into_int_value();
-                            let val = ctx
-                                .builder
-                                .build_unsigned_int_to_float(arg, ctx.ctx.f64_type(), "uitofp")
-                                .map(Into::into)
-                                .unwrap();
-                            Some(val)
-                        } else if ctx.unifier.unioned(arg_ty, float) {
-                            Some(arg)
-                        } else {
-                            unreachable!()
-                        },
-                    )
+
+                    Ok(Some(builtin_fns::call_float(ctx, (arg_ty, arg)).into()))
                 },
             )))),
             loc: None,
@@ -1047,18 +789,15 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             "round",
             int32,
             &[(float, "n")],
-            Box::new(|ctx, _, _, args, generator| {
+            Box::new(|ctx, _, fun, args, generator| {
                 let llvm_i32 = ctx.ctx.i32_type();
 
+                let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = llvm_intrinsics::call_float_round(ctx, arg, None);
-                let val_toint = ctx.builder
-                    .build_float_to_signed_int(val, llvm_i32, "round")
-                    .unwrap();
-                Ok(Some(val_toint.into()))
+                Ok(Some(builtin_fns::call_round(ctx, (arg_ty, arg), llvm_i32).into()))
             }),
         ),
         create_fn_by_codegen(
@@ -1067,18 +806,15 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             "round64",
             int64,
             &[(float, "n")],
-            Box::new(|ctx, _, _, args, generator| {
+            Box::new(|ctx, _, fun, args, generator| {
                 let llvm_i64 = ctx.ctx.i64_type();
 
+                let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = llvm_intrinsics::call_float_round(ctx, arg, None);
-                let val_toint = ctx.builder
-                    .build_float_to_signed_int(val, llvm_i64, "round")
-                    .unwrap();
-                Ok(Some(val_toint.into()))
+                Ok(Some(builtin_fns::call_round(ctx, (arg_ty, arg), llvm_i64).into()))
             }),
         ),
         create_fn_by_codegen(
@@ -1087,14 +823,13 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             "np_round",
             float,
             &[(float, "n")],
-            Box::new(|ctx, _, _, args, generator| {
+            Box::new(|ctx, _, fun, args, generator| {
+                let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = llvm_intrinsics::call_float_roundeven(ctx, arg, None);
-
-                Ok(Some(val.into()))
+                Ok(Some(builtin_fns::call_numpy_round(ctx, (arg_ty, arg)).into()))
             }),
         ),
         Arc::new(RwLock::new(TopLevelDef::Function {
@@ -1236,54 +971,10 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let int32 = ctx.primitives.int32;
-                    let int64 = ctx.primitives.int64;
-                    let float = ctx.primitives.float;
-                    let boolean = ctx.primitives.bool;
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    Ok(if ctx.unifier.unioned(arg_ty, boolean) {
-                        Some(arg)
-                    } else if ctx.unifier.unioned(arg_ty, int32) {
-                        Some(
-                            ctx.builder
-                                .build_int_compare(
-                                    IntPredicate::NE,
-                                    ctx.ctx.i32_type().const_zero(),
-                                    arg.into_int_value(),
-                                    "bool",
-                                )
-                                .map(Into::into)
-                                .unwrap(),
-                        )
-                    } else if ctx.unifier.unioned(arg_ty, int64) {
-                        Some(
-                            ctx.builder
-                                .build_int_compare(
-                                    IntPredicate::NE,
-                                    ctx.ctx.i64_type().const_zero(),
-                                    arg.into_int_value(),
-                                    "bool",
-                                )
-                                .map(Into::into)
-                                .unwrap(),
-                        )
-                    } else if ctx.unifier.unioned(arg_ty, float) {
-                        let val = ctx
-                            .builder
-                            .build_float_compare(
-                                // UEQ as bool(nan) is True
-                                FloatPredicate::UEQ,
-                                arg.into_float_value(),
-                                ctx.ctx.f64_type().const_zero(),
-                                "bool",
-                            )
-                            .map(Into::into)
-                            .unwrap();
-                        Some(val)
-                    } else {
-                        unreachable!()
-                    })
+
+                    Ok(Some(builtin_fns::call_bool(ctx, (arg_ty, arg)).into()))
                 },
             )))),
             loc: None,
@@ -1294,18 +985,15 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             "floor",
             int32,
             &[(float, "n")],
-            Box::new(|ctx, _, _, args, generator| {
+            Box::new(|ctx, _, fun, args, generator| {
                 let llvm_i32 = ctx.ctx.i32_type();
 
+                let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = llvm_intrinsics::call_float_floor(ctx, arg, None);
-                let val_toint = ctx.builder
-                    .build_float_to_signed_int(val, llvm_i32, "floor")
-                    .unwrap();
-                Ok(Some(val_toint.into()))
+                Ok(Some(builtin_fns::call_floor(ctx, (arg_ty, arg), llvm_i32.into())))
             }),
         ),
         create_fn_by_codegen(
@@ -1314,18 +1002,15 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             "floor64",
             int64,
             &[(float, "n")],
-            Box::new(|ctx, _, _, args, generator| {
+            Box::new(|ctx, _, fun, args, generator| {
                 let llvm_i64 = ctx.ctx.i64_type();
 
+                let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = llvm_intrinsics::call_float_floor(ctx, arg, None);
-                let val_toint = ctx.builder
-                    .build_float_to_signed_int(val, llvm_i64, "floor")
-                    .unwrap();
-                Ok(Some(val_toint.into()))
+                Ok(Some(builtin_fns::call_floor(ctx, (arg_ty, arg), llvm_i64.into())))
             }),
         ),
         create_fn_by_codegen(
@@ -1334,13 +1019,13 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             "np_floor",
             float,
             &[(float, "n")],
-            Box::new(|ctx, _, _, args, generator| {
+            Box::new(|ctx, _, fun, args, generator| {
+                let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = llvm_intrinsics::call_float_floor(ctx, arg, None);
-                Ok(Some(val.into()))
+                Ok(Some(builtin_fns::call_floor(ctx, (arg_ty, arg), arg.get_type().into())))
             }),
         ),
         create_fn_by_codegen(
@@ -1349,18 +1034,15 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             "ceil",
             int32,
             &[(float, "n")],
-            Box::new(|ctx, _, _, args, generator| {
+            Box::new(|ctx, _, fun, args, generator| {
                 let llvm_i32 = ctx.ctx.i32_type();
 
+                let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = llvm_intrinsics::call_float_ceil(ctx, arg, None);
-                let val_toint = ctx.builder
-                    .build_float_to_signed_int(val, llvm_i32, "ceil")
-                    .unwrap();
-                Ok(Some(val_toint.into()))
+                Ok(Some(builtin_fns::call_ceil(ctx, (arg_ty, arg), llvm_i32.into())))
             }),
         ),
         create_fn_by_codegen(
@@ -1369,18 +1051,15 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             "ceil64",
             int64,
             &[(float, "n")],
-            Box::new(|ctx, _, _, args, generator| {
+            Box::new(|ctx, _, fun, args, generator| {
                 let llvm_i64 = ctx.ctx.i64_type();
 
+                let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = llvm_intrinsics::call_float_ceil(ctx, arg, None);
-                let val_toint = ctx.builder
-                    .build_float_to_signed_int(val, llvm_i64, "ceil")
-                    .unwrap();
-                Ok(Some(val_toint.into()))
+                Ok(Some(builtin_fns::call_ceil(ctx, (arg_ty, arg), llvm_i64.into())))
             }),
         ),
         create_fn_by_codegen(
@@ -1389,13 +1068,13 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             "np_ceil",
             float,
             &[(float, "n")],
-            Box::new(|ctx, _, _, args, generator| {
+            Box::new(|ctx, _, fun, args, generator| {
+                let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
                     .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
                     .into_float_value();
 
-                let val = llvm_intrinsics::call_float_ceil(ctx, arg, None);
-                Ok(Some(val.into()))
+                Ok(Some(builtin_fns::call_ceil(ctx, (arg_ty, arg), arg.get_type().into())))
             }),
         ),
         Arc::new(RwLock::new({
@@ -1528,45 +1207,12 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let boolean = ctx.primitives.bool;
-                    let int32 = ctx.primitives.int32;
-                    let int64 = ctx.primitives.int64;
-                    let uint32 = ctx.primitives.uint32;
-                    let uint64 = ctx.primitives.uint64;
-                    let float = ctx.primitives.float;
                     let m_ty = fun.0.args[0].ty;
                     let n_ty = fun.0.args[1].ty;
                     let m_val = args[0].1.clone().to_basic_value_enum(ctx, generator, m_ty)?;
                     let n_val = args[1].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
-                    let mut is_type = |a: Type, b: Type| ctx.unifier.unioned(a, b);
-                    if !is_type(m_ty, n_ty) {
-                        unreachable!()
-                    }
-                    let val: BasicValueEnum = if [boolean, uint32, uint64].iter().any(|t| is_type(n_ty, *t)) {
-                        llvm_intrinsics::call_int_umin(
-                            ctx,
-                            m_val.into_int_value(),
-                            n_val.into_int_value(),
-                            Some("min"),
-                        ).into()
-                    } else if [int32, int64].iter().any(|t| is_type(n_ty, *t)) {
-                        llvm_intrinsics::call_int_smin(
-                            ctx,
-                            m_val.into_int_value(),
-                            n_val.into_int_value(),
-                            Some("min"),
-                        ).into()
-                    } else if is_type(m_ty, n_ty) && is_type(n_ty, float) {
-                        llvm_intrinsics::call_float_minnum(
-                            ctx,
-                            m_val.into_float_value(),
-                            n_val.into_float_value(),
-                            Some("min"),
-                        ).into()
-                    } else {
-                        unreachable!()
-                    };
-                    Ok(val.into())
+
+                    Ok(Some(builtin_fns::call_min(ctx, (m_ty, m_val), (n_ty, n_val))))
                 },
             )))),
             loc: None,
@@ -1588,45 +1234,12 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let boolean = ctx.primitives.bool;
-                    let int32 = ctx.primitives.int32;
-                    let int64 = ctx.primitives.int64;
-                    let uint32 = ctx.primitives.uint32;
-                    let uint64 = ctx.primitives.uint64;
-                    let float = ctx.primitives.float;
                     let m_ty = fun.0.args[0].ty;
                     let n_ty = fun.0.args[1].ty;
                     let m_val = args[0].1.clone().to_basic_value_enum(ctx, generator, m_ty)?;
                     let n_val = args[1].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
-                    let mut is_type = |a: Type, b: Type| ctx.unifier.unioned(a, b);
-                    if !is_type(m_ty, n_ty) {
-                        unreachable!()
-                    }
-                    let val: BasicValueEnum = if [boolean, uint32, uint64].iter().any(|t| is_type(n_ty, *t)) {
-                        llvm_intrinsics::call_int_umax(
-                            ctx,
-                            m_val.into_int_value(),
-                            n_val.into_int_value(),
-                            Some("max"),
-                        ).into()
-                    } else if [int32, int64].iter().any(|t| is_type(n_ty, *t)) {
-                        llvm_intrinsics::call_int_smax(
-                            ctx,
-                            m_val.into_int_value(),
-                            n_val.into_int_value(),
-                            Some("max"),
-                        ).into()
-                    } else if is_type(m_ty, n_ty) && is_type(n_ty, float) {
-                        llvm_intrinsics::call_float_maxnum(
-                            ctx,
-                            m_val.into_float_value(),
-                            n_val.into_float_value(),
-                            Some("max"),
-                        ).into()
-                    } else {
-                        unreachable!()
-                    };
-                    Ok(val.into())
+
+                    Ok(Some(builtin_fns::call_max(ctx, (m_ty, m_val), (n_ty, n_val))))
                 },
             )))),
             loc: None,
@@ -1645,35 +1258,10 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 |ctx, _, fun, args, generator| {
-                    let boolean = ctx.primitives.bool;
-                    let int32 = ctx.primitives.int32;
-                    let int64 = ctx.primitives.int64;
-                    let uint32 = ctx.primitives.uint32;
-                    let uint64 = ctx.primitives.uint64;
-                    let float = ctx.primitives.float;
-                    let llvm_i1 = ctx.ctx.bool_type();
                     let n_ty = fun.0.args[0].ty;
                     let n_val = args[0].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
-                    let mut is_type = |a: Type, b: Type| ctx.unifier.unioned(a, b);
-                    let val: BasicValueEnum = if [boolean, uint32, uint64].iter().any(|t| is_type(n_ty, *t)) {
-                        n_val
-                    } else if [int32, int64].iter().any(|t| is_type(n_ty, *t)) {
-                        llvm_intrinsics::call_int_abs(
-                            ctx,
-                            n_val.into_int_value(),
-                            llvm_i1.const_zero(),
-                            Some("abs"),
-                        ).into()
-                    } else if is_type(n_ty, float) {
-                        llvm_intrinsics::call_float_fabs(
-                            ctx,
-                            n_val.into_float_value(),
-                            Some("abs"),
-                        ).into()
-                    } else {
-                        unreachable!()
-                    };
-                    Ok(val.into())
+
+                    Ok(Some(builtin_fns::call_abs(ctx, (n_ty, n_val))))
                 },
             )))),
             loc: None,
@@ -1685,17 +1273,12 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             boolean,
             &[(float, "x")],
             Box::new(|ctx, _, fun, args, generator| {
-                let float = ctx.primitives.float;
-
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?;
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
 
-                assert!(ctx.unifier.unioned(x_ty, float));
-
-                let val = call_isnan(generator, ctx, x_val.into_float_value());
-
-                Ok(Some(val.into()))
+                Ok(Some(builtin_fns::call_numpy_isnan(generator, ctx, (x_ty, x_val)).into()))
             }),
         ),
         create_fn_by_codegen(
@@ -1705,224 +1288,373 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             boolean,
             &[(float, "x")],
             Box::new(|ctx, _, fun, args, generator| {
-                let float = ctx.primitives.float;
-
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?;
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
 
-                assert!(ctx.unifier.unioned(x_ty, float));
-
-                let val = call_isinf(generator, ctx, x_val.into_float_value());
-
-                Ok(Some(val.into()))
+                Ok(Some(builtin_fns::call_numpy_isinf(generator, ctx, (x_ty, x_val)).into()))
             }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_sin",
             float,
             &[(float, "x")],
-            "llvm.sin.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_sin(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_cos",
             float,
             &[(float, "x")],
-            "llvm.cos.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_cos(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_exp",
             float,
             &[(float, "x")],
-            "llvm.exp.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_exp(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_exp2",
             float,
             &[(float, "x")],
-            "llvm.exp2.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_exp2(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_log",
             float,
             &[(float, "x")],
-            "llvm.log.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_log(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_log10",
             float,
             &[(float, "x")],
-            "llvm.log10.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_log10(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_log2",
             float,
             &[(float, "x")],
-            "llvm.log2.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_log2(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_fabs",
             float,
             &[(float, "x")],
-            "llvm.fabs.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_fabs(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_sqrt",
             float,
             &[(float, "x")],
-            "llvm.sqrt.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_sqrt(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_rint",
             float,
             &[(float, "x")],
-            "llvm.roundeven.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_rint(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_tan",
             float,
             &[(float, "x")],
-            "tan",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_tan(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_arcsin",
             float,
             &[(float, "x")],
-            "asin",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_arcsin(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_arccos",
             float,
             &[(float, "x")],
-            "acos",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_arccos(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_arctan",
             float,
             &[(float, "x")],
-            "atan",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_arctan(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_sinh",
             float,
             &[(float, "x")],
-            "sinh",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_sinh(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_cosh",
             float,
             &[(float, "x")],
-            "cosh",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_cosh(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_tanh",
             float,
             &[(float, "x")],
-            "tanh",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_tanh(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_arcsinh",
             float,
             &[(float, "x")],
-            "asinh",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_asinh(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_arccosh",
             float,
             &[(float, "x")],
-            "acosh",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_acosh(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_arctanh",
             float,
             &[(float, "x")],
-            "atanh",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_atanh(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_expm1",
             float,
             &[(float, "x")],
-            "expm1",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_expm1(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_cbrt",
             float,
             &[(float, "x")],
-            "cbrt",
-            &["readnone", "willreturn"],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_cbrt(ctx, (x_ty, x_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "sp_spec_erf",
             float,
             &[(float, "z")],
-            "erf",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let z_ty = fun.0.args[0].ty;
+                let z_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, z_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_scipy_special_erf(ctx, (z_ty, z_val)).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "sp_spec_erfc",
             float,
             &[(float, "x")],
-            "erfc",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let z_ty = fun.0.args[0].ty;
+                let z_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, z_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_scipy_special_erfc(ctx, (z_ty, z_val)).into()))
+            }),
         ),
         create_fn_by_codegen(
             unifier,
@@ -1931,17 +1663,14 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             float,
             &[(float, "z")],
             Box::new(|ctx, _, fun, args, generator| {
-                let float = ctx.primitives.float;
-
                 let z_ty = fun.0.args[0].ty;
                 let z_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, z_ty)?;
+                    .to_basic_value_enum(ctx, generator, z_ty)?
+                    .into_float_value();
 
-                assert!(ctx.unifier.unioned(z_ty, float));
-
-                Ok(Some(call_gamma(ctx, z_val.into_float_value()).into()))
-            }
-        )),
+                Ok(Some(builtin_fns::call_scipy_special_gamma(ctx, (z_ty, z_val)).into()))
+            }),
+        ),
         create_fn_by_codegen(
             unifier,
             &var_map,
@@ -1949,15 +1678,12 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             float,
             &[(float, "x")],
             Box::new(|ctx, _, fun, args, generator| {
-                let float = ctx.primitives.float;
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
 
-                let z_ty = fun.0.args[0].ty;
-                let z_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, z_ty)?;
-
-                assert!(ctx.unifier.unioned(z_ty, float));
-
-                Ok(Some(call_gammaln(ctx, z_val.into_float_value()).into()))
+                Ok(Some(builtin_fns::call_scipy_special_gammaln(ctx, (x_ty, x_val)).into()))
             }),
         ),
         create_fn_by_codegen(
@@ -1967,86 +1693,190 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             float,
             &[(float, "x")],
             Box::new(|ctx, _, fun, args, generator| {
-                let float = ctx.primitives.float;
-
                 let z_ty = fun.0.args[0].ty;
                 let z_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, z_ty)?;
+                    .to_basic_value_enum(ctx, generator, z_ty)?
+                    .into_float_value();
 
-                assert!(ctx.unifier.unioned(z_ty, float));
-
-                Ok(Some(call_j0(ctx, z_val.into_float_value()).into()))
+                Ok(Some(builtin_fns::call_scipy_special_j0(ctx, (z_ty, z_val)).into()))
             }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "sp_spec_j1",
             float,
             &[(float, "x")],
-            "j1",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x_ty = fun.0.args[0].ty;
+                let x_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_scipy_special_j1(ctx, (x_ty, x_val)).into()))
+            }),
         ),
         // Not mapped: jv/yv, libm only supports integer orders.
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_arctan2",
             float,
             &[(float, "x1"), (float, "x2")],
-            "atan2",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x1_ty = fun.0.args[0].ty;
+                let x1_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x1_ty)?
+                    .into_float_value();
+                let x2_ty = fun.0.args[1].ty;
+                let x2_val = args[1].1.clone()
+                    .to_basic_value_enum(ctx, generator, x2_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_arctan2(
+                    ctx,
+                    (x1_ty, x1_val),
+                    (x2_ty, x2_val),
+                ).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_copysign",
             float,
             &[(float, "x1"), (float, "x2")],
-            "llvm.copysign.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x1_ty = fun.0.args[0].ty;
+                let x1_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x1_ty)?
+                    .into_float_value();
+                let x2_ty = fun.0.args[1].ty;
+                let x2_val = args[1].1.clone()
+                    .to_basic_value_enum(ctx, generator, x2_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_copysign(
+                    ctx,
+                    (x1_ty, x1_val),
+                    (x2_ty, x2_val),
+                ).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_fmax",
             float,
             &[(float, "x1"), (float, "x2")],
-            "llvm.maxnum.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x1_ty = fun.0.args[0].ty;
+                let x1_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x1_ty)?
+                    .into_float_value();
+                let x2_ty = fun.0.args[1].ty;
+                let x2_val = args[1].1.clone()
+                    .to_basic_value_enum(ctx, generator, x2_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_fmax(
+                    ctx,
+                    (x1_ty, x1_val),
+                    (x2_ty, x2_val),
+                ).into()))
+            }),
         ),
-        create_fn_by_intrinsic(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_fmin",
             float,
             &[(float, "x1"), (float, "x2")],
-            "llvm.minnum.f64",
+            Box::new(|ctx, _, fun, args, generator| {
+                let x1_ty = fun.0.args[0].ty;
+                let x1_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x1_ty)?
+                    .into_float_value();
+                let x2_ty = fun.0.args[1].ty;
+                let x2_val = args[1].1.clone()
+                    .to_basic_value_enum(ctx, generator, x2_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_fmin(
+                    ctx,
+                    (x1_ty, x1_val),
+                    (x2_ty, x2_val),
+                ).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_ldexp",
             float,
             &[(float, "x1"), (int32, "x2")],
-            "ldexp",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x1_ty = fun.0.args[0].ty;
+                let x1_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x1_ty)?
+                    .into_float_value();
+                let x2_ty = fun.0.args[1].ty;
+                let x2_val = args[1].1.clone()
+                    .to_basic_value_enum(ctx, generator, x2_ty)?
+                    .into_int_value();
+
+                Ok(Some(builtin_fns::call_numpy_ldexp(
+                    ctx,
+                    (x1_ty, x1_val),
+                    (x2_ty, x2_val),
+                ).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_hypot",
             float,
             &[(float, "x1"), (float, "x2")],
-            "hypot",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x1_ty = fun.0.args[0].ty;
+                let x1_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x1_ty)?
+                    .into_float_value();
+                let x2_ty = fun.0.args[1].ty;
+                let x2_val = args[1].1.clone()
+                    .to_basic_value_enum(ctx, generator, x2_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_hypot(
+                    ctx,
+                    (x1_ty, x1_val),
+                    (x2_ty, x2_val),
+                ).into()))
+            }),
         ),
-        create_fn_by_extern(
+        create_fn_by_codegen(
             unifier,
             &var_map,
             "np_nextafter",
             float,
             &[(float, "x1"), (float, "x2")],
-            "nextafter",
-            &[],
+            Box::new(|ctx, _, fun, args, generator| {
+                let x1_ty = fun.0.args[0].ty;
+                let x1_val = args[0].1.clone()
+                    .to_basic_value_enum(ctx, generator, x1_ty)?
+                    .into_float_value();
+                let x2_ty = fun.0.args[1].ty;
+                let x2_val = args[1].1.clone()
+                    .to_basic_value_enum(ctx, generator, x2_ty)?
+                    .into_float_value();
+
+                Ok(Some(builtin_fns::call_numpy_nextafter(
+                    ctx,
+                    (x1_ty, x1_val),
+                    (x2_ty, x2_val),
+                ).into()))
+            }),
         ),
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "Some".into(),

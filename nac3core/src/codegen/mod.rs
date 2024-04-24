@@ -39,9 +39,11 @@ use std::sync::{
 };
 use std::thread;
 
+pub mod builtin_fns;
 pub mod classes;
 pub mod concrete_type;
 pub mod expr;
+pub mod extern_fns;
 mod generator;
 pub mod irrt;
 pub mod llvm_intrinsics;
