@@ -162,7 +162,7 @@ def test_np_expm1():
 
 def test_np_cbrt():
     for x in [1.0, 8.0, 27.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
-        output_float64(np_expm1(x))
+        output_float64(np_cbrt(x))
 
 def test_sp_spec_erf():
     for x in [-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, dbl_inf(), -dbl_inf(), dbl_nan()]:
