@@ -10,6 +10,10 @@ fi
 declare -a nac3args
 while [ $# -ge 1 ]; do
   case "$1" in
+    --help)
+      echo "Usage: run_demo.sh [--help] [--out OUTFILE] [--lli] [--debug] -- [NAC3ARGS...]"
+      exit
+      ;;
     --out)
       shift
       outfile="$1"
@@ -20,10 +24,19 @@ while [ $# -ge 1 ]; do
     --debug)
       debug=1
       ;;
+    --)
+      shift
+      break
+      ;;
     *)
-      nac3args+=("$1")
+      break
       ;;
   esac
+  shift
+done
+
+while [ $# -ge 1 ]; do
+  nac3args+=("$1")
   shift
 done
 
