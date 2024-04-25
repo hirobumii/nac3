@@ -14,17 +14,7 @@ use crate::{
     },
 };
 use itertools::{Itertools, izip};
-use nac3parser::ast::{
-    self,
-    fold::{self, Fold},
-    Arguments,
-    Comprehension,
-    ExprContext,
-    ExprKind,
-    Located,
-    Location,
-    StrRef
-};
+use nac3parser::ast::{self, fold::{self, Fold}, Arguments, Comprehension, ExprContext, ExprKind, Located, Location, StrRef};
 
 #[cfg(test)]
 mod test;
@@ -860,17 +850,194 @@ impl<'a> Inferencer<'a> {
                 },
             }))
         }
-        // int64 is special because its argument can be a constant larger than int32
-        if id == &"int64".into() && args.len() == 1 {
-            if let ExprKind::Constant { value: ast::Constant::Int(val), kind } =
-                &args[0].node
-            {
-                let custom = Some(self.primitives.int64);
-                let v: Result<i64, _> = (*val).try_into();
-                return if v.is_ok() {
+
+        if [
+            "int32",
+            "float",
+            "bool",
+            "np_isnan",
+            "np_isinf",
+        ].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 1 {
+            let target_ty = if id == &"int32".into() {
+                self.primitives.int32
+            } else if id == &"float".into() {
+                self.primitives.float
+            } else if id == &"bool".into() || id == &"np_isnan".into() || id == &"np_isinf".into() {
+                self.primitives.bool
+            } else { unreachable!() };
+
+            let arg0 = self.fold_expr(args.remove(0))?;
+            let arg0_ty = arg0.custom.unwrap();
+
+            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+
+                make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndarray_ndims))
+            } else {
+                target_ty
+            };
+
+            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                args: vec![
+                    FuncArg {
+                        name: "n".into(),
+                        ty: arg0.custom.unwrap(),
+                        default_value: None,
+                    },
+                ],
+                ret,
+                vars: VarMap::new(),
+            }));
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(ret),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(custom),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                    }),
+                    args: vec![arg0],
+                    keywords: vec![],
+                },
+            }))
+        }
+
+        if [
+            "np_arctan2",
+            "np_copysign",
+            "np_fmax",
+            "np_fmin",
+            "np_ldexp",
+            "np_hypot",
+            "np_nextafter",
+        ].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 2 {
+            let target_ty = self.primitives.float;
+
+            let arg0 = self.fold_expr(args.remove(0))?;
+            let arg0_ty = arg0.custom.unwrap();
+            let arg1 = self.fold_expr(args.remove(0))?;
+            let arg1_ty = arg1.custom.unwrap();
+
+            let arg0_dtype = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                unpack_ndarray_var_tys(self.unifier, arg0_ty).0
+            } else {
+                arg0_ty
+            };
+
+            let arg1_dtype = if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                unpack_ndarray_var_tys(self.unifier, arg1_ty).0
+            } else {
+                arg1_ty
+            };
+            let expected_arg1_dtype = if id == &"np_ldexp".into() {
+                self.primitives.int32
+            } else {
+                arg0_dtype
+            };
+            if !self.unifier.unioned(arg1_dtype, expected_arg1_dtype) {
+                return report_error(
+                    format!(
+                        "Expected {} for second argument of {id}, got {}",
+                        self.unifier.stringify(expected_arg1_dtype),
+                        self.unifier.stringify(arg1_dtype),
+                    ).as_str(),
+                    arg0.location,
+                )
+            }
+
+            let ret = if [
+                &arg0_ty,
+                &arg1_ty,
+            ].into_iter().any(|arg_ty| arg_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)) {
+                // typeof_ndarray_broadcast requires both dtypes to be the same, but ldexp accepts
+                // (float, int32), so convert it to align with the dtype of the first arg
+                let arg1_ty = if id == &"np_ldexp".into() {
+                    if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                        let (_, ndims) = unpack_ndarray_var_tys(self.unifier, arg1_ty);
+
+                        make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndims))
+                    } else {
+                        target_ty
+                    }
+                } else {
+                    arg1_ty
+                };
+
+                match typeof_ndarray_broadcast(self.unifier, self.primitives, arg0_ty, arg1_ty) {
+                    Ok(broadcasted_ty) => broadcasted_ty,
+                    Err(err) => return report_error(err.as_str(), location),
+                }
+            } else {
+                target_ty
+            };
+
+            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                args: vec![
+                    FuncArg {
+                        name: "x1".into(),
+                        ty: arg0.custom.unwrap(),
+                        default_value: None,
+                    },
+                    FuncArg {
+                        name: "x2".into(),
+                        ty: arg1.custom.unwrap(),
+                        default_value: None,
+                    },
+                ],
+                ret,
+                vars: VarMap::new(),
+            }));
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(ret),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(custom),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                    }),
+                    args: vec![arg0, arg1],
+                    keywords: vec![],
+                },
+            }))
+        }
+
+        // int64, uint32 and uint64 are special because their argument can be a constant outside the 
+        // range of int32s
+        if [
+            "int64",
+            "uint32",
+            "uint64",
+        ].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 1 {
+            let target_ty = if id == &"int64".into() {
+                self.primitives.int64
+            } else if id == &"uint32".into() {
+                self.primitives.uint32
+            } else if id == &"uint64".into() {
+                self.primitives.uint64
+            } else { unreachable!() };
+
+            // Handle constants first to ensure that their types are not defaulted to int32, which
+            // causes an "Integer out of bound" error
+            if let ExprKind::Constant { 
+                value: ast::Constant::Int(val),
+                kind 
+            } = &args[0].node {
+                let conv_is_ok = if self.unifier.unioned(target_ty, self.primitives.int64) {
+                    i64::try_from(*val).is_ok()
+                } else if self.unifier.unioned(target_ty, self.primitives.uint32) {
+                    u32::try_from(*val).is_ok()
+                } else if self.unifier.unioned(target_ty, self.primitives.uint64) {
+                    u64::try_from(*val).is_ok()
+                } else { unreachable!() };
+        
+                return if conv_is_ok {
                     Ok(Some(Located {
                         location: args[0].location,
-                        custom,
+                        custom: Some(target_ty),
                         node: ExprKind::Constant {
                             value: ast::Constant::Int(*val),
                             kind: kind.clone(),
@@ -880,46 +1047,43 @@ impl<'a> Inferencer<'a> {
                     report_error("Integer out of bound", args[0].location)
                 }
             }
-        }
-        if id == &"uint32".into() && args.len() == 1 {
-            if let ExprKind::Constant { value: ast::Constant::Int(val), kind } =
-                &args[0].node
-            {
-                let custom = Some(self.primitives.uint32);
-                let v: Result<u32, _> = (*val).try_into();
-                return if v.is_ok() {
-                     Ok(Some(Located {
-                        location: args[0].location,
-                        custom,
-                        node: ExprKind::Constant {
-                            value: ast::Constant::Int(*val),
-                            kind: kind.clone(),
-                        },
-                    }))
-                } else {
-                    report_error("Integer out of bound", args[0].location)
-                }
-            }
-        }
-        if id == &"uint64".into() && args.len() == 1 {
-            if let ExprKind::Constant { value: ast::Constant::Int(val), kind } =
-            &args[0].node
-            {
-                let custom = Some(self.primitives.uint64);
-                let v: Result<u64, _> = (*val).try_into();
-                return if v.is_ok() {
-                    Ok(Some(Located {
-                        location: args[0].location,
-                        custom,
-                        node: ExprKind::Constant {
-                            value: ast::Constant::Int(*val),
-                            kind: kind.clone(),
-                        },
-                    }))
-                } else {
-                    report_error("Integer out of bound", args[0].location)
-                }
-            }
+
+            let arg0 = self.fold_expr(args.remove(0))?;
+            let arg0_ty = arg0.custom.unwrap();
+
+            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+
+                make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndarray_ndims))
+            } else {
+                target_ty
+            };
+
+            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                args: vec![
+                    FuncArg {
+                        name: "n".into(),
+                        ty: arg0.custom.unwrap(),
+                        default_value: None,
+                    },
+                ],
+                ret,
+                vars: VarMap::new(),
+            }));
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(ret),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(custom),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                    }),
+                    args: vec![arg0],
+                    keywords: vec![],
+                },
+            }))
         }
 
         // 1-argument ndarray n-dimensional creation functions

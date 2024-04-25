@@ -282,7 +282,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
         ..
     } = *primitives;
 
-    let ndarray_float = make_ndarray_ty(unifier, &primitives, Some(float), None);
+    let ndarray_float = make_ndarray_ty(unifier, primitives, Some(float), None);
     let ndarray_float_2d = {
         let value = match primitives.size_t {
             64 => SymbolValue::U64(2u64),
@@ -294,7 +294,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             loc: None,
         });
 
-        make_ndarray_ty(unifier, &primitives, Some(float), Some(ndims))
+        make_ndarray_ty(unifier, primitives, Some(float), Some(ndims))
     };
     let list_int32 = unifier.add_ty(TypeEnum::TList { ty: int32 });
     let num_ty = unifier.get_fresh_var_with_range(
@@ -302,8 +302,40 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
         Some("N".into()),
         None,
     );
+    let num_var_map: VarMap = vec![
+        (num_ty.1, num_ty.0),
+    ].into_iter().collect();
 
-    let var_map: VarMap = vec![(num_ty.1, num_ty.0)].into_iter().collect();
+    let new_type_or_ndarray_ty = |unifier: &mut Unifier, primitives: &PrimitiveStore, scalar_ty: Type| {
+        let ndarray = make_ndarray_ty(unifier, primitives, Some(scalar_ty), None);
+
+        unifier.get_fresh_var_with_range(
+            &[scalar_ty, ndarray],
+            Some("T".into()),
+            None,
+        )
+    };
+
+    let ndarray_num_ty = make_ndarray_ty(unifier, primitives, Some(num_ty.0), None);
+    let float_or_ndarray_ty = unifier.get_fresh_var_with_range(
+        &[float, ndarray_float],
+        Some("T".into()),
+        None,
+    );
+    let float_or_ndarray_var_map: VarMap = vec![
+        (float_or_ndarray_ty.1, float_or_ndarray_ty.0),
+    ].into_iter().collect();
+
+    let num_or_ndarray_ty = unifier.get_fresh_var_with_range(
+        &[num_ty.0, ndarray_num_ty],
+        Some("T".into()),
+        None,
+    );
+    let num_or_ndarray_var_map: VarMap = vec![
+        (num_ty.1, num_ty.0),
+        (num_or_ndarray_ty.1, num_or_ndarray_ty.0),
+    ].into_iter().collect();
+
     let exception_fields = vec![
         ("__name__".into(), int32, true),
         ("__file__".into(), string, true),
@@ -568,9 +600,9 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             name: "int32".into(),
             simple_name: "int32".into(),
             signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
-                ret: int32,
-                vars: var_map.clone(),
+                args: vec![FuncArg { name: "n".into(), ty: num_or_ndarray_ty.0, default_value: None }],
+                ret: num_or_ndarray_ty.0,
+                vars: num_or_ndarray_var_map.clone(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -581,7 +613,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
 
-                    Ok(Some(builtin_fns::call_int32(ctx, (arg_ty, arg)).into()))
+                    Ok(Some(builtin_fns::call_int32(generator, ctx, (arg_ty, arg))?))
                 },
             )))),
             loc: None,
@@ -590,9 +622,9 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             name: "int64".into(),
             simple_name: "int64".into(),
             signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
-                ret: int64,
-                vars: var_map.clone(),
+                args: vec![FuncArg { name: "n".into(), ty: num_or_ndarray_ty.0, default_value: None }],
+                ret: num_or_ndarray_ty.0,
+                vars: num_or_ndarray_var_map.clone(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -603,7 +635,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
 
-                    Ok(Some(builtin_fns::call_int64(ctx, (arg_ty, arg)).into()))
+                    Ok(Some(builtin_fns::call_int64(generator, ctx, (arg_ty, arg))?))
                 },
             )))),
             loc: None,
@@ -612,9 +644,9 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             name: "uint32".into(),
             simple_name: "uint32".into(),
             signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
-                ret: uint32,
-                vars: var_map.clone(),
+                args: vec![FuncArg { name: "n".into(), ty: num_or_ndarray_ty.0, default_value: None }],
+                ret: num_or_ndarray_ty.0,
+                vars: num_or_ndarray_var_map.clone(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -625,7 +657,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
 
-                    Ok(Some(builtin_fns::call_uint32(ctx, (arg_ty, arg)).into()))
+                    Ok(Some(builtin_fns::call_uint32(generator, ctx, (arg_ty, arg))?))
                 },
             )))),
             loc: None,
@@ -634,9 +666,9 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             name: "uint64".into(),
             simple_name: "uint64".into(),
             signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
-                ret: uint64,
-                vars: var_map.clone(),
+                args: vec![FuncArg { name: "n".into(), ty: num_or_ndarray_ty.0, default_value: None }],
+                ret: num_or_ndarray_ty.0,
+                vars: num_or_ndarray_var_map.clone(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -647,7 +679,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
 
-                    Ok(Some(builtin_fns::call_uint64(ctx, (arg_ty, arg)).into()))
+                    Ok(Some(builtin_fns::call_uint64(generator, ctx, (arg_ty, arg))?))
                 },
             )))),
             loc: None,
@@ -656,9 +688,9 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             name: "float".into(),
             simple_name: "float".into(),
             signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
-                ret: float,
-                vars: var_map.clone(),
+                args: vec![FuncArg { name: "n".into(), ty: num_or_ndarray_ty.0, default_value: None }],
+                ret: num_or_ndarray_ty.0,
+                vars: num_or_ndarray_var_map.clone(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -669,14 +701,14 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
 
-                    Ok(Some(builtin_fns::call_float(ctx, (arg_ty, arg)).into()))
+                    Ok(Some(builtin_fns::call_float(generator, ctx, (arg_ty, arg))?))
                 },
             )))),
             loc: None,
         })),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &VarMap::new(),
             "np_ndarray",
             ndarray_float,
             // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
@@ -689,7 +721,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &VarMap::new(),
             "np_empty",
             ndarray_float,
             // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
@@ -702,7 +734,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &VarMap::new(),
             "np_zeros",
             ndarray_float,
             // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
@@ -715,7 +747,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &VarMap::new(),
             "np_ones",
             ndarray_float,
             // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
@@ -727,16 +759,16 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             }),
         ),
         {
-            let tv = unifier.get_fresh_var(Some("T".into()), None).0;
+            let tv = unifier.get_fresh_var(Some("T".into()), None);
 
             create_fn_by_codegen(
                 unifier,
-                &var_map,
+                &[(tv.1, tv.0)].into_iter().collect(),
                 "np_full",
                 ndarray,
                 // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
                 // type variable
-                &[(list_int32, "shape"), (tv, "fill_value")],
+                &[(list_int32, "shape"), (tv.0, "fill_value")],
                 Box::new(|ctx, obj, fun, args, generator| {
                     gen_ndarray_full(ctx, &obj, fun, &args, generator)
                         .map(|val| Some(val.as_basic_value_enum()))
@@ -758,7 +790,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     FuncArg { name: "k".into(), ty: int32, default_value: Some(SymbolValue::I32(0)) },
                 ],
                 ret: ndarray_float_2d,
-                vars: var_map.clone(),
+                vars: VarMap::default(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -774,7 +806,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
         })),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &VarMap::new(),
             "np_identity",
             ndarray_float_2d,
             &[(int32, "n")],
@@ -783,53 +815,96 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     .map(|val| Some(val.as_basic_value_enum()))
             }),
         ),
+        {
+            let common_ndim = unifier.get_fresh_const_generic_var(
+                primitives.usize(),
+                Some("N".into()),
+                None,
+            );
+            let ndarray_int32 = make_ndarray_ty(unifier, primitives, Some(int32), Some(common_ndim.0));
+            let ndarray_float = make_ndarray_ty(unifier, primitives, Some(float), Some(common_ndim.0));
+
+            let p0_ty = unifier.get_fresh_var_with_range(
+                &[float, ndarray_float],
+                Some("T".into()),
+                None,
+            );
+            let ret_ty = unifier.get_fresh_var_with_range(
+                &[int32, ndarray_int32],
+                Some("R".into()),
+                None,
+            );
+
+            create_fn_by_codegen(
+                unifier,
+                &[
+                    (common_ndim.1, common_ndim.0),
+                    (p0_ty.1, p0_ty.0),
+                    (ret_ty.1, ret_ty.0),
+                ].into_iter().collect(),
+                "round",
+                ret_ty.0,
+                &[(p0_ty.0, "n")],
+                Box::new(|ctx, _, fun, args, generator| {
+                    let arg_ty = fun.0.args[0].ty;
+                    let arg = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, arg_ty)?;
+
+                    Ok(Some(builtin_fns::call_round(generator, ctx, (arg_ty, arg), ctx.primitives.int32)?))
+                }),
+            )
+        },
+        {
+            let common_ndim = unifier.get_fresh_const_generic_var(
+                primitives.usize(),
+                Some("N".into()),
+                None,
+            );
+            let ndarray_int64 = make_ndarray_ty(unifier, primitives, Some(int64), Some(common_ndim.0));
+            let ndarray_float = make_ndarray_ty(unifier, primitives, Some(float), Some(common_ndim.0));
+
+            let p0_ty = unifier.get_fresh_var_with_range(
+                &[float, ndarray_float],
+                Some("T".into()),
+                None,
+            );
+            let ret_ty = unifier.get_fresh_var_with_range(
+                &[int64, ndarray_int64],
+                Some("R".into()),
+                None,
+            );
+
+            create_fn_by_codegen(
+                unifier,
+                &[
+                    (common_ndim.1, common_ndim.0),
+                    (p0_ty.1, p0_ty.0),
+                    (ret_ty.1, ret_ty.0),
+                ].into_iter().collect(),
+                "round64",
+                ret_ty.0,
+                &[(p0_ty.0, "n")],
+                Box::new(|ctx, _, fun, args, generator| {
+                    let arg_ty = fun.0.args[0].ty;
+                    let arg = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, arg_ty)?;
+
+                    Ok(Some(builtin_fns::call_round(generator, ctx, (arg_ty, arg), ctx.primitives.int64)?))
+                }),
+            )
+        },
         create_fn_by_codegen(
             unifier,
-            &var_map,
-            "round",
-            int32,
-            &[(float, "n")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let llvm_i32 = ctx.ctx.i32_type();
-
-                let arg_ty = fun.0.args[0].ty;
-                let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
-                    .into_float_value();
-
-                Ok(Some(builtin_fns::call_round(ctx, (arg_ty, arg), llvm_i32).into()))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
-            "round64",
-            int64,
-            &[(float, "n")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let llvm_i64 = ctx.ctx.i64_type();
-
-                let arg_ty = fun.0.args[0].ty;
-                let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
-                    .into_float_value();
-
-                Ok(Some(builtin_fns::call_round(ctx, (arg_ty, arg), llvm_i64).into()))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_round",
-            float,
-            &[(float, "n")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "n")],
             Box::new(|ctx, _, fun, args, generator| {
                 let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, arg_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_round(ctx, (arg_ty, arg)).into()))
+                Ok(Some(builtin_fns::call_numpy_round(generator, ctx, (arg_ty, arg))?))
             }),
         ),
         Arc::new(RwLock::new(TopLevelDef::Function {
@@ -961,9 +1036,9 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             name: "bool".into(),
             simple_name: "bool".into(),
             signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
-                ret: primitives.bool,
-                vars: var_map.clone(),
+                args: vec![FuncArg { name: "n".into(), ty: num_or_ndarray_ty.0, default_value: None }],
+                ret: num_or_ndarray_ty.0,
+                vars: num_or_ndarray_var_map.clone(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -974,107 +1049,193 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
 
-                    Ok(Some(builtin_fns::call_bool(ctx, (arg_ty, arg)).into()))
+                    Ok(Some(builtin_fns::call_bool(generator, ctx, (arg_ty, arg))?))
                 },
             )))),
             loc: None,
         })),
+        {
+            let common_ndim = unifier.get_fresh_const_generic_var(
+                primitives.usize(),
+                Some("N".into()),
+                None,
+            );
+            let ndarray_int32 = make_ndarray_ty(unifier, primitives, Some(int32), Some(common_ndim.0));
+            let ndarray_float = make_ndarray_ty(unifier, primitives, Some(float), Some(common_ndim.0));
+
+            let p0_ty = unifier.get_fresh_var_with_range(
+                &[float, ndarray_float],
+                Some("T".into()),
+                None,
+            );
+            let ret_ty = unifier.get_fresh_var_with_range(
+                &[int32, ndarray_int32],
+                Some("R".into()),
+                None,
+            );
+
+            create_fn_by_codegen(
+                unifier,
+                &[
+                    (common_ndim.1, common_ndim.0),
+                    (p0_ty.1, p0_ty.0),
+                    (ret_ty.1, ret_ty.0),
+                ].into_iter().collect(),
+                "floor",
+                ret_ty.0,
+                &[(p0_ty.0, "n")],
+                Box::new(|ctx, _, fun, args, generator| {
+                    let arg_ty = fun.0.args[0].ty;
+                    let arg = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, arg_ty)?;
+
+                    Ok(Some(builtin_fns::call_floor(generator, ctx, (arg_ty, arg), ctx.primitives.int32)?))
+                }),
+            )
+        },
+        {
+            let common_ndim = unifier.get_fresh_const_generic_var(
+                primitives.usize(),
+                Some("N".into()),
+                None,
+            );
+            let ndarray_int64 = make_ndarray_ty(unifier, primitives, Some(int64), Some(common_ndim.0));
+            let ndarray_float = make_ndarray_ty(unifier, primitives, Some(float), Some(common_ndim.0));
+
+            let p0_ty = unifier.get_fresh_var_with_range(
+                &[float, ndarray_float],
+                Some("T".into()),
+                None,
+            );
+            let ret_ty = unifier.get_fresh_var_with_range(
+                &[int64, ndarray_int64],
+                Some("R".into()),
+                None,
+            );
+
+            create_fn_by_codegen(
+                unifier,
+                &[
+                    (common_ndim.1, common_ndim.0),
+                    (p0_ty.1, p0_ty.0),
+                    (ret_ty.1, ret_ty.0),
+                ].into_iter().collect(),
+                "floor64",
+                ret_ty.0,
+                &[(p0_ty.0, "n")],
+                Box::new(|ctx, _, fun, args, generator| {
+                    let arg_ty = fun.0.args[0].ty;
+                    let arg = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, arg_ty)?;
+
+                    Ok(Some(builtin_fns::call_floor(generator, ctx, (arg_ty, arg), ctx.primitives.int64)?))
+                }),
+            )
+        },
         create_fn_by_codegen(
             unifier,
-            &var_map,
-            "floor",
-            int32,
-            &[(float, "n")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let llvm_i32 = ctx.ctx.i32_type();
-
-                let arg_ty = fun.0.args[0].ty;
-                let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
-                    .into_float_value();
-
-                Ok(Some(builtin_fns::call_floor(ctx, (arg_ty, arg), llvm_i32.into())))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
-            "floor64",
-            int64,
-            &[(float, "n")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let llvm_i64 = ctx.ctx.i64_type();
-
-                let arg_ty = fun.0.args[0].ty;
-                let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
-                    .into_float_value();
-
-                Ok(Some(builtin_fns::call_floor(ctx, (arg_ty, arg), llvm_i64.into())))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_floor",
-            float,
-            &[(float, "n")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "n")],
             Box::new(|ctx, _, fun, args, generator| {
                 let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, arg_ty)?;
 
-                Ok(Some(builtin_fns::call_floor(ctx, (arg_ty, arg), arg.get_type().into())))
+                Ok(Some(builtin_fns::call_floor(generator, ctx, (arg_ty, arg), ctx.primitives.float)?))
             }),
         ),
+        {
+            let common_ndim = unifier.get_fresh_const_generic_var(
+                primitives.usize(),
+                Some("N".into()),
+                None,
+            );
+            let ndarray_int32 = make_ndarray_ty(unifier, primitives, Some(int32), Some(common_ndim.0));
+            let ndarray_float = make_ndarray_ty(unifier, primitives, Some(float), Some(common_ndim.0));
+
+            let p0_ty = unifier.get_fresh_var_with_range(
+                &[float, ndarray_float],
+                Some("T".into()),
+                None,
+            );
+            let ret_ty = unifier.get_fresh_var_with_range(
+                &[int32, ndarray_int32],
+                Some("R".into()),
+                None,
+            );
+
+            create_fn_by_codegen(
+                unifier,
+                &[
+                    (common_ndim.1, common_ndim.0),
+                    (p0_ty.1, p0_ty.0),
+                    (ret_ty.1, ret_ty.0),
+                ].into_iter().collect(),
+                "ceil",
+                ret_ty.0,
+                &[(p0_ty.0, "n")],
+                Box::new(|ctx, _, fun, args, generator| {
+                    let arg_ty = fun.0.args[0].ty;
+                    let arg = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, arg_ty)?;
+
+                    Ok(Some(builtin_fns::call_ceil(generator, ctx, (arg_ty, arg), ctx.primitives.int32)?))
+                }),
+            )
+        },
+        {
+            let common_ndim = unifier.get_fresh_const_generic_var(
+                primitives.usize(),
+                Some("N".into()),
+                None,
+            );
+            let ndarray_int64 = make_ndarray_ty(unifier, primitives, Some(int64), Some(common_ndim.0));
+            let ndarray_float = make_ndarray_ty(unifier, primitives, Some(float), Some(common_ndim.0));
+
+            let p0_ty = unifier.get_fresh_var_with_range(
+                &[float, ndarray_float],
+                Some("T".into()),
+                None,
+            );
+            let ret_ty = unifier.get_fresh_var_with_range(
+                &[int64, ndarray_int64],
+                Some("R".into()),
+                None,
+            );
+
+            create_fn_by_codegen(
+                unifier,
+                &[
+                    (common_ndim.1, common_ndim.0),
+                    (p0_ty.1, p0_ty.0),
+                    (ret_ty.1, ret_ty.0),
+                ].into_iter().collect(),
+                "ceil64",
+                ret_ty.0,
+                &[(p0_ty.0, "n")],
+                Box::new(|ctx, _, fun, args, generator| {
+                    let arg_ty = fun.0.args[0].ty;
+                    let arg = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, arg_ty)?;
+
+                    Ok(Some(builtin_fns::call_ceil(generator, ctx, (arg_ty, arg), ctx.primitives.int64)?))
+                }),
+            )
+        },
         create_fn_by_codegen(
             unifier,
-            &var_map,
-            "ceil",
-            int32,
-            &[(float, "n")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let llvm_i32 = ctx.ctx.i32_type();
-
-                let arg_ty = fun.0.args[0].ty;
-                let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
-                    .into_float_value();
-
-                Ok(Some(builtin_fns::call_ceil(ctx, (arg_ty, arg), llvm_i32.into())))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
-            "ceil64",
-            int64,
-            &[(float, "n")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let llvm_i64 = ctx.ctx.i64_type();
-
-                let arg_ty = fun.0.args[0].ty;
-                let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
-                    .into_float_value();
-
-                Ok(Some(builtin_fns::call_ceil(ctx, (arg_ty, arg), llvm_i64.into())))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_ceil",
-            float,
-            &[(float, "n")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "n")],
             Box::new(|ctx, _, fun, args, generator| {
                 let arg_ty = fun.0.args[0].ty;
                 let arg = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, ctx.primitives.float)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, arg_ty)?;
 
-                Ok(Some(builtin_fns::call_ceil(ctx, (arg_ty, arg), arg.get_type().into())))
+                Ok(Some(builtin_fns::call_ceil(generator, ctx, (arg_ty, arg), ctx.primitives.float)?))
             }),
         ),
         Arc::new(RwLock::new({
@@ -1103,7 +1264,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                         .into_iter()
                         .collect(),
                 })),
-                var_id: vec![arg_ty.1],
+                var_id: Vec::default(),
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
@@ -1199,7 +1360,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     FuncArg { name: "n".into(), ty: num_ty.0, default_value: None },
                 ],
                 ret: num_ty.0,
-                vars: var_map.clone(),
+                vars: num_var_map.clone(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -1226,7 +1387,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     FuncArg { name: "n".into(), ty: num_ty.0, default_value: None },
                 ],
                 ret: num_ty.0,
-                vars: var_map.clone(),
+                vars: num_var_map.clone(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -1248,9 +1409,9 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             name: "abs".into(),
             simple_name: "abs".into(),
             signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
-                ret: num_ty.0,
-                vars: var_map.clone(),
+                args: vec![FuncArg { name: "n".into(), ty: num_or_ndarray_ty.0, default_value: None }],
+                ret: num_or_ndarray_ty.0,
+                vars: num_or_ndarray_var_map.clone(),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -1261,623 +1422,740 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     let n_ty = fun.0.args[0].ty;
                     let n_val = args[0].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
 
-                    Ok(Some(builtin_fns::call_abs(ctx, (n_ty, n_val))))
+                    Ok(Some(builtin_fns::call_abs(generator, ctx, (n_ty, n_val))?))
                 },
             )))),
             loc: None,
         })),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &VarMap::new(),
             "np_isnan",
             boolean,
             &[(float, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_isnan(generator, ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_isnan(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &VarMap::new(),
             "np_isinf",
             boolean,
             &[(float, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_isinf(generator, ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_isinf(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_sin",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_sin(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_sin(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_cos",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_cos(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_cos(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_exp",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_exp(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_exp(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_exp2",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_exp2(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_exp2(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_log",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_log(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_log(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_log10",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_log10(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_log10(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_log2",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_log2(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_log2(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_fabs",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_fabs(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_fabs(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_sqrt",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_sqrt(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_sqrt(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_rint",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_rint(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_rint(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_tan",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_tan(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_tan(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_arcsin",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_arcsin(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_arcsin(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_arccos",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_arccos(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_arccos(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_arctan",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_arctan(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_arctan(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_sinh",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_sinh(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_sinh(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_cosh",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_cosh(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_cosh(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_tanh",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_tanh(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_tanh(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_arcsinh",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_asinh(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_arcsinh(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_arccosh",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_acosh(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_arccosh(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_arctanh",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                   .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_atanh(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_arctanh(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_expm1",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_expm1(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_expm1(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "np_cbrt",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_cbrt(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_numpy_cbrt(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "sp_spec_erf",
-            float,
-            &[(float, "z")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "z")],
             Box::new(|ctx, _, fun, args, generator| {
                 let z_ty = fun.0.args[0].ty;
                 let z_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, z_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, z_ty)?;
 
-                Ok(Some(builtin_fns::call_scipy_special_erf(ctx, (z_ty, z_val)).into()))
+                Ok(Some(builtin_fns::call_scipy_special_erf(generator, ctx, (z_ty, z_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "sp_spec_erfc",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let z_ty = fun.0.args[0].ty;
                 let z_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, z_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, z_ty)?;
 
-                Ok(Some(builtin_fns::call_scipy_special_erfc(ctx, (z_ty, z_val)).into()))
+                Ok(Some(builtin_fns::call_scipy_special_erfc(generator, ctx, (z_ty, z_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "sp_spec_gamma",
-            float,
-            &[(float, "z")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "z")],
             Box::new(|ctx, _, fun, args, generator| {
                 let z_ty = fun.0.args[0].ty;
                 let z_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, z_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, z_ty)?;
 
-                Ok(Some(builtin_fns::call_scipy_special_gamma(ctx, (z_ty, z_val)).into()))
+                Ok(Some(builtin_fns::call_scipy_special_gamma(generator, ctx, (z_ty, z_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "sp_spec_gammaln",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_scipy_special_gammaln(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_scipy_special_gammaln(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "sp_spec_j0",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let z_ty = fun.0.args[0].ty;
                 let z_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, z_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, z_ty)?;
 
-                Ok(Some(builtin_fns::call_scipy_special_j0(ctx, (z_ty, z_val)).into()))
+                Ok(Some(builtin_fns::call_scipy_special_j0(generator, ctx, (z_ty, z_val))?))
             }),
         ),
         create_fn_by_codegen(
             unifier,
-            &var_map,
+            &float_or_ndarray_var_map,
             "sp_spec_j1",
-            float,
-            &[(float, "x")],
+            float_or_ndarray_ty.0,
+            &[(float_or_ndarray_ty.0, "x")],
             Box::new(|ctx, _, fun, args, generator| {
                 let x_ty = fun.0.args[0].ty;
                 let x_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x_ty)?
-                    .into_float_value();
+                    .to_basic_value_enum(ctx, generator, x_ty)?;
 
-                Ok(Some(builtin_fns::call_scipy_special_j1(ctx, (x_ty, x_val)).into()))
+                Ok(Some(builtin_fns::call_scipy_special_j1(generator, ctx, (x_ty, x_val))?))
             }),
         ),
         // Not mapped: jv/yv, libm only supports integer orders.
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
-            "np_arctan2",
-            float,
-            &[(float, "x1"), (float, "x2")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let x1_ty = fun.0.args[0].ty;
-                let x1_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x1_ty)?
-                    .into_float_value();
-                let x2_ty = fun.0.args[1].ty;
-                let x2_val = args[1].1.clone()
-                    .to_basic_value_enum(ctx, generator, x2_ty)?
-                    .into_float_value();
+        {
+            let x1_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let x2_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let param_ty = &[(x1_ty.0, "x1"), (x2_ty.0, "x2")];
+            let ret_ty = unifier.get_fresh_var(None, None);
 
-                Ok(Some(builtin_fns::call_numpy_arctan2(
-                    ctx,
-                    (x1_ty, x1_val),
-                    (x2_ty, x2_val),
-                ).into()))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
-            "np_copysign",
-            float,
-            &[(float, "x1"), (float, "x2")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let x1_ty = fun.0.args[0].ty;
-                let x1_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x1_ty)?
-                    .into_float_value();
-                let x2_ty = fun.0.args[1].ty;
-                let x2_val = args[1].1.clone()
-                    .to_basic_value_enum(ctx, generator, x2_ty)?
-                    .into_float_value();
+            Arc::new(RwLock::new(TopLevelDef::Function {
+                name: "np_arctan2".into(),
+                simple_name: "np_arctan2".into(),
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: param_ty.iter().map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                    }).collect(),
+                    ret: ret_ty.0,
+                    vars: [
+                        (x1_ty.1, x1_ty.0),
+                        (x2_ty.1, x2_ty.0),
+                        (ret_ty.1, ret_ty.0),
+                    ].into_iter().collect(),
+                })),
+                var_id: vec![ret_ty.1],
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x1_val = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x2_val = args[1].1.clone()
+                        .to_basic_value_enum(ctx, generator, x2_ty)?;
+            
+                    Ok(Some(builtin_fns::call_numpy_arctan2(
+                        generator,
+                        ctx,
+                        (x1_ty, x1_val),
+                        (x2_ty, x2_val),
+                    )?))
+                })))),
+                loc: None,
+            }))
+        },
+        {
+            let x1_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let x2_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let param_ty = &[(x1_ty.0, "x1"), (x2_ty.0, "x2")];
+            let ret_ty = unifier.get_fresh_var(None, None);
 
-                Ok(Some(builtin_fns::call_numpy_copysign(
-                    ctx,
-                    (x1_ty, x1_val),
-                    (x2_ty, x2_val),
-                ).into()))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
-            "np_fmax",
-            float,
-            &[(float, "x1"), (float, "x2")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let x1_ty = fun.0.args[0].ty;
-                let x1_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x1_ty)?
-                    .into_float_value();
-                let x2_ty = fun.0.args[1].ty;
-                let x2_val = args[1].1.clone()
-                    .to_basic_value_enum(ctx, generator, x2_ty)?
-                    .into_float_value();
+            Arc::new(RwLock::new(TopLevelDef::Function {
+                name: "np_copysign".into(),
+                simple_name: "np_copysign".into(),
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: param_ty.iter().map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                    }).collect(),
+                    ret: ret_ty.0,
+                    vars: [
+                        (x1_ty.1, x1_ty.0),
+                        (x2_ty.1, x2_ty.0),
+                        (ret_ty.1, ret_ty.0),
+                    ].into_iter().collect(),
+                })),
+                var_id: vec![ret_ty.1],
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x1_val = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x2_val = args[1].1.clone()
+                        .to_basic_value_enum(ctx, generator, x2_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_fmax(
-                    ctx,
-                    (x1_ty, x1_val),
-                    (x2_ty, x2_val),
-                ).into()))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
-            "np_fmin",
-            float,
-            &[(float, "x1"), (float, "x2")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let x1_ty = fun.0.args[0].ty;
-                let x1_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x1_ty)?
-                    .into_float_value();
-                let x2_ty = fun.0.args[1].ty;
-                let x2_val = args[1].1.clone()
-                    .to_basic_value_enum(ctx, generator, x2_ty)?
-                    .into_float_value();
+                    Ok(Some(builtin_fns::call_numpy_copysign(
+                        generator,
+                        ctx,
+                        (x1_ty, x1_val),
+                        (x2_ty, x2_val),
+                    )?))
+                })))),
+                loc: None,
+            }))
+        },
+        {
+            let x1_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let x2_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let param_ty = &[(x1_ty.0, "x1"), (x2_ty.0, "x2")];
+            let ret_ty = unifier.get_fresh_var(None, None);
 
-                Ok(Some(builtin_fns::call_numpy_fmin(
-                    ctx,
-                    (x1_ty, x1_val),
-                    (x2_ty, x2_val),
-                ).into()))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
-            "np_ldexp",
-            float,
-            &[(float, "x1"), (int32, "x2")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let x1_ty = fun.0.args[0].ty;
-                let x1_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x1_ty)?
-                    .into_float_value();
-                let x2_ty = fun.0.args[1].ty;
-                let x2_val = args[1].1.clone()
-                    .to_basic_value_enum(ctx, generator, x2_ty)?
-                    .into_int_value();
+            Arc::new(RwLock::new(TopLevelDef::Function {
+                name: "np_fmax".into(),
+                simple_name: "np_fmax".into(),
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: param_ty.iter().map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                    }).collect(),
+                    ret: ret_ty.0,
+                    vars: [
+                        (x1_ty.1, x1_ty.0),
+                        (x2_ty.1, x2_ty.0),
+                        (ret_ty.1, ret_ty.0),
+                    ].into_iter().collect(),
+                })),
+                var_id: vec![x1_ty.1, x2_ty.1],
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x1_val = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x2_val = args[1].1.clone()
+                        .to_basic_value_enum(ctx, generator, x2_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_ldexp(
-                    ctx,
-                    (x1_ty, x1_val),
-                    (x2_ty, x2_val),
-                ).into()))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
-            "np_hypot",
-            float,
-            &[(float, "x1"), (float, "x2")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let x1_ty = fun.0.args[0].ty;
-                let x1_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x1_ty)?
-                    .into_float_value();
-                let x2_ty = fun.0.args[1].ty;
-                let x2_val = args[1].1.clone()
-                    .to_basic_value_enum(ctx, generator, x2_ty)?
-                    .into_float_value();
+                    Ok(Some(builtin_fns::call_numpy_fmax(
+                        generator,
+                        ctx,
+                        (x1_ty, x1_val),
+                        (x2_ty, x2_val),
+                    )?))
+                })))),
+                loc: None,
+            }))
+        },
+        {
+            let x1_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let x2_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let param_ty = &[(x1_ty.0, "x1"), (x2_ty.0, "x2")];
+            let ret_ty = unifier.get_fresh_var(None, None);
 
-                Ok(Some(builtin_fns::call_numpy_hypot(
-                    ctx,
-                    (x1_ty, x1_val),
-                    (x2_ty, x2_val),
-                ).into()))
-            }),
-        ),
-        create_fn_by_codegen(
-            unifier,
-            &var_map,
-            "np_nextafter",
-            float,
-            &[(float, "x1"), (float, "x2")],
-            Box::new(|ctx, _, fun, args, generator| {
-                let x1_ty = fun.0.args[0].ty;
-                let x1_val = args[0].1.clone()
-                    .to_basic_value_enum(ctx, generator, x1_ty)?
-                    .into_float_value();
-                let x2_ty = fun.0.args[1].ty;
-                let x2_val = args[1].1.clone()
-                    .to_basic_value_enum(ctx, generator, x2_ty)?
-                    .into_float_value();
+            Arc::new(RwLock::new(TopLevelDef::Function {
+                name: "np_fmin".into(),
+                simple_name: "np_fmin".into(),
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: param_ty.iter().map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                    }).collect(),
+                    ret: ret_ty.0,
+                    vars: [
+                        (x1_ty.1, x1_ty.0),
+                        (x2_ty.1, x2_ty.0),
+                        (ret_ty.1, ret_ty.0),
+                    ].into_iter().collect(),
+                })),
+                var_id: vec![x1_ty.1, x2_ty.1],
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x1_val = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x2_val = args[1].1.clone()
+                        .to_basic_value_enum(ctx, generator, x2_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_nextafter(
-                    ctx,
-                    (x1_ty, x1_val),
-                    (x2_ty, x2_val),
-                ).into()))
-            }),
-        ),
+                    Ok(Some(builtin_fns::call_numpy_fmin(
+                        generator,
+                        ctx,
+                        (x1_ty, x1_val),
+                        (x2_ty, x2_val),
+                    )?))
+                })))),
+                loc: None,
+            }))
+        },
+        {
+            let x1_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let x2_ty = new_type_or_ndarray_ty(unifier, primitives, int32);
+            let param_ty = &[(x1_ty.0, "x1"), (x2_ty.0, "x2")];
+            let ret_ty = unifier.get_fresh_var(None, None);
+
+            Arc::new(RwLock::new(TopLevelDef::Function {
+                name: "np_ldexp".into(),
+                simple_name: "np_ldexp".into(),
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: param_ty.iter().map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                    }).collect(),
+                    ret: ret_ty.0,
+                    vars: [
+                        (x1_ty.1, x1_ty.0),
+                        (x2_ty.1, x2_ty.0),
+                        (ret_ty.1, ret_ty.0),
+                    ].into_iter().collect(),
+                })),
+                var_id: vec![x1_ty.1, x2_ty.1],
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x1_val = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x2_val = args[1].1.clone()
+                        .to_basic_value_enum(ctx, generator, x2_ty)?;
+
+                    Ok(Some(builtin_fns::call_numpy_ldexp(
+                        generator,
+                        ctx,
+                        (x1_ty, x1_val),
+                        (x2_ty, x2_val),
+                    )?))
+                })))),
+                loc: None,
+            }))
+        },
+        {
+            let x1_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let x2_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let param_ty = &[(x1_ty.0, "x1"), (x2_ty.0, "x2")];
+            let ret_ty = unifier.get_fresh_var(None, None);
+
+            Arc::new(RwLock::new(TopLevelDef::Function {
+                name: "np_hypot".into(),
+                simple_name: "np_hypot".into(),
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: param_ty.iter().map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                    }).collect(),
+                    ret: ret_ty.0,
+                    vars: [
+                        (x1_ty.1, x1_ty.0),
+                        (x2_ty.1, x2_ty.0),
+                        (ret_ty.1, ret_ty.0),
+                    ].into_iter().collect(),
+                })),
+                var_id: vec![x1_ty.1, x2_ty.1],
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x1_val = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x2_val = args[1].1.clone()
+                        .to_basic_value_enum(ctx, generator, x2_ty)?;
+
+                    Ok(Some(builtin_fns::call_numpy_hypot(
+                        generator,
+                        ctx,
+                        (x1_ty, x1_val),
+                        (x2_ty, x2_val),
+                    )?))
+                })))),
+                loc: None,
+            }))
+        },
+        {
+            let x1_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let x2_ty = new_type_or_ndarray_ty(unifier, primitives, float);
+            let param_ty = &[(x1_ty.0, "x1"), (x2_ty.0, "x2")];
+            let ret_ty = unifier.get_fresh_var(None, None);
+
+            Arc::new(RwLock::new(TopLevelDef::Function {
+                name: "np_nextafter".into(),
+                simple_name: "np_nextafter".into(),
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: param_ty.iter().map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                    }).collect(),
+                    ret: ret_ty.0,
+                    vars: [
+                        (x1_ty.1, x1_ty.0),
+                        (x2_ty.1, x2_ty.0),
+                        (ret_ty.1, ret_ty.0),
+                    ].into_iter().collect(),
+                })),
+                var_id: vec![x1_ty.1, x2_ty.1],
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x1_val = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x2_val = args[1].1.clone()
+                        .to_basic_value_enum(ctx, generator, x2_ty)?;
+
+                    Ok(Some(builtin_fns::call_numpy_nextafter(
+                        generator,
+                        ctx,
+                        (x1_ty, x1_val),
+                        (x2_ty, x2_val),
+                    )?))
+                })))),
+                loc: None,
+            }))
+        },
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "Some".into(),
             simple_name: "Some".into(),

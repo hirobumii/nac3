@@ -58,11 +58,38 @@ class _NDArrayDummy(Generic[T, N]):
 # https://stackoverflow.com/questions/67803260/how-to-create-a-type-alias-with-a-throw-away-generic
 NDArray = Union[npt.NDArray[T], _NDArrayDummy[T, N]]
 
-def round_away_zero(x):
-    if x >= 0.0:
-        return math.floor(x + 0.5)
+def _bool(x):
+    if isinstance(x, np.ndarray):
+        return np.bool_(x)
     else:
-        return math.ceil(x - 0.5)
+        return bool(x)
+
+def _float(x):
+    if isinstance(x, np.ndarray):
+        return np.float_(x)
+    else:
+        return float(x)
+
+def round_away_zero(x):
+    if isinstance(x, np.ndarray):
+        return np.vectorize(round_away_zero)(x)
+    else:
+        if x >= 0.0:
+            return math.floor(x + 0.5)
+        else:
+            return math.ceil(x - 0.5)
+
+def _floor(x):
+    if isinstance(x, np.ndarray):
+        return np.vectorize(_floor)(x)
+    else:
+        return math.floor(x)
+
+def _ceil(x):
+    if isinstance(x, np.ndarray):
+        return np.vectorize(_ceil)(x)
+    else:
+        return math.ceil(x)
 
 def patch(module):
     def dbl_nan():
@@ -112,6 +139,8 @@ def patch(module):
     module.int64 = int64
     module.uint32 = uint32
     module.uint64 = uint64
+    module.bool = _bool
+    module.float = _float
     module.TypeVar = TypeVar
     module.ConstGeneric = ConstGeneric
     module.Generic = Generic
@@ -125,11 +154,11 @@ def patch(module):
     module.round = round_away_zero
     module.round64 = round_away_zero
     module.np_round = np.round
-    module.floor = math.floor
-    module.floor64 = math.floor
+    module.floor = _floor
+    module.floor64 = _floor
     module.np_floor = np.floor
-    module.ceil = math.ceil
-    module.ceil64 = math.ceil
+    module.ceil = _ceil
+    module.ceil64 = _ceil
     module.np_ceil = np.ceil
 
     # NumPy ndarray functions

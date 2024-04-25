@@ -451,8 +451,6 @@ fn ndarray_broadcast_fill<'ctx, 'a, G, ValueFn>(
                 }
             };
 
-            debug_assert_eq!(lhs_elem.get_type(), rhs_elem.get_type());
-
             value_fn(generator, ctx, (lhs_elem, rhs_elem))
         },
     )?;
