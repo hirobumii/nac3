@@ -316,15 +316,15 @@ fn ndarray_fill_flattened<'ctx, 'a, G, ValueFn>(
 
 /// Generates LLVM IR for populating the entire `NDArray` using a lambda with the dimension-indices
 /// as its input.
-fn ndarray_fill_indexed<'ctx, G, ValueFn>(
+fn ndarray_fill_indexed<'ctx, 'a, G, ValueFn>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
     ndarray: NDArrayValue<'ctx>,
     value_fn: ValueFn,
 ) -> Result<(), String>
     where
         G: CodeGenerator + ?Sized,
-        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, &TypedArrayLikeAdapter<'ctx, IntValue<'ctx>>) -> Result<BasicValueEnum<'ctx>, String>,
+        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>, &TypedArrayLikeAdapter<'ctx, IntValue<'ctx>>) -> Result<BasicValueEnum<'ctx>, String>,
 {
     ndarray_fill_flattened(
         generator,
@@ -343,16 +343,16 @@ fn ndarray_fill_indexed<'ctx, G, ValueFn>(
     )
 }
 
-fn ndarray_fill_mapping<'ctx, G, MapFn>(
+fn ndarray_fill_mapping<'ctx, 'a, G, MapFn>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
     src: NDArrayValue<'ctx>,
     dest: NDArrayValue<'ctx>,
     map_fn: MapFn,
 ) -> Result<(), String>
     where
         G: CodeGenerator + ?Sized,
-        MapFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, BasicValueEnum<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
+        MapFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>, BasicValueEnum<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
 {
     ndarray_fill_flattened(
         generator,
@@ -391,9 +391,9 @@ fn ndarray_assert_is_broadcastable<'ctx, G: CodeGenerator + ?Sized>(
 
 /// Generates the LLVM IR for populating the entire `NDArray` from two `ndarray` or scalar value
 /// with broadcast-compatible shapes.
-fn ndarray_broadcast_fill<'ctx, G, ValueFn>(
+fn ndarray_broadcast_fill<'ctx, 'a, G, ValueFn>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
     res: NDArrayValue<'ctx>,
     lhs: (BasicValueEnum<'ctx>, bool),
     rhs: (BasicValueEnum<'ctx>, bool),
@@ -401,7 +401,7 @@ fn ndarray_broadcast_fill<'ctx, G, ValueFn>(
 ) -> Result<NDArrayValue<'ctx>, String>
     where
         G: CodeGenerator + ?Sized,
-        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, (BasicValueEnum<'ctx>, BasicValueEnum<'ctx>)) -> Result<BasicValueEnum<'ctx>, String>,
+        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>, (BasicValueEnum<'ctx>, BasicValueEnum<'ctx>)) -> Result<BasicValueEnum<'ctx>, String>,
 {
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
@@ -684,17 +684,17 @@ fn ndarray_copy_impl<'ctx, G: CodeGenerator + ?Sized>(
     Ok(ndarray)
 }
 
-pub fn ndarray_elementwise_unaryop_impl<'ctx, G, MapFn>(
+pub fn ndarray_elementwise_unaryop_impl<'ctx, 'a, G, MapFn>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
     res: Option<NDArrayValue<'ctx>>,
     operand: NDArrayValue<'ctx>,
     map_fn: MapFn,
 ) -> Result<NDArrayValue<'ctx>, String>
     where
-        G: CodeGenerator,
-        MapFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, BasicValueEnum<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
+        G: CodeGenerator + ?Sized,
+        MapFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>, BasicValueEnum<'ctx>) -> Result<BasicValueEnum<'ctx>, String>,
 {
     let res = res.unwrap_or_else(|| {
         create_ndarray_dyn_shape(
@@ -745,9 +745,9 @@ pub fn ndarray_elementwise_unaryop_impl<'ctx, G, MapFn>(
 /// # Panic
 ///
 /// This function will panic if neither input operands (`lhs` or `rhs`) is a `ndarray`.
-pub fn ndarray_elementwise_binop_impl<'ctx, G, ValueFn>(
+pub fn ndarray_elementwise_binop_impl<'ctx, 'a, G, ValueFn>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
     elem_ty: Type,
     res: Option<NDArrayValue<'ctx>>,
     lhs: (BasicValueEnum<'ctx>, bool),
@@ -755,8 +755,8 @@ pub fn ndarray_elementwise_binop_impl<'ctx, G, ValueFn>(
     value_fn: ValueFn,
 ) -> Result<NDArrayValue<'ctx>, String>
     where
-        G: CodeGenerator,
-        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, '_>, (BasicValueEnum<'ctx>, BasicValueEnum<'ctx>)) -> Result<BasicValueEnum<'ctx>, String>,
+        G: CodeGenerator + ?Sized,
+        ValueFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>, (BasicValueEnum<'ctx>, BasicValueEnum<'ctx>)) -> Result<BasicValueEnum<'ctx>, String>,
 {
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
