@@ -103,7 +103,7 @@ pub fn get_exn_constructor(
 /// [parameter type][Type] and the parameter symbol name.
 /// * `codegen_callback`: A lambda generating LLVM IR for the implementation of this function.
 fn create_fn_by_codegen(
-    primitives: &mut (PrimitiveStore, Unifier),
+    unifier: &mut Unifier,
     var_map: &VarMap,
     name: &'static str,
     ret_ty: Type,
@@ -113,7 +113,7 @@ fn create_fn_by_codegen(
     Arc::new(RwLock::new(TopLevelDef::Function {
         name: name.into(),
         simple_name: name.into(),
-        signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+        signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: param_ty.iter().map(|p| FuncArg {
                 name: p.1.into(),
                 ty: p.0,
@@ -139,7 +139,7 @@ fn create_fn_by_codegen(
 /// [parameter type][Type] and the parameter symbol name.
 /// * `intrinsic_fn`: The fully-qualified name of the LLVM intrinsic function.
 fn create_fn_by_intrinsic(
-    primitives: &mut (PrimitiveStore, Unifier),
+    unifier: &mut Unifier,
     var_map: &VarMap,
     name: &'static str,
     ret_ty: Type,
@@ -151,7 +151,7 @@ fn create_fn_by_intrinsic(
         .collect_vec();
 
     create_fn_by_codegen(
-        primitives,
+        unifier,
         var_map,
         name,
         ret_ty,
@@ -203,7 +203,7 @@ fn create_fn_by_intrinsic(
 /// * `attrs`: The list of attributes to apply to this function declaration. Note that `nounwind` is
 /// already implied by the C ABI.
 fn create_fn_by_extern(
-    primitives: &mut (PrimitiveStore, Unifier),
+    unifier: &mut Unifier,
     var_map: &VarMap,
     name: &'static str,
     ret_ty: Type,
@@ -216,7 +216,7 @@ fn create_fn_by_extern(
         .collect_vec();
 
     create_fn_by_codegen(
-        primitives,
+        unifier,
         var_map,
         name,
         ret_ty,
@@ -269,32 +269,36 @@ fn create_fn_by_extern(
     )
 }
 
-pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
-    let int32 = primitives.0.int32;
-    let int64 = primitives.0.int64;
-    let uint32 = primitives.0.uint32;
-    let uint64 = primitives.0.uint64;
-    let float = primitives.0.float;
-    let boolean = primitives.0.bool;
-    let range = primitives.0.range;
-    let string = primitives.0.str;
-    let ndarray = primitives.0.ndarray;
-    let ndarray_float = make_ndarray_ty(&mut primitives.1, &primitives.0, Some(float), None);
+pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> BuiltinInfo {
+    let PrimitiveStore {
+        int32,
+        int64,
+        uint32,
+        uint64,
+        float,
+        bool: boolean,
+        range,
+        str: string,
+        ndarray,
+        ..
+    } = *primitives;
+
+    let ndarray_float = make_ndarray_ty(unifier, &primitives, Some(float), None);
     let ndarray_float_2d = {
-        let value = match primitives.0.size_t {
+        let value = match primitives.size_t {
             64 => SymbolValue::U64(2u64),
             32 => SymbolValue::U32(2u32),
             _ => unreachable!(),
         };
-        let ndims = primitives.1.add_ty(TypeEnum::TLiteral {
+        let ndims = unifier.add_ty(TypeEnum::TLiteral {
             values: vec![value],
             loc: None,
         });
 
-        make_ndarray_ty(&mut primitives.1, &primitives.0, Some(float), Some(ndims))
+        make_ndarray_ty(unifier, &primitives, Some(float), Some(ndims))
     };
-    let list_int32 = primitives.1.add_ty(TypeEnum::TList { ty: int32 });
-    let num_ty = primitives.1.get_fresh_var_with_range(
+    let list_int32 = unifier.add_ty(TypeEnum::TList { ty: int32 });
+    let num_ty = unifier.get_fresh_var_with_range(
         &[int32, int64, float, boolean, uint32, uint64],
         Some("N".into()),
         None,
@@ -317,7 +321,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
     // and they are methods under the same class `Option`
     let (is_some_ty, unwrap_ty, (option_ty_var, option_ty_var_id)) =
         if let TypeEnum::TObj { fields, params, .. } =
-            primitives.1.get_ty(primitives.0.option).as_ref()
+            unifier.get_ty(primitives.option).as_ref()
         {
             (
                 *fields.get(&"is_some".into()).unwrap(),
@@ -332,7 +336,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         fields: ndarray_fields,
         params: ndarray_params,
         ..
-    } = &*primitives.1.get_ty(primitives.0.ndarray) else {
+    } = &*unifier.get_ty(primitives.ndarray) else {
         unreachable!()
     };
 
@@ -566,7 +570,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "int32".into(),
             simple_name: "int32".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
                 ret: int32,
                 vars: var_map.clone(),
@@ -641,7 +645,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "int64".into(),
             simple_name: "int64".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
                 ret: int64,
                 vars: var_map.clone(),
@@ -715,7 +719,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "uint32".into(),
             simple_name: "uint32".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
                 ret: uint32,
                 vars: var_map.clone(),
@@ -804,7 +808,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "uint64".into(),
             simple_name: "uint64".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
                 ret: uint64,
                 vars: var_map.clone(),
@@ -879,7 +883,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "float".into(),
             simple_name: "float".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
                 ret: float,
                 vars: var_map.clone(),
@@ -931,7 +935,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             loc: None,
         })),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "np_ndarray",
             ndarray_float,
@@ -944,7 +948,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "np_empty",
             ndarray_float,
@@ -957,7 +961,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "np_zeros",
             ndarray_float,
@@ -970,7 +974,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "np_ones",
             ndarray_float,
@@ -983,10 +987,10 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         {
-            let tv = primitives.1.get_fresh_var(Some("T".into()), None).0;
+            let tv = unifier.get_fresh_var(Some("T".into()), None).0;
 
             create_fn_by_codegen(
-                primitives,
+                unifier,
                 &var_map,
                 "np_full",
                 ndarray,
@@ -1002,7 +1006,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "np_eye".into(),
             simple_name: "np_eye".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
                     FuncArg { name: "N".into(), ty: int32, default_value: None },
                     // TODO(Derppening): Default values current do not work?
@@ -1029,7 +1033,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             loc: None,
         })),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "np_identity",
             ndarray_float_2d,
@@ -1040,7 +1044,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "round",
             int32,
@@ -1060,7 +1064,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "round64",
             int64,
@@ -1080,7 +1084,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "np_round",
             float,
@@ -1098,7 +1102,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "range".into(),
             simple_name: "range".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
                     FuncArg { name: "start".into(), ty: int32, default_value: None },
                     FuncArg {
@@ -1203,7 +1207,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "str".into(),
             simple_name: "str".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "s".into(), ty: string, default_value: None }],
                 ret: string,
                 vars: VarMap::default(),
@@ -1223,9 +1227,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "bool".into(),
             simple_name: "bool".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
-                ret: primitives.0.bool,
+                ret: primitives.bool,
                 vars: var_map.clone(),
             })),
             var_id: Vec::default(),
@@ -1287,7 +1291,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             loc: None,
         })),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "floor",
             int32,
@@ -1307,7 +1311,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "floor64",
             int64,
@@ -1327,7 +1331,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "np_floor",
             float,
@@ -1342,7 +1346,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "ceil",
             int32,
@@ -1362,7 +1366,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "ceil64",
             int64,
@@ -1382,7 +1386,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "np_ceil",
             float,
@@ -1397,25 +1401,25 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         Arc::new(RwLock::new({
-            let tvar = primitives.1.get_fresh_var(Some("L".into()), None);
-            let list = primitives.1.add_ty(TypeEnum::TList { ty: tvar.0 });
-            let ndims = primitives.1.get_fresh_const_generic_var(primitives.0.uint64, Some("N".into()), None);
+            let tvar = unifier.get_fresh_var(Some("L".into()), None);
+            let list = unifier.add_ty(TypeEnum::TList { ty: tvar.0 });
+            let ndims = unifier.get_fresh_const_generic_var(primitives.uint64, Some("N".into()), None);
             let ndarray = make_ndarray_ty(
-                &mut primitives.1,
-                &primitives.0,
+                unifier,
+                primitives,
                 Some(tvar.0),
                 Some(ndims.0),
             );
 
-            let arg_ty = primitives.1.get_fresh_var_with_range(
-                &[list, ndarray, primitives.0.range],
+            let arg_ty = unifier.get_fresh_var_with_range(
+                &[list, ndarray, primitives.range],
                 Some("I".into()),
                 None,
             );
             TopLevelDef::Function {
                 name: "len".into(),
                 simple_name: "len".into(),
-                signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                     args: vec![FuncArg { name: "ls".into(), ty: arg_ty.0, default_value: None }],
                     ret: int32,
                     vars: vec![(tvar.1, tvar.0), (arg_ty.1, arg_ty.0)]
@@ -1512,7 +1516,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "min".into(),
             simple_name: "min".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
                     FuncArg { name: "m".into(), ty: num_ty.0, default_value: None },
                     FuncArg { name: "n".into(), ty: num_ty.0, default_value: None },
@@ -1572,7 +1576,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "max".into(),
             simple_name: "max".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
                     FuncArg { name: "m".into(), ty: num_ty.0, default_value: None },
                     FuncArg { name: "n".into(), ty: num_ty.0, default_value: None },
@@ -1632,7 +1636,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "abs".into(),
             simple_name: "abs".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "n".into(), ty: num_ty.0, default_value: None }],
                 ret: num_ty.0,
                 vars: var_map.clone(),
@@ -1677,7 +1681,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             loc: None,
         })),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "np_isnan",
             boolean,
@@ -1697,7 +1701,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "np_isinf",
             boolean,
@@ -1717,7 +1721,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_sin",
             float,
@@ -1725,7 +1729,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.sin.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_cos",
             float,
@@ -1733,7 +1737,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.cos.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_exp",
             float,
@@ -1741,7 +1745,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.exp.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_exp2",
             float,
@@ -1749,7 +1753,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.exp2.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_log",
             float,
@@ -1757,7 +1761,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.log.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_log10",
             float,
@@ -1765,7 +1769,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.log10.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_log2",
             float,
@@ -1773,7 +1777,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.log2.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_fabs",
             float,
@@ -1781,7 +1785,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.fabs.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_sqrt",
             float,
@@ -1789,7 +1793,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.sqrt.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_rint",
             float,
@@ -1797,7 +1801,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.roundeven.f64",
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_tan",
             float,
@@ -1806,7 +1810,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_arcsin",
             float,
@@ -1815,7 +1819,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_arccos",
             float,
@@ -1824,7 +1828,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_arctan",
             float,
@@ -1833,7 +1837,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_sinh",
             float,
@@ -1842,7 +1846,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_cosh",
             float,
@@ -1851,7 +1855,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_tanh",
             float,
@@ -1860,7 +1864,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_arcsinh",
             float,
@@ -1869,7 +1873,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_arccosh",
             float,
@@ -1878,7 +1882,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_arctanh",
             float,
@@ -1887,7 +1891,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_expm1",
             float,
@@ -1896,7 +1900,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_cbrt",
             float,
@@ -1905,7 +1909,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &["readnone", "willreturn"],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "sp_spec_erf",
             float,
@@ -1914,7 +1918,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "sp_spec_erfc",
             float,
@@ -1923,7 +1927,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "sp_spec_gamma",
             float,
@@ -1941,7 +1945,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }
         )),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "sp_spec_gammaln",
             float,
@@ -1959,7 +1963,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_codegen(
-            primitives,
+            unifier,
             &var_map,
             "sp_spec_j0",
             float,
@@ -1977,7 +1981,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             }),
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "sp_spec_j1",
             float,
@@ -1987,7 +1991,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         ),
         // Not mapped: jv/yv, libm only supports integer orders.
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_arctan2",
             float,
@@ -1996,7 +2000,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_copysign",
             float,
@@ -2004,7 +2008,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.copysign.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_fmax",
             float,
@@ -2012,7 +2016,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.maxnum.f64",
         ),
         create_fn_by_intrinsic(
-            primitives,
+            unifier,
             &var_map,
             "np_fmin",
             float,
@@ -2020,7 +2024,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             "llvm.minnum.f64",
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_ldexp",
             float,
@@ -2029,7 +2033,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_hypot",
             float,
@@ -2038,7 +2042,7 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
             &[],
         ),
         create_fn_by_extern(
-            primitives,
+            unifier,
             &var_map,
             "np_nextafter",
             float,
@@ -2049,9 +2053,9 @@ pub fn get_builtins(primitives: &mut (PrimitiveStore, Unifier)) -> BuiltinInfo {
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "Some".into(),
             simple_name: "Some".into(),
-            signature: primitives.1.add_ty(TypeEnum::TFunc(FunSignature {
+            signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "n".into(), ty: option_ty_var, default_value: None }],
-                ret: primitives.0.option,
+                ret: primitives.option,
                 vars: VarMap::from([(option_ty_var_id, option_ty_var)]),
             })),
             var_id: vec![option_ty_var_id],

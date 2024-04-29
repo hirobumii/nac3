@@ -53,10 +53,8 @@ impl TopLevelComposer {
         core_config: ComposerConfig,
         size_t: u32,
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
-        let mut primitives = Self::make_primitives(size_t);
-        let mut definition_ast_list = builtins::get_builtins(&mut primitives);
-        let primitives_ty = primitives.0;
-        let mut unifier = primitives.1;
+        let (primitives_ty, mut unifier) = Self::make_primitives(size_t);
+        let mut definition_ast_list = builtins::get_builtins(&mut unifier, &primitives_ty);
         let mut keyword_list: HashSet<StrRef> = HashSet::from_iter(vec![
             "Generic".into(),
             "virtual".into(),
