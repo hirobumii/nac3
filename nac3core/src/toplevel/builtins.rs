@@ -1,4 +1,14 @@
-use super::*;
+use std::iter::once;
+
+use indexmap::IndexMap;
+use inkwell::{
+    attributes::{Attribute, AttributeLoc},
+    IntPredicate,
+    types::{BasicMetadataTypeEnum, BasicType},
+    values::{BasicMetadataValueEnum, BasicValue, CallSiteValue}
+};
+use itertools::Either;
+
 use crate::{
     codegen::{
         builtin_fns,
@@ -15,13 +25,8 @@ use crate::{
     },
     typecheck::typedef::VarMap,
 };
-use inkwell::{
-    attributes::{Attribute, AttributeLoc},
-    types::{BasicType, BasicMetadataTypeEnum},
-    values::{BasicValue, BasicMetadataValueEnum, CallSiteValue},
-    IntPredicate
-};
-use itertools::Either;
+
+use super::*;
 
 type BuiltinInfo = Vec<(Arc<RwLock<TopLevelDef>>, Option<Stmt>)>;
 
@@ -1378,6 +1383,28 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             )))),
             loc: None,
         })),
+        {
+            let ret_ty = unifier.get_fresh_var(Some("R".into()), None);
+            let var_map = num_or_ndarray_var_map.clone()
+                .into_iter()
+                .chain(once((ret_ty.1, ret_ty.0)))
+                .collect::<IndexMap<_, _>>();
+
+            create_fn_by_codegen(
+                unifier,
+                &var_map,
+                "np_min",
+                ret_ty.0,
+                &[(float_or_ndarray_ty.0, "a")],
+                Box::new(|ctx, _, fun, args, generator| {
+                    let a_ty = fun.0.args[0].ty;
+                    let a = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, a_ty)?;
+
+                    Ok(Some(builtin_fns::call_numpy_min(generator, ctx, (a_ty, a))?))
+                }),
+            )
+        },
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "max".into(),
             simple_name: "max".into(),
@@ -1405,6 +1432,28 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             )))),
             loc: None,
         })),
+        {
+            let ret_ty = unifier.get_fresh_var(Some("R".into()), None);
+            let var_map = num_or_ndarray_var_map.clone()
+                .into_iter()
+                .chain(once((ret_ty.1, ret_ty.0)))
+                .collect::<IndexMap<_, _>>();
+
+            create_fn_by_codegen(
+                unifier,
+                &var_map,
+                "np_max",
+                ret_ty.0,
+                &[(float_or_ndarray_ty.0, "a")],
+                Box::new(|ctx, _, fun, args, generator| {
+                    let a_ty = fun.0.args[0].ty;
+                    let a = args[0].1.clone()
+                        .to_basic_value_enum(ctx, generator, a_ty)?;
+
+                    Ok(Some(builtin_fns::call_numpy_max(generator, ctx, (a_ty, a))?))
+                }),
+            )
+        },
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "abs".into(),
             simple_name: "abs".into(),

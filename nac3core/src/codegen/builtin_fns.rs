@@ -1,11 +1,12 @@
-use inkwell::{FloatPredicate, IntPredicate};
+use inkwell::{FloatPredicate, IntPredicate, OptimizationLevel};
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 use itertools::Itertools;
 
 use crate::codegen::{CodeGenContext, CodeGenerator, extern_fns, irrt, llvm_intrinsics, numpy};
-use crate::codegen::classes::NDArrayValue;
+use crate::codegen::classes::{NDArrayValue, UntypedArrayLikeAccessor};
 use crate::codegen::numpy::ndarray_elementwise_unaryop_impl;
+use crate::codegen::stmt::gen_for_callback_incrementing;
 use crate::toplevel::helper::PRIMITIVE_DEF_IDS;
 use crate::toplevel::numpy::unpack_ndarray_var_tys;
 use crate::typecheck::typedef::Type;
@@ -705,6 +706,92 @@ pub fn call_min<'ctx>(
     }
 }
 
+/// Invokes the `np_min` builtin function.
+pub fn call_numpy_min<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    a: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_min";
+
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    let (a_ty, a) = a;
+
+    Ok(match a {
+        BasicValueEnum::IntValue(_) | BasicValueEnum::FloatValue(_) => {
+            debug_assert!([
+                ctx.primitives.bool,
+                ctx.primitives.int32,
+                ctx.primitives.uint32,
+                ctx.primitives.int64,
+                ctx.primitives.uint64,
+                ctx.primitives.float,
+            ].iter().any(|ty| ctx.unifier.unioned(a_ty, *ty)));
+
+            a
+        }
+
+        BasicValueEnum::PointerValue(n) if a_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) => {
+            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, a_ty);
+            let llvm_ndarray_ty = ctx.get_llvm_type(generator, elem_ty);
+
+            let n = NDArrayValue::from_ptr_val(n, llvm_usize, None);
+            let n_sz = irrt::call_ndarray_calc_size(generator, ctx, &n.dim_sizes());
+            if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+                let n_sz_eqz = ctx.builder
+                    .build_int_compare(
+                        IntPredicate::NE,
+                        n_sz,
+                        n_sz.get_type().const_zero(),
+                        "",
+                    )
+                    .unwrap();
+
+                ctx.make_assert(
+                    generator,
+                    n_sz_eqz,
+                    "0:ValueError",
+                    "zero-size array to reduction operation minimum which has no identity",
+                    [None, None, None],
+                    ctx.current_loc,
+                );
+            }
+
+            let accumulator_addr = generator.gen_var_alloc(ctx, llvm_ndarray_ty, None)?;
+            unsafe {
+                let identity = n.data()
+                    .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None);
+                ctx.builder.build_store(accumulator_addr, identity).unwrap();
+            }
+
+            gen_for_callback_incrementing(
+                generator,
+                ctx,
+                llvm_usize.const_int(1, false),
+                (n_sz, false),
+                |generator, ctx, idx| {
+                    let elem = unsafe {
+                        n.data().get_unchecked(ctx, generator, &idx, None) 
+                    };
+
+                    let accumulator = ctx.builder.build_load(accumulator_addr, "").unwrap();
+                    let result = call_min(ctx, (elem_ty, accumulator), (elem_ty, elem));
+                    ctx.builder.build_store(accumulator_addr, result).unwrap();
+
+                    Ok(())
+                },
+                llvm_usize.const_int(1, false),
+            )?;
+
+            let accumulator = ctx.builder.build_load(accumulator_addr, "").unwrap();
+            accumulator
+        }
+
+        _ => unsupported_type(ctx, FN_NAME, &[a_ty])
+    })
+}
+
 /// Invokes the `max` builtin function.
 pub fn call_max<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -750,6 +837,92 @@ pub fn call_max<'ctx>(
 
         _ => unsupported_type(ctx, FN_NAME, &[m_ty, n_ty])
     }
+}
+
+/// Invokes the `np_max` builtin function.
+pub fn call_numpy_max<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    a: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_max";
+
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    let (a_ty, a) = a;
+
+    Ok(match a {
+        BasicValueEnum::IntValue(_) | BasicValueEnum::FloatValue(_) => {
+            debug_assert!([
+                ctx.primitives.bool,
+                ctx.primitives.int32,
+                ctx.primitives.uint32,
+                ctx.primitives.int64,
+                ctx.primitives.uint64,
+                ctx.primitives.float,
+            ].iter().any(|ty| ctx.unifier.unioned(a_ty, *ty)));
+
+            a
+        }
+
+        BasicValueEnum::PointerValue(n) if a_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) => {
+            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, a_ty);
+            let llvm_ndarray_ty = ctx.get_llvm_type(generator, elem_ty);
+
+            let n = NDArrayValue::from_ptr_val(n, llvm_usize, None);
+            let n_sz = irrt::call_ndarray_calc_size(generator, ctx, &n.dim_sizes());
+            if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+                let n_sz_eqz = ctx.builder
+                    .build_int_compare(
+                        IntPredicate::NE,
+                        n_sz,
+                        n_sz.get_type().const_zero(),
+                        "",
+                    )
+                    .unwrap();
+
+                ctx.make_assert(
+                    generator,
+                    n_sz_eqz,
+                    "0:ValueError",
+                    "zero-size array to reduction operation minimum which has no identity",
+                    [None, None, None],
+                    ctx.current_loc,
+                );
+            }
+
+            let accumulator_addr = generator.gen_var_alloc(ctx, llvm_ndarray_ty, None)?;
+            unsafe {
+                let identity = n.data()
+                    .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None);
+                ctx.builder.build_store(accumulator_addr, identity).unwrap();
+            }
+
+            gen_for_callback_incrementing(
+                generator,
+                ctx,
+                llvm_usize.const_int(1, false),
+                (n_sz, false),
+                |generator, ctx, idx| {
+                    let elem = unsafe {
+                        n.data().get_unchecked(ctx, generator, &idx, None)
+                    };
+
+                    let accumulator = ctx.builder.build_load(accumulator_addr, "").unwrap();
+                    let result = call_max(ctx, (elem_ty, accumulator), (elem_ty, elem));
+                    ctx.builder.build_store(accumulator_addr, result).unwrap();
+
+                    Ok(())
+                },
+                llvm_usize.const_int(1, false),
+            )?;
+
+            let accumulator = ctx.builder.build_load(accumulator_addr, "").unwrap();
+            accumulator
+        }
+
+        _ => unsupported_type(ctx, FN_NAME, &[a_ty])
+    })
 }
 
 /// Invokes the `abs` builtin function.

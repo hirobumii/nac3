@@ -174,6 +174,8 @@ def patch(module):
     # NumPy Math functions
     module.np_isnan = np.isnan
     module.np_isinf = np.isinf
+    module.np_min = np.min
+    module.np_max = np.max
     module.np_sin = np.sin
     module.np_cos = np.cos
     module.np_exp = np.exp

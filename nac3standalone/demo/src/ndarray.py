@@ -759,6 +759,20 @@ def test_ndarray_ceil():
     output_ndarray_int64_2(xf64)
     output_ndarray_float_2(xff)
 
+def test_ndarray_min():
+    x = np_identity(2)
+    y = np_min(x)
+
+    output_ndarray_float_2(x)
+    output_float64(y)
+
+def test_ndarray_max():
+    x = np_identity(2)
+    y = np_max(x)
+
+    output_ndarray_float_2(x)
+    output_float64(y)
+
 def test_ndarray_abs():
     x = np_identity(2)
     y = abs(x)
@@ -1363,6 +1377,8 @@ def run() -> int32:
 
     test_ndarray_round()
     test_ndarray_floor()
+    test_ndarray_min()
+    test_ndarray_max()
     test_ndarray_abs()
     test_ndarray_isnan()
     test_ndarray_isinf()
