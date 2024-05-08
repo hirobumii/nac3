@@ -943,7 +943,7 @@ impl<'a> Inferencer<'a> {
             if !self.unifier.unioned(arg1_dtype, expected_arg1_dtype) {
                 return report_error(
                     format!(
-                        "Expected {} for second argument of {id}, got {}",
+                        "Expected broadcast-compatible type of ndarray[{}, N] for second argument of {id}, got {}",
                         self.unifier.stringify(expected_arg1_dtype),
                         self.unifier.stringify(arg1_dtype),
                     ).as_str(),
