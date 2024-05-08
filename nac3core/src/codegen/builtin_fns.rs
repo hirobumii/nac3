@@ -792,6 +792,91 @@ pub fn call_numpy_min<'ctx, G: CodeGenerator + ?Sized>(
     })
 }
 
+/// Invokes the `np_minimum` builtin function.
+pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+    x2: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_minimum";
+
+    let (x1_ty, x1) = x1;
+    let (x2_ty, x2) = x2;
+
+    let common_ty = if ctx.unifier.unioned(x1_ty, x2_ty) {
+        Some(x1_ty)
+    } else {
+        None
+    };
+
+    Ok(match (x1, x2) {
+        (BasicValueEnum::IntValue(x1), BasicValueEnum::IntValue(x2)) => {
+            debug_assert!([
+                ctx.primitives.bool,
+                ctx.primitives.int32,
+                ctx.primitives.uint32,
+                ctx.primitives.int64,
+                ctx.primitives.uint64,
+                ctx.primitives.float,
+            ].iter().any(|ty| ctx.unifier.unioned(common_ty.unwrap(), *ty)));
+
+            call_min(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))
+        }
+
+        (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
+            debug_assert!(ctx.unifier.unioned(common_ty.unwrap(), ctx.primitives.float));
+
+            call_min(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))
+        }
+
+        (x1, x2) if [&x1_ty, &x2_ty].into_iter().any(|ty| ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)) => {
+            let is_ndarray1 = x1_ty.obj_id(&ctx.unifier)
+                .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+            let is_ndarray2 = x2_ty.obj_id(&ctx.unifier)
+                .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+
+            let dtype = if is_ndarray1 && is_ndarray2 {
+                let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+                let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty);
+
+                debug_assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
+
+                ndarray_dtype1
+            } else if is_ndarray1 {
+                unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty).0
+            } else if is_ndarray2 {
+                unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
+            } else { unreachable!() };
+
+            let x1_scalar_ty = if is_ndarray1 {
+                dtype
+            } else {
+                x1_ty
+            };
+            let x2_scalar_ty = if is_ndarray2 {
+                dtype
+            } else {
+                x2_ty
+            };
+
+            numpy::ndarray_elementwise_binop_impl(
+                generator,
+                ctx,
+                dtype,
+                None,
+                (x1, !is_ndarray1),
+                (x2, !is_ndarray2),
+                |generator, ctx, (lhs, rhs)| {
+                    call_numpy_minimum(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
+                },
+            )?.as_ptr_value().into()
+        }
+
+        _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
+    })
+}
+
 /// Invokes the `max` builtin function.
 pub fn call_max<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -922,6 +1007,91 @@ pub fn call_numpy_max<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[a_ty])
+    })
+}
+
+/// Invokes the `np_maximum` builtin function.
+pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+    x2: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_maximum";
+
+    let (x1_ty, x1) = x1;
+    let (x2_ty, x2) = x2;
+
+    let common_ty = if ctx.unifier.unioned(x1_ty, x2_ty) {
+        Some(x1_ty)
+    } else {
+        None
+    };
+
+    Ok(match (x1, x2) {
+        (BasicValueEnum::IntValue(x1), BasicValueEnum::IntValue(x2)) => {
+            debug_assert!([
+                ctx.primitives.bool,
+                ctx.primitives.int32,
+                ctx.primitives.uint32,
+                ctx.primitives.int64,
+                ctx.primitives.uint64,
+                ctx.primitives.float,
+            ].iter().any(|ty| ctx.unifier.unioned(common_ty.unwrap(), *ty)));
+
+            call_max(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))
+        }
+
+        (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
+            debug_assert!(ctx.unifier.unioned(common_ty.unwrap(), ctx.primitives.float));
+
+            call_max(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))
+        }
+
+        (x1, x2) if [&x1_ty, &x2_ty].into_iter().any(|ty| ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)) => {
+            let is_ndarray1 = x1_ty.obj_id(&ctx.unifier)
+                .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+            let is_ndarray2 = x2_ty.obj_id(&ctx.unifier)
+                .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+
+            let dtype = if is_ndarray1 && is_ndarray2 {
+                let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+                let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty);
+
+                debug_assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
+
+                ndarray_dtype1
+            } else if is_ndarray1 {
+                unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty).0
+            } else if is_ndarray2 {
+                unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
+            } else { unreachable!() };
+
+            let x1_scalar_ty = if is_ndarray1 {
+                dtype
+            } else {
+                x1_ty
+            };
+            let x2_scalar_ty = if is_ndarray2 {
+                dtype
+            } else {
+                x2_ty
+            };
+
+            numpy::ndarray_elementwise_binop_impl(
+                generator,
+                ctx,
+                dtype,
+                None,
+                (x1, !is_ndarray1),
+                (x2, !is_ndarray2),
+                |generator, ctx, (lhs, rhs)| {
+                    call_numpy_maximum(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
+                },
+            )?.as_ptr_value().into()
+        }
+
+        _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
     })
 }
 

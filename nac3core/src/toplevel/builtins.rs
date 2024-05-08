@@ -1405,6 +1405,43 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                 }),
             )
         },
+        {
+            let x1_ty = new_type_or_ndarray_ty(unifier, primitives, num_ty.0);
+            let x2_ty = new_type_or_ndarray_ty(unifier, primitives, num_ty.0);
+            let param_ty = &[(x1_ty.0, "x1"), (x2_ty.0, "x2")];
+            let ret_ty = unifier.get_fresh_var(None, None);
+
+            Arc::new(RwLock::new(TopLevelDef::Function {
+                name: "np_minimum".into(),
+                simple_name: "np_minimum".into(),
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: param_ty.iter().map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                    }).collect(),
+                    ret: ret_ty.0,
+                    vars: [
+                        (x1_ty.1, x1_ty.0),
+                        (x2_ty.1, x2_ty.0),
+                        (ret_ty.1, ret_ty.0),
+                    ].into_iter().collect(),
+                })),
+                var_id: vec![x1_ty.1, x2_ty.1],
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
+            
+                    Ok(Some(builtin_fns::call_numpy_minimum(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
+                })))),
+                loc: None,
+            }))
+        },
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "max".into(),
             simple_name: "max".into(),
@@ -1453,6 +1490,43 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     Ok(Some(builtin_fns::call_numpy_max(generator, ctx, (a_ty, a))?))
                 }),
             )
+        },
+        {
+            let x1_ty = new_type_or_ndarray_ty(unifier, primitives, num_ty.0);
+            let x2_ty = new_type_or_ndarray_ty(unifier, primitives, num_ty.0);
+            let param_ty = &[(x1_ty.0, "x1"), (x2_ty.0, "x2")];
+            let ret_ty = unifier.get_fresh_var(None, None);
+
+            Arc::new(RwLock::new(TopLevelDef::Function {
+                name: "np_maximum".into(),
+                simple_name: "np_maximum".into(),
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: param_ty.iter().map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                    }).collect(),
+                    ret: ret_ty.0,
+                    vars: [
+                        (x1_ty.1, x1_ty.0),
+                        (x2_ty.1, x2_ty.0),
+                        (ret_ty.1, ret_ty.0),
+                    ].into_iter().collect(),
+                })),
+                var_id: vec![x1_ty.1, x2_ty.1],
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
+
+                    Ok(Some(builtin_fns::call_numpy_maximum(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
+                })))),
+                loc: None,
+            }))
         },
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "abs".into(),

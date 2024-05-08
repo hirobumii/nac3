@@ -951,6 +951,8 @@ impl<'a> Inferencer<'a> {
         }
 
         if [
+            "np_minimum",
+            "np_maximum",
             "np_arctan2",
             "np_copysign",
             "np_fmax",
@@ -959,8 +961,6 @@ impl<'a> Inferencer<'a> {
             "np_hypot",
             "np_nextafter",
         ].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 2 {
-            let target_ty = self.primitives.float;
-
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
             let arg1 = self.fold_expr(args.remove(0))?;
@@ -977,6 +977,7 @@ impl<'a> Inferencer<'a> {
             } else {
                 arg1_ty
             };
+
             let expected_arg1_dtype = if id == &"np_ldexp".into() {
                 self.primitives.int32
             } else {
@@ -992,6 +993,12 @@ impl<'a> Inferencer<'a> {
                     arg0.location,
                 )
             }
+
+            let target_ty = if id == &"np_minimum".into() || id == &"np_maximum".into() {
+                arg0_dtype
+            } else {
+                self.primitives.float
+            };
 
             let ret = if [
                 &arg0_ty,

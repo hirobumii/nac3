@@ -766,12 +766,84 @@ def test_ndarray_min():
     output_ndarray_float_2(x)
     output_float64(y)
 
+def test_ndarray_minimum():
+    x = np_identity(2)
+    min_x_zeros = np_minimum(x, np_zeros([2]))
+    min_x_ones = np_minimum(x, np_zeros([2]))
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(min_x_zeros)
+    output_ndarray_float_2(min_x_ones)
+
+def test_ndarray_minimum_broadcast():
+    x = np_identity(2)
+    min_x_zeros = np_minimum(x, np_zeros([2]))
+    min_x_ones = np_minimum(x, np_zeros([2]))
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(min_x_zeros)
+    output_ndarray_float_2(min_x_ones)
+
+def test_ndarray_minimum_broadcast_lhs_scalar():
+    x = np_identity(2)
+    min_x_zeros = np_minimum(0.0, x)
+    min_x_ones = np_minimum(1.0, x)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(min_x_zeros)
+    output_ndarray_float_2(min_x_ones)
+
+def test_ndarray_minimum_broadcast_rhs_scalar():
+    x = np_identity(2)
+    min_x_zeros = np_minimum(x, 0.0)
+    min_x_ones = np_minimum(x, 1.0)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(min_x_zeros)
+    output_ndarray_float_2(min_x_ones)
+
 def test_ndarray_max():
     x = np_identity(2)
     y = np_max(x)
 
     output_ndarray_float_2(x)
     output_float64(y)
+
+def test_ndarray_maximum():
+    x = np_identity(2)
+    max_x_zeros = np_maximum(x, np_zeros([2]))
+    max_x_ones = np_maximum(x, np_zeros([2]))
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(max_x_zeros)
+    output_ndarray_float_2(max_x_ones)
+
+def test_ndarray_maximum_broadcast():
+    x = np_identity(2)
+    max_x_zeros = np_maximum(x, np_zeros([2]))
+    max_x_ones = np_maximum(x, np_zeros([2]))
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(max_x_zeros)
+    output_ndarray_float_2(max_x_ones)
+
+def test_ndarray_maximum_broadcast_lhs_scalar():
+    x = np_identity(2)
+    max_x_zeros = np_maximum(0.0, x)
+    max_x_ones = np_maximum(1.0, x)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(max_x_zeros)
+    output_ndarray_float_2(max_x_ones)
+
+def test_ndarray_maximum_broadcast_rhs_scalar():
+    x = np_identity(2)
+    max_x_zeros = np_maximum(x, 0.0)
+    max_x_ones = np_maximum(x, 1.0)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(max_x_zeros)
+    output_ndarray_float_2(max_x_ones)
 
 def test_ndarray_abs():
     x = np_identity(2)
@@ -1378,7 +1450,15 @@ def run() -> int32:
     test_ndarray_round()
     test_ndarray_floor()
     test_ndarray_min()
+    test_ndarray_minimum()
+    test_ndarray_minimum_broadcast()
+    test_ndarray_minimum_broadcast_lhs_scalar()
+    test_ndarray_minimum_broadcast_rhs_scalar()
     test_ndarray_max()
+    test_ndarray_maximum()
+    test_ndarray_maximum_broadcast()
+    test_ndarray_maximum_broadcast_lhs_scalar()
+    test_ndarray_maximum_broadcast_rhs_scalar()
     test_ndarray_abs()
     test_ndarray_isnan()
     test_ndarray_isinf()
