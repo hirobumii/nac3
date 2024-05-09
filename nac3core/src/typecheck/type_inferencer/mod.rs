@@ -855,11 +855,15 @@ impl<'a> Inferencer<'a> {
             "int32",
             "float",
             "bool",
+            "round",
+            "round64",
             "np_isnan",
             "np_isinf",
         ].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 1 {
-            let target_ty = if id == &"int32".into() {
+            let target_ty = if id == &"int32".into() || id == &"round".into() || id == &"floor".into() || id == &"ceil".into() {
                 self.primitives.int32
+            } else if id == &"round64".into() || id == &"floor64".into() || id == &"ceil64".into() {
+                self.primitives.int64
             } else if id == &"float".into() {
                 self.primitives.float
             } else if id == &"bool".into() || id == &"np_isnan".into() || id == &"np_isinf".into() {
