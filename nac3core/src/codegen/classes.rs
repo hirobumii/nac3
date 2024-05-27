@@ -1122,7 +1122,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDataProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         generator: &G,
     ) -> IntValue<'ctx> {
-        call_ndarray_calc_size(generator, ctx, &self.as_slice_value(ctx, generator))
+        call_ndarray_calc_size(generator, ctx, &self.as_slice_value(ctx, generator), (None, None))
     }
 }
 

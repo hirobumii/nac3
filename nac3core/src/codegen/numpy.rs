@@ -134,6 +134,7 @@ fn create_ndarray_dyn_shape<'ctx, 'a, G, V, LenFn, DataFn>(
         generator,
         ctx,
         &ndarray.dim_sizes().as_slice_value(ctx, generator),
+        (None, None),
     );
     ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
@@ -203,6 +204,7 @@ fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
         generator,
         ctx,
         &ndarray.dim_sizes().as_slice_value(ctx, generator),
+        (None, None),
     );
     ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
@@ -293,6 +295,7 @@ fn ndarray_fill_flattened<'ctx, 'a, G, ValueFn>(
         generator,
         ctx,
         &ndarray.dim_sizes().as_slice_value(ctx, generator),
+        (None, None),
     );
 
     gen_for_callback_incrementing(
@@ -661,6 +664,7 @@ fn ndarray_copy_impl<'ctx, G: CodeGenerator + ?Sized>(
         generator,
         ctx,
         &ndarray.dim_sizes().as_slice_value(ctx, generator),
+        (None, None),
     );
     let sizeof_ty = ctx.get_llvm_type(generator, elem_ty);
     let len_bytes = ctx.builder

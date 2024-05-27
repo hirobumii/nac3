@@ -583,12 +583,14 @@ pub fn call_j0<'ctx>(
 /// Generates a call to `__nac3_ndarray_calc_size`. Returns an [`IntValue`] representing the
 /// calculated total size.
 ///
-/// * `num_dims` - An [`IntValue`] containing the number of dimensions.
-/// * `dims` - A [`PointerValue`] to an array containing the size of each dimension.
+/// * `dims` - An [`ArrayLikeIndexer`] containing the size of each dimension.
+/// * `range` - The dimension index to begin and end (exclusively) calculating the dimensions for, 
+/// or [`None`] if starting from the first dimension and ending at the last dimension respectively.
 pub fn call_ndarray_calc_size<'ctx, G, Dims>(
     generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,
     dims: &Dims,
+    (begin, end): (Option<IntValue<'ctx>>, Option<IntValue<'ctx>>),
 ) -> IntValue<'ctx>
     where
         G: CodeGenerator + ?Sized,
@@ -607,6 +609,8 @@ pub fn call_ndarray_calc_size<'ctx, G, Dims>(
         &[
             llvm_pi64.into(),
             llvm_usize.into(),
+            llvm_usize.into(),
+            llvm_usize.into(),
         ],
         false,
     );
@@ -615,12 +619,16 @@ pub fn call_ndarray_calc_size<'ctx, G, Dims>(
             ctx.module.add_function(ndarray_calc_size_fn_name, ndarray_calc_size_fn_t, None)
         });
 
+    let begin = begin.unwrap_or_else(|| llvm_usize.const_zero());
+    let end = end.unwrap_or_else(|| dims.size(ctx, generator));
     ctx.builder
         .build_call(
             ndarray_calc_size_fn,
             &[
                 dims.base_ptr(ctx, generator).into(),
                 dims.size(ctx, generator).into(),
+                begin.into(),
+                end.into(),
             ],
             "",
         )

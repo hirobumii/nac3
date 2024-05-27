@@ -1819,6 +1819,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
             generator,
             ctx,
             &ndarray.dim_sizes().as_slice_value(ctx, generator),
+            (None, None),
         );
         ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 

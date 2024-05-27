@@ -202,10 +202,14 @@ double __nac3_j0(double x) {
 
 uint32_t __nac3_ndarray_calc_size(
     const uint64_t *list_data,
-    uint32_t list_len
+    uint32_t list_len,
+    uint32_t begin_idx,
+    uint32_t end_idx
 ) {
+    __builtin_assume(end_idx <= list_len);
+
     uint32_t num_elems = 1;
-    for (uint32_t i = 0; i < list_len; ++i) {
+    for (uint32_t i = begin_idx; i < end_idx; ++i) {
         uint64_t val = list_data[i];
         __builtin_assume(val > 0);
         num_elems *= val;
@@ -215,10 +219,14 @@ uint32_t __nac3_ndarray_calc_size(
 
 uint64_t __nac3_ndarray_calc_size64(
     const uint64_t *list_data,
-    uint64_t list_len
+    uint64_t list_len,
+    uint64_t begin_idx,
+    uint64_t end_idx
 ) {
+    __builtin_assume(end_idx <= list_len);
+
     uint64_t num_elems = 1;
-    for (uint64_t i = 0; i < list_len; ++i) {
+    for (uint64_t i = begin_idx; i < end_idx; ++i) {
         uint64_t val = list_data[i];
         __builtin_assume(val > 0);
        num_elems *= val;
