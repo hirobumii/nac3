@@ -658,6 +658,17 @@ impl<'ctx> RangeValue<'ctx> {
         RangeValue(ptr, name)
     }
 
+    /// Returns the element type of this `range` object.
+    #[must_use]
+    pub fn element_type(&self) -> IntType<'ctx> {
+        self.as_ptr_value()
+            .get_type()
+            .get_element_type()
+            .into_array_type()
+            .get_element_type()
+            .into_int_type()
+    }
+
     /// Returns the underlying [`PointerValue`] pointing to the `range` instance.
     #[must_use]
     pub fn as_ptr_value(&self) -> PointerValue<'ctx> {
