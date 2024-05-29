@@ -240,10 +240,14 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 .to_basic_value_enum(ctx, generator, ls.custom.unwrap())?
                 .into_pointer_value();
             let ls = ListValue::from_ptr_val(ls, llvm_usize, None);
-            let Some((start, end, step)) =
-                handle_slice_indices(lower, upper, step, ctx, generator, ls)? else {
-                return Ok(())
-            };
+            let Some((start, end, step)) = handle_slice_indices(
+                lower,
+                upper,
+                step,
+                ctx,
+                generator,
+                ls.load_size(ctx, None),
+            )? else { return Ok(()) };
             let value = value
                 .to_basic_value_enum(ctx, generator, target.custom.unwrap())?
                 .into_pointer_value();
@@ -257,9 +261,14 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
             };
 
             let ty = ctx.get_llvm_type(generator, ty);
-            let Some(src_ind) = handle_slice_indices(&None, &None, &None, ctx, generator, value)? else {
-                return Ok(())
-            };
+            let Some(src_ind) = handle_slice_indices(
+                &None,
+                &None,
+                &None,
+                ctx,
+                generator,
+                value.load_size(ctx, None),
+            )? else { return Ok(()) };
             list_slice_assignment(generator, ctx, ty, ls, (start, end, step), value, src_ind);
         }
         _ => {

@@ -175,12 +175,11 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
     step: &Option<Box<Expr<Option<Type>>>>,
     ctx: &mut CodeGenContext<'ctx, '_>,
     generator: &mut G,
-    list: ListValue<'ctx>,
+    length: IntValue<'ctx>,
 ) -> Result<Option<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>)>, String> {
     let int32 = ctx.ctx.i32_type();
     let zero = int32.const_zero();
     let one = int32.const_int(1, false);
-    let length = list.load_size(ctx, Some("length"));
     let length = ctx.builder.build_int_truncate_or_bit_cast(length, int32, "leni32").unwrap();
     Ok(Some(match (start, end, step) {
         (s, e, None) => (

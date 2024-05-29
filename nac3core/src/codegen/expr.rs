@@ -2264,10 +2264,14 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     let ty = ctx.get_llvm_type(generator, *ty);
                     if let ExprKind::Slice { lower, upper, step } = &slice.node {
                         let one = int32.const_int(1, false);
-                        let Some((start, end, step)) =
-                            handle_slice_indices(lower, upper, step, ctx, generator, v)? else {
-                            return Ok(None)
-                        };
+                        let Some((start, end, step)) = handle_slice_indices(
+                                lower,
+                                upper,
+                                step,
+                                ctx,
+                                generator,
+                                v.load_size(ctx, None),
+                        )? else { return Ok(None) };
                         let length = calculate_len_for_slice_range(
                             generator,
                             ctx,
@@ -2289,10 +2293,14 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             step,
                         );
                         let res_array_ret = allocate_list(generator, ctx, ty, length, Some("ret"));
-                        let Some(res_ind) =
-                            handle_slice_indices(&None, &None, &None, ctx, generator, res_array_ret)? else {
-                            return Ok(None)
-                        };
+                        let Some(res_ind) = handle_slice_indices(
+                            &None,
+                            &None,
+                            &None,
+                            ctx,
+                            generator,
+                            res_array_ret.load_size(ctx, None),
+                        )? else { return Ok(None) };
                         list_slice_assignment(
                             generator,
                             ctx,
