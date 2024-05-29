@@ -671,14 +671,12 @@ pub fn gen_for_range_callback<'ctx, 'a, G, StartFn, StopFn, StepFn, BodyFn>(
 
             let start = start_fn(generator, ctx)?;
             let stop = stop_fn(generator, ctx)?;
-            let stop = if stop.get_type().get_bit_width() != start.get_type().get_bit_width() {
-                if is_unsigned {
-                    ctx.builder.build_int_z_extend(stop, start.get_type(), "").unwrap()
-                } else {
-                    ctx.builder.build_int_s_extend(stop, start.get_type(), "").unwrap()
-                }
-            } else {
+            let stop = if stop.get_type().get_bit_width() == start.get_type().get_bit_width() {
                 stop
+            } else if is_unsigned {
+                ctx.builder.build_int_z_extend(stop, start.get_type(), "").unwrap()
+            } else {
+                ctx.builder.build_int_s_extend(stop, start.get_type(), "").unwrap()
             };
 
             let incr = ctx.builder.build_int_compare(
@@ -703,14 +701,12 @@ pub fn gen_for_range_callback<'ctx, 'a, G, StartFn, StopFn, StepFn, BodyFn>(
                 .map(BasicValueEnum::into_int_value)
                 .unwrap();
             let stop = stop_fn(generator, ctx)?;
-            let stop = if stop.get_type().get_bit_width() != i.get_type().get_bit_width() {
-                if is_unsigned {
-                    ctx.builder.build_int_z_extend(stop, i.get_type(), "").unwrap()
-                } else {
-                    ctx.builder.build_int_s_extend(stop, i.get_type(), "").unwrap()
-                }
-            } else {
+            let stop = if stop.get_type().get_bit_width() == i.get_type().get_bit_width() {
                 stop
+            } else if is_unsigned {
+                ctx.builder.build_int_z_extend(stop, i.get_type(), "").unwrap()
+            } else {
+                ctx.builder.build_int_s_extend(stop, i.get_type(), "").unwrap()
             };
 
             let i_lt_end = ctx.builder
@@ -742,14 +738,12 @@ pub fn gen_for_range_callback<'ctx, 'a, G, StartFn, StopFn, StepFn, BodyFn>(
                 .unwrap();
 
             let incr_val = step_fn(generator, ctx)?;
-            let incr_val = if incr_val.get_type().get_bit_width() != i.get_type().get_bit_width() {
-                if is_unsigned {
-                    ctx.builder.build_int_z_extend(incr_val, i.get_type(), "").unwrap()
-                } else {
-                    ctx.builder.build_int_s_extend(incr_val, i.get_type(), "").unwrap()
-                }
-            } else {
+            let incr_val = if incr_val.get_type().get_bit_width() == i.get_type().get_bit_width() {
                 incr_val
+            } else if is_unsigned {
+                ctx.builder.build_int_z_extend(incr_val, i.get_type(), "").unwrap()
+            } else {
+                ctx.builder.build_int_s_extend(incr_val, i.get_type(), "").unwrap()
             };
 
             let i = ctx.builder.build_int_add(i, incr_val, "").unwrap();
