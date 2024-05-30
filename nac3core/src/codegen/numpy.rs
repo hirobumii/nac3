@@ -937,7 +937,7 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
         }
     }
 
-    if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+    if ctx.registry.codegen_options.llvm.opt_level == OptimizationLevel::None {
         let lhs_dim1 = unsafe {
             lhs.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
         };

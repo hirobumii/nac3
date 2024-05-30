@@ -14,7 +14,7 @@ use inkwell::{
     OptimizationLevel,
 };
 use itertools::Itertools;
-use nac3core::codegen::{CodeGenLLVMOptions, CodeGenTargetMachineOptions, gen_func_impl};
+use nac3core::codegen::{CodeGenLLVMOptions, CodeGenOptions, CodeGenTargetMachineOptions, gen_func_impl};
 use nac3core::toplevel::builtins::get_exn_constructor;
 use nac3core::typecheck::typedef::{TypeEnum, Unifier, VarMap};
 use nac3parser::{
@@ -113,8 +113,8 @@ struct Nac3 {
     string_store: Arc<RwLock<HashMap<String, i32>>>,
     exception_ids: Arc<RwLock<HashMap<usize, usize>>>,
     deferred_eval_store: DeferredEvaluationStore,
-    /// LLVM-related options for code generation.
-    llvm_options: CodeGenLLVMOptions,
+    /// Options for code generation.
+    codegen_options: CodeGenOptions,
 }
 
 create_exception!(nac3artiq, CompileError, exceptions::PyException);
@@ -607,7 +607,7 @@ impl Nac3 {
             let (registry, handles) = WorkerRegistry::create_workers(
                 threads,
                 top_level.clone(),
-                &self.llvm_options,
+                &self.codegen_options,
                 &f
             );
             registry.add_task(task);
@@ -674,13 +674,13 @@ impl Nac3 {
             global_option = global.get_next_global();
         }
 
-        let target_machine = self.llvm_options.target
-            .create_target_machine(self.llvm_options.opt_level)
+        let target_machine = self.codegen_options.llvm.target
+            .create_target_machine(self.codegen_options.llvm.opt_level)
             .expect("couldn't create target machine");
 
         let pass_options = PassBuilderOptions::create();
         pass_options.set_merge_functions(true);
-        let passes = format!("default<O{}>", self.llvm_options.opt_level as u32);
+        let passes = format!("default<O{}>", self.codegen_options.llvm.opt_level as u32);
         let result = main.run_passes(passes.as_str(), &target_machine, pass_options);
         if let Err(err) = result {
             panic!("Failed to run optimization for module `main`: {}", err.to_string());
@@ -733,7 +733,7 @@ impl Nac3 {
     /// target [isa].
     fn get_llvm_target_machine(&self) -> TargetMachine {
         Nac3::get_llvm_target_options(self.isa)
-            .create_target_machine(self.llvm_options.opt_level)
+            .create_target_machine(self.codegen_options.llvm.opt_level)
             .expect("couldn't create target machine")
     }
 }
@@ -908,10 +908,13 @@ impl Nac3 {
             string_store: Arc::default(),
             exception_ids: Arc::default(),
             deferred_eval_store: DeferredEvaluationStore::new(),
-            llvm_options: CodeGenLLVMOptions {
-                opt_level: OptimizationLevel::Default,
-                target: Nac3::get_llvm_target_options(isa),
-            }
+            codegen_options: CodeGenOptions {
+                use_demo_lib: false,
+                llvm: CodeGenLLVMOptions {
+                    opt_level: OptimizationLevel::Default,
+                    target: Nac3::get_llvm_target_options(isa),
+                },
+            },
         })
     }
 

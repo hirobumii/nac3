@@ -42,6 +42,7 @@ use std::thread;
 pub mod builtin_fns;
 pub mod classes;
 pub mod concrete_type;
+pub mod demo_fns;
 pub mod expr;
 pub mod extern_fns;
 mod generator;
@@ -63,6 +64,16 @@ pub struct StaticValueStore {
 }
 
 pub type VarValue<'ctx> = (PointerValue<'ctx>, Option<Arc<dyn StaticValue + Send + Sync>>, i64);
+
+/// Additional options for codegen.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CodeGenOptions {
+    /// Whether to use the demo library during codegen.
+    pub use_demo_lib: bool,
+
+    /// Options related to LLVM codegen.
+    pub llvm: CodeGenLLVMOptions,
+}
 
 /// Additional options for LLVM during codegen.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -245,8 +256,8 @@ pub struct WorkerRegistry {
     top_level_ctx: Arc<TopLevelContext>,
     static_value_store: Arc<Mutex<StaticValueStore>>,
 
-    /// LLVM-related options for code generation.
-    pub llvm_options: CodeGenLLVMOptions,
+    /// Code generation options.
+    pub codegen_options: CodeGenOptions,
 }
 
 impl WorkerRegistry {
@@ -256,7 +267,7 @@ impl WorkerRegistry {
     pub fn create_workers<G: CodeGenerator + Send + 'static>(
         generators: Vec<Box<G>>,
         top_level_ctx: Arc<TopLevelContext>,
-        llvm_options: &CodeGenLLVMOptions,
+        codegen_options: &CodeGenOptions,
         f: &Arc<WithCall>,
     ) -> (Arc<WorkerRegistry>, Vec<thread::JoinHandle<()>>) {
         let (sender, receiver) = unbounded();
@@ -277,7 +288,7 @@ impl WorkerRegistry {
             task_count,
             wait_condvar,
             top_level_ctx,
-            llvm_options: llvm_options.clone(),
+            codegen_options: codegen_options.clone(),
         });
 
         let mut handles = Vec::new();
@@ -382,11 +393,12 @@ impl WorkerRegistry {
 
         let pass_options = PassBuilderOptions::create();
         let target_machine = self
-            .llvm_options
+            .codegen_options
+            .llvm
             .target
-            .create_target_machine(self.llvm_options.opt_level)
-            .unwrap_or_else(|| panic!("could not create target machine from properties {:?}", self.llvm_options.target));
-        let passes = format!("default<O{}>", self.llvm_options.opt_level as u32);
+            .create_target_machine(self.codegen_options.llvm.opt_level)
+            .unwrap_or_else(|| panic!("could not create target machine from properties {:?}", self.codegen_options.llvm.target));
+        let passes = format!("default<O{}>", self.codegen_options.llvm.opt_level as u32);
         let result = module.run_passes(passes.as_str(), &target_machine, pass_options);
         if let Err(err) = result {
             panic!("Failed to run optimization for module `{}`: {}",
@@ -828,7 +840,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
             ),
         /* directory */ "",
         /* producer */ "NAC3",
-        /* is_optimized */ registry.llvm_options.opt_level != OptimizationLevel::None,
+        /* is_optimized */ registry.codegen_options.llvm.opt_level != OptimizationLevel::None,
         /* compiler command line flags */ "",
         /* runtime_ver */ 0,
         /* split_name */ "",
@@ -863,7 +875,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
         /* is_definition */ true,
         /* scope_line */ row as u32,
         /* flags */ inkwell::debug_info::DIFlags::PUBLIC,
-        /* is_optimized */ registry.llvm_options.opt_level != OptimizationLevel::None,
+        /* is_optimized */ registry.codegen_options.llvm.opt_level != OptimizationLevel::None,
     );
     fn_val.set_subprogram(func_scope);
 

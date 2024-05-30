@@ -738,7 +738,7 @@ pub fn call_numpy_min<'ctx, G: CodeGenerator + ?Sized>(
 
             let n = NDArrayValue::from_ptr_val(n, llvm_usize, None);
             let n_sz = irrt::call_ndarray_calc_size(generator, ctx, &n.dim_sizes());
-            if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+            if ctx.registry.codegen_options.llvm.opt_level == OptimizationLevel::None {
                 let n_sz_eqz = ctx.builder
                     .build_int_compare(
                         IntPredicate::NE,
@@ -956,7 +956,7 @@ pub fn call_numpy_max<'ctx, G: CodeGenerator + ?Sized>(
 
             let n = NDArrayValue::from_ptr_val(n, llvm_usize, None);
             let n_sz = irrt::call_ndarray_calc_size(generator, ctx, &n.dim_sizes());
-            if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+            if ctx.registry.codegen_options.llvm.opt_level == OptimizationLevel::None {
                 let n_sz_eqz = ctx.builder
                     .build_int_compare(
                         IntPredicate::NE,

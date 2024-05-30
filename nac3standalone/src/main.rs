@@ -12,7 +12,7 @@ use std::collections::HashSet;
 
 use nac3core::{
     codegen::{
-        concrete_type::ConcreteTypeStore, irrt::load_irrt, CodeGenLLVMOptions,
+        concrete_type::ConcreteTypeStore, irrt::load_irrt, CodeGenLLVMOptions, CodeGenOptions,
         CodeGenTargetMachineOptions, CodeGenTask, DefaultCodeGenerator, WithCall, WorkerRegistry,
     },
     symbol_resolver::SymbolResolver,
@@ -68,6 +68,11 @@ struct CommandLineArgs {
     /// Additional target features to enable/disable, specified using the `+`/`-` prefixes.
     #[arg(long)]
     target_features: Option<String>,
+
+    /// Enables the demo library for use in compiled executables. This requires `demo.o` to be
+    /// present when linking the executable.
+    #[arg(long, default_value_t = false)]
+    fuse_demo_lib: bool,
 }
 
 fn handle_typevar_definition(
@@ -258,6 +263,7 @@ fn main() {
         triple,
         mcpu,
         target_features,
+        fuse_demo_lib,
     } = cli;
 
     Target::initialize_all(&InitializationConfig::default());
@@ -371,14 +377,17 @@ fn main() {
         instance_to_stmt[""].clone()
     };
 
-    let llvm_options = CodeGenLLVMOptions {
-        opt_level,
-        target: CodeGenTargetMachineOptions {
-            triple,
-            cpu: mcpu,
-            features: target_features,
-            reloc_mode: RelocMode::PIC,
-            ..host_target_machine
+    let codegen_options = CodeGenOptions {
+        use_demo_lib: fuse_demo_lib,
+        llvm: CodeGenLLVMOptions {
+            opt_level,
+            target: CodeGenTargetMachineOptions {
+                triple,
+                cpu: mcpu,
+                features: target_features,
+                reloc_mode: RelocMode::PIC,
+                ..host_target_machine
+            },
         },
     };
 
@@ -405,7 +414,7 @@ fn main() {
     let threads = (0..threads)
         .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{i}"), SIZE_T)))
         .collect();
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
+    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &codegen_options, &f);
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 
@@ -444,8 +453,8 @@ fn main() {
         function_iter = func.get_next_function();
     }
 
-    let target_machine = llvm_options.target
-        .create_target_machine(llvm_options.opt_level)
+    let target_machine = codegen_options.llvm.target
+        .create_target_machine(codegen_options.llvm.opt_level)
         .expect("couldn't create target machine");
 
     let pass_options = PassBuilderOptions::create();
