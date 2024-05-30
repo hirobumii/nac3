@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::{From, TryInto};
 use std::iter::once;
 use std::{cell::RefCell, sync::Arc};
+use std::ops::Not;
 
 use super::typedef::{Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, Unifier, VarMap};
 use super::{magic_methods::*, type_error::TypeError, typedef::CallId};
@@ -554,7 +555,10 @@ impl<'a> Fold<()> for Inferencer<'a> {
             ExprKind::ListComp { .. }
             | ExprKind::Lambda { .. }
             | ExprKind::Call { .. } => expr.custom, // already computed
-            ExprKind::Slice { .. } => None, // we don't need it for slice
+            ExprKind::Slice { .. } => {
+                // slices aren't exactly ranges, but for our purposes this should suffice
+                Some(self.primitives.range)
+            }
             _ => return report_error("not supported", expr.location),
         };
         Ok(ast::Expr { custom, location: expr.location, node: expr.node })
@@ -1641,6 +1645,30 @@ impl<'a> Inferencer<'a> {
                         Ok(ty)
                     }
                 }
+            }
+            ExprKind::Tuple { elts, .. } => {
+                if value.custom
+                    .unwrap()
+                    .obj_id(self.unifier)
+                    .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                    .not() {
+                    return report_error("Tuple slices are only supported for ndarrays", slice.location)
+                }
+
+                for elt in elts {
+                    if let ExprKind::Slice { lower, upper, step } = &elt.node {
+                        for v in [lower.as_ref(), upper.as_ref(), step.as_ref()].iter().flatten() {
+                            self.constrain(v.custom.unwrap(), self.primitives.int32, &v.location)?;
+                        } 
+                    } else {
+                        self.constrain(elt.custom.unwrap(), self.primitives.int32, &elt.location)?;
+                    }
+                }
+
+                let (_, ndims) = unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
+                let ndarray_ty = make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims));
+                self.constrain(value.custom.unwrap(), ndarray_ty, &value.location)?;
+                Ok(ndarray_ty)
             }
             _ => {
                 if let TypeEnum::TTuple { .. } = &*self.unifier.get_ty(value.custom.unwrap()) {
