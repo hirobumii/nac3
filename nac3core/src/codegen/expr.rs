@@ -1712,8 +1712,27 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         slice.location,
     );
 
-    if let ExprKind::Slice { .. } = &slice.node {
-        return Err(String::from("subscript operator for ndarray not implemented"))
+    if let ExprKind::Slice { lower, upper, step } = &slice.node {
+        let dim0_sz = unsafe {
+            v.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+        };
+
+        let Some((start, stop, step)) = handle_slice_indices(
+            lower,
+            upper,
+            step,
+            ctx,
+            generator,
+            dim0_sz,
+        )? else { return Ok(None) };
+
+        return Ok(Some(numpy::ndarray_sliced_copy(
+            generator,
+            ctx,
+            ty,
+            v,
+            &[(start, stop, step)],
+        )?.as_ptr_value().into()))
     }
 
     let index = if let Some(index) = generator.gen_expr(ctx, slice)? {
