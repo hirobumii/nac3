@@ -148,9 +148,8 @@
         name = "nac3-dev-shell";
         buildInputs = with pkgs; [
           # build dependencies
-          llvmPackages_14.bintools # brings in llvm-link. Used by `nac3standalone/demo/run_demo.sh --lli`
           packages.x86_64-linux.llvm-nac3
-          llvmPackages_14.clang  # demo
+          llvmPackages_14.clang llvmPackages_14.bintools  # for running nac3standalone demos
           packages.x86_64-linux.llvm-tools-irrt
           cargo
           rustc
