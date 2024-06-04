@@ -1,5 +1,6 @@
 use inkwell::AddressSpace;
 use inkwell::context::Context;
+use inkwell::intrinsics::Intrinsic;
 use inkwell::types::AnyTypeEnum::IntType;
 use inkwell::types::FloatType;
 use inkwell::values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue, PointerValue};
@@ -42,14 +43,9 @@ pub fn call_stacksave<'ctx>(
 ) -> PointerValue<'ctx> {
     const FN_NAME: &str = "llvm.stacksave";
 
-    let intrinsic_fn = ctx.module.get_function(FN_NAME).unwrap_or_else(|| {
-        let llvm_i8 = ctx.ctx.i8_type();
-        let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
-
-        let fn_type = llvm_p0i8.fn_type(&[], false);
-
-        ctx.module.add_function(FN_NAME, fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[], name.unwrap_or_default())
@@ -61,18 +57,17 @@ pub fn call_stacksave<'ctx>(
 
 /// Invokes the
 /// [`llvm.stackrestore`](https://llvm.org/docs/LangRef.html#llvm-stackrestore-intrinsic) intrinsic.
+///
+/// - `ptr`: The pointer storing the address to restore the stack to.
 pub fn call_stackrestore<'ctx>(ctx: &CodeGenContext<'ctx, '_>, ptr: PointerValue<'ctx>) {
     const FN_NAME: &str = "llvm.stackrestore";
 
-    let intrinsic_fn = ctx.module.get_function(FN_NAME).unwrap_or_else(|| {
-        let llvm_void = ctx.ctx.void_type();
-        let llvm_i8 = ctx.ctx.i8_type();
-        let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
+    let llvm_i8 = ctx.ctx.i8_type();
+    let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
 
-        let fn_type = llvm_void.fn_type(&[llvm_p0i8.into()], false);
-
-        ctx.module.add_function(FN_NAME, fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_p0i8.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[ptr.into()], "")
@@ -89,20 +84,16 @@ pub fn call_int_abs<'ctx>(
     is_int_min_poison: IntValue<'ctx>,
     name: Option<&str>,
 ) -> IntValue<'ctx> {
+    const FN_NAME: &str = "llvm.abs";
+
     debug_assert_eq!(is_int_min_poison.get_type().get_bit_width(), 1);
     debug_assert!(is_int_min_poison.is_const());
 
     let llvm_src_t = src.get_type();
 
-    let fn_name = format!("llvm.abs.i{}", llvm_src_t.get_bit_width());
-
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let llvm_i1 = ctx.ctx.bool_type();
-
-        let fn_type = llvm_src_t.fn_type(&[llvm_src_t.into(), llvm_i1.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_src_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[src.into(), is_int_min_poison.into()], name.unwrap_or_default())
@@ -119,17 +110,15 @@ pub fn call_int_smax<'ctx>(
     b: IntValue<'ctx>,
     name: Option<&str>,
 ) -> IntValue<'ctx> {
+    const FN_NAME: &str = "llvm.smax";
+
     debug_assert_eq!(a.get_type().get_bit_width(), b.get_type().get_bit_width());
 
     let llvm_int_t = a.get_type();
 
-    let fn_name = format!("llvm.smax.i{}", llvm_int_t.get_bit_width());
-
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_int_t.fn_type(&[llvm_int_t.into(), llvm_int_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_int_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[a.into(), b.into()], name.unwrap_or_default())
@@ -146,17 +135,15 @@ pub fn call_int_smin<'ctx>(
     b: IntValue<'ctx>,
     name: Option<&str>,
 ) -> IntValue<'ctx> {
+    const FN_NAME: &str = "llvm.smin";
+
     debug_assert_eq!(a.get_type().get_bit_width(), b.get_type().get_bit_width());
 
     let llvm_int_t = a.get_type();
 
-    let fn_name = format!("llvm.smin.i{}", llvm_int_t.get_bit_width());
-
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_int_t.fn_type(&[llvm_int_t.into(), llvm_int_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_int_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[a.into(), b.into()], name.unwrap_or_default())
@@ -173,17 +160,15 @@ pub fn call_int_umax<'ctx>(
     b: IntValue<'ctx>,
     name: Option<&str>,
 ) -> IntValue<'ctx> {
+    const FN_NAME: &str = "llvm.umax";
+
     debug_assert_eq!(a.get_type().get_bit_width(), b.get_type().get_bit_width());
 
     let llvm_int_t = a.get_type();
 
-    let fn_name = format!("llvm.umax.i{}", llvm_int_t.get_bit_width());
-
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_int_t.fn_type(&[llvm_int_t.into(), llvm_int_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_int_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[a.into(), b.into()], name.unwrap_or_default())
@@ -200,17 +185,15 @@ pub fn call_int_umin<'ctx>(
     b: IntValue<'ctx>,
     name: Option<&str>,
 ) -> IntValue<'ctx> {
+    const FN_NAME: &str = "llvm.umin";
+
     debug_assert_eq!(a.get_type().get_bit_width(), b.get_type().get_bit_width());
 
     let llvm_int_t = a.get_type();
 
-    let fn_name = format!("llvm.umin.i{}", llvm_int_t.get_bit_width());
-
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_int_t.fn_type(&[llvm_int_t.into(), llvm_int_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_int_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[a.into(), b.into()], name.unwrap_or_default())
@@ -233,6 +216,8 @@ pub fn call_memcpy<'ctx>(
     len: IntValue<'ctx>,
     is_volatile: IntValue<'ctx>,
 ) {
+    const FN_NAME: &str = "llvm.memcpy";
+
     debug_assert!(dest.get_type().get_element_type().is_int_type());
     debug_assert!(src.get_type().get_element_type().is_int_type());
     debug_assert_eq!(
@@ -246,28 +231,12 @@ pub fn call_memcpy<'ctx>(
     let llvm_src_t = src.get_type();
     let llvm_len_t = len.get_type();
 
-    let fn_name = format!(
-        "llvm.memcpy.p0i{}.p0i{}.i{}",
-        llvm_dest_t.get_element_type().into_int_type().get_bit_width(),
-        llvm_src_t.get_element_type().into_int_type().get_bit_width(),
-        llvm_len_t.get_bit_width(),
-    );
-
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let llvm_void = ctx.ctx.void_type();
-
-        let fn_type = llvm_void.fn_type(
-            &[
-                llvm_dest_t.into(),
-                llvm_src_t.into(),
-                llvm_len_t.into(),
-                is_volatile.get_type().into(),
-            ],
-            false,
-        );
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(
+            &ctx.module,
+            &[llvm_dest_t.into(), llvm_src_t.into(), llvm_len_t.into()],
+        ))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[dest.into(), src.into(), len.into(), is_volatile.into()], "")
@@ -317,14 +286,13 @@ pub fn call_float_sqrt<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.sqrt";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.sqrt.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -341,19 +309,17 @@ pub fn call_float_powi<'ctx>(
     power: IntValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.powi";
+
     let llvm_val_t = val.get_type();
     let llvm_power_t = power.get_type();
 
-    let fn_name = format!(
-        "llvm.powi.{}.i{}",
-        get_float_intrinsic_repr(ctx.ctx, llvm_val_t),
-        llvm_power_t.get_bit_width(),
-    );
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_val_t.fn_type(&[llvm_val_t.into(), llvm_power_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(
+            &ctx.module,
+            &[llvm_val_t.into(), llvm_power_t.into()],
+        ))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into(), power.into()], name.unwrap_or_default())
@@ -369,14 +335,13 @@ pub fn call_float_sin<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.sin";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.sin.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -392,14 +357,13 @@ pub fn call_float_cos<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.cos";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.cos.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -416,16 +380,15 @@ pub fn call_float_pow<'ctx>(
     power: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.pow";
+
     debug_assert_eq!(val.get_type(), power.get_type());
 
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.pow.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into(), llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into(), power.into()], name.unwrap_or_default())
@@ -441,14 +404,13 @@ pub fn call_float_exp<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.exp";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.exp.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -464,14 +426,13 @@ pub fn call_float_exp2<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.exp2";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.exp2.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -488,14 +449,13 @@ pub fn call_float_log<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.log";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.log.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -511,14 +471,13 @@ pub fn call_float_log10<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.log10";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.log10.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -534,14 +493,13 @@ pub fn call_float_log2<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.log2";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.log2.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -557,15 +515,13 @@ pub fn call_float_fabs<'ctx>(
     src: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.fabs";
+
     let llvm_src_t = src.get_type();
 
-    let fn_name = format!("llvm.fabs.{}", get_float_intrinsic_repr(ctx.ctx, llvm_src_t));
-
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_src_t.fn_type(&[llvm_src_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_src_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[src.into()], name.unwrap_or_default())
@@ -582,16 +538,15 @@ pub fn call_float_minnum<'ctx>(
     val2: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.minnum";
+
     debug_assert_eq!(val1.get_type(), val2.get_type());
 
     let llvm_float_t = val1.get_type();
 
-    let fn_name = format!("llvm.minnum.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into(), llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val1.into(), val2.into()], name.unwrap_or_default())
@@ -608,16 +563,15 @@ pub fn call_float_maxnum<'ctx>(
     val2: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.maxnum";
+
     debug_assert_eq!(val1.get_type(), val2.get_type());
 
     let llvm_float_t = val1.get_type();
 
-    let fn_name = format!("llvm.maxnum.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into(), llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val1.into(), val2.into()], name.unwrap_or_default())
@@ -634,16 +588,15 @@ pub fn call_float_copysign<'ctx>(
     sgn: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.copysign";
+
     debug_assert_eq!(mag.get_type(), sgn.get_type());
 
     let llvm_float_t = mag.get_type();
 
-    let fn_name = format!("llvm.copysign.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into(), llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[mag.into(), sgn.into()], name.unwrap_or_default())
@@ -659,14 +612,13 @@ pub fn call_float_floor<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.floor";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.floor.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -682,14 +634,13 @@ pub fn call_float_ceil<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.ceil";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.ceil.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -705,14 +656,13 @@ pub fn call_float_round<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.round";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.round.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -729,14 +679,13 @@ pub fn call_float_roundeven<'ctx>(
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
+    const FN_NAME: &str = "llvm.roundeven";
+
     let llvm_float_t = val.get_type();
 
-    let fn_name = format!("llvm.roundeven.{}", get_float_intrinsic_repr(ctx.ctx, llvm_float_t));
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_float_t.fn_type(&[llvm_float_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_float_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into()], name.unwrap_or_default())
@@ -753,16 +702,15 @@ pub fn call_expect<'ctx>(
     expected_val: IntValue<'ctx>,
     name: Option<&str>,
 ) -> IntValue<'ctx> {
+    const FN_NAME: &str = "llvm.expect";
+
     debug_assert_eq!(val.get_type().get_bit_width(), expected_val.get_type().get_bit_width());
 
     let llvm_int_t = val.get_type();
 
-    let fn_name = format!("llvm.expect.i{}", llvm_int_t.get_bit_width());
-    let intrinsic_fn = ctx.module.get_function(fn_name.as_str()).unwrap_or_else(|| {
-        let fn_type = llvm_int_t.fn_type(&[llvm_int_t.into(), llvm_int_t.into()], false);
-
-        ctx.module.add_function(fn_name.as_str(), fn_type, None)
-    });
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_int_t.into()]))
+        .unwrap();
 
     ctx.builder
         .build_call(intrinsic_fn, &[val.into(), expected_val.into()], name.unwrap_or_default())
