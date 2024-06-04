@@ -143,8 +143,8 @@ pub trait CodeGenerator {
         gen_while(self, ctx, stmt)
     }
 
-    /// Generate code for a while expression.
-    /// Return true if the while loop must early return
+    /// Generate code for a for expression.
+    /// Return true if the for loop must early return
     fn gen_for(
         &mut self,
         ctx: &mut CodeGenContext<'_, '_>,
