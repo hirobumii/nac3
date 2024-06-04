@@ -788,6 +788,41 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                 }),
             )
         },
+        {
+            let tv = unifier.get_fresh_var(Some("T".into()), None);
+
+            Arc::new(RwLock::new(TopLevelDef::Function {
+                name: "np_array".into(),
+                simple_name: "np_array".into(),
+                signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![
+                        FuncArg { name: "object".into(), ty: tv.0, default_value: None },
+                        FuncArg { 
+                            name: "copy".into(),
+                            ty: boolean,
+                            default_value: Some(SymbolValue::Bool(true)),
+                        },
+                        FuncArg {
+                            name: "ndmin".into(),
+                            ty: int32,
+                            default_value: Some(SymbolValue::U32(0)),
+                        },
+                    ],
+                    ret: ndarray,
+                    vars: VarMap::default(),
+                })),
+                var_id: Vec::default(),
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                    |ctx, obj, fun, args, generator| {
+                        todo!()
+                    },
+                )))),
+                loc: None,
+            }))
+        },
         Arc::new(RwLock::new(TopLevelDef::Function {
             name: "np_eye".into(),
             simple_name: "np_eye".into(),
