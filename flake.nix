@@ -149,7 +149,7 @@
         buildInputs = with pkgs; [
           # build dependencies
           packages.x86_64-linux.llvm-nac3
-          llvmPackages_14.clang  # demo
+          llvmPackages_14.clang llvmPackages_14.llvm.out  # for running nac3standalone demos
           packages.x86_64-linux.llvm-tools-irrt
           cargo
           rustc
