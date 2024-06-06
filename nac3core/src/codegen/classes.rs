@@ -3,6 +3,8 @@ use inkwell::{
     types::{AnyTypeEnum, BasicTypeEnum, IntType, PointerType},
     values::{BasicValueEnum, IntValue, PointerValue},
 };
+use inkwell::types::BasicType;
+use inkwell::values::BasicValue;
 use crate::codegen::{
     CodeGenContext,
     CodeGenerator,
@@ -10,6 +12,40 @@ use crate::codegen::{
     llvm_intrinsics::call_int_umin,
     stmt::gen_for_callback_incrementing,
 };
+
+/// A LLVM type that is used to represent a non-primitive type in NAC3.
+pub trait ProxyType<'ctx> {
+    /// The underlying type as represented by an LLVM type.
+    type Base: BasicType<'ctx>;
+    
+    /// The type of values represented by this type.
+    type Value: ProxyValue<'ctx>;
+
+    /// Creates a [`value`][ProxyValue] with this as its type.
+    fn create_value(
+        &self,
+        value: <Self::Value as ProxyValue<'ctx>>::Base,
+        name: Option<&'ctx str>,
+    ) -> Self::Value;
+
+    /// Returns the base type of this proxy.
+    fn as_base_type(&self) -> Self::Base;
+}
+
+/// A LLVM type that is used to represent a non-primitive value in NAC3.
+pub trait ProxyValue<'ctx> {
+    /// The underlying type as represented by an LLVM value.
+    type Base: BasicValue<'ctx>;
+
+    /// The type of this value.
+    type Type: ProxyType<'ctx>;
+
+    /// Returns the [type][ProxyType] of this value.
+    fn get_type(&self) -> Self::Type;
+
+    /// Returns the base value of this proxy.
+    fn as_base_value(&self) -> Self::Base;
+}
 
 /// An LLVM value that is array-like, i.e. it contains a contiguous, sequenced collection of
 /// elements.
@@ -388,26 +424,20 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
 impl<'ctx> UntypedArrayLikeAccessor<'ctx> for ArraySliceValue<'ctx> {}
 impl<'ctx> UntypedArrayLikeMutator<'ctx> for ArraySliceValue<'ctx> {}
 
-#[cfg(not(debug_assertions))]
-pub fn assert_is_list<'ctx>(_value: PointerValue<'ctx>, _llvm_usize: IntType<'ctx>) {}
-
-#[cfg(debug_assertions)]
-pub fn assert_is_list<'ctx>(value: PointerValue<'ctx>, llvm_usize: IntType<'ctx>) {
-    ListValue::is_instance(value, llvm_usize).unwrap();
+/// Proxy type for a `list` type in LLVM.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct ListType<'ctx> {
+    ty: PointerType<'ctx>,
+    llvm_usize: IntType<'ctx>,
 }
 
-/// Proxy type for accessing a `list` value in LLVM.
-#[derive(Copy, Clone)]
-pub struct ListValue<'ctx>(PointerValue<'ctx>, Option<&'ctx str>);
-
-impl<'ctx> ListValue<'ctx> {
-    /// Checks whether `value` is an instance of `list`, returning [Err] if `value` is not an
-    /// instance.
-    pub fn is_instance(
-        value: PointerValue<'ctx>,
+impl<'ctx> ListType<'ctx> {
+    /// Checks whether `llvm_ty` represents a `list` type, returning [Err] if it does not.
+    pub fn is_type(
+        llvm_ty: PointerType<'ctx>,
         llvm_usize: IntType<'ctx>,
     ) -> Result<(), String> {
-        let llvm_list_ty = value.get_type().get_element_type();
+        let llvm_list_ty = llvm_ty.get_element_type();
         let AnyTypeEnum::StructType(llvm_list_ty) = llvm_list_ty else {
             return Err(format!("Expected struct type for `list` type, got {llvm_list_ty}"))
         };
@@ -433,28 +463,97 @@ impl<'ctx> ListValue<'ctx> {
         Ok(())
     }
 
+    /// Creates an [`ListType`] from a [`PointerType`].
+    #[must_use]
+    pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+        debug_assert!(Self::is_type(ptr_ty, llvm_usize).is_ok());
+
+        ListType { ty: ptr_ty, llvm_usize }
+    }
+
+    /// Returns the type of the `size` field of this `list` type.
+    #[must_use]
+    pub fn size_type(&self) -> IntType<'ctx> {
+        self.as_base_type()
+            .get_element_type()
+            .into_struct_type()
+            .get_field_type_at_index(0)
+            .map(BasicTypeEnum::into_int_type)
+            .unwrap()
+    }
+
+    /// Returns the element type of this `list` type.
+    #[must_use]
+    pub fn element_type(&self) -> BasicTypeEnum<'ctx> {
+        self.as_base_type()
+            .get_element_type()
+            .into_struct_type()
+            .get_field_type_at_index(1)
+            .unwrap() 
+    }
+}
+
+impl<'ctx> ProxyType<'ctx> for ListType<'ctx> {
+    type Base = PointerType<'ctx>;
+    type Value = ListValue<'ctx>;
+
+    fn create_value(
+        &self,
+        value: <Self::Value as ProxyValue<'ctx>>::Base,
+        name: Option<&'ctx str>,
+    ) -> Self::Value {
+        debug_assert_eq!(value.get_type(), self.as_base_type());
+
+        ListValue { value, llvm_usize: self.llvm_usize, name }
+    }
+
+    fn as_base_type(&self) -> Self::Base {
+        self.ty
+    }
+}
+
+impl<'ctx> From<ListType<'ctx>> for PointerType<'ctx> {
+    fn from(value: ListType<'ctx>) -> Self {
+        value.as_base_type()
+    }
+}
+
+/// Proxy type for accessing a `list` value in LLVM.
+#[derive(Copy, Clone)]
+pub struct ListValue<'ctx> {
+    value: PointerValue<'ctx>,
+    llvm_usize: IntType<'ctx>,
+    name: Option<&'ctx str>,
+}
+
+impl<'ctx> ListValue<'ctx> {
+    /// Checks whether `value` is an instance of `list`, returning [Err] if `value` is not an
+    /// instance.
+    pub fn is_instance(
+        value: PointerValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Result<(), String> {
+        ListType::is_type(value.get_type(), llvm_usize)
+    }
+
     /// Creates an [`ListValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_ptr_val(ptr: PointerValue<'ctx>, llvm_usize: IntType<'ctx>, name: Option<&'ctx str>) -> Self {
-        assert_is_list(ptr, llvm_usize);
-        ListValue(ptr, name)
-    }
+        debug_assert!(Self::is_instance(ptr, llvm_usize).is_ok());
 
-    /// Returns the underlying [`PointerValue`] pointing to the `list` instance.
-    #[must_use]
-    pub fn as_ptr_value(&self) -> PointerValue<'ctx> {
-        self.0
+        <Self as ProxyValue<'ctx>>::Type::from_type(ptr.get_type(), llvm_usize)
+            .create_value(ptr, name)
     }
 
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
     /// on the field.
     fn pptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.1.map(|v| format!("{v}.data.addr")).unwrap_or_default();
+        let var_name = self.name.map(|v| format!("{v}.data.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.as_ptr_value(),
+                self.as_base_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_zero()],
                 var_name.as_str(),
             ).unwrap()
@@ -464,11 +563,11 @@ impl<'ctx> ListValue<'ctx> {
     /// Returns the pointer to the field storing the size of this `list`.
     fn ptr_to_size(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.1.map(|v| format!("{v}.size.addr")).unwrap_or_default();
+        let var_name = self.name.map(|v| format!("{v}.size.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.0,
+                self.as_base_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
                 var_name.as_str(),
             ).unwrap()
@@ -519,7 +618,7 @@ impl<'ctx> ListValue<'ctx> {
         let psize = self.ptr_to_size(ctx);
         let var_name = name
             .map(ToString::to_string)
-            .or_else(|| self.1.map(|v| format!("{v}.size")))
+            .or_else(|| self.name.map(|v| format!("{v}.size")))
             .unwrap_or_default();
 
         ctx.builder.build_load(psize, var_name.as_str())
@@ -528,9 +627,22 @@ impl<'ctx> ListValue<'ctx> {
     }
 }
 
+impl<'ctx> ProxyValue<'ctx> for ListValue<'ctx> {
+    type Base = PointerValue<'ctx>;
+    type Type = ListType<'ctx>;
+
+    fn get_type(&self) -> Self::Type {
+        ListType::from_type(self.as_base_value().get_type(), self.llvm_usize)
+    }
+
+    fn as_base_value(&self) -> Self::Base {
+        self.value
+    }
+}
+
 impl<'ctx> From<ListValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: ListValue<'ctx>) -> Self {
-        value.as_ptr_value()
+        value.as_base_value()
     }
 }
 
@@ -544,7 +656,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for ListDataProxy<'ctx, '_> {
         _: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> AnyTypeEnum<'ctx> {
-        self.0.0.get_type().get_element_type()
+        self.0.value.get_type().get_element_type()
     }
 
     fn base_ptr<G: CodeGenerator + ?Sized>(
@@ -552,7 +664,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for ListDataProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> PointerValue<'ctx> {
-        let var_name = self.0.1.map(|v| format!("{v}.data")).unwrap_or_default();
+        let var_name = self.0.name.map(|v| format!("{v}.data")).unwrap_or_default();
 
         ctx.builder.build_load(self.0.pptr_to_data(ctx), var_name.as_str())
             .map(BasicValueEnum::into_pointer_value)
@@ -616,22 +728,16 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
 impl<'ctx> UntypedArrayLikeAccessor<'ctx> for ListDataProxy<'ctx, '_> {}
 impl<'ctx> UntypedArrayLikeMutator<'ctx> for ListDataProxy<'ctx, '_> {}
 
-#[cfg(not(debug_assertions))]
-pub fn assert_is_range(_value: PointerValue) {}
-
-#[cfg(debug_assertions)]
-pub fn assert_is_range(value: PointerValue) {
-    RangeValue::is_instance(value).unwrap();
+/// Proxy type for a `range` type in LLVM.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct RangeType<'ctx> {
+    ty: PointerType<'ctx>,
 }
 
-/// Proxy type for accessing a `range` value in LLVM.
-#[derive(Copy, Clone)]
-pub struct RangeValue<'ctx>(PointerValue<'ctx>, Option<&'ctx str>);
-
-impl<'ctx> RangeValue<'ctx> {
-    /// Checks whether `value` is an instance of `range`, returning [Err] if `value` is not an instance.
-    pub fn is_instance(value: PointerValue<'ctx>) -> Result<(), String> {
-        let llvm_range_ty = value.get_type().get_element_type();
+impl<'ctx> RangeType<'ctx> {
+    /// Checks whether `llvm_ty` represents a `range` type, returning [Err] if it does not.
+    pub fn is_type(llvm_ty: PointerType<'ctx>) -> Result<(), String> {
+        let llvm_range_ty = llvm_ty.get_element_type();
         let AnyTypeEnum::ArrayType(llvm_range_ty) = llvm_range_ty else {
             return Err(format!("Expected array type for `range` type, got {llvm_range_ty}"))
         };
@@ -651,37 +757,74 @@ impl<'ctx> RangeValue<'ctx> {
         Ok(())
     }
 
-    /// Creates an [`RangeValue`] from a [`PointerValue`].
+    /// Creates an [`RangeType`] from a [`PointerType`].
     #[must_use]
-    pub fn from_ptr_val(ptr: PointerValue<'ctx>, name: Option<&'ctx str>) -> Self {
-        assert_is_range(ptr);
-        RangeValue(ptr, name)
+    pub fn from_type(ptr_ty: PointerType<'ctx>) -> Self {
+        debug_assert!(Self::is_type(ptr_ty).is_ok());
+
+        RangeType { ty: ptr_ty }
     }
 
-    /// Returns the element type of this `range` object.
+    /// Returns the type of all fields of this `range` type.
     #[must_use]
-    pub fn element_type(&self) -> IntType<'ctx> {
-        self.as_ptr_value()
-            .get_type()
+    pub fn value_type(&self) -> IntType<'ctx> {
+        self.as_base_type()
             .get_element_type()
             .into_array_type()
             .get_element_type()
             .into_int_type()
     }
+}
 
-    /// Returns the underlying [`PointerValue`] pointing to the `range` instance.
+impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
+    type Base = PointerType<'ctx>;
+    type Value = RangeValue<'ctx>;
+
+    fn create_value(&self, value: <Self::Value as ProxyValue<'ctx>>::Base, name: Option<&'ctx str>) -> Self::Value {
+        debug_assert_eq!(value.get_type(), self.as_base_type());
+
+        RangeValue { value, name }
+    }
+
+    fn as_base_type(&self) -> Self::Base {
+        self.ty
+    }
+}
+
+impl<'ctx> From<RangeType<'ctx>> for PointerType<'ctx> {
+    fn from(value: RangeType<'ctx>) -> Self {
+        value.as_base_type()
+    }
+}
+
+/// Proxy type for accessing a `range` value in LLVM.
+#[derive(Copy, Clone)]
+pub struct RangeValue<'ctx> {
+    value: PointerValue<'ctx>,
+    name: Option<&'ctx str>,
+}
+
+impl<'ctx> RangeValue<'ctx> {
+    /// Checks whether `value` is an instance of `range`, returning [Err] if `value` is not an instance.
+    pub fn is_instance(value: PointerValue<'ctx>) -> Result<(), String> {
+        RangeType::is_type(value.get_type())
+    }
+
+    /// Creates an [`RangeValue`] from a [`PointerValue`].
     #[must_use]
-    pub fn as_ptr_value(&self) -> PointerValue<'ctx> {
-        self.0
+    pub fn from_ptr_val(ptr: PointerValue<'ctx>, name: Option<&'ctx str>) -> Self {
+        debug_assert!(Self::is_instance(ptr).is_ok());
+
+        <Self as ProxyValue<'ctx>>::Type::from_type(ptr.get_type()).create_value(ptr, name)
     }
 
     fn ptr_to_start(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.1.map(|v| format!("{v}.start.addr")).unwrap_or_default();
+        let var_name = self.name.map(|v| format!("{v}.start.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.0,
+                self.as_base_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_int(0, false)],
                 var_name.as_str(),
             ).unwrap()
@@ -690,11 +833,11 @@ impl<'ctx> RangeValue<'ctx> {
 
     fn ptr_to_end(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.1.map(|v| format!("{v}.end.addr")).unwrap_or_default();
+        let var_name = self.name.map(|v| format!("{v}.end.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.0,
+                self.as_base_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_int(1, false)],
                 var_name.as_str(),
             ).unwrap()
@@ -703,11 +846,11 @@ impl<'ctx> RangeValue<'ctx> {
 
     fn ptr_to_step(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.1.map(|v| format!("{v}.step.addr")).unwrap_or_default();
+        let var_name = self.name.map(|v| format!("{v}.step.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.0,
+                self.as_base_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_int(2, false)],
                 var_name.as_str(),
             ).unwrap()
@@ -731,7 +874,7 @@ impl<'ctx> RangeValue<'ctx> {
         let pstart = self.ptr_to_start(ctx);
         let var_name = name
             .map(ToString::to_string)
-            .or_else(|| self.1.map(|v| format!("{v}.start")))
+            .or_else(|| self.name.map(|v| format!("{v}.start")))
             .unwrap_or_default();
 
         ctx.builder.build_load(pstart, var_name.as_str())
@@ -756,7 +899,7 @@ impl<'ctx> RangeValue<'ctx> {
         let pend = self.ptr_to_end(ctx);
         let var_name = name
             .map(ToString::to_string)
-            .or_else(|| self.1.map(|v| format!("{v}.end")))
+            .or_else(|| self.name.map(|v| format!("{v}.end")))
             .unwrap_or_default();
 
         ctx.builder.build_load(pend, var_name.as_str())
@@ -781,7 +924,7 @@ impl<'ctx> RangeValue<'ctx> {
         let pstep = self.ptr_to_step(ctx);
         let var_name = name
             .map(ToString::to_string)
-            .or_else(|| self.1.map(|v| format!("{v}.step")))
+            .or_else(|| self.name.map(|v| format!("{v}.step")))
             .unwrap_or_default();
 
         ctx.builder.build_load(pstep, var_name.as_str())
@@ -790,32 +933,39 @@ impl<'ctx> RangeValue<'ctx> {
     }
 }
 
-impl<'ctx> From<RangeValue<'ctx>> for PointerValue<'ctx> {
-    fn from(value: RangeValue<'ctx>) -> Self {
-        value.as_ptr_value()
+impl<'ctx> ProxyValue<'ctx> for RangeValue<'ctx> {
+    type Base = PointerValue<'ctx>;
+    type Type = RangeType<'ctx>;
+
+    fn get_type(&self) -> Self::Type {
+        RangeType::from_type(self.value.get_type())
+    }
+
+    fn as_base_value(&self) -> Self::Base {
+        self.value
     }
 }
 
-#[cfg(not(debug_assertions))]
-pub fn assert_is_ndarray<'ctx>(_value: PointerValue<'ctx>, _llvm_usize: IntType<'ctx>) {}
-
-#[cfg(debug_assertions)]
-pub fn assert_is_ndarray<'ctx>(value: PointerValue<'ctx>, llvm_usize: IntType<'ctx>) {
-    NDArrayValue::is_instance(value, llvm_usize).unwrap();
+impl<'ctx> From<RangeValue<'ctx>> for PointerValue<'ctx> {
+    fn from(value: RangeValue<'ctx>) -> Self {
+        value.as_base_value()
+    }
 }
 
-/// Proxy type for accessing an `NDArray` value in LLVM.
-#[derive(Copy, Clone)]
-pub struct NDArrayValue<'ctx>(PointerValue<'ctx>, Option<&'ctx str>);
+/// Proxy type for a `ndarray` type in LLVM.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct NDArrayType<'ctx> {
+    ty: PointerType<'ctx>,
+    llvm_usize: IntType<'ctx>,
+}
 
-impl<'ctx> NDArrayValue<'ctx> {
-    /// Checks whether `value` is an instance of `NDArray`, returning [Err] if `value` is not an
-    /// instance.
-    pub fn is_instance(
-        value: PointerValue<'ctx>,
+impl<'ctx> NDArrayType<'ctx> {
+    /// Checks whether `llvm_ty` represents a `ndarray` type, returning [Err] if it does not.
+    pub fn is_type(
+        llvm_ty: PointerType<'ctx>,
         llvm_usize: IntType<'ctx>,
     ) -> Result<(), String> {
-        let llvm_ndarray_ty = value.get_type().get_element_type();
+        let llvm_ndarray_ty = llvm_ty.get_element_type();
         let AnyTypeEnum::StructType(llvm_ndarray_ty) = llvm_ndarray_ty else {
             return Err(format!("Expected struct type for `NDArray` type, got {llvm_ndarray_ty}"))
         };
@@ -855,31 +1005,96 @@ impl<'ctx> NDArrayValue<'ctx> {
         Ok(())
     }
 
-    /// Creates an [`NDArrayValue`] from a [`PointerValue`].
+    /// Creates an [`NDArrayType`] from a [`PointerType`].
     #[must_use]
-    pub fn from_ptr_val(
-        ptr: PointerValue<'ctx>,
-        llvm_usize: IntType<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> Self {
-        assert_is_ndarray(ptr, llvm_usize);
-        NDArrayValue(ptr, name)
+    pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+        debug_assert!(Self::is_type(ptr_ty, llvm_usize).is_ok());
+
+        NDArrayType { ty: ptr_ty, llvm_usize }
     }
 
-    /// Returns the underlying [`PointerValue`] pointing to the `NDArray` instance.
+    /// Returns the type of the `size` field of this `ndarray` type.
     #[must_use]
-    pub fn as_ptr_value(&self) -> PointerValue<'ctx> {
-        self.0
+    pub fn size_type(&self) -> IntType<'ctx> {
+        self.as_base_type()
+            .get_element_type()
+            .into_struct_type()
+            .get_field_type_at_index(0)
+            .map(BasicTypeEnum::into_int_type)
+            .unwrap()
+    }
+
+    /// Returns the element type of this `ndarray` type.
+    #[must_use]
+    pub fn element_type(&self) -> BasicTypeEnum<'ctx> {
+        self.as_base_type()
+            .get_element_type()
+            .into_struct_type()
+            .get_field_type_at_index(2)
+            .unwrap()
+    } 
+}
+
+impl<'ctx> ProxyType<'ctx> for NDArrayType<'ctx> {
+    type Base = PointerType<'ctx>;
+    type Value = NDArrayValue<'ctx>;
+
+    fn create_value(
+        &self,
+        value: <Self::Value as ProxyValue<'ctx>>::Base,
+        name: Option<&'ctx str>,
+    ) -> Self::Value {
+        debug_assert_eq!(value.get_type(), self.as_base_type());
+
+        NDArrayValue { value, llvm_usize: self.llvm_usize, name }
+    }
+
+    fn as_base_type(&self) -> Self::Base {
+        self.ty
+    }
+}
+
+impl<'ctx> From<NDArrayType<'ctx>> for PointerType<'ctx> {
+    fn from(value: NDArrayType<'ctx>) -> Self {
+        value.as_base_type()
+    }
+}
+
+/// Proxy type for accessing an `NDArray` value in LLVM.
+#[derive(Copy, Clone)]
+pub struct NDArrayValue<'ctx> {
+    value: PointerValue<'ctx>,
+    llvm_usize: IntType<'ctx>,
+    name: Option<&'ctx str>,
+}
+
+impl<'ctx> NDArrayValue<'ctx> {
+    /// Checks whether `value` is an instance of `NDArray`, returning [Err] if `value` is not an
+    /// instance.
+    pub fn is_instance(
+        value: PointerValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Result<(), String> {
+        NDArrayType::is_type(value.get_type(), llvm_usize)
+    }
+
+    /// Creates an [`NDArrayValue`] from a [`PointerValue`].
+    #[must_use]
+    pub fn from_ptr_val(ptr: PointerValue<'ctx>, llvm_usize: IntType<'ctx>, name: Option<&'ctx str>) -> Self {
+        debug_assert!(Self::is_instance(ptr, llvm_usize).is_ok());
+
+        <Self as ProxyValue<'ctx>>::Type::from_type(ptr.get_type(), llvm_usize)
+            .create_value(ptr, name)
     }
 
     /// Returns the pointer to the field storing the number of dimensions of this `NDArray`.
     fn ptr_to_ndims(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.1.map(|v| format!("{v}.ndims.addr")).unwrap_or_default();
+        let var_name = self.name.map(|v| format!("{v}.ndims.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.0,
+                self.as_base_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_zero()],
                 var_name.as_str(),
             ).unwrap()
@@ -911,11 +1126,11 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// on the field.
     fn ptr_to_dims(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.1.map(|v| format!("{v}.dims.addr")).unwrap_or_default();
+        let var_name = self.name.map(|v| format!("{v}.dims.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.as_ptr_value(),
+                self.as_base_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
                 var_name.as_str(),
             ).unwrap()
@@ -947,11 +1162,11 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// on the field.
     fn ptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.1.map(|v| format!("{v}.data.addr")).unwrap_or_default();
+        let var_name = self.name.map(|v| format!("{v}.data.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder.build_in_bounds_gep(
-                self.as_ptr_value(),
+                self.as_base_value(),
                 &[llvm_i32.const_zero(), llvm_i32.const_int(2, true)],
                 var_name.as_str(),
             ).unwrap()
@@ -981,9 +1196,22 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 }
 
+impl<'ctx> ProxyValue<'ctx> for NDArrayValue<'ctx> {
+    type Base = PointerValue<'ctx>;
+    type Type = NDArrayType<'ctx>;
+
+    fn get_type(&self) -> Self::Type {
+        NDArrayType::from_type(self.as_base_value().get_type(), self.llvm_usize)
+    }
+
+    fn as_base_value(&self) -> Self::Base {
+        self.value
+    }
+}
+
 impl<'ctx> From<NDArrayValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: NDArrayValue<'ctx>) -> Self {
-        value.as_ptr_value()
+        value.as_base_value()
     }
 }
 
@@ -1005,7 +1233,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDimsProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> PointerValue<'ctx> {
-        let var_name = self.0.1.map(|v| format!("{v}.data")).unwrap_or_default();
+        let var_name = self.0.name.map(|v| format!("{v}.data")).unwrap_or_default();
 
         ctx.builder.build_load(self.0.ptr_to_dims(ctx), var_name.as_str())
             .map(BasicValueEnum::into_pointer_value)
@@ -1110,7 +1338,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDataProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> PointerValue<'ctx> {
-        let var_name = self.0.1.map(|v| format!("{v}.data")).unwrap_or_default();
+        let var_name = self.0.name.map(|v| format!("{v}.data")).unwrap_or_default();
 
         ctx.builder.build_load(self.0.ptr_to_data(ctx), var_name.as_str())
             .map(BasicValueEnum::into_pointer_value)

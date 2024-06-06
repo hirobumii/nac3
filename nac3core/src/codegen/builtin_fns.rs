@@ -4,7 +4,7 @@ use inkwell::values::BasicValueEnum;
 use itertools::Itertools;
 
 use crate::codegen::{CodeGenContext, CodeGenerator, extern_fns, irrt, llvm_intrinsics, numpy};
-use crate::codegen::classes::{NDArrayValue, UntypedArrayLikeAccessor};
+use crate::codegen::classes::{NDArrayValue, ProxyValue, UntypedArrayLikeAccessor};
 use crate::codegen::numpy::ndarray_elementwise_unaryop_impl;
 use crate::codegen::stmt::gen_for_callback_incrementing;
 use crate::toplevel::helper::PRIMITIVE_DEF_IDS;
@@ -93,7 +93,7 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, "int32", &[n_ty])
@@ -123,7 +123,7 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
                 ctx.builder
                     .build_int_s_extend(n, llvm_i64, "sext")
                     .map(Into::into)
-                    .unwrap() 
+                    .unwrap()
             } else {
                 ctx.builder
                     .build_int_z_extend(n, llvm_i64, "zext")
@@ -164,7 +164,7 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, "int64", &[n_ty])
@@ -251,7 +251,7 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, "uint32", &[n_ty])
@@ -332,7 +332,7 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, "uint64", &[n_ty])
@@ -397,7 +397,7 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, "float", &[n_ty])
@@ -426,7 +426,7 @@ pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
             ctx.builder
                 .build_float_to_signed_int(val, llvm_ret_elem_ty, FN_NAME)
                 .map(Into::into)
-                .unwrap() 
+                .unwrap()
         }
 
         BasicValueEnum::PointerValue(n) if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) => {
@@ -443,7 +443,7 @@ pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty])
@@ -483,7 +483,7 @@ pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty])
@@ -552,7 +552,7 @@ pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty])
@@ -602,7 +602,7 @@ pub fn call_floor<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty])
@@ -652,7 +652,7 @@ pub fn call_ceil<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty])
@@ -772,7 +772,7 @@ pub fn call_numpy_min<'ctx, G: CodeGenerator + ?Sized>(
                 (n_sz, false),
                 |generator, ctx, idx| {
                     let elem = unsafe {
-                        n.data().get_unchecked(ctx, generator, &idx, None) 
+                        n.data().get_unchecked(ctx, generator, &idx, None)
                     };
 
                     let accumulator = ctx.builder.build_load(accumulator_addr, "").unwrap();
@@ -870,7 +870,7 @@ pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_minimum(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
@@ -1088,7 +1088,7 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_maximum(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
@@ -1153,7 +1153,7 @@ pub fn call_abs<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty])
@@ -1195,7 +1195,7 @@ pub fn call_numpy_isnan<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1237,7 +1237,7 @@ pub fn call_numpy_isinf<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1277,7 +1277,7 @@ pub fn call_numpy_sin<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1317,7 +1317,7 @@ pub fn call_numpy_cos<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1357,7 +1357,7 @@ pub fn call_numpy_exp<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1397,7 +1397,7 @@ pub fn call_numpy_exp2<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1437,7 +1437,7 @@ pub fn call_numpy_log<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1477,7 +1477,7 @@ pub fn call_numpy_log10<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1517,7 +1517,7 @@ pub fn call_numpy_log2<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1557,7 +1557,7 @@ pub fn call_numpy_fabs<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1597,7 +1597,7 @@ pub fn call_numpy_sqrt<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1637,7 +1637,7 @@ pub fn call_numpy_rint<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1677,7 +1677,7 @@ pub fn call_numpy_tan<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1717,7 +1717,7 @@ pub fn call_numpy_arcsin<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1739,7 +1739,7 @@ pub fn call_numpy_arccos<'ctx, G: CodeGenerator + ?Sized>(
     Ok(match x {
         BasicValueEnum::FloatValue(x) => {
             debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-            
+
             extern_fns::call_acos(ctx, x, None).into()
         }
 
@@ -1757,7 +1757,7 @@ pub fn call_numpy_arccos<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1797,7 +1797,7 @@ pub fn call_numpy_arctan<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1837,7 +1837,7 @@ pub fn call_numpy_sinh<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1877,7 +1877,7 @@ pub fn call_numpy_cosh<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1917,7 +1917,7 @@ pub fn call_numpy_tanh<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1957,7 +1957,7 @@ pub fn call_numpy_arcsinh<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -1997,7 +1997,7 @@ pub fn call_numpy_arccosh<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -2037,7 +2037,7 @@ pub fn call_numpy_arctanh<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -2077,7 +2077,7 @@ pub fn call_numpy_expm1<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -2117,7 +2117,7 @@ pub fn call_numpy_cbrt<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -2157,7 +2157,7 @@ pub fn call_scipy_special_erf<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[z_ty])
@@ -2197,7 +2197,7 @@ pub fn call_scipy_special_erfc<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -2237,7 +2237,7 @@ pub fn call_scipy_special_gamma<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[z_ty])
@@ -2277,7 +2277,7 @@ pub fn call_scipy_special_gammaln<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -2317,7 +2317,7 @@ pub fn call_scipy_special_j0<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -2357,7 +2357,7 @@ pub fn call_scipy_special_j1<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?;
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x_ty])
@@ -2392,13 +2392,13 @@ pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
 
             let dtype = if is_ndarray1 && is_ndarray2 {
                 let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
-                let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty); 
+                let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty);
 
                 debug_assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
 
                 ndarray_dtype1
             } else if is_ndarray1 {
-                unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty).0 
+                unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty).0
             } else if is_ndarray2 {
                 unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
             } else { unreachable!() };
@@ -2424,7 +2424,7 @@ pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_arctan2(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
@@ -2491,7 +2491,7 @@ pub fn call_numpy_copysign<'ctx, G: CodeGenerator + ?Sized>(
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_copysign(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
@@ -2558,7 +2558,7 @@ pub fn call_numpy_fmax<'ctx, G: CodeGenerator + ?Sized>(
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_fmax(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
@@ -2625,7 +2625,7 @@ pub fn call_numpy_fmin<'ctx, G: CodeGenerator + ?Sized>(
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_fmin(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
@@ -2681,7 +2681,7 @@ pub fn call_numpy_ldexp<'ctx, G: CodeGenerator + ?Sized>(
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_ldexp(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
@@ -2748,7 +2748,7 @@ pub fn call_numpy_hypot<'ctx, G: CodeGenerator + ?Sized>(
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_hypot(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
@@ -2815,7 +2815,7 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_nextafter(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])

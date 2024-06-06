@@ -8,6 +8,7 @@ use crate::{
             ArraySliceValue,
             ListValue,
             NDArrayValue,
+            ProxyValue,
             RangeValue,
             TypedArrayLikeAccessor,
             UntypedArrayLikeAccessor,
@@ -1090,7 +1091,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 
     emit_cont_bb(ctx, generator, list);
 
-    Ok(Some(list.as_ptr_value().into()))
+    Ok(Some(list.as_base_value().into()))
 }
 
 /// Generates LLVM IR for a binary operator expression using the [`Type`] and 
@@ -1173,8 +1174,8 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                     ctx,
                     ndarray_dtype1,
                     if is_aug_assign { Some(left_val) } else { None },
-                    (left_val.as_ptr_value().into(), false),
-                    (right_val.as_ptr_value().into(), false),
+                    (left_val.as_base_value().into(), false),
+                    (right_val.as_base_value().into(), false),
                     |generator, ctx, (lhs, rhs)| {
                         gen_binop_expr_with_values(
                             generator,
@@ -1189,7 +1190,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 )?
             };
 
-            Ok(Some(res.as_ptr_value().into()))
+            Ok(Some(res.as_base_value().into()))
         } else {
             let (ndarray_dtype, _) = unpack_ndarray_var_tys(
                 &mut ctx.unifier,
@@ -1220,7 +1221,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 },
             )?;
 
-            Ok(Some(res.as_ptr_value().into()))
+            Ok(Some(res.as_base_value().into()))
         }
     } else {
         let left_ty_enum = ctx.unifier.get_ty_immutable(left_ty.unwrap());
@@ -1410,7 +1411,7 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             },
         )?;
 
-        res.as_ptr_value().into()
+        res.as_base_value().into()
     } else {
         unimplemented!()
     })) 
@@ -1478,7 +1479,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     ctx,
                     ctx.primitives.bool,
                     None,
-                    (left_val.as_ptr_value().into(), false),
+                    (left_val.as_base_value().into(), false),
                     (rhs, false),
                     |generator, ctx, (lhs, rhs)| {
                         let val = gen_cmpop_expr_with_values(
@@ -1493,7 +1494,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     },
                 )?;
             
-                Ok(Some(res.as_ptr_value().into()))
+                Ok(Some(res.as_base_value().into()))
             } else {
                 let (ndarray_dtype, _) = unpack_ndarray_var_tys(
                     &mut ctx.unifier,
@@ -1519,7 +1520,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     },
                 )?;
             
-                Ok(Some(res.as_ptr_value().into()))
+                Ok(Some(res.as_base_value().into()))
             }
         }
     }
@@ -1819,7 +1820,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                 ty,
                 v,
                 &slices,
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         ExprKind::Slice { .. } => {
@@ -1833,7 +1834,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                 ty,
                 v,
                 &[slice],
-            )?.as_ptr_value().into()
+            )?.as_base_value().into()
         }
 
         _ => {
@@ -1935,7 +1936,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                 llvm_i1.const_zero(),
             );
 
-            ndarray.as_ptr_value().into()
+            ndarray.as_base_value().into()
         }
     }))
 }
@@ -2025,7 +2026,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     .ptr_offset(ctx, generator, &usize.const_int(i as u64, false), Some("elem_ptr"));
                 ctx.builder.build_store(elem_ptr, *v).unwrap();
             }
-            arr_str_ptr.as_ptr_value().into()
+            arr_str_ptr.as_base_value().into()
         }
         ExprKind::Tuple { elts, .. } => {
             let elements_val = elts
@@ -2406,7 +2407,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             v,
                             (start, end, step),
                         );
-                        res_array_ret.as_ptr_value().into()
+                        res_array_ret.as_base_value().into()
                     } else {
                         let len = v.load_size(ctx, Some("len"));
                         let raw_index = if let Some(v) = generator.gen_expr(ctx, slice)? {

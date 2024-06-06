@@ -7,6 +7,7 @@ use crate::{
             ArrayLikeValue,
             ListValue,
             NDArrayValue,
+            ProxyValue,
             TypedArrayLikeAccessor,
             TypedArrayLikeAdapter,
             TypedArrayLikeMutator,
@@ -1172,7 +1173,7 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
         );
     }
 
-    let lhs = if res.is_some_and(|res| res.as_ptr_value() == lhs.as_ptr_value()) {
+    let lhs = if res.is_some_and(|res| res.as_base_value() == lhs.as_base_value()) {
         ndarray_copy_impl(generator, ctx, elem_ty, lhs)?
     } else {
         lhs
