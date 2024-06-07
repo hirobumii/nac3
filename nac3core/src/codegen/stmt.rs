@@ -872,12 +872,14 @@ pub fn gen_if_else_expr_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn, R>(
 
     ctx.builder.position_at_end(then_bb);
     let then_val = then_fn(generator, ctx)?;
+    let then_end_bb = ctx.builder.get_insert_block().unwrap();
     if !ctx.is_terminated() {
         ctx.builder.build_unconditional_branch(end_bb).unwrap();
     }
 
     ctx.builder.position_at_end(else_bb);
     let else_val = else_fn(generator, ctx)?;
+    let else_end_bb = ctx.builder.get_insert_block().unwrap();
     if !ctx.is_terminated() {
         ctx.builder.build_unconditional_branch(end_bb).unwrap();
     }
@@ -889,7 +891,7 @@ pub fn gen_if_else_expr_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn, R>(
             assert_eq!(tv_ty, ev.as_basic_value_enum().get_type());
 
             let phi = ctx.builder.build_phi(tv_ty, "").unwrap();
-            phi.add_incoming(&[(&tv, then_bb), (&ev, else_bb)]);
+            phi.add_incoming(&[(&tv, then_end_bb), (&ev, else_end_bb)]);
 
             Some(phi.as_basic_value()) 
         },
