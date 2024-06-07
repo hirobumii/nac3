@@ -12,7 +12,15 @@ use itertools::Either;
 use crate::{
     codegen::{
         builtin_fns,
-        classes::{ArrayLikeValue, NDArrayValue, RangeValue, TypedArrayLikeAccessor},
+        classes::{
+            ArrayLikeValue,
+            NDArrayValue,
+            ProxyType,
+            ProxyValue,
+            RangeValue,
+            RangeType,
+            TypedArrayLikeAccessor,
+        },
         expr::destructure_range,
         irrt::*,
         numpy::*,
@@ -943,26 +951,53 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                     let mut stop = None;
                     let mut step = None;
                     let int32 = ctx.ctx.i32_type();
-                    let zero = int32.const_zero();
                     let ty_i32 = ctx.primitives.int32;
                     for (i, arg) in args.iter().enumerate() {
                         if arg.0 == Some("start".into()) {
-                            start = Some(arg.1.clone().to_basic_value_enum(ctx, generator, ty_i32)?);
+                            start = Some(arg.1
+                                .clone()
+                                .to_basic_value_enum(ctx, generator, ty_i32)?
+                                .into_int_value()
+                            );
                         } else if arg.0 == Some("stop".into()) {
-                            stop = Some(arg.1.clone().to_basic_value_enum(ctx, generator, ty_i32)?);
+                            stop = Some(
+                                arg.1
+                                    .clone()
+                                    .to_basic_value_enum(ctx, generator, ty_i32)?
+                                    .into_int_value()
+                            );
                         } else if arg.0 == Some("step".into()) {
-                            step = Some(arg.1.clone().to_basic_value_enum(ctx, generator, ty_i32)?);
+                            step = Some(
+                                arg.1
+                                    .clone()
+                                    .to_basic_value_enum(ctx, generator, ty_i32)?
+                                    .into_int_value()
+                            );
                         } else if i == 0 {
-                            start = Some(arg.1.clone().to_basic_value_enum(ctx, generator, ty_i32)?);
+                            start = Some(
+                                arg.1
+                                    .clone()
+                                    .to_basic_value_enum(ctx, generator, ty_i32)?
+                                    .into_int_value()
+                            );
                         } else if i == 1 {
-                            stop = Some(arg.1.clone().to_basic_value_enum(ctx, generator, ty_i32)?);
+                            stop = Some(
+                                arg.1
+                                    .clone()
+                                    .to_basic_value_enum(ctx, generator, ty_i32)?
+                                    .into_int_value()
+                            );
                         } else if i == 2 {
-                            step = Some(arg.1.clone().to_basic_value_enum(ctx, generator, ty_i32)?);
+                            step = Some(
+                                arg.1
+                                    .clone()
+                                    .to_basic_value_enum(ctx, generator, ty_i32)?
+                                    .into_int_value()
+                            );
                         }
                     }
                     let step = match step {
                         Some(step) => {
-                            let step = step.into_int_value();
                             // assert step != 0, throw exception if not
                             let not_zero = ctx.builder
                                 .build_int_compare(
@@ -989,30 +1024,13 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                         start = None;
                         v
                     });
-                    let start = start.unwrap_or_else(|| int32.const_zero().into());
-                    let ty = int32.array_type(3);
-                    let ptr = generator.gen_var_alloc(ctx, ty.into(), Some("range")).unwrap();
-                    unsafe {
-                        let a = ctx.builder
-                            .build_in_bounds_gep(ptr, &[zero, zero], "start")
-                            .unwrap();
-                        let b = ctx.builder
-                            .build_in_bounds_gep(
-                                ptr,
-                                &[zero, int32.const_int(1, false)],
-                                "end",
-                            )
-                            .unwrap();
-                        let c = ctx.builder.build_in_bounds_gep(
-                                ptr,
-                                &[zero, int32.const_int(2, false)],
-                                "step",
-                            ).unwrap();
-                        ctx.builder.build_store(a, start).unwrap();
-                        ctx.builder.build_store(b, stop).unwrap();
-                        ctx.builder.build_store(c, step).unwrap();
-                    }
-                    Ok(Some(ptr.into()))
+                    let start = start.unwrap_or_else(|| int32.const_zero());
+
+                    let ptr = RangeType::new(ctx.ctx).new_value(generator, ctx, Some("range"));
+                    ptr.store_start(ctx, start);
+                    ptr.store_end(ctx, stop);
+                    ptr.store_step(ctx, step);
+                    Ok(Some(ptr.as_base_value().into()))
                 },
             )))),
             loc: None,

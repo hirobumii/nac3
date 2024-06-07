@@ -1,10 +1,11 @@
 use inkwell::{
-    IntPredicate,
+    AddressSpace, IntPredicate,
     types::{AnyTypeEnum, BasicTypeEnum, IntType, PointerType},
     values::{BasicValueEnum, IntValue, PointerValue},
 };
-use inkwell::types::BasicType;
-use inkwell::values::BasicValue;
+use inkwell::context::Context;
+use inkwell::types::{ArrayType, BasicType, StructType};
+use inkwell::values::{ArrayValue, BasicValue, StructValue};
 use crate::codegen::{
     CodeGenContext,
     CodeGenerator,
@@ -14,12 +15,38 @@ use crate::codegen::{
 };
 
 /// A LLVM type that is used to represent a non-primitive type in NAC3.
-pub trait ProxyType<'ctx> {
-    /// The underlying type as represented by an LLVM type.
+pub trait ProxyType<'ctx>: Into<Self::Base> {
+    /// The LLVM type of which values of this type possess. This is usually a 
+    /// [LLVM pointer type][PointerType].
     type Base: BasicType<'ctx>;
+
+    /// The underlying LLVM type used to represent values. This is usually the element type of 
+    /// [`Base`] if it is a pointer, otherwise this is the same type as `Base`.
+    type Underlying: BasicType<'ctx>;
     
     /// The type of values represented by this type.
     type Value: ProxyValue<'ctx>;
+
+    /// Creates a new value of this type.
+    fn new_value<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> Self::Value;
+
+    /// Creates a new array value of this type.
+    fn new_array_value<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        size: IntValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> ArraySliceValue<'ctx> {
+        generator
+            .gen_array_var_alloc(ctx, self.as_underlying_type().as_basic_type_enum(), size, name)
+            .unwrap()
+    }
 
     /// Creates a [`value`][ProxyValue] with this as its type.
     fn create_value(
@@ -28,14 +55,22 @@ pub trait ProxyType<'ctx> {
         name: Option<&'ctx str>,
     ) -> Self::Value;
 
-    /// Returns the base type of this proxy.
+    /// Returns the [base type][Self::Base] of this proxy.
     fn as_base_type(&self) -> Self::Base;
+
+    /// Returns the [underlying type][Self::Underlying] of this proxy.
+    fn as_underlying_type(&self) -> Self::Underlying;
 }
 
 /// A LLVM type that is used to represent a non-primitive value in NAC3.
-pub trait ProxyValue<'ctx> {
-    /// The underlying type as represented by an LLVM value.
+pub trait ProxyValue<'ctx>: Into<Self::Base> {
+    /// The type of LLVM values represented by this instance. This is usually the 
+    /// [LLVM pointer type][PointerValue].
     type Base: BasicValue<'ctx>;
+
+    /// The underlying type of LLVM values represented by this instance. This is usually the element
+    /// type of [`Base`] if it is a pointer, otherwise this is the same type as `Base`.
+    type Underlying: BasicValue<'ctx>;
 
     /// The type of this value.
     type Type: ProxyType<'ctx>;
@@ -43,8 +78,16 @@ pub trait ProxyValue<'ctx> {
     /// Returns the [type][ProxyType] of this value.
     fn get_type(&self) -> Self::Type;
 
-    /// Returns the base value of this proxy.
+    /// Returns the [base value][Self::Base] of this proxy.
     fn as_base_value(&self) -> Self::Base;
+
+    /// Loads this value into its [underlying representation][Self::Underlying]. Usually involves a 
+    /// `getelementptr` if [`Self::Base`] is a [pointer value][PointerValue].
+    fn as_underlying_value(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> Self::Underlying;
 }
 
 /// An LLVM value that is array-like, i.e. it contains a contiguous, sequenced collection of
@@ -463,6 +506,27 @@ impl<'ctx> ListType<'ctx> {
         Ok(())
     }
 
+    /// Creates an instance of [`ListType`].
+    #[must_use]
+    pub fn new<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        element_type: BasicTypeEnum<'ctx>,
+    ) -> Self {
+        let llvm_usize = generator.get_size_type(ctx);
+        let llvm_list = ctx
+            .struct_type(
+                &[
+                    element_type.ptr_type(AddressSpace::default()).into(),
+                    llvm_usize.into(),
+                ],
+                false,
+            )
+            .ptr_type(AddressSpace::default());
+
+        ListType::from_type(llvm_list, llvm_usize)
+    }
+
     /// Creates an [`ListType`] from a [`PointerType`].
     #[must_use]
     pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
@@ -495,7 +559,20 @@ impl<'ctx> ListType<'ctx> {
 
 impl<'ctx> ProxyType<'ctx> for ListType<'ctx> {
     type Base = PointerType<'ctx>;
+    type Underlying = StructType<'ctx>;
     type Value = ListValue<'ctx>;
+
+    fn new_value<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> Self::Value {
+        self.create_value(
+            generator.gen_var_alloc(ctx, self.as_underlying_type().into(), name).unwrap(),
+            name,
+        )
+    }
 
     fn create_value(
         &self,
@@ -509,6 +586,10 @@ impl<'ctx> ProxyType<'ctx> for ListType<'ctx> {
 
     fn as_base_type(&self) -> Self::Base {
         self.ty
+    }
+
+    fn as_underlying_type(&self) -> Self::Underlying {
+        self.as_base_type().get_element_type().into_struct_type()
     }
 }
 
@@ -629,6 +710,7 @@ impl<'ctx> ListValue<'ctx> {
 
 impl<'ctx> ProxyValue<'ctx> for ListValue<'ctx> {
     type Base = PointerValue<'ctx>;
+    type Underlying = StructValue<'ctx>;
     type Type = ListType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
@@ -637,6 +719,17 @@ impl<'ctx> ProxyValue<'ctx> for ListValue<'ctx> {
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_underlying_value(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> Self::Underlying {
+        ctx.builder
+            .build_load(self.as_base_value(), name.unwrap_or_default())
+            .map(BasicValueEnum::into_struct_value)
+            .unwrap()
     }
 }
 
@@ -757,6 +850,15 @@ impl<'ctx> RangeType<'ctx> {
         Ok(())
     }
 
+    /// Creates an instance of [`RangeType`].
+    #[must_use]
+    pub fn new(ctx: &'ctx Context) -> Self {
+        let llvm_i32 = ctx.i32_type();
+        let llvm_range = llvm_i32.array_type(3).ptr_type(AddressSpace::default());
+
+        RangeType::from_type(llvm_range)
+    }
+
     /// Creates an [`RangeType`] from a [`PointerType`].
     #[must_use]
     pub fn from_type(ptr_ty: PointerType<'ctx>) -> Self {
@@ -778,7 +880,20 @@ impl<'ctx> RangeType<'ctx> {
 
 impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
     type Base = PointerType<'ctx>;
+    type Underlying = ArrayType<'ctx>;
     type Value = RangeValue<'ctx>;
+
+    fn new_value<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> Self::Value {
+        self.create_value(
+            generator.gen_var_alloc(ctx, self.as_underlying_type().into(), name).unwrap(),
+            name,
+        )
+    }
 
     fn create_value(&self, value: <Self::Value as ProxyValue<'ctx>>::Base, name: Option<&'ctx str>) -> Self::Value {
         debug_assert_eq!(value.get_type(), self.as_base_type());
@@ -788,6 +903,10 @@ impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
 
     fn as_base_type(&self) -> Self::Base {
         self.ty
+    }
+
+    fn as_underlying_type(&self) -> Self::Underlying {
+        self.as_base_type().get_element_type().into_array_type()
     }
 }
 
@@ -935,6 +1054,7 @@ impl<'ctx> RangeValue<'ctx> {
 
 impl<'ctx> ProxyValue<'ctx> for RangeValue<'ctx> {
     type Base = PointerValue<'ctx>;
+    type Underlying = ArrayValue<'ctx>;
     type Type = RangeType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
@@ -943,6 +1063,17 @@ impl<'ctx> ProxyValue<'ctx> for RangeValue<'ctx> {
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_underlying_value(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> Self::Underlying {
+        ctx.builder
+            .build_load(self.as_base_value(), name.unwrap_or_default())
+            .map(BasicValueEnum::into_array_value)
+            .unwrap()
     }
 }
 
@@ -1005,6 +1136,34 @@ impl<'ctx> NDArrayType<'ctx> {
         Ok(())
     }
 
+    /// Creates an instance of [`ListType`].
+    #[must_use]
+    pub fn new<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        dtype: BasicTypeEnum<'ctx>,
+    ) -> Self {
+        let llvm_usize = generator.get_size_type(ctx);
+
+        // struct NDArray { num_dims: size_t, dims: size_t*, data: T* }
+        //
+        // * num_dims: Number of dimensions in the array
+        // * dims: Pointer to an array containing the size of each dimension
+        // * data: Pointer to an array containing the array data 
+        let llvm_ndarray = ctx
+            .struct_type(
+                &[
+                    llvm_usize.into(),
+                    llvm_usize.ptr_type(AddressSpace::default()).into(),
+                    dtype.ptr_type(AddressSpace::default()).into(), 
+                ],
+                false,
+            )
+            .ptr_type(AddressSpace::default());
+
+        NDArrayType::from_type(llvm_ndarray, llvm_usize)
+    }
+
     /// Creates an [`NDArrayType`] from a [`PointerType`].
     #[must_use]
     pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
@@ -1037,7 +1196,22 @@ impl<'ctx> NDArrayType<'ctx> {
 
 impl<'ctx> ProxyType<'ctx> for NDArrayType<'ctx> {
     type Base = PointerType<'ctx>;
+    type Underlying = StructType<'ctx>;
     type Value = NDArrayValue<'ctx>;
+
+    fn new_value<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> Self::Value {
+        self.create_value(
+            generator
+                .gen_var_alloc(ctx, self.as_underlying_type().into(), name)
+                .unwrap(),
+            name,
+        )
+    }
 
     fn create_value(
         &self,
@@ -1051,6 +1225,10 @@ impl<'ctx> ProxyType<'ctx> for NDArrayType<'ctx> {
 
     fn as_base_type(&self) -> Self::Base {
         self.ty
+    }
+
+    fn as_underlying_type(&self) -> Self::Underlying {
+        self.as_base_type().get_element_type().into_struct_type()
     }
 }
 
@@ -1198,6 +1376,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
 impl<'ctx> ProxyValue<'ctx> for NDArrayValue<'ctx> {
     type Base = PointerValue<'ctx>;
+    type Underlying = StructValue<'ctx>;
     type Type = NDArrayType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
@@ -1206,6 +1385,17 @@ impl<'ctx> ProxyValue<'ctx> for NDArrayValue<'ctx> {
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_underlying_value(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> Self::Underlying {
+        ctx.builder
+            .build_load(self.as_base_value(), name.unwrap_or_default())
+            .map(BasicValueEnum::into_struct_value)
+            .unwrap()
     }
 }
 

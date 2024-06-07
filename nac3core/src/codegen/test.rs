@@ -1,6 +1,7 @@
 use crate::{
     codegen::{
-        concrete_type::ConcreteTypeStore, CodeGenContext, CodeGenLLVMOptions,
+        classes::{ListType, NDArrayType, ProxyType, RangeType},
+        concrete_type::ConcreteTypeStore, CodeGenContext, CodeGenerator, CodeGenLLVMOptions,
         CodeGenTargetMachineOptions, CodeGenTask, DefaultCodeGenerator, WithCall, WorkerRegistry,
     },
     symbol_resolver::{SymbolResolver, ValueEnum},
@@ -424,4 +425,36 @@ fn test_simple_call() {
     );
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
+}
+
+#[test]
+fn test_classes_list_type_new() {
+    let ctx = inkwell::context::Context::create();
+    let generator = DefaultCodeGenerator::new(String::new(), 64);
+
+    let llvm_i32 = ctx.i32_type();
+    let llvm_usize = generator.get_size_type(&ctx);
+
+    let llvm_list = ListType::new(&generator, &ctx, llvm_i32.into());
+    assert!(ListType::is_type(llvm_list.as_base_type(), llvm_usize).is_ok());
+}
+
+#[test]
+fn test_classes_range_type_new() {
+    let ctx = inkwell::context::Context::create();
+
+    let llvm_range = RangeType::new(&ctx);
+    assert!(RangeType::is_type(llvm_range.as_base_type()).is_ok());
+}
+
+#[test]
+fn test_classes_ndarray_type_new() {
+    let ctx = inkwell::context::Context::create();
+    let generator = DefaultCodeGenerator::new(String::new(), 64);
+
+    let llvm_i32 = ctx.i32_type();
+    let llvm_usize = generator.get_size_type(&ctx);
+
+    let llvm_ndarray = NDArrayType::new(&generator, &ctx, llvm_i32.into());
+    assert!(NDArrayType::is_type(llvm_ndarray.as_base_type(), llvm_usize).is_ok());
 }

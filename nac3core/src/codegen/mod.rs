@@ -1,4 +1,5 @@
 use crate::{
+    codegen::classes::{ListType, NDArrayType, ProxyType, RangeType},
     symbol_resolver::{StaticValue, SymbolResolver},
     toplevel::{
         helper::PRIMITIVE_DEF_IDS, 
@@ -452,7 +453,6 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         }
 
                         TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
-                            let llvm_usize = generator.get_size_type(ctx);
                             let (dtype, _) = unpack_ndarray_var_tys(unifier, ty);
                             let element_type = get_llvm_type(
                                 ctx, 
@@ -464,17 +464,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 dtype,
                             );
 
-                            // struct NDArray { num_dims: size_t, dims: size_t*, data: T* }
-                            //
-                            // * num_dims: Number of dimensions in the array
-                            // * dims: Pointer to an array containing the size of each dimension
-                            // * data: Pointer to an array containing the array data
-                            let fields = [
-                                llvm_usize.into(),
-                                llvm_usize.ptr_type(AddressSpace::default()).into(),
-                                element_type.ptr_type(AddressSpace::default()).into(),
-                            ];
-                            ctx.struct_type(&fields, false).ptr_type(AddressSpace::default()).into()
+                            NDArrayType::new(generator, ctx, element_type).as_base_type().into()
                         }
 
                         _ => unreachable!("LLVM type for primitive {} is missing", unifier.stringify(ty)),
@@ -528,15 +518,11 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                 ctx.struct_type(&fields, false).into()
             }
             TList { ty } => {
-                // a struct with an integer and a pointer to an array
                 let element_type = get_llvm_type(
                     ctx, module, generator, unifier, top_level, type_cache, *ty,
                 );
-                let fields = [
-                    element_type.ptr_type(AddressSpace::default()).into(),
-                    generator.get_size_type(ctx).into(),
-                ];
-                ctx.struct_type(&fields, false).ptr_type(AddressSpace::default()).into()
+
+                ListType::new(generator, ctx, element_type).as_base_type().into()
             }
             TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),
@@ -671,7 +657,7 @@ pub fn gen_func_impl<'ctx, G: CodeGenerator, F: FnOnce(&mut G, &mut CodeGenConte
                 Some(t) => t.as_basic_type_enum()
             }
         }),
-        (primitives.range, context.i32_type().array_type(3).ptr_type(AddressSpace::default()).into()),
+        (primitives.range, RangeType::new(context).as_base_type().into()),
         (primitives.exception, {
             let name = "Exception";
             if let Some(t) = module.get_struct_type(name) {
