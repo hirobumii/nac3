@@ -170,6 +170,7 @@ def patch(module):
     module.np_full = np.full
     module.np_eye = np.eye
     module.np_identity = np.identity
+    module.np_array = np.array
 
     # NumPy Math functions
     module.np_isnan = np.isnan

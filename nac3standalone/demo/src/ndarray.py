@@ -97,6 +97,19 @@ def test_ndarray_eye():
     n: ndarray[float, 2] = np_eye(2)
     output_ndarray_float_2(n)
 
+def test_ndarray_array():
+    n1: ndarray[float, 1] = np_array([1.0, 2.0, 3.0])
+    output_ndarray_float_1(n1)
+    n1to2: ndarray[float, 2] = np_array([1.0, 2.0, 3.0], ndmin=2)
+    output_ndarray_float_2(n1to2)
+    n2: ndarray[float, 2] = np_array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    output_ndarray_float_2(n2)
+
+    # Copy
+    n2_cpy: ndarray[float, 2] = np_array(n2, copy=False)
+    n2_cpy.fill(0.0)
+    output_ndarray_float_2(n2_cpy)
+
 def test_ndarray_identity():
     n: ndarray[float, 2] = np_identity(2)
     output_ndarray_float_2(n)
@@ -1373,6 +1386,7 @@ def run() -> int32:
     test_ndarray_ones()
     test_ndarray_full()
     test_ndarray_eye()
+    test_ndarray_array()
     test_ndarray_identity()
     test_ndarray_fill()
     test_ndarray_copy()
