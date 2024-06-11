@@ -809,15 +809,16 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                         },
                     ],
                     ret: ndarray,
-                    vars: VarMap::default(),
+                    vars: VarMap::from([(tv.1, tv.0)]),
                 })),
-                var_id: Vec::default(),
+                var_id: vec![tv.1],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
                 codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                     |ctx, obj, fun, args, generator| {
-                        todo!()
+                        gen_ndarray_array(ctx, &obj, fun, &args, generator)
+                            .map(|val| Some(val.as_basic_value_enum()))
                     },
                 )))),
                 loc: None,
