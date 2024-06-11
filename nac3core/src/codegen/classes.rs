@@ -541,18 +541,20 @@ impl<'ctx> ListType<'ctx> {
         self.as_base_type()
             .get_element_type()
             .into_struct_type()
-            .get_field_type_at_index(0)
+            .get_field_type_at_index(1)
             .map(BasicTypeEnum::into_int_type)
             .unwrap()
     }
 
     /// Returns the element type of this `list` type.
     #[must_use]
-    pub fn element_type(&self) -> BasicTypeEnum<'ctx> {
+    pub fn element_type(&self) -> AnyTypeEnum<'ctx> {
         self.as_base_type()
             .get_element_type()
             .into_struct_type()
-            .get_field_type_at_index(1)
+            .get_field_type_at_index(0)
+            .map(BasicTypeEnum::into_pointer_type)
+            .map(PointerType::get_element_type)
             .unwrap() 
     }
 }
