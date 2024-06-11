@@ -105,7 +105,7 @@ impl TopLevelComposer {
                 builtin_id.insert(name, DefinitionId(id));
             } else if let TopLevelDef::Class { name, constructor, object_id, .. } = &*def
             {
-                assert_eq!(id, object_id.0, "Object id of class '{}' should match its index in builtin name list", name);
+                assert_eq!(id, object_id.0, "Object id of class '{name}' should match its index in builtin name list");
                 if let Some(constructor) = constructor {
                     builtin_ty.insert(*name, *constructor);
                 }

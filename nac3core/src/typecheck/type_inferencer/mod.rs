@@ -812,7 +812,7 @@ impl<'a> Inferencer<'a> {
         location: Location,
         func: &ast::Expr<()>,
         args: &mut Vec<ast::Expr<()>>,
-        keywords: &Vec<Located<ast::KeywordData>>,
+        keywords: &[Located<ast::KeywordData>],
     ) -> Result<Option<ast::Expr<Option<Type>>>, HashSet<String>> {
         let Located { location: func_location, node: ExprKind::Name { id, ctx }, .. } = func else {
             return Ok(None)
