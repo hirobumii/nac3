@@ -890,7 +890,7 @@ impl<'ctx> RangeValue<'ctx> {
     ) {
         debug_assert_eq!(end.get_type().get_bit_width(), 32);
 
-        let pend = self.ptr_to_start(ctx);
+        let pend = self.ptr_to_end(ctx);
         ctx.builder.build_store(pend, end).unwrap();
     }
 
@@ -915,7 +915,7 @@ impl<'ctx> RangeValue<'ctx> {
     ) {
         debug_assert_eq!(step.get_type().get_bit_width(), 32);
 
-        let pstep = self.ptr_to_start(ctx);
+        let pstep = self.ptr_to_step(ctx);
         ctx.builder.build_store(pstep, step).unwrap();
     }
 
