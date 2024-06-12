@@ -1270,7 +1270,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     // run end_catch before continue/break/return
     let mut final_proxy_lambda =
         |ctx: &mut CodeGenContext<'ctx, 'a>, target: BasicBlock<'ctx>, block: BasicBlock<'ctx>| {
-            final_proxy(ctx, target, block, final_data.as_mut().unwrap())
+            final_proxy(ctx, target, block, final_data.as_mut().unwrap());
         };
     let mut redirect_lambda =
         |ctx: &mut CodeGenContext<'ctx, 'a>, target: BasicBlock<'ctx>, block: BasicBlock<'ctx>| {

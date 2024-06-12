@@ -1,3 +1,7 @@
+#![deny(clippy::all)]
+#![warn(clippy::pedantic)]
+#![allow(clippy::cast_possible_truncation, clippy::too_many_lines, clippy::wildcard_imports)]
+
 use clap::Parser;
 use inkwell::{
     memory_buffer::MemoryBuffer, passes::PassBuilderOptions, support::is_multithreaded, targets::*,
@@ -310,10 +314,7 @@ fn main() {
             StmtKind::ImportFrom { module, names, .. }
                 if module == &Some("__future__".into())
                     && names.len() == 1
-                    && names[0].name == "annotations".into() =>
-            {
-                ()
-            }
+                    && names[0].name == "annotations".into() => {}
             _ => {
                 let (name, def_id, ty) = composer
                     .register_top_level(stmt, Some(resolver.clone()), "__main__", true)

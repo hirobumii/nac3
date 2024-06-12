@@ -1,3 +1,38 @@
+#![deny(clippy::all)]
+#![warn(clippy::pedantic)]
+#![allow(
+    clippy::borrow_as_ptr,
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_ptr_alignment,
+    clippy::cast_sign_loss,
+    clippy::doc_markdown,
+    clippy::enum_glob_use,
+    clippy::explicit_iter_loop,
+    clippy::expl_impl_clone_on_copy,
+    clippy::items_after_statements,
+    clippy::manual_let_else,
+    clippy::match_same_arms,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::module_name_repetitions,
+    clippy::needless_pass_by_value,
+    clippy::ptr_as_ptr,
+    clippy::redundant_closure_call,
+    clippy::result_unit_err,
+    clippy::semicolon_if_nothing_returned,
+    clippy::similar_names,
+    clippy::stable_sort_primitive,
+    clippy::struct_field_names,
+    clippy::too_many_lines,
+    clippy::type_complexity,
+    clippy::unnecessary_wraps,
+    clippy::unnested_or_patterns,
+    clippy::unreadable_literal,
+    clippy::wildcard_imports
+)]
+
 use dwarf::*;
 use elf::*;
 use std::collections::HashMap;

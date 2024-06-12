@@ -1,3 +1,7 @@
+#![deny(clippy::all)]
+#![warn(clippy::pedantic)]
+#![allow(clippy::semicolon_if_nothing_returned, clippy::uninlined_format_args)]
+
 use std::env;
 
 static mut NOW: i64 = 0;

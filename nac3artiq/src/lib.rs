@@ -1,3 +1,15 @@
+#![deny(clippy::all)]
+#![warn(clippy::pedantic)]
+#![allow(
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::enum_glob_use,
+    clippy::similar_names,
+    clippy::too_many_lines,
+    clippy::wildcard_imports
+)]
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;

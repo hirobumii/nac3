@@ -2367,7 +2367,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                         ))
                                     }
                                     Some(v) => Ok(Some(v)),
-                                }
+                                };
                             }
                             ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
                                 let not_null =
