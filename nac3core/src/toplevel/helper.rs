@@ -102,6 +102,12 @@ pub enum PrimDef {
     FunSome,
 }
 
+/// Associated details of a [`PrimDef`]
+pub enum PrimDefDetails {
+    PrimFunction { name: &'static str, simple_name: &'static str },
+    PrimClass { name: &'static str },
+}
+
 impl PrimDef {
     /// Get the assigned [`DefinitionId`] of this [`PrimDef`].
     ///
@@ -116,6 +122,150 @@ impl PrimDef {
     #[must_use]
     pub fn contains_id(id: DefinitionId) -> bool {
         Self::iter().any(|prim| prim.id() == id)
+    }
+
+    /// Get the definition "simple name" of this [`PrimDef`].
+    ///
+    /// If the [`PrimDef`] is a function, this corresponds to [`TopLevelDef::Function::simple_name`].
+    ///
+    /// If the [`PrimDef`] is a class, this returns [`None`].
+    #[must_use]
+    pub fn simple_name(&self) -> &'static str {
+        match self.details() {
+            PrimDefDetails::PrimFunction { simple_name, .. } => simple_name,
+            PrimDefDetails::PrimClass { .. } => {
+                panic!("PrimDef {self:?} has no simple_name as it is not a function.")
+            }
+        }
+    }
+
+    /// Get the definition "name" of this [`PrimDef`].
+    ///
+    /// If the [`PrimDef`] is a function, this corresponds to [`TopLevelDef::Function::name`].
+    ///
+    /// If the [`PrimDef`] is a class, this corresponds to [`TopLevelDef::Class::name`].
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self.details() {
+            PrimDefDetails::PrimFunction { name, .. } | PrimDefDetails::PrimClass { name } => name,
+        }
+    }
+
+    /// Get the associated details of this [`PrimDef`]
+    #[must_use]
+    pub fn details(self) -> PrimDefDetails {
+        fn class(name: &'static str) -> PrimDefDetails {
+            PrimDefDetails::PrimClass { name }
+        }
+
+        fn fun(name: &'static str, simple_name: Option<&'static str>) -> PrimDefDetails {
+            PrimDefDetails::PrimFunction { simple_name: simple_name.unwrap_or(name), name }
+        }
+
+        match self {
+            PrimDef::Int32 => class("int32"),
+            PrimDef::Int64 => class("int64"),
+            PrimDef::Float => class("float"),
+            PrimDef::Bool => class("bool"),
+            PrimDef::None => class("none"),
+            PrimDef::Range => class("range"),
+            PrimDef::Str => class("str"),
+            PrimDef::Exception => class("Exception"),
+            PrimDef::UInt32 => class("uint32"),
+            PrimDef::UInt64 => class("uint64"),
+            PrimDef::Option => class("Option"),
+            PrimDef::OptionIsSome => fun("Option.is_some", Some("is_some")),
+            PrimDef::OptionIsNone => fun("Option.is_none", Some("is_none")),
+            PrimDef::OptionUnwrap => fun("Option.unwrap", Some("unwrap")),
+            PrimDef::NDArray => class("ndarray"),
+            PrimDef::NDArrayCopy => fun("ndarray.copy", Some("copy")),
+            PrimDef::NDArrayFill => fun("ndarray.fill", Some("fill")),
+            PrimDef::FunInt32 => fun("int32", None),
+            PrimDef::FunInt64 => fun("int64", None),
+            PrimDef::FunUInt32 => fun("uint32", None),
+            PrimDef::FunUInt64 => fun("uint64", None),
+            PrimDef::FunFloat => fun("float", None),
+            PrimDef::FunNpNDArray => fun("np_ndarray", None),
+            PrimDef::FunNpEmpty => fun("np_empty", None),
+            PrimDef::FunNpZeros => fun("np_zeros", None),
+            PrimDef::FunNpOnes => fun("np_ones", None),
+            PrimDef::FunNpFull => fun("np_full", None),
+            PrimDef::FunNpArray => fun("np_array", None),
+            PrimDef::FunNpEye => fun("np_eye", None),
+            PrimDef::FunNpIdentity => fun("np_identity", None),
+            PrimDef::FunRound => fun("round", None),
+            PrimDef::FunRound64 => fun("round64", None),
+            PrimDef::FunNpRound => fun("np_round", None),
+            PrimDef::FunRange => fun("range", None),
+            PrimDef::FunStr => fun("str", None),
+            PrimDef::FunBool => fun("bool", None),
+            PrimDef::FunFloor => fun("floor", None),
+            PrimDef::FunFloor64 => fun("floor64", None),
+            PrimDef::FunNpFloor => fun("np_floor", None),
+            PrimDef::FunCeil => fun("ceil", None),
+            PrimDef::FunCeil64 => fun("ceil64", None),
+            PrimDef::FunNpCeil => fun("np_ceil", None),
+            PrimDef::FunLen => fun("len", None),
+            PrimDef::FunMin => fun("min", None),
+            PrimDef::FunNpMin => fun("np_min", None),
+            PrimDef::FunNpMinimum => fun("np_minimum", None),
+            PrimDef::FunMax => fun("max", None),
+            PrimDef::FunNpMax => fun("np_max", None),
+            PrimDef::FunNpMaximum => fun("np_maximum", None),
+            PrimDef::FunAbs => fun("abs", None),
+            PrimDef::FunNpIsNan => fun("np_isnan", None),
+            PrimDef::FunNpIsInf => fun("np_isinf", None),
+            PrimDef::FunNpSin => fun("np_sin", None),
+            PrimDef::FunNpCos => fun("np_cos", None),
+            PrimDef::FunNpExp => fun("np_exp", None),
+            PrimDef::FunNpExp2 => fun("np_exp2", None),
+            PrimDef::FunNpLog => fun("np_log", None),
+            PrimDef::FunNpLog10 => fun("np_log10", None),
+            PrimDef::FunNpLog2 => fun("np_log2", None),
+            PrimDef::FunNpFabs => fun("np_fabs", None),
+            PrimDef::FunNpSqrt => fun("np_sqrt", None),
+            PrimDef::FunNpRint => fun("np_rint", None),
+            PrimDef::FunNpTan => fun("np_tan", None),
+            PrimDef::FunNpArcsin => fun("np_arcsin", None),
+            PrimDef::FunNpArccos => fun("np_arccos", None),
+            PrimDef::FunNpArctan => fun("np_arctan", None),
+            PrimDef::FunNpSinh => fun("np_sinh", None),
+            PrimDef::FunNpCosh => fun("np_cosh", None),
+            PrimDef::FunNpTanh => fun("np_tanh", None),
+            PrimDef::FunNpArcsinh => fun("np_arcsinh", None),
+            PrimDef::FunNpArccosh => fun("np_arccosh", None),
+            PrimDef::FunNpArctanh => fun("np_arctanh", None),
+            PrimDef::FunNpExpm1 => fun("np_expm1", None),
+            PrimDef::FunNpCbrt => fun("np_cbrt", None),
+            PrimDef::FunSpSpecErf => fun("sp_spec_erf", None),
+            PrimDef::FunSpSpecErfc => fun("sp_spec_erfc", None),
+            PrimDef::FunSpSpecGamma => fun("sp_spec_gamma", None),
+            PrimDef::FunSpSpecGammaln => fun("sp_spec_gammaln", None),
+            PrimDef::FunSpSpecJ0 => fun("sp_spec_j0", None),
+            PrimDef::FunSpSpecJ1 => fun("sp_spec_j1", None),
+            PrimDef::FunNpArctan2 => fun("np_arctan2", None),
+            PrimDef::FunNpCopysign => fun("np_copysign", None),
+            PrimDef::FunNpFmax => fun("np_fmax", None),
+            PrimDef::FunNpFmin => fun("np_fmin", None),
+            PrimDef::FunNpLdExp => fun("np_ldexp", None),
+            PrimDef::FunNpHypot => fun("np_hypot", None),
+            PrimDef::FunNpNextAfter => fun("np_nextafter", None),
+            PrimDef::FunSome => fun("Some", None),
+        }
+    }
+}
+
+/// Asserts that a [`PrimDef`] is in an allowlist.
+///
+/// Like `debug_assert!`, this statements of this function are only
+/// enabled if `cfg!(debug_assertions)` is true.
+pub fn debug_assert_prim_is_allowed(prim: PrimDef, allowlist: &[PrimDef]) {
+    if cfg!(debug_assertions) {
+        let allowed = allowlist.iter().any(|p| *p == prim);
+        assert!(
+            allowed,
+            "Disallowed primitive definition. Got {prim:?}, but expects it to be in {allowlist:?}"
+        );
     }
 }
 
