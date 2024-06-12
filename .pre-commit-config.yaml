@@ -1,0 +1,24 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+
+default_stages: [commit]
+
+repos:
+  - repo: local
+    hooks:
+      - id: nac3-cargo-fmt
+        name: nac3 cargo format
+        entry: cargo
+        language: system
+        types: [file, rust]
+        pass_filenames: false
+        description: Runs cargo fmt on the codebase.
+        args: [fmt]
+      - id: nac3-cargo-clippy
+        name: nac3 cargo clippy
+        entry: cargo
+        language: system
+        types: [file, rust]
+        pass_filenames: false
+        description: Runs cargo clippy on the codebase.
+        args: [clippy]
