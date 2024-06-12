@@ -51,3 +51,12 @@ Use ``nix develop`` in this repository to enter a development shell.
 If you are using a different shell than bash you can use e.g. ``nix develop --command fish``.
 
 Build NAC3 with ``cargo build --release``. See the demonstrations in ``nac3artiq`` and ``nac3standalone``.
+
+### Pre-Commit Hooks
+
+You are strongly recommended to use the provided pre-commit hooks to automatically reformat files and check for non-optimal Rust practices using Clippy. Run `pre-commit install` to install the hook and `pre-commit` will automatically run `cargo fmt` and `cargo clippy` for you.
+
+Several things to note:
+
+- If `cargo fmt` or `cargo clippy` returns an error, the pre-commit hook will fail. You should fix all errors before trying to commit again.
+- If `cargo fmt` reformats some files, the pre-commit hook will also fail. You should review the changes and, if satisfied, try to commit again.
