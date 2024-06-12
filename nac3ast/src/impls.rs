@@ -2,6 +2,7 @@ use crate::{Constant, ExprKind};
 
 impl<U> ExprKind<U> {
     /// Returns a short name for the node suitable for use in error messages.
+    #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             ExprKind::BoolOp { .. } | ExprKind::BinOp { .. } | ExprKind::UnaryOp { .. } => {

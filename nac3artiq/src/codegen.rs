@@ -260,7 +260,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                             let start_expr = Located {
                                 // location does not matter at this point
                                 location: stmt.location,
-                                node: ExprKind::Name { id: start, ctx: name_ctx.clone() },
+                                node: ExprKind::Name { id: start, ctx: *name_ctx },
                                 custom: Some(ctx.primitives.int64),
                             };
                             let start = self
@@ -275,7 +275,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                     let end_expr = Located {
                         // location does not matter at this point
                         location: stmt.location,
-                        node: ExprKind::Name { id: end, ctx: name_ctx.clone() },
+                        node: ExprKind::Name { id: end, ctx: *name_ctx },
                         custom: Some(ctx.primitives.int64),
                     };
                     let end = self.gen_store_target(ctx, &end_expr, Some("end.addr"))?.unwrap();
@@ -442,7 +442,7 @@ fn rpc_codegen_callback_fn<'ctx>(
                 format!("tagptr{}", fun.1 .0).as_str(),
             );
             tag_arr_ptr.set_initializer(&int8.const_array(
-                &tag.iter().map(|v| int8.const_int(*v as u64, false)).collect::<Vec<_>>(),
+                &tag.iter().map(|v| int8.const_int(u64::from(*v), false)).collect::<Vec<_>>(),
             ));
             tag_arr_ptr.set_linkage(Linkage::Private);
             let tag_ptr = ctx.module.add_global(tag_ptr_type, None, &hash);

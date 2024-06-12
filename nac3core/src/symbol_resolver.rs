@@ -241,7 +241,7 @@ impl TryFrom<SymbolValue> for u64 {
         match value {
             SymbolValue::I32(v) => u64::try_from(v).map_err(|_| ()),
             SymbolValue::I64(v) => u64::try_from(v).map_err(|_| ()),
-            SymbolValue::U32(v) => Ok(v as u64),
+            SymbolValue::U32(v) => Ok(u64::from(v)),
             SymbolValue::U64(v) => Ok(v),
             _ => Err(()),
         }
@@ -255,10 +255,10 @@ impl TryFrom<SymbolValue> for i128 {
     /// numeric.
     fn try_from(value: SymbolValue) -> Result<Self, Self::Error> {
         match value {
-            SymbolValue::I32(v) => Ok(v as i128),
-            SymbolValue::I64(v) => Ok(v as i128),
-            SymbolValue::U32(v) => Ok(v as i128),
-            SymbolValue::U64(v) => Ok(v as i128),
+            SymbolValue::I32(v) => Ok(i128::from(v)),
+            SymbolValue::I64(v) => Ok(i128::from(v)),
+            SymbolValue::U32(v) => Ok(i128::from(v)),
+            SymbolValue::U64(v) => Ok(i128::from(v)),
             _ => Err(()),
         }
     }

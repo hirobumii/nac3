@@ -1,6 +1,12 @@
-#![deny(clippy::all)]
+#![deny(
+    future_incompatible,
+    let_underscore,
+    nonstandard_style,
+    rust_2024_compatibility,
+    clippy::all
+)]
 #![warn(clippy::pedantic)]
-#![allow(clippy::cast_possible_truncation, clippy::too_many_lines, clippy::wildcard_imports)]
+#![allow(clippy::too_many_lines, clippy::wildcard_imports)]
 
 use clap::Parser;
 use inkwell::{
@@ -9,6 +15,7 @@ use inkwell::{
 };
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashSet;
+use std::num::NonZeroUsize;
 use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
 use nac3core::{
@@ -104,7 +111,7 @@ fn handle_typevar_definition(
                         unifier,
                         primitives,
                         x,
-                        HashMap::default(),
+                        HashMap::new(),
                     )?;
                     get_type_from_type_annotation_kinds(def_list, unifier, &ty, &mut None)
                 })
@@ -142,7 +149,7 @@ fn handle_typevar_definition(
                 unifier,
                 primitives,
                 &args[1],
-                HashMap::default(),
+                HashMap::new(),
             )?;
             let constraint =
                 get_type_from_type_annotation_kinds(def_list, unifier, &ty, &mut None)?;
@@ -248,9 +255,9 @@ fn main() {
     let target_features = target_features.unwrap_or_default();
     let threads = if is_multithreaded() {
         if threads == 0 {
-            std::thread::available_parallelism().map(|threads| threads.get() as u32).unwrap_or(1u32)
+            std::thread::available_parallelism().map(NonZeroUsize::get).unwrap_or(1usize)
         } else {
-            threads
+            threads as usize
         }
     } else {
         if threads != 1 {

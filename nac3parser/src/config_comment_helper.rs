@@ -17,9 +17,7 @@ pub fn make_config_comment(
                 location: com_loc,
                 error: LexicalErrorType::OtherError(
                     format!(
-                        "config comment at top must have the same indentation with what it applies (comment at {}, statement at {})",
-                        com_loc,
-                        stmt_loc,
+                        "config comment at top must have the same indentation with what it applies (comment at {com_loc}, statement at {stmt_loc})",
                     )
                 )
             }

@@ -115,19 +115,19 @@ impl fmt::Display for Tok {
                 write!(f, "'{}'", ast::get_str_from_ref(&ast::get_str_ref_lock(), *name))
             }
             Int { value } => {
-                if *value != i128::MAX {
-                    write!(f, "'{}'", value)
-                } else {
+                if *value == i128::MAX {
                     write!(f, "'#OFL#'")
+                } else {
+                    write!(f, "'{value}'")
                 }
             }
-            Float { value } => write!(f, "'{}'", value),
-            Complex { real, imag } => write!(f, "{}j{}", real, imag),
+            Float { value } => write!(f, "'{value}'"),
+            Complex { real, imag } => write!(f, "{real}j{imag}"),
             String { value, is_fstring } => {
                 if *is_fstring {
-                    write!(f, "f")?
+                    write!(f, "f")?;
                 }
-                write!(f, "{:?}", value)
+                write!(f, "{value:?}")
             }
             Bytes { value } => {
                 write!(f, "b\"")?;
@@ -137,7 +137,7 @@ impl fmt::Display for Tok {
                         10 => f.write_str("\\n")?,
                         13 => f.write_str("\\r")?,
                         32..=126 => f.write_char(*i as char)?,
-                        _ => write!(f, "\\x{:02x}", i)?,
+                        _ => write!(f, "\\x{i:02x}")?,
                     }
                 }
                 f.write_str("\"")

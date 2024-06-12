@@ -110,9 +110,9 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         match val {
             SymbolValue::I32(v) => self.ctx.i32_type().const_int(*v as u64, true).into(),
             SymbolValue::I64(v) => self.ctx.i64_type().const_int(*v as u64, true).into(),
-            SymbolValue::U32(v) => self.ctx.i32_type().const_int(*v as u64, false).into(),
+            SymbolValue::U32(v) => self.ctx.i32_type().const_int(u64::from(*v), false).into(),
             SymbolValue::U64(v) => self.ctx.i64_type().const_int(*v, false).into(),
-            SymbolValue::Bool(v) => self.ctx.i8_type().const_int(*v as u64, true).into(),
+            SymbolValue::Bool(v) => self.ctx.i8_type().const_int(u64::from(*v), true).into(),
             SymbolValue::Double(v) => self.ctx.f64_type().const_float(*v).into(),
             SymbolValue::Str(v) => {
                 let str_ptr = self
@@ -299,7 +299,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     pub fn gen_int_ops<G: CodeGenerator + ?Sized>(
         &mut self,
         generator: &mut G,
-        op: &Operator,
+        op: Operator,
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
         signed: bool,
@@ -371,7 +371,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                     self.current_loc,
                 );
 
-                match *op {
+                match op {
                     Operator::LShift => {
                         self.builder.build_left_shift(lhs, rhs, "lshift").map(Into::into).unwrap()
                     }
@@ -399,7 +399,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     /// Generates a binary operation `op` between two floating-point operands `lhs` and `rhs`.
     pub fn gen_float_ops(
         &mut self,
-        op: &Operator,
+        op: Operator,
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
@@ -1148,7 +1148,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     left: (&Option<Type>, BasicValueEnum<'ctx>),
-    op: &Operator,
+    op: Operator,
     right: (&Option<Type>, BasicValueEnum<'ctx>),
     loc: Location,
     is_aug_assign: bool,
@@ -1166,14 +1166,14 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
         Ok(Some(ctx.gen_int_ops(generator, op, left_val, right_val, true).into()))
     } else if ty1 == ty2 && [ctx.primitives.uint32, ctx.primitives.uint64].contains(&ty1) {
         Ok(Some(ctx.gen_int_ops(generator, op, left_val, right_val, false).into()))
-    } else if [Operator::LShift, Operator::RShift].contains(op) {
+    } else if [Operator::LShift, Operator::RShift].contains(&op) {
         let signed = [ctx.primitives.int32, ctx.primitives.int64].contains(&ty1);
         Ok(Some(ctx.gen_int_ops(generator, op, left_val, right_val, signed).into()))
     } else if ty1 == ty2 && ctx.primitives.float == ty1 {
         Ok(Some(ctx.gen_float_ops(op, left_val, right_val).into()))
     } else if ty1 == ctx.primitives.float && ty2 == ctx.primitives.int32 {
         // Pow is the only operator that would pass typecheck between float and int
-        assert_eq!(*op, Operator::Pow);
+        assert_eq!(op, Operator::Pow);
         let res = call_float_powi(
             ctx,
             left_val.into_float_value(),
@@ -1200,7 +1200,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             let right_val =
                 NDArrayValue::from_ptr_val(right_val.into_pointer_value(), llvm_usize, None);
 
-            let res = if *op == Operator::MatMult {
+            let res = if op == Operator::MatMult {
                 // MatMult is the only binop which is not an elementwise op
                 numpy::ndarray_matmul_2d(
                     generator,
@@ -1330,7 +1330,7 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     left: &Expr<Option<Type>>,
-    op: &Operator,
+    op: Operator,
     right: &Expr<Option<Type>>,
     loc: Location,
     is_aug_assign: bool,
@@ -1362,7 +1362,7 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
 pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
-    op: &ast::Unaryop,
+    op: ast::Unaryop,
     operand: (&Option<Type>, BasicValueEnum<'ctx>),
 ) -> Result<Option<ValueEnum<'ctx>>, String> {
     let (ty, val) = operand;
@@ -1370,7 +1370,7 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
 
     Ok(Some(if ty == ctx.primitives.bool {
         let val = val.into_int_value();
-        if *op == ast::Unaryop::Not {
+        if op == ast::Unaryop::Not {
             let not = ctx.builder.build_not(val, "not").unwrap();
             let not_bool =
                 ctx.builder.build_and(not, not.get_type().const_int(1, false), "").unwrap();
@@ -1434,8 +1434,8 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
         // ndarray uses `~` rather than `not` to perform elementwise inversion, convert it before
         // passing it to the elementwise codegen function
         let op = if ndarray_dtype.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::Bool.id()) {
-            if *op == ast::Unaryop::Invert {
-                &ast::Unaryop::Not
+            if op == ast::Unaryop::Invert {
+                ast::Unaryop::Not
             } else {
                 unreachable!("ufunc {} not supported for ndarray[bool, N]", unaryop_name(op))
             }
@@ -1469,7 +1469,7 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
 pub fn gen_unaryop_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
-    op: &ast::Unaryop,
+    op: ast::Unaryop,
     operand: &Expr<Option<Type>>,
 ) -> Result<Option<ValueEnum<'ctx>>, String> {
     let val = if let Some(v) = generator.gen_expr(ctx, operand)? {
@@ -1503,7 +1503,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
             let (Some(left_ty), lhs) = left else { unreachable!() };
             let (Some(right_ty), rhs) = comparators[0] else { unreachable!() };
-            let op = ops[0].clone();
+            let op = ops[0];
 
             let is_ndarray1 =
                 left_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
@@ -1530,7 +1530,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                             generator,
                             ctx,
                             (Some(ndarray_dtype1), lhs),
-                            &[op.clone()],
+                            &[op],
                             &[(Some(ndarray_dtype2), rhs)],
                         )?
                         .unwrap()
@@ -1562,7 +1562,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                             generator,
                             ctx,
                             (Some(ndarray_dtype), lhs),
-                            &[op.clone()],
+                            &[op],
                             &[(Some(ndarray_dtype), rhs)],
                         )?
                         .unwrap()
@@ -1743,7 +1743,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         .iter()
         .map(|ndim| match *ndim {
             SymbolValue::U64(v) => Ok(v),
-            SymbolValue::U32(v) => Ok(v as u64),
+            SymbolValue::U32(v) => Ok(u64::from(v)),
             SymbolValue::I32(v) => u64::try_from(v)
                 .map_err(|_| format!("Expected non-negative literal for ndarray.ndims, got {v}")),
             SymbolValue::I64(v) => u64::try_from(v)
@@ -2202,9 +2202,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             }
         }
         ExprKind::BinOp { op, left, right } => {
-            return gen_binop_expr(generator, ctx, left, op, right, expr.location, false);
+            return gen_binop_expr(generator, ctx, left, *op, right, expr.location, false);
         }
-        ExprKind::UnaryOp { op, operand } => return gen_unaryop_expr(generator, ctx, op, operand),
+        ExprKind::UnaryOp { op, operand } => return gen_unaryop_expr(generator, ctx, *op, operand),
         ExprKind::Compare { left, ops, comparators } => {
             return gen_cmpop_expr(generator, ctx, left, ops, comparators)
         }

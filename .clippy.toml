@@ -1,1 +1,1 @@
-doc-valid-idents = ["NumPy", ".."]
+doc-valid-idents = ["CPython", "NumPy", ".."]

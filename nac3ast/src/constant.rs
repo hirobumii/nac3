@@ -28,12 +28,12 @@ impl From<bool> for Constant {
 }
 impl From<i32> for Constant {
     fn from(i: i32) -> Constant {
-        Self::Int(i as i128)
+        Self::Int(i128::from(i))
     }
 }
 impl From<i64> for Constant {
     fn from(i: i64) -> Constant {
-        Self::Int(i as i128)
+        Self::Int(i128::from(i))
     }
 }
 
@@ -50,6 +50,7 @@ pub enum ConversionFlag {
 }
 
 impl ConversionFlag {
+    #[must_use]
     pub fn try_from_byte(b: u8) -> Option<Self> {
         match b {
             b's' => Some(Self::Str),
@@ -69,6 +70,7 @@ pub struct ConstantOptimizer {
 #[cfg(feature = "constant-optimization")]
 impl ConstantOptimizer {
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self { _priv: () }
     }

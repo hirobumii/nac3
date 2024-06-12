@@ -125,7 +125,7 @@ impl StaticValue for PythonValue {
                     );
                     global.set_constant(true);
                     global.set_initializer(&ctx.ctx.const_struct(
-                        &[ctx.ctx.i32_type().const_int(id as u64, false).into()],
+                        &[ctx.ctx.i32_type().const_int(u64::from(id), false).into()],
                         false,
                     ));
                     Ok(global.as_pointer_value().into())
@@ -146,10 +146,14 @@ impl StaticValue for PythonValue {
             return Ok(match val {
                 PrimitiveValue::I32(val) => ctx.ctx.i32_type().const_int(*val as u64, false).into(),
                 PrimitiveValue::I64(val) => ctx.ctx.i64_type().const_int(*val as u64, false).into(),
-                PrimitiveValue::U32(val) => ctx.ctx.i32_type().const_int(*val as u64, false).into(),
+                PrimitiveValue::U32(val) => {
+                    ctx.ctx.i32_type().const_int(u64::from(*val), false).into()
+                }
                 PrimitiveValue::U64(val) => ctx.ctx.i64_type().const_int(*val, false).into(),
                 PrimitiveValue::F64(val) => ctx.ctx.f64_type().const_float(*val).into(),
-                PrimitiveValue::Bool(val) => ctx.ctx.i8_type().const_int(*val as u64, false).into(),
+                PrimitiveValue::Bool(val) => {
+                    ctx.ctx.i8_type().const_int(u64::from(*val), false).into()
+                }
             });
         }
         if let Some(global) = ctx.module.get_global(&self.id.to_string()) {
@@ -864,7 +868,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.uint32 {
             let val: u32 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::U32(val));
-            Ok(Some(ctx.ctx.i32_type().const_int(val as u64, false).into()))
+            Ok(Some(ctx.ctx.i32_type().const_int(u64::from(val), false).into()))
         } else if ty_id == self.primitive_ids.uint64 {
             let val: u64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::U64(val));
@@ -872,7 +876,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.bool {
             let val: bool = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
-            Ok(Some(ctx.ctx.i8_type().const_int(val as u64, false).into()))
+            Ok(Some(ctx.ctx.i8_type().const_int(u64::from(val), false).into()))
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             let val: f64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::F64(val));

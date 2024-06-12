@@ -81,14 +81,17 @@ impl Location {
 }
 
 impl Location {
+    #[must_use]
     pub fn new(row: usize, column: usize, file: FileName) -> Self {
         Location { row, column, file }
     }
 
+    #[must_use]
     pub fn row(&self) -> usize {
         self.row
     }
 
+    #[must_use]
     pub fn column(&self) -> usize {
         self.column
     }

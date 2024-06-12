@@ -1,4 +1,10 @@
-#![deny(clippy::all)]
+#![deny(
+    future_incompatible,
+    let_underscore,
+    nonstandard_style,
+    rust_2024_compatibility,
+    clippy::all
+)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::semicolon_if_nothing_returned, clippy::uninlined_format_args)]
 
@@ -33,17 +39,17 @@ pub extern "C" fn rtio_get_counter() -> i64 {
 
 #[no_mangle]
 pub extern "C" fn rtio_output(target: i32, data: i32) {
-    println!("rtio_output @{} target={:04x} data={}", unsafe { NOW }, target, data);
+    println!("rtio_output @{} target={target:04x} data={data}", unsafe { NOW });
 }
 
 #[no_mangle]
 pub extern "C" fn print_int32(x: i32) {
-    println!("print_int32: {}", x);
+    println!("print_int32: {x}");
 }
 
 #[no_mangle]
 pub extern "C" fn print_int64(x: i64) {
-    println!("print_int64: {}", x);
+    println!("print_int64: {x}");
 }
 
 #[no_mangle]
@@ -56,6 +62,6 @@ fn main() {
     unsafe {
         let lib = libloading::Library::new(filename).unwrap();
         let func: libloading::Symbol<unsafe extern "C" fn()> = lib.get(b"__modinit__").unwrap();
-        func()
+        func();
     }
 }

@@ -14,7 +14,7 @@ use std::rc::Rc;
 use strum::IntoEnumIterator;
 
 #[must_use]
-pub fn binop_name(op: &Operator) -> &'static str {
+pub fn binop_name(op: Operator) -> &'static str {
     match op {
         Operator::Add => "__add__",
         Operator::Sub => "__sub__",
@@ -33,7 +33,7 @@ pub fn binop_name(op: &Operator) -> &'static str {
 }
 
 #[must_use]
-pub fn binop_assign_name(op: &Operator) -> &'static str {
+pub fn binop_assign_name(op: Operator) -> &'static str {
     match op {
         Operator::Add => "__iadd__",
         Operator::Sub => "__isub__",
@@ -52,7 +52,7 @@ pub fn binop_assign_name(op: &Operator) -> &'static str {
 }
 
 #[must_use]
-pub fn unaryop_name(op: &Unaryop) -> &'static str {
+pub fn unaryop_name(op: Unaryop) -> &'static str {
     match op {
         Unaryop::UAdd => "__pos__",
         Unaryop::USub => "__neg__",
@@ -62,7 +62,7 @@ pub fn unaryop_name(op: &Unaryop) -> &'static str {
 }
 
 #[must_use]
-pub fn comparison_name(op: &Cmpop) -> Option<&'static str> {
+pub fn comparison_name(op: Cmpop) -> Option<&'static str> {
     match op {
         Cmpop::Lt => Some("__lt__"),
         Cmpop::LtE => Some("__le__"),
@@ -116,7 +116,7 @@ pub fn impl_binop(
         let ret_ty = ret_ty.unwrap_or_else(|| unifier.get_fresh_var(None, None).0);
 
         for op in ops {
-            fields.insert(binop_name(op).into(), {
+            fields.insert(binop_name(*op).into(), {
                 (
                     unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         ret: ret_ty,
@@ -131,7 +131,7 @@ pub fn impl_binop(
                 )
             });
 
-            fields.insert(binop_assign_name(op).into(), {
+            fields.insert(binop_assign_name(*op).into(), {
                 (
                     unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         ret: ret_ty,
@@ -155,7 +155,7 @@ pub fn impl_unaryop(unifier: &mut Unifier, ty: Type, ret_ty: Option<Type>, ops: 
 
         for op in ops {
             fields.insert(
-                unaryop_name(op).into(),
+                unaryop_name(*op).into(),
                 (
                     unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         ret: ret_ty,
@@ -195,7 +195,7 @@ pub fn impl_cmpop(
 
         for op in ops {
             fields.insert(
-                comparison_name(op).unwrap().into(),
+                comparison_name(*op).unwrap().into(),
                 (
                     unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         ret: ret_ty,
@@ -425,7 +425,7 @@ pub fn typeof_ndarray_broadcast(
 pub fn typeof_binop(
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
-    op: &Operator,
+    op: Operator,
     lhs: Type,
     rhs: Type,
 ) -> Result<Option<Type>, String> {
@@ -466,7 +466,7 @@ pub fn typeof_binop(
                 (lhs, rhs) if lhs == 0 || rhs == 0 => {
                     return Err(format!(
                     "Input operand {} does not have enough dimensions (has {lhs}, requires {rhs})",
-                    (rhs == 0) as u8
+                    u8::from(rhs == 0)
                 ))
                 }
                 (lhs, rhs) => {
@@ -520,12 +520,12 @@ pub fn typeof_binop(
 pub fn typeof_unaryop(
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
-    op: &Unaryop,
+    op: Unaryop,
     operand: Type,
 ) -> Result<Option<Type>, String> {
     let operand_obj_id = operand.obj_id(unifier);
 
-    if *op == Unaryop::Not
+    if op == Unaryop::Not
         && operand_obj_id.is_some_and(|id| id == primitives.ndarray.obj_id(unifier).unwrap())
     {
         return Err(
@@ -533,7 +533,7 @@ pub fn typeof_unaryop(
         );
     }
 
-    Ok(match *op {
+    Ok(match op {
         Unaryop::Not => match operand_obj_id {
             Some(v) if v == PrimDef::NDArray.id() => Some(operand),
             Some(_) => Some(primitives.bool),
@@ -554,7 +554,7 @@ pub fn typeof_unaryop(
             if operand_obj_id.is_some_and(|id| id == PrimDef::NDArray.id()) {
                 let (dtype, _) = unpack_ndarray_var_tys(unifier, operand);
                 if dtype.obj_id(unifier).is_some_and(|id| id == PrimDef::Bool.id()) {
-                    return Err(if *op == Unaryop::UAdd {
+                    return Err(if op == Unaryop::UAdd {
                         "The ufunc 'positive' cannot be applied to ndarray[bool, N]".to_string()
                     } else {
                         "The numpy boolean negative, the `-` operator, is not supported, use the `~` operator function instead.".to_string()
@@ -577,7 +577,7 @@ pub fn typeof_unaryop(
 pub fn typeof_cmpop(
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
-    _op: &Cmpop,
+    _op: Cmpop,
     lhs: Type,
     rhs: Type,
 ) -> Result<Option<Type>, String> {

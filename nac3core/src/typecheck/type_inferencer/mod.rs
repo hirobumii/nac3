@@ -465,7 +465,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 (None, None) => {}
             },
             ast::StmtKind::AugAssign { target, op, value, .. } => {
-                let res_ty = self.infer_bin_ops(stmt.location, target, op, value, true)?;
+                let res_ty = self.infer_bin_ops(stmt.location, target, *op, value, true)?;
                 self.unify(res_ty, target.custom.unwrap(), &stmt.location)?;
             }
             ast::StmtKind::Assert { test, msg, .. } => {
@@ -543,20 +543,20 @@ impl<'a> Fold<()> for Inferencer<'a> {
             ExprKind::List { elts, .. } => Some(self.infer_list(elts)?),
             ExprKind::Tuple { elts, .. } => Some(self.infer_tuple(elts)?),
             ExprKind::Attribute { value, attr, ctx } => {
-                Some(self.infer_attribute(value, *attr, ctx)?)
+                Some(self.infer_attribute(value, *attr, *ctx)?)
             }
             ExprKind::BoolOp { values, .. } => Some(self.infer_bool_ops(values)?),
             ExprKind::BinOp { left, op, right } => {
-                Some(self.infer_bin_ops(expr.location, left, op, right, false)?)
+                Some(self.infer_bin_ops(expr.location, left, *op, right, false)?)
             }
             ExprKind::UnaryOp { op, operand } => {
-                Some(self.infer_unary_ops(expr.location, op, operand)?)
+                Some(self.infer_unary_ops(expr.location, *op, operand)?)
             }
             ExprKind::Compare { left, ops, comparators } => {
                 Some(self.infer_compare(expr.location, left, ops, comparators)?)
             }
             ExprKind::Subscript { value, slice, ctx, .. } => {
-                Some(self.infer_subscript(value.as_ref(), slice.as_ref(), ctx)?)
+                Some(self.infer_subscript(value.as_ref(), slice.as_ref(), *ctx)?)
             }
             ExprKind::IfExp { test, body, orelse } => {
                 Some(self.infer_if_expr(test, body.as_ref(), orelse.as_ref())?)
@@ -860,7 +860,7 @@ impl<'a> Inferencer<'a> {
                     func: Box::new(Located {
                         custom: None,
                         location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
                     }),
                     args: vec![arg0],
                     keywords: vec![],
@@ -918,7 +918,7 @@ impl<'a> Inferencer<'a> {
                     func: Box::new(Located {
                         custom: Some(custom),
                         location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
                     }),
                     args: vec![arg0],
                     keywords: vec![],
@@ -956,7 +956,7 @@ impl<'a> Inferencer<'a> {
                     func: Box::new(Located {
                         custom: Some(custom),
                         location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
                     }),
                     args: vec![arg0],
                     keywords: vec![],
@@ -1058,7 +1058,7 @@ impl<'a> Inferencer<'a> {
                     func: Box::new(Located {
                         custom: Some(custom),
                         location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
                     }),
                     args: vec![arg0, arg1],
                     keywords: vec![],
@@ -1137,7 +1137,7 @@ impl<'a> Inferencer<'a> {
                     func: Box::new(Located {
                         custom: Some(custom),
                         location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
                     }),
                     args: vec![arg0],
                     keywords: vec![],
@@ -1188,7 +1188,7 @@ impl<'a> Inferencer<'a> {
                     func: Box::new(Located {
                         custom: Some(custom),
                         location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
                     }),
                     args: vec![arg0],
                     keywords: vec![],
@@ -1237,7 +1237,7 @@ impl<'a> Inferencer<'a> {
                     func: Box::new(Located {
                         custom: Some(custom),
                         location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
                     }),
                     args: vec![arg0, arg1],
                     keywords: vec![],
@@ -1301,7 +1301,7 @@ impl<'a> Inferencer<'a> {
                     func: Box::new(Located {
                         custom: Some(custom),
                         location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: ctx.clone() },
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
                     }),
                     args: vec![arg0],
                     keywords,
@@ -1443,12 +1443,12 @@ impl<'a> Inferencer<'a> {
         &mut self,
         value: &ast::Expr<Option<Type>>,
         attr: StrRef,
-        ctx: &ExprContext,
+        ctx: ExprContext,
     ) -> InferenceResult {
         let ty = value.custom.unwrap();
         if let TypeEnum::TObj { fields, .. } = &*self.unifier.get_ty(ty) {
             // just a fast path
-            match (fields.get(&attr), ctx == &ExprContext::Store) {
+            match (fields.get(&attr), ctx == ExprContext::Store) {
                 (Some((ty, true)), _) | (Some((ty, false)), false) => Ok(*ty),
                 (Some((_, false)), true) => {
                     report_error(&format!("Field `{attr}` is immutable"), value.location)
@@ -1465,7 +1465,7 @@ impl<'a> Inferencer<'a> {
             let attr_ty = self.unifier.get_dummy_var().0;
             let fields = once((
                 attr.into(),
-                RecordField::new(attr_ty, ctx == &ExprContext::Store, Some(value.location)),
+                RecordField::new(attr_ty, ctx == ExprContext::Store, Some(value.location)),
             ))
             .collect();
             let record = self.unifier.add_record(fields);
@@ -1486,7 +1486,7 @@ impl<'a> Inferencer<'a> {
         &mut self,
         location: Location,
         left: &ast::Expr<Option<Type>>,
-        op: &ast::Operator,
+        op: ast::Operator,
         right: &ast::Expr<Option<Type>>,
         is_aug_assign: bool,
     ) -> InferenceResult {
@@ -1522,7 +1522,7 @@ impl<'a> Inferencer<'a> {
     fn infer_unary_ops(
         &mut self,
         location: Location,
-        op: &ast::Unaryop,
+        op: ast::Unaryop,
         operand: &ast::Expr<Option<Type>>,
     ) -> InferenceResult {
         let method = unaryop_name(op).into();
@@ -1555,14 +1555,14 @@ impl<'a> Inferencer<'a> {
 
         let mut res = None;
         for (a, b, c) in izip!(once(left).chain(comparators), comparators, ops) {
-            let method = comparison_name(c)
+            let method = comparison_name(*c)
                 .ok_or_else(|| HashSet::from(["unsupported comparator".to_string()]))?
                 .into();
 
             let ret = typeof_cmpop(
                 self.unifier,
                 self.primitives,
-                c,
+                *c,
                 a.custom.unwrap(),
                 b.custom.unwrap(),
             )
@@ -1604,7 +1604,7 @@ impl<'a> Inferencer<'a> {
             .iter()
             .map(|ndim| match *ndim {
                 SymbolValue::U64(v) => Ok(v),
-                SymbolValue::U32(v) => Ok(v as u64),
+                SymbolValue::U32(v) => Ok(u64::from(v)),
                 SymbolValue::I32(v) => u64::try_from(v).map_err(|_| {
                     HashSet::from([format!(
                         "Expected non-negative literal for ndarray.ndims, got {v}"
@@ -1653,7 +1653,7 @@ impl<'a> Inferencer<'a> {
         &mut self,
         value: &ast::Expr<Option<Type>>,
         slice: &ast::Expr<Option<Type>>,
-        ctx: &ExprContext,
+        ctx: ExprContext,
     ) -> InferenceResult {
         let ty = self.unifier.get_dummy_var().0;
         match &slice.node {
@@ -1689,7 +1689,7 @@ impl<'a> Inferencer<'a> {
                             ind.ok_or_else(|| HashSet::from(["Index must be int32".to_string()]))?;
                         let map = once((
                             ind.into(),
-                            RecordField::new(ty, ctx == &ExprContext::Store, Some(value.location)),
+                            RecordField::new(ty, ctx == ExprContext::Store, Some(value.location)),
                         ))
                         .collect();
                         let seq = self.unifier.add_record(map);

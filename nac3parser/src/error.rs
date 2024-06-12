@@ -37,7 +37,7 @@ impl fmt::Display for LexicalErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             LexicalErrorType::StringError => write!(f, "Got unexpected string"),
-            LexicalErrorType::FStringError(error) => write!(f, "Got error in f-string: {}", error),
+            LexicalErrorType::FStringError(error) => write!(f, "Got error in f-string: {error}"),
             LexicalErrorType::UnicodeError => write!(f, "Got unexpected unicode"),
             LexicalErrorType::NestingError => write!(f, "Got unexpected nesting"),
             LexicalErrorType::IndentationError => {
@@ -59,13 +59,13 @@ impl fmt::Display for LexicalErrorType {
                 write!(f, "positional argument follows keyword argument")
             }
             LexicalErrorType::UnrecognizedToken { tok } => {
-                write!(f, "Got unexpected token {}", tok)
+                write!(f, "Got unexpected token {tok}")
             }
             LexicalErrorType::LineContinuationError => {
                 write!(f, "unexpected character after line continuation character")
             }
             LexicalErrorType::Eof => write!(f, "unexpected EOF while parsing"),
-            LexicalErrorType::OtherError(msg) => write!(f, "{}", msg),
+            LexicalErrorType::OtherError(msg) => write!(f, "{msg}"),
         }
     }
 }
@@ -96,7 +96,7 @@ impl fmt::Display for FStringErrorType {
             FStringErrorType::UnopenedRbrace => write!(f, "Unopened '}}'"),
             FStringErrorType::ExpectedRbrace => write!(f, "Expected '}}' after conversion flag."),
             FStringErrorType::InvalidExpression(error) => {
-                write!(f, "Invalid expression: {}", error)
+                write!(f, "Invalid expression: {error}")
             }
             FStringErrorType::InvalidConversionFlag => write!(f, "Invalid conversion flag"),
             FStringErrorType::EmptyExpression => write!(f, "Empty expression"),
@@ -144,10 +144,6 @@ pub enum ParseErrorType {
 impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
     fn from(err: LalrpopError<Location, Tok, LexicalError>) -> Self {
         match err {
-            // TODO: Are there cases where this isn't an EOF?
-            LalrpopError::InvalidToken { location } => {
-                ParseError { error: ParseErrorType::Eof, location }
-            }
             LalrpopError::ExtraToken { token } => {
                 ParseError { error: ParseErrorType::ExtraToken(token.1), location: token.0 }
             }
@@ -163,7 +159,10 @@ impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
                     location: token.0,
                 }
             }
-            LalrpopError::UnrecognizedEof { location, .. } => {
+
+            LalrpopError::UnrecognizedEof { location, .. }
+            // TODO: Are there cases where this isn't an EOF?
+            | LalrpopError::InvalidToken { location } => {
                 ParseError { error: ParseErrorType::Eof, location }
             }
         }
@@ -180,7 +179,7 @@ impl fmt::Display for ParseErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             ParseErrorType::Eof => write!(f, "Got unexpected EOF"),
-            ParseErrorType::ExtraToken(ref tok) => write!(f, "Got extraneous token: {:?}", tok),
+            ParseErrorType::ExtraToken(ref tok) => write!(f, "Got extraneous token: {tok:?}"),
             ParseErrorType::InvalidToken => write!(f, "Got invalid token"),
             ParseErrorType::UnrecognizedToken(ref tok, ref expected) => {
                 if *tok == Tok::Indent {
@@ -188,10 +187,10 @@ impl fmt::Display for ParseErrorType {
                 } else if expected.as_deref() == Some("Indent") {
                     write!(f, "expected an indented block")
                 } else {
-                    write!(f, "Got unexpected token {}", tok)
+                    write!(f, "Got unexpected token {tok}")
                 }
             }
-            ParseErrorType::Lexical(ref error) => write!(f, "{}", error),
+            ParseErrorType::Lexical(ref error) => write!(f, "{error}"),
         }
     }
 }
@@ -199,6 +198,7 @@ impl fmt::Display for ParseErrorType {
 impl Error for ParseErrorType {}
 
 impl ParseErrorType {
+    #[must_use]
     pub fn is_indentation_error(&self) -> bool {
         match self {
             ParseErrorType::Lexical(LexicalErrorType::IndentationError) => true,
@@ -208,11 +208,11 @@ impl ParseErrorType {
             _ => false,
         }
     }
+    #[must_use]
     pub fn is_tab_error(&self) -> bool {
         matches!(
             self,
-            ParseErrorType::Lexical(LexicalErrorType::TabError)
-                | ParseErrorType::Lexical(LexicalErrorType::TabsAfterSpaces)
+            ParseErrorType::Lexical(LexicalErrorType::TabError | LexicalErrorType::TabsAfterSpaces)
         )
     }
 }

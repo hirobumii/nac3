@@ -5,6 +5,7 @@
 //! parse a whole program, a single statement, or a single
 //! expression.
 
+use nac3ast::Location;
 use std::iter;
 
 use crate::ast::{self, FileName};
@@ -63,7 +64,7 @@ pub fn parse_program(source: &str, file: FileName) -> Result<ast::Suite, ParseEr
 ///
 /// ```
 pub fn parse_expression(source: &str) -> Result<ast::Expr, ParseError> {
-    parse(source, Mode::Expression, Default::default()).map(|top| match top {
+    parse(source, Mode::Expression, FileName::default()).map(|top| match top {
         ast::Mod::Expression { body } => *body,
         _ => unreachable!(),
     })
@@ -72,7 +73,7 @@ pub fn parse_expression(source: &str) -> Result<ast::Expr, ParseError> {
 // Parse a given source code
 pub fn parse(source: &str, mode: Mode, file: FileName) -> Result<ast::Mod, ParseError> {
     let lxr = lexer::make_tokenizer(source, file);
-    let marker_token = (Default::default(), mode.to_marker(), Default::default());
+    let marker_token = (Location::default(), mode.to_marker(), Location::default());
     let tokenizer = iter::once(Ok(marker_token)).chain(lxr);
 
     python::TopParser::new().parse(tokenizer).map_err(ParseError::from)

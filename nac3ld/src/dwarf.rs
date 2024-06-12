@@ -59,7 +59,7 @@ impl<'a> DwarfReader<'a> {
         let mut byte: u8;
         loop {
             byte = self.read_u8();
-            result |= ((byte & 0x7F) as u64) << shift;
+            result |= u64::from(byte & 0x7F) << shift;
             shift += 7;
             if byte & 0x80 == 0 {
                 break;
@@ -74,7 +74,7 @@ impl<'a> DwarfReader<'a> {
         let mut byte: u8;
         loop {
             byte = self.read_u8();
-            result |= ((byte & 0x7F) as u64) << shift;
+            result |= u64::from(byte & 0x7F) << shift;
             shift += 7;
             if byte & 0x80 == 0 {
                 break;
@@ -156,10 +156,9 @@ fn read_encoded_pointer(reader: &mut DwarfReader, encoding: u8) -> Result<usize,
     }
 
     match encoding & 0x0F {
-        DW_EH_PE_absptr => Ok(reader.read_u32() as usize),
+        DW_EH_PE_absptr | DW_EH_PE_udata4 => Ok(reader.read_u32() as usize),
         DW_EH_PE_uleb128 => Ok(reader.read_uleb128() as usize),
         DW_EH_PE_udata2 => Ok(reader.read_u16() as usize),
-        DW_EH_PE_udata4 => Ok(reader.read_u32() as usize),
         DW_EH_PE_udata8 => Ok(reader.read_u64() as usize),
         DW_EH_PE_sleb128 => Ok(reader.read_sleb128() as usize),
         DW_EH_PE_sdata2 => Ok(reader.read_i16() as usize),
@@ -221,8 +220,8 @@ pub struct EH_Frame<'a> {
 impl<'a> EH_Frame<'a> {
     /// Creates an [EH_Frame] using the bytes in the `.eh_frame` section and its address in the ELF
     /// file.
-    pub fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> Result<EH_Frame, ()> {
-        Ok(EH_Frame { reader: DwarfReader::new(eh_frame_slice, eh_frame_addr) })
+    pub fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> EH_Frame {
+        EH_Frame { reader: DwarfReader::new(eh_frame_slice, eh_frame_addr) }
     }
 
     /// Returns an [Iterator] over all Call Frame Information (CFI) records.
@@ -255,7 +254,7 @@ impl<'a> CFI_Record<'a> {
 
             // length == u32::MAX means that the length is only representable with 64 bits,
             // which does not make sense in a system with 32-bit address.
-            0xFFFFFFFF => unimplemented!(),
+            0xFFFF_FFFF => unimplemented!(),
 
             _ => {
                 let mut fde_reader = DwarfReader::from_reader(cie_reader, false);
@@ -355,7 +354,7 @@ impl<'a> Iterator for CFI_Records<'a> {
             let length = match length {
                 // eh_frame with 0-length means the CIE is terminated
                 0 => return None,
-                0xFFFFFFFF => unimplemented!("CIE entries larger than 4 bytes not supported"),
+                0xFFFF_FFFF => unimplemented!("CIE entries larger than 4 bytes not supported"),
                 other => other,
             } as usize;
 
@@ -401,7 +400,7 @@ impl<'a> Iterator for FDE_Records<'a> {
         let length = match self.reader.read_u32() {
             // eh_frame with 0-length means the CIE is terminated
             0 => return None,
-            0xFFFFFFFF => unimplemented!("CIE entries larger than 4 bytes not supported"),
+            0xFFFF_FFFF => unimplemented!("CIE entries larger than 4 bytes not supported"),
             other => other,
         } as usize;
 
@@ -491,7 +490,7 @@ impl<'a> EH_Frame_Hdr<'a> {
             // The original length field should be able to hold the entire value.
             // The device memory space is limited to 32-bits addresses anyway.
             let entry_length = reader.read_u32();
-            if entry_length == 0 || entry_length == 0xFFFFFFFF {
+            if entry_length == 0 || entry_length == 0xFFFF_FFFF {
                 unimplemented!()
             }
 
@@ -502,7 +501,7 @@ impl<'a> EH_Frame_Hdr<'a> {
                 fde_count += 1;
             }
 
-            reader.offset(entry_length - mem::size_of::<u32>() as u32)
+            reader.offset(entry_length - mem::size_of::<u32>() as u32);
         }
 
         12 + fde_count * 8

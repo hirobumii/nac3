@@ -561,7 +561,9 @@ impl TopLevelComposer {
                         unifier,
                         &primitive_types,
                         b,
-                        vec![(*class_def_id, class_type_vars.clone())].into_iter().collect(),
+                        vec![(*class_def_id, class_type_vars.clone())]
+                            .into_iter()
+                            .collect::<HashMap<_, _>>(),
                     )?;
 
                     if let TypeAnnotation::CustomClass { .. } = &base_ty {
@@ -1154,7 +1156,7 @@ impl TopLevelComposer {
                                         annotation_expr,
                                         vec![(class_id, class_type_vars_def.clone())]
                                             .into_iter()
-                                            .collect(),
+                                            .collect::<HashMap<_, _>>(),
                                     )?
                                 };
                                 // find type vars within this method parameter type annotation
@@ -1219,7 +1221,9 @@ impl TopLevelComposer {
                                 unifier,
                                 primitives,
                                 result,
-                                vec![(class_id, class_type_vars_def.clone())].into_iter().collect(),
+                                vec![(class_id, class_type_vars_def.clone())]
+                                    .into_iter()
+                                    .collect::<HashMap<_, _>>(),
                             )?;
                             // find type vars within this return type annotation
                             let type_vars_within =
@@ -1313,7 +1317,9 @@ impl TopLevelComposer {
                                 unifier,
                                 primitives,
                                 annotation.as_ref(),
-                                vec![(class_id, class_type_vars_def.clone())].into_iter().collect(),
+                                vec![(class_id, class_type_vars_def.clone())]
+                                    .into_iter()
+                                    .collect::<HashMap<_, _>>(),
                             )?;
                             // find type vars within this return type annotation
                             let type_vars_within =

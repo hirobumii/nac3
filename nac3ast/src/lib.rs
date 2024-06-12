@@ -1,15 +1,16 @@
-#![deny(clippy::all)]
+#![deny(
+    future_incompatible,
+    let_underscore,
+    nonstandard_style,
+    rust_2024_compatibility,
+    clippy::all
+)]
 #![warn(clippy::pedantic)]
 #![allow(
-    clippy::cast_lossless,
-    clippy::default_trait_access,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
     clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::needless_pass_by_value,
     clippy::too_many_lines,
-    clippy::uninlined_format_args,
     clippy::wildcard_imports
 )]
 

@@ -1,5 +1,5 @@
 /* generated from elf.h with rust-bindgen and then manually altered */
-#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals, dead_code)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals, dead_code, clippy::pedantic)]
 
 pub const EI_NIDENT: usize = 16;
 pub const EI_MAG0: usize = 0;

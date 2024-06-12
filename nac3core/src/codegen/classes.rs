@@ -164,7 +164,7 @@ pub trait UntypedArrayLikeAccessor<'ctx, Index = IntValue<'ctx>>:
         idx: &Index,
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
-        let ptr = self.ptr_offset_unchecked(ctx, generator, idx, name);
+        let ptr = unsafe { self.ptr_offset_unchecked(ctx, generator, idx, name) };
         ctx.builder.build_load(ptr, name.unwrap_or_default()).unwrap()
     }
 
@@ -195,7 +195,7 @@ pub trait UntypedArrayLikeMutator<'ctx, Index = IntValue<'ctx>>:
         idx: &Index,
         value: BasicValueEnum<'ctx>,
     ) {
-        let ptr = self.ptr_offset_unchecked(ctx, generator, idx, None);
+        let ptr = unsafe { self.ptr_offset_unchecked(ctx, generator, idx, None) };
         ctx.builder.build_store(ptr, value).unwrap();
     }
 
@@ -233,7 +233,7 @@ pub trait TypedArrayLikeAccessor<'ctx, T, Index = IntValue<'ctx>>:
         idx: &Index,
         name: Option<&str>,
     ) -> T {
-        let value = self.get_unchecked(ctx, generator, idx, name);
+        let value = unsafe { self.get_unchecked(ctx, generator, idx, name) };
         self.downcast_to_type(ctx, value)
     }
 
@@ -272,7 +272,7 @@ pub trait TypedArrayLikeMutator<'ctx, T, Index = IntValue<'ctx>>:
         value: T,
     ) {
         let value = self.upcast_from_type(ctx, value);
-        self.set_unchecked(ctx, generator, idx, value);
+        unsafe { self.set_unchecked(ctx, generator, idx, value) }
     }
 
     /// Sets the data at the `idx`-th index.
@@ -360,7 +360,7 @@ where
         idx: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        self.adapted.ptr_offset_unchecked(ctx, generator, idx, name)
+        unsafe { self.adapted.ptr_offset_unchecked(ctx, generator, idx, name) }
     }
 
     fn ptr_offset<G: CodeGenerator + ?Sized>(
@@ -474,9 +474,11 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
     ) -> PointerValue<'ctx> {
         let var_name = name.map(|v| format!("{v}.addr")).unwrap_or_default();
 
-        ctx.builder
-            .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], var_name.as_str())
-            .unwrap()
+        unsafe {
+            ctx.builder
+                .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], var_name.as_str())
+                .unwrap()
+        }
     }
 
     fn ptr_offset<G: CodeGenerator + ?Sized>(
@@ -830,9 +832,11 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
     ) -> PointerValue<'ctx> {
         let var_name = name.map(|v| format!("{v}.addr")).unwrap_or_default();
 
-        ctx.builder
-            .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], var_name.as_str())
-            .unwrap()
+        unsafe {
+            ctx.builder
+                .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], var_name.as_str())
+                .unwrap()
+        }
     }
 
     fn ptr_offset<G: CodeGenerator + ?Sized>(
@@ -1501,9 +1505,11 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_>
     ) -> PointerValue<'ctx> {
         let var_name = name.map(|v| format!("{v}.addr")).unwrap_or_default();
 
-        ctx.builder
-            .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], var_name.as_str())
-            .unwrap()
+        unsafe {
+            ctx.builder
+                .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], var_name.as_str())
+                .unwrap()
+        }
     }
 
     fn ptr_offset<G: CodeGenerator + ?Sized>(
@@ -1594,9 +1600,15 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        ctx.builder
-            .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], name.unwrap_or_default())
-            .unwrap()
+        unsafe {
+            ctx.builder
+                .build_in_bounds_gep(
+                    self.base_ptr(ctx, generator),
+                    &[*idx],
+                    name.unwrap_or_default(),
+                )
+                .unwrap()
+        }
     }
 
     fn ptr_offset<G: CodeGenerator + ?Sized>(

@@ -159,7 +159,7 @@ where
                     self.shift();
                 } else {
                     // Transform MAC EOL into \n
-                    self.chr0 = Some('\n')
+                    self.chr0 = Some('\n');
                 }
             } else {
                 break;
@@ -179,7 +179,7 @@ where
             chars: input,
             at_begin_of_line: true,
             nesting: 0,
-            indentation_stack: vec![Default::default()],
+            indentation_stack: vec![IndentationLevel::default()],
             pending: Vec::new(),
             chr0: None,
             location: start,
@@ -207,11 +207,9 @@ where
         let mut saw_f = false;
         loop {
             // Detect r"", f"", b"" and u""
-            if !(saw_b || saw_u || saw_f) && matches!(self.chr0, Some('b') | Some('B')) {
+            if !(saw_b || saw_u || saw_f) && matches!(self.chr0, Some('b' | 'B')) {
                 saw_b = true;
-            } else if !(saw_b || saw_r || saw_u || saw_f)
-                && matches!(self.chr0, Some('u') | Some('U'))
-            {
+            } else if !(saw_b || saw_r || saw_u || saw_f) && matches!(self.chr0, Some('u' | 'U')) {
                 saw_u = true;
             } else if !(saw_r || saw_u) && (self.chr0 == Some('r') || self.chr0 == Some('R')) {
                 saw_r = true;
@@ -281,7 +279,7 @@ where
                 IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => i128::MAX,
                 _ => {
                     return Err(LexicalError {
-                        error: LexicalErrorType::OtherError(format!("{:?}", e)),
+                        error: LexicalErrorType::OtherError(format!("{e:?}")),
                         location: start_pos,
                     })
                 }
@@ -362,7 +360,7 @@ where
 
     /// Consume a sequence of numbers with the given radix,
     /// the digits can be decorated with underscores
-    /// like this: '1_2_3_4' == '1234'
+    /// like this: `'1_2_3_4'` == `'1234'`
     fn radix_run(&mut self, radix: u32) -> String {
         let mut value_text = String::new();
 
@@ -395,7 +393,7 @@ where
             2 => matches!(c, Some('0'..='1')),
             8 => matches!(c, Some('0'..='7')),
             10 => matches!(c, Some('0'..='9')),
-            16 => matches!(c, Some('0'..='9') | Some('a'..='f') | Some('A'..='F')),
+            16 => matches!(c, Some('0'..='9' | 'a'..='f' | 'A'..='F')),
             other => unimplemented!("Radix not implemented: {}", other),
         }
     }
@@ -403,8 +401,8 @@ where
     /// Test if we face '[eE][-+]?[0-9]+'
     fn at_exponent(&self) -> bool {
         match self.chr0 {
-            Some('e') | Some('E') => match self.chr1 {
-                Some('+') | Some('-') => matches!(self.chr2, Some('0'..='9')),
+            Some('e' | 'E') => match self.chr1 {
+                Some('+' | '-') => matches!(self.chr2, Some('0'..='9')),
                 Some('0'..='9') => true,
                 _ => false,
             },
@@ -423,11 +421,10 @@ where
         start_loc.go_left();
         loop {
             match self.chr0 {
-                Some('\n') => return None,
-                None => return None,
+                Some('\n') | None => return None,
                 Some(c) => {
                     if let (true, Some(p)) = (is_comment, prefix.next()) {
-                        is_comment = is_comment && c == p
+                        is_comment = is_comment && c == p;
                     } else {
                         // done checking prefix, if is comment then return the spanned
                         if is_comment {
@@ -476,7 +473,7 @@ where
         octet_content.push(first);
         while octet_content.len() < 3 {
             if let Some('0'..='7') = self.chr0 {
-                octet_content.push(self.next_char().unwrap())
+                octet_content.push(self.next_char().unwrap());
             } else {
                 break;
             }
@@ -544,7 +541,7 @@ where
                     } else if is_raw {
                         string_content.push('\\');
                         if let Some(c) = self.next_char() {
-                            string_content.push(c)
+                            string_content.push(c);
                         } else {
                             return Err(LexicalError {
                                 error: LexicalErrorType::StringError,
@@ -577,7 +574,7 @@ where
                             Some('u') if !is_bytes => string_content.push(self.unicode_literal(4)?),
                             Some('U') if !is_bytes => string_content.push(self.unicode_literal(8)?),
                             Some('N') if !is_bytes => {
-                                string_content.push(self.parse_unicode_name()?)
+                                string_content.push(self.parse_unicode_name()?);
                             }
                             Some(c) => {
                                 string_content.push('\\');
@@ -636,7 +633,7 @@ where
         Ok((start_pos, tok, end_pos))
     }
 
-    fn is_identifier_start(&self, c: char) -> bool {
+    fn is_identifier_start(c: char) -> bool {
         match c {
             '_' | 'a'..='z' | 'A'..='Z' => true,
             '+' | '-' | '*' | '/' | '=' | ' ' | '<' | '>' => false,
@@ -808,7 +805,7 @@ where
         // Check if we have some character:
         if let Some(c) = self.chr0 {
             // First check identifier:
-            if self.is_identifier_start(c) {
+            if Self::is_identifier_start(c) {
                 let identifier = self.lex_identifier()?;
                 self.emit(identifier);
             } else if is_emoji_presentation(c) {
@@ -868,16 +865,13 @@ where
             '=' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                match self.chr0 {
-                    Some('=') => {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        self.emit((tok_start, Tok::EqEqual, tok_end));
-                    }
-                    _ => {
-                        let tok_end = self.get_pos();
-                        self.emit((tok_start, Tok::Equal, tok_end));
-                    }
+                if let Some('=') = self.chr0 {
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::EqEqual, tok_end));
+                } else {
+                    let tok_end = self.get_pos();
+                    self.emit((tok_start, Tok::Equal, tok_end));
                 }
             }
             '+' => {
@@ -903,16 +897,13 @@ where
                     }
                     Some('*') => {
                         self.next_char();
-                        match self.chr0 {
-                            Some('=') => {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                self.emit((tok_start, Tok::DoubleStarEqual, tok_end));
-                            }
-                            _ => {
-                                let tok_end = self.get_pos();
-                                self.emit((tok_start, Tok::DoubleStar, tok_end));
-                            }
+                        if let Some('=') = self.chr0 {
+                            self.next_char();
+                            let tok_end = self.get_pos();
+                            self.emit((tok_start, Tok::DoubleStarEqual, tok_end));
+                        } else {
+                            let tok_end = self.get_pos();
+                            self.emit((tok_start, Tok::DoubleStar, tok_end));
                         }
                     }
                     _ => {
@@ -932,16 +923,13 @@ where
                     }
                     Some('/') => {
                         self.next_char();
-                        match self.chr0 {
-                            Some('=') => {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                self.emit((tok_start, Tok::DoubleSlashEqual, tok_end));
-                            }
-                            _ => {
-                                let tok_end = self.get_pos();
-                                self.emit((tok_start, Tok::DoubleSlash, tok_end));
-                            }
+                        if let Some('=') = self.chr0 {
+                            self.next_char();
+                            let tok_end = self.get_pos();
+                            self.emit((tok_start, Tok::DoubleSlashEqual, tok_end));
+                        } else {
+                            let tok_end = self.get_pos();
+                            self.emit((tok_start, Tok::DoubleSlash, tok_end));
                         }
                     }
                     _ => {
@@ -1110,16 +1098,13 @@ where
                 match self.chr0 {
                     Some('<') => {
                         self.next_char();
-                        match self.chr0 {
-                            Some('=') => {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                self.emit((tok_start, Tok::LeftShiftEqual, tok_end));
-                            }
-                            _ => {
-                                let tok_end = self.get_pos();
-                                self.emit((tok_start, Tok::LeftShift, tok_end));
-                            }
+                        if let Some('=') = self.chr0 {
+                            self.next_char();
+                            let tok_end = self.get_pos();
+                            self.emit((tok_start, Tok::LeftShiftEqual, tok_end));
+                        } else {
+                            let tok_end = self.get_pos();
+                            self.emit((tok_start, Tok::LeftShift, tok_end));
                         }
                     }
                     Some('=') => {
@@ -1139,16 +1124,13 @@ where
                 match self.chr0 {
                     Some('>') => {
                         self.next_char();
-                        match self.chr0 {
-                            Some('=') => {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                self.emit((tok_start, Tok::RightShiftEqual, tok_end));
-                            }
-                            _ => {
-                                let tok_end = self.get_pos();
-                                self.emit((tok_start, Tok::RightShift, tok_end));
-                            }
+                        if let Some('=') = self.chr0 {
+                            self.next_char();
+                            let tok_end = self.get_pos();
+                            self.emit((tok_start, Tok::RightShiftEqual, tok_end));
+                        } else {
+                            let tok_end = self.get_pos();
+                            self.emit((tok_start, Tok::RightShift, tok_end));
                         }
                     }
                     Some('=') => {

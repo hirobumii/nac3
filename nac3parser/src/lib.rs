@@ -15,27 +15,21 @@
 //!
 //! ```
 
-#![deny(clippy::all)]
+#![deny(
+    future_incompatible,
+    let_underscore,
+    nonstandard_style,
+    rust_2024_compatibility,
+    clippy::all
+)]
 #![warn(clippy::pedantic)]
 #![allow(
-    clippy::default_trait_access,
-    clippy::doc_markdown,
     clippy::enum_glob_use,
     clippy::fn_params_excessive_bools,
-    clippy::if_not_else,
-    clippy::implicit_clone,
-    clippy::match_same_arms,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
     clippy::module_name_repetitions,
-    clippy::must_use_candidate,
-    clippy::redundant_closure_for_method_calls,
-    clippy::semicolon_if_nothing_returned,
-    clippy::single_match_else,
     clippy::too_many_lines,
-    clippy::uninlined_format_args,
-    clippy::unnested_or_patterns,
-    clippy::unused_self,
     clippy::wildcard_imports
 )]
 
@@ -51,8 +45,15 @@ pub mod lexer;
 pub mod mode;
 pub mod parser;
 lalrpop_mod!(
-    #[allow(clippy::all, clippy::pedantic)]
-    #[allow(unused)]
+    #[allow(
+        future_incompatible,
+        let_underscore,
+        nonstandard_style,
+        rust_2024_compatibility,
+        unused,
+        clippy::all,
+        clippy::pedantic
+    )]
     python
 );
 pub mod config_comment_helper;

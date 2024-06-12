@@ -1574,7 +1574,7 @@ pub fn gen_stmt<G: CodeGenerator>(
         StmtKind::For { .. } => generator.gen_for(ctx, stmt)?,
         StmtKind::With { .. } => generator.gen_with(ctx, stmt)?,
         StmtKind::AugAssign { target, op, value, .. } => {
-            let value = gen_binop_expr(generator, ctx, target, op, value, stmt.location, true)?;
+            let value = gen_binop_expr(generator, ctx, target, *op, value, stmt.location, true)?;
             generator.gen_assign(ctx, target, value.unwrap())?;
         }
         StmtKind::Try { .. } => gen_try(generator, ctx, stmt)?,

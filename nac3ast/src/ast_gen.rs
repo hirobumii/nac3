@@ -15,7 +15,7 @@ lazy_static! {
 }
 
 thread_local! {
-    static LOCAL_INTERNER: RefCell<HashMap<String, StrRef>> = Default::default();
+    static LOCAL_INTERNER: RefCell<HashMap<String, StrRef>> = RefCell::default();
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]
@@ -24,14 +24,14 @@ pub struct StrRef(SymbolU32);
 impl fmt::Debug for StrRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s: String = (*self).into();
-        write!(f, "{:?}", s)
+        write!(f, "{s:?}")
     }
 }
 
 impl fmt::Display for StrRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s: String = (*self).into();
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -69,6 +69,7 @@ pub fn get_str_ref(lock: &mut MutexGuard<Interner>, str: &str) -> StrRef {
     StrRef(lock.get_or_intern(str))
 }
 
+#[must_use]
 pub fn get_str_from_ref<'a>(lock: &'a MutexGuard<Interner>, id: StrRef) -> &'a str {
     lock.resolve(id.0).unwrap()
 }
@@ -359,20 +360,20 @@ pub enum ExprKind<U = ()> {
 }
 pub type Expr<U = ()> = Located<ExprKind<U>, U>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ExprContext {
     Load,
     Store,
     Del,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Boolop {
     And,
     Or,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Operator {
     Add,
     Sub,
@@ -389,7 +390,7 @@ pub enum Operator {
     FloorDiv,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Unaryop {
     Invert,
     Not,
@@ -397,7 +398,7 @@ pub enum Unaryop {
     USub,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Cmpop {
     Eq,
     NotEq,
@@ -451,7 +452,7 @@ pub struct KeywordData<U = ()> {
 }
 pub type Keyword<U = ()> = Located<KeywordData<U>, U>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Alias {
     pub name: Ident,
     pub asname: Option<Ident>,

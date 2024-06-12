@@ -823,19 +823,9 @@ impl Unifier {
             (TLiteral { values: val1, .. }, TLiteral { values: val2, .. }) => {
                 for (v1, v2) in zip(val1, val2) {
                     if v1 != v2 {
-                        let symbol_value_to_int = |value: &SymbolValue| -> Option<i128> {
-                            match value {
-                                SymbolValue::I32(v) => Some(*v as i128),
-                                SymbolValue::I64(v) => Some(*v as i128),
-                                SymbolValue::U32(v) => Some(*v as i128),
-                                SymbolValue::U64(v) => Some(*v as i128),
-                                _ => None,
-                            }
-                        };
-
                         // Try performing integer promotion on literals
-                        let v1i = symbol_value_to_int(v1);
-                        let v2i = symbol_value_to_int(v2);
+                        let v1i = i128::try_from(v1.clone()).ok();
+                        let v2i = i128::try_from(v2.clone()).ok();
 
                         if v1i != v2i {
                             return Self::incompatible_types(a, b);

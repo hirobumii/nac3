@@ -1,7 +1,13 @@
-#![deny(clippy::all)]
+#![deny(
+    future_incompatible,
+    let_underscore,
+    nonstandard_style,
+    rust_2024_compatibility,
+    clippy::all
+)]
 #![warn(clippy::pedantic)]
 #![allow(
-    clippy::cast_lossless,
+    unsafe_op_in_unsafe_fn,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::enum_glob_use,

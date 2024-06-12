@@ -68,18 +68,18 @@ impl TypeAnnotation {
 /// generic variables associated with the definition.
 /// * `type_var` - The type variable associated with the type argument currently being parsed. Pass
 /// [`None`] when this function is invoked externally.
-pub fn parse_ast_to_type_annotation_kinds<T>(
+pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     expr: &ast::Expr<T>,
     // the key stores the type_var of this topleveldef::class, we only need this field here
-    locked: HashMap<DefinitionId, Vec<Type>>,
+    locked: HashMap<DefinitionId, Vec<Type>, S>,
 ) -> Result<TypeAnnotation, HashSet<String>> {
     let name_handle = |id: &StrRef,
                        unifier: &mut Unifier,
-                       locked: HashMap<DefinitionId, Vec<Type>>| {
+                       locked: HashMap<DefinitionId, Vec<Type>, S>| {
         if id == &"int32".into() {
             Ok(TypeAnnotation::Primitive(primitives.int32))
         } else if id == &"int64".into() {
@@ -144,7 +144,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
         |id: &StrRef,
          slice: &ast::Expr<T>,
          unifier: &mut Unifier,
-         mut locked: HashMap<DefinitionId, Vec<Type>>| {
+         mut locked: HashMap<DefinitionId, Vec<Type>, S>| {
             if ["virtual".into(), "Generic".into(), "list".into(), "tuple".into(), "Option".into()]
                 .contains(id)
             {

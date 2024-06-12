@@ -130,10 +130,10 @@ impl<'a> FStringParser<'a> {
                         )
                     } else {
                         Box::new(self.expr(ExprKind::Constant {
-                            value: spec_expression.to_owned().into(),
+                            value: spec_expression.clone().into(),
                             kind: None,
                         }))
-                    })
+                    });
                 }
                 '(' | '{' | '[' => {
                     expression.push(ch);
@@ -248,7 +248,7 @@ impl<'a> FStringParser<'a> {
         }
 
         if !content.is_empty() {
-            values.push(self.expr(ExprKind::Constant { value: content.into(), kind: None }))
+            values.push(self.expr(ExprKind::Constant { value: content.into(), kind: None }));
         }
 
         let s = match values.len() {
@@ -261,7 +261,7 @@ impl<'a> FStringParser<'a> {
 }
 
 fn parse_fstring_expr(source: &str) -> Result<Expr, ParseError> {
-    let fstring_body = format!("({})", source);
+    let fstring_body = format!("({source})");
     parse_expression(&fstring_body)
 }
 
