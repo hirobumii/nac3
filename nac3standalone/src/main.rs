@@ -1,14 +1,11 @@
 use clap::Parser;
 use inkwell::{
-    memory_buffer::MemoryBuffer,
-    passes::PassBuilderOptions,
-    support::is_multithreaded,
-    targets::*,
+    memory_buffer::MemoryBuffer, passes::PassBuilderOptions, support::is_multithreaded, targets::*,
     OptimizationLevel,
 };
 use parking_lot::{Mutex, RwLock};
-use std::{collections::HashMap, fs, path::Path, sync::Arc};
 use std::collections::HashSet;
+use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
 use nac3core::{
     codegen::{
@@ -18,7 +15,7 @@ use nac3core::{
     symbol_resolver::SymbolResolver,
     toplevel::{
         composer::{ComposerConfig, TopLevelComposer},
-        helper::parse_parameter_default_value, 
+        helper::parse_parameter_default_value,
         type_annotation::*,
         TopLevelDef,
     },
@@ -78,19 +75,18 @@ fn handle_typevar_definition(
     primitives: &PrimitiveStore,
 ) -> Result<Type, HashSet<String>> {
     let ExprKind::Call { func, args, .. } = &var.node else {
-        return Err(HashSet::from([
-            format!(
-                "expression {var:?} cannot be handled as a generic parameter in global scope"
-            ),
-        ]))
+        return Err(HashSet::from([format!(
+            "expression {var:?} cannot be handled as a generic parameter in global scope"
+        )]));
     };
 
     match &func.node {
         ExprKind::Name { id, .. } if id == &"TypeVar".into() => {
             let ExprKind::Constant { value: Constant::Str(ty_name), .. } = &args[0].node else {
-                return Err(HashSet::from([
-                    format!("Expected string constant for first parameter of `TypeVar`, got {:?}", &args[0].node),
-                ]))
+                return Err(HashSet::from([format!(
+                    "Expected string constant for first parameter of `TypeVar`, got {:?}",
+                    &args[0].node
+                )]));
             };
             let generic_name: StrRef = ty_name.to_string().into();
 
@@ -106,17 +102,15 @@ fn handle_typevar_definition(
                         x,
                         HashMap::default(),
                     )?;
-                    get_type_from_type_annotation_kinds(
-                        def_list, unifier, &ty, &mut None
-                    )
+                    get_type_from_type_annotation_kinds(def_list, unifier, &ty, &mut None)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let loc = func.location;
 
             if constraints.len() == 1 {
-                return Err(HashSet::from([
-                    format!("A single constraint is not allowed (at {loc})"),
-                ]))
+                return Err(HashSet::from([format!(
+                    "A single constraint is not allowed (at {loc})"
+                )]));
             }
 
             Ok(unifier.get_fresh_var_with_range(&constraints, Some(generic_name), Some(loc)).0)
@@ -124,18 +118,17 @@ fn handle_typevar_definition(
 
         ExprKind::Name { id, .. } if id == &"ConstGeneric".into() => {
             if args.len() != 2 {
-                return Err(HashSet::from([
-                    format!("Expected 2 arguments for `ConstGeneric`, got {}", args.len()),
-                ]))
+                return Err(HashSet::from([format!(
+                    "Expected 2 arguments for `ConstGeneric`, got {}",
+                    args.len()
+                )]));
             }
 
             let ExprKind::Constant { value: Constant::Str(ty_name), .. } = &args[0].node else {
-                return Err(HashSet::from([
-                    format!(
-                        "Expected string constant for first parameter of `ConstGeneric`, got {:?}",
-                        &args[0].node
-                    ),
-                ]))
+                return Err(HashSet::from([format!(
+                    "Expected string constant for first parameter of `ConstGeneric`, got {:?}",
+                    &args[0].node
+                )]));
             };
             let generic_name: StrRef = ty_name.to_string().into();
 
@@ -147,19 +140,16 @@ fn handle_typevar_definition(
                 &args[1],
                 HashMap::default(),
             )?;
-            let constraint = get_type_from_type_annotation_kinds(
-                def_list, unifier, &ty, &mut None
-            )?;
+            let constraint =
+                get_type_from_type_annotation_kinds(def_list, unifier, &ty, &mut None)?;
             let loc = func.location;
 
             Ok(unifier.get_fresh_const_generic_var(constraint, Some(generic_name), Some(loc)).0)
         }
 
-        _ => Err(HashSet::from([
-            format!(
-                "expression {var:?} cannot be handled as a generic parameter in global scope"
-            ),
-        ]))
+        _ => Err(HashSet::from([format!(
+            "expression {var:?} cannot be handled as a generic parameter in global scope"
+        )])),
     }
 }
 
@@ -175,18 +165,12 @@ fn handle_assignment_pattern(
     if targets.len() == 1 {
         match &targets[0].node {
             ExprKind::Name { id, .. } => {
-                if let Ok(var) = handle_typevar_definition(
-                    value,
-                    resolver,
-                    def_list,
-                    unifier,
-                    primitives,
-                ) {
+                if let Ok(var) =
+                    handle_typevar_definition(value, resolver, def_list, unifier, primitives)
+                {
                     internal_resolver.add_id_type(*id, var);
                     Ok(())
-                } else if let Ok(val) =
-                    parse_parameter_default_value(value, resolver)
-                {
+                } else if let Ok(val) = parse_parameter_default_value(value, resolver) {
                     internal_resolver.add_module_global(*id, val);
                     Ok(())
                 } else {
@@ -238,10 +222,7 @@ fn handle_assignment_pattern(
                     ))
                 }
             }
-            _ => Err(format!(
-                "unpack of this expression is not supported at {}",
-                value.location
-            )),
+            _ => Err(format!("unpack of this expression is not supported at {}", value.location)),
         }
     }
 }
@@ -250,15 +231,8 @@ fn main() {
     const SIZE_T: u32 = usize::BITS;
 
     let cli = CommandLineArgs::parse();
-    let CommandLineArgs {
-        file_name,
-        threads,
-        opt_level,
-        emit_llvm,
-        triple,
-        mcpu,
-        target_features,
-    } = cli;
+    let CommandLineArgs { file_name, threads, opt_level, emit_llvm, triple, mcpu, target_features } =
+        cli;
 
     Target::initialize_all(&InitializationConfig::default());
 
@@ -270,9 +244,7 @@ fn main() {
     let target_features = target_features.unwrap_or_default();
     let threads = if is_multithreaded() {
         if threads == 0 {
-            std::thread::available_parallelism()
-                .map(|threads| threads.get() as u32)
-                .unwrap_or(1u32)
+            std::thread::available_parallelism().map(|threads| threads.get() as u32).unwrap_or(1u32)
         } else {
             threads
         }
@@ -308,7 +280,8 @@ fn main() {
         class_names: Mutex::default(),
         module_globals: Mutex::default(),
         str_store: Mutex::default(),
-    }.into();
+    }
+    .into();
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
 
@@ -332,13 +305,19 @@ fn main() {
                     eprintln!("{err}");
                     return;
                 }
-            },
+            }
             // allow (and ignore) "from __future__ import annotations"
             StmtKind::ImportFrom { module, names, .. }
-                if module == &Some("__future__".into()) && names.len() == 1 && names[0].name == "annotations".into() => (),
+                if module == &Some("__future__".into())
+                    && names.len() == 1
+                    && names[0].name == "annotations".into() =>
+            {
+                ()
+            }
             _ => {
-                let (name, def_id, ty) =
-                    composer.register_top_level(stmt, Some(resolver.clone()), "__main__", true).unwrap();
+                let (name, def_id, ty) = composer
+                    .register_top_level(stmt, Some(resolver.clone()), "__main__", true)
+                    .unwrap();
                 internal_resolver.add_id_def(name, def_id);
                 if let Some(ty) = ty {
                     internal_resolver.add_id_type(name, ty);
@@ -364,7 +343,8 @@ fn main() {
             .unwrap_or_else(|_| panic!("cannot find run() entry point"))
             .0]
             .write();
-        let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } = &mut *instance else {
+        let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } = &mut *instance
+        else {
             unreachable!()
         };
         instance_to_symbol.insert(String::new(), "run".to_string());
@@ -444,7 +424,8 @@ fn main() {
         function_iter = func.get_next_function();
     }
 
-    let target_machine = llvm_options.target
+    let target_machine = llvm_options
+        .target
         .create_target_machine(llvm_options.opt_level)
         .expect("couldn't create target machine");
 

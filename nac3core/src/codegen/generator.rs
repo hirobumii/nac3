@@ -1,5 +1,5 @@
 use crate::{
-    codegen::{classes::ArraySliceValue, expr::*, stmt::*, bool_to_i1, bool_to_i8, CodeGenContext},
+    codegen::{bool_to_i1, bool_to_i8, classes::ArraySliceValue, expr::*, stmt::*, CodeGenContext},
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::typedef::{FunSignature, Type},
@@ -210,7 +210,7 @@ pub trait CodeGenerator {
     fn bool_to_i1<'ctx>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
-        bool_value: IntValue<'ctx>
+        bool_value: IntValue<'ctx>,
     ) -> IntValue<'ctx> {
         bool_to_i1(&ctx.builder, bool_value)
     }
@@ -219,7 +219,7 @@ pub trait CodeGenerator {
     fn bool_to_i8<'ctx>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
-        bool_value: IntValue<'ctx>
+        bool_value: IntValue<'ctx>,
     ) -> IntValue<'ctx> {
         bool_to_i8(&ctx.builder, ctx.ctx, bool_value)
     }
@@ -239,7 +239,6 @@ impl DefaultCodeGenerator {
 }
 
 impl CodeGenerator for DefaultCodeGenerator {
-
     /// Returns the name for this [`CodeGenerator`].
     fn get_name(&self) -> &str {
         &self.name

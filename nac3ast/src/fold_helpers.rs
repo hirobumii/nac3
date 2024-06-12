@@ -64,11 +64,4 @@ macro_rules! simple_fold {
     };
 }
 
-simple_fold!(
-    usize,
-    String,
-    bool,
-    StrRef,
-    constant::Constant,
-    constant::ConversionFlag
-);
+simple_fold!(usize, String, bool, StrRef, constant::Constant, constant::ConversionFlag);

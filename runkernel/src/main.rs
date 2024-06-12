@@ -47,12 +47,11 @@ pub extern "C" fn __nac3_personality(_state: u32, _exception_object: u32, _conte
     unimplemented!();
 }
 
-
 fn main() {
     let filename = env::args().nth(1).unwrap();
     unsafe {
         let lib = libloading::Library::new(filename).unwrap();
-        let func: libloading::Symbol<unsafe extern fn()> = lib.get(b"__modinit__").unwrap();
+        let func: libloading::Symbol<unsafe extern "C" fn()> = lib.get(b"__modinit__").unwrap();
         func()
     }
 }

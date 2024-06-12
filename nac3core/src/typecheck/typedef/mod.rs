@@ -1,12 +1,12 @@
+use indexmap::IndexMap;
+use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::iter::zip;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::{borrow::Cow, collections::HashSet};
-use std::iter::zip;
-use indexmap::IndexMap;
-use itertools::Itertools;
 
 use nac3parser::ast::{Location, StrRef};
 
@@ -61,7 +61,7 @@ pub enum RecordKey {
 }
 
 impl Type {
-    /// Wrapper function for cleaner code so that we don't need to write this long pattern matching 
+    /// Wrapper function for cleaner code so that we don't need to write this long pattern matching
     /// just to get the field `obj_id`.
     #[must_use]
     pub fn obj_id(self, unifier: &Unifier) -> Option<DefinitionId> {
@@ -250,9 +250,9 @@ impl Unifier {
     }
 
     /// Returns the [`UnificationTable`] associated with this `Unifier`.
-    /// 
+    ///
     /// # Safety
-    /// 
+    ///
     /// The use of this function is discouraged under most circumstances. Only use this function if
     /// in-place manipulation of type variables and/or type fields is necessary, otherwise prefer to
     /// [add a new type][`Unifier::add_ty`] and [unify the type][`Unifier::unify`] with an existing
@@ -379,7 +379,17 @@ impl Unifier {
         let id = self.var_id + 1;
         self.var_id += 1;
         let range = range.to_vec();
-        (self.add_ty(TypeEnum::TVar { id, range, fields: None, name, loc, is_const_generic: false }), id)
+        (
+            self.add_ty(TypeEnum::TVar {
+                id,
+                range,
+                fields: None,
+                name,
+                loc,
+                is_const_generic: false,
+            }),
+            id,
+        )
     }
 
     /// Returns a fresh type representing a constant generic variable with the given underlying type `ty`.
@@ -391,19 +401,22 @@ impl Unifier {
     ) -> (Type, u32) {
         let id = self.var_id + 1;
         self.var_id += 1;
-        (self.add_ty(TypeEnum::TVar { id, range: vec![ty], fields: None, name, loc, is_const_generic: true }), id)
+        (
+            self.add_ty(TypeEnum::TVar {
+                id,
+                range: vec![ty],
+                fields: None,
+                name,
+                loc,
+                is_const_generic: true,
+            }),
+            id,
+        )
     }
 
     /// Returns a fresh type representing a [literal][TypeEnum::TConstant] with the given `values`.
-    pub fn get_fresh_literal(
-        &mut self,
-        values: Vec<SymbolValue>,
-        loc: Option<Location>,
-    ) -> Type {
-        let ty_enum = TypeEnum::TLiteral {
-            values: values.into_iter().dedup().collect(),
-            loc
-        };
+    pub fn get_fresh_literal(&mut self, values: Vec<SymbolValue>, loc: Option<Location>) -> Type {
+        let ty_enum = TypeEnum::TLiteral { values: values.into_iter().dedup().collect(), loc };
         self.add_ty(ty_enum)
     }
 
@@ -423,7 +436,9 @@ impl Unifier {
                     Some(
                         range
                             .iter()
-                            .flat_map(|ty| self.get_instantiations(*ty).unwrap_or_else(|| vec![*ty]))
+                            .flat_map(|ty| {
+                                self.get_instantiations(*ty).unwrap_or_else(|| vec![*ty])
+                            })
                             .collect_vec(),
                     )
                 }
@@ -479,7 +494,7 @@ impl Unifier {
     pub fn is_concrete(&mut self, a: Type, allowed_typevars: &[Type]) -> bool {
         use TypeEnum::*;
         match &*self.get_ty(a) {
-            TRigidVar { .. } 
+            TRigidVar { .. }
             | TLiteral { .. }
             // functions are instantiated for each call sites, so the function type can contain
             // type variables.
@@ -487,7 +502,7 @@ impl Unifier {
 
             TVar { .. } => allowed_typevars.iter().any(|b| self.unification_table.unioned(a, *b)),
             TCall { .. } => false,
-            TList { ty } 
+            TList { ty }
             | TVirtual { ty } => self.is_concrete(*ty, allowed_typevars),
 
             TTuple { ty } => ty.iter().all(|ty| self.is_concrete(*ty, allowed_typevars)),
@@ -526,9 +541,7 @@ impl Unifier {
         let instantiated = self.instantiate_fun(b, signature);
         let r = self.get_ty(instantiated);
         let r = r.as_ref();
-        let TypeEnum::TFunc(signature) = r else {
-            unreachable!()
-        };
+        let TypeEnum::TFunc(signature) = r else { unreachable!() };
         // we check to make sure that all required arguments (those without default
         // arguments) are provided, and do not provide the same argument twice.
         let mut required = required.to_vec();
@@ -555,13 +568,10 @@ impl Unifier {
             if let Some(i) = required.iter().position(|v| v == k) {
                 required.remove(i);
             }
-            let i = all_names
-                .iter()
-                .position(|v| &v.0 == k)
-                .ok_or_else(|| {
-                    self.restore_snapshot();
-                    TypeError::new(TypeErrorKind::UnknownArgName(*k), *loc)
-                })?;
+            let i = all_names.iter().position(|v| &v.0 == k).ok_or_else(|| {
+                self.restore_snapshot();
+                TypeError::new(TypeErrorKind::UnknownArgName(*k), *loc)
+            })?;
             let (name, expected) = all_names.remove(i);
             self.unify_impl(expected, *t, false).map_err(|_| {
                 self.restore_snapshot();
@@ -627,8 +637,17 @@ impl Unifier {
         };
         match (&*ty_a, &*ty_b) {
             (
-                TVar { fields: fields1, id, name: name1, loc: loc1, is_const_generic: false, .. },
-                TVar { fields: fields2, id: id2, name: name2, loc: loc2, is_const_generic: false, .. },
+                TVar {
+                    fields: fields1, id, name: name1, loc: loc1, is_const_generic: false, ..
+                },
+                TVar {
+                    fields: fields2,
+                    id: id2,
+                    name: name2,
+                    loc: loc2,
+                    is_const_generic: false,
+                    ..
+                },
             ) => {
                 let new_fields = match (fields1, fields2) {
                     (None, None) => None,
@@ -750,7 +769,10 @@ impl Unifier {
                 self.set_a_to_b(a, x);
             }
 
-            (TVar { id: id1, range: ty1, is_const_generic: true, .. }, TVar { id: id2, range: ty2, .. }) => {
+            (
+                TVar { id: id1, range: ty1, is_const_generic: true, .. },
+                TVar { id: id2, range: ty2, .. },
+            ) => {
                 let ty1 = ty1[0];
                 let ty2 = ty2[0];
 
@@ -765,17 +787,17 @@ impl Unifier {
                 assert_eq!(tys.len(), 1);
                 assert_eq!(values.len(), 1);
 
-                let primitives = &self.primitive_store
-                    .expect("Expected PrimitiveStore to be present");
+                let primitives =
+                    &self.primitive_store.expect("Expected PrimitiveStore to be present");
 
                 let ty = tys[0];
-                let value= &values[0];
+                let value = &values[0];
                 let value_ty = value.get_type(primitives, self);
 
                 // If the types don't match, try to implicitly promote integers
                 if !self.unioned(ty, value_ty) {
                     let Ok(num_val) = i128::try_from(value.clone()) else {
-                        return Self::incompatible_types(a, b)
+                        return Self::incompatible_types(a, b);
                     };
 
                     let can_convert = if self.unioned(ty, primitives.int32) {
@@ -791,7 +813,7 @@ impl Unifier {
                     };
 
                     if !can_convert {
-                        return Self::incompatible_types(a, b)
+                        return Self::incompatible_types(a, b);
                     }
                 }
 
@@ -816,7 +838,7 @@ impl Unifier {
                         let v2i = symbol_value_to_int(v2);
 
                         if v1i != v2i {
-                            return Self::incompatible_types(a, b)
+                            return Self::incompatible_types(a, b);
                         }
                     }
                 }
@@ -1287,8 +1309,8 @@ impl Unifier {
         mapping: &VarMap,
         cache: &mut HashMap<Type, Option<Type>>,
     ) -> Option<IndexMapping<K>>
-        where
-            K: std::hash::Hash + Eq + Clone,
+    where
+        K: std::hash::Hash + Eq + Clone,
     {
         let mut map2 = None;
         for (k, v) in map {

@@ -89,10 +89,7 @@ impl<'a> Display for DisplayTypeError<'a> {
             IncorrectArgType { name, expected, got } => {
                 let expected = self.unifier.stringify_with_notes(*expected, &mut notes);
                 let got = self.unifier.stringify_with_notes(*got, &mut notes);
-                write!(
-                    f,
-                    "Incorrect argument type for {name}. Expected {expected}, but got {got}"
-                )
+                write!(f, "Incorrect argument type for {name}. Expected {expected}, but got {got}")
             }
             FieldUnificationError { field, types, loc } => {
                 let lhs = self.unifier.stringify_with_notes(types.0, &mut notes);

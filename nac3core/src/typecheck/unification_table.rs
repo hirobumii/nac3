@@ -16,21 +16,10 @@ pub struct UnificationTable<V> {
 
 #[derive(Clone, Debug)]
 enum Action<V> {
-    Parent {
-        key: usize,
-        original_parent: usize,
-    },
-    Value {
-        key: usize,
-        original_value: Option<V>,
-    },
-    Rank {
-        key: usize,
-        original_rank: u32,
-    },
-    Marker {
-        generation: u32,
-    }
+    Parent { key: usize, original_parent: usize },
+    Value { key: usize, original_value: Option<V> },
+    Rank { key: usize, original_rank: u32 },
+    Marker { generation: u32 },
 }
 
 impl<V> Default for UnificationTable<V> {
@@ -41,7 +30,13 @@ impl<V> Default for UnificationTable<V> {
 
 impl<V> UnificationTable<V> {
     pub fn new() -> UnificationTable<V> {
-        UnificationTable { parents: Vec::new(), ranks: Vec::new(), values: Vec::new(), log: Vec::new(), generation: 0 }
+        UnificationTable {
+            parents: Vec::new(),
+            ranks: Vec::new(),
+            values: Vec::new(),
+            log: Vec::new(),
+            generation: 0,
+        }
     }
 
     pub fn new_key(&mut self, v: V) -> UnificationKey {
@@ -125,7 +120,10 @@ impl<V> UnificationTable<V> {
     pub fn restore_snapshot(&mut self, snapshot: (usize, u32)) {
         let (log_len, generation) = snapshot;
         assert!(self.log.len() >= log_len, "snapshot restoration error");
-        assert!(matches!(self.log[log_len - 1], Action::Marker { generation: gen } if gen == generation), "snapshot restoration error");
+        assert!(
+            matches!(self.log[log_len - 1], Action::Marker { generation: gen } if gen == generation),
+            "snapshot restoration error"
+        );
         for action in self.log.drain(log_len - 1..).rev() {
             match action {
                 Action::Parent { key, original_parent } => {
@@ -145,7 +143,10 @@ impl<V> UnificationTable<V> {
     pub fn discard_snapshot(&mut self, snapshot: (usize, u32)) {
         let (log_len, generation) = snapshot;
         assert!(self.log.len() >= log_len, "snapshot discard error");
-        assert!(matches!(self.log[log_len - 1], Action::Marker { generation: gen } if gen == generation), "snapshot discard error");
+        assert!(
+            matches!(self.log[log_len - 1], Action::Marker { generation: gen } if gen == generation),
+            "snapshot discard error"
+        );
         self.log.clear();
     }
 }
@@ -159,11 +160,23 @@ where
             .enumerate()
             .map(|(i, (v, p))| if *p == i { v.as_ref().map(|v| v.as_ref().clone()) } else { None })
             .collect();
-        UnificationTable { parents: self.parents.clone(), ranks: self.ranks.clone(), values, log: Vec::new(), generation: 0 }
+        UnificationTable {
+            parents: self.parents.clone(),
+            ranks: self.ranks.clone(),
+            values,
+            log: Vec::new(),
+            generation: 0,
+        }
     }
 
     pub fn from_send(table: &UnificationTable<V>) -> UnificationTable<Rc<V>> {
         let values = table.values.iter().cloned().map(|v| v.map(Rc::new)).collect();
-        UnificationTable { parents: table.parents.clone(), ranks: table.ranks.clone(), values, log: Vec::new(), generation: 0 }
+        UnificationTable {
+            parents: table.parents.clone(),
+            ranks: table.ranks.clone(),
+            values,
+            log: Vec::new(),
+            generation: 0,
+        }
     }
 }

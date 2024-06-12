@@ -3,12 +3,12 @@ use super::*;
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::ValueEnum,
-    toplevel::{DefinitionId, helper::PRIMITIVE_DEF_IDS, TopLevelDef},
+    toplevel::{helper::PRIMITIVE_DEF_IDS, DefinitionId, TopLevelDef},
 };
 use indoc::indoc;
-use std::iter::zip;
 use nac3parser::parser::parse_program;
 use parking_lot::RwLock;
+use std::iter::zip;
 use test_case::test_case;
 
 struct Resolver {
@@ -44,7 +44,9 @@ impl SymbolResolver for Resolver {
     }
 
     fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
-        self.id_to_def.get(&id).cloned()
+        self.id_to_def
+            .get(&id)
+            .cloned()
             .ok_or_else(|| HashSet::from(["Unknown identifier".to_string()]))
     }
 
@@ -136,7 +138,8 @@ impl TestEnvironment {
             params: VarMap::new(),
         });
         let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
-        let ndarray_ndims_tvar = unifier.get_fresh_const_generic_var(uint64, Some("ndarray_ndims".into()), None);
+        let ndarray_ndims_tvar =
+            unifier.get_fresh_const_generic_var(uint64, Some("ndarray_ndims".into()), None);
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PRIMITIVE_DEF_IDS.ndarray,
             fields: HashMap::new(),

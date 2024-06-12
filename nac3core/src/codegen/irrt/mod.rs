@@ -2,18 +2,13 @@ use crate::typecheck::typedef::Type;
 
 use super::{
     classes::{
-        ArrayLikeIndexer,
-        ArrayLikeValue,
-        ArraySliceValue,
-        ListValue,
-        NDArrayValue,
-        TypedArrayLikeAdapter,
-        UntypedArrayLikeAccessor,
+        ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, NDArrayValue,
+        TypedArrayLikeAdapter, UntypedArrayLikeAccessor,
     },
-    CodeGenContext,
-    CodeGenerator,
-    llvm_intrinsics,
+    llvm_intrinsics, CodeGenContext, CodeGenerator,
 };
+use crate::codegen::classes::TypedArrayLikeAccessor;
+use crate::codegen::stmt::gen_for_callback_incrementing;
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     context::Context,
@@ -25,8 +20,6 @@ use inkwell::{
 };
 use itertools::Either;
 use nac3parser::ast::Expr;
-use crate::codegen::classes::TypedArrayLikeAccessor;
-use crate::codegen::stmt::gen_for_callback_incrementing;
 
 #[must_use]
 pub fn load_irrt(ctx: &Context) -> Module {
@@ -70,12 +63,15 @@ pub fn integer_power<'ctx, G: CodeGenerator + ?Sized>(
         ctx.module.add_function(symbol, fn_type, None)
     });
     // throw exception when exp < 0
-    let ge_zero = ctx.builder.build_int_compare(
-        IntPredicate::SGE,
-        exp,
-        exp.get_type().const_zero(),
-        "assert_int_pow_ge_0",
-    ).unwrap();
+    let ge_zero = ctx
+        .builder
+        .build_int_compare(
+            IntPredicate::SGE,
+            exp,
+            exp.get_type().const_zero(),
+            "assert_int_pow_ge_0",
+        )
+        .unwrap();
     ctx.make_assert(
         generator,
         ge_zero,
@@ -107,12 +103,10 @@ pub fn calculate_len_for_slice_range<'ctx, G: CodeGenerator + ?Sized>(
     });
 
     // assert step != 0, throw exception if not
-    let not_zero = ctx.builder.build_int_compare(
-        IntPredicate::NE,
-        step,
-        step.get_type().const_zero(),
-        "range_step_ne",
-    ).unwrap();
+    let not_zero = ctx
+        .builder
+        .build_int_compare(IntPredicate::NE, step, step.get_type().const_zero(), "range_step_ne")
+        .unwrap();
     ctx.make_assert(
         generator,
         not_zero,
@@ -208,15 +202,18 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
             let step = if let Some(v) = generator.gen_expr(ctx, step)? {
                 v.to_basic_value_enum(ctx, generator, ctx.primitives.int32)?.into_int_value()
             } else {
-                return Ok(None)
+                return Ok(None);
             };
             // assert step != 0, throw exception if not
-            let not_zero = ctx.builder.build_int_compare(
-                IntPredicate::NE,
-                step,
-                step.get_type().const_zero(),
-                "range_step_ne",
-            ).unwrap();
+            let not_zero = ctx
+                .builder
+                .build_int_compare(
+                    IntPredicate::NE,
+                    step,
+                    step.get_type().const_zero(),
+                    "range_step_ne",
+                )
+                .unwrap();
             ctx.make_assert(
                 generator,
                 not_zero,
@@ -226,25 +223,32 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                 ctx.current_loc,
             );
             let len_id = ctx.builder.build_int_sub(length, one, "lenmin1").unwrap();
-            let neg = ctx.builder.build_int_compare(IntPredicate::SLT, step, zero, "step_is_neg").unwrap();
+            let neg = ctx
+                .builder
+                .build_int_compare(IntPredicate::SLT, step, zero, "step_is_neg")
+                .unwrap();
             (
                 match s {
                     Some(s) => {
                         let Some(s) = handle_slice_index_bound(s, ctx, generator, length)? else {
-                            return Ok(None)
+                            return Ok(None);
                         };
                         ctx.builder
                             .build_select(
-                                ctx.builder.build_and(
-                                    ctx.builder.build_int_compare(
-                                        IntPredicate::EQ,
-                                        s,
-                                        length,
-                                        "s_eq_len",
-                                    ).unwrap(),
-                                    neg,
-                                    "should_minus_one",
-                                ).unwrap(),
+                                ctx.builder
+                                    .build_and(
+                                        ctx.builder
+                                            .build_int_compare(
+                                                IntPredicate::EQ,
+                                                s,
+                                                length,
+                                                "s_eq_len",
+                                            )
+                                            .unwrap(),
+                                        neg,
+                                        "should_minus_one",
+                                    )
+                                    .unwrap(),
                                 ctx.builder.build_int_sub(s, one, "s_min").unwrap(),
                                 s,
                                 "final_start",
@@ -252,14 +256,16 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                             .map(BasicValueEnum::into_int_value)
                             .unwrap()
                     }
-                    None => ctx.builder.build_select(neg, len_id, zero, "stt")
+                    None => ctx
+                        .builder
+                        .build_select(neg, len_id, zero, "stt")
                         .map(BasicValueEnum::into_int_value)
                         .unwrap(),
                 },
                 match e {
                     Some(e) => {
                         let Some(e) = handle_slice_index_bound(e, ctx, generator, length)? else {
-                            return Ok(None)
+                            return Ok(None);
                         };
                         ctx.builder
                             .build_select(
@@ -271,7 +277,9 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                             .map(BasicValueEnum::into_int_value)
                             .unwrap()
                     }
-                    None => ctx.builder.build_select(neg, zero, len_id, "end")
+                    None => ctx
+                        .builder
+                        .build_select(neg, zero, len_id, "end")
                         .map(BasicValueEnum::into_int_value)
                         .unwrap(),
                 },
@@ -299,15 +307,16 @@ pub fn handle_slice_index_bound<'ctx, G: CodeGenerator>(
     let i = if let Some(v) = generator.gen_expr(ctx, i)? {
         v.to_basic_value_enum(ctx, generator, i.custom.unwrap())?
     } else {
-        return Ok(None)
+        return Ok(None);
     };
-    Ok(Some(ctx
-        .builder
-        .build_call(func, &[i.into(), length.into()], "bounded_ind")
-        .map(CallSiteValue::try_as_basic_value)
-        .map(|v| v.map_left(BasicValueEnum::into_int_value))
-        .map(Either::unwrap_left)
-        .unwrap()))
+    Ok(Some(
+        ctx.builder
+            .build_call(func, &[i.into(), length.into()], "bounded_ind")
+            .map(CallSiteValue::try_as_basic_value)
+            .map(|v| v.map_left(BasicValueEnum::into_int_value))
+            .map(Either::unwrap_left)
+            .unwrap(),
+    ))
 }
 
 /// This function handles 'end' **inclusively**.
@@ -349,47 +358,33 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
     let zero = int32.const_zero();
     let one = int32.const_int(1, false);
     let dest_arr_ptr = dest_arr.data().base_ptr(ctx, generator);
-    let dest_arr_ptr = ctx.builder.build_pointer_cast(
-        dest_arr_ptr,
-        elem_ptr_type,
-        "dest_arr_ptr_cast",
-    ).unwrap();
+    let dest_arr_ptr =
+        ctx.builder.build_pointer_cast(dest_arr_ptr, elem_ptr_type, "dest_arr_ptr_cast").unwrap();
     let dest_len = dest_arr.load_size(ctx, Some("dest.len"));
     let dest_len = ctx.builder.build_int_truncate_or_bit_cast(dest_len, int32, "srclen32").unwrap();
     let src_arr_ptr = src_arr.data().base_ptr(ctx, generator);
-    let src_arr_ptr = ctx.builder.build_pointer_cast(
-        src_arr_ptr,
-        elem_ptr_type,
-        "src_arr_ptr_cast",
-    ).unwrap();
+    let src_arr_ptr =
+        ctx.builder.build_pointer_cast(src_arr_ptr, elem_ptr_type, "src_arr_ptr_cast").unwrap();
     let src_len = src_arr.load_size(ctx, Some("src.len"));
     let src_len = ctx.builder.build_int_truncate_or_bit_cast(src_len, int32, "srclen32").unwrap();
 
     // index in bound and positive should be done
     // assert if dest.step == 1 then len(src) <= len(dest) else len(src) == len(dest), and
     // throw exception if not satisfied
-    let src_end = ctx.builder
+    let src_end = ctx
+        .builder
         .build_select(
-            ctx.builder.build_int_compare(
-                IntPredicate::SLT,
-                src_idx.2,
-                zero,
-                "is_neg",
-            ).unwrap(),
+            ctx.builder.build_int_compare(IntPredicate::SLT, src_idx.2, zero, "is_neg").unwrap(),
             ctx.builder.build_int_sub(src_idx.1, one, "e_min_one").unwrap(),
             ctx.builder.build_int_add(src_idx.1, one, "e_add_one").unwrap(),
             "final_e",
         )
         .map(BasicValueEnum::into_int_value)
         .unwrap();
-    let dest_end = ctx.builder
+    let dest_end = ctx
+        .builder
         .build_select(
-            ctx.builder.build_int_compare(
-                IntPredicate::SLT,
-                dest_idx.2,
-                zero,
-                "is_neg",
-            ).unwrap(),
+            ctx.builder.build_int_compare(IntPredicate::SLT, dest_idx.2, zero, "is_neg").unwrap(),
             ctx.builder.build_int_sub(dest_idx.1, one, "e_min_one").unwrap(),
             ctx.builder.build_int_add(dest_idx.1, one, "e_add_one").unwrap(),
             "final_e",
@@ -400,24 +395,23 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
         calculate_len_for_slice_range(generator, ctx, src_idx.0, src_end, src_idx.2);
     let dest_slice_len =
         calculate_len_for_slice_range(generator, ctx, dest_idx.0, dest_end, dest_idx.2);
-    let src_eq_dest = ctx.builder.build_int_compare(
-        IntPredicate::EQ,
-        src_slice_len,
-        dest_slice_len,
-        "slice_src_eq_dest",
-    ).unwrap();
-    let src_slt_dest = ctx.builder.build_int_compare(
-        IntPredicate::SLT,
-        src_slice_len,
-        dest_slice_len,
-        "slice_src_slt_dest",
-    ).unwrap();
-    let dest_step_eq_one = ctx.builder.build_int_compare(
-        IntPredicate::EQ,
-        dest_idx.2,
-        dest_idx.2.get_type().const_int(1, false),
-        "slice_dest_step_eq_one",
-    ).unwrap();
+    let src_eq_dest = ctx
+        .builder
+        .build_int_compare(IntPredicate::EQ, src_slice_len, dest_slice_len, "slice_src_eq_dest")
+        .unwrap();
+    let src_slt_dest = ctx
+        .builder
+        .build_int_compare(IntPredicate::SLT, src_slice_len, dest_slice_len, "slice_src_slt_dest")
+        .unwrap();
+    let dest_step_eq_one = ctx
+        .builder
+        .build_int_compare(
+            IntPredicate::EQ,
+            dest_idx.2,
+            dest_idx.2.get_type().const_int(1, false),
+            "slice_dest_step_eq_one",
+        )
+        .unwrap();
     let cond_1 = ctx.builder.build_and(dest_step_eq_one, src_slt_dest, "slice_cond_1").unwrap();
     let cond = ctx.builder.build_or(src_eq_dest, cond_1, "slice_cond").unwrap();
     ctx.make_assert(
@@ -461,17 +455,14 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
             .unwrap()
     };
     // update length
-    let need_update = ctx.builder
-        .build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update")
-        .unwrap();
+    let need_update =
+        ctx.builder.build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update").unwrap();
     let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
     let update_bb = ctx.ctx.append_basic_block(current, "update");
     let cont_bb = ctx.ctx.append_basic_block(current, "cont");
     ctx.builder.build_conditional_branch(need_update, update_bb, cont_bb).unwrap();
     ctx.builder.position_at_end(update_bb);
-    let new_len = ctx.builder
-        .build_int_z_extend_or_bit_cast(new_len, size_ty, "new_len")
-        .unwrap();
+    let new_len = ctx.builder.build_int_z_extend_or_bit_cast(new_len, size_ty, "new_len").unwrap();
     dest_arr.store_size(ctx, generator, new_len);
     ctx.builder.build_unconditional_branch(cont_bb).unwrap();
     ctx.builder.position_at_end(cont_bb);
@@ -488,7 +479,8 @@ pub fn call_isinf<'ctx, G: CodeGenerator + ?Sized>(
         ctx.module.add_function("__nac3_isinf", fn_type, None)
     });
 
-    let ret = ctx.builder
+    let ret = ctx
+        .builder
         .build_call(intrinsic_fn, &[v.into()], "isinf")
         .map(CallSiteValue::try_as_basic_value)
         .map(|v| v.map_left(BasicValueEnum::into_int_value))
@@ -509,7 +501,8 @@ pub fn call_isnan<'ctx, G: CodeGenerator + ?Sized>(
         ctx.module.add_function("__nac3_isnan", fn_type, None)
     });
 
-    let ret = ctx.builder
+    let ret = ctx
+        .builder
         .build_call(intrinsic_fn, &[v.into()], "isnan")
         .map(CallSiteValue::try_as_basic_value)
         .map(|v| v.map_left(BasicValueEnum::into_int_value))
@@ -520,10 +513,7 @@ pub fn call_isnan<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Generates a call to `gamma` in IR. Returns an `f64` representing the result.
-pub fn call_gamma<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    v: FloatValue<'ctx>,
-) -> FloatValue<'ctx> {
+pub fn call_gamma<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
 
     let intrinsic_fn = ctx.module.get_function("__nac3_gamma").unwrap_or_else(|| {
@@ -540,10 +530,7 @@ pub fn call_gamma<'ctx>(
 }
 
 /// Generates a call to `gammaln` in IR. Returns an `f64` representing the result.
-pub fn call_gammaln<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    v: FloatValue<'ctx>,
-) -> FloatValue<'ctx> {
+pub fn call_gammaln<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
 
     let intrinsic_fn = ctx.module.get_function("__nac3_gammaln").unwrap_or_else(|| {
@@ -560,10 +547,7 @@ pub fn call_gammaln<'ctx>(
 }
 
 /// Generates a call to `j0` in IR. Returns an `f64` representing the result.
-pub fn call_j0<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    v: FloatValue<'ctx>,
-) -> FloatValue<'ctx> {
+pub fn call_j0<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
 
     let intrinsic_fn = ctx.module.get_function("__nac3_j0").unwrap_or_else(|| {
@@ -583,7 +567,7 @@ pub fn call_j0<'ctx>(
 /// calculated total size.
 ///
 /// * `dims` - An [`ArrayLikeIndexer`] containing the size of each dimension.
-/// * `range` - The dimension index to begin and end (exclusively) calculating the dimensions for, 
+/// * `range` - The dimension index to begin and end (exclusively) calculating the dimensions for,
 /// or [`None`] if starting from the first dimension and ending at the last dimension respectively.
 pub fn call_ndarray_calc_size<'ctx, G, Dims>(
     generator: &G,
@@ -591,9 +575,10 @@ pub fn call_ndarray_calc_size<'ctx, G, Dims>(
     dims: &Dims,
     (begin, end): (Option<IntValue<'ctx>>, Option<IntValue<'ctx>>),
 ) -> IntValue<'ctx>
-    where
-        G: CodeGenerator + ?Sized,
-        Dims: ArrayLikeIndexer<'ctx>, {
+where
+    G: CodeGenerator + ?Sized,
+    Dims: ArrayLikeIndexer<'ctx>,
+{
     let llvm_i64 = ctx.ctx.i64_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
@@ -602,19 +587,14 @@ pub fn call_ndarray_calc_size<'ctx, G, Dims>(
     let ndarray_calc_size_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_calc_size",
         64 => "__nac3_ndarray_calc_size64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw)
+        bw => unreachable!("Unsupported size type bit width: {}", bw),
     };
     let ndarray_calc_size_fn_t = llvm_usize.fn_type(
-        &[
-            llvm_pi64.into(),
-            llvm_usize.into(),
-            llvm_usize.into(),
-            llvm_usize.into(),
-        ],
+        &[llvm_pi64.into(), llvm_usize.into(), llvm_usize.into(), llvm_usize.into()],
         false,
     );
-    let ndarray_calc_size_fn = ctx.module.get_function(ndarray_calc_size_fn_name)
-        .unwrap_or_else(|| {
+    let ndarray_calc_size_fn =
+        ctx.module.get_function(ndarray_calc_size_fn_name).unwrap_or_else(|| {
             ctx.module.add_function(ndarray_calc_size_fn_name, ndarray_calc_size_fn_t, None)
         });
 
@@ -658,30 +638,22 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     let ndarray_calc_nd_indices_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_calc_nd_indices",
         64 => "__nac3_ndarray_calc_nd_indices64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw)
+        bw => unreachable!("Unsupported size type bit width: {}", bw),
     };
-    let ndarray_calc_nd_indices_fn = ctx.module.get_function(ndarray_calc_nd_indices_fn_name).unwrap_or_else(|| {
-        let fn_type = llvm_void.fn_type(
-            &[
-                llvm_usize.into(),
-                llvm_pusize.into(),
-                llvm_usize.into(),
-                llvm_pi32.into(),
-            ],
-            false,
-        );
+    let ndarray_calc_nd_indices_fn =
+        ctx.module.get_function(ndarray_calc_nd_indices_fn_name).unwrap_or_else(|| {
+            let fn_type = llvm_void.fn_type(
+                &[llvm_usize.into(), llvm_pusize.into(), llvm_usize.into(), llvm_pi32.into()],
+                false,
+            );
 
-        ctx.module.add_function(ndarray_calc_nd_indices_fn_name, fn_type, None)
-    });
+            ctx.module.add_function(ndarray_calc_nd_indices_fn_name, fn_type, None)
+        });
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
     let ndarray_dims = ndarray.dim_sizes();
 
-    let indices = ctx.builder.build_array_alloca(
-        llvm_i32,
-        ndarray_num_dims,
-        "",
-    ).unwrap();
+    let indices = ctx.builder.build_array_alloca(llvm_i32, ndarray_num_dims, "").unwrap();
 
     ctx.builder
         .build_call(
@@ -709,9 +681,10 @@ fn call_ndarray_flatten_index_impl<'ctx, G, Indices>(
     ndarray: NDArrayValue<'ctx>,
     indices: &Indices,
 ) -> IntValue<'ctx>
-    where
-        G: CodeGenerator + ?Sized,
-        Indices: ArrayLikeIndexer<'ctx>, {
+where
+    G: CodeGenerator + ?Sized,
+    Indices: ArrayLikeIndexer<'ctx>,
+{
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
@@ -734,26 +707,23 @@ fn call_ndarray_flatten_index_impl<'ctx, G, Indices>(
     let ndarray_flatten_index_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_flatten_index",
         64 => "__nac3_ndarray_flatten_index64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw)
+        bw => unreachable!("Unsupported size type bit width: {}", bw),
     };
-    let ndarray_flatten_index_fn = ctx.module.get_function(ndarray_flatten_index_fn_name).unwrap_or_else(|| {
-        let fn_type = llvm_usize.fn_type(
-            &[
-                llvm_pusize.into(),
-                llvm_usize.into(),
-                llvm_pi32.into(),
-                llvm_usize.into(),
-            ],
-            false,
-        );
+    let ndarray_flatten_index_fn =
+        ctx.module.get_function(ndarray_flatten_index_fn_name).unwrap_or_else(|| {
+            let fn_type = llvm_usize.fn_type(
+                &[llvm_pusize.into(), llvm_usize.into(), llvm_pi32.into(), llvm_usize.into()],
+                false,
+            );
 
-        ctx.module.add_function(ndarray_flatten_index_fn_name, fn_type, None)
-    });
+            ctx.module.add_function(ndarray_flatten_index_fn_name, fn_type, None)
+        });
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
     let ndarray_dims = ndarray.dim_sizes();
 
-    let index = ctx.builder
+    let index = ctx
+        .builder
         .build_call(
             ndarray_flatten_index_fn,
             &[
@@ -784,16 +754,11 @@ pub fn call_ndarray_flatten_index<'ctx, G, Index>(
     ndarray: NDArrayValue<'ctx>,
     indices: &Index,
 ) -> IntValue<'ctx>
-    where
-        G: CodeGenerator + ?Sized,
-        Index: ArrayLikeIndexer<'ctx>, {
-
-    call_ndarray_flatten_index_impl(
-        generator,
-        ctx,
-        ndarray,
-        indices,
-    )
+where
+    G: CodeGenerator + ?Sized,
+    Index: ArrayLikeIndexer<'ctx>,
+{
+    call_ndarray_flatten_index_impl(generator, ctx, ndarray, indices)
 }
 
 /// Generates a call to `__nac3_ndarray_calc_broadcast`. Returns a tuple containing the number of
@@ -810,22 +775,23 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
     let ndarray_calc_broadcast_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_calc_broadcast",
         64 => "__nac3_ndarray_calc_broadcast64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw)
+        bw => unreachable!("Unsupported size type bit width: {}", bw),
     };
-    let ndarray_calc_broadcast_fn = ctx.module.get_function(ndarray_calc_broadcast_fn_name).unwrap_or_else(|| {
-        let fn_type = llvm_usize.fn_type(
-            &[
-                llvm_pusize.into(),
-                llvm_usize.into(),
-                llvm_pusize.into(),
-                llvm_usize.into(),
-                llvm_pusize.into(),
-            ],
-            false,
-        );
+    let ndarray_calc_broadcast_fn =
+        ctx.module.get_function(ndarray_calc_broadcast_fn_name).unwrap_or_else(|| {
+            let fn_type = llvm_usize.fn_type(
+                &[
+                    llvm_pusize.into(),
+                    llvm_usize.into(),
+                    llvm_pusize.into(),
+                    llvm_usize.into(),
+                    llvm_pusize.into(),
+                ],
+                false,
+            );
 
-        ctx.module.add_function(ndarray_calc_broadcast_fn_name, fn_type, None)
-    });
+            ctx.module.add_function(ndarray_calc_broadcast_fn_name, fn_type, None)
+        });
 
     let lhs_ndims = lhs.load_ndims(ctx);
     let rhs_ndims = rhs.load_ndims(ctx);
@@ -846,36 +812,22 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
             };
 
             let llvm_usize_const_one = llvm_usize.const_int(1, false);
-            let lhs_eqz = ctx.builder.build_int_compare(
-                IntPredicate::EQ,
-                lhs_dim_sz,
-                llvm_usize_const_one,
-                "",
-            ).unwrap();
-            let rhs_eqz = ctx.builder.build_int_compare(
-                IntPredicate::EQ,
-                rhs_dim_sz,
-                llvm_usize_const_one,
-                "",
-            ).unwrap();
-            let lhs_or_rhs_eqz = ctx.builder.build_or(
-                lhs_eqz,
-                rhs_eqz,
-                ""
-            ).unwrap();
+            let lhs_eqz = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, lhs_dim_sz, llvm_usize_const_one, "")
+                .unwrap();
+            let rhs_eqz = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, rhs_dim_sz, llvm_usize_const_one, "")
+                .unwrap();
+            let lhs_or_rhs_eqz = ctx.builder.build_or(lhs_eqz, rhs_eqz, "").unwrap();
 
-            let lhs_eq_rhs = ctx.builder.build_int_compare(
-                IntPredicate::EQ,
-                lhs_dim_sz,
-                rhs_dim_sz,
-                ""
-            ).unwrap();
+            let lhs_eq_rhs = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, lhs_dim_sz, rhs_dim_sz, "")
+                .unwrap();
 
-            let is_compatible = ctx.builder.build_or(
-                lhs_or_rhs_eqz,
-                lhs_eq_rhs,
-                ""
-            ).unwrap();
+            let is_compatible = ctx.builder.build_or(lhs_or_rhs_eqz, lhs_eq_rhs, "").unwrap();
 
             ctx.make_assert(
                 generator,
@@ -889,7 +841,8 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
             Ok(())
         },
         llvm_usize.const_int(1, false),
-    ).unwrap();
+    )
+    .unwrap();
 
     let max_ndims = llvm_intrinsics::call_int_umax(ctx, lhs_ndims, rhs_ndims, None);
     let lhs_dims = lhs.dim_sizes().base_ptr(ctx, generator);
@@ -923,7 +876,11 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
 /// Generates a call to `__nac3_ndarray_calc_broadcast_idx`. Returns an [`ArrayAllocaValue`]
 /// containing the indices used for accessing `array` corresponding to the index of the broadcasted
 /// array `broadcast_idx`.
-pub fn call_ndarray_calc_broadcast_index<'ctx, G: CodeGenerator + ?Sized, BroadcastIdx: UntypedArrayLikeAccessor<'ctx>>(
+pub fn call_ndarray_calc_broadcast_index<
+    'ctx,
+    G: CodeGenerator + ?Sized,
+    BroadcastIdx: UntypedArrayLikeAccessor<'ctx>,
+>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     array: NDArrayValue<'ctx>,
@@ -937,21 +894,17 @@ pub fn call_ndarray_calc_broadcast_index<'ctx, G: CodeGenerator + ?Sized, Broadc
     let ndarray_calc_broadcast_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_calc_broadcast_idx",
         64 => "__nac3_ndarray_calc_broadcast_idx64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw)
+        bw => unreachable!("Unsupported size type bit width: {}", bw),
     };
-    let ndarray_calc_broadcast_fn = ctx.module.get_function(ndarray_calc_broadcast_fn_name).unwrap_or_else(|| {
-        let fn_type = llvm_usize.fn_type(
-            &[
-                llvm_pusize.into(),
-                llvm_usize.into(),
-                llvm_pi32.into(),
-                llvm_pi32.into(),
-            ],
-            false,
-        );
+    let ndarray_calc_broadcast_fn =
+        ctx.module.get_function(ndarray_calc_broadcast_fn_name).unwrap_or_else(|| {
+            let fn_type = llvm_usize.fn_type(
+                &[llvm_pusize.into(), llvm_usize.into(), llvm_pi32.into(), llvm_pi32.into()],
+                false,
+            );
 
-        ctx.module.add_function(ndarray_calc_broadcast_fn_name, fn_type, None)
-    });
+            ctx.module.add_function(ndarray_calc_broadcast_fn_name, fn_type, None)
+        });
 
     let broadcast_size = broadcast_idx.size(ctx, generator);
     let out_idx = ctx.builder.build_array_alloca(llvm_i32, broadcast_size, "").unwrap();
@@ -959,23 +912,13 @@ pub fn call_ndarray_calc_broadcast_index<'ctx, G: CodeGenerator + ?Sized, Broadc
     let array_dims = array.dim_sizes().base_ptr(ctx, generator);
     let array_ndims = array.load_ndims(ctx);
     let broadcast_idx_ptr = unsafe {
-        broadcast_idx.ptr_offset_unchecked(
-            ctx,
-            generator,
-            &llvm_usize.const_zero(),
-            None
-        )
+        broadcast_idx.ptr_offset_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
     };
 
     ctx.builder
         .build_call(
             ndarray_calc_broadcast_fn,
-            &[
-                array_dims.into(),
-                array_ndims.into(),
-                broadcast_idx_ptr.into(),
-                out_idx.into(),
-            ],
+            &[array_dims.into(), array_ndims.into(), broadcast_idx_ptr.into(), out_idx.into()],
             "",
         )
         .unwrap();

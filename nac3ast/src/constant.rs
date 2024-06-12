@@ -85,33 +85,22 @@ impl<U> crate::fold::Fold<U> for ConstantOptimizer {
     fn fold_expr(&mut self, node: crate::Expr<U>) -> Result<crate::Expr<U>, Self::Error> {
         match node.node {
             crate::ExprKind::Tuple { elts, ctx } => {
-                let elts = elts
-                    .into_iter()
-                    .map(|x| self.fold_expr(x))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let expr = if elts
-                    .iter()
-                    .all(|e| matches!(e.node, crate::ExprKind::Constant { .. }))
-                {
-                    let tuple = elts
-                        .into_iter()
-                        .map(|e| match e.node {
-                            crate::ExprKind::Constant { value, .. } => value,
-                            _ => unreachable!(),
-                        })
-                        .collect();
-                    crate::ExprKind::Constant {
-                        value: Constant::Tuple(tuple),
-                        kind: None,
-                    }
-                } else {
-                    crate::ExprKind::Tuple { elts, ctx }
-                };
-                Ok(crate::Expr {
-                    node: expr,
-                    custom: node.custom,
-                    location: node.location,
-                })
+                let elts =
+                    elts.into_iter().map(|x| self.fold_expr(x)).collect::<Result<Vec<_>, _>>()?;
+                let expr =
+                    if elts.iter().all(|e| matches!(e.node, crate::ExprKind::Constant { .. })) {
+                        let tuple = elts
+                            .into_iter()
+                            .map(|e| match e.node {
+                                crate::ExprKind::Constant { value, .. } => value,
+                                _ => unreachable!(),
+                            })
+                            .collect();
+                        crate::ExprKind::Constant { value: Constant::Tuple(tuple), kind: None }
+                    } else {
+                        crate::ExprKind::Tuple { elts, ctx }
+                    };
+                Ok(crate::Expr { node: expr, custom: node.custom, location: node.location })
             }
             _ => crate::fold::fold_expr(self, node),
         }
@@ -138,18 +127,12 @@ mod tests {
                     Located {
                         location,
                         custom,
-                        node: ExprKind::Constant {
-                            value: 1.into(),
-                            kind: None,
-                        },
+                        node: ExprKind::Constant { value: 1.into(), kind: None },
                     },
                     Located {
                         location,
                         custom,
-                        node: ExprKind::Constant {
-                            value: 2.into(),
-                            kind: None,
-                        },
+                        node: ExprKind::Constant { value: 2.into(), kind: None },
                     },
                     Located {
                         location,
@@ -160,26 +143,17 @@ mod tests {
                                 Located {
                                     location,
                                     custom,
-                                    node: ExprKind::Constant {
-                                        value: 3.into(),
-                                        kind: None,
-                                    },
+                                    node: ExprKind::Constant { value: 3.into(), kind: None },
                                 },
                                 Located {
                                     location,
                                     custom,
-                                    node: ExprKind::Constant {
-                                        value: 4.into(),
-                                        kind: None,
-                                    },
+                                    node: ExprKind::Constant { value: 4.into(), kind: None },
                                 },
                                 Located {
                                     location,
                                     custom,
-                                    node: ExprKind::Constant {
-                                        value: 5.into(),
-                                        kind: None,
-                                    },
+                                    node: ExprKind::Constant { value: 5.into(), kind: None },
                                 },
                             ],
                         },
@@ -187,9 +161,7 @@ mod tests {
                 ],
             },
         };
-        let new_ast = ConstantOptimizer::new()
-            .fold_expr(ast)
-            .unwrap_or_else(|e| match e {});
+        let new_ast = ConstantOptimizer::new().fold_expr(ast).unwrap_or_else(|e| match e {});
         assert_eq!(
             new_ast,
             Located {
@@ -199,11 +171,7 @@ mod tests {
                     value: Constant::Tuple(vec![
                         1.into(),
                         2.into(),
-                        Constant::Tuple(vec![
-                            3.into(),
-                            4.into(),
-                            5.into(),
-                        ])
+                        Constant::Tuple(vec![3.into(), 4.into(), 5.into(),])
                     ]),
                     kind: None
                 },

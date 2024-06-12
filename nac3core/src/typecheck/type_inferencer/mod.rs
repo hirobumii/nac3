@@ -1,21 +1,25 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::{From, TryInto};
 use std::iter::once;
-use std::{cell::RefCell, sync::Arc};
 use std::ops::Not;
+use std::{cell::RefCell, sync::Arc};
 
 use super::typedef::{Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, Unifier, VarMap};
 use super::{magic_methods::*, type_error::TypeError, typedef::CallId};
 use crate::{
-    symbol_resolver::{SymbolResolver, SymbolValue}, 
+    symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         helper::{arraylike_flatten_element_type, arraylike_get_ndims, PRIMITIVE_DEF_IDS},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         TopLevelContext,
     },
 };
-use itertools::{Itertools, izip};
-use nac3parser::ast::{self, fold::{self, Fold}, Arguments, Comprehension, ExprContext, ExprKind, Located, Location, StrRef};
+use itertools::{izip, Itertools};
+use nac3parser::ast::{
+    self,
+    fold::{self, Fold},
+    Arguments, Comprehension, ExprContext, ExprKind, Located, Location, StrRef,
+};
 
 #[cfg(test)]
 mod test;
@@ -187,9 +191,12 @@ impl<'a> Fold<()> for Inferencer<'a> {
                                 }
                                 if let Some(old_typ) = self.variable_mapping.insert(name, typ) {
                                     let loc = handler.location;
-                                    self.unifier.unify(old_typ, typ).map_err(|e| HashSet::from([
-                                        e.at(Some(loc)).to_display(self.unifier).to_string(),
-                                    ]))?;
+                                    self.unifier.unify(old_typ, typ).map_err(|e| {
+                                        HashSet::from([e
+                                            .at(Some(loc))
+                                            .to_display(self.unifier)
+                                            .to_string()])
+                                    })?;
                                 }
                             }
                             let mut type_ = naive_folder.fold_expr(*type_)?;
@@ -234,8 +241,12 @@ impl<'a> Fold<()> for Inferencer<'a> {
                     self.unify(self.primitives.int32, target.custom.unwrap(), &target.location)?;
                 } else {
                     let list_like_ty = match &*self.unifier.get_ty(iter.custom.unwrap()) {
-                        TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty: target.custom.unwrap() }),
-                        TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => todo!(),
+                        TypeEnum::TList { .. } => {
+                            self.unifier.add_ty(TypeEnum::TList { ty: target.custom.unwrap() })
+                        }
+                        TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                            todo!()
+                        }
                         _ => unreachable!(),
                     };
                     self.unify(list_like_ty, iter.custom.unwrap(), &iter.location)?;
@@ -273,13 +284,10 @@ impl<'a> Fold<()> for Inferencer<'a> {
                     let targets: Result<Vec<_>, _> = targets
                         .into_iter()
                         .map(|target| {
-                            let ExprKind::Name { id, ctx } = target.node else {
-                                unreachable!()
-                            };
+                            let ExprKind::Name { id, ctx } = target.node else { unreachable!() };
 
                             self.defined_identifiers.insert(id);
-                            let target_ty = if let Some(ty) = self.variable_mapping.get(&id)
-                            {
+                            let target_ty = if let Some(ty) = self.variable_mapping.get(&id) {
                                 *ty
                             } else {
                                 let unifier: &mut Unifier = self.unifier;
@@ -305,8 +313,9 @@ impl<'a> Fold<()> for Inferencer<'a> {
                         })
                         .collect();
                     let loc = node.location;
-                    let targets = targets
-                        .map_err(|e| HashSet::from([e.at(Some(loc)).to_display(self.unifier).to_string()]))?;
+                    let targets = targets.map_err(|e| {
+                        HashSet::from([e.at(Some(loc)).to_display(self.unifier).to_string()])
+                    })?;
                     return Ok(Located {
                         location: node.location,
                         node: ast::StmtKind::Assign {
@@ -463,7 +472,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 self.unify(test.custom.unwrap(), self.primitives.bool, &test.location)?;
                 match msg {
                     Some(m) => self.unify(m.custom.unwrap(), self.primitives.str, &m.location)?,
-                    None => ()
+                    None => (),
                 }
             }
             _ => return report_error("Unsupported statement type", stmt.location),
@@ -485,9 +494,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
             _ => fold::fold_expr(self, node)?,
         };
         let custom = match &expr.node {
-            ExprKind::Constant { value, .. } => {
-                Some(self.infer_constant(value, &expr.location)?)
-            }
+            ExprKind::Constant { value, .. } => Some(self.infer_constant(value, &expr.location)?),
             ExprKind::Name { id, .. } => {
                 // the name `none` is special since it may have different types
                 if id == &"none".into() {
@@ -497,7 +504,9 @@ impl<'a> Fold<()> for Inferencer<'a> {
                         let var_map = params
                             .iter()
                             .map(|(id_var, ty)| {
-                                let TypeEnum::TVar { id, range, name, loc, .. } = &*self.unifier.get_ty(*ty) else {
+                                let TypeEnum::TVar { id, range, name, loc, .. } =
+                                    &*self.unifier.get_ty(*ty)
+                                else {
                                     unreachable!()
                                 };
 
@@ -552,9 +561,9 @@ impl<'a> Fold<()> for Inferencer<'a> {
             ExprKind::IfExp { test, body, orelse } => {
                 Some(self.infer_if_expr(test, body.as_ref(), orelse.as_ref())?)
             }
-            ExprKind::ListComp { .. }
-            | ExprKind::Lambda { .. }
-            | ExprKind::Call { .. } => expr.custom, // already computed
+            ExprKind::ListComp { .. } | ExprKind::Lambda { .. } | ExprKind::Call { .. } => {
+                expr.custom
+            } // already computed
             ExprKind::Slice { .. } => {
                 // slices aren't exactly ranges, but for our purposes this should suffice
                 Some(self.primitives.range)
@@ -575,11 +584,9 @@ impl<'a> Inferencer<'a> {
     }
 
     fn unify(&mut self, a: Type, b: Type, location: &Location) -> Result<(), HashSet<String>> {
-        self.unifier
-            .unify(a, b)
-            .map_err(|e| HashSet::from([
-                e.at(Some(*location)).to_display(self.unifier).to_string(),
-            ]))
+        self.unifier.unify(a, b).map_err(|e| {
+            HashSet::from([e.at(Some(*location)).to_display(self.unifier).to_string()])
+        })
     }
 
     fn infer_pattern(&mut self, pattern: &ast::Expr<()>) -> Result<(), HashSet<String>> {
@@ -622,12 +629,15 @@ impl<'a> Inferencer<'a> {
                                 loc: Some(location),
                             };
                             if let Some(ret) = ret {
-                                self.unifier.unify(sign.ret, ret)
+                                self.unifier
+                                    .unify(sign.ret, ret)
                                     .map_err(|err| {
-                                        format!("Cannot unify {} <: {} - {:?}",
-                                                self.unifier.stringify(sign.ret),
-                                                self.unifier.stringify(ret),
-                                                TypeError::new(err.kind, Some(location)))
+                                        format!(
+                                            "Cannot unify {} <: {} - {:?}",
+                                            self.unifier.stringify(sign.ret),
+                                            self.unifier.stringify(ret),
+                                            TypeError::new(err.kind, Some(location))
+                                        )
                                     })
                                     .unwrap();
                             }
@@ -638,9 +648,12 @@ impl<'a> Inferencer<'a> {
                                 .map(|v| v.name)
                                 .rev()
                                 .collect();
-                            self.unifier.unify_call(&call, ty, sign, &required).map_err(|e| HashSet::from([
-                                e.at(Some(location)).to_display(self.unifier).to_string(),
-                            ]))?;
+                            self.unifier.unify_call(&call, ty, sign, &required).map_err(|e| {
+                                HashSet::from([e
+                                    .at(Some(location))
+                                    .to_display(self.unifier)
+                                    .to_string()])
+                            })?;
                             return Ok(sign.ret);
                         }
                     }
@@ -815,7 +828,7 @@ impl<'a> Inferencer<'a> {
         keywords: &[Located<ast::KeywordData>],
     ) -> Result<Option<ast::Expr<Option<Type>>>, HashSet<String>> {
         let Located { location: func_location, node: ExprKind::Name { id, ctx }, .. } = func else {
-            return Ok(None)
+            return Ok(None);
         };
 
         // handle special functions that cannot be typed in the usual way...
@@ -824,7 +837,7 @@ impl<'a> Inferencer<'a> {
                 return report_error(
                     "`virtual` can only accept 1/2 positional arguments",
                     *func_location,
-                )
+                );
             }
             let arg0 = self.fold_expr(args.remove(0))?;
             let ty = if let Some(arg) = args.pop() {
@@ -852,19 +865,19 @@ impl<'a> Inferencer<'a> {
                     args: vec![arg0],
                     keywords: vec![],
                 },
-            }))
+            }));
         }
 
-        if [
-            "int32",
-            "float",
-            "bool",
-            "round",
-            "round64",
-            "np_isnan",
-            "np_isinf",
-        ].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 1 {
-            let target_ty = if id == &"int32".into() || id == &"round".into() || id == &"floor".into() || id == &"ceil".into() {
+        if ["int32", "float", "bool", "round", "round64", "np_isnan", "np_isinf"]
+            .iter()
+            .any(|fun_id| id == &(*fun_id).into())
+            && args.len() == 1
+        {
+            let target_ty = if id == &"int32".into()
+                || id == &"round".into()
+                || id == &"floor".into()
+                || id == &"ceil".into()
+            {
                 self.primitives.int32
             } else if id == &"round64".into() || id == &"floor64".into() || id == &"ceil64".into() {
                 self.primitives.int64
@@ -872,12 +885,17 @@ impl<'a> Inferencer<'a> {
                 self.primitives.float
             } else if id == &"bool".into() || id == &"np_isnan".into() || id == &"np_isinf".into() {
                 self.primitives.bool
-            } else { unreachable!() };
+            } else {
+                unreachable!()
+            };
 
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
 
-            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+            let ret = if arg0_ty
+                .obj_id(self.unifier)
+                .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+            {
                 let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
 
                 make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndarray_ndims))
@@ -886,13 +904,11 @@ impl<'a> Inferencer<'a> {
             };
 
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![
-                    FuncArg {
-                        name: "n".into(),
-                        ty: arg0.custom.unwrap(),
-                        default_value: None,
-                    },
-                ],
+                args: vec![FuncArg {
+                    name: "n".into(),
+                    ty: arg0.custom.unwrap(),
+                    default_value: None,
+                }],
                 ret,
                 vars: VarMap::new(),
             }));
@@ -909,32 +925,28 @@ impl<'a> Inferencer<'a> {
                     args: vec![arg0],
                     keywords: vec![],
                 },
-            }))
+            }));
         }
 
-        if [
-            "np_min",
-            "np_max",
-        ].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 1 {
+        if ["np_min", "np_max"].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 1 {
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
 
-            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
-                let (ndarray_dtype, _) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+            let ret =
+                if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                    let (ndarray_dtype, _) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
 
-                ndarray_dtype
-            } else {
-                arg0_ty
-            };
+                    ndarray_dtype
+                } else {
+                    arg0_ty
+                };
 
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![
-                    FuncArg {
-                        name: "a".into(),
-                        ty: arg0.custom.unwrap(),
-                        default_value: None,
-                    },
-                ],
+                args: vec![FuncArg {
+                    name: "a".into(),
+                    ty: arg0.custom.unwrap(),
+                    default_value: None,
+                }],
                 ret,
                 vars: VarMap::new(),
             }));
@@ -951,7 +963,7 @@ impl<'a> Inferencer<'a> {
                     args: vec![arg0],
                     keywords: vec![],
                 },
-            }))
+            }));
         }
 
         if [
@@ -964,29 +976,32 @@ impl<'a> Inferencer<'a> {
             "np_ldexp",
             "np_hypot",
             "np_nextafter",
-        ].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 2 {
+        ]
+        .iter()
+        .any(|fun_id| id == &(*fun_id).into())
+            && args.len() == 2
+        {
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
             let arg1 = self.fold_expr(args.remove(0))?;
             let arg1_ty = arg1.custom.unwrap();
 
-            let arg0_dtype = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
-                unpack_ndarray_var_tys(self.unifier, arg0_ty).0
-            } else {
-                arg0_ty
-            };
+            let arg0_dtype =
+                if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                    unpack_ndarray_var_tys(self.unifier, arg0_ty).0
+                } else {
+                    arg0_ty
+                };
 
-            let arg1_dtype = if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
-                unpack_ndarray_var_tys(self.unifier, arg1_ty).0
-            } else {
-                arg1_ty
-            };
+            let arg1_dtype =
+                if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                    unpack_ndarray_var_tys(self.unifier, arg1_ty).0
+                } else {
+                    arg1_ty
+                };
 
-            let expected_arg1_dtype = if id == &"np_ldexp".into() {
-                self.primitives.int32
-            } else {
-                arg0_dtype
-            };
+            let expected_arg1_dtype =
+                if id == &"np_ldexp".into() { self.primitives.int32 } else { arg0_dtype };
             if !self.unifier.unioned(arg1_dtype, expected_arg1_dtype) {
                 return report_error(
                     format!(
@@ -995,7 +1010,7 @@ impl<'a> Inferencer<'a> {
                         self.unifier.stringify(arg1_dtype),
                     ).as_str(),
                     arg0.location,
-                )
+                );
             }
 
             let target_ty = if id == &"np_minimum".into() || id == &"np_maximum".into() {
@@ -1004,14 +1019,16 @@ impl<'a> Inferencer<'a> {
                 self.primitives.float
             };
 
-            let ret = if [
-                &arg0_ty,
-                &arg1_ty,
-            ].into_iter().any(|arg_ty| arg_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)) {
+            let ret = if [&arg0_ty, &arg1_ty].into_iter().any(|arg_ty| {
+                arg_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+            }) {
                 // typeof_ndarray_broadcast requires both dtypes to be the same, but ldexp accepts
                 // (float, int32), so convert it to align with the dtype of the first arg
                 let arg1_ty = if id == &"np_ldexp".into() {
-                    if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                    if arg1_ty
+                        .obj_id(self.unifier)
+                        .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                    {
                         let (_, ndims) = unpack_ndarray_var_tys(self.unifier, arg1_ty);
 
                         make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndims))
@@ -1032,16 +1049,8 @@ impl<'a> Inferencer<'a> {
 
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
-                    FuncArg {
-                        name: "x1".into(),
-                        ty: arg0.custom.unwrap(),
-                        default_value: None,
-                    },
-                    FuncArg {
-                        name: "x2".into(),
-                        ty: arg1.custom.unwrap(),
-                        default_value: None,
-                    },
+                    FuncArg { name: "x1".into(), ty: arg0.custom.unwrap(), default_value: None },
+                    FuncArg { name: "x2".into(), ty: arg1.custom.unwrap(), default_value: None },
                 ],
                 ret,
                 vars: VarMap::new(),
@@ -1059,38 +1068,37 @@ impl<'a> Inferencer<'a> {
                     args: vec![arg0, arg1],
                     keywords: vec![],
                 },
-            }))
+            }));
         }
 
-        // int64, uint32 and uint64 are special because their argument can be a constant outside the 
+        // int64, uint32 and uint64 are special because their argument can be a constant outside the
         // range of int32s
-        if [
-            "int64",
-            "uint32",
-            "uint64",
-        ].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 1 {
+        if ["int64", "uint32", "uint64"].iter().any(|fun_id| id == &(*fun_id).into())
+            && args.len() == 1
+        {
             let target_ty = if id == &"int64".into() {
                 self.primitives.int64
             } else if id == &"uint32".into() {
                 self.primitives.uint32
             } else if id == &"uint64".into() {
                 self.primitives.uint64
-            } else { unreachable!() };
+            } else {
+                unreachable!()
+            };
 
             // Handle constants first to ensure that their types are not defaulted to int32, which
             // causes an "Integer out of bound" error
-            if let ExprKind::Constant { 
-                value: ast::Constant::Int(val),
-                kind 
-            } = &args[0].node {
+            if let ExprKind::Constant { value: ast::Constant::Int(val), kind } = &args[0].node {
                 let conv_is_ok = if self.unifier.unioned(target_ty, self.primitives.int64) {
                     i64::try_from(*val).is_ok()
                 } else if self.unifier.unioned(target_ty, self.primitives.uint32) {
                     u32::try_from(*val).is_ok()
                 } else if self.unifier.unioned(target_ty, self.primitives.uint64) {
                     u64::try_from(*val).is_ok()
-                } else { unreachable!() };
-        
+                } else {
+                    unreachable!()
+                };
+
                 return if conv_is_ok {
                     Ok(Some(Located {
                         location: args[0].location,
@@ -1102,13 +1110,16 @@ impl<'a> Inferencer<'a> {
                     }))
                 } else {
                     report_error("Integer out of bound", args[0].location)
-                }
+                };
             }
 
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
 
-            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+            let ret = if arg0_ty
+                .obj_id(self.unifier)
+                .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+            {
                 let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
 
                 make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndarray_ndims))
@@ -1117,13 +1128,11 @@ impl<'a> Inferencer<'a> {
             };
 
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![
-                    FuncArg {
-                        name: "n".into(),
-                        ty: arg0.custom.unwrap(),
-                        default_value: None,
-                    },
-                ],
+                args: vec![FuncArg {
+                    name: "n".into(),
+                    ty: arg0.custom.unwrap(),
+                    default_value: None,
+                }],
                 ret,
                 vars: VarMap::new(),
             }));
@@ -1140,30 +1149,29 @@ impl<'a> Inferencer<'a> {
                     args: vec![arg0],
                     keywords: vec![],
                 },
-            }))
+            }));
         }
 
         // 1-argument ndarray n-dimensional creation functions
-        if [
-            "np_ndarray".into(),
-            "np_empty".into(),
-            "np_zeros".into(),
-            "np_ones".into(),
-        ].contains(id) && args.len() == 1 {
+        if ["np_ndarray".into(), "np_empty".into(), "np_zeros".into(), "np_ones".into()]
+            .contains(id)
+            && args.len() == 1
+        {
             let ExprKind::List { elts, .. } = &args[0].node else {
                 return report_error(
-                    format!("Expected List literal for first argument of {id}, got {}", args[0].node.name()).as_str(),
-                    args[0].location
-                )
+                    format!(
+                        "Expected List literal for first argument of {id}, got {}",
+                        args[0].node.name()
+                    )
+                    .as_str(),
+                    args[0].location,
+                );
             };
 
             let ndims = elts.len() as u64;
 
             let arg0 = self.fold_expr(args.remove(0))?;
-            let ndims = self.unifier.get_fresh_literal(
-                vec![SymbolValue::U64(ndims)],
-                None,
-            );
+            let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
             let ret = make_ndarray_ty(
                 self.unifier,
                 self.primitives,
@@ -1171,13 +1179,11 @@ impl<'a> Inferencer<'a> {
                 Some(ndims),
             );
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![
-                    FuncArg {
-                        name: "shape".into(),
-                        ty: arg0.custom.unwrap(),
-                        default_value: None,
-                    },
-                ],
+                args: vec![FuncArg {
+                    name: "shape".into(),
+                    ty: arg0.custom.unwrap(),
+                    default_value: None,
+                }],
                 ret,
                 vars: VarMap::new(),
             }));
@@ -1194,16 +1200,20 @@ impl<'a> Inferencer<'a> {
                     args: vec![arg0],
                     keywords: vec![],
                 },
-            }))
+            }));
         }
 
         // 2-argument ndarray n-dimensional creation functions
         if id == &"np_full".into() && args.len() == 2 {
             let ExprKind::List { elts, .. } = &args[0].node else {
                 return report_error(
-                    format!("Expected List literal for first argument of {id}, got {}", args[0].node.name()).as_str(),
-                    args[0].location
-                )
+                    format!(
+                        "Expected List literal for first argument of {id}, got {}",
+                        args[0].node.name()
+                    )
+                    .as_str(),
+                    args[0].location,
+                );
             };
 
             let ndims = elts.len() as u64;
@@ -1212,23 +1222,11 @@ impl<'a> Inferencer<'a> {
             let arg1 = self.fold_expr(args.remove(0))?;
 
             let ty = arg1.custom.unwrap();
-            let ndims = self.unifier.get_fresh_literal(
-                vec![SymbolValue::U64(ndims)],
-                None,
-            );
-            let ret = make_ndarray_ty(
-                self.unifier,
-                self.primitives,
-                Some(ty),
-                Some(ndims),
-            );
+            let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
+            let ret = make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims));
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
-                    FuncArg {
-                        name: "shape".into(),
-                        ty: arg0.custom.unwrap(),
-                        default_value: None,
-                    },
+                    FuncArg { name: "shape".into(), ty: arg0.custom.unwrap(), default_value: None },
                     FuncArg {
                         name: "fill_value".into(),
                         ty: arg1.custom.unwrap(),
@@ -1251,18 +1249,19 @@ impl<'a> Inferencer<'a> {
                     args: vec![arg0, arg1],
                     keywords: vec![],
                 },
-            }))
+            }));
         }
 
         // 1-argument ndarray n-dimensional creation functions
         if id == &"np_array".into() && args.len() == 1 {
             let arg0 = self.fold_expr(args.remove(0))?;
 
-            let keywords = keywords.iter()
+            let keywords = keywords
+                .iter()
                 .map(|v| fold::fold_keyword(self, v.clone()))
                 .collect::<Result<Vec<_>, _>>()?;
-            let ndmin_kw = keywords.iter()
-                .find(|kwarg| kwarg.node.arg.is_some_and(|id| id == "ndmin".into()));
+            let ndmin_kw =
+                keywords.iter().find(|kwarg| kwarg.node.arg.is_some_and(|id| id == "ndmin".into()));
 
             let ty = arraylike_flatten_element_type(self.unifier, arg0.custom.unwrap());
             let ndims = if let Some(ndmin_kw) = ndmin_kw {
@@ -1270,30 +1269,22 @@ impl<'a> Inferencer<'a> {
                     ExprKind::Constant { value, .. } => match value {
                         ast::Constant::Int(value) => *value as u64,
                         _ => return Err(HashSet::from(["Expected uint64 for ndims".to_string()])),
-                    }
+                    },
 
-                    _ => arraylike_get_ndims(self.unifier, arg0.custom.unwrap())
+                    _ => arraylike_get_ndims(self.unifier, arg0.custom.unwrap()),
                 }
             } else {
                 arraylike_get_ndims(self.unifier, arg0.custom.unwrap())
             };
-            let ndims = self.unifier.get_fresh_literal(
-                vec![SymbolValue::U64(ndims)],
-                None,
-            );
-            let ret = make_ndarray_ty(
-                self.unifier,
-                self.primitives,
-                Some(ty),
-                Some(ndims),
-            );
+            let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
+            let ret = make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims));
 
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
-                    FuncArg { 
+                    FuncArg {
                         name: "object".into(),
                         ty: arg0.custom.unwrap(),
-                        default_value: None 
+                        default_value: None,
                     },
                     FuncArg {
                         name: "copy".into(),
@@ -1322,7 +1313,7 @@ impl<'a> Inferencer<'a> {
                     args: vec![arg0],
                     keywords,
                 },
-            }))
+            }));
         }
 
         Ok(None)
@@ -1335,8 +1326,10 @@ impl<'a> Inferencer<'a> {
         mut args: Vec<ast::Expr<()>>,
         keywords: Vec<Located<ast::KeywordData>>,
     ) -> Result<ast::Expr<Option<Type>>, HashSet<String>> {
-        if let Some(spec_call_func) = self.try_fold_special_call(location, &func, &mut args, &keywords)? {
-            return Ok(spec_call_func)
+        if let Some(spec_call_func) =
+            self.try_fold_special_call(location, &func, &mut args, &keywords)?
+        {
+            return Ok(spec_call_func);
         }
 
         let func = Box::new(self.fold_expr(func)?);
@@ -1365,11 +1358,9 @@ impl<'a> Inferencer<'a> {
                     .map(|v| v.name)
                     .rev()
                     .collect();
-                self.unifier
-                    .unify_call(&call, func.custom.unwrap(), sign, &required)
-                    .map_err(|e| HashSet::from([
-                        e.at(Some(location)).to_display(self.unifier).to_string(),
-                    ]))?;
+                self.unifier.unify_call(&call, func.custom.unwrap(), sign, &required).map_err(
+                    |e| HashSet::from([e.at(Some(location)).to_display(self.unifier).to_string()]),
+                )?;
                 return Ok(Located {
                     location,
                     custom: Some(sign.ret),
@@ -1403,8 +1394,7 @@ impl<'a> Inferencer<'a> {
         } else {
             let variable_mapping = &mut self.variable_mapping;
             let unifier: &mut Unifier = self.unifier;
-            self
-                .function_data
+            self.function_data
                 .resolver
                 .get_symbol_type(unifier, &self.top_level.definitions.read(), self.primitives, id)
                 .unwrap_or_else(|_| {
@@ -1434,8 +1424,9 @@ impl<'a> Inferencer<'a> {
                 Ok(self.unifier.add_ty(TypeEnum::TTuple { ty: ty? }))
             }
             ast::Constant::Str(_) => Ok(self.primitives.str),
-            ast::Constant::None
-                => report_error("CPython `None` not supported (nac3 uses `none` instead)", *loc),
+            ast::Constant::None => {
+                report_error("CPython `None` not supported (nac3 uses `none` instead)", *loc)
+            }
             ast::Constant::Ellipsis => Ok(self.unifier.get_fresh_var(None, None).0),
             _ => report_error("not supported", *loc),
         }
@@ -1471,8 +1462,11 @@ impl<'a> Inferencer<'a> {
                 }
                 (None, _) => {
                     let t = self.unifier.stringify(ty);
-                    report_error(&format!("`{t}::{attr}` field/method does not exist"), value.location)
-                },
+                    report_error(
+                        &format!("`{t}::{attr}` field/method does not exist"),
+                        value.location,
+                    )
+                }
             }
         } else {
             let attr_ty = self.unifier.get_dummy_var().0;
@@ -1509,10 +1503,8 @@ impl<'a> Inferencer<'a> {
         let method = if let TypeEnum::TObj { fields, .. } =
             self.unifier.get_ty_immutable(left_ty).as_ref()
         {
-            let (binop_name, binop_assign_name) = (
-                binop_name(op).into(),
-                binop_assign_name(op).into()
-            );
+            let (binop_name, binop_assign_name) =
+                (binop_name(op).into(), binop_assign_name(op).into());
             // if is aug_assign, try aug_assign operator first
             if is_aug_assign && fields.contains_key(&binop_assign_name) {
                 binop_assign_name
@@ -1527,22 +1519,11 @@ impl<'a> Inferencer<'a> {
             // The type of augmented assignment operator should never change
             Some(left_ty)
         } else {
-            typeof_binop(
-                self.unifier,
-                self.primitives,
-                op,
-                left_ty,
-                right_ty,
-            ).map_err(|e| HashSet::from([format!("{e} (at {location})")]))?
+            typeof_binop(self.unifier, self.primitives, op, left_ty, right_ty)
+                .map_err(|e| HashSet::from([format!("{e} (at {location})")]))?
         };
 
-        self.build_method_call(
-            location,
-            method,
-            left_ty,
-            vec![right_ty],
-            ret,
-        )
+        self.build_method_call(location, method, left_ty, vec![right_ty], ret)
     }
 
     fn infer_unary_ops(
@@ -1553,12 +1534,8 @@ impl<'a> Inferencer<'a> {
     ) -> InferenceResult {
         let method = unaryop_name(op).into();
 
-        let ret = typeof_unaryop(
-            self.unifier,
-            self.primitives,
-            op,
-            operand.custom.unwrap(),
-        ).map_err(|e| HashSet::from([format!("{e} (at {location})")]))?;
+        let ret = typeof_unaryop(self.unifier, self.primitives, op, operand.custom.unwrap())
+            .map_err(|e| HashSet::from([format!("{e} (at {location})")]))?;
 
         self.build_method_call(location, method, operand.custom.unwrap(), vec![], ret)
     }
@@ -1570,16 +1547,23 @@ impl<'a> Inferencer<'a> {
         ops: &[ast::Cmpop],
         comparators: &[ast::Expr<Option<Type>>],
     ) -> InferenceResult {
-        if ops.len() > 1 && once(left).chain(comparators).any(|expr| expr.custom.unwrap().obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)) {
-            return Err(HashSet::from([String::from("Comparator chaining with ndarray types not supported")]))
+        if ops.len() > 1
+            && once(left).chain(comparators).any(|expr| {
+                expr.custom
+                    .unwrap()
+                    .obj_id(self.unifier)
+                    .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+            })
+        {
+            return Err(HashSet::from([String::from(
+                "Comparator chaining with ndarray types not supported",
+            )]));
         }
 
         let mut res = None;
         for (a, b, c) in izip!(once(left).chain(comparators), comparators, ops) {
             let method = comparison_name(c)
-                .ok_or_else(|| HashSet::from([
-                    "unsupported comparator".to_string()
-                ]))?
+                .ok_or_else(|| HashSet::from(["unsupported comparator".to_string()]))?
                 .into();
 
             let ret = typeof_cmpop(
@@ -1588,7 +1572,8 @@ impl<'a> Inferencer<'a> {
                 c,
                 a.custom.unwrap(),
                 b.custom.unwrap(),
-            ).map_err(|e| HashSet::from([format!("{e} (at {})", b.location)]))?;
+            )
+            .map_err(|e| HashSet::from([format!("{e} (at {})", b.location)]))?;
 
             res.replace(self.build_method_call(
                 location,
@@ -1614,28 +1599,29 @@ impl<'a> Inferencer<'a> {
             TypeEnum::TVar { is_const_generic: false, .. }
         ));
 
-        let constrained_ty = make_ndarray_ty(
-            self.unifier,
-            self.primitives,
-            Some(dummy_tvar),
-            Some(ndims),
-        );
+        let constrained_ty =
+            make_ndarray_ty(self.unifier, self.primitives, Some(dummy_tvar), Some(ndims));
         self.constrain(value.custom.unwrap(), constrained_ty, &value.location)?;
 
         let TypeEnum::TLiteral { values, .. } = &*self.unifier.get_ty_immutable(ndims) else {
             panic!("Expected TLiteral for ndarray.ndims, got {}", self.unifier.stringify(ndims))
         };
 
-        let ndims = values.iter()
+        let ndims = values
+            .iter()
             .map(|ndim| match *ndim {
                 SymbolValue::U64(v) => Ok(v),
                 SymbolValue::U32(v) => Ok(v as u64),
-                SymbolValue::I32(v) => u64::try_from(v).map_err(|_| HashSet::from([
-                    format!("Expected non-negative literal for ndarray.ndims, got {v}"),
-                ])),
-                SymbolValue::I64(v) => u64::try_from(v).map_err(|_| HashSet::from([
-                    format!("Expected non-negative literal for ndarray.ndims, got {v}"),
-                ])),
+                SymbolValue::I32(v) => u64::try_from(v).map_err(|_| {
+                    HashSet::from([format!(
+                        "Expected non-negative literal for ndarray.ndims, got {v}"
+                    )])
+                }),
+                SymbolValue::I64(v) => u64::try_from(v).map_err(|_| {
+                    HashSet::from([format!(
+                        "Expected non-negative literal for ndarray.ndims, got {v}"
+                    )])
+                }),
                 _ => unreachable!(),
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -1685,12 +1671,13 @@ impl<'a> Inferencer<'a> {
                 let list_like_ty = match &*self.unifier.get_ty(value.custom.unwrap()) {
                     TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty }),
                     TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
-                        let (_, ndims) = unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
+                        let (_, ndims) =
+                            unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
 
                         make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims))
                     }
 
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 };
                 self.constrain(value.custom.unwrap(), list_like_ty, &value.location)?;
                 Ok(list_like_ty)
@@ -1698,18 +1685,20 @@ impl<'a> Inferencer<'a> {
             ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
                 match &*self.unifier.get_ty(value.custom.unwrap()) {
                     TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
-                        let (_, ndims) = unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
+                        let (_, ndims) =
+                            unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
                         self.infer_subscript_ndarray(value, ty, ndims)
                     }
                     _ => {
                         // the index is a constant, so value can be a sequence.
                         let ind: Option<i32> = (*val).try_into().ok();
-                        let ind = ind.ok_or_else(|| HashSet::from(["Index must be int32".to_string()]))?;
+                        let ind =
+                            ind.ok_or_else(|| HashSet::from(["Index must be int32".to_string()]))?;
                         let map = once((
                             ind.into(),
                             RecordField::new(ty, ctx == &ExprContext::Store, Some(value.location)),
                         ))
-                            .collect();
+                        .collect();
                         let seq = self.unifier.add_record(map);
                         self.constrain(value.custom.unwrap(), seq, &value.location)?;
                         Ok(ty)
@@ -1717,54 +1706,67 @@ impl<'a> Inferencer<'a> {
                 }
             }
             ExprKind::Tuple { elts, .. } => {
-                if value.custom
+                if value
+                    .custom
                     .unwrap()
                     .obj_id(self.unifier)
                     .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
-                    .not() {
-                    return report_error("Tuple slices are only supported for ndarrays", slice.location)
+                    .not()
+                {
+                    return report_error(
+                        "Tuple slices are only supported for ndarrays",
+                        slice.location,
+                    );
                 }
 
                 for elt in elts {
                     if let ExprKind::Slice { lower, upper, step } = &elt.node {
                         for v in [lower.as_ref(), upper.as_ref(), step.as_ref()].iter().flatten() {
                             self.constrain(v.custom.unwrap(), self.primitives.int32, &v.location)?;
-                        } 
+                        }
                     } else {
                         self.constrain(elt.custom.unwrap(), self.primitives.int32, &elt.location)?;
                     }
                 }
 
                 let (_, ndims) = unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
-                let ndarray_ty = make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims));
+                let ndarray_ty =
+                    make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims));
                 self.constrain(value.custom.unwrap(), ndarray_ty, &value.location)?;
                 Ok(ndarray_ty)
             }
             _ => {
                 if let TypeEnum::TTuple { .. } = &*self.unifier.get_ty(value.custom.unwrap()) {
-                    return report_error("Tuple index must be a constant (KernelInvariant is also not supported)", slice.location)
+                    return report_error(
+                        "Tuple index must be a constant (KernelInvariant is also not supported)",
+                        slice.location,
+                    );
                 }
 
                 // the index is not a constant, so value can only be a list-like structure
                 match &*self.unifier.get_ty(value.custom.unwrap()) {
                     TypeEnum::TList { .. } => {
-                        self.constrain(slice.custom.unwrap(), self.primitives.int32, &slice.location)?;
+                        self.constrain(
+                            slice.custom.unwrap(),
+                            self.primitives.int32,
+                            &slice.location,
+                        )?;
                         let list = self.unifier.add_ty(TypeEnum::TList { ty });
                         self.constrain(value.custom.unwrap(), list, &value.location)?;
                         Ok(ty)
                     }
                     TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
-                        let (_, ndims) = unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
+                        let (_, ndims) =
+                            unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
 
-                        let valid_index_tys = [
-                            self.primitives.int32,
-                            self.primitives.isize(),
-                        ].into_iter().unique().collect_vec();
-                        let valid_index_ty = self.unifier.get_fresh_var_with_range(
-                            valid_index_tys.as_slice(),
-                            None,
-                            None,
-                        ).0;
+                        let valid_index_tys = [self.primitives.int32, self.primitives.isize()]
+                            .into_iter()
+                            .unique()
+                            .collect_vec();
+                        let valid_index_ty = self
+                            .unifier
+                            .get_fresh_var_with_range(valid_index_tys.as_slice(), None, None)
+                            .0;
                         self.constrain(slice.custom.unwrap(), valid_index_ty, &slice.location)?;
                         self.infer_subscript_ndarray(value, ty, ndims)
                     }

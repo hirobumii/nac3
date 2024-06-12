@@ -34,10 +34,7 @@ impl<U> ExprKind<U> {
             ExprKind::Starred { .. } => "starred",
             ExprKind::Slice { .. } => "slice",
             ExprKind::JoinedStr { values } => {
-                if values
-                    .iter()
-                    .any(|e| matches!(e.node, ExprKind::JoinedStr { .. }))
-                {
+                if values.iter().any(|e| matches!(e.node, ExprKind::JoinedStr { .. })) {
                     "f-string expression"
                 } else {
                     "literal"

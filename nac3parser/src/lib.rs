@@ -31,5 +31,5 @@ lalrpop_mod!(
     #[allow(unused)]
     python
 );
-pub mod token;
 pub mod config_comment_helper;
+pub mod token;

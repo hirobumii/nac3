@@ -1,7 +1,7 @@
+use super::*;
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::helper::PRIMITIVE_DEF_IDS;
 use crate::typecheck::typedef::VarMap;
-use super::*;
 use nac3parser::ast::Constant;
 
 #[derive(Clone, Debug)]
@@ -29,9 +29,7 @@ impl TypeAnnotation {
             Primitive(ty) | TypeVar(ty) => unifier.stringify(*ty),
             CustomClass { id, params } => {
                 let class_name = if let Some(ref top) = unifier.top_level {
-                    if let TopLevelDef::Class { name, .. } =
-                        &*top.definitions.read()[id.0].read()
-                    {
+                    if let TopLevelDef::Class { name, .. } = &*top.definitions.read()[id.0].read() {
                         (*name).into()
                     } else {
                         unreachable!()
@@ -39,24 +37,26 @@ impl TypeAnnotation {
                 } else {
                     format!("class_def_{}", id.0)
                 };
-                format!(
-                    "{}{}",
-                    class_name,
-                    {
-                        let param_list = params.iter().map(|p| p.stringify(unifier)).collect_vec().join(", ");
-                        if param_list.is_empty() {
-                            String::new()
-                        } else {
-                            format!("[{param_list}]")
-                        }
+                format!("{}{}", class_name, {
+                    let param_list =
+                        params.iter().map(|p| p.stringify(unifier)).collect_vec().join(", ");
+                    if param_list.is_empty() {
+                        String::new()
+                    } else {
+                        format!("[{param_list}]")
                     }
-                )
+                })
             }
-            Literal(values) => format!("Literal({})", values.iter().map(|v| format!("{v:?}")).join(", ")),
+            Literal(values) => {
+                format!("Literal({})", values.iter().map(|v| format!("{v:?}")).join(", "))
+            }
             Virtual(ty) => format!("virtual[{}]", ty.stringify(unifier)),
             List(ty) => format!("list[{}]", ty.stringify(unifier)),
             Tuple(types) => {
-                format!("tuple[{}]", types.iter().map(|p| p.stringify(unifier)).collect_vec().join(", "))
+                format!(
+                    "tuple[{}]",
+                    types.iter().map(|p| p.stringify(unifier)).collect_vec().join(", ")
+                )
             }
         }
     }
@@ -95,7 +95,10 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
         } else if id == &"str".into() {
             Ok(TypeAnnotation::Primitive(primitives.str))
         } else if id == &"Exception".into() {
-            Ok(TypeAnnotation::CustomClass { id: PRIMITIVE_DEF_IDS.exception, params: Vec::default() })
+            Ok(TypeAnnotation::CustomClass {
+                id: PRIMITIVE_DEF_IDS.exception,
+                params: Vec::default(),
+            })
         } else if let Ok(obj_id) = resolver.get_identifier_def(*id) {
             let type_vars = {
                 let def_read = top_level_defs[obj_id.0].try_read();
@@ -103,12 +106,10 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                     if let TopLevelDef::Class { type_vars, .. } = &*def_read {
                         type_vars.clone()
                     } else {
-                        return Err(HashSet::from([
-                            format!(
-                                "function cannot be used as a type (at {})",
-                                expr.location
-                            ),
-                        ]))
+                        return Err(HashSet::from([format!(
+                            "function cannot be used as a type (at {})",
+                            expr.location
+                        )]));
                     }
                 } else {
                     locked.get(&obj_id).unwrap().clone()
@@ -116,13 +117,11 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             };
             // check param number here
             if !type_vars.is_empty() {
-                return Err(HashSet::from([
-                    format!(
-                        "expect {} type variable parameter but got 0 (at {})",
-                        type_vars.len(),
-                        expr.location,
-                    ),
-                ]))
+                return Err(HashSet::from([format!(
+                    "expect {} type variable parameter but got 0 (at {})",
+                    type_vars.len(),
+                    expr.location,
+                )]));
             }
             Ok(TypeAnnotation::CustomClass { id: obj_id, params: vec![] })
         } else if let Ok(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id) {
@@ -131,14 +130,16 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                 unifier.unify(var, ty).unwrap();
                 Ok(TypeAnnotation::TypeVar(ty))
             } else {
-                Err(HashSet::from([
-                    format!("`{}` is not a valid type annotation (at {})", id, expr.location),
-                ]))
+                Err(HashSet::from([format!(
+                    "`{}` is not a valid type annotation (at {})",
+                    id, expr.location
+                )]))
             }
         } else {
-            Err(HashSet::from([
-                format!("`{}` is not a valid type annotation (at {})", id, expr.location),
-            ]))
+            Err(HashSet::from([format!(
+                "`{}` is not a valid type annotation (at {})",
+                id, expr.location
+            )]))
         }
     };
 
@@ -147,11 +148,13 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
          slice: &ast::Expr<T>,
          unifier: &mut Unifier,
          mut locked: HashMap<DefinitionId, Vec<Type>>| {
-            if ["virtual".into(), "Generic".into(), "list".into(), "tuple".into(), "Option".into()].contains(id)
+            if ["virtual".into(), "Generic".into(), "list".into(), "tuple".into(), "Option".into()]
+                .contains(id)
             {
-                return Err(HashSet::from([
-                    format!("keywords cannot be class name (at {})", expr.location),
-                ]))
+                return Err(HashSet::from([format!(
+                    "keywords cannot be class name (at {})",
+                    expr.location
+                )]));
             }
             let obj_id = resolver.get_identifier_def(*id)?;
             let type_vars = {
@@ -174,14 +177,12 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                     vec![slice]
                 };
                 if type_vars.len() != params_ast.len() {
-                    return Err(HashSet::from([
-                        format!(
-                            "expect {} type parameters but got {} (at {})",
-                            type_vars.len(),
-                            params_ast.len(),
-                            params_ast[0].location,
-                        ),
-                    ]))
+                    return Err(HashSet::from([format!(
+                        "expect {} type parameters but got {} (at {})",
+                        type_vars.len(),
+                        params_ast.len(),
+                        params_ast[0].location,
+                    )]));
                 }
                 let result = params_ast
                     .iter()
@@ -210,7 +211,7 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
                             "application of type vars to generic class is not currently supported (at {})",
                             params_ast[0].location
                         ),
-                    ]))
+                    ]));
                 }
             };
             Ok(TypeAnnotation::CustomClass { id: obj_id, params: param_type_infos })
@@ -309,9 +310,10 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
 
         // Literal
         ast::ExprKind::Subscript { value, slice, .. }
-        if {
-            matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"Literal".into())
-        } => {
+            if {
+                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"Literal".into())
+            } =>
+        {
             let tup_elts = {
                 if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
                     elts.as_slice()
@@ -321,20 +323,18 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             };
             let type_annotations = tup_elts
                 .iter()
-                .map(|e| {
-                    match &e.node {
-                        ast::ExprKind::Constant { value, .. } => Ok(
-                            TypeAnnotation::Literal(vec![value.clone()]),
-                        ),
-                        _ => parse_ast_to_type_annotation_kinds(
-                            resolver,
-                            top_level_defs,
-                            unifier,
-                            primitives,
-                            e,
-                            locked.clone(),
-                        ),
+                .map(|e| match &e.node {
+                    ast::ExprKind::Constant { value, .. } => {
+                        Ok(TypeAnnotation::Literal(vec![value.clone()]))
                     }
+                    _ => parse_ast_to_type_annotation_kinds(
+                        resolver,
+                        top_level_defs,
+                        unifier,
+                        primitives,
+                        e,
+                        locked.clone(),
+                    ),
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
@@ -347,9 +347,10 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             if type_annotations.len() == 1 {
                 Ok(TypeAnnotation::Literal(type_annotations))
             } else {
-                Err(HashSet::from([
-                    format!("multiple literal bounds are currently unsupported (at {})", value.location)
-                ]))
+                Err(HashSet::from([format!(
+                    "multiple literal bounds are currently unsupported (at {})",
+                    value.location
+                )]))
             }
         }
 
@@ -358,19 +359,19 @@ pub fn parse_ast_to_type_annotation_kinds<T>(
             if let ast::ExprKind::Name { id, .. } = &value.node {
                 class_name_handle(id, slice, unifier, locked)
             } else {
-                Err(HashSet::from([
-                    format!("unsupported expression type for class name (at {})", value.location)
-                ]))
+                Err(HashSet::from([format!(
+                    "unsupported expression type for class name (at {})",
+                    value.location
+                )]))
             }
         }
 
-        ast::ExprKind::Constant { value, .. } => {
-            Ok(TypeAnnotation::Literal(vec![value.clone()]))
-        }
+        ast::ExprKind::Constant { value, .. } => Ok(TypeAnnotation::Literal(vec![value.clone()])),
 
-        _ => Err(HashSet::from([
-            format!("unsupported expression for type annotation (at {})", expr.location),
-        ])),
+        _ => Err(HashSet::from([format!(
+            "unsupported expression for type annotation (at {})",
+            expr.location
+        )])),
     }
 }
 
@@ -381,7 +382,7 @@ pub fn get_type_from_type_annotation_kinds(
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
     unifier: &mut Unifier,
     ann: &TypeAnnotation,
-    subst_list: &mut Option<Vec<Type>>
+    subst_list: &mut Option<Vec<Type>>,
 ) -> Result<Type, HashSet<String>> {
     match ann {
         TypeAnnotation::CustomClass { id: obj_id, params } => {
@@ -392,24 +393,17 @@ pub fn get_type_from_type_annotation_kinds(
             };
 
             if type_vars.len() != params.len() {
-                return Err(HashSet::from([
-                    format!(
-                        "unexpected number of type parameters: expected {} but got {}",
-                        type_vars.len(),
-                        params.len()
-                    ),
-                ]))
+                return Err(HashSet::from([format!(
+                    "unexpected number of type parameters: expected {} but got {}",
+                    type_vars.len(),
+                    params.len()
+                )]));
             }
 
             let param_ty = params
                 .iter()
                 .map(|x| {
-                    get_type_from_type_annotation_kinds(
-                        top_level_defs,
-                        unifier,
-                        x,
-                        subst_list
-                    )
+                    get_type_from_type_annotation_kinds(top_level_defs, unifier, x, subst_list)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -419,7 +413,14 @@ pub fn get_type_from_type_annotation_kinds(
                 let mut result = VarMap::new();
                 for (tvar, p) in type_vars.iter().zip(param_ty) {
                     match unifier.get_ty(*tvar).as_ref() {
-                        TypeEnum::TVar { id, range, fields: None, name, loc, is_const_generic: false } => {
+                        TypeEnum::TVar {
+                            id,
+                            range,
+                            fields: None,
+                            name,
+                            loc,
+                            is_const_generic: false,
+                        } => {
                             let ok: bool = {
                                 // create a temp type var and unify to check compatibility
                                 p == *tvar || {
@@ -434,18 +435,16 @@ pub fn get_type_from_type_annotation_kinds(
                             if ok {
                                 result.insert(*id, p);
                             } else {
-                                return Err(HashSet::from([
-                                    format!(
-                                        "cannot apply type {} to type variable with id {:?}",
-                                        unifier.internal_stringify(
-                                            p,
-                                            &mut |id| format!("class{id}"),
-                                            &mut |id| format!("typevar{id}"),
-                                            &mut None
-                                        ),
-                                        *id
-                                    )
-                                ]))
+                                return Err(HashSet::from([format!(
+                                    "cannot apply type {} to type variable with id {:?}",
+                                    unifier.internal_stringify(
+                                        p,
+                                        &mut |id| format!("class{id}"),
+                                        &mut |id| format!("typevar{id}"),
+                                        &mut None
+                                    ),
+                                    *id
+                                )]));
                             }
                         }
 
@@ -454,24 +453,18 @@ pub fn get_type_from_type_annotation_kinds(
                             let ok: bool = {
                                 // create a temp type var and unify to check compatibility
                                 p == *tvar || {
-                                    let temp = unifier.get_fresh_const_generic_var(
-                                        ty,
-                                        *name,
-                                        *loc,
-                                    );
+                                    let temp = unifier.get_fresh_const_generic_var(ty, *name, *loc);
                                     unifier.unify(temp.0, p).is_ok()
                                 }
                             };
                             if ok {
                                 result.insert(*id, p);
                             } else {
-                                return Err(HashSet::from([
-                                    format!(
-                                        "cannot apply type {} to type variable {}",
-                                        unifier.stringify(p),
-                                        name.unwrap_or_else(|| format!("typevar{id}").into()),
-                                    ),
-                                ]))
+                                return Err(HashSet::from([format!(
+                                    "cannot apply type {} to type variable {}",
+                                    unifier.stringify(p),
+                                    name.unwrap_or_else(|| format!("typevar{id}").into()),
+                                )]));
                             }
                         }
 
@@ -507,7 +500,8 @@ pub fn get_type_from_type_annotation_kinds(
         }
         TypeAnnotation::Primitive(ty) | TypeAnnotation::TypeVar(ty) => Ok(*ty),
         TypeAnnotation::Literal(values) => {
-            let values = values.iter()
+            let values = values
+                .iter()
                 .map(SymbolValue::from_constant_inferred)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| HashSet::from([err]))?;
@@ -520,7 +514,7 @@ pub fn get_type_from_type_annotation_kinds(
                 top_level_defs,
                 unifier,
                 ty.as_ref(),
-                subst_list
+                subst_list,
             )?;
             Ok(unifier.add_ty(TypeEnum::TVirtual { ty }))
         }
@@ -529,7 +523,7 @@ pub fn get_type_from_type_annotation_kinds(
                 top_level_defs,
                 unifier,
                 ty.as_ref(),
-                subst_list
+                subst_list,
             )?;
             Ok(unifier.add_ty(TypeEnum::TList { ty }))
         }
@@ -607,7 +601,8 @@ pub fn check_overload_type_annotation_compatible(
             let (
                 TypeEnum::TVar { id: a, fields: None, .. },
                 TypeEnum::TVar { id: b, fields: None, .. },
-            ) = (a, b) else {
+            ) = (a, b)
+            else {
                 unreachable!("must be type var")
             };
 

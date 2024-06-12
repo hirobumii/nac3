@@ -7,9 +7,9 @@ use crate::{
     },
 };
 
+use indexmap::IndexMap;
 use nac3parser::ast::StrRef;
 use std::collections::HashMap;
-use indexmap::IndexMap;
 
 pub struct ConcreteTypeStore {
     store: Vec<ConcreteTypeEnum>,
@@ -202,9 +202,9 @@ impl ConcreteTypeStore {
                 TypeEnum::TFunc(signature) => {
                     self.from_signature(unifier, primitives, signature, cache)
                 }
-                TypeEnum::TLiteral { values, .. } => ConcreteTypeEnum::TLiteral {
-                    values: values.clone(),
-                },
+                TypeEnum::TLiteral { values, .. } => {
+                    ConcreteTypeEnum::TLiteral { values: values.clone() }
+                }
                 _ => unreachable!("{:?}", ty_enum.get_type_name()),
             };
             let index = if let Some(ConcreteType(index)) = cache.get(&ty).unwrap() {
@@ -292,9 +292,8 @@ impl ConcreteTypeStore {
                     .map(|(id, cty)| (*id, self.to_unifier_type(unifier, primitives, *cty, cache)))
                     .collect::<VarMap>(),
             }),
-            ConcreteTypeEnum::TLiteral { values, .. } => TypeEnum::TLiteral {
-                values: values.clone(),
-                loc: None,
+            ConcreteTypeEnum::TLiteral { values, .. } => {
+                TypeEnum::TLiteral { values: values.clone(), loc: None }
             }
         };
         let result = unifier.add_ty(result);

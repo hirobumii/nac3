@@ -65,7 +65,11 @@ impl SymbolResolver for Resolver {
     }
 
     fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
-        self.0.id_to_def.lock().get(&id).cloned()
+        self.0
+            .id_to_def
+            .lock()
+            .get(&id)
+            .cloned()
             .ok_or_else(|| HashSet::from(["Unknown identifier".to_string()]))
     }
 

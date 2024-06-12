@@ -1,4 +1,3 @@
-use std::cmp::max;
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::helper::PRIMITIVE_DEF_IDS;
 use crate::toplevel::numpy::{make_ndarray_ty, unpack_ndarray_var_tys};
@@ -6,11 +5,12 @@ use crate::typecheck::{
     type_inferencer::*,
     typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
 };
+use itertools::Itertools;
 use nac3parser::ast::StrRef;
 use nac3parser::ast::{Cmpop, Operator, Unaryop};
+use std::cmp::max;
 use std::collections::HashMap;
 use std::rc::Rc;
-use itertools::Itertools;
 
 #[must_use]
 pub fn binop_name(op: &Operator) -> &'static str {
@@ -255,7 +255,14 @@ pub fn impl_bitwise_arithmetic(unifier: &mut Unifier, store: &PrimitiveStore, ty
 
 /// `LShift`, `RShift`
 pub fn impl_bitwise_shift(unifier: &mut Unifier, store: &PrimitiveStore, ty: Type) {
-    impl_binop(unifier, store, ty, &[store.int32, store.uint32], Some(ty), &[Operator::LShift, Operator::RShift]);
+    impl_binop(
+        unifier,
+        store,
+        ty,
+        &[store.int32, store.uint32],
+        Some(ty),
+        &[Operator::LShift, Operator::RShift],
+    );
 }
 
 /// `Div`
@@ -297,7 +304,7 @@ pub fn impl_matmul(
     store: &PrimitiveStore,
     ty: Type,
     other_ty: &[Type],
-    ret_ty: Option<Type>, 
+    ret_ty: Option<Type>,
 ) {
     impl_binop(unifier, store, ty, other_ty, ret_ty, &[Operator::MatMult]);
 }
@@ -353,7 +360,7 @@ pub fn typeof_ndarray_broadcast(
     left: Type,
     right: Type,
 ) -> Result<Type, String> {
-    let is_left_ndarray = left.obj_id(unifier).is_some_and(|id| id ==  PRIMITIVE_DEF_IDS.ndarray);
+    let is_left_ndarray = left.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
     let is_right_ndarray = right.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
 
     assert!(is_left_ndarray || is_right_ndarray);
@@ -375,7 +382,8 @@ pub fn typeof_ndarray_broadcast(
             _ => unreachable!(),
         };
 
-        let res_ndims = left_ty_ndims.into_iter()
+        let res_ndims = left_ty_ndims
+            .into_iter()
             .cartesian_product(right_ty_ndims)
             .map(|(left, right)| {
                 let left_val = u64::try_from(left).unwrap();
@@ -390,11 +398,7 @@ pub fn typeof_ndarray_broadcast(
 
         Ok(make_ndarray_ty(unifier, primitives, Some(left_ty_dtype), Some(res_ndims)))
     } else {
-        let (ndarray_ty, scalar_ty) = if is_left_ndarray {
-            (left, right)
-        } else {
-            (right, left)
-        };
+        let (ndarray_ty, scalar_ty) = if is_left_ndarray { (left, right) } else { (right, left) };
 
         let (ndarray_ty_dtype, _) = unpack_ndarray_var_tys(unifier, ndarray_ty);
 
@@ -424,21 +428,17 @@ pub fn typeof_binop(
     lhs: Type,
     rhs: Type,
 ) -> Result<Option<Type>, String> {
-    let is_left_ndarray = lhs.obj_id(unifier).is_some_and(|id| id ==  PRIMITIVE_DEF_IDS.ndarray);
+    let is_left_ndarray = lhs.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
     let is_right_ndarray = rhs.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
 
     Ok(Some(match op {
-        Operator::Add
-        | Operator::Sub
-        | Operator::Mult
-        | Operator::Mod
-        | Operator::FloorDiv => {
+        Operator::Add | Operator::Sub | Operator::Mult | Operator::Mod | Operator::FloorDiv => {
             if is_left_ndarray || is_right_ndarray {
                 typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?
             } else if unifier.unioned(lhs, rhs) {
                 lhs
             } else {
-                return Ok(None)
+                return Ok(None);
             }
         }
 
@@ -464,12 +464,14 @@ pub fn typeof_binop(
                 (2, 2) => typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?,
                 (lhs, rhs) if lhs == 0 || rhs == 0 => {
                     return Err(format!(
-                        "Input operand {} does not have enough dimensions (has {lhs}, requires {rhs})",
-                        (rhs == 0) as u8
-                    ))
+                    "Input operand {} does not have enough dimensions (has {lhs}, requires {rhs})",
+                    (rhs == 0) as u8
+                ))
                 }
                 (lhs, rhs) => {
-                    return Err(format!("ndarray.__matmul__ on {lhs}D and {rhs}D operands not supported"))
+                    return Err(format!(
+                        "ndarray.__matmul__ on {lhs}D and {rhs}D operands not supported"
+                    ))
                 }
             }
         }
@@ -480,29 +482,35 @@ pub fn typeof_binop(
             } else if unifier.unioned(lhs, rhs) {
                 primitives.float
             } else {
-                return Ok(None)
+                return Ok(None);
             }
         }
 
         Operator::Pow => {
             if is_left_ndarray || is_right_ndarray {
                 typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?
-            } else if [primitives.int32, primitives.int64, primitives.uint32, primitives.uint64, primitives.float].into_iter().any(|ty| unifier.unioned(lhs, ty)) {
+            } else if [
+                primitives.int32,
+                primitives.int64,
+                primitives.uint32,
+                primitives.uint64,
+                primitives.float,
+            ]
+            .into_iter()
+            .any(|ty| unifier.unioned(lhs, ty))
+            {
                 lhs
             } else {
-                return Ok(None)
+                return Ok(None);
             }
         }
 
-        Operator::LShift
-        | Operator::RShift => lhs,
-        Operator::BitOr
-        | Operator::BitXor
-        | Operator::BitAnd => {
+        Operator::LShift | Operator::RShift => lhs,
+        Operator::BitOr | Operator::BitXor | Operator::BitAnd => {
             if unifier.unioned(lhs, rhs) {
                 lhs
             } else {
-                return Ok(None)
+                return Ok(None);
             }
         }
     }))
@@ -516,31 +524,34 @@ pub fn typeof_unaryop(
 ) -> Result<Option<Type>, String> {
     let operand_obj_id = operand.obj_id(unifier);
 
-    if *op == Unaryop::Not && operand_obj_id.is_some_and(|id| id == primitives.ndarray.obj_id(unifier).unwrap()) {
-        return Err("The truth value of an array with more than one element is ambiguous".to_string())
+    if *op == Unaryop::Not
+        && operand_obj_id.is_some_and(|id| id == primitives.ndarray.obj_id(unifier).unwrap())
+    {
+        return Err(
+            "The truth value of an array with more than one element is ambiguous".to_string()
+        );
     }
 
     Ok(match *op {
-        Unaryop::Not => {
-            match operand_obj_id {
-                Some(v) if v == PRIMITIVE_DEF_IDS.ndarray => Some(operand),
-                Some(_) => Some(primitives.bool),
-                _ => None
-            }
-        }
+        Unaryop::Not => match operand_obj_id {
+            Some(v) if v == PRIMITIVE_DEF_IDS.ndarray => Some(operand),
+            Some(_) => Some(primitives.bool),
+            _ => None,
+        },
 
         Unaryop::Invert => {
             if operand_obj_id.is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
                 Some(primitives.int32)
-            } else if operand_obj_id.is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id)) {
+            } else if operand_obj_id
+                .is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id))
+            {
                 Some(operand)
             } else {
                 None
             }
         }
 
-        Unaryop::UAdd
-        | Unaryop::USub => {
+        Unaryop::UAdd | Unaryop::USub => {
             if operand_obj_id.is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
                 let (dtype, _) = unpack_ndarray_var_tys(unifier, operand);
                 if dtype.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
@@ -548,13 +559,15 @@ pub fn typeof_unaryop(
                         "The ufunc 'positive' cannot be applied to ndarray[bool, N]".to_string()
                     } else {
                         "The numpy boolean negative, the `-` operator, is not supported, use the `~` operator function instead.".to_string()
-                    })
+                    });
                 }
 
                 Some(operand)
             } else if operand_obj_id.is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
                 Some(primitives.int32)
-            } else if operand_obj_id.is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id)) {
+            } else if operand_obj_id
+                .is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id))
+            {
                 Some(operand)
             } else {
                 None
@@ -571,12 +584,8 @@ pub fn typeof_cmpop(
     lhs: Type,
     rhs: Type,
 ) -> Result<Option<Type>, String> {
-    let is_left_ndarray = lhs
-        .obj_id(unifier)
-        .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
-    let is_right_ndarray = rhs
-        .obj_id(unifier)
-        .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+    let is_left_ndarray = lhs.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+    let is_right_ndarray = rhs.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
 
     Ok(Some(if is_left_ndarray || is_right_ndarray {
         let brd = typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?;
@@ -586,7 +595,7 @@ pub fn typeof_cmpop(
     } else if unifier.unioned(lhs, rhs) {
         primitives.bool
     } else {
-        return Ok(None)
+        return Ok(None);
     }))
 }
 
@@ -643,11 +652,19 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     impl_eq(unifier, store, bool_t, &[bool_t, ndarray_bool_t], None);
 
     /* ndarray ===== */
-    let ndarray_usized_ndims_tvar = unifier.get_fresh_const_generic_var(size_t, Some("ndarray_ndims".into()), None);
-    let ndarray_unsized_t = make_ndarray_ty(unifier, store, None, Some(ndarray_usized_ndims_tvar.0));
+    let ndarray_usized_ndims_tvar =
+        unifier.get_fresh_const_generic_var(size_t, Some("ndarray_ndims".into()), None);
+    let ndarray_unsized_t =
+        make_ndarray_ty(unifier, store, None, Some(ndarray_usized_ndims_tvar.0));
     let (ndarray_dtype_t, _) = unpack_ndarray_var_tys(unifier, ndarray_t);
     let (ndarray_unsized_dtype_t, _) = unpack_ndarray_var_tys(unifier, ndarray_unsized_t);
-    impl_basic_arithmetic(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
+    impl_basic_arithmetic(
+        unifier,
+        store,
+        ndarray_t,
+        &[ndarray_unsized_t, ndarray_unsized_dtype_t],
+        None,
+    );
     impl_pow(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
     impl_div(unifier, store, ndarray_t, &[ndarray_t, ndarray_dtype_t], None);
     impl_floordiv(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);

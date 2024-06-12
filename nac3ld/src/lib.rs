@@ -205,11 +205,9 @@ impl<'a> Linker<'a> {
         for reloc in relocs {
             let sym = match reloc.sym_info() as usize {
                 STN_UNDEF => None,
-                sym_index => Some(
-                    self.symtab
-                        .get(sym_index)
-                        .ok_or("symbol out of bounds of symbol table")?,
-                ),
+                sym_index => {
+                    Some(self.symtab.get(sym_index).ok_or("symbol out of bounds of symbol table")?)
+                }
             };
 
             let resolve_symbol_addr =
@@ -314,9 +312,8 @@ impl<'a> Linker<'a> {
 
                         R_RISCV_PCREL_LO12_I => {
                             let expected_offset = sym_option.map_or(0, |sym| sym.st_value);
-                            let indirect_reloc = relocs
-                                .iter()
-                                .find(|reloc| reloc.offset() == expected_offset)?;
+                            let indirect_reloc =
+                                relocs.iter().find(|reloc| reloc.offset() == expected_offset)?;
                             Some(RelocInfo {
                                 defined_val: {
                                     let indirect_sym =
@@ -354,10 +351,7 @@ impl<'a> Linker<'a> {
                             indirect_reloc: None,
                             pc_relative: false,
                             relocate: Some(Box::new(|target_word, value| {
-                                LittleEndian::write_u32(
-                                    target_word,
-                                    value,
-                                )
+                                LittleEndian::write_u32(target_word, value)
                             })),
                         }),
 
@@ -386,10 +380,7 @@ impl<'a> Linker<'a> {
                             indirect_reloc: None,
                             pc_relative: false,
                             relocate: Some(Box::new(|target_word, value| {
-                                LittleEndian::write_u16(
-                                    target_word,
-                                    value as u16,
-                                )
+                                LittleEndian::write_u16(target_word, value as u16)
                             })),
                         }),
 
@@ -552,9 +543,12 @@ impl<'a> Linker<'a> {
             eh_frame_hdr_rec.shdr.sh_offset,
             eh_frame_rec.shdr.sh_offset,
         );
-        eh_frame.cfi_records()
-            .flat_map(|cfi| cfi.fde_records())
-            .for_each(&mut |(init_pos, virt_addr)| eh_frame_hdr.add_fde(init_pos, virt_addr));
+        eh_frame.cfi_records().flat_map(|cfi| cfi.fde_records()).for_each(&mut |(
+            init_pos,
+            virt_addr,
+        )| {
+            eh_frame_hdr.add_fde(init_pos, virt_addr)
+        });
 
         // Sort FDE entries in .eh_frame_hdr
         eh_frame_hdr.finalize_fde();
@@ -599,24 +593,22 @@ impl<'a> Linker<'a> {
         // Section table for the .elf paired with the section name
         // To be formalized incrementally
         // Very hashmap-like structure, but the order matters, so it is a vector
-        let elf_shdrs = vec![
-            SectionRecord {
-                shdr: Elf32_Shdr {
-                    sh_name: 0,
-                    sh_type: 0,
-                    sh_flags: 0,
-                    sh_addr: 0,
-                    sh_offset: 0,
-                    sh_size: 0,
-                    sh_link: 0,
-                    sh_info: 0,
-                    sh_addralign: 0,
-                    sh_entsize: 0,
-                },
-                name: "",
-                data: vec![0; 0],
+        let elf_shdrs = vec![SectionRecord {
+            shdr: Elf32_Shdr {
+                sh_name: 0,
+                sh_type: 0,
+                sh_flags: 0,
+                sh_addr: 0,
+                sh_offset: 0,
+                sh_size: 0,
+                sh_link: 0,
+                sh_info: 0,
+                sh_addralign: 0,
+                sh_entsize: 0,
             },
-        ];
+            name: "",
+            data: vec![0; 0],
+        }];
         let elf_sh_data_off = mem::size_of::<Elf32_Ehdr>() + mem::size_of::<Elf32_Phdr>() * 5;
 
         // Image of the linked dynamic library, to be formalized incrementally
@@ -1010,7 +1002,9 @@ impl<'a> Linker<'a> {
         let mut hash_bucket: Vec<u32> = vec![0; dynsym.len()];
         let mut hash_chain: Vec<u32> = vec![0; dynsym.len()];
 
-        for (sym_index, (str_start, str_end)) in dynsym_names.iter().enumerate().take(dynsym.len()).skip(1) {
+        for (sym_index, (str_start, str_end)) in
+            dynsym_names.iter().enumerate().take(dynsym.len()).skip(1)
+        {
             let hash = elf_hash(&dynstr[*str_start..*str_end]);
             let mut hash_index = hash as usize % hash_bucket.len();
 
@@ -1253,7 +1247,9 @@ impl<'a> Linker<'a> {
             update_dynsym_record!(b"__bss_start", bss_offset, bss_elf_index as Elf32_Section);
             update_dynsym_record!(b"_end", bss_offset, bss_elf_index as Elf32_Section);
         } else {
-            for (bss_iter_index, &(bss_section_index, section_name)) in bss_index_vec.iter().enumerate() {
+            for (bss_iter_index, &(bss_section_index, section_name)) in
+                bss_index_vec.iter().enumerate()
+            {
                 let shdr = &shdrs[bss_section_index];
                 let bss_elf_index = linker.load_section(
                     shdr,

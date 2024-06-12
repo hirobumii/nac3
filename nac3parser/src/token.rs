@@ -1,7 +1,7 @@
 //! Different token definitions.
 //! Loosely based on token.h from CPython source:
-use std::fmt::{self, Write};
 use crate::ast;
+use std::fmt::{self, Write};
 
 /// Python source code can be tokenized in a sequence of these tokens.
 #[derive(Clone, Debug, PartialEq)]
@@ -111,8 +111,16 @@ impl fmt::Display for Tok {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use Tok::*;
         match self {
-            Name { name } => write!(f, "'{}'", ast::get_str_from_ref(&ast::get_str_ref_lock(), *name)),
-            Int { value } => if *value != i128::MAX { write!(f, "'{}'", value) } else { write!(f, "'#OFL#'") },
+            Name { name } => {
+                write!(f, "'{}'", ast::get_str_from_ref(&ast::get_str_ref_lock(), *name))
+            }
+            Int { value } => {
+                if *value != i128::MAX {
+                    write!(f, "'{}'", value)
+                } else {
+                    write!(f, "'#OFL#'")
+                }
+            }
             Float { value } => write!(f, "'{}'", value),
             Complex { real, imag } => write!(f, "{}j{}", real, imag),
             String { value, is_fstring } => {
@@ -134,7 +142,11 @@ impl fmt::Display for Tok {
                 }
                 f.write_str("\"")
             }
-            ConfigComment { content } => write!(f, "ConfigComment: '{}'", ast::get_str_from_ref(&ast::get_str_ref_lock(), *content)),
+            ConfigComment { content } => write!(
+                f,
+                "ConfigComment: '{}'",
+                ast::get_str_from_ref(&ast::get_str_ref_lock(), *content)
+            ),
             Newline => f.write_str("Newline"),
             Indent => f.write_str("Indent"),
             Dedent => f.write_str("Dedent"),

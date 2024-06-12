@@ -3,12 +3,12 @@
 //! This means source code is translated into separate tokens.
 
 pub use super::token::Tok;
-use crate::ast::{Location, FileName};
+use crate::ast::{FileName, Location};
 use crate::error::{LexicalError, LexicalErrorType};
 use std::char;
 use std::cmp::Ordering;
-use std::str::FromStr;
 use std::num::IntErrorKind;
+use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
 
@@ -32,20 +32,14 @@ impl IndentationLevel {
                 if self.spaces <= other.spaces {
                     Ok(Ordering::Less)
                 } else {
-                    Err(LexicalError {
-                        location,
-                        error: LexicalErrorType::TabError,
-                    })
+                    Err(LexicalError { location, error: LexicalErrorType::TabError })
                 }
             }
             Ordering::Greater => {
                 if self.spaces >= other.spaces {
                     Ok(Ordering::Greater)
                 } else {
-                    Err(LexicalError {
-                        location,
-                        error: LexicalErrorType::TabError,
-                    })
+                    Err(LexicalError { location, error: LexicalErrorType::TabError })
                 }
             }
             Ordering::Equal => Ok(self.spaces.cmp(&other.spaces)),
@@ -63,7 +57,7 @@ pub struct Lexer<T: Iterator<Item = char>> {
     chr1: Option<char>,
     chr2: Option<char>,
     location: Location,
-    config_comment_prefix: Option<&'static str>
+    config_comment_prefix: Option<&'static str>,
 }
 
 pub static KEYWORDS: phf::Map<&'static str, Tok> = phf::phf_map! {
@@ -136,11 +130,7 @@ where
     T: Iterator<Item = char>,
 {
     pub fn new(source: T) -> Self {
-        let mut nlh = NewlineHandler {
-            source,
-            chr0: None,
-            chr1: None,
-        };
+        let mut nlh = NewlineHandler { source, chr0: None, chr1: None };
         nlh.shift();
         nlh.shift();
         nlh
@@ -195,7 +185,7 @@ where
             location: start,
             chr1: None,
             chr2: None,
-            config_comment_prefix: Some(" nac3:")
+            config_comment_prefix: Some(" nac3:"),
         };
         lxr.next_char();
         lxr.next_char();
@@ -287,15 +277,15 @@ where
         let end_pos = self.get_pos();
         let value = match i128::from_str_radix(&value_text, radix) {
             Ok(value) => value,
-            Err(e) => {
-                match e.kind() {
-                    IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => i128::MAX,
-                    _ => return Err(LexicalError {
+            Err(e) => match e.kind() {
+                IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => i128::MAX,
+                _ => {
+                    return Err(LexicalError {
                         error: LexicalErrorType::OtherError(format!("{:?}", e)),
                         location: start_pos,
-                    }),
+                    })
                 }
-            }
+            },
         };
         Ok((start_pos, Tok::Int { value }, end_pos))
     }
@@ -338,14 +328,7 @@ where
             if self.chr0 == Some('j') || self.chr0 == Some('J') {
                 self.next_char();
                 let end_pos = self.get_pos();
-                Ok((
-                    start_pos,
-                    Tok::Complex {
-                        real: 0.0,
-                        imag: value,
-                    },
-                    end_pos,
-                ))
+                Ok((start_pos, Tok::Complex { real: 0.0, imag: value }, end_pos))
             } else {
                 let end_pos = self.get_pos();
                 Ok((start_pos, Tok::Float { value }, end_pos))
@@ -364,7 +347,7 @@ where
                 let value = value_text.parse::<i128>().ok();
                 let nonzero = match value {
                     Some(value) => value != 0i128,
-                    None => true
+                    None => true,
                 };
                 if start_is_zero && nonzero {
                     return Err(LexicalError {
@@ -433,9 +416,8 @@ where
     fn lex_comment(&mut self) -> Option<Spanned> {
         self.next_char();
         // if possibly nac3 pseudocomment, special handling for `# nac3:`
-        let (mut prefix, mut is_comment) = self
-            .config_comment_prefix
-            .map_or_else(|| ("".chars(), false), |v| (v.chars(), true));
+        let (mut prefix, mut is_comment) =
+            self.config_comment_prefix.map_or_else(|| ("".chars(), false), |v| (v.chars(), true));
         // for the correct location of config comment
         let mut start_loc = self.location;
         start_loc.go_left();
@@ -460,22 +442,20 @@ where
                             return Some((
                                 start_loc,
                                 Tok::ConfigComment { content: content.trim().into() },
-                                self.location
+                                self.location,
                             ));
                         }
                     }
                 }
             }
             self.next_char();
-        };
+        }
     }
 
     fn unicode_literal(&mut self, literal_number: usize) -> Result<char, LexicalError> {
         let mut p: u32 = 0u32;
-        let unicode_error = LexicalError {
-            error: LexicalErrorType::UnicodeError,
-            location: self.get_pos(),
-        };
+        let unicode_error =
+            LexicalError { error: LexicalErrorType::UnicodeError, location: self.get_pos() };
         for i in 1..=literal_number {
             match self.next_char() {
                 Some(c) => match c.to_digit(16) {
@@ -530,10 +510,8 @@ where
                 }
             }
         }
-        unicode_names2::character(&name).ok_or(LexicalError {
-            error: LexicalErrorType::UnicodeError,
-            location: start_pos,
-        })
+        unicode_names2::character(&name)
+            .ok_or(LexicalError { error: LexicalErrorType::UnicodeError, location: start_pos })
     }
 
     fn lex_string(
@@ -650,14 +628,9 @@ where
         let end_pos = self.get_pos();
 
         let tok = if is_bytes {
-            Tok::Bytes {
-                value: string_content.chars().map(|c| c as u8).collect(),
-            }
+            Tok::Bytes { value: string_content.chars().map(|c| c as u8).collect() }
         } else {
-            Tok::String {
-                value: string_content,
-                is_fstring,
-            }
+            Tok::String { value: string_content, is_fstring }
         };
 
         Ok((start_pos, tok, end_pos))
@@ -842,11 +815,7 @@ where
                 let tok_start = self.get_pos();
                 self.next_char();
                 let tok_end = self.get_pos();
-                self.emit((
-                    tok_start,
-                    Tok::Name { name: c.to_string().into() },
-                    tok_end,
-                ));
+                self.emit((tok_start, Tok::Name { name: c.to_string().into() }, tok_end));
             } else {
                 self.consume_character(c)?;
             }
@@ -1439,14 +1408,8 @@ class Foo(A, B):
         assert_eq!(
             tokens,
             vec![
-                Tok::String {
-                    value: "\\\\".to_owned(),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: "\\".to_owned(),
-                    is_fstring: false,
-                },
+                Tok::String { value: "\\\\".to_owned(), is_fstring: false },
+                Tok::String { value: "\\".to_owned(), is_fstring: false },
                 Tok::Newline,
             ]
         );
@@ -1459,27 +1422,13 @@ class Foo(A, B):
         assert_eq!(
             tokens,
             vec![
-                Tok::Int {
-                    value: 47i128,
-                },
-                Tok::Int {
-                    value: 13i128,
-                },
-                Tok::Int {
-                    value: 0i128,
-                },
-                Tok::Int {
-                    value: 123i128,
-                },
+                Tok::Int { value: 47i128 },
+                Tok::Int { value: 13i128 },
+                Tok::Int { value: 0i128 },
+                Tok::Int { value: 123i128 },
                 Tok::Float { value: 0.2 },
-                Tok::Complex {
-                    real: 0.0,
-                    imag: 2.0,
-                },
-                Tok::Complex {
-                    real: 0.0,
-                    imag: 2.2,
-                },
+                Tok::Complex { real: 0.0, imag: 2.0 },
+                Tok::Complex { real: 0.0, imag: 2.2 },
                 Tok::Newline,
             ]
         );
@@ -1539,21 +1488,13 @@ class Foo(A, B):
         assert_eq!(
             tokens,
             vec![
-                Tok::Name {
-                    name: String::from("avariable").into(),
-                },
+                Tok::Name { name: String::from("avariable").into() },
                 Tok::Equal,
-                Tok::Int {
-                    value: 99i128
-                },
+                Tok::Int { value: 99i128 },
                 Tok::Plus,
-                Tok::Int {
-                    value: 2i128
-                },
+                Tok::Int { value: 2i128 },
                 Tok::Minus,
-                Tok::Int {
-                    value: 0i128
-                },
+                Tok::Int { value: 0i128 },
                 Tok::Newline,
             ]
         );
@@ -1740,42 +1681,15 @@ class Foo(A, B):
         assert_eq!(
             tokens,
             vec![
-                Tok::String {
-                    value: String::from("double"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("single"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("can't"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("\\\""),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("\t\r\n"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("\\g"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("raw\\'"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("Đ"),
-                    is_fstring: false,
-                },
-                Tok::String {
-                    value: String::from("\u{80}\u{0}a"),
-                    is_fstring: false,
-                },
+                Tok::String { value: String::from("double"), is_fstring: false },
+                Tok::String { value: String::from("single"), is_fstring: false },
+                Tok::String { value: String::from("can't"), is_fstring: false },
+                Tok::String { value: String::from("\\\""), is_fstring: false },
+                Tok::String { value: String::from("\t\r\n"), is_fstring: false },
+                Tok::String { value: String::from("\\g"), is_fstring: false },
+                Tok::String { value: String::from("raw\\'"), is_fstring: false },
+                Tok::String { value: String::from("Đ"), is_fstring: false },
+                Tok::String { value: String::from("\u{80}\u{0}a"), is_fstring: false },
                 Tok::Newline,
             ]
         );
@@ -1840,41 +1754,17 @@ class Foo(A, B):
     fn test_raw_byte_literal() {
         let source = r"rb'\x1z'";
         let tokens = lex_source(source);
-        assert_eq!(
-            tokens,
-            vec![
-                Tok::Bytes {
-                    value: b"\\x1z".to_vec()
-                },
-                Tok::Newline
-            ]
-        );
+        assert_eq!(tokens, vec![Tok::Bytes { value: b"\\x1z".to_vec() }, Tok::Newline]);
         let source = r"rb'\\'";
         let tokens = lex_source(source);
-        assert_eq!(
-            tokens,
-            vec![
-                Tok::Bytes {
-                    value: b"\\\\".to_vec()
-                },
-                Tok::Newline
-            ]
-        )
+        assert_eq!(tokens, vec![Tok::Bytes { value: b"\\\\".to_vec() }, Tok::Newline])
     }
 
     #[test]
     fn test_escape_octet() {
         let source = r##"b'\43a\4\1234'"##;
         let tokens = lex_source(source);
-        assert_eq!(
-            tokens,
-            vec![
-                Tok::Bytes {
-                    value: b"#a\x04S4".to_vec()
-                },
-                Tok::Newline
-            ]
-        )
+        assert_eq!(tokens, vec![Tok::Bytes { value: b"#a\x04S4".to_vec() }, Tok::Newline])
     }
 
     #[test]
@@ -1883,13 +1773,7 @@ class Foo(A, B):
         let tokens = lex_source(source);
         assert_eq!(
             tokens,
-            vec![
-                Tok::String {
-                    value: "\u{2002}".to_owned(),
-                    is_fstring: false,
-                },
-                Tok::Newline
-            ]
+            vec![Tok::String { value: "\u{2002}".to_owned(), is_fstring: false }, Tok::Newline]
         )
     }
 }

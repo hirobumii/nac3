@@ -1,15 +1,15 @@
-use lalrpop_util::ParseError;
-use nac3ast::*;
 use crate::ast::Ident;
 use crate::ast::Location;
-use crate::token::Tok;
 use crate::error::*;
+use crate::token::Tok;
+use lalrpop_util::ParseError;
+use nac3ast::*;
 
 pub fn make_config_comment(
     com_loc: Location,
     stmt_loc: Location,
     nac3com_above: Vec<(Ident, Tok)>,
-    nac3com_end: Option<Ident>
+    nac3com_end: Option<Ident>,
 ) -> Result<Vec<Ident>, ParseError<Location, Tok, LexicalError>> {
     if com_loc.column() != stmt_loc.column() && !nac3com_above.is_empty() {
         return Err(ParseError::User {
@@ -23,18 +23,21 @@ pub fn make_config_comment(
                     )
                 )
             }
-        })
+        });
     };
-    Ok(
-        nac3com_above
-            .into_iter()
-            .map(|(com, _)| com)
-            .chain(nac3com_end.map_or_else(|| vec![].into_iter(), |com| vec![com].into_iter()))
-            .collect()
-    )
+    Ok(nac3com_above
+        .into_iter()
+        .map(|(com, _)| com)
+        .chain(nac3com_end.map_or_else(|| vec![].into_iter(), |com| vec![com].into_iter()))
+        .collect())
 }
 
-pub fn handle_small_stmt<U>(stmts: &mut [Stmt<U>], nac3com_above: Vec<(Ident, Tok)>, nac3com_end: Option<Ident>, com_above_loc: Location) -> Result<(), ParseError<Location, Tok, LexicalError>> {
+pub fn handle_small_stmt<U>(
+    stmts: &mut [Stmt<U>],
+    nac3com_above: Vec<(Ident, Tok)>,
+    nac3com_end: Option<Ident>,
+    com_above_loc: Location,
+) -> Result<(), ParseError<Location, Tok, LexicalError>> {
     if com_above_loc.column() != stmts[0].location.column() && !nac3com_above.is_empty() {
         return Err(ParseError::User {
             error: LexicalError {
@@ -47,17 +50,12 @@ pub fn handle_small_stmt<U>(stmts: &mut [Stmt<U>], nac3com_above: Vec<(Ident, To
                     )
                 )
             }
-        })
+        });
     }
-    apply_config_comments(
-        &mut stmts[0],
-        nac3com_above
-            .into_iter()
-            .map(|(com, _)| com).collect()
-    );
+    apply_config_comments(&mut stmts[0], nac3com_above.into_iter().map(|(com, _)| com).collect());
     apply_config_comments(
         stmts.last_mut().unwrap(),
-        nac3com_end.map_or_else(Vec::new, |com| vec![com])
+        nac3com_end.map_or_else(Vec::new, |com| vec![com]),
     );
     Ok(())
 }
@@ -72,7 +70,7 @@ fn apply_config_comments<U>(stmt: &mut Stmt<U>, comments: Vec<Ident>) {
         | StmtKind::AnnAssign { config_comment, .. }
         | StmtKind::Break { config_comment, .. }
         | StmtKind::Continue { config_comment, .. }
-        | StmtKind::Return { config_comment, .. } 
+        | StmtKind::Return { config_comment, .. }
         | StmtKind::Raise { config_comment, .. }
         | StmtKind::Import { config_comment, .. }
         | StmtKind::ImportFrom { config_comment, .. }
@@ -80,6 +78,8 @@ fn apply_config_comments<U>(stmt: &mut Stmt<U>, comments: Vec<Ident>) {
         | StmtKind::Nonlocal { config_comment, .. }
         | StmtKind::Assert { config_comment, .. } => config_comment.extend(comments),
 
-        _ => { unreachable!("only small statements should call this function") }
+        _ => {
+            unreachable!("only small statements should call this function")
+        }
     }
 }

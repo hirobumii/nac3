@@ -2,15 +2,17 @@ use crate::typecheck::typedef::TypeEnum;
 
 use super::type_inferencer::Inferencer;
 use super::typedef::Type;
-use nac3parser::ast::{self, Constant, Expr, ExprKind, Operator::{LShift, RShift}, Stmt, StmtKind, StrRef};
+use nac3parser::ast::{
+    self, Constant, Expr, ExprKind,
+    Operator::{LShift, RShift},
+    Stmt, StmtKind, StrRef,
+};
 use std::{collections::HashSet, iter::once};
 
 impl<'a> Inferencer<'a> {
     fn should_have_value(&mut self, expr: &Expr<Option<Type>>) -> Result<(), HashSet<String>> {
         if matches!(expr.custom, Some(ty) if self.unifier.unioned(ty, self.primitives.none)) {
-            Err(HashSet::from([
-                format!("Error at {}: cannot have value none", expr.location),
-            ]))
+            Err(HashSet::from([format!("Error at {}: cannot have value none", expr.location)]))
         } else {
             Ok(())
         }
@@ -22,9 +24,9 @@ impl<'a> Inferencer<'a> {
         defined_identifiers: &mut HashSet<StrRef>,
     ) -> Result<(), HashSet<String>> {
         match &pattern.node {
-            ExprKind::Name { id, .. } if id == &"none".into() => Err(HashSet::from([
-                format!("cannot assign to a `none` (at {})", pattern.location),
-            ])),
+            ExprKind::Name { id, .. } if id == &"none".into() => {
+                Err(HashSet::from([format!("cannot assign to a `none` (at {})", pattern.location)]))
+            }
             ExprKind::Name { id, .. } => {
                 if !defined_identifiers.contains(id) {
                     defined_identifiers.insert(*id);
@@ -44,20 +46,17 @@ impl<'a> Inferencer<'a> {
                 self.should_have_value(value)?;
                 self.check_expr(slice, defined_identifiers)?;
                 if let TypeEnum::TTuple { .. } = &*self.unifier.get_ty(value.custom.unwrap()) {
-                    return Err(HashSet::from([
-                        format!(
-                            "Error at {}: cannot assign to tuple element",
-                            value.location
-                        ),
-                    ]))
+                    return Err(HashSet::from([format!(
+                        "Error at {}: cannot assign to tuple element",
+                        value.location
+                    )]));
                 }
                 Ok(())
             }
-            ExprKind::Constant { .. } => {
-                Err(HashSet::from([
-                    format!("cannot assign to a constant (at {})", pattern.location),
-                ]))
-            }
+            ExprKind::Constant { .. } => Err(HashSet::from([format!(
+                "cannot assign to a constant (at {})",
+                pattern.location
+            )])),
             _ => self.check_expr(pattern, defined_identifiers),
         }
     }
@@ -69,14 +68,14 @@ impl<'a> Inferencer<'a> {
     ) -> Result<(), HashSet<String>> {
         // there are some cases where the custom field is None
         if let Some(ty) = &expr.custom {
-            if !matches!(&expr.node, ExprKind::Constant { value: Constant::Ellipsis, .. }) && !self.unifier.is_concrete(*ty, &self.function_data.bound_variables) {
-                return Err(HashSet::from([
-                    format!(
-                        "expected concrete type at {} but got {}",
-                        expr.location,
-                        self.unifier.get_ty(*ty).get_type_name()
-                    )
-                ]))
+            if !matches!(&expr.node, ExprKind::Constant { value: Constant::Ellipsis, .. })
+                && !self.unifier.is_concrete(*ty, &self.function_data.bound_variables)
+            {
+                return Err(HashSet::from([format!(
+                    "expected concrete type at {} but got {}",
+                    expr.location,
+                    self.unifier.get_ty(*ty).get_type_name()
+                )]));
             }
         }
         match &expr.node {
@@ -96,12 +95,10 @@ impl<'a> Inferencer<'a> {
                             self.defined_identifiers.insert(*id);
                         }
                         Err(e) => {
-                            return Err(HashSet::from([
-                                format!(
-                                    "type error at identifier `{}` ({}) at {}",
-                                    id, e, expr.location
-                                )
-                            ]))
+                            return Err(HashSet::from([format!(
+                                "type error at identifier `{}` ({}) at {}",
+                                id, e, expr.location
+                            )]))
                         }
                     }
                 }
@@ -127,17 +124,13 @@ impl<'a> Inferencer<'a> {
                 // Check whether a bitwise shift has a negative RHS constant value
                 if *op == LShift || *op == RShift {
                     if let ExprKind::Constant { value, .. } = &right.node {
-                        let Constant::Int(rhs_val) = value else {
-                            unreachable!()
-                        };
+                        let Constant::Int(rhs_val) = value else { unreachable!() };
 
                         if *rhs_val < 0 {
-                            return Err(HashSet::from([
-                                format!(
-                                    "shift count is negative at {}",
-                                    right.location
-                                ),
-                            ]))
+                            return Err(HashSet::from([format!(
+                                "shift count is negative at {}",
+                                right.location
+                            )]));
                         }
                     }
                 }
@@ -214,16 +207,16 @@ impl<'a> Inferencer<'a> {
     /// is freed when the function returns.
     fn check_return_value_ty(&mut self, ret_ty: Type) -> bool {
         match &*self.unifier.get_ty_immutable(ret_ty) {
-            TypeEnum::TObj { .. } => {
-                [
-                    self.primitives.int32,
-                    self.primitives.int64,
-                    self.primitives.uint32,
-                    self.primitives.uint64,
-                    self.primitives.float,
-                    self.primitives.bool,
-                ].iter().any(|allowed_ty| self.unifier.unioned(ret_ty, *allowed_ty))
-            }
+            TypeEnum::TObj { .. } => [
+                self.primitives.int32,
+                self.primitives.int64,
+                self.primitives.uint32,
+                self.primitives.uint64,
+                self.primitives.float,
+                self.primitives.bool,
+            ]
+            .iter()
+            .any(|allowed_ty| self.unifier.unioned(ret_ty, *allowed_ty)),
             TypeEnum::TTuple { ty } => ty.iter().all(|t| self.check_return_value_ty(*t)),
             _ => false,
         }
@@ -330,8 +323,11 @@ impl<'a> Inferencer<'a> {
                     if let Some(ret_ty) = value.custom {
                         // Explicitly allow ellipsis as a return value, as the type of the ellipsis is contextually
                         // inferred and just generates an unconditional assertion
-                        if matches!(value.node, ExprKind::Constant { value: Constant::Ellipsis, .. }) {
-                            return Ok(true)
+                        if matches!(
+                            value.node,
+                            ExprKind::Constant { value: Constant::Ellipsis, .. }
+                        ) {
+                            return Ok(true);
                         }
 
                         if !self.check_return_value_ty(ret_ty) {
@@ -341,7 +337,7 @@ impl<'a> Inferencer<'a> {
                                     self.unifier.stringify(ret_ty),
                                     value.location,
                                 ),
-                            ]))
+                            ]));
                         }
                     }
                 }

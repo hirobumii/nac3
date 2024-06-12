@@ -15,10 +15,7 @@ struct FStringParser<'a> {
 
 impl<'a> FStringParser<'a> {
     fn new(source: &'a str, str_location: Location) -> Self {
-        Self {
-            chars: source.chars().peekable(),
-            str_location,
-        }
+        Self { chars: source.chars().peekable(), str_location }
     }
 
     #[inline]
@@ -251,17 +248,11 @@ impl<'a> FStringParser<'a> {
         }
 
         if !content.is_empty() {
-            values.push(self.expr(ExprKind::Constant {
-                value: content.into(),
-                kind: None,
-            }))
+            values.push(self.expr(ExprKind::Constant { value: content.into(), kind: None }))
         }
 
         let s = match values.len() {
-            0 => self.expr(ExprKind::Constant {
-                value: String::new().into(),
-                kind: None,
-            }),
+            0 => self.expr(ExprKind::Constant { value: String::new().into(), kind: None }),
             1 => values.into_iter().next().unwrap(),
             _ => self.expr(ExprKind::JoinedStr { values }),
         };
@@ -277,9 +268,7 @@ fn parse_fstring_expr(source: &str) -> Result<Expr, ParseError> {
 /// Parse an fstring from a string, located at a certain position in the sourcecode.
 /// In case of errors, we will get the location and the error returned.
 pub fn parse_located_fstring(source: &str, location: Location) -> Result<Expr, FStringError> {
-    FStringParser::new(source, location)
-        .parse()
-        .map_err(|error| FStringError { error, location })
+    FStringParser::new(source, location).parse().map_err(|error| FStringError { error, location })
 }
 
 #[cfg(test)]

@@ -6,21 +6,20 @@ use nac3core::{
         CodeGenContext, CodeGenerator,
     },
     symbol_resolver::ValueEnum,
-    toplevel::{DefinitionId, GenCall, helper::PRIMITIVE_DEF_IDS},
-    typecheck::typedef::{FunSignature, FuncArg, Type, TypeEnum, VarMap}
+    toplevel::{helper::PRIMITIVE_DEF_IDS, DefinitionId, GenCall},
+    typecheck::typedef::{FunSignature, FuncArg, Type, TypeEnum, VarMap},
 };
 
 use nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef};
 
 use inkwell::{
-    context::Context, 
-    module::Linkage, 
-    types::IntType, 
-    values::BasicValueEnum,
-    AddressSpace,
+    context::Context, module::Linkage, types::IntType, values::BasicValueEnum, AddressSpace,
 };
 
-use pyo3::{PyObject, PyResult, Python, types::{PyDict, PyList}};
+use pyo3::{
+    types::{PyDict, PyList},
+    PyObject, PyResult, Python,
+};
 
 use crate::{symbol_resolver::InnerResolver, timeline::TimeFns};
 
@@ -46,7 +45,7 @@ enum ParallelMode {
     ///
     /// Each function call within the `with` block (except those within a nested `sequential` block)
     /// are treated to be executed in parallel.
-    Deep
+    Deep,
 }
 
 pub struct ArtiqCodeGenerator<'a> {
@@ -96,14 +95,13 @@ impl<'a> ArtiqCodeGenerator<'a> {
     ///
     /// Direct-`parallel` block context refers to when the generator is generating statements whose
     /// closest parent `with` statement is a `with parallel` block.
-    fn timeline_reset_start(
-        &mut self,
-        ctx: &mut CodeGenContext<'_, '_>
-    ) -> Result<(), String> {
+    fn timeline_reset_start(&mut self, ctx: &mut CodeGenContext<'_, '_>) -> Result<(), String> {
         if let Some(start) = self.start.clone() {
-            let start_val = self.gen_expr(ctx, &start)?
-                .unwrap()
-                .to_basic_value_enum(ctx, self, start.custom.unwrap())?;
+            let start_val = self.gen_expr(ctx, &start)?.unwrap().to_basic_value_enum(
+                ctx,
+                self,
+                start.custom.unwrap(),
+            )?;
             self.timeline.emit_at_mu(ctx, start_val);
         }
 
@@ -129,20 +127,20 @@ impl<'a> ArtiqCodeGenerator<'a> {
         store_name: Option<&str>,
     ) -> Result<(), String> {
         if let Some(end) = end {
-            let old_end = self.gen_expr(ctx, &end)?
-                .unwrap()
-                .to_basic_value_enum(ctx, self, end.custom.unwrap())?;
-            let now = self.timeline.emit_now_mu(ctx);
-            let max = call_int_smax(
-                ctx, 
-                old_end.into_int_value(), 
-                now.into_int_value(), 
-                Some("smax")
-            );
-            let end_store = self.gen_store_target(
+            let old_end = self.gen_expr(ctx, &end)?.unwrap().to_basic_value_enum(
                 ctx,
-                &end,
-                store_name.map(|name| format!("{name}.addr")).as_deref())?
+                self,
+                end.custom.unwrap(),
+            )?;
+            let now = self.timeline.emit_now_mu(ctx);
+            let max =
+                call_int_smax(ctx, old_end.into_int_value(), now.into_int_value(), Some("smax"));
+            let end_store = self
+                .gen_store_target(
+                    ctx,
+                    &end,
+                    store_name.map(|name| format!("{name}.addr")).as_deref(),
+                )?
                 .unwrap();
             ctx.builder.build_store(end_store, max).unwrap();
         }
@@ -164,11 +162,14 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
         }
     }
 
-    fn gen_block<'ctx, 'a, 'c, I: Iterator<Item=&'c Stmt<Option<Type>>>>(
+    fn gen_block<'ctx, 'a, 'c, I: Iterator<Item = &'c Stmt<Option<Type>>>>(
         &mut self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
-        stmts: I
-    ) -> Result<(), String> where Self: Sized {
+        stmts: I,
+    ) -> Result<(), String>
+    where
+        Self: Sized,
+    {
         // Legacy parallel emits timeline end-update/timeline-reset after each top-level statement
         // in the parallel block
         if self.parallel_mode == ParallelMode::Legacy {
@@ -212,9 +213,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
         ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
     ) -> Result<(), String> {
-        let StmtKind::With { items, body, .. } = &stmt.node else {
-            unreachable!()
-        };
+        let StmtKind::With { items, body, .. } = &stmt.node else { unreachable!() };
 
         if items.len() == 1 && items[0].optional_vars.is_none() {
             let item = &items[0];
@@ -239,9 +238,11 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                     let old_parallel_mode = self.parallel_mode;
 
                     let now = if let Some(old_start) = &old_start {
-                        self.gen_expr(ctx, old_start)?
-                            .unwrap()
-                            .to_basic_value_enum(ctx, self, old_start.custom.unwrap())?
+                        self.gen_expr(ctx, old_start)?.unwrap().to_basic_value_enum(
+                            ctx,
+                            self,
+                            old_start.custom.unwrap(),
+                        )?
                     } else {
                         self.timeline.emit_now_mu(ctx)
                     };
@@ -277,9 +278,7 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
                         node: ExprKind::Name { id: end, ctx: name_ctx.clone() },
                         custom: Some(ctx.primitives.int64),
                     };
-                    let end = self
-                        .gen_store_target(ctx, &end_expr, Some("end.addr"))?
-                        .unwrap();
+                    let end = self.gen_store_target(ctx, &end_expr, Some("end.addr"))?.unwrap();
                     ctx.builder.build_store(end, now).unwrap();
                     self.end = Some(end_expr);
                     self.name_counter += 1;
@@ -309,10 +308,11 @@ impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
 
                     // set duration
                     let end_expr = self.end.take().unwrap();
-                    let end_val = self
-                        .gen_expr(ctx, &end_expr)?
-                        .unwrap()
-                        .to_basic_value_enum(ctx, self, end_expr.custom.unwrap())?;
+                    let end_val = self.gen_expr(ctx, &end_expr)?.unwrap().to_basic_value_enum(
+                        ctx,
+                        self,
+                        end_expr.custom.unwrap(),
+                    )?;
 
                     // inside a sequential block
                     if old_start.is_none() {
@@ -416,7 +416,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     let int32 = ctx.ctx.i32_type();
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
-    let service_id = int32.const_int(fun.1.0 as u64, false);
+    let service_id = int32.const_int(fun.1 .0 as u64, false);
     // -- setup rpc tags
     let mut tag = Vec::new();
     if obj.is_some() {
@@ -461,7 +461,8 @@ fn rpc_codegen_callback_fn<'ctx>(
     let arg_length = args.len() + usize::from(obj.is_some());
 
     let stackptr = call_stacksave(ctx, Some("rpc.stack"));
-    let args_ptr = ctx.builder
+    let args_ptr = ctx
+        .builder
         .build_array_alloca(
             ptr_type,
             ctx.ctx.i32_type().const_int(arg_length as u64, false),
@@ -477,10 +478,8 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
     // default value handling
     for k in keys {
-        mapping.insert(
-            k.name,
-            ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty).into()
-        );
+        mapping
+            .insert(k.name, ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty).into());
     }
     // reorder the parameters
     let mut real_params = fun
@@ -499,7 +498,8 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
 
     for (i, arg) in real_params.iter().enumerate() {
-        let arg_slot = generator.gen_var_alloc(ctx, arg.get_type(), Some(&format!("rpc.arg{i}"))).unwrap();
+        let arg_slot =
+            generator.gen_var_alloc(ctx, arg.get_type(), Some(&format!("rpc.arg{i}"))).unwrap();
         ctx.builder.build_store(arg_slot, *arg).unwrap();
         let arg_slot = ctx.builder.build_bitcast(arg_slot, ptr_type, "rpc.arg").unwrap();
         let arg_ptr = unsafe {
@@ -508,7 +508,8 @@ fn rpc_codegen_callback_fn<'ctx>(
                 &[int32.const_int(i as u64, false)],
                 &format!("rpc.arg{i}"),
             )
-        }.unwrap();
+        }
+        .unwrap();
         ctx.builder.build_store(arg_ptr, arg_slot).unwrap();
     }
 
@@ -528,11 +529,7 @@ fn rpc_codegen_callback_fn<'ctx>(
         )
     });
     ctx.builder
-        .build_call(
-            rpc_send,
-            &[service_id.into(), tag_ptr.into(), args_ptr.into()],
-            "rpc.send",
-        )
+        .build_call(rpc_send, &[service_id.into(), tag_ptr.into(), args_ptr.into()], "rpc.send")
         .unwrap();
 
     // reclaim stack space used by arguments
@@ -575,13 +572,9 @@ fn rpc_codegen_callback_fn<'ctx>(
         .build_call_or_invoke(rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
         .unwrap()
         .into_int_value();
-    let is_done = ctx.builder
-        .build_int_compare(
-            inkwell::IntPredicate::EQ,
-            int32.const_zero(),
-            alloc_size,
-            "rpc.done",
-        )
+    let is_done = ctx
+        .builder
+        .build_int_compare(inkwell::IntPredicate::EQ, int32.const_zero(), alloc_size, "rpc.done")
         .unwrap();
 
     ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb).unwrap();
@@ -617,9 +610,15 @@ pub fn attributes_writeback(
         let mut scratch_buffer = Vec::new();
         for val in (*globals).values() {
             let val = val.as_ref(py);
-            let ty = inner_resolver.get_obj_type(py, val, &mut ctx.unifier, &top_levels, &ctx.primitives)?;
+            let ty = inner_resolver.get_obj_type(
+                py,
+                val,
+                &mut ctx.unifier,
+                &top_levels,
+                &ctx.primitives,
+            )?;
             if let Err(ty) = ty {
-                return Ok(Err(ty))
+                return Ok(Err(ty));
             }
             let ty = ty.unwrap();
             match &*ctx.unifier.get_ty(ty) {
@@ -632,14 +631,19 @@ pub fn attributes_writeback(
                     let obj = inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap();
                     for (name, (field_ty, is_mutable)) in fields {
                         if !is_mutable {
-                            continue
+                            continue;
                         }
                         if gen_rpc_tag(ctx, *field_ty, &mut scratch_buffer).is_ok() {
                             attributes.push(name.to_string());
                             let index = ctx.get_attr_index(ty, *name);
-                            values.push((*field_ty, ctx.build_gep_and_load(
-                                            obj.into_pointer_value(),
-                                            &[zero, int32.const_int(index as u64, false)], None)));
+                            values.push((
+                                *field_ty,
+                                ctx.build_gep_and_load(
+                                    obj.into_pointer_value(),
+                                    &[zero, int32.const_int(index as u64, false)],
+                                    None,
+                                ),
+                            ));
                         }
                     }
                     if !attributes.is_empty() {
@@ -648,33 +652,44 @@ pub fn attributes_writeback(
                         pydict.set_item("fields", attributes)?;
                         host_attributes.append(pydict)?;
                     }
-                },
+                }
                 TypeEnum::TList { ty: elem_ty } => {
                     if gen_rpc_tag(ctx, *elem_ty, &mut scratch_buffer).is_ok() {
                         let pydict = PyDict::new(py);
                         pydict.set_item("obj", val)?;
                         host_attributes.append(pydict)?;
-                        values.push((ty, inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap()));
+                        values.push((
+                            ty,
+                            inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap(),
+                        ));
                     }
-                },
+                }
                 _ => {}
             }
         }
         let fun = FunSignature {
-            args: values.iter().enumerate().map(|(i, (ty, _))| FuncArg {
-                name: i.to_string().into(),
-                ty: *ty,
-                default_value: None
-            }).collect(),
+            args: values
+                .iter()
+                .enumerate()
+                .map(|(i, (ty, _))| FuncArg {
+                    name: i.to_string().into(),
+                    ty: *ty,
+                    default_value: None,
+                })
+                .collect(),
             ret: ctx.primitives.none,
-            vars: VarMap::default()
+            vars: VarMap::default(),
         };
-        let args: Vec<_> = values.into_iter().map(|(_, val)| (None, ValueEnum::Dynamic(val))).collect();
-        if let Err(e) = rpc_codegen_callback_fn(ctx, None, (&fun, PRIMITIVE_DEF_IDS.int32), args, generator) {
+        let args: Vec<_> =
+            values.into_iter().map(|(_, val)| (None, ValueEnum::Dynamic(val))).collect();
+        if let Err(e) =
+            rpc_codegen_callback_fn(ctx, None, (&fun, PRIMITIVE_DEF_IDS.int32), args, generator)
+        {
             return Ok(Err(e));
         }
         Ok(Ok(()))
-    }).unwrap()?;
+    })
+    .unwrap()?;
     Ok(())
 }
 

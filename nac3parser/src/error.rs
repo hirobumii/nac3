@@ -145,35 +145,27 @@ impl From<LalrpopError<Location, Tok, LexicalError>> for ParseError {
     fn from(err: LalrpopError<Location, Tok, LexicalError>) -> Self {
         match err {
             // TODO: Are there cases where this isn't an EOF?
-            LalrpopError::InvalidToken { location } => ParseError {
-                error: ParseErrorType::Eof,
-                location,
-            },
-            LalrpopError::ExtraToken { token } => ParseError {
-                error: ParseErrorType::ExtraToken(token.1),
-                location: token.0,
-            },
-            LalrpopError::User { error } => ParseError {
-                error: ParseErrorType::Lexical(error.error),
-                location: error.location,
-            },
+            LalrpopError::InvalidToken { location } => {
+                ParseError { error: ParseErrorType::Eof, location }
+            }
+            LalrpopError::ExtraToken { token } => {
+                ParseError { error: ParseErrorType::ExtraToken(token.1), location: token.0 }
+            }
+            LalrpopError::User { error } => {
+                ParseError { error: ParseErrorType::Lexical(error.error), location: error.location }
+            }
             LalrpopError::UnrecognizedToken { token, expected } => {
                 // Hacky, but it's how CPython does it. See PyParser_AddToken,
                 // in particular "Only one possible expected token" comment.
-                let expected = if expected.len() == 1 {
-                    Some(expected[0].clone())
-                } else {
-                    None
-                };
+                let expected = if expected.len() == 1 { Some(expected[0].clone()) } else { None };
                 ParseError {
                     error: ParseErrorType::UnrecognizedToken(token.1, expected),
                     location: token.0,
                 }
             }
-            LalrpopError::UnrecognizedEof { location, .. } => ParseError {
-                error: ParseErrorType::Eof,
-                location,
-            },
+            LalrpopError::UnrecognizedEof { location, .. } => {
+                ParseError { error: ParseErrorType::Eof, location }
+            }
         }
     }
 }

@@ -8,7 +8,9 @@ use std::{
 
 use super::codegen::CodeGenContext;
 use super::typecheck::type_inferencer::PrimitiveStore;
-use super::typecheck::typedef::{FunSignature, FuncArg, SharedUnifier, Type, TypeEnum, Unifier, VarMap};
+use super::typecheck::typedef::{
+    FunSignature, FuncArg, SharedUnifier, Type, TypeEnum, Unifier, VarMap,
+};
 use crate::{
     codegen::CodeGenerator,
     symbol_resolver::{SymbolResolver, ValueEnum},
@@ -32,16 +34,15 @@ use type_annotation::*;
 #[cfg(test)]
 mod test;
 
-type GenCallCallback = 
-    dyn for<'ctx, 'a> Fn(
-            &mut CodeGenContext<'ctx, 'a>,
-            Option<(Type, ValueEnum<'ctx>)>,
-            (&FunSignature, DefinitionId),
-            Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-            &mut dyn CodeGenerator,
-        ) -> Result<Option<BasicValueEnum<'ctx>>, String>
-        + Send
-        + Sync;
+type GenCallCallback = dyn for<'ctx, 'a> Fn(
+        &mut CodeGenContext<'ctx, 'a>,
+        Option<(Type, ValueEnum<'ctx>)>,
+        (&FunSignature, DefinitionId),
+        Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
+        &mut dyn CodeGenerator,
+    ) -> Result<Option<BasicValueEnum<'ctx>>, String>
+    + Send
+    + Sync;
 
 pub struct GenCall {
     fp: Box<GenCallCallback>,
@@ -53,7 +54,7 @@ impl GenCall {
         GenCall { fp }
     }
 
-    /// Creates a dummy instance of [`GenCall`], which invokes [`unreachable!()`] with the given 
+    /// Creates a dummy instance of [`GenCall`], which invokes [`unreachable!()`] with the given
     /// `reason`.
     #[must_use]
     pub fn create_dummy(reason: String) -> GenCall {

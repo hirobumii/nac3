@@ -1,6 +1,6 @@
 //! Datatypes to support source location information.
-use std::cmp::Ordering;
 use crate::ast_gen::StrRef;
+use std::cmp::Ordering;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,7 +22,7 @@ impl From<String> for FileName {
 pub struct Location {
     pub row: usize,
     pub column: usize,
-    pub file: FileName
+    pub file: FileName,
 }
 
 impl fmt::Display for Location {
@@ -35,12 +35,12 @@ impl Ord for Location {
     fn cmp(&self, other: &Self) -> Ordering {
         let file_cmp = self.file.0.to_string().cmp(&other.file.0.to_string());
         if file_cmp != Ordering::Equal {
-            return file_cmp
+            return file_cmp;
         }
 
         let row_cmp = self.row.cmp(&other.row);
         if row_cmp != Ordering::Equal {
-            return row_cmp
+            return row_cmp;
         }
 
         self.column.cmp(&other.column)
@@ -76,11 +76,7 @@ impl Location {
                 )
             }
         }
-        Visualize {
-            loc: *self,
-            line,
-            desc,
-        }
+        Visualize { loc: *self, line, desc }
     }
 }
 

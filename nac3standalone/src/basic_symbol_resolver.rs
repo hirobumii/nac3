@@ -9,8 +9,8 @@ use nac3core::{
 };
 use nac3parser::ast::{self, StrRef};
 use parking_lot::{Mutex, RwLock};
-use std::{collections::HashMap, sync::Arc};
 use std::collections::HashSet;
+use std::{collections::HashMap, sync::Arc};
 
 pub struct ResolverInternal {
     pub id_to_type: Mutex<HashMap<StrRef, Type>>,
@@ -63,10 +63,12 @@ impl SymbolResolver for Resolver {
     }
 
     fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
-        self.0.id_to_def.lock().get(&id).copied()
-            .ok_or_else(|| HashSet::from([
-                format!("Undefined identifier `{id}`"),
-            ]))
+        self.0
+            .id_to_def
+            .lock()
+            .get(&id)
+            .copied()
+            .ok_or_else(|| HashSet::from([format!("Undefined identifier `{id}`")]))
     }
 
     fn get_string_id(&self, s: &str) -> i32 {

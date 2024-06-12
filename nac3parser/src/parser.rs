@@ -75,9 +75,7 @@ pub fn parse(source: &str, mode: Mode, file: FileName) -> Result<ast::Mod, Parse
     let marker_token = (Default::default(), mode.to_marker(), Default::default());
     let tokenizer = iter::once(Ok(marker_token)).chain(lxr);
 
-    python::TopParser::new()
-        .parse(tokenizer)
-        .map_err(ParseError::from)
+    python::TopParser::new().parse(tokenizer).map_err(ParseError::from)
 }
 
 #[cfg(test)]
@@ -163,7 +161,7 @@ class Foo(A, B):
         let parse_ast = parse_expression(&source).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
-    
+
     #[test]
     fn test_more_comment() {
         let source = "\
@@ -185,7 +183,7 @@ while i < 2: # nac3: 4
         3";
         insta::assert_debug_snapshot!(parse_program(source, Default::default()).unwrap());
     }
-    
+
     #[test]
     fn test_sample_comment() {
         let source = "\

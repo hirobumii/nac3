@@ -47,7 +47,7 @@ impl PrimitiveDefinitionIds {
     }
 
     /// Returns an iterator over all [`DefinitionId`]s of this instance in indeterminate order.
-    pub fn iter(&self) -> impl Iterator<Item=DefinitionId> {
+    pub fn iter(&self) -> impl Iterator<Item = DefinitionId> {
         self.as_vec().into_iter()
     }
 
@@ -208,7 +208,8 @@ impl TopLevelComposer {
         };
 
         let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
-        let ndarray_ndims_tvar = unifier.get_fresh_const_generic_var(size_t_ty, Some("ndarray_ndims".into()), None);
+        let ndarray_ndims_tvar =
+            unifier.get_fresh_const_generic_var(size_t_ty, Some("ndarray_ndims".into()), None);
         let ndarray_copy_fun_ret_ty = unifier.get_fresh_var(None, None);
         let ndarray_copy_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
@@ -219,13 +220,11 @@ impl TopLevelComposer {
             ]),
         }));
         let ndarray_fill_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
-            args: vec![
-                FuncArg {
-                    name: "value".into(),
-                    ty: ndarray_dtype_tvar.0,
-                    default_value: None,
-                },
-            ],
+            args: vec![FuncArg {
+                name: "value".into(),
+                ty: ndarray_dtype_tvar.0,
+                default_value: None,
+            }],
             ret: none,
             vars: VarMap::from([
                 (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
@@ -393,9 +392,7 @@ impl TopLevelComposer {
         if let TypeEnum::TVar { id, .. } = unifier.get_ty(var_ty).as_ref() {
             Ok(*id)
         } else {
-            Err(HashSet::from([
-                "not type var".to_string(),
-            ]))
+            Err(HashSet::from(["not type var".to_string()]))
         }
     }
 
@@ -412,25 +409,27 @@ impl TopLevelComposer {
         let (
             TypeEnum::TFunc(FunSignature { args: this_args, ret: this_ret, .. }),
             TypeEnum::TFunc(FunSignature { args: other_args, ret: other_ret, .. }),
-        ) = (this, other) else {
+        ) = (this, other)
+        else {
             unreachable!("this function must be called with function type")
         };
 
         // check args
-        let args_ok = this_args
-            .iter()
-            .map(|FuncArg { name, ty, .. }| (name, type_var_to_concrete_def.get(ty).unwrap()))
-            .zip(other_args.iter().map(|FuncArg { name, ty, .. }| {
-                (name, type_var_to_concrete_def.get(ty).unwrap())
-            }))
-            .all(|(this, other)| {
-                if this.0 == &"self".into() && this.0 == other.0 {
-                    true
-                } else {
-                    this.0 == other.0
-                        && check_overload_type_annotation_compatible(this.1, other.1, unifier)
-                }
-            });
+        let args_ok =
+            this_args
+                .iter()
+                .map(|FuncArg { name, ty, .. }| (name, type_var_to_concrete_def.get(ty).unwrap()))
+                .zip(other_args.iter().map(|FuncArg { name, ty, .. }| {
+                    (name, type_var_to_concrete_def.get(ty).unwrap())
+                }))
+                .all(|(this, other)| {
+                    if this.0 == &"self".into() && this.0 == other.0 {
+                        true
+                    } else {
+                        this.0 == other.0
+                            && check_overload_type_annotation_compatible(this.1, other.1, unifier)
+                    }
+                });
 
         // check rets
         let ret_ok = check_overload_type_annotation_compatible(
@@ -473,12 +472,10 @@ impl TopLevelComposer {
                         }
                     } =>
                 {
-                    return Err(HashSet::from([
-                        format!(
-                            "redundant type annotation for class fields at {}",
-                            s.location
-                        ),
-                    ]))
+                    return Err(HashSet::from([format!(
+                        "redundant type annotation for class fields at {}",
+                        s.location
+                    )]))
                 }
                 ast::StmtKind::Assign { targets, .. } => {
                     for t in targets {
@@ -602,105 +599,102 @@ pub fn parse_parameter_default_value(
             Constant::Tuple(tuple) => Ok(SymbolValue::Tuple(
                 tuple.iter().map(|x| handle_constant(x, loc)).collect::<Result<Vec<_>, _>>()?,
             )),
-            Constant::None => Err(HashSet::from([
-                format!(
-                    "`None` is not supported, use `none` for option type instead ({loc})"
-                ),
-            ])),
+            Constant::None => Err(HashSet::from([format!(
+                "`None` is not supported, use `none` for option type instead ({loc})"
+            )])),
             _ => unimplemented!("this constant is not supported at {}", loc),
         }
     }
     match &default.node {
         ast::ExprKind::Constant { value, .. } => handle_constant(value, &default.location),
-        ast::ExprKind::Call { func, args, .. } if args.len() == 1 => {
-            match &func.node {
-                ast::ExprKind::Name { id, .. } if *id == "int64".into() => match &args[0].node {
-                    ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
-                        let v: Result<i64, _> = (*v).try_into();
-                        match v {
-                            Ok(v) => Ok(SymbolValue::I64(v)),
-                            _ => Err(HashSet::from([
-                                format!("default param value out of range at {}", default.location)
-                            ])),
-                        }
+        ast::ExprKind::Call { func, args, .. } if args.len() == 1 => match &func.node {
+            ast::ExprKind::Name { id, .. } if *id == "int64".into() => match &args[0].node {
+                ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
+                    let v: Result<i64, _> = (*v).try_into();
+                    match v {
+                        Ok(v) => Ok(SymbolValue::I64(v)),
+                        _ => Err(HashSet::from([format!(
+                            "default param value out of range at {}",
+                            default.location
+                        )])),
                     }
-                    _ => Err(HashSet::from([
-                        format!("only allow constant integer here at {}", default.location),
-                    ]))
                 }
-                ast::ExprKind::Name { id, .. } if *id == "uint32".into() => match &args[0].node {
-                    ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
-                        let v: Result<u32, _> = (*v).try_into();
-                        match v {
-                            Ok(v) => Ok(SymbolValue::U32(v)),
-                            _ => Err(HashSet::from([
-                                format!("default param value out of range at {}", default.location),
-                            ])),
-                        }
+                _ => Err(HashSet::from([format!(
+                    "only allow constant integer here at {}",
+                    default.location
+                )])),
+            },
+            ast::ExprKind::Name { id, .. } if *id == "uint32".into() => match &args[0].node {
+                ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
+                    let v: Result<u32, _> = (*v).try_into();
+                    match v {
+                        Ok(v) => Ok(SymbolValue::U32(v)),
+                        _ => Err(HashSet::from([format!(
+                            "default param value out of range at {}",
+                            default.location
+                        )])),
                     }
-                    _ => Err(HashSet::from([
-                        format!("only allow constant integer here at {}", default.location),
-                    ]))
                 }
-                ast::ExprKind::Name { id, .. } if *id == "uint64".into() => match &args[0].node {
-                    ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
-                        let v: Result<u64, _> = (*v).try_into();
-                        match v {
-                            Ok(v) => Ok(SymbolValue::U64(v)),
-                            _ => Err(HashSet::from([
-                                format!("default param value out of range at {}", default.location),
-                            ])),
-                        }
+                _ => Err(HashSet::from([format!(
+                    "only allow constant integer here at {}",
+                    default.location
+                )])),
+            },
+            ast::ExprKind::Name { id, .. } if *id == "uint64".into() => match &args[0].node {
+                ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
+                    let v: Result<u64, _> = (*v).try_into();
+                    match v {
+                        Ok(v) => Ok(SymbolValue::U64(v)),
+                        _ => Err(HashSet::from([format!(
+                            "default param value out of range at {}",
+                            default.location
+                        )])),
                     }
-                    _ => Err(HashSet::from([
-                        format!("only allow constant integer here at {}", default.location),
-                    ]))
                 }
-                ast::ExprKind::Name { id, .. } if *id == "Some".into() => Ok(
-                    SymbolValue::OptionSome(
-                        Box::new(parse_parameter_default_value(&args[0], resolver)?)
-                    )
-                ),
-                _ => Err(HashSet::from([
-                    format!("unsupported default parameter at {}", default.location),
-                ])),
-            }
-        }
-        ast::ExprKind::Tuple { elts, .. } => Ok(SymbolValue::Tuple(elts
-            .iter()
-            .map(|x| parse_parameter_default_value(x, resolver))
-            .collect::<Result<Vec<_>, _>>()?
+                _ => Err(HashSet::from([format!(
+                    "only allow constant integer here at {}",
+                    default.location
+                )])),
+            },
+            ast::ExprKind::Name { id, .. } if *id == "Some".into() => Ok(SymbolValue::OptionSome(
+                Box::new(parse_parameter_default_value(&args[0], resolver)?),
+            )),
+            _ => Err(HashSet::from([format!(
+                "unsupported default parameter at {}",
+                default.location
+            )])),
+        },
+        ast::ExprKind::Tuple { elts, .. } => Ok(SymbolValue::Tuple(
+            elts.iter()
+                .map(|x| parse_parameter_default_value(x, resolver))
+                .collect::<Result<Vec<_>, _>>()?,
         )),
         ast::ExprKind::Name { id, .. } if id == &"none".into() => Ok(SymbolValue::OptionNone),
         ast::ExprKind::Name { id, .. } => {
-            resolver.get_default_param_value(default).ok_or_else(
-                || HashSet::from([
-                    format!(
-                        "`{}` cannot be used as a default parameter at {} \
+            resolver.get_default_param_value(default).ok_or_else(|| {
+                HashSet::from([format!(
+                    "`{}` cannot be used as a default parameter at {} \
                         (not primitive type, option or tuple / not defined?)",
-                        id,
-                        default.location
-                    ),
-                ])
-            )
+                    id, default.location
+                )])
+            })
         }
-        _ => Err(HashSet::from([
-            format!(
-                "unsupported default parameter (not primitive type, option or tuple) at {}",
-                default.location
-            ),
-        ]))
+        _ => Err(HashSet::from([format!(
+            "unsupported default parameter (not primitive type, option or tuple) at {}",
+            default.location
+        )])),
     }
 }
 
 /// Obtains the element type of an array-like type.
 pub fn arraylike_flatten_element_type(unifier: &mut Unifier, ty: Type) -> Type {
     match &*unifier.get_ty(ty) {
-        TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => 
-            unpack_ndarray_var_tys(unifier, ty).0,
+        TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+            unpack_ndarray_var_tys(unifier, ty).0
+        }
 
         TypeEnum::TList { ty } => arraylike_flatten_element_type(unifier, *ty),
-        _ => ty
+        _ => ty,
     }
 }
 
@@ -721,6 +715,6 @@ pub fn arraylike_get_ndims(unifier: &mut Unifier, ty: Type) -> u64 {
         }
 
         TypeEnum::TList { ty } => arraylike_get_ndims(unifier, *ty) + 1,
-        _ => 0
+        _ => 0,
     }
 }

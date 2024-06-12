@@ -32,7 +32,6 @@ pub struct DwarfReader<'a> {
 }
 
 impl<'a> DwarfReader<'a> {
-
     pub fn new(slice: &[u8], virt_addr: u32) -> DwarfReader {
         DwarfReader { slice, virt_addr, base_slice: slice, base_virt_addr: virt_addr }
     }
@@ -170,10 +169,7 @@ fn read_encoded_pointer(reader: &mut DwarfReader, encoding: u8) -> Result<usize,
     }
 }
 
-fn read_encoded_pointer_with_pc(
-    reader: &mut DwarfReader,
-    encoding: u8,
-) -> Result<usize, ()> {
+fn read_encoded_pointer_with_pc(reader: &mut DwarfReader, encoding: u8) -> Result<usize, ()> {
     let entry_virt_addr = reader.virt_addr;
     let mut result = read_encoded_pointer(reader, encoding)?;
 
@@ -223,7 +219,6 @@ pub struct EH_Frame<'a> {
 }
 
 impl<'a> EH_Frame<'a> {
-
     /// Creates an [EH_Frame] using the bytes in the `.eh_frame` section and its address in the ELF
     /// file.
     pub fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> Result<EH_Frame, ()> {
@@ -235,10 +230,7 @@ impl<'a> EH_Frame<'a> {
         let reader = DwarfReader::from_reader(&self.reader, true);
         let len = reader.slice.len();
 
-        CFI_Records {
-            reader,
-            available: len,
-        }
+        CFI_Records { reader, available: len }
     }
 }
 
@@ -255,7 +247,6 @@ pub struct CFI_Record<'a> {
 }
 
 impl<'a> CFI_Record<'a> {
-
     pub fn from_reader(cie_reader: &mut DwarfReader<'a>) -> Result<CFI_Record<'a>, ()> {
         let length = cie_reader.read_u32();
         let fde_reader = match length {
@@ -323,10 +314,7 @@ impl<'a> CFI_Record<'a> {
         }
         assert_ne!(fde_pointer_encoding, DW_EH_PE_omit);
 
-        Ok(CFI_Record {
-            fde_pointer_encoding,
-            fde_reader,
-        })
+        Ok(CFI_Record { fde_pointer_encoding, fde_reader })
     }
 
     /// Returns a [DwarfReader] initialized to the first Frame Description Entry (FDE) of this CFI
@@ -340,11 +328,7 @@ impl<'a> CFI_Record<'a> {
         let reader = self.get_fde_reader();
         let len = reader.slice.len();
 
-        FDE_Records {
-            pointer_encoding: self.fde_pointer_encoding,
-            reader,
-            available: len,
-        }
+        FDE_Records { pointer_encoding: self.fde_pointer_encoding, reader, available: len }
     }
 }
 
@@ -387,7 +371,7 @@ impl<'a> Iterator for CFI_Records<'a> {
             // Skip this record if it is a FDE
             if cie_ptr == 0 {
                 // Rewind back to the start of the CFI Record
-                return Some(CFI_Record::from_reader(&mut this_reader).ok().unwrap())
+                return Some(CFI_Record::from_reader(&mut this_reader).ok().unwrap());
             }
         }
     }
@@ -448,7 +432,6 @@ pub struct EH_Frame_Hdr<'a> {
 }
 
 impl<'a> EH_Frame_Hdr<'a> {
-
     /// Create a [EH_Frame_Hdr] object, and write out the fixed fields of `.eh_frame_hdr` to memory.
     ///
     /// Load address is not known at this point.
@@ -459,15 +442,16 @@ impl<'a> EH_Frame_Hdr<'a> {
     ) -> EH_Frame_Hdr {
         let mut writer = DwarfWriter::new(eh_frame_hdr_slice);
 
-        writer.write_u8(1);     // version
-        writer.write_u8(0x1B);  // eh_frame_ptr_enc - PC-relative 4-byte signed value
-        writer.write_u8(0x03);  // fde_count_enc - 4-byte unsigned value
-        writer.write_u8(0x3B);  // table_enc - .eh_frame_hdr section-relative 4-byte signed value
+        writer.write_u8(1); // version
+        writer.write_u8(0x1B); // eh_frame_ptr_enc - PC-relative 4-byte signed value
+        writer.write_u8(0x03); // fde_count_enc - 4-byte unsigned value
+        writer.write_u8(0x3B); // table_enc - .eh_frame_hdr section-relative 4-byte signed value
 
-        let eh_frame_offset = eh_frame_addr
-            .wrapping_sub(eh_frame_hdr_addr + writer.offset as u32 + ((mem::size_of::<u8>() as u32) * 4));
-        writer.write_u32(eh_frame_offset);  // eh_frame_ptr
-        writer.write_u32(0);  // `fde_count`, will be written in finalize_fde
+        let eh_frame_offset = eh_frame_addr.wrapping_sub(
+            eh_frame_hdr_addr + writer.offset as u32 + ((mem::size_of::<u8>() as u32) * 4),
+        );
+        writer.write_u32(eh_frame_offset); // eh_frame_ptr
+        writer.write_u32(0); // `fde_count`, will be written in finalize_fde
 
         EH_Frame_Hdr { fde_writer: writer, eh_frame_hdr_addr, fdes: Vec::new() }
     }
@@ -492,7 +476,10 @@ impl<'a> EH_Frame_Hdr<'a> {
             self.fde_writer.write_u32(*init_loc);
             self.fde_writer.write_u32(*addr);
         }
-        LittleEndian::write_u32(&mut self.fde_writer.slice[Self::fde_count_offset()..], self.fdes.len() as u32);
+        LittleEndian::write_u32(
+            &mut self.fde_writer.slice[Self::fde_count_offset()..],
+            self.fdes.len() as u32,
+        );
     }
 
     pub fn size_from_eh_frame(eh_frame: &[u8]) -> usize {

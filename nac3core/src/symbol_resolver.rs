@@ -1,18 +1,18 @@
 use std::fmt::Debug;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::{collections::HashMap, collections::HashSet, fmt::Display};
-use std::rc::Rc;
 
 use crate::{
     codegen::{CodeGenContext, CodeGenerator},
-    toplevel::{DefinitionId, TopLevelDef, type_annotation::TypeAnnotation},
+    toplevel::{type_annotation::TypeAnnotation, DefinitionId, TopLevelDef},
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{Type, TypeEnum, Unifier, VarMap},
     },
 };
 use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue};
-use itertools::{chain, Itertools, izip};
+use itertools::{chain, izip, Itertools};
 use nac3parser::ast::{Constant, Expr, Location, StrRef};
 use parking_lot::RwLock;
 
@@ -39,7 +39,7 @@ impl SymbolValue {
         constant: &Constant,
         expected_ty: Type,
         primitives: &PrimitiveStore,
-        unifier: &mut Unifier
+        unifier: &mut Unifier,
     ) -> Result<Self, String> {
         match constant {
             Constant::None => {
@@ -62,24 +62,16 @@ impl SymbolValue {
                 } else {
                     Err(format!("Expected {expected_ty:?}, but got str"))
                 }
-            },
+            }
             Constant::Int(i) => {
                 if unifier.unioned(expected_ty, primitives.int32) {
-                    i32::try_from(*i)
-                        .map(SymbolValue::I32)
-                        .map_err(|e| e.to_string())
+                    i32::try_from(*i).map(SymbolValue::I32).map_err(|e| e.to_string())
                 } else if unifier.unioned(expected_ty, primitives.int64) {
-                    i64::try_from(*i)
-                        .map(SymbolValue::I64)
-                        .map_err(|e| e.to_string())
+                    i64::try_from(*i).map(SymbolValue::I64).map_err(|e| e.to_string())
                 } else if unifier.unioned(expected_ty, primitives.uint32) {
-                    u32::try_from(*i)
-                        .map(SymbolValue::U32)
-                        .map_err(|e| e.to_string())
+                    u32::try_from(*i).map(SymbolValue::U32).map_err(|e| e.to_string())
                 } else if unifier.unioned(expected_ty, primitives.uint64) {
-                    u64::try_from(*i)
-                        .map(SymbolValue::U64)
-                        .map_err(|e| e.to_string())
+                    u64::try_from(*i).map(SymbolValue::U64).map_err(|e| e.to_string())
                 } else {
                     Err(format!("Expected {}, but got int", unifier.stringify(expected_ty)))
                 }
@@ -87,7 +79,10 @@ impl SymbolValue {
             Constant::Tuple(t) => {
                 let expected_ty = unifier.get_ty(expected_ty);
                 let TypeEnum::TTuple { ty } = expected_ty.as_ref() else {
-                    return Err(format!("Expected {:?}, but got Tuple", expected_ty.get_type_name()))
+                    return Err(format!(
+                        "Expected {:?}, but got Tuple",
+                        expected_ty.get_type_name()
+                    ));
                 };
 
                 assert_eq!(ty.len(), t.len());
@@ -105,7 +100,7 @@ impl SymbolValue {
                 } else {
                     Err(format!("Expected {expected_ty:?}, but got float"))
                 }
-            },
+            }
             _ => Err(format!("Unsupported value type {constant:?}")),
         }
     }
@@ -113,9 +108,7 @@ impl SymbolValue {
     /// Creates a [`SymbolValue`] from a [`Constant`], with its type being inferred from the constant value.
     ///
     /// * `constant` - The constant to create the value from.
-    pub fn from_constant_inferred(
-        constant: &Constant,
-    ) -> Result<Self, String> {
+    pub fn from_constant_inferred(constant: &Constant) -> Result<Self, String> {
         match constant {
             Constant::None => Ok(SymbolValue::OptionNone),
             Constant::Bool(b) => Ok(SymbolValue::Bool(*b)),
@@ -123,13 +116,19 @@ impl SymbolValue {
             Constant::Int(i) => {
                 let i = *i;
                 if i >= 0 {
-                    i32::try_from(i).map(SymbolValue::I32)
+                    i32::try_from(i)
+                        .map(SymbolValue::I32)
                         .or_else(|_| i64::try_from(i).map(SymbolValue::I64))
-                        .map_err(|_| format!("Literal cannot be expressed as any integral type: {i}"))
+                        .map_err(|_| {
+                            format!("Literal cannot be expressed as any integral type: {i}")
+                        })
                 } else {
-                    u32::try_from(i).map(SymbolValue::U32)
+                    u32::try_from(i)
+                        .map(SymbolValue::U32)
                         .or_else(|_| u64::try_from(i).map(SymbolValue::U64))
-                        .map_err(|_| format!("Literal cannot be expressed as any integral type: {i}"))
+                        .map_err(|_| {
+                            format!("Literal cannot be expressed as any integral type: {i}")
+                        })
                 }
             }
             Constant::Tuple(t) => {
@@ -155,20 +154,19 @@ impl SymbolValue {
             SymbolValue::Double(_) => primitives.float,
             SymbolValue::Bool(_) => primitives.bool,
             SymbolValue::Tuple(vs) => {
-                let vs_tys = vs
-                    .iter()
-                    .map(|v| v.get_type(primitives, unifier))
-                    .collect::<Vec<_>>();
-                unifier.add_ty(TypeEnum::TTuple {
-                    ty: vs_tys,
-                })
+                let vs_tys = vs.iter().map(|v| v.get_type(primitives, unifier)).collect::<Vec<_>>();
+                unifier.add_ty(TypeEnum::TTuple { ty: vs_tys })
             }
             SymbolValue::OptionSome(_) | SymbolValue::OptionNone => primitives.option,
         }
     }
 
     /// Returns the [`TypeAnnotation`] representing the data type of this value.
-    pub fn get_type_annotation(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> TypeAnnotation {
+    pub fn get_type_annotation(
+        &self,
+        primitives: &PrimitiveStore,
+        unifier: &mut Unifier,
+    ) -> TypeAnnotation {
         match self {
             SymbolValue::Bool(..)
             | SymbolValue::Double(..)
@@ -199,7 +197,11 @@ impl SymbolValue {
     }
 
     /// Returns the [`TypeEnum`] representing the data type of this value.
-    pub fn get_type_enum(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> Rc<TypeEnum> {
+    pub fn get_type_enum(
+        &self,
+        primitives: &PrimitiveStore,
+        unifier: &mut Unifier,
+    ) -> Rc<TypeEnum> {
         let ty = self.get_type(primitives, unifier);
         unifier.get_ty(ty)
     }
@@ -332,7 +334,6 @@ impl<'ctx> From<StructValue<'ctx>> for ValueEnum<'ctx> {
 }
 
 impl<'ctx> ValueEnum<'ctx> {
-
     /// Converts this [`ValueEnum`] to a [`BasicValueEnum`].
     pub fn to_basic_value_enum<'a>(
         self,
@@ -374,7 +375,7 @@ pub trait SymbolResolver {
         &self,
         _unifier: &mut Unifier,
         _top_level_defs: &[Arc<RwLock<TopLevelDef>>],
-        _primitives: &PrimitiveStore
+        _primitives: &PrimitiveStore,
     ) -> Result<(), String> {
         Ok(())
     }
@@ -443,40 +444,29 @@ pub fn parse_type_annotation<T>(
                 let def = top_level_defs[obj_id.0].read();
                 if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
                     if !type_vars.is_empty() {
-                        return Err(HashSet::from([
-                            format!(
-                                "Unexpected number of type parameters: expected {} but got 0",
-                                type_vars.len()
-                            ),
-                        ]))
+                        return Err(HashSet::from([format!(
+                            "Unexpected number of type parameters: expected {} but got 0",
+                            type_vars.len()
+                        )]));
                     }
                     let fields = chain(
                         fields.iter().map(|(k, v, m)| (*k, (*v, *m))),
                         methods.iter().map(|(k, v, _)| (*k, (*v, false))),
                     )
-                        .collect();
-                    Ok(unifier.add_ty(TypeEnum::TObj {
-                        obj_id,
-                        fields,
-                        params: VarMap::default(),
-                    }))
+                    .collect();
+                    Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: VarMap::default() }))
                 } else {
-                    Err(HashSet::from([
-                        format!("Cannot use function name as type at {loc}"),
-                    ]))
+                    Err(HashSet::from([format!("Cannot use function name as type at {loc}")]))
                 }
             } else {
-                let ty = resolver
-                    .get_symbol_type(unifier, top_level_defs, primitives, *id)
-                    .map_err(|e| HashSet::from([
-                        format!("Unknown type annotation at {loc}: {e}"),
-                    ]))?;
+                let ty =
+                    resolver.get_symbol_type(unifier, top_level_defs, primitives, *id).map_err(
+                        |e| HashSet::from([format!("Unknown type annotation at {loc}: {e}")]),
+                    )?;
                 if let TypeEnum::TVar { .. } = &*unifier.get_ty(ty) {
                     Ok(ty)
                 } else {
-                    Err(HashSet::from([
-                        format!("Unknown type annotation {id} at {loc}"),
-                    ]))
+                    Err(HashSet::from([format!("Unknown type annotation {id} at {loc}")]))
                 }
             }
         }
@@ -499,9 +489,7 @@ pub fn parse_type_annotation<T>(
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(unifier.add_ty(TypeEnum::TTuple { ty }))
             } else {
-                Err(HashSet::from([
-                    "Expected multiple elements for tuple".into()
-                ]))
+                Err(HashSet::from(["Expected multiple elements for tuple".into()]))
             }
         } else if *id == literal_id {
             let mut parse_literal = |elt: &Expr<T>| {
@@ -509,19 +497,21 @@ pub fn parse_type_annotation<T>(
                 let ty_enum = &*unifier.get_ty_immutable(ty);
                 match ty_enum {
                     TypeEnum::TLiteral { values, .. } => Ok(values.clone()),
-                    _ => Err(HashSet::from([
-                        format!("Expected literal in type argument for Literal at {}", elt.location),
-                    ]))
+                    _ => Err(HashSet::from([format!(
+                        "Expected literal in type argument for Literal at {}",
+                        elt.location
+                    )])),
                 }
             };
 
             let values = if let Tuple { elts, .. } = &slice.node {
-                elts.iter()
-                    .map(&mut parse_literal)
-                    .collect::<Result<Vec<_>, _>>()?
+                elts.iter().map(&mut parse_literal).collect::<Result<Vec<_>, _>>()?
             } else {
                 vec![parse_literal(slice)?]
-            }.into_iter().flatten().collect_vec();
+            }
+            .into_iter()
+            .flatten()
+            .collect_vec();
 
             Ok(unifier.get_fresh_literal(values, Some(slice.location)))
         } else {
@@ -539,13 +529,11 @@ pub fn parse_type_annotation<T>(
             let def = top_level_defs[obj_id.0].read();
             if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
                 if types.len() != type_vars.len() {
-                    return Err(HashSet::from([
-                        format!(
-                            "Unexpected number of type parameters: expected {} but got {}",
-                            type_vars.len(),
-                            types.len()
-                        ),
-                    ]))
+                    return Err(HashSet::from([format!(
+                        "Unexpected number of type parameters: expected {} but got {}",
+                        type_vars.len(),
+                        types.len()
+                    )]));
                 }
                 let mut subst = VarMap::new();
                 for (var, ty) in izip!(type_vars.iter(), types.iter()) {
@@ -569,9 +557,7 @@ pub fn parse_type_annotation<T>(
                 }));
                 Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: subst }))
             } else {
-                Err(HashSet::from([
-                    "Cannot use function name as type".into(),
-                ]))
+                Err(HashSet::from(["Cannot use function name as type".into()]))
             }
         }
     };
@@ -582,17 +568,13 @@ pub fn parse_type_annotation<T>(
             if let Name { id, .. } = &value.node {
                 subscript_name_handle(id, slice, unifier)
             } else {
-                Err(HashSet::from([
-                    format!("unsupported type expression at {}", expr.location),
-                ]))
+                Err(HashSet::from([format!("unsupported type expression at {}", expr.location)]))
             }
         }
         Constant { value, .. } => SymbolValue::from_constant_inferred(value)
             .map(|v| unifier.get_fresh_literal(vec![v], Some(expr.location)))
             .map_err(|err| HashSet::from([err])),
-        _ => Err(HashSet::from([
-            format!("unsupported type expression at {}", expr.location),
-        ])),
+        _ => Err(HashSet::from([format!("unsupported type expression at {}", expr.location)])),
     }
 }
 

@@ -21,7 +21,7 @@ pub fn call_tan<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -53,7 +53,7 @@ pub fn call_asin<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -85,7 +85,7 @@ pub fn call_acos<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -117,7 +117,7 @@ pub fn call_atan<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -149,7 +149,7 @@ pub fn call_sinh<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -181,7 +181,7 @@ pub fn call_cosh<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -213,7 +213,7 @@ pub fn call_tanh<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -245,7 +245,7 @@ pub fn call_asinh<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -277,7 +277,7 @@ pub fn call_acosh<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -309,7 +309,7 @@ pub fn call_atanh<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -341,7 +341,7 @@ pub fn call_expm1<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -373,7 +373,7 @@ pub fn call_cbrt<'ctx>(
         for attr in ["mustprogress", "nofree", "nosync", "nounwind", "readonly", "willreturn"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -404,7 +404,7 @@ pub fn call_erf<'ctx>(
         let func = ctx.module.add_function(FN_NAME, fn_type, None);
         func.add_attribute(
             AttributeLoc::Function,
-            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 0)
+            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 0),
         );
 
         func
@@ -434,7 +434,7 @@ pub fn call_erfc<'ctx>(
         let func = ctx.module.add_function(FN_NAME, fn_type, None);
         func.add_attribute(
             AttributeLoc::Function,
-            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 0)
+            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 0),
         );
 
         func
@@ -465,7 +465,7 @@ pub fn call_j1<'ctx>(
         let func = ctx.module.add_function(FN_NAME, fn_type, None);
         func.add_attribute(
             AttributeLoc::Function,
-            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 0)
+            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 0),
         );
 
         func
@@ -498,7 +498,7 @@ pub fn call_atan2<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -533,7 +533,7 @@ pub fn call_ldexp<'ctx>(
         for attr in ["mustprogress", "nofree", "nounwind", "willreturn"] {
             func.add_attribute(
                 AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0)
+                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
             );
         }
 
@@ -566,7 +566,7 @@ pub fn call_hypot<'ctx>(
         let func = ctx.module.add_function(FN_NAME, fn_type, None);
         func.add_attribute(
             AttributeLoc::Function,
-            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 0)
+            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 0),
         );
 
         func
@@ -598,7 +598,7 @@ pub fn call_nextafter<'ctx>(
         let func = ctx.module.add_function(FN_NAME, fn_type, None);
         func.add_attribute(
             AttributeLoc::Function,
-            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 0)
+            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("nounwind"), 0),
         );
 
         func

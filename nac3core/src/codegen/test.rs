@@ -1,13 +1,14 @@
 use crate::{
     codegen::{
         classes::{ListType, NDArrayType, ProxyType, RangeType},
-        concrete_type::ConcreteTypeStore, CodeGenContext, CodeGenerator, CodeGenLLVMOptions,
-        CodeGenTargetMachineOptions, CodeGenTask, DefaultCodeGenerator, WithCall, WorkerRegistry,
+        concrete_type::ConcreteTypeStore,
+        CodeGenContext, CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask,
+        CodeGenerator, DefaultCodeGenerator, WithCall, WorkerRegistry,
     },
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
-        composer::{ComposerConfig, TopLevelComposer}, DefinitionId, FunInstance, TopLevelContext,
-        TopLevelDef,
+        composer::{ComposerConfig, TopLevelComposer},
+        DefinitionId, FunInstance, TopLevelContext, TopLevelDef,
     },
     typecheck::{
         type_inferencer::{FunctionData, Inferencer, PrimitiveStore},
@@ -17,7 +18,7 @@ use crate::{
 use indoc::indoc;
 use inkwell::{
     targets::{InitializationConfig, Target},
-    OptimizationLevel
+    OptimizationLevel,
 };
 use nac3parser::{
     ast::{fold::Fold, StrRef},
@@ -70,9 +71,7 @@ impl SymbolResolver for Resolver {
             .read()
             .get(&id)
             .cloned()
-            .ok_or_else(|| HashSet::from([
-                format!("cannot find symbol `{}`", id),
-            ]))
+            .ok_or_else(|| HashSet::from([format!("cannot find symbol `{}`", id)]))
     }
 
     fn get_string_id(&self, _: &str) -> i32 {
@@ -227,12 +226,7 @@ fn test_primitives() {
         opt_level: OptimizationLevel::Default,
         target: CodeGenTargetMachineOptions::from_host_triple(),
     };
-    let (registry, handles) = WorkerRegistry::create_workers(
-        threads,
-        top_level,
-        &llvm_options,
-        &f
-    );
+    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 }
@@ -417,12 +411,7 @@ fn test_simple_call() {
         opt_level: OptimizationLevel::Default,
         target: CodeGenTargetMachineOptions::from_host_triple(),
     };
-    let (registry, handles) = WorkerRegistry::create_workers(
-        threads,
-        top_level,
-        &llvm_options,
-        &f
-    );
+    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 }

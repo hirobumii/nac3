@@ -1,35 +1,35 @@
-use inkwell::AddressSpace;
+use crate::codegen::CodeGenContext;
 use inkwell::context::Context;
 use inkwell::intrinsics::Intrinsic;
 use inkwell::types::AnyTypeEnum::IntType;
 use inkwell::types::FloatType;
 use inkwell::values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue, PointerValue};
+use inkwell::AddressSpace;
 use itertools::Either;
-use crate::codegen::CodeGenContext;
 
 /// Returns the string representation for the floating-point type `ft` when used in intrinsic
 /// functions.
 fn get_float_intrinsic_repr(ctx: &Context, ft: FloatType) -> &'static str {
     // Standard LLVM floating-point types
     if ft == ctx.f16_type() {
-        return "f16"
+        return "f16";
     }
     if ft == ctx.f32_type() {
-        return "f32"
+        return "f32";
     }
     if ft == ctx.f64_type() {
-        return "f64"
+        return "f64";
     }
     if ft == ctx.f128_type() {
-        return "f128"
+        return "f128";
     }
 
     // Non-standard floating-point types
     if ft == ctx.x86_f80_type() {
-        return "f80"
+        return "f80";
     }
     if ft == ctx.ppc_f128_type() {
-        return "ppcf128"
+        return "ppcf128";
     }
 
     unreachable!()
@@ -69,9 +69,7 @@ pub fn call_stackrestore<'ctx>(ctx: &CodeGenContext<'ctx, '_>, ptr: PointerValue
         .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_p0i8.into()]))
         .unwrap();
 
-    ctx.builder
-        .build_call(intrinsic_fn, &[ptr.into()], "")
-        .unwrap();
+    ctx.builder.build_call(intrinsic_fn, &[ptr.into()], "").unwrap();
 }
 
 /// Invokes the [`llvm.abs`](https://llvm.org/docs/LangRef.html#llvm-abs-intrinsic) intrinsic.
@@ -232,10 +230,12 @@ pub fn call_memcpy<'ctx>(
     let llvm_len_t = len.get_type();
 
     let intrinsic_fn = Intrinsic::find(FN_NAME)
-        .and_then(|intrinsic| intrinsic.get_declaration(
-            &ctx.module,
-            &[llvm_dest_t.into(), llvm_src_t.into(), llvm_len_t.into()],
-        ))
+        .and_then(|intrinsic| {
+            intrinsic.get_declaration(
+                &ctx.module,
+                &[llvm_dest_t.into(), llvm_src_t.into(), llvm_len_t.into()],
+            )
+        })
         .unwrap();
 
     ctx.builder
@@ -315,10 +315,9 @@ pub fn call_float_powi<'ctx>(
     let llvm_power_t = power.get_type();
 
     let intrinsic_fn = Intrinsic::find(FN_NAME)
-        .and_then(|intrinsic| intrinsic.get_declaration(
-            &ctx.module,
-            &[llvm_val_t.into(), llvm_power_t.into()],
-        ))
+        .and_then(|intrinsic| {
+            intrinsic.get_declaration(&ctx.module, &[llvm_val_t.into(), llvm_power_t.into()])
+        })
         .unwrap();
 
     ctx.builder
@@ -441,7 +440,6 @@ pub fn call_float_exp2<'ctx>(
         .map(Either::unwrap_left)
         .unwrap()
 }
-
 
 /// Invokes the [`llvm.log`](https://llvm.org/docs/LangRef.html#llvm-log-intrinsic) intrinsic.
 pub fn call_float_log<'ctx>(
@@ -672,7 +670,7 @@ pub fn call_float_round<'ctx>(
         .unwrap()
 }
 
-/// Invokes the 
+/// Invokes the
 /// [`llvm.roundeven`](https://llvm.org/docs/LangRef.html#llvm-roundeven-intrinsic) intrinsic.
 pub fn call_float_roundeven<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,

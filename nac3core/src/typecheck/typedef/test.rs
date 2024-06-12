@@ -45,9 +45,9 @@ impl Unifier {
         }
     }
 
-    fn map_eq<K>(&mut self, map1: &IndexMapping<K>, map2: &IndexMapping<K>) -> bool 
-        where
-            K: std::hash::Hash + Eq + Clone 
+    fn map_eq<K>(&mut self, map1: &IndexMapping<K>, map2: &IndexMapping<K>) -> bool
+    where
+        K: std::hash::Hash + Eq + Clone,
     {
         if map1.len() != map2.len() {
             return false;
@@ -342,16 +342,12 @@ fn test_recursive_subst() {
     with_fields(&mut env.unifier, foo_id, |_unifier, fields| {
         fields.insert("rec".into(), (foo_id, true));
     });
-    let TypeEnum::TObj { params, .. } = &*foo_ty else {
-        unreachable!()
-    };
+    let TypeEnum::TObj { params, .. } = &*foo_ty else { unreachable!() };
     let mapping = params.iter().map(|(id, _)| (*id, int)).collect();
     let instantiated = env.unifier.subst(foo_id, &mapping).unwrap();
     let instantiated_ty = env.unifier.get_ty(instantiated);
 
-    let TypeEnum::TObj { fields, .. } = &*instantiated_ty else {
-        unreachable!()
-    };
+    let TypeEnum::TObj { fields, .. } = &*instantiated_ty else { unreachable!() };
     assert!(env.unifier.unioned(fields.get(&"a".into()).unwrap().0, int));
     assert!(env.unifier.unioned(fields.get(&"rec".into()).unwrap().0, instantiated));
 }
@@ -477,7 +473,8 @@ fn test_typevar_range() {
     assert_eq!(
         env.unify(a_list, int_list),
         Err("Incompatible types: list[typevar22] and list[0]\
-            \n\nNotes:\n    typevar22 ∈ {1}".into())
+            \n\nNotes:\n    typevar22 ∈ {1}"
+            .into())
     );
 
     let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).0;
@@ -505,7 +502,10 @@ fn test_rigid_var() {
 
     assert_eq!(env.unify(a, b), Err("Incompatible types: typevar3 and typevar2".to_string()));
     env.unifier.unify(list_a, list_x).unwrap();
-    assert_eq!(env.unify(list_x, list_int), Err("Incompatible types: list[typevar2] and list[0]".to_string()));
+    assert_eq!(
+        env.unify(list_x, list_int),
+        Err("Incompatible types: list[typevar2] and list[0]".to_string())
+    );
 
     env.unifier.replace_rigid_var(a, int);
     env.unifier.unify(list_x, list_int).unwrap();
