@@ -1,9 +1,7 @@
 use crate::{
     codegen::classes::{ListType, NDArrayType, ProxyType, RangeType},
     symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{
-        helper::PRIMITIVE_DEF_IDS, numpy::unpack_ndarray_var_tys, TopLevelContext, TopLevelDef,
-    },
+    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, TopLevelContext, TopLevelDef},
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
@@ -437,9 +435,9 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
         let result = match &*ty_enum {
             TObj { obj_id, fields, .. } => {
                 // check to avoid treating non-class primitives as classes
-                if obj_id.0 <= PRIMITIVE_DEF_IDS.max_id().0 {
+                if PrimDef::contains_id(*obj_id) {
                     return match &*unifier.get_ty_immutable(ty) {
-                        TObj { obj_id, params, .. } if *obj_id == PRIMITIVE_DEF_IDS.option => {
+                        TObj { obj_id, params, .. } if *obj_id == PrimDef::Option.id() => {
                             get_llvm_type(
                                 ctx,
                                 module,
@@ -453,7 +451,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                             .into()
                         }
 
-                        TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                        TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                             let (dtype, _) = unpack_ndarray_var_tys(unifier, ty);
                             let element_type = get_llvm_type(
                                 ctx, module, generator, unifier, top_level, type_cache, dtype,

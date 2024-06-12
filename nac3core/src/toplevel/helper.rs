@@ -4,75 +4,120 @@ use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::numpy::unpack_ndarray_var_tys;
 use crate::typecheck::typedef::{Mapping, VarMap};
 use nac3parser::ast::{Constant, Location};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 use super::*;
 
-/// Structure storing [`DefinitionId`] for primitive types.
-#[derive(Clone, Copy)]
-pub struct PrimitiveDefinitionIds {
-    pub int32: DefinitionId,
-    pub int64: DefinitionId,
-    pub uint32: DefinitionId,
-    pub uint64: DefinitionId,
-    pub float: DefinitionId,
-    pub bool: DefinitionId,
-    pub none: DefinitionId,
-    pub range: DefinitionId,
-    pub str: DefinitionId,
-    pub exception: DefinitionId,
-    pub option: DefinitionId,
-    pub ndarray: DefinitionId,
+/// All primitive types and functions in nac3core.
+#[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq)]
+pub enum PrimDef {
+    Int32,
+    Int64,
+    Float,
+    Bool,
+    None,
+    Range,
+    Str,
+    Exception,
+    UInt32,
+    UInt64,
+    Option,
+    OptionIsSome,
+    OptionIsNone,
+    OptionUnwrap,
+    NDArray,
+    NDArrayCopy,
+    NDArrayFill,
+    FunInt32,
+    FunInt64,
+    FunUInt32,
+    FunUInt64,
+    FunFloat,
+    FunNpNDArray,
+    FunNpEmpty,
+    FunNpZeros,
+    FunNpOnes,
+    FunNpFull,
+    FunNpArray,
+    FunNpEye,
+    FunNpIdentity,
+    FunRound,
+    FunRound64,
+    FunNpRound,
+    FunRange,
+    FunStr,
+    FunBool,
+    FunFloor,
+    FunFloor64,
+    FunNpFloor,
+    FunCeil,
+    FunCeil64,
+    FunNpCeil,
+    FunLen,
+    FunMin,
+    FunNpMin,
+    FunNpMinimum,
+    FunMax,
+    FunNpMax,
+    FunNpMaximum,
+    FunAbs,
+    FunNpIsNan,
+    FunNpIsInf,
+    FunNpSin,
+    FunNpCos,
+    FunNpExp,
+    FunNpExp2,
+    FunNpLog,
+    FunNpLog10,
+    FunNpLog2,
+    FunNpFabs,
+    FunNpSqrt,
+    FunNpRint,
+    FunNpTan,
+    FunNpArcsin,
+    FunNpArccos,
+    FunNpArctan,
+    FunNpSinh,
+    FunNpCosh,
+    FunNpTanh,
+    FunNpArcsinh,
+    FunNpArccosh,
+    FunNpArctanh,
+    FunNpExpm1,
+    FunNpCbrt,
+    FunSpSpecErf,
+    FunSpSpecErfc,
+    FunSpSpecGamma,
+    FunSpSpecGammaln,
+    FunSpSpecJ0,
+    FunSpSpecJ1,
+    FunNpArctan2,
+    FunNpCopysign,
+    FunNpFmax,
+    FunNpFmin,
+    FunNpLdExp,
+    FunNpHypot,
+    FunNpNextAfter,
+    FunSome,
 }
 
-impl PrimitiveDefinitionIds {
-    /// Returns all [`DefinitionId`] of primitives as a [`Vec`].
+impl PrimDef {
+    /// Get the assigned [`DefinitionId`] of this [`PrimDef`].
     ///
-    /// There are no guarantees on ordering of the IDs.
+    /// The assigned definition ID is defined by the position this [`PrimDef`] enum unit variant is defined at,
+    /// with the first `PrimDef`'s definition id being `0`.
     #[must_use]
-    fn as_vec(&self) -> Vec<DefinitionId> {
-        vec![
-            self.int32,
-            self.int64,
-            self.uint32,
-            self.uint64,
-            self.float,
-            self.bool,
-            self.none,
-            self.range,
-            self.str,
-            self.exception,
-            self.option,
-            self.ndarray,
-        ]
+    pub fn id(&self) -> DefinitionId {
+        DefinitionId(*self as usize)
     }
 
-    /// Returns an iterator over all [`DefinitionId`]s of this instance in indeterminate order.
-    pub fn iter(&self) -> impl Iterator<Item = DefinitionId> {
-        self.as_vec().into_iter()
-    }
-
-    /// Returns the primitive with the largest [`DefinitionId`].
+    /// Check if a definition ID is that of a [`PrimDef`].
     #[must_use]
-    pub fn max_id(&self) -> DefinitionId {
-        self.iter().max().unwrap()
+    pub fn contains_id(id: DefinitionId) -> bool {
+        Self::iter().any(|prim| prim.id() == id)
     }
 }
-
-/// The [definition IDs][DefinitionId] for primitive types.
-pub const PRIMITIVE_DEF_IDS: PrimitiveDefinitionIds = PrimitiveDefinitionIds {
-    int32: DefinitionId(0),
-    int64: DefinitionId(1),
-    uint32: DefinitionId(8),
-    uint64: DefinitionId(9),
-    float: DefinitionId(2),
-    bool: DefinitionId(3),
-    none: DefinitionId(4),
-    range: DefinitionId(5),
-    str: DefinitionId(6),
-    exception: DefinitionId(7),
-    option: DefinitionId(10),
-    ndarray: DefinitionId(14),
-};
 
 impl TopLevelDef {
     pub fn to_string(&self, unifier: &mut Unifier) -> String {
@@ -116,42 +161,42 @@ impl TopLevelComposer {
     pub fn make_primitives(size_t: u32) -> (PrimitiveStore, Unifier) {
         let mut unifier = Unifier::new();
         let int32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.int32,
+            obj_id: PrimDef::Int32.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let int64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.int64,
+            obj_id: PrimDef::Int64.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let float = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.float,
+            obj_id: PrimDef::Float.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let bool = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.bool,
+            obj_id: PrimDef::Bool.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let none = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.none,
+            obj_id: PrimDef::None.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let range = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.range,
+            obj_id: PrimDef::Range.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let str = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.str,
+            obj_id: PrimDef::Str.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let exception = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.exception,
+            obj_id: PrimDef::Exception.id(),
             fields: vec![
                 ("__name__".into(), (int32, true)),
                 ("__file__".into(), (str, true)),
@@ -168,12 +213,12 @@ impl TopLevelComposer {
             params: VarMap::new(),
         });
         let uint32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.uint32,
+            obj_id: PrimDef::UInt32.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let uint64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.uint64,
+            obj_id: PrimDef::UInt64.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
@@ -190,7 +235,7 @@ impl TopLevelComposer {
             vars: VarMap::from([(option_type_var.1, option_type_var.0)]),
         }));
         let option = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.option,
+            obj_id: PrimDef::Option.id(),
             fields: vec![
                 ("is_some".into(), (is_some_type_fun_ty, true)),
                 ("is_none".into(), (is_some_type_fun_ty, true)),
@@ -232,7 +277,7 @@ impl TopLevelComposer {
             ]),
         }));
         let ndarray = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.ndarray,
+            obj_id: PrimDef::NDArray.id(),
             fields: Mapping::from([
                 ("copy".into(), (ndarray_copy_fun_ty, true)),
                 ("fill".into(), (ndarray_fill_fun_ty, true)),
@@ -689,7 +734,7 @@ pub fn parse_parameter_default_value(
 /// Obtains the element type of an array-like type.
 pub fn arraylike_flatten_element_type(unifier: &mut Unifier, ty: Type) -> Type {
     match &*unifier.get_ty(ty) {
-        TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
             unpack_ndarray_var_tys(unifier, ty).0
         }
 
@@ -701,7 +746,7 @@ pub fn arraylike_flatten_element_type(unifier: &mut Unifier, ty: Type) -> Type {
 /// Obtains the number of dimensions of an array-like type.
 pub fn arraylike_get_ndims(unifier: &mut Unifier, ty: Type) -> u64 {
     match &*unifier.get_ty(ty) {
-        TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
             let ndims = unpack_ndarray_var_tys(unifier, ty).1;
             let TypeEnum::TLiteral { values, .. } = &*unifier.get_ty_immutable(ndims) else {
                 panic!("Expected TLiteral for ndarray.ndims, got {}", unifier.stringify(ndims))

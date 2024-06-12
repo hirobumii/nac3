@@ -1,5 +1,5 @@
 use crate::{
-    toplevel::helper::PRIMITIVE_DEF_IDS,
+    toplevel::helper::PrimDef,
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{Type, TypeEnum, Unifier, VarMap},
@@ -37,7 +37,7 @@ pub fn subst_ndarray_tvars(
     let TypeEnum::TObj { obj_id, params, .. } = &*unifier.get_ty_immutable(ndarray) else {
         panic!("Expected `ndarray` to be TObj, but got {}", unifier.stringify(ndarray))
     };
-    debug_assert_eq!(*obj_id, PRIMITIVE_DEF_IDS.ndarray);
+    debug_assert_eq!(*obj_id, PrimDef::NDArray.id());
 
     if dtype.is_none() && ndims.is_none() {
         return ndarray;
@@ -61,7 +61,7 @@ fn unpack_ndarray_tvars(unifier: &mut Unifier, ndarray: Type) -> Vec<(u32, Type)
     let TypeEnum::TObj { obj_id, params, .. } = &*unifier.get_ty_immutable(ndarray) else {
         panic!("Expected `ndarray` to be TObj, but got {}", unifier.stringify(ndarray))
     };
-    debug_assert_eq!(*obj_id, PRIMITIVE_DEF_IDS.ndarray);
+    debug_assert_eq!(*obj_id, PrimDef::NDArray.id());
     debug_assert_eq!(params.len(), 2);
 
     params

@@ -7,7 +7,7 @@ use crate::codegen::classes::{NDArrayValue, ProxyValue, UntypedArrayLikeAccessor
 use crate::codegen::numpy::ndarray_elementwise_unaryop_impl;
 use crate::codegen::stmt::gen_for_callback_incrementing;
 use crate::codegen::{extern_fns, irrt, llvm_intrinsics, numpy, CodeGenContext, CodeGenerator};
-use crate::toplevel::helper::PRIMITIVE_DEF_IDS;
+use crate::toplevel::helper::PrimDef;
 use crate::toplevel::numpy::unpack_ndarray_var_tys;
 use crate::typecheck::typedef::Type;
 
@@ -64,7 +64,7 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -126,7 +126,7 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -204,7 +204,7 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -271,7 +271,7 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -337,7 +337,7 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -383,7 +383,7 @@ pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -423,7 +423,7 @@ pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -488,7 +488,7 @@ pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -542,7 +542,7 @@ pub fn call_floor<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -592,7 +592,7 @@ pub fn call_ceil<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -690,7 +690,7 @@ pub fn call_numpy_min<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if a_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if a_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, a_ty);
             let llvm_ndarray_ty = ctx.get_llvm_type(generator, elem_ty);
@@ -783,13 +783,13 @@ pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
 
         (x1, x2)
             if [&x1_ty, &x2_ty].into_iter().any(|ty| {
-                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
             let is_ndarray1 =
-                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
             let is_ndarray2 =
-                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             let dtype = if is_ndarray1 && is_ndarray2 {
                 let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
@@ -906,7 +906,7 @@ pub fn call_numpy_max<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if a_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if a_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, a_ty);
             let llvm_ndarray_ty = ctx.get_llvm_type(generator, elem_ty);
@@ -999,13 +999,13 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
 
         (x1, x2)
             if [&x1_ty, &x2_ty].into_iter().any(|ty| {
-                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
             let is_ndarray1 =
-                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
             let is_ndarray2 =
-                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             let dtype = if is_ndarray1 && is_ndarray2 {
                 let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
@@ -1086,7 +1086,7 @@ pub fn call_abs<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
 
@@ -1126,7 +1126,7 @@ pub fn call_numpy_isnan<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1170,7 +1170,7 @@ pub fn call_numpy_isinf<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1214,7 +1214,7 @@ pub fn call_numpy_sin<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1254,7 +1254,7 @@ pub fn call_numpy_cos<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1294,7 +1294,7 @@ pub fn call_numpy_exp<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1334,7 +1334,7 @@ pub fn call_numpy_exp2<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1374,7 +1374,7 @@ pub fn call_numpy_log<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1414,7 +1414,7 @@ pub fn call_numpy_log10<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1454,7 +1454,7 @@ pub fn call_numpy_log2<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1494,7 +1494,7 @@ pub fn call_numpy_fabs<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1534,7 +1534,7 @@ pub fn call_numpy_sqrt<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1574,7 +1574,7 @@ pub fn call_numpy_rint<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1614,7 +1614,7 @@ pub fn call_numpy_tan<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1654,7 +1654,7 @@ pub fn call_numpy_arcsin<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1694,7 +1694,7 @@ pub fn call_numpy_arccos<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1734,7 +1734,7 @@ pub fn call_numpy_arctan<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1774,7 +1774,7 @@ pub fn call_numpy_sinh<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1814,7 +1814,7 @@ pub fn call_numpy_cosh<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1854,7 +1854,7 @@ pub fn call_numpy_tanh<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1894,7 +1894,7 @@ pub fn call_numpy_arcsinh<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1934,7 +1934,7 @@ pub fn call_numpy_arccosh<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -1974,7 +1974,7 @@ pub fn call_numpy_arctanh<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -2014,7 +2014,7 @@ pub fn call_numpy_expm1<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -2054,7 +2054,7 @@ pub fn call_numpy_cbrt<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -2094,7 +2094,7 @@ pub fn call_scipy_special_erf<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(z)
-            if z_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if z_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, z_ty);
 
@@ -2134,7 +2134,7 @@ pub fn call_scipy_special_erfc<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -2174,7 +2174,7 @@ pub fn call_scipy_special_gamma<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(z)
-            if z_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if z_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, z_ty);
 
@@ -2214,7 +2214,7 @@ pub fn call_scipy_special_gammaln<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -2254,7 +2254,7 @@ pub fn call_scipy_special_j0<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -2294,7 +2294,7 @@ pub fn call_scipy_special_j1<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) =>
+            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
 
@@ -2336,13 +2336,13 @@ pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
 
         (x1, x2)
             if [&x1_ty, &x2_ty].into_iter().any(|ty| {
-                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
             let is_ndarray1 =
-                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
             let is_ndarray2 =
-                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             let dtype = if is_ndarray1 && is_ndarray2 {
                 let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
@@ -2403,13 +2403,13 @@ pub fn call_numpy_copysign<'ctx, G: CodeGenerator + ?Sized>(
 
         (x1, x2)
             if [&x1_ty, &x2_ty].into_iter().any(|ty| {
-                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
             let is_ndarray1 =
-                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
             let is_ndarray2 =
-                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             let dtype = if is_ndarray1 && is_ndarray2 {
                 let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
@@ -2470,13 +2470,13 @@ pub fn call_numpy_fmax<'ctx, G: CodeGenerator + ?Sized>(
 
         (x1, x2)
             if [&x1_ty, &x2_ty].into_iter().any(|ty| {
-                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
             let is_ndarray1 =
-                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
             let is_ndarray2 =
-                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             let dtype = if is_ndarray1 && is_ndarray2 {
                 let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
@@ -2537,13 +2537,13 @@ pub fn call_numpy_fmin<'ctx, G: CodeGenerator + ?Sized>(
 
         (x1, x2)
             if [&x1_ty, &x2_ty].into_iter().any(|ty| {
-                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
             let is_ndarray1 =
-                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
             let is_ndarray2 =
-                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             let dtype = if is_ndarray1 && is_ndarray2 {
                 let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
@@ -2604,13 +2604,13 @@ pub fn call_numpy_ldexp<'ctx, G: CodeGenerator + ?Sized>(
 
         (x1, x2)
             if [&x1_ty, &x2_ty].into_iter().any(|ty| {
-                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
             let is_ndarray1 =
-                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
             let is_ndarray2 =
-                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             let dtype =
                 if is_ndarray1 { unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty).0 } else { x1_ty };
@@ -2660,13 +2660,13 @@ pub fn call_numpy_hypot<'ctx, G: CodeGenerator + ?Sized>(
 
         (x1, x2)
             if [&x1_ty, &x2_ty].into_iter().any(|ty| {
-                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
             let is_ndarray1 =
-                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
             let is_ndarray2 =
-                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             let dtype = if is_ndarray1 && is_ndarray2 {
                 let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
@@ -2727,13 +2727,13 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
 
         (x1, x2)
             if [&x1_ty, &x2_ty].into_iter().any(|ty| {
-                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
             let is_ndarray1 =
-                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x1_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
             let is_ndarray2 =
-                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                x2_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             let dtype = if is_ndarray1 && is_ndarray2 {
                 let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);

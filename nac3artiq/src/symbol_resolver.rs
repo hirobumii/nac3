@@ -3,7 +3,7 @@ use nac3core::{
     codegen::{CodeGenContext, CodeGenerator},
     symbol_resolver::{StaticValue, SymbolResolver, SymbolValue, ValueEnum},
     toplevel::{
-        helper::PRIMITIVE_DEF_IDS,
+        helper::PrimDef,
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         DefinitionId, TopLevelDef,
     },
@@ -469,7 +469,7 @@ impl InnerResolver {
                         )));
                     }
                 }
-                TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                     if args.len() != 2 {
                         return Ok(Err(format!(
                             "type list needs exactly 2 type parameters, found {}",
@@ -660,7 +660,7 @@ impl InnerResolver {
                     }
                 }
             }
-            (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+            (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PrimDef::NDArray.id() => {
                 let (ty, ndims) = unpack_ndarray_var_tys(unifier, extracted_ty);
                 let len: usize = self.helper.len_fn.call1(py, (obj,))?.extract(py)?;
                 if len == 0 {

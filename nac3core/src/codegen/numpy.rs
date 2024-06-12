@@ -18,7 +18,7 @@ use crate::{
     },
     symbol_resolver::ValueEnum,
     toplevel::{
-        helper::PRIMITIVE_DEF_IDS,
+        helper::PrimDef,
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         DefinitionId,
     },
@@ -1775,7 +1775,7 @@ pub fn gen_ndarray_array<'ctx>(
 
     let obj_ty = fun.0.args[0].ty;
     let obj_elem_ty = match &*context.unifier.get_ty(obj_ty) {
-        TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
             unpack_ndarray_var_tys(&mut context.unifier, obj_ty).0
         }
 

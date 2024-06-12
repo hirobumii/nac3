@@ -10,9 +10,7 @@ use crate::{
         expr::gen_binop_expr,
         gen_in_range_check,
     },
-    toplevel::{
-        helper::PRIMITIVE_DEF_IDS, numpy::unpack_ndarray_var_tys, DefinitionId, TopLevelDef,
-    },
+    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, DefinitionId, TopLevelDef},
     typecheck::typedef::{FunSignature, Type, TypeEnum},
 };
 use inkwell::{
@@ -188,7 +186,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                     v.data().ptr_offset(ctx, generator, &index, name)
                 }
 
-                TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                     todo!()
                 }
 
@@ -246,7 +244,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
             let value = ListValue::from_ptr_val(value, llvm_usize, None);
             let ty = match &*ctx.unifier.get_ty_immutable(target.custom.unwrap()) {
                 TypeEnum::TList { ty } => *ty,
-                TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                     unpack_ndarray_var_tys(&mut ctx.unifier, target.custom.unwrap()).0
                 }
                 _ => unreachable!(),

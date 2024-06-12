@@ -9,7 +9,7 @@ use super::{magic_methods::*, type_error::TypeError, typedef::CallId};
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
-        helper::{arraylike_flatten_element_type, arraylike_get_ndims, PRIMITIVE_DEF_IDS},
+        helper::{arraylike_flatten_element_type, arraylike_get_ndims, PrimDef},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         TopLevelContext,
     },
@@ -244,7 +244,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                         TypeEnum::TList { .. } => {
                             self.unifier.add_ty(TypeEnum::TList { ty: target.custom.unwrap() })
                         }
-                        TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                             todo!()
                         }
                         _ => unreachable!(),
@@ -892,9 +892,7 @@ impl<'a> Inferencer<'a> {
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
 
-            let ret = if arg0_ty
-                .obj_id(self.unifier)
-                .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             {
                 let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
 
@@ -932,14 +930,14 @@ impl<'a> Inferencer<'a> {
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
 
-            let ret =
-                if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
-                    let (ndarray_dtype, _) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
+            {
+                let (ndarray_dtype, _) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
 
-                    ndarray_dtype
-                } else {
-                    arg0_ty
-                };
+                ndarray_dtype
+            } else {
+                arg0_ty
+            };
 
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg {
@@ -987,14 +985,14 @@ impl<'a> Inferencer<'a> {
             let arg1_ty = arg1.custom.unwrap();
 
             let arg0_dtype =
-                if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
                     unpack_ndarray_var_tys(self.unifier, arg0_ty).0
                 } else {
                     arg0_ty
                 };
 
             let arg1_dtype =
-                if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+                if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
                     unpack_ndarray_var_tys(self.unifier, arg1_ty).0
                 } else {
                     arg1_ty
@@ -1020,15 +1018,12 @@ impl<'a> Inferencer<'a> {
             };
 
             let ret = if [&arg0_ty, &arg1_ty].into_iter().any(|arg_ty| {
-                arg_ty.obj_id(self.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                arg_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) {
                 // typeof_ndarray_broadcast requires both dtypes to be the same, but ldexp accepts
                 // (float, int32), so convert it to align with the dtype of the first arg
                 let arg1_ty = if id == &"np_ldexp".into() {
-                    if arg1_ty
-                        .obj_id(self.unifier)
-                        .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
-                    {
+                    if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
                         let (_, ndims) = unpack_ndarray_var_tys(self.unifier, arg1_ty);
 
                         make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndims))
@@ -1116,9 +1111,7 @@ impl<'a> Inferencer<'a> {
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
 
-            let ret = if arg0_ty
-                .obj_id(self.unifier)
-                .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             {
                 let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
 
@@ -1552,7 +1545,7 @@ impl<'a> Inferencer<'a> {
                 expr.custom
                     .unwrap()
                     .obj_id(self.unifier)
-                    .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                    .is_some_and(|id| id == PrimDef::NDArray.id())
             })
         {
             return Err(HashSet::from([String::from(
@@ -1670,7 +1663,7 @@ impl<'a> Inferencer<'a> {
                 }
                 let list_like_ty = match &*self.unifier.get_ty(value.custom.unwrap()) {
                     TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty }),
-                    TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                    TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                         let (_, ndims) =
                             unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
 
@@ -1684,7 +1677,7 @@ impl<'a> Inferencer<'a> {
             }
             ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
                 match &*self.unifier.get_ty(value.custom.unwrap()) {
-                    TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                    TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                         let (_, ndims) =
                             unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
                         self.infer_subscript_ndarray(value, ty, ndims)
@@ -1710,7 +1703,7 @@ impl<'a> Inferencer<'a> {
                     .custom
                     .unwrap()
                     .obj_id(self.unifier)
-                    .is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+                    .is_some_and(|id| id == PrimDef::NDArray.id())
                     .not()
                 {
                     return report_error(
@@ -1755,7 +1748,7 @@ impl<'a> Inferencer<'a> {
                         self.constrain(value.custom.unwrap(), list, &value.location)?;
                         Ok(ty)
                     }
-                    TypeEnum::TObj { obj_id, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                    TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                         let (_, ndims) =
                             unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
 

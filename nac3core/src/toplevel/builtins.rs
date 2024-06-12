@@ -22,7 +22,7 @@ use crate::{
         stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
-    toplevel::{helper::PRIMITIVE_DEF_IDS, numpy::make_ndarray_ty},
+    toplevel::{helper::PrimDef, numpy::make_ndarray_ty},
     typecheck::typedef::VarMap,
 };
 
@@ -90,7 +90,7 @@ pub fn get_exn_constructor(
         methods: vec![("__init__".into(), signature, DefinitionId(cons_id))],
         ancestors: vec![
             TypeAnnotation::CustomClass { id: DefinitionId(class_id), params: Vec::default() },
-            TypeAnnotation::CustomClass { id: PRIMITIVE_DEF_IDS.exception, params: Vec::default() },
+            TypeAnnotation::CustomClass { id: PrimDef::Exception.id(), params: Vec::default() },
         ],
         constructor: Some(signature),
         resolver: None,
@@ -365,49 +365,49 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
 
     let top_level_def_list = vec![
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            PRIMITIVE_DEF_IDS.int32,
+            PrimDef::Int32.id(),
             None,
             "int32".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            PRIMITIVE_DEF_IDS.int64,
+            PrimDef::Int64.id(),
             None,
             "int64".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            PRIMITIVE_DEF_IDS.float,
+            PrimDef::Float.id(),
             None,
             "float".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            PRIMITIVE_DEF_IDS.bool,
+            PrimDef::Bool.id(),
             None,
             "bool".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            PRIMITIVE_DEF_IDS.none,
+            PrimDef::None.id(),
             None,
             "none".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            PRIMITIVE_DEF_IDS.range,
+            PrimDef::Range.id(),
             None,
             "range".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            PRIMITIVE_DEF_IDS.str,
+            PrimDef::Str.id(),
             None,
             "str".into(),
             None,
@@ -415,7 +415,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
         ))),
         Arc::new(RwLock::new(TopLevelDef::Class {
             name: "Exception".into(),
-            object_id: PRIMITIVE_DEF_IDS.exception,
+            object_id: PrimDef::Exception.id(),
             type_vars: Vec::default(),
             fields: exception_fields,
             methods: Vec::default(),
@@ -425,14 +425,14 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
             loc: None,
         })),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            PRIMITIVE_DEF_IDS.uint32,
+            PrimDef::UInt32.id(),
             None,
             "uint32".into(),
             None,
             None,
         ))),
         Arc::new(RwLock::new(TopLevelComposer::make_top_level_class_def(
-            PRIMITIVE_DEF_IDS.uint64,
+            PrimDef::UInt64.id(),
             None,
             "uint64".into(),
             None,
@@ -441,16 +441,16 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
         Arc::new(RwLock::new({
             TopLevelDef::Class {
                 name: "Option".into(),
-                object_id: PRIMITIVE_DEF_IDS.option,
+                object_id: PrimDef::Option.id(),
                 type_vars: vec![option_ty_var],
                 fields: vec![],
                 methods: vec![
-                    ("is_some".into(), is_some_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.option.0 + 1)),
-                    ("is_none".into(), is_some_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.option.0 + 2)),
-                    ("unwrap".into(), unwrap_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.option.0 + 3)),
+                    ("is_some".into(), is_some_ty.0, PrimDef::OptionIsSome.id()),
+                    ("is_none".into(), is_some_ty.0, PrimDef::OptionIsNone.id()),
+                    ("unwrap".into(), unwrap_ty.0, PrimDef::OptionUnwrap.id()),
                 ],
                 ancestors: vec![TypeAnnotation::CustomClass {
-                    id: PRIMITIVE_DEF_IDS.option,
+                    id: PrimDef::Option.id(),
                     params: Vec::default(),
                 }],
                 constructor: None,
@@ -517,12 +517,12 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
         })),
         Arc::new(RwLock::new(TopLevelDef::Class {
             name: "ndarray".into(),
-            object_id: PRIMITIVE_DEF_IDS.ndarray,
+            object_id: PrimDef::NDArray.id(),
             type_vars: vec![ndarray_dtype_ty, ndarray_ndims_ty],
             fields: Vec::default(),
             methods: vec![
-                ("copy".into(), ndarray_copy_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 1)),
-                ("fill".into(), ndarray_fill_ty.0, DefinitionId(PRIMITIVE_DEF_IDS.ndarray.0 + 2)),
+                ("copy".into(), ndarray_copy_ty.0, PrimDef::NDArrayCopy.id()),
+                ("fill".into(), ndarray_fill_ty.0, PrimDef::NDArrayFill.id()),
             ],
             ancestors: Vec::default(),
             constructor: None,
@@ -1317,7 +1317,7 @@ pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> Built
                                     }
                                 }
                                 TypeEnum::TObj { obj_id, .. }
-                                    if *obj_id == PRIMITIVE_DEF_IDS.ndarray =>
+                                    if *obj_id == PrimDef::NDArray.id() =>
                                 {
                                     let llvm_i32 = ctx.ctx.i32_type();
                                     let llvm_usize = generator.get_size_type(ctx.ctx);

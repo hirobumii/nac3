@@ -16,7 +16,7 @@ use crate::{
     },
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
-        helper::PRIMITIVE_DEF_IDS,
+        helper::PrimDef,
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         DefinitionId, TopLevelDef,
     },
@@ -1181,15 +1181,13 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             Some("f_pow_i"),
         );
         Ok(Some(res.into()))
-    } else if ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
-        || ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+    } else if ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
+        || ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
     {
         let llvm_usize = generator.get_size_type(ctx.ctx);
 
-        let is_ndarray1 =
-            ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
-        let is_ndarray2 =
-            ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+        let is_ndarray1 = ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
+        let is_ndarray2 = ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
         if is_ndarray1 && is_ndarray2 {
             let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty1);
@@ -1427,7 +1425,7 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
                 .unwrap(),
             _ => val.into(),
         }
-    } else if ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+    } else if ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
         let llvm_usize = generator.get_size_type(ctx.ctx);
         let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
@@ -1435,16 +1433,15 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
 
         // ndarray uses `~` rather than `not` to perform elementwise inversion, convert it before
         // passing it to the elementwise codegen function
-        let op =
-            if ndarray_dtype.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
-                if *op == ast::Unaryop::Invert {
-                    &ast::Unaryop::Not
-                } else {
-                    unreachable!("ufunc {} not supported for ndarray[bool, N]", unaryop_name(op))
-                }
+        let op = if ndarray_dtype.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::Bool.id()) {
+            if *op == ast::Unaryop::Invert {
+                &ast::Unaryop::Not
             } else {
-                op
-            };
+                unreachable!("ufunc {} not supported for ndarray[bool, N]", unaryop_name(op))
+            }
+        } else {
+            op
+        };
 
         let res = numpy::ndarray_elementwise_unaryop_impl(
             generator,
@@ -1499,8 +1496,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
         let left_ty = ctx.unifier.get_representative(left.0.unwrap());
         let right_ty = ctx.unifier.get_representative(comparators[0].0.unwrap());
 
-        if left_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
-            || right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray)
+        if left_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
+            || right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
         {
             let llvm_usize = generator.get_size_type(ctx.ctx);
 
@@ -1509,9 +1506,9 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
             let op = ops[0].clone();
 
             let is_ndarray1 =
-                left_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                left_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
             let is_ndarray2 =
-                right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+                right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             return if is_ndarray1 && is_ndarray2 {
                 let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, left_ty);
@@ -2370,7 +2367,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                         ))
                                     }
                                     Some(v) => Ok(Some(v)),
-                                };
+                                }
                             }
                             ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
                                 let not_null =
@@ -2518,7 +2515,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         v.data().get(ctx, generator, &index, None).into()
                     }
                 }
-                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PRIMITIVE_DEF_IDS.ndarray => {
+                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::NDArray.id() => {
                     let (ty, ndims) = params.iter().map(|(_, ty)| ty).collect_tuple().unwrap();
 
                     let v = if let Some(v) = generator.gen_expr(ctx, value)? {

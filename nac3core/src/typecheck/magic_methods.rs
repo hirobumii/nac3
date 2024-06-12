@@ -1,5 +1,5 @@
 use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::helper::PRIMITIVE_DEF_IDS;
+use crate::toplevel::helper::PrimDef;
 use crate::toplevel::numpy::{make_ndarray_ty, unpack_ndarray_var_tys};
 use crate::typecheck::{
     type_inferencer::*,
@@ -11,6 +11,7 @@ use nac3parser::ast::{Cmpop, Operator, Unaryop};
 use std::cmp::max;
 use std::collections::HashMap;
 use std::rc::Rc;
+use strum::IntoEnumIterator;
 
 #[must_use]
 pub fn binop_name(op: &Operator) -> &'static str {
@@ -360,8 +361,8 @@ pub fn typeof_ndarray_broadcast(
     left: Type,
     right: Type,
 ) -> Result<Type, String> {
-    let is_left_ndarray = left.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
-    let is_right_ndarray = right.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+    let is_left_ndarray = left.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id());
+    let is_right_ndarray = right.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
     assert!(is_left_ndarray || is_right_ndarray);
 
@@ -428,8 +429,8 @@ pub fn typeof_binop(
     lhs: Type,
     rhs: Type,
 ) -> Result<Option<Type>, String> {
-    let is_left_ndarray = lhs.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
-    let is_right_ndarray = rhs.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+    let is_left_ndarray = lhs.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id());
+    let is_right_ndarray = rhs.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
     Ok(Some(match op {
         Operator::Add | Operator::Sub | Operator::Mult | Operator::Mod | Operator::FloorDiv => {
@@ -534,17 +535,15 @@ pub fn typeof_unaryop(
 
     Ok(match *op {
         Unaryop::Not => match operand_obj_id {
-            Some(v) if v == PRIMITIVE_DEF_IDS.ndarray => Some(operand),
+            Some(v) if v == PrimDef::NDArray.id() => Some(operand),
             Some(_) => Some(primitives.bool),
             _ => None,
         },
 
         Unaryop::Invert => {
-            if operand_obj_id.is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
+            if operand_obj_id.is_some_and(|id| id == PrimDef::Bool.id()) {
                 Some(primitives.int32)
-            } else if operand_obj_id
-                .is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id))
-            {
+            } else if operand_obj_id.is_some_and(|id| PrimDef::iter().any(|prim| id == prim.id())) {
                 Some(operand)
             } else {
                 None
@@ -552,9 +551,9 @@ pub fn typeof_unaryop(
         }
 
         Unaryop::UAdd | Unaryop::USub => {
-            if operand_obj_id.is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray) {
+            if operand_obj_id.is_some_and(|id| id == PrimDef::NDArray.id()) {
                 let (dtype, _) = unpack_ndarray_var_tys(unifier, operand);
-                if dtype.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
+                if dtype.obj_id(unifier).is_some_and(|id| id == PrimDef::Bool.id()) {
                     return Err(if *op == Unaryop::UAdd {
                         "The ufunc 'positive' cannot be applied to ndarray[bool, N]".to_string()
                     } else {
@@ -563,11 +562,9 @@ pub fn typeof_unaryop(
                 }
 
                 Some(operand)
-            } else if operand_obj_id.is_some_and(|id| id == PRIMITIVE_DEF_IDS.bool) {
+            } else if operand_obj_id.is_some_and(|id| id == PrimDef::Bool.id()) {
                 Some(primitives.int32)
-            } else if operand_obj_id
-                .is_some_and(|id| PRIMITIVE_DEF_IDS.iter().any(|prim_id| id == prim_id))
-            {
+            } else if operand_obj_id.is_some_and(|id| PrimDef::iter().any(|prim| id == prim.id())) {
                 Some(operand)
             } else {
                 None
@@ -584,8 +581,8 @@ pub fn typeof_cmpop(
     lhs: Type,
     rhs: Type,
 ) -> Result<Option<Type>, String> {
-    let is_left_ndarray = lhs.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
-    let is_right_ndarray = rhs.obj_id(unifier).is_some_and(|id| id == PRIMITIVE_DEF_IDS.ndarray);
+    let is_left_ndarray = lhs.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id());
+    let is_right_ndarray = rhs.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
     Ok(Some(if is_left_ndarray || is_right_ndarray {
         let brd = typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?;

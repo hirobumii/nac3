@@ -3,7 +3,7 @@ use super::*;
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::ValueEnum,
-    toplevel::{helper::PRIMITIVE_DEF_IDS, DefinitionId, TopLevelDef},
+    toplevel::{helper::PrimDef, DefinitionId, TopLevelDef},
 };
 use indoc::indoc;
 use nac3parser::parser::parse_program;
@@ -75,7 +75,7 @@ impl TestEnvironment {
         let mut unifier = Unifier::new();
 
         let int32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.int32,
+            obj_id: PrimDef::Int32.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
@@ -88,52 +88,52 @@ impl TestEnvironment {
             fields.insert("__add__".into(), (add_ty, false));
         });
         let int64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.int64,
+            obj_id: PrimDef::Int64.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let float = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.float,
+            obj_id: PrimDef::Float.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let bool = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.bool,
+            obj_id: PrimDef::Bool.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let none = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.none,
+            obj_id: PrimDef::None.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let range = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.range,
+            obj_id: PrimDef::Range.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let str = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.str,
+            obj_id: PrimDef::Str.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let exception = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.exception,
+            obj_id: PrimDef::Exception.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let uint32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.uint32,
+            obj_id: PrimDef::UInt32.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let uint64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.uint64,
+            obj_id: PrimDef::UInt64.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let option = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.option,
+            obj_id: PrimDef::Option.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
@@ -141,7 +141,7 @@ impl TestEnvironment {
         let ndarray_ndims_tvar =
             unifier.get_fresh_const_generic_var(uint64, Some("ndarray_ndims".into()), None);
         let ndarray = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.ndarray,
+            obj_id: PrimDef::NDArray.id(),
             fields: HashMap::new(),
             params: VarMap::from([
                 (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
@@ -214,7 +214,7 @@ impl TestEnvironment {
         let mut identifier_mapping = HashMap::new();
         let mut top_level_defs: Vec<Arc<RwLock<TopLevelDef>>> = Vec::new();
         let int32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.int32,
+            obj_id: PrimDef::Int32.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
@@ -227,57 +227,57 @@ impl TestEnvironment {
             fields.insert("__add__".into(), (add_ty, false));
         });
         let int64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.int64,
+            obj_id: PrimDef::Int64.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let float = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.float,
+            obj_id: PrimDef::Float.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let bool = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.bool,
+            obj_id: PrimDef::Bool.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let none = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.none,
+            obj_id: PrimDef::None.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let range = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.range,
+            obj_id: PrimDef::Range.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let str = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.str,
+            obj_id: PrimDef::Str.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let exception = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.exception,
+            obj_id: PrimDef::Exception.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let uint32 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.uint32,
+            obj_id: PrimDef::UInt32.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let uint64 = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.uint64,
+            obj_id: PrimDef::UInt64.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let option = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.option,
+            obj_id: PrimDef::Option.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
         let ndarray = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PRIMITIVE_DEF_IDS.ndarray,
+            obj_id: PrimDef::NDArray.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
