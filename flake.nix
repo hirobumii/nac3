@@ -159,6 +159,7 @@
           # development tools
           cargo-insta
           clippy
+          pre-commit
           rustfmt
         ];
       };
