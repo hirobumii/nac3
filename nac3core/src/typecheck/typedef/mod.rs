@@ -30,7 +30,13 @@ pub type IndexMapping<K, V = Type> = IndexMap<K, V>;
 
 /// ID of a Python type variable. Specific to `nac3core`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TypeVarId(pub u32);
+pub struct TypeVarId(u32);
+
+impl From<TypeVarId> for u32 {
+    fn from(value: TypeVarId) -> Self {
+        value.0
+    }
+}
 
 impl fmt::Display for TypeVarId {
     // NOTE: Must output the string of the ID value. Certain unit tests rely on string comparisons.
