@@ -9,7 +9,7 @@ use nac3core::{
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{iter_type_vars, to_var_map, Type, TypeEnum, TypeVar, Unifier, VarMap},
+        typedef::{iter_type_vars, into_var_map, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
 use nac3parser::ast::{self, StrRef};
@@ -719,7 +719,7 @@ impl InnerResolver {
                         unreachable!("must be tobj")
                     };
 
-                    let var_map = to_var_map(iter_type_vars(params).map(|tvar| {
+                    let var_map = into_var_map(iter_type_vars(params).map(|tvar| {
                         let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(tvar.ty)
                         else {
                             unreachable!()
@@ -746,7 +746,7 @@ impl InnerResolver {
             }
             (TypeEnum::TObj { params, fields, .. }, false) => {
                 self.pyid_to_type.write().insert(py_obj_id, extracted_ty);
-                let var_map = to_var_map(iter_type_vars(params).map(|tvar| {
+                let var_map = into_var_map(iter_type_vars(params).map(|tvar| {
                     let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(tvar.ty)
                     else {
                         unreachable!()

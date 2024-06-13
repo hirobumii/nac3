@@ -61,7 +61,7 @@ pub type VarMap = IndexMapping<TypeVarId>;
 /// Build a [`VarMap`] from an iterator of [`TypeVar`]
 ///
 /// The resulting [`VarMap`] wil have the same order as the input iterator.
-pub fn to_var_map<I>(vars: I) -> VarMap
+pub fn into_var_map<I>(vars: I) -> VarMap
 where
     I: IntoIterator<Item = TypeVar>,
 {

@@ -2,7 +2,7 @@ use std::convert::TryInto;
 
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::numpy::unpack_ndarray_var_tys;
-use crate::typecheck::typedef::{to_var_map, Mapping, TypeVarId, VarMap};
+use crate::typecheck::typedef::{into_var_map, Mapping, TypeVarId, VarMap};
 use nac3parser::ast::{Constant, Location};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -377,12 +377,12 @@ impl TopLevelComposer {
         let is_some_type_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
             ret: bool,
-            vars: to_var_map([option_type_var]),
+            vars: into_var_map([option_type_var]),
         }));
         let unwrap_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
             ret: option_type_var.ty,
-            vars: to_var_map([option_type_var]),
+            vars: into_var_map([option_type_var]),
         }));
         let option = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Option.id(),
@@ -393,7 +393,7 @@ impl TopLevelComposer {
             ]
             .into_iter()
             .collect::<HashMap<_, _>>(),
-            params: to_var_map([option_type_var]),
+            params: into_var_map([option_type_var]),
         });
 
         let size_t_ty = match size_t {
@@ -409,7 +409,7 @@ impl TopLevelComposer {
         let ndarray_copy_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
             ret: ndarray_copy_fun_ret_ty.ty,
-            vars: to_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
+            vars: into_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         }));
         let ndarray_fill_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![FuncArg {
@@ -418,7 +418,7 @@ impl TopLevelComposer {
                 default_value: None,
             }],
             ret: none,
-            vars: to_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
+            vars: into_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         }));
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::NDArray.id(),
@@ -426,7 +426,7 @@ impl TopLevelComposer {
                 (PrimDef::NDArrayCopy.simple_name().into(), (ndarray_copy_fun_ty, true)),
                 (PrimDef::NDArrayFill.simple_name().into(), (ndarray_fill_fun_ty, true)),
             ]),
-            params: to_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
+            params: into_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         });
 
         unifier.unify(ndarray_copy_fun_ret_ty.ty, ndarray).unwrap();

@@ -25,7 +25,7 @@ use crate::{
     },
     symbol_resolver::SymbolValue,
     toplevel::{helper::PrimDef, numpy::make_ndarray_ty},
-    typecheck::typedef::{iter_type_vars, to_var_map, TypeVar, VarMap},
+    typecheck::typedef::{iter_type_vars, into_var_map, TypeVar, VarMap},
 };
 
 use super::*;
@@ -373,7 +373,7 @@ impl<'a> BuiltinBuilder<'a> {
             Some("N".into()),
             None,
         );
-        let num_var_map = to_var_map([num_ty]);
+        let num_var_map = into_var_map([num_ty]);
 
         let ndarray_float = make_ndarray_ty(unifier, primitives, Some(float), None);
         let ndarray_float_2d = {
@@ -390,11 +390,11 @@ impl<'a> BuiltinBuilder<'a> {
         let ndarray_num_ty = make_ndarray_ty(unifier, primitives, Some(num_ty.ty), None);
         let float_or_ndarray_ty =
             unifier.get_fresh_var_with_range(&[float, ndarray_float], Some("T".into()), None);
-        let float_or_ndarray_var_map = to_var_map([float_or_ndarray_ty]);
+        let float_or_ndarray_var_map = into_var_map([float_or_ndarray_ty]);
 
         let num_or_ndarray_ty =
             unifier.get_fresh_var_with_range(&[num_ty.ty, ndarray_num_ty], Some("T".into()), None);
-        let num_or_ndarray_var_map = to_var_map([num_ty, num_or_ndarray_ty]);
+        let num_or_ndarray_var_map = into_var_map([num_ty, num_or_ndarray_ty]);
 
         let list_int32 = unifier.add_ty(TypeEnum::TList { ty: int32 });
 
@@ -717,7 +717,7 @@ impl<'a> BuiltinBuilder<'a> {
                         default_value: None,
                     }],
                     ret: self.primitives.option,
-                    vars: to_var_map([self.option_tvar]),
+                    vars: into_var_map([self.option_tvar]),
                 })),
                 var_id: vec![self.option_tvar.id],
                 instance_to_symbol: HashMap::default(),
@@ -892,7 +892,7 @@ impl<'a> BuiltinBuilder<'a> {
 
         create_fn_by_codegen(
             self.unifier,
-            &to_var_map([common_ndim, p0_ty, ret_ty]),
+            &into_var_map([common_ndim, p0_ty, ret_ty]),
             prim.name(),
             ret_ty.ty,
             &[(p0_ty.ty, "n")],
@@ -956,7 +956,7 @@ impl<'a> BuiltinBuilder<'a> {
 
         create_fn_by_codegen(
             self.unifier,
-            &to_var_map([common_ndim, p0_ty, ret_ty]),
+            &into_var_map([common_ndim, p0_ty, ret_ty]),
             prim.name(),
             ret_ty.ty,
             &[(p0_ty.ty, "n")],
@@ -1034,7 +1034,7 @@ impl<'a> BuiltinBuilder<'a> {
                             },
                         ],
                         ret: ndarray,
-                        vars: to_var_map([tv]),
+                        vars: into_var_map([tv]),
                     })),
                     var_id: vec![tv.id],
                     instance_to_symbol: HashMap::default(),
@@ -1054,7 +1054,7 @@ impl<'a> BuiltinBuilder<'a> {
 
                 create_fn_by_codegen(
                     self.unifier,
-                    &to_var_map([tv]),
+                    &into_var_map([tv]),
                     prim.name(),
                     self.primitives.ndarray,
                     // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
@@ -1333,7 +1333,7 @@ impl<'a> BuiltinBuilder<'a> {
             signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg { name: "ls".into(), ty: arg_ty.ty, default_value: None }],
                 ret: int32,
-                vars: to_var_map([tvar, arg_ty]),
+                vars: into_var_map([tvar, arg_ty]),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),
@@ -1516,7 +1516,7 @@ impl<'a> BuiltinBuilder<'a> {
                     .map(|p| FuncArg { name: p.1.into(), ty: p.0, default_value: None })
                     .collect(),
                 ret: ret_ty.ty,
-                vars: to_var_map([x1_ty, x2_ty, ret_ty]),
+                vars: into_var_map([x1_ty, x2_ty, ret_ty]),
             })),
             var_id: vec![x1_ty.id, x2_ty.id],
             instance_to_symbol: HashMap::default(),
@@ -1745,7 +1745,7 @@ impl<'a> BuiltinBuilder<'a> {
                     .map(|p| FuncArg { name: p.1.into(), ty: p.0, default_value: None })
                     .collect(),
                 ret: ret_ty.ty,
-                vars: to_var_map([x1_ty, x2_ty, ret_ty]),
+                vars: into_var_map([x1_ty, x2_ty, ret_ty]),
             })),
             var_id: vec![ret_ty.id],
             instance_to_symbol: HashMap::default(),

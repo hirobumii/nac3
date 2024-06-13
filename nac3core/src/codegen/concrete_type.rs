@@ -3,7 +3,7 @@ use crate::{
     toplevel::DefinitionId,
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{to_var_map, FunSignature, FuncArg, Type, TypeEnum, TypeVar, TypeVarId, Unifier},
+        typedef::{into_var_map, FunSignature, FuncArg, Type, TypeEnum, TypeVar, TypeVarId, Unifier},
     },
 };
 
@@ -272,7 +272,7 @@ impl ConcreteTypeStore {
                         (*name, (self.to_unifier_type(unifier, primitives, cty.0, cache), cty.1))
                     })
                     .collect::<HashMap<_, _>>(),
-                params: to_var_map(params.iter().map(|(&id, cty)| {
+                params: into_var_map(params.iter().map(|(&id, cty)| {
                     let ty = self.to_unifier_type(unifier, primitives, *cty, cache);
                     TypeVar { id, ty }
                 })),
@@ -287,7 +287,7 @@ impl ConcreteTypeStore {
                     })
                     .collect(),
                 ret: self.to_unifier_type(unifier, primitives, *ret, cache),
-                vars: to_var_map(vars.iter().map(|(&id, cty)| {
+                vars: into_var_map(vars.iter().map(|(&id, cty)| {
                     let ty = self.to_unifier_type(unifier, primitives, *cty, cache);
                     TypeVar { id, ty }
                 })),

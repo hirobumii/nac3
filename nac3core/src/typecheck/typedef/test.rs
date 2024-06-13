@@ -116,7 +116,7 @@ impl TestEnvironment {
             unifier.add_ty(TypeEnum::TObj {
                 obj_id: DefinitionId(3),
                 fields: [("a".into(), (tvar.ty, true))].iter().cloned().collect::<HashMap<_, _>>(),
-                params: to_var_map([tvar]),
+                params: into_var_map([tvar]),
             }),
         );
 
