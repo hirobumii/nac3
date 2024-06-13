@@ -33,7 +33,7 @@ pub type IndexMapping<K, V = Type> = IndexMap<K, V>;
 pub struct TypeVarId(pub u32);
 
 impl fmt::Display for TypeVarId {
-    // NOTE: Must output the string fo the ID value. Certain unit tests rely on string comparisons.
+    // NOTE: Must output the string of the ID value. Certain unit tests rely on string comparisons.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!("{}", self.0))
     }
