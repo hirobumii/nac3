@@ -9,7 +9,7 @@ use nac3core::{
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, TypeEnum, Unifier, VarMap},
+        typedef::{iter_type_vars, to_var_map, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
 use nac3parser::ast::{self, StrRef};
@@ -317,13 +317,13 @@ impl InnerResolver {
             Ok(Ok((primitives.exception, true)))
         } else if ty_id == self.primitive_ids.list {
             // do not handle type var param and concrete check here
-            let var = unifier.get_dummy_var().0;
+            let var = unifier.get_dummy_var().ty;
             let list = unifier.add_ty(TypeEnum::TList { ty: var });
             Ok(Ok((list, false)))
         } else if ty_id == self.primitive_ids.ndarray {
             // do not handle type var param and concrete check here
-            let var = unifier.get_dummy_var().0;
-            let ndims = unifier.get_fresh_const_generic_var(primitives.usize(), None, None).0;
+            let var = unifier.get_dummy_var().ty;
+            let ndims = unifier.get_fresh_const_generic_var(primitives.usize(), None, None).ty;
             let ndarray = make_ndarray_ty(unifier, primitives, Some(var), Some(ndims));
             Ok(Ok((ndarray, false)))
         } else if ty_id == self.primitive_ids.tuple {
@@ -383,7 +383,7 @@ impl InnerResolver {
                         }
 
                         if !is_const_generic && needs_defer {
-                            result.push(unifier.get_dummy_var().0);
+                            result.push(unifier.get_dummy_var().ty);
                         } else {
                             result.push({
                                 match self.get_pyty_obj_type(py, constr, unifier, defs, primitives)? {
@@ -426,9 +426,9 @@ impl InnerResolver {
                     )));
                 }
 
-                unifier.get_fresh_const_generic_var(constraint_types[0], Some(name.into()), None).0
+                unifier.get_fresh_const_generic_var(constraint_types[0], Some(name.into()), None).ty
             } else {
-                unifier.get_fresh_var_with_range(&constraint_types, Some(name.into()), None).0
+                unifier.get_fresh_var_with_range(&constraint_types, Some(name.into()), None).ty
             };
 
             Ok(Ok((res, true)))
@@ -568,7 +568,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.virtual_id {
             Ok(Ok((
                 {
-                    let ty = TypeEnum::TVirtual { ty: unifier.get_dummy_var().0 };
+                    let ty = TypeEnum::TVirtual { ty: unifier.get_dummy_var().ty };
                     unifier.add_ty(ty)
                 },
                 false,
@@ -719,18 +719,16 @@ impl InnerResolver {
                         unreachable!("must be tobj")
                     };
 
-                    let var_map = params
-                        .iter()
-                        .map(|(id_var, ty)| {
-                            let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(*ty)
-                            else {
-                                unreachable!()
-                            };
+                    let var_map = to_var_map(iter_type_vars(params).map(|tvar| {
+                        let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(tvar.ty)
+                        else {
+                            unreachable!()
+                        };
 
-                            assert_eq!(*id, *id_var);
-                            (*id, unifier.get_fresh_var_with_range(range, *name, *loc).0)
-                        })
-                        .collect::<VarMap>();
+                        assert_eq!(*id, tvar.id);
+                        let ty = unifier.get_fresh_var_with_range(range, *name, *loc).ty;
+                        TypeVar { id: *id, ty }
+                    }));
                     return Ok(Ok(unifier.subst(primitives.option, &var_map).unwrap()));
                 }
 
@@ -748,18 +746,16 @@ impl InnerResolver {
             }
             (TypeEnum::TObj { params, fields, .. }, false) => {
                 self.pyid_to_type.write().insert(py_obj_id, extracted_ty);
-                let var_map = params
-                    .iter()
-                    .map(|(id_var, ty)| {
-                        let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(*ty)
-                        else {
-                            unreachable!()
-                        };
+                let var_map = to_var_map(iter_type_vars(params).map(|tvar| {
+                    let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(tvar.ty)
+                    else {
+                        unreachable!()
+                    };
 
-                        assert_eq!(*id, *id_var);
-                        (*id, unifier.get_fresh_var_with_range(range, *name, *loc).0)
-                    })
-                    .collect::<VarMap>();
+                    assert_eq!(*id, tvar.id);
+                    let ty = unifier.get_fresh_var_with_range(range, *name, *loc).ty;
+                    TypeVar { id: *id, ty }
+                }));
                 let mut instantiate_obj = || {
                     // loop through non-function fields of the class to get the instantiated value
                     for field in fields {

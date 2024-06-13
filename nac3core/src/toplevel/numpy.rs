@@ -2,7 +2,7 @@ use crate::{
     toplevel::helper::PrimDef,
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, TypeEnum, Unifier, VarMap},
+        typedef::{Type, TypeEnum, TypeVarId, Unifier, VarMap},
     },
 };
 use itertools::Itertools;
@@ -57,7 +57,7 @@ pub fn subst_ndarray_tvars(
     unifier.subst(ndarray, &tvar_subst).unwrap_or(ndarray)
 }
 
-fn unpack_ndarray_tvars(unifier: &mut Unifier, ndarray: Type) -> Vec<(u32, Type)> {
+fn unpack_ndarray_tvars(unifier: &mut Unifier, ndarray: Type) -> Vec<(TypeVarId, Type)> {
     let TypeEnum::TObj { obj_id, params, .. } = &*unifier.get_ty_immutable(ndarray) else {
         panic!("Expected `ndarray` to be TObj, but got {}", unifier.stringify(ndarray))
     };
@@ -74,7 +74,7 @@ fn unpack_ndarray_tvars(unifier: &mut Unifier, ndarray: Type) -> Vec<(u32, Type)
 /// Unpacks the type variable IDs of `ndarray` into a tuple. The elements of the tuple corresponds
 /// to `dtype` (the element type) and `ndims` (the number of dimensions) of the `ndarray`
 /// respectively.
-pub fn unpack_ndarray_var_ids(unifier: &mut Unifier, ndarray: Type) -> (u32, u32) {
+pub fn unpack_ndarray_var_ids(unifier: &mut Unifier, ndarray: Type) -> (TypeVarId, TypeVarId) {
     unpack_ndarray_tvars(unifier, ndarray).into_iter().map(|v| v.0).collect_tuple().unwrap()
 }
 

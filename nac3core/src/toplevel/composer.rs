@@ -6,7 +6,7 @@ use crate::{
     symbol_resolver::SymbolValue,
     typecheck::{
         type_inferencer::{FunctionData, Inferencer},
-        typedef::VarMap,
+        typedef::{TypeVar, VarMap},
     },
 };
 
@@ -225,7 +225,7 @@ impl TopLevelComposer {
 
                 // since later when registering class method, ast will still be used,
                 // here push None temporarily, later will move the ast inside
-                let constructor_ty = self.unifier.get_dummy_var().0;
+                let constructor_ty = self.unifier.get_dummy_var().ty;
                 let mut class_def_ast = (
                     Arc::new(RwLock::new(Self::make_top_level_class_def(
                         DefinitionId(class_def_id),
@@ -281,7 +281,7 @@ impl TopLevelComposer {
                         };
 
                         // dummy method define here
-                        let dummy_method_type = self.unifier.get_dummy_var().0;
+                        let dummy_method_type = self.unifier.get_dummy_var().ty;
                         class_method_name_def_ids.push((
                             *method_name,
                             RwLock::new(Self::make_top_level_function_def(
@@ -337,7 +337,7 @@ impl TopLevelComposer {
                 }
 
                 let fun_name = *name;
-                let ty_to_be_unified = self.unifier.get_dummy_var().0;
+                let ty_to_be_unified = self.unifier.get_dummy_var().ty;
                 // add to the definition list
                 self.definition_ast_list.push((
                     RwLock::new(Self::make_top_level_function_def(
@@ -452,7 +452,7 @@ impl TopLevelComposer {
 
                         // check if all are unique type vars
                         let all_unique_type_var = {
-                            let mut occurred_type_var_id: HashSet<u32> = HashSet::new();
+                            let mut occurred_type_var_id: HashSet<TypeVarId> = HashSet::new();
                             type_vars.iter().all(|x| {
                                 let ty = unifier.get_ty(*x);
                                 if let TypeEnum::TVar { id, .. } = ty.as_ref() {
@@ -917,18 +917,19 @@ impl TopLevelComposer {
                         let type_vars_within =
                             get_type_var_contained_in_type_annotation(&type_annotation)
                                 .into_iter()
-                                .map(|x| -> Result<(u32, Type), HashSet<String>> {
+                                .map(|x| -> Result<TypeVar, HashSet<String>> {
                                     let TypeAnnotation::TypeVar(ty) = x else {
                                         unreachable!("must be type var annotation kind")
                                     };
 
-                                    Ok((Self::get_var_id(ty, unifier)?, ty))
+                                    let id = Self::get_var_id(ty, unifier)?;
+                                    Ok(TypeVar { id, ty })
                                 })
                                 .collect::<Result<Vec<_>, _>>()?;
-                        for (id, ty) in type_vars_within {
-                            if let Some(prev_ty) = function_var_map.insert(id, ty) {
+                        for var in type_vars_within {
+                            if let Some(prev_ty) = function_var_map.insert(var.id, var.ty) {
                                 // if already have the type inserted, make sure they are the same thing
-                                assert_eq!(prev_ty, ty);
+                                assert_eq!(prev_ty, var.ty);
                             }
                         }
 
@@ -982,18 +983,19 @@ impl TopLevelComposer {
                     let type_vars_within =
                         get_type_var_contained_in_type_annotation(&return_ty_annotation)
                             .into_iter()
-                            .map(|x| -> Result<(u32, Type), HashSet<String>> {
+                            .map(|x| -> Result<TypeVar, HashSet<String>> {
                                 let TypeAnnotation::TypeVar(ty) = x else {
                                     unreachable!("must be type var here")
                                 };
 
-                                Ok((Self::get_var_id(ty, unifier)?, ty))
+                                let id = Self::get_var_id(ty, unifier)?;
+                                Ok(TypeVar { id, ty })
                             })
                             .collect::<Result<Vec<_>, _>>()?;
-                    for (id, ty) in type_vars_within {
-                        if let Some(prev_ty) = function_var_map.insert(id, ty) {
+                    for var in type_vars_within {
+                        if let Some(prev_ty) = function_var_map.insert(var.id, var.ty) {
                             // if already have the type inserted, make sure they are the same thing
-                            assert_eq!(prev_ty, ty);
+                            assert_eq!(prev_ty, var.ty);
                         }
                     }
 
@@ -1177,7 +1179,7 @@ impl TopLevelComposer {
                                 // finish handling type vars
                                 let dummy_func_arg = FuncArg {
                                     name,
-                                    ty: unifier.get_dummy_var().0,
+                                    ty: unifier.get_dummy_var().ty,
                                     default_value: match default {
                                         None => None,
                                         Some(default) => {
@@ -1240,13 +1242,13 @@ impl TopLevelComposer {
                                     assert_eq!(prev_ty, ty);
                                 }
                             }
-                            let dummy_return_type = unifier.get_dummy_var().0;
+                            let dummy_return_type = unifier.get_dummy_var().ty;
                             type_var_to_concrete_def.insert(dummy_return_type, annotation.clone());
                             dummy_return_type
                         } else {
                             // if do not have return annotation, return none
                             // for uniform handling, still use type annotation
-                            let dummy_return_type = unifier.get_dummy_var().0;
+                            let dummy_return_type = unifier.get_dummy_var().ty;
                             type_var_to_concrete_def.insert(
                                 dummy_return_type,
                                 TypeAnnotation::Primitive(primitives.none),
@@ -1286,7 +1288,7 @@ impl TopLevelComposer {
                 ast::StmtKind::AnnAssign { target, annotation, value: None, .. } => {
                     if let ast::ExprKind::Name { id: attr, .. } = &target.node {
                         if defined_fields.insert(attr.to_string()) {
-                            let dummy_field_type = unifier.get_dummy_var().0;
+                            let dummy_field_type = unifier.get_dummy_var().ty;
 
                             // handle Kernel[T], KernelInvariant[T]
                             let (annotation, mutable) = match &annotation.node {
@@ -1749,7 +1751,7 @@ impl TopLevelComposer {
                                     unreachable!()
                                 };
 
-                                let rigid = unifier.get_fresh_rigid_var(*name, *loc).0;
+                                let rigid = unifier.get_fresh_rigid_var(*name, *loc).ty;
                                 no_ranges.push(rigid);
                                 vec![rigid]
                             })

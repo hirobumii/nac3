@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::fmt::Display;
+use std::fmt::{self, Display};
 use std::iter::zip;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -28,8 +28,44 @@ pub struct CallId(pub(super) usize);
 pub type Mapping<K, V = Type> = HashMap<K, V>;
 pub type IndexMapping<K, V = Type> = IndexMap<K, V>;
 
-/// The mapping between type variable ID and [unifier type][`Type`].
-pub type VarMap = IndexMapping<u32>;
+/// ID of a Python type variable. Specific to `nac3core`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TypeVarId(pub u32);
+
+impl fmt::Display for TypeVarId {
+    // NOTE: Must output the string fo the ID value. Certain unit tests rely on string comparisons.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{}", self.0))
+    }
+}
+
+/// A Python type variable. Used by `nac3core` during type inference.
+#[derive(Debug, Clone, Copy)]
+pub struct TypeVar {
+    /// `nac3core`'s internal [`TypeVarId`] of this type variable.
+    pub id: TypeVarId,
+
+    /// The assigned [`Type`] of this Python type variable.
+    pub ty: Type,
+}
+
+/// The mapping between [`TypeVarId`] and [unifier type][`Type`].
+pub type VarMap = IndexMapping<TypeVarId>;
+
+/// Build a [`VarMap`] from an iterator of [`TypeVar`]
+///
+/// The resulting [`VarMap`] wil have the same order as the input iterator.
+pub fn to_var_map<I>(vars: I) -> VarMap
+where
+    I: IntoIterator<Item = TypeVar>,
+{
+    vars.into_iter().map(|var| (var.id, var.ty)).collect()
+}
+
+/// Get an iterator of [`TypeVar`]s from a [`VarMap`]
+pub fn iter_type_vars(var_map: &VarMap) -> impl Iterator<Item = TypeVar> + '_ {
+    var_map.iter().map(|(&id, &ty)| TypeVar { id, ty })
+}
 
 #[derive(Clone)]
 pub struct Call {
@@ -127,14 +163,14 @@ impl RecordField {
 #[derive(Clone)]
 pub enum TypeEnum {
     TRigidVar {
-        id: u32,
+        id: TypeVarId,
         name: Option<StrRef>,
         loc: Option<Location>,
     },
 
     /// A type variable.
     TVar {
-        id: u32,
+        id: TypeVarId,
         // empty indicates this is not a struct/tuple/list
         fields: Option<Mapping<RecordKey, RecordField>>,
         // empty indicates no restriction
@@ -295,7 +331,7 @@ impl Unifier {
     }
 
     pub fn add_record(&mut self, fields: Mapping<RecordKey, RecordField>) -> Type {
-        let id = self.var_id + 1;
+        let id = TypeVarId(self.var_id + 1);
         self.var_id += 1;
         self.add_ty(TypeEnum::TVar {
             id,
@@ -346,24 +382,21 @@ impl Unifier {
         self.unification_table.probe_value_immutable(a).clone()
     }
 
-    pub fn get_fresh_rigid_var(
-        &mut self,
-        name: Option<StrRef>,
-        loc: Option<Location>,
-    ) -> (Type, u32) {
-        let id = self.var_id + 1;
+    pub fn get_fresh_rigid_var(&mut self, name: Option<StrRef>, loc: Option<Location>) -> TypeVar {
+        let id = TypeVarId(self.var_id + 1);
         self.var_id += 1;
-        (self.add_ty(TypeEnum::TRigidVar { id, name, loc }), id)
+        let ty = self.add_ty(TypeEnum::TRigidVar { id, name, loc });
+        TypeVar { id, ty }
     }
 
-    pub fn get_dummy_var(&mut self) -> (Type, u32) {
+    pub fn get_dummy_var(&mut self) -> TypeVar {
         self.get_fresh_var_with_range(&[], None, None)
     }
 
     /// Returns a fresh [type variable][TypeEnum::TVar] with no associated range.
     ///
     /// This type variable can be instantiated by any type.
-    pub fn get_fresh_var(&mut self, name: Option<StrRef>, loc: Option<Location>) -> (Type, u32) {
+    pub fn get_fresh_var(&mut self, name: Option<StrRef>, loc: Option<Location>) -> TypeVar {
         self.get_fresh_var_with_range(&[], name, loc)
     }
 
@@ -375,21 +408,20 @@ impl Unifier {
         range: &[Type],
         name: Option<StrRef>,
         loc: Option<Location>,
-    ) -> (Type, u32) {
-        let id = self.var_id + 1;
-        self.var_id += 1;
+    ) -> TypeVar {
         let range = range.to_vec();
-        (
-            self.add_ty(TypeEnum::TVar {
-                id,
-                range,
-                fields: None,
-                name,
-                loc,
-                is_const_generic: false,
-            }),
+
+        let id = TypeVarId(self.var_id + 1);
+        self.var_id += 1;
+        let ty = self.add_ty(TypeEnum::TVar {
             id,
-        )
+            range,
+            fields: None,
+            name,
+            loc,
+            is_const_generic: false,
+        });
+        TypeVar { id, ty }
     }
 
     /// Returns a fresh type representing a constant generic variable with the given underlying type `ty`.
@@ -398,20 +430,18 @@ impl Unifier {
         ty: Type,
         name: Option<StrRef>,
         loc: Option<Location>,
-    ) -> (Type, u32) {
-        let id = self.var_id + 1;
+    ) -> TypeVar {
+        let id = TypeVarId(self.var_id + 1);
         self.var_id += 1;
-        (
-            self.add_ty(TypeEnum::TVar {
-                id,
-                range: vec![ty],
-                fields: None,
-                name,
-                loc,
-                is_const_generic: true,
-            }),
+        let ty = self.add_ty(TypeEnum::TVar {
             id,
-        )
+            range: vec![ty],
+            fields: None,
+            name,
+            loc,
+            is_const_generic: true,
+        });
+        TypeVar { id, ty }
     }
 
     /// Returns a fresh type representing a [literal][TypeEnum::TConstant] with the given `values`.
@@ -464,7 +494,7 @@ impl Unifier {
                 }
             }
             TypeEnum::TObj { params, .. } => {
-                let (keys, params): (Vec<u32>, Vec<Type>) = params.iter().unzip();
+                let (keys, params): (Vec<TypeVarId>, Vec<Type>) = params.iter().unzip();
                 let params = params
                     .into_iter()
                     .map(|ty| self.get_instantiations(ty).unwrap_or_else(|| vec![ty]))
@@ -1014,7 +1044,7 @@ impl Unifier {
     pub fn stringify_with_notes(
         &self,
         ty: Type,
-        notes: &mut Option<HashMap<u32, String>>,
+        notes: &mut Option<HashMap<TypeVarId, String>>,
     ) -> String {
         let top_level = self.top_level.clone();
         self.internal_stringify(
@@ -1043,11 +1073,11 @@ impl Unifier {
         ty: Type,
         obj_to_name: &mut F,
         var_to_name: &mut G,
-        notes: &mut Option<HashMap<u32, String>>,
+        notes: &mut Option<HashMap<TypeVarId, String>>,
     ) -> String
     where
         F: FnMut(usize) -> String,
-        G: FnMut(u32) -> String,
+        G: FnMut(TypeVarId) -> String,
     {
         let ty = self.unification_table.probe_value_immutable(ty).clone();
         match ty.as_ref() {
@@ -1182,7 +1212,7 @@ impl Unifier {
             let mapping = vars
                 .into_iter()
                 .map(|(k, range, name, loc)| {
-                    (k, self.get_fresh_var_with_range(range.as_ref(), name, loc).0)
+                    (k, self.get_fresh_var_with_range(range.as_ref(), name, loc).ty)
                 })
                 .collect();
             self.subst(ty, &mapping).unwrap_or(ty)
@@ -1206,7 +1236,7 @@ impl Unifier {
         let cached = cache.get_mut(&a);
         if let Some(cached) = cached {
             if cached.is_none() {
-                *cached = Some(self.get_fresh_var(None, None).0);
+                *cached = Some(self.get_fresh_var(None, None).ty);
             }
             return *cached;
         }
@@ -1361,7 +1391,7 @@ impl Unifier {
                     if range.is_empty() {
                         Err(())
                     } else {
-                        let id = self.var_id + 1;
+                        let id = TypeVarId(self.var_id + 1);
                         self.var_id += 1;
                         let ty = TVar {
                             id,

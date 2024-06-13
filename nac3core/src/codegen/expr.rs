@@ -22,7 +22,7 @@ use crate::{
     },
     typecheck::{
         magic_methods::{binop_assign_name, binop_name, unaryop_name},
-        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
+        typedef::{FunSignature, FuncArg, Type, TypeEnum, TypeVarId, Unifier, VarMap},
     },
 };
 use inkwell::{
@@ -42,7 +42,7 @@ pub fn get_subst_key(
     unifier: &mut Unifier,
     obj: Option<Type>,
     fun_vars: &VarMap,
-    filter: Option<&Vec<u32>>,
+    filter: Option<&Vec<TypeVarId>>,
 ) -> String {
     let mut vars = obj
         .map(|ty| {
@@ -81,7 +81,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         &mut self,
         obj: Option<Type>,
         fun: &FunSignature,
-        filter: Option<&Vec<u32>>,
+        filter: Option<&Vec<TypeVarId>>,
     ) -> String {
         get_subst_key(&mut self.unifier, obj, &fun.vars, filter)
     }

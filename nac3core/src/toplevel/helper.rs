@@ -2,7 +2,7 @@ use std::convert::TryInto;
 
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::numpy::unpack_ndarray_var_tys;
-use crate::typecheck::typedef::{Mapping, VarMap};
+use crate::typecheck::typedef::{to_var_map, Mapping, TypeVarId, VarMap};
 use nac3parser::ast::{Constant, Location};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -377,12 +377,12 @@ impl TopLevelComposer {
         let is_some_type_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
             ret: bool,
-            vars: VarMap::from([(option_type_var.1, option_type_var.0)]),
+            vars: to_var_map([option_type_var]),
         }));
         let unwrap_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
-            ret: option_type_var.0,
-            vars: VarMap::from([(option_type_var.1, option_type_var.0)]),
+            ret: option_type_var.ty,
+            vars: to_var_map([option_type_var]),
         }));
         let option = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Option.id(),
@@ -393,7 +393,7 @@ impl TopLevelComposer {
             ]
             .into_iter()
             .collect::<HashMap<_, _>>(),
-            params: VarMap::from([(option_type_var.1, option_type_var.0)]),
+            params: to_var_map([option_type_var]),
         });
 
         let size_t_ty = match size_t {
@@ -408,23 +408,17 @@ impl TopLevelComposer {
         let ndarray_copy_fun_ret_ty = unifier.get_fresh_var(None, None);
         let ndarray_copy_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
-            ret: ndarray_copy_fun_ret_ty.0,
-            vars: VarMap::from([
-                (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
-                (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
-            ]),
+            ret: ndarray_copy_fun_ret_ty.ty,
+            vars: to_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         }));
         let ndarray_fill_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![FuncArg {
                 name: "value".into(),
-                ty: ndarray_dtype_tvar.0,
+                ty: ndarray_dtype_tvar.ty,
                 default_value: None,
             }],
             ret: none,
-            vars: VarMap::from([
-                (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
-                (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
-            ]),
+            vars: to_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         }));
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::NDArray.id(),
@@ -432,13 +426,10 @@ impl TopLevelComposer {
                 (PrimDef::NDArrayCopy.simple_name().into(), (ndarray_copy_fun_ty, true)),
                 (PrimDef::NDArrayFill.simple_name().into(), (ndarray_fill_fun_ty, true)),
             ]),
-            params: VarMap::from([
-                (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
-                (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
-            ]),
+            params: to_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         });
 
-        unifier.unify(ndarray_copy_fun_ret_ty.0, ndarray).unwrap();
+        unifier.unify(ndarray_copy_fun_ret_ty.ty, ndarray).unwrap();
 
         let primitives = PrimitiveStore {
             int32,
@@ -583,7 +574,7 @@ impl TopLevelComposer {
     }
 
     /// get the `var_id` of a given `TVar` type
-    pub fn get_var_id(var_ty: Type, unifier: &mut Unifier) -> Result<u32, HashSet<String>> {
+    pub fn get_var_id(var_ty: Type, unifier: &mut Unifier) -> Result<TypeVarId, HashSet<String>> {
         if let TypeEnum::TVar { id, .. } = unifier.get_ty(var_ty).as_ref() {
             Ok(*id)
         } else {

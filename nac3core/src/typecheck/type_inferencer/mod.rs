@@ -432,7 +432,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                         let enter = TypeEnum::TFunc(FunSignature {
                             args: vec![],
                             ret: item.optional_vars.as_ref().map_or_else(
-                                || self.unifier.get_dummy_var().0,
+                                || self.unifier.get_dummy_var().ty,
                                 |var| var.custom.unwrap(),
                             ),
                             vars: VarMap::default(),
@@ -440,7 +440,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                         let enter = self.unifier.add_ty(enter);
                         let exit = TypeEnum::TFunc(FunSignature {
                             args: vec![],
-                            ret: self.unifier.get_dummy_var().0,
+                            ret: self.unifier.get_dummy_var().ty,
                             vars: VarMap::default(),
                         });
                         let exit = self.unifier.add_ty(exit);
@@ -511,7 +511,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                                 };
 
                                 assert_eq!(*id, *id_var);
-                                (*id, self.unifier.get_fresh_var_with_range(range, *name, *loc).0)
+                                (*id, self.unifier.get_fresh_var_with_range(range, *name, *loc).ty)
                             })
                             .collect::<VarMap>();
                         Some(self.unifier.subst(self.primitives.option, &var_map).unwrap())
@@ -660,7 +660,7 @@ impl<'a> Inferencer<'a> {
                 }
             }
         }
-        let ret = ret.unwrap_or_else(|| self.unifier.get_dummy_var().0);
+        let ret = ret.unwrap_or_else(|| self.unifier.get_dummy_var().ty);
 
         let call = self.unifier.add_call(Call {
             posargs: params,
@@ -706,11 +706,13 @@ impl<'a> Inferencer<'a> {
         let fn_args: Vec<_> = args
             .args
             .iter()
-            .map(|v| (v.node.arg, self.unifier.get_fresh_var(Some(v.node.arg), Some(v.location)).0))
+            .map(|v| {
+                (v.node.arg, self.unifier.get_fresh_var(Some(v.node.arg), Some(v.location)).ty)
+            })
             .collect();
         let mut variable_mapping = self.variable_mapping.clone();
         variable_mapping.extend(fn_args.iter().copied());
-        let ret = self.unifier.get_dummy_var().0;
+        let ret = self.unifier.get_dummy_var().ty;
 
         let mut new_context = Inferencer {
             function_data: self.function_data,
@@ -849,7 +851,7 @@ impl<'a> Inferencer<'a> {
                     &arg,
                 )?
             } else {
-                self.unifier.get_dummy_var().0
+                self.unifier.get_dummy_var().ty
             };
             self.virtual_checks.push((arg0.custom.unwrap(), ty, *func_location));
             let custom = Some(self.unifier.add_ty(TypeEnum::TVirtual { ty }));
@@ -1362,7 +1364,7 @@ impl<'a> Inferencer<'a> {
             }
         }
 
-        let ret = self.unifier.get_dummy_var().0;
+        let ret = self.unifier.get_dummy_var().ty;
         let call = self.unifier.add_call(Call {
             posargs: args.iter().map(|v| v.custom.unwrap()).collect(),
             kwargs: keywords
@@ -1391,7 +1393,7 @@ impl<'a> Inferencer<'a> {
                 .resolver
                 .get_symbol_type(unifier, &self.top_level.definitions.read(), self.primitives, id)
                 .unwrap_or_else(|_| {
-                    let ty = unifier.get_dummy_var().0;
+                    let ty = unifier.get_dummy_var().ty;
                     variable_mapping.insert(id, ty);
                     ty
                 })
@@ -1420,13 +1422,13 @@ impl<'a> Inferencer<'a> {
             ast::Constant::None => {
                 report_error("CPython `None` not supported (nac3 uses `none` instead)", *loc)
             }
-            ast::Constant::Ellipsis => Ok(self.unifier.get_fresh_var(None, None).0),
+            ast::Constant::Ellipsis => Ok(self.unifier.get_fresh_var(None, None).ty),
             _ => report_error("not supported", *loc),
         }
     }
 
     fn infer_list(&mut self, elts: &[ast::Expr<Option<Type>>]) -> InferenceResult {
-        let ty = self.unifier.get_dummy_var().0;
+        let ty = self.unifier.get_dummy_var().ty;
         for t in elts {
             self.unify(ty, t.custom.unwrap(), &t.location)?;
         }
@@ -1462,7 +1464,7 @@ impl<'a> Inferencer<'a> {
                 }
             }
         } else {
-            let attr_ty = self.unifier.get_dummy_var().0;
+            let attr_ty = self.unifier.get_dummy_var().ty;
             let fields = once((
                 attr.into(),
                 RecordField::new(attr_ty, ctx == ExprContext::Store, Some(value.location)),
@@ -1655,7 +1657,7 @@ impl<'a> Inferencer<'a> {
         slice: &ast::Expr<Option<Type>>,
         ctx: ExprContext,
     ) -> InferenceResult {
-        let ty = self.unifier.get_dummy_var().0;
+        let ty = self.unifier.get_dummy_var().ty;
         match &slice.node {
             ExprKind::Slice { lower, upper, step } => {
                 for v in [lower.as_ref(), upper.as_ref(), step.as_ref()].iter().flatten() {
@@ -1759,7 +1761,7 @@ impl<'a> Inferencer<'a> {
                         let valid_index_ty = self
                             .unifier
                             .get_fresh_var_with_range(valid_index_tys.as_slice(), None, None)
-                            .0;
+                            .ty;
                         self.constrain(slice.custom.unwrap(), valid_index_ty, &slice.location)?;
                         self.infer_subscript_ndarray(value, ty, ndims)
                     }

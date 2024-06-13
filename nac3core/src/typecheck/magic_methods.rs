@@ -103,8 +103,8 @@ pub fn impl_binop(
         let (other_ty, other_var_id) = if other_ty.len() == 1 {
             (other_ty[0], None)
         } else {
-            let (ty, var_id) = unifier.get_fresh_var_with_range(other_ty, Some("N".into()), None);
-            (ty, Some(var_id))
+            let tvar = unifier.get_fresh_var_with_range(other_ty, Some("N".into()), None);
+            (tvar.ty, Some(tvar.id))
         };
 
         let function_vars = if let Some(var_id) = other_var_id {
@@ -113,7 +113,7 @@ pub fn impl_binop(
             VarMap::new()
         };
 
-        let ret_ty = ret_ty.unwrap_or_else(|| unifier.get_fresh_var(None, None).0);
+        let ret_ty = ret_ty.unwrap_or_else(|| unifier.get_fresh_var(None, None).ty);
 
         for op in ops {
             fields.insert(binop_name(*op).into(), {
@@ -151,7 +151,7 @@ pub fn impl_binop(
 
 pub fn impl_unaryop(unifier: &mut Unifier, ty: Type, ret_ty: Option<Type>, ops: &[Unaryop]) {
     with_fields(unifier, ty, |unifier, fields| {
-        let ret_ty = ret_ty.unwrap_or_else(|| unifier.get_fresh_var(None, None).0);
+        let ret_ty = ret_ty.unwrap_or_else(|| unifier.get_fresh_var(None, None).ty);
 
         for op in ops {
             fields.insert(
@@ -181,8 +181,8 @@ pub fn impl_cmpop(
         let (other_ty, other_var_id) = if other_ty.len() == 1 {
             (other_ty[0], None)
         } else {
-            let (ty, var_id) = unifier.get_fresh_var_with_range(other_ty, Some("N".into()), None);
-            (ty, Some(var_id))
+            let tvar = unifier.get_fresh_var_with_range(other_ty, Some("N".into()), None);
+            (tvar.ty, Some(tvar.id))
         };
 
         let function_vars = if let Some(var_id) = other_var_id {
@@ -191,7 +191,7 @@ pub fn impl_cmpop(
             VarMap::new()
         };
 
-        let ret_ty = ret_ty.unwrap_or_else(|| unifier.get_fresh_var(None, None).0);
+        let ret_ty = ret_ty.unwrap_or_else(|| unifier.get_fresh_var(None, None).ty);
 
         for op in ops {
             fields.insert(
@@ -652,7 +652,7 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     let ndarray_usized_ndims_tvar =
         unifier.get_fresh_const_generic_var(size_t, Some("ndarray_ndims".into()), None);
     let ndarray_unsized_t =
-        make_ndarray_ty(unifier, store, None, Some(ndarray_usized_ndims_tvar.0));
+        make_ndarray_ty(unifier, store, None, Some(ndarray_usized_ndims_tvar.ty));
     let (ndarray_dtype_t, _) = unpack_ndarray_var_tys(unifier, ndarray_t);
     let (ndarray_unsized_dtype_t, _) = unpack_ndarray_var_tys(unifier, ndarray_unsized_t);
     impl_basic_arithmetic(

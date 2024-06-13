@@ -14,7 +14,10 @@ use super::typecheck::typedef::{
 use crate::{
     codegen::CodeGenerator,
     symbol_resolver::{SymbolResolver, ValueEnum},
-    typecheck::{type_inferencer::CodeLocation, typedef::CallId},
+    typecheck::{
+        type_inferencer::CodeLocation,
+        typedef::{CallId, TypeVarId},
+    },
 };
 use inkwell::values::BasicValueEnum;
 use itertools::{izip, Itertools};
@@ -119,7 +122,7 @@ pub enum TopLevelDef {
         /// Function signature.
         signature: Type,
         /// Instantiated type variable IDs.
-        var_id: Vec<u32>,
+        var_id: Vec<TypeVarId>,
         /// Function instance to symbol mapping
         ///
         /// * Key: String representation of type variable values, sorted by variable ID in ascending

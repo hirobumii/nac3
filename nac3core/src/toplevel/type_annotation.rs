@@ -123,7 +123,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
             Ok(TypeAnnotation::CustomClass { id: obj_id, params: vec![] })
         } else if let Ok(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id) {
             if let TypeEnum::TVar { .. } = unifier.get_ty(ty).as_ref() {
-                let var = unifier.get_fresh_var(Some(*id), Some(expr.location)).0;
+                let var = unifier.get_fresh_var(Some(*id), Some(expr.location)).ty;
                 unifier.unify(var, ty).unwrap();
                 Ok(TypeAnnotation::TypeVar(ty))
             } else {
@@ -426,7 +426,7 @@ pub fn get_type_from_type_annotation_kinds(
                                         *name,
                                         *loc,
                                     );
-                                    unifier.unify(temp.0, p).is_ok()
+                                    unifier.unify(temp.ty, p).is_ok()
                                 }
                             };
                             if ok {
@@ -451,7 +451,7 @@ pub fn get_type_from_type_annotation_kinds(
                                 // create a temp type var and unify to check compatibility
                                 p == *tvar || {
                                     let temp = unifier.get_fresh_const_generic_var(ty, *name, *loc);
-                                    unifier.unify(temp.0, p).is_ok()
+                                    unifier.unify(temp.ty, p).is_ok()
                                 }
                             };
                             if ok {

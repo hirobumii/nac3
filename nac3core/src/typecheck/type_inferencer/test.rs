@@ -143,10 +143,7 @@ impl TestEnvironment {
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::NDArray.id(),
             fields: HashMap::new(),
-            params: VarMap::from([
-                (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
-                (ndarray_ndims_tvar.1, ndarray_ndims_tvar.0),
-            ]),
+            params: to_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         });
         let primitives = PrimitiveStore {
             int32,
@@ -321,19 +318,19 @@ impl TestEnvironment {
 
         unifier.put_primitive_store(&primitives);
 
-        let (v0, id) = unifier.get_dummy_var();
+        let tvar = unifier.get_dummy_var();
 
         let foo_ty = unifier.add_ty(TypeEnum::TObj {
             obj_id: DefinitionId(defs + 1),
-            fields: [("a".into(), (v0, true))].iter().cloned().collect::<HashMap<_, _>>(),
-            params: [(id, v0)].iter().cloned().collect::<VarMap>(),
+            fields: [("a".into(), (tvar.ty, true))].iter().cloned().collect::<HashMap<_, _>>(),
+            params: to_var_map([tvar]),
         });
         top_level_defs.push(
             RwLock::new(TopLevelDef::Class {
                 name: "Foo".into(),
                 object_id: DefinitionId(defs + 1),
-                type_vars: vec![v0],
-                fields: [("a".into(), v0, true)].into(),
+                type_vars: vec![tvar.ty],
+                fields: [("a".into(), tvar.ty, true)].into(),
                 methods: Default::default(),
                 ancestors: Default::default(),
                 resolver: None,
@@ -348,7 +345,7 @@ impl TestEnvironment {
             unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![],
                 ret: foo_ty,
-                vars: [(id, v0)].iter().cloned().collect(),
+                vars: to_var_map([tvar]),
             })),
         );
 

@@ -110,13 +110,13 @@ impl TestEnvironment {
                 params: VarMap::new(),
             }),
         );
-        let (v0, id) = unifier.get_dummy_var();
+        let tvar = unifier.get_dummy_var();
         type_mapping.insert(
             "Foo".into(),
             unifier.add_ty(TypeEnum::TObj {
                 obj_id: DefinitionId(3),
-                fields: [("a".into(), (v0, true))].iter().cloned().collect::<HashMap<_, _>>(),
-                params: [(id, v0)].iter().cloned().collect::<VarMap>(),
+                fields: [("a".into(), (tvar.ty, true))].iter().cloned().collect::<HashMap<_, _>>(),
+                params: to_var_map([tvar]),
             }),
         );
 
@@ -250,7 +250,7 @@ fn test_unify(
         let mut mapping = HashMap::new();
         for i in 1..=variable_count {
             let v = env.unifier.get_dummy_var();
-            mapping.insert(format!("v{}", i), v.0);
+            mapping.insert(format!("v{}", i), v.ty);
         }
         // unification may have side effect when we do type resolution, so freeze the types
         // before doing unification.
@@ -315,7 +315,7 @@ fn test_invalid_unification(
     let mut mapping = HashMap::new();
     for i in 1..=variable_count {
         let v = env.unifier.get_dummy_var();
-        mapping.insert(format!("v{}", i), v.0);
+        mapping.insert(format!("v{}", i), v.ty);
     }
     // unification may have side effect when we do type resolution, so freeze the types
     // before doing unification.
@@ -369,8 +369,8 @@ fn test_virtual() {
             .collect::<HashMap<StrRef, _>>(),
         params: VarMap::new(),
     });
-    let v0 = env.unifier.get_dummy_var().0;
-    let v1 = env.unifier.get_dummy_var().0;
+    let v0 = env.unifier.get_dummy_var().ty;
+    let v1 = env.unifier.get_dummy_var().ty;
 
     let a = env.unifier.add_ty(TypeEnum::TVirtual { ty: bar });
     let b = env.unifier.add_ty(TypeEnum::TVirtual { ty: v0 });
@@ -403,12 +403,12 @@ fn test_typevar_range() {
 
     // unification between v and int
     // where v in (int, bool)
-    let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).0;
+    let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).ty;
     env.unifier.unify(int, v).unwrap();
 
     // unification between v and list[int]
     // where v in (int, bool)
-    let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).0;
+    let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).ty;
     assert_eq!(
         env.unify(int_list, v),
         Err("Expected any one of these types: 0, 2, but got list[0]".to_string())
@@ -416,25 +416,25 @@ fn test_typevar_range() {
 
     // unification between v and float
     // where v in (int, bool)
-    let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).0;
+    let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).ty;
     assert_eq!(
         env.unify(float, v),
         Err("Expected any one of these types: 0, 2, but got 1".to_string())
     );
 
-    let v1 = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).0;
+    let v1 = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).ty;
     let v1_list = env.unifier.add_ty(TypeEnum::TList { ty: v1 });
-    let v = env.unifier.get_fresh_var_with_range(&[int, v1_list], None, None).0;
+    let v = env.unifier.get_fresh_var_with_range(&[int, v1_list], None, None).ty;
     // unification between v and int
     // where v in (int, list[v1]), v1 in (int, bool)
     env.unifier.unify(int, v).unwrap();
 
-    let v = env.unifier.get_fresh_var_with_range(&[int, v1_list], None, None).0;
+    let v = env.unifier.get_fresh_var_with_range(&[int, v1_list], None, None).ty;
     // unification between v and list[int]
     // where v in (int, list[v1]), v1 in (int, bool)
     env.unifier.unify(int_list, v).unwrap();
 
-    let v = env.unifier.get_fresh_var_with_range(&[int, v1_list], None, None).0;
+    let v = env.unifier.get_fresh_var_with_range(&[int, v1_list], None, None).ty;
     // unification between v and list[float]
     // where v in (int, list[v1]), v1 in (int, bool)
     assert_eq!(
@@ -442,30 +442,30 @@ fn test_typevar_range() {
         Err("Expected any one of these types: 0, list[typevar5], but got list[1]\n\nNotes:\n    typevar5 ∈ {0, 2}".to_string())
     );
 
-    let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).0;
-    let b = env.unifier.get_fresh_var_with_range(&[boolean, float], None, None).0;
+    let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).ty;
+    let b = env.unifier.get_fresh_var_with_range(&[boolean, float], None, None).ty;
     env.unifier.unify(a, b).unwrap();
     env.unifier.unify(a, float).unwrap();
 
-    let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).0;
-    let b = env.unifier.get_fresh_var_with_range(&[boolean, float], None, None).0;
+    let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).ty;
+    let b = env.unifier.get_fresh_var_with_range(&[boolean, float], None, None).ty;
     env.unifier.unify(a, b).unwrap();
     assert_eq!(env.unify(a, int), Err("Expected any one of these types: 1, but got 0".into()));
 
-    let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).0;
-    let b = env.unifier.get_fresh_var_with_range(&[boolean, float], None, None).0;
+    let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).ty;
+    let b = env.unifier.get_fresh_var_with_range(&[boolean, float], None, None).ty;
     let a_list = env.unifier.add_ty(TypeEnum::TList { ty: a });
-    let a_list = env.unifier.get_fresh_var_with_range(&[a_list], None, None).0;
+    let a_list = env.unifier.get_fresh_var_with_range(&[a_list], None, None).ty;
     let b_list = env.unifier.add_ty(TypeEnum::TList { ty: b });
-    let b_list = env.unifier.get_fresh_var_with_range(&[b_list], None, None).0;
+    let b_list = env.unifier.get_fresh_var_with_range(&[b_list], None, None).ty;
     env.unifier.unify(a_list, b_list).unwrap();
     let float_list = env.unifier.add_ty(TypeEnum::TList { ty: float });
     env.unifier.unify(a_list, float_list).unwrap();
     // previous unifications should not affect a and b
     env.unifier.unify(a, int).unwrap();
 
-    let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).0;
-    let b = env.unifier.get_fresh_var_with_range(&[boolean, float], None, None).0;
+    let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).ty;
+    let b = env.unifier.get_fresh_var_with_range(&[boolean, float], None, None).ty;
     let a_list = env.unifier.add_ty(TypeEnum::TList { ty: a });
     let b_list = env.unifier.add_ty(TypeEnum::TList { ty: b });
     env.unifier.unify(a_list, b_list).unwrap();
@@ -477,10 +477,10 @@ fn test_typevar_range() {
             .into())
     );
 
-    let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).0;
-    let b = env.unifier.get_dummy_var().0;
+    let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).ty;
+    let b = env.unifier.get_dummy_var().ty;
     let a_list = env.unifier.add_ty(TypeEnum::TList { ty: a });
-    let a_list = env.unifier.get_fresh_var_with_range(&[a_list], None, None).0;
+    let a_list = env.unifier.get_fresh_var_with_range(&[a_list], None, None).ty;
     let b_list = env.unifier.add_ty(TypeEnum::TList { ty: b });
     env.unifier.unify(a_list, b_list).unwrap();
     assert_eq!(
@@ -492,9 +492,9 @@ fn test_typevar_range() {
 #[test]
 fn test_rigid_var() {
     let mut env = TestEnvironment::new();
-    let a = env.unifier.get_fresh_rigid_var(None, None).0;
-    let b = env.unifier.get_fresh_rigid_var(None, None).0;
-    let x = env.unifier.get_dummy_var().0;
+    let a = env.unifier.get_fresh_rigid_var(None, None).ty;
+    let b = env.unifier.get_fresh_rigid_var(None, None).ty;
+    let x = env.unifier.get_dummy_var().ty;
     let list_a = env.unifier.add_ty(TypeEnum::TList { ty: a });
     let list_x = env.unifier.add_ty(TypeEnum::TList { ty: x });
     let int = env.parse("int", &HashMap::new());
@@ -522,13 +522,13 @@ fn test_instantiation() {
     let obj_map: HashMap<_, _> =
         [(0usize, "int"), (1, "float"), (2, "bool")].iter().cloned().collect();
 
-    let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).0;
+    let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).ty;
     let list_v = env.unifier.add_ty(TypeEnum::TList { ty: v });
-    let v1 = env.unifier.get_fresh_var_with_range(&[list_v, int], None, None).0;
-    let v2 = env.unifier.get_fresh_var_with_range(&[list_int, float], None, None).0;
-    let t = env.unifier.get_dummy_var().0;
+    let v1 = env.unifier.get_fresh_var_with_range(&[list_v, int], None, None).ty;
+    let v2 = env.unifier.get_fresh_var_with_range(&[list_int, float], None, None).ty;
+    let t = env.unifier.get_dummy_var().ty;
     let tuple = env.unifier.add_ty(TypeEnum::TTuple { ty: vec![v, v1, v2] });
-    let v3 = env.unifier.get_fresh_var_with_range(&[tuple, t], None, None).0;
+    let v3 = env.unifier.get_fresh_var_with_range(&[tuple, t], None, None).ty;
     // t = TypeVar('t')
     // v = TypeVar('v', int, bool)
     // v1 = TypeVar('v1', 'list[v]', int)

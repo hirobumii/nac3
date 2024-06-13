@@ -782,11 +782,11 @@ fn make_internal_resolver_with_tvar(
             .into_iter()
             .map(|(name, range)| {
                 (name, {
-                    let (ty, id) = unifier.get_fresh_var_with_range(range.as_slice(), None, None);
+                    let tvar = unifier.get_fresh_var_with_range(range.as_slice(), None, None);
                     if print {
-                        println!("{}: {:?}, typevar{}", name, ty, id);
+                        println!("{}: {:?}, typevar{}", name, tvar.ty, tvar.id);
                     }
-                    ty
+                    tvar.ty
                 })
             })
             .collect::<HashMap<_, _>>()

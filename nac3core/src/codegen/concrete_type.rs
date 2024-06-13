@@ -3,7 +3,7 @@ use crate::{
     toplevel::DefinitionId,
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
+        typedef::{to_var_map, FunSignature, FuncArg, Type, TypeEnum, TypeVar, TypeVarId, Unifier},
     },
 };
 
@@ -51,7 +51,7 @@ pub enum ConcreteTypeEnum {
     TObj {
         obj_id: DefinitionId,
         fields: HashMap<StrRef, (ConcreteType, bool)>,
-        params: IndexMap<u32, ConcreteType>,
+        params: IndexMap<TypeVarId, ConcreteType>,
     },
     TVirtual {
         ty: ConcreteType,
@@ -59,7 +59,7 @@ pub enum ConcreteTypeEnum {
     TFunc {
         args: Vec<ConcreteFuncArg>,
         ret: ConcreteType,
-        vars: HashMap<u32, ConcreteType>,
+        vars: HashMap<TypeVarId, ConcreteType>,
     },
     TLiteral {
         values: Vec<SymbolValue>,
@@ -230,7 +230,7 @@ impl ConcreteTypeStore {
             return if let Some(ty) = ty {
                 *ty
             } else {
-                *ty = Some(unifier.get_dummy_var().0);
+                *ty = Some(unifier.get_dummy_var().ty);
                 ty.unwrap()
             };
         }
@@ -272,10 +272,10 @@ impl ConcreteTypeStore {
                         (*name, (self.to_unifier_type(unifier, primitives, cty.0, cache), cty.1))
                     })
                     .collect::<HashMap<_, _>>(),
-                params: params
-                    .iter()
-                    .map(|(id, cty)| (*id, self.to_unifier_type(unifier, primitives, *cty, cache)))
-                    .collect::<VarMap>(),
+                params: to_var_map(params.iter().map(|(&id, cty)| {
+                    let ty = self.to_unifier_type(unifier, primitives, *cty, cache);
+                    TypeVar { id, ty }
+                })),
             },
             ConcreteTypeEnum::TFunc { args, ret, vars } => TypeEnum::TFunc(FunSignature {
                 args: args
@@ -287,10 +287,10 @@ impl ConcreteTypeStore {
                     })
                     .collect(),
                 ret: self.to_unifier_type(unifier, primitives, *ret, cache),
-                vars: vars
-                    .iter()
-                    .map(|(id, cty)| (*id, self.to_unifier_type(unifier, primitives, *cty, cache)))
-                    .collect::<VarMap>(),
+                vars: to_var_map(vars.iter().map(|(&id, cty)| {
+                    let ty = self.to_unifier_type(unifier, primitives, *cty, cache);
+                    TypeVar { id, ty }
+                })),
             }),
             ConcreteTypeEnum::TLiteral { values, .. } => {
                 TypeEnum::TLiteral { values: values.clone(), loc: None }

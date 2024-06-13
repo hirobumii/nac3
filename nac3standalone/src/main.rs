@@ -124,7 +124,7 @@ fn handle_typevar_definition(
                 )]));
             }
 
-            Ok(unifier.get_fresh_var_with_range(&constraints, Some(generic_name), Some(loc)).0)
+            Ok(unifier.get_fresh_var_with_range(&constraints, Some(generic_name), Some(loc)).ty)
         }
 
         ExprKind::Name { id, .. } if id == &"ConstGeneric".into() => {
@@ -155,7 +155,7 @@ fn handle_typevar_definition(
                 get_type_from_type_annotation_kinds(def_list, unifier, &ty, &mut None)?;
             let loc = func.location;
 
-            Ok(unifier.get_fresh_const_generic_var(constraint, Some(generic_name), Some(loc)).0)
+            Ok(unifier.get_fresh_const_generic_var(constraint, Some(generic_name), Some(loc)).ty)
         }
 
         _ => Err(HashSet::from([format!(
