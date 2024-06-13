@@ -387,9 +387,9 @@ impl TopLevelComposer {
         let option = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Option.id(),
             fields: vec![
-                ("is_some".into(), (is_some_type_fun_ty, true)),
-                ("is_none".into(), (is_some_type_fun_ty, true)),
-                ("unwrap".into(), (unwrap_fun_ty, true)),
+                (PrimDef::OptionIsSome.simple_name().into(), (is_some_type_fun_ty, true)),
+                (PrimDef::OptionIsNone.simple_name().into(), (is_some_type_fun_ty, true)),
+                (PrimDef::OptionUnwrap.simple_name().into(), (unwrap_fun_ty, true)),
             ]
             .into_iter()
             .collect::<HashMap<_, _>>(),
@@ -429,8 +429,8 @@ impl TopLevelComposer {
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::NDArray.id(),
             fields: Mapping::from([
-                ("copy".into(), (ndarray_copy_fun_ty, true)),
-                ("fill".into(), (ndarray_fill_fun_ty, true)),
+                (PrimDef::NDArrayCopy.simple_name().into(), (ndarray_copy_fun_ty, true)),
+                (PrimDef::NDArrayFill.simple_name().into(), (ndarray_fill_fun_ty, true)),
             ]),
             params: VarMap::from([
                 (ndarray_dtype_tvar.1, ndarray_dtype_tvar.0),
