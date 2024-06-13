@@ -304,7 +304,10 @@ impl InnerResolver {
             self.helper.id_fn.call1(py, (self.helper.type_fn.call1(py, (pyty,))?,))?.extract(py)?;
         let py_obj_id: u64 = self.helper.id_fn.call1(py, (pyty,))?.extract(py)?;
         let get_def_id = || {
-            self.pyid_to_def.read().get(&ty_id).copied()
+            self.pyid_to_def
+                .read()
+                .get(&ty_id)
+                .copied()
                 .or_else(|| self.pyid_to_def.read().get(&py_obj_id).copied())
         };
         if ty_id == self.primitive_ids.int || ty_id == self.primitive_ids.int32 {
@@ -318,7 +321,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.bool {
             Ok(Ok((primitives.bool, true)))
         } else if ty_id == self.primitive_ids.string {
-            Ok(Ok((primitives.str, true))) 
+            Ok(Ok((primitives.str, true)))
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             Ok(Ok((primitives.float, true)))
         } else if ty_id == self.primitive_ids.exception {
@@ -607,11 +610,13 @@ impl InnerResolver {
         let pyid_to_def = self.pyid_to_def.read();
         let constructor_ty = pyid_to_def.get(&py_obj_id).and_then(|def_id| {
             defs.iter().find_map(|def| {
-                if let Some(rear_guard) = def.try_read(){
-                    if let TopLevelDef::Class {
-                        object_id, methods, constructor, ..
-                    } = &*rear_guard {
-                        if object_id == def_id && constructor.is_some() && methods.iter().any(|(s, _, _)| s == &"__init__".into()) {
+                if let Some(rear_guard) = def.try_read() {
+                    if let TopLevelDef::Class { object_id, methods, constructor, .. } = &*rear_guard
+                    {
+                        if object_id == def_id
+                            && constructor.is_some()
+                            && methods.iter().any(|(s, _, _)| s == &"__init__".into())
+                        {
                             return *constructor;
                         }
                     }
@@ -633,8 +638,8 @@ impl InnerResolver {
                     self.primitive_ids.generic_alias.0,
                     self.primitive_ids.generic_alias.1,
                 ]
-                .contains(&self.helper.id_fn.call1(py, (ty.clone(),))?.extract::<u64>(py)?) 
-                || self.pyid_to_def.read().contains_key(&py_obj_id)
+                .contains(&self.helper.id_fn.call1(py, (ty.clone(),))?.extract::<u64>(py)?)
+                    || self.pyid_to_def.read().contains_key(&py_obj_id)
                 {
                     obj
                 } else {
@@ -1138,7 +1143,7 @@ impl InnerResolver {
             let val: bool = obj.extract()?;
             Ok(SymbolValue::Bool(val))
         } else if ty_id == self.primitive_ids.string {
-            let val:String = obj.extract()?;
+            let val: String = obj.extract()?;
             Ok(SymbolValue::Str(val))
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             let val: f64 = obj.extract()?;
