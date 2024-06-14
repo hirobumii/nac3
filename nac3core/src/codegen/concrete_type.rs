@@ -3,7 +3,9 @@ use crate::{
     toplevel::DefinitionId,
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{into_var_map, FunSignature, FuncArg, Type, TypeEnum, TypeVar, TypeVarId, Unifier},
+        typedef::{
+            into_var_map, FunSignature, FuncArg, Type, TypeEnum, TypeVar, TypeVarId, Unifier,
+        },
     },
 };
 

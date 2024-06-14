@@ -25,7 +25,7 @@ use crate::{
     },
     symbol_resolver::SymbolValue,
     toplevel::{helper::PrimDef, numpy::make_ndarray_ty},
-    typecheck::typedef::{iter_type_vars, into_var_map, TypeVar, VarMap},
+    typecheck::typedef::{into_var_map, iter_type_vars, TypeVar, VarMap},
 };
 
 use super::*;

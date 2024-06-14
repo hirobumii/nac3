@@ -9,7 +9,7 @@ use nac3core::{
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{iter_type_vars, into_var_map, Type, TypeEnum, TypeVar, Unifier, VarMap},
+        typedef::{into_var_map, iter_type_vars, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
 use nac3parser::ast::{self, StrRef};
