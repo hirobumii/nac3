@@ -35,6 +35,7 @@ pub enum PrimitiveValue {
     U64(u64),
     F64(f64),
     Bool(bool),
+    Str(String),
 }
 
 /// An entry in the [`DeferredEvaluationStore`], containing the deferred types, a [`PyObject`]
@@ -154,6 +155,7 @@ impl StaticValue for PythonValue {
                 PrimitiveValue::Bool(val) => {
                     ctx.ctx.i8_type().const_int(u64::from(*val), false).into()
                 }
+                PrimitiveValue::Str(val) => ctx.ctx.const_string(val.as_bytes(), true).into(),
             });
         }
         if let Some(global) = ctx.module.get_global(&self.id.to_string()) {
@@ -311,6 +313,8 @@ impl InnerResolver {
             Ok(Ok((primitives.uint64, true)))
         } else if ty_id == self.primitive_ids.bool {
             Ok(Ok((primitives.bool, true)))
+        } else if ty_id == self.primitive_ids.string {
+            Ok(Ok((primitives.str, true)))
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             Ok(Ok((primitives.float, true)))
         } else if ty_id == self.primitive_ids.exception {
@@ -873,6 +877,10 @@ impl InnerResolver {
             let val: bool = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
             Ok(Some(ctx.ctx.i8_type().const_int(u64::from(val), false).into()))
+        } else if ty_id == self.primitive_ids.string {
+            let val: String = obj.extract().unwrap();
+            self.id_to_primitive.write().insert(id, PrimitiveValue::Str(val.clone()));
+            Ok(Some(ctx.ctx.const_string(val.as_bytes(), true).into()))
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             let val: f64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::F64(val));
@@ -1119,6 +1127,9 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.bool {
             let val: bool = obj.extract()?;
             Ok(SymbolValue::Bool(val))
+        } else if ty_id == self.primitive_ids.string {
+            let val: String = obj.extract()?;
+            Ok(SymbolValue::Str(val))
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             let val: f64 = obj.extract()?;
             Ok(SymbolValue::Double(val))
