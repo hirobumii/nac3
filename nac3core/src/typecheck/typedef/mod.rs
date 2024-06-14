@@ -255,7 +255,7 @@ pub struct Unifier {
     pub(crate) top_level: Option<Arc<TopLevelContext>>,
     pub(crate) unification_table: UnificationTable<Rc<TypeEnum>>,
     pub(crate) calls: Vec<Rc<Call>>,
-    var_id: u32,
+    var_id_counter: u32,
     unify_cache: HashSet<(Type, Type)>,
     snapshot: Option<(usize, u32)>,
     primitive_store: Option<PrimitiveStore>,
@@ -273,7 +273,7 @@ impl Unifier {
     pub fn new() -> Unifier {
         Unifier {
             unification_table: UnificationTable::new(),
-            var_id: 0,
+            var_id_counter: 0,
             calls: Vec::new(),
             unify_cache: HashSet::new(),
             top_level: None,
@@ -312,7 +312,7 @@ impl Unifier {
         let lock = unifier.lock().unwrap();
         Unifier {
             unification_table: UnificationTable::from_send(&lock.0),
-            var_id: lock.1,
+            var_id_counter: lock.1,
             calls: lock.2.iter().map(|v| Rc::new(v.clone())).collect_vec(),
             top_level: None,
             unify_cache: HashSet::new(),
@@ -325,7 +325,7 @@ impl Unifier {
     pub fn get_shared_unifier(&self) -> SharedUnifier {
         Arc::new(Mutex::new((
             self.unification_table.get_send(),
-            self.var_id,
+            self.var_id_counter,
             self.calls.iter().map(|v| v.as_ref().clone()).collect_vec(),
         )))
     }
@@ -337,8 +337,7 @@ impl Unifier {
     }
 
     pub fn add_record(&mut self, fields: Mapping<RecordKey, RecordField>) -> Type {
-        let id = TypeVarId(self.var_id + 1);
-        self.var_id += 1;
+        let id = self.generate_var_id();
         self.add_ty(TypeEnum::TVar {
             id,
             range: vec![],
@@ -389,8 +388,7 @@ impl Unifier {
     }
 
     pub fn get_fresh_rigid_var(&mut self, name: Option<StrRef>, loc: Option<Location>) -> TypeVar {
-        let id = TypeVarId(self.var_id + 1);
-        self.var_id += 1;
+        let id = self.generate_var_id();
         let ty = self.add_ty(TypeEnum::TRigidVar { id, name, loc });
         TypeVar { id, ty }
     }
@@ -417,8 +415,7 @@ impl Unifier {
     ) -> TypeVar {
         let range = range.to_vec();
 
-        let id = TypeVarId(self.var_id + 1);
-        self.var_id += 1;
+        let id = self.generate_var_id();
         let ty = self.add_ty(TypeEnum::TVar {
             id,
             range,
@@ -437,8 +434,7 @@ impl Unifier {
         name: Option<StrRef>,
         loc: Option<Location>,
     ) -> TypeVar {
-        let id = TypeVarId(self.var_id + 1);
-        self.var_id += 1;
+        let id = self.generate_var_id();
         let ty = self.add_ty(TypeEnum::TVar {
             id,
             range: vec![ty],
@@ -1397,8 +1393,7 @@ impl Unifier {
                     if range.is_empty() {
                         Err(())
                     } else {
-                        let id = TypeVarId(self.var_id + 1);
-                        self.var_id += 1;
+                        let id = self.generate_var_id();
                         let ty = TVar {
                             id,
                             fields: fields.clone(),
@@ -1465,5 +1460,11 @@ impl Unifier {
             }
         }
         Err(TypeError::new(TypeErrorKind::IncompatibleRange(b, range.to_vec()), None))
+    }
+
+    /// Generate a new [`TypeVarId`] from [`Unifier::var_id_counter`]
+    fn generate_var_id(&mut self) -> TypeVarId {
+        self.var_id_counter += 1;
+        TypeVarId(self.var_id_counter)
     }
 }
