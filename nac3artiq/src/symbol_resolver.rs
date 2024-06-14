@@ -300,14 +300,6 @@ impl InnerResolver {
         let ty_id: u64 = self.helper.id_fn.call1(py, (pyty,))?.extract(py)?;
         let ty_ty_id: u64 =
             self.helper.id_fn.call1(py, (self.helper.type_fn.call1(py, (pyty,))?,))?.extract(py)?;
-        let py_obj_id: u64 = self.helper.id_fn.call1(py, (pyty,))?.extract(py)?;
-        let get_def_id = || {
-            self.pyid_to_def
-                .read()
-                .get(&ty_id)
-                .copied()
-                .or_else(|| self.pyid_to_def.read().get(&py_obj_id).copied())
-        };
 
         if ty_id == self.primitive_ids.int || ty_id == self.primitive_ids.int32 {
             Ok(Ok((primitives.int32, true)))
@@ -341,7 +333,14 @@ impl InnerResolver {
             Ok(Ok((primitives.option, false)))
         } else if ty_id == self.primitive_ids.none {
             unreachable!("none cannot be typeid")
-        } else if let Some(def_id) = get_def_id() {
+        } else if let Some(def_id) = {
+            let py_obj_id: u64 = self.helper.id_fn.call1(py, (pyty,))?.extract(py)?;
+            self.pyid_to_def
+                .read()
+                .get(&ty_id)
+                .copied()
+                .or_else(|| self.pyid_to_def.read().get(&py_obj_id).copied())
+        } {
             let def = defs[def_id.0].read();
             let TopLevelDef::Class { object_id, type_vars, fields, methods, .. } = &*def else {
                 // only object is supported, functions are not supported
