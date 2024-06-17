@@ -15,11 +15,13 @@ use crate::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
     },
 };
+use indexmap::IndexMap;
 use indoc::indoc;
 use inkwell::{
     targets::{InitializationConfig, Target},
     OptimizationLevel,
 };
+use nac3parser::ast::FileName;
 use nac3parser::{
     ast::{fold::Fold, StrRef},
     parser::parse_program,
@@ -55,13 +57,13 @@ impl SymbolResolver for Resolver {
         _: &PrimitiveStore,
         str: StrRef,
     ) -> Result<Type, String> {
-        self.id_to_type.get(&str).cloned().ok_or_else(|| format!("cannot find symbol `{}`", str))
+        self.id_to_type.get(&str).copied().ok_or_else(|| format!("cannot find symbol `{str}`"))
     }
 
-    fn get_symbol_value<'ctx, 'a>(
+    fn get_symbol_value<'ctx>(
         &self,
         _: StrRef,
-        _: &mut CodeGenContext<'ctx, 'a>,
+        _: &mut CodeGenContext<'ctx, '_>,
     ) -> Option<ValueEnum<'ctx>> {
         unimplemented!()
     }
@@ -70,8 +72,8 @@ impl SymbolResolver for Resolver {
         self.id_to_def
             .read()
             .get(&id)
-            .cloned()
-            .ok_or_else(|| HashSet::from([format!("cannot find symbol `{}`", id)]))
+            .copied()
+            .ok_or_else(|| HashSet::from([format!("cannot find symbol `{id}`")]))
     }
 
     fn get_string_id(&self, _: &str) -> i32 {
@@ -90,7 +92,7 @@ fn test_primitives() {
         d = a if c == 1 else 0
         return d
         "};
-    let statements = parse_program(source, Default::default()).unwrap();
+    let statements = parse_program(source, FileName::default()).unwrap();
 
     let composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 32).0;
     let mut unifier = composer.unifier.clone();
@@ -101,7 +103,7 @@ fn test_primitives() {
     let resolver = Arc::new(Resolver {
         id_to_type: HashMap::new(),
         id_to_def: RwLock::new(HashMap::new()),
-        class_names: Default::default(),
+        class_names: HashMap::default(),
     }) as Arc<dyn SymbolResolver + Send + Sync>;
 
     let threads = vec![DefaultCodeGenerator::new("test".into(), 32).into()];
@@ -126,12 +128,12 @@ fn test_primitives() {
     };
     let mut virtual_checks = Vec::new();
     let mut calls = HashMap::new();
-    let mut identifiers: HashSet<_> = ["a".into(), "b".into()].iter().cloned().collect();
+    let mut identifiers: HashSet<_> = ["a".into(), "b".into()].into();
     let mut inferencer = Inferencer {
         top_level: &top_level,
         function_data: &mut function_data,
         unifier: &mut unifier,
-        variable_mapping: Default::default(),
+        variable_mapping: HashMap::default(),
         primitives: &primitives,
         virtual_checks: &mut virtual_checks,
         calls: &mut calls,
@@ -155,7 +157,7 @@ fn test_primitives() {
     });
 
     let task = CodeGenTask {
-        subst: Default::default(),
+        subst: Vec::default(),
         symbol_name: "testing".into(),
         body: Arc::new(statements),
         unifier_index: 0,
@@ -237,12 +239,12 @@ fn test_simple_call() {
         a = foo(a)
         return a * 2
         "};
-    let statements_1 = parse_program(source_1, Default::default()).unwrap();
+    let statements_1 = parse_program(source_1, FileName::default()).unwrap();
 
     let source_2 = indoc! { "
         return a + 1
         "};
-    let statements_2 = parse_program(source_2, Default::default()).unwrap();
+    let statements_2 = parse_program(source_2, FileName::default()).unwrap();
 
     let composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 32).0;
     let mut unifier = composer.unifier.clone();
@@ -277,7 +279,7 @@ fn test_simple_call() {
     let resolver = Resolver {
         id_to_type: HashMap::new(),
         id_to_def: RwLock::new(HashMap::new()),
-        class_names: Default::default(),
+        class_names: HashMap::default(),
     };
     resolver.add_id_def("foo".into(), DefinitionId(foo_id));
     let resolver = Arc::new(resolver) as Arc<dyn SymbolResolver + Send + Sync>;
@@ -298,12 +300,12 @@ fn test_simple_call() {
     };
     let mut virtual_checks = Vec::new();
     let mut calls = HashMap::new();
-    let mut identifiers: HashSet<_> = ["a".into(), "foo".into()].iter().cloned().collect();
+    let mut identifiers: HashSet<_> = ["a".into(), "foo".into()].into();
     let mut inferencer = Inferencer {
         top_level: &top_level,
         function_data: &mut function_data,
         unifier: &mut unifier,
-        variable_mapping: Default::default(),
+        variable_mapping: HashMap::default(),
         primitives: &primitives,
         virtual_checks: &mut virtual_checks,
         calls: &mut calls,
@@ -332,11 +334,11 @@ fn test_simple_call() {
         &mut *top_level.definitions.read()[foo_id].write()
     {
         instance_to_stmt.insert(
-            "".to_string(),
+            String::new(),
             FunInstance {
                 body: Arc::new(statements_2),
                 calls: Arc::new(inferencer.calls.clone()),
-                subst: Default::default(),
+                subst: IndexMap::default(),
                 unifier_id: 0,
             },
         );
@@ -352,7 +354,7 @@ fn test_simple_call() {
     });
 
     let task = CodeGenTask {
-        subst: Default::default(),
+        subst: Vec::default(),
         symbol_name: "testing".to_string(),
         body: Arc::new(statements_1),
         calls: Arc::new(calls1),

@@ -1284,13 +1284,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::{make_tokenizer, NewlineHandler, Tok};
+    use nac3ast::FileName;
 
     const WINDOWS_EOL: &str = "\r\n";
     const MAC_EOL: &str = "\r";
     const UNIX_EOL: &str = "\n";
 
     pub fn lex_source(source: &str) -> Vec<Tok> {
-        let lexer = make_tokenizer(source, Default::default());
+        let lexer = make_tokenizer(source, FileName::default());
         lexer.map(|x| x.unwrap().1).collect()
     }
 
@@ -1370,7 +1371,7 @@ class Foo(A, B):
                 Dedent,
                 Dedent
             ]
-        )
+        );
     }
 
     #[test]
@@ -1726,7 +1727,7 @@ class Foo(A, B):
     #[test]
     fn test_escape_char_in_byte_literal() {
         // backslash does not escape
-        let source = r##"b"omkmok\Xaa""##;
+        let source = r#"b"omkmok\Xaa""#;
         let tokens = lex_source(source);
         let res = vec![111, 109, 107, 109, 111, 107, 92, 88, 97, 97];
         assert_eq!(tokens, vec![Tok::Bytes { value: res }, Tok::Newline]);
@@ -1739,14 +1740,14 @@ class Foo(A, B):
         assert_eq!(tokens, vec![Tok::Bytes { value: b"\\x1z".to_vec() }, Tok::Newline]);
         let source = r"rb'\\'";
         let tokens = lex_source(source);
-        assert_eq!(tokens, vec![Tok::Bytes { value: b"\\\\".to_vec() }, Tok::Newline])
+        assert_eq!(tokens, vec![Tok::Bytes { value: b"\\\\".to_vec() }, Tok::Newline]);
     }
 
     #[test]
     fn test_escape_octet() {
-        let source = r##"b'\43a\4\1234'"##;
+        let source = r"b'\43a\4\1234'";
         let tokens = lex_source(source);
-        assert_eq!(tokens, vec![Tok::Bytes { value: b"#a\x04S4".to_vec() }, Tok::Newline])
+        assert_eq!(tokens, vec![Tok::Bytes { value: b"#a\x04S4".to_vec() }, Tok::Newline]);
     }
 
     #[test]
@@ -1756,6 +1757,6 @@ class Foo(A, B):
         assert_eq!(
             tokens,
             vec![Tok::String { value: "\u{2002}".to_owned(), is_fstring: false }, Tok::Newline]
-        )
+        );
     }
 }

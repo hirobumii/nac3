@@ -85,42 +85,42 @@ mod tests {
 
     #[test]
     fn test_parse_empty() {
-        let parse_ast = parse_program("", Default::default()).unwrap();
+        let parse_ast = parse_program("", FileName::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_print_hello() {
         let source = String::from("print('Hello world')");
-        let parse_ast = parse_program(&source, Default::default()).unwrap();
+        let parse_ast = parse_program(&source, FileName::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_print_2() {
         let source = String::from("print('Hello world', 2)");
-        let parse_ast = parse_program(&source, Default::default()).unwrap();
+        let parse_ast = parse_program(&source, FileName::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_kwargs() {
         let source = String::from("my_func('positional', keyword=2)");
-        let parse_ast = parse_program(&source, Default::default()).unwrap();
+        let parse_ast = parse_program(&source, FileName::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_if_elif_else() {
         let source = String::from("if 1: 10\nelif 2: 20\nelse: 30");
-        let parse_ast = parse_program(&source, Default::default()).unwrap();
+        let parse_ast = parse_program(&source, FileName::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
     #[test]
     fn test_parse_lambda() {
         let source = "lambda x, y: x * y"; // lambda(x, y): x * y";
-        let parse_ast = parse_program(source, Default::default()).unwrap();
+        let parse_ast = parse_program(source, FileName::default()).unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
@@ -128,7 +128,7 @@ mod tests {
     fn test_parse_tuples() {
         let source = "a, b = 4, 5";
 
-        insta::assert_debug_snapshot!(parse_program(source, Default::default()).unwrap());
+        insta::assert_debug_snapshot!(parse_program(source, FileName::default()).unwrap());
     }
 
     #[test]
@@ -139,7 +139,7 @@ class Foo(A, B):
   pass
  def method_with_default(self, arg='default'):
   pass";
-        insta::assert_debug_snapshot!(parse_program(source, Default::default()).unwrap());
+        insta::assert_debug_snapshot!(parse_program(source, FileName::default()).unwrap());
     }
 
     #[test]
@@ -182,7 +182,7 @@ while i < 2: # nac3: 4
     # nac3: if1
     if 1: # nac3: if2
         3";
-        insta::assert_debug_snapshot!(parse_program(source, Default::default()).unwrap());
+        insta::assert_debug_snapshot!(parse_program(source, FileName::default()).unwrap());
     }
 
     #[test]
@@ -195,7 +195,7 @@ while test: # nac3: while3
     # nac3: simple assign0 
     a = 3 # nac3: simple assign1
 ";
-        insta::assert_debug_snapshot!(parse_program(source, Default::default()).unwrap());
+        insta::assert_debug_snapshot!(parse_program(source, FileName::default()).unwrap());
     }
 
     #[test]
@@ -214,7 +214,7 @@ if a: # nac3: small2
 for i in a: # nac3: for1
     pass
 ";
-        insta::assert_debug_snapshot!(parse_program(source, Default::default()).unwrap());
+        insta::assert_debug_snapshot!(parse_program(source, FileName::default()).unwrap());
     }
 
     #[test]
@@ -223,6 +223,6 @@ for i in a: # nac3: for1
 if a: # nac3: something
 a = 3
 ";
-        assert!(parse_program(source, Default::default()).is_err());
+        assert!(parse_program(source, FileName::default()).is_err());
     }
 }

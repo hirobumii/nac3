@@ -52,8 +52,8 @@ impl Unifier {
         if map1.len() != map2.len() {
             return false;
         }
-        for (k, v) in map1.iter() {
-            if !map2.get(k).map(|v1| self.eq(*v, *v1)).unwrap_or(false) {
+        for (k, v) in map1 {
+            if !map2.get(k).is_some_and(|v1| self.eq(*v, *v1)) {
                 return false;
             }
         }
@@ -67,8 +67,8 @@ impl Unifier {
         if map1.len() != map2.len() {
             return false;
         }
-        for (k, v) in map1.iter() {
-            if !map2.get(k).map(|v1| self.eq(v.ty, v1.ty)).unwrap_or(false) {
+        for (k, v) in map1 {
+            if !map2.get(k).is_some_and(|v1| self.eq(v.ty, v1.ty)) {
                 return false;
             }
         }
@@ -115,7 +115,7 @@ impl TestEnvironment {
             "Foo".into(),
             unifier.add_ty(TypeEnum::TObj {
                 obj_id: DefinitionId(3),
-                fields: [("a".into(), (tvar.ty, true))].iter().cloned().collect::<HashMap<_, _>>(),
+                fields: [("a".into(), (tvar.ty, true))].into(),
                 params: into_var_map([tvar]),
             }),
         );
@@ -129,13 +129,9 @@ impl TestEnvironment {
         result.0
     }
 
-    fn internal_parse<'a, 'b>(
-        &'a mut self,
-        typ: &'b str,
-        mapping: &Mapping<String>,
-    ) -> (Type, &'b str) {
+    fn internal_parse<'b>(&mut self, typ: &'b str, mapping: &Mapping<String>) -> (Type, &'b str) {
         // for testing only, so we can just panic when the input is malformed
-        let end = typ.find(|c| ['[', ',', ']', '='].contains(&c)).unwrap_or_else(|| typ.len());
+        let end = typ.find(|c| ['[', ',', ']', '='].contains(&c)).unwrap_or(typ.len());
         match &typ[..end] {
             "tuple" => {
                 let mut s = &typ[end..];
@@ -149,7 +145,7 @@ impl TestEnvironment {
                 (self.unifier.add_ty(TypeEnum::TTuple { ty }), &s[1..])
             }
             "list" => {
-                assert_eq!(&typ[end..end + 1], "[");
+                assert_eq!(&typ[end..=end], "[");
                 let (ty, s) = self.internal_parse(&typ[end + 1..], mapping);
                 assert_eq!(&s[0..1], "]");
                 (self.unifier.add_ty(TypeEnum::TList { ty }), &s[1..])
@@ -169,12 +165,12 @@ impl TestEnvironment {
             }
             x => {
                 let mut s = &typ[end..];
-                let ty = mapping.get(x).cloned().unwrap_or_else(|| {
+                let ty = mapping.get(x).copied().unwrap_or_else(|| {
                     // mapping should be type variables, type_mapping should be concrete types
                     // we should not resolve the type of type variables.
                     let mut ty = *self.type_mapping.get(x).unwrap();
                     let te = self.unifier.get_ty(ty);
-                    if let TypeEnum::TObj { params, .. } = &*te.as_ref() {
+                    if let TypeEnum::TObj { params, .. } = &*te {
                         if !params.is_empty() {
                             assert_eq!(&s[0..1], "[");
                             let mut p = Vec::new();
@@ -186,7 +182,7 @@ impl TestEnvironment {
                             s = &s[1..];
                             ty = self
                                 .unifier
-                                .subst(ty, &params.keys().cloned().zip(p.into_iter()).collect())
+                                .subst(ty, &params.keys().copied().zip(p).collect())
                                 .unwrap_or(ty);
                         }
                     }
@@ -250,12 +246,12 @@ fn test_unify(
         let mut mapping = HashMap::new();
         for i in 1..=variable_count {
             let v = env.unifier.get_dummy_var();
-            mapping.insert(format!("v{}", i), v.ty);
+            mapping.insert(format!("v{i}"), v.ty);
         }
         // unification may have side effect when we do type resolution, so freeze the types
         // before doing unification.
         let mut pairs = Vec::new();
-        for (a, b) in perm.iter() {
+        for (a, b) in &perm {
             let t1 = env.parse(a, &mapping);
             let t2 = env.parse(b, &mapping);
             pairs.push((t1, t2));
@@ -263,8 +259,8 @@ fn test_unify(
         for (t1, t2) in pairs {
             env.unifier.unify(t1, t2).unwrap();
         }
-        for (a, b) in verify_pairs.iter() {
-            println!("{} = {}", a, b);
+        for (a, b) in verify_pairs {
+            println!("{a} = {b}");
             let t1 = env.parse(a, &mapping);
             let t2 = env.parse(b, &mapping);
             println!("a = {}, b = {}", env.unifier.stringify(t1), env.unifier.stringify(t2));
@@ -315,12 +311,12 @@ fn test_invalid_unification(
     let mut mapping = HashMap::new();
     for i in 1..=variable_count {
         let v = env.unifier.get_dummy_var();
-        mapping.insert(format!("v{}", i), v.ty);
+        mapping.insert(format!("v{i}"), v.ty);
     }
     // unification may have side effect when we do type resolution, so freeze the types
     // before doing unification.
     let mut pairs = Vec::new();
-    for (a, b) in unify_pairs.iter() {
+    for (a, b) in unify_pairs {
         let t1 = env.parse(a, &mapping);
         let t2 = env.parse(b, &mapping);
         pairs.push((t1, t2));
@@ -363,10 +359,7 @@ fn test_virtual() {
     }));
     let bar = env.unifier.add_ty(TypeEnum::TObj {
         obj_id: DefinitionId(5),
-        fields: [("f".into(), (fun, false)), ("a".into(), (int, false))]
-            .iter()
-            .cloned()
-            .collect::<HashMap<StrRef, _>>(),
+        fields: [("f".into(), (fun, false)), ("a".into(), (int, false))].into(),
         params: VarMap::new(),
     });
     let v0 = env.unifier.get_dummy_var().ty;
@@ -374,21 +367,15 @@ fn test_virtual() {
 
     let a = env.unifier.add_ty(TypeEnum::TVirtual { ty: bar });
     let b = env.unifier.add_ty(TypeEnum::TVirtual { ty: v0 });
-    let c = env
-        .unifier
-        .add_record([("f".into(), RecordField::new(v1, false, None))].iter().cloned().collect());
+    let c = env.unifier.add_record([("f".into(), RecordField::new(v1, false, None))].into());
     env.unifier.unify(a, b).unwrap();
     env.unifier.unify(b, c).unwrap();
     assert!(env.unifier.eq(v1, fun));
 
-    let d = env
-        .unifier
-        .add_record([("a".into(), RecordField::new(v1, true, None))].iter().cloned().collect());
+    let d = env.unifier.add_record([("a".into(), RecordField::new(v1, true, None))].into());
     assert_eq!(env.unify(b, d), Err("`virtual[5]::a` field/method does not exist".to_string()));
 
-    let d = env
-        .unifier
-        .add_record([("b".into(), RecordField::new(v1, true, None))].iter().cloned().collect());
+    let d = env.unifier.add_record([("b".into(), RecordField::new(v1, true, None))].into());
     assert_eq!(env.unify(b, d), Err("`virtual[5]::b` field/method does not exist".to_string()));
 }
 
@@ -519,8 +506,7 @@ fn test_instantiation() {
     let float = env.parse("float", &HashMap::new());
     let list_int = env.parse("list[int]", &HashMap::new());
 
-    let obj_map: HashMap<_, _> =
-        [(0usize, "int"), (1, "float"), (2, "bool")].iter().cloned().collect();
+    let obj_map: HashMap<_, _> = [(0usize, "int"), (1, "float"), (2, "bool")].into();
 
     let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).ty;
     let list_v = env.unifier.add_ty(TypeEnum::TList { ty: v });
@@ -559,8 +545,8 @@ fn test_instantiation() {
         .map(|ty| {
             env.unifier.internal_stringify(
                 *ty,
-                &mut |i| obj_map.get(&i).unwrap().to_string(),
-                &mut |i| format!("v{}", i),
+                &mut |i| (*obj_map.get(&i).unwrap()).to_string(),
+                &mut |i| format!("v{i}"),
                 &mut None,
             )
         })

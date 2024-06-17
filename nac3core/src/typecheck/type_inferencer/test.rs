@@ -5,7 +5,9 @@ use crate::{
     symbol_resolver::ValueEnum,
     toplevel::{helper::PrimDef, DefinitionId, TopLevelDef},
 };
+use indexmap::IndexMap;
 use indoc::indoc;
+use nac3parser::ast::FileName;
 use nac3parser::parser::parse_program;
 use parking_lot::RwLock;
 use std::iter::zip;
@@ -32,13 +34,13 @@ impl SymbolResolver for Resolver {
         _: &PrimitiveStore,
         str: StrRef,
     ) -> Result<Type, String> {
-        self.id_to_type.get(&str).cloned().ok_or_else(|| format!("cannot find symbol `{}`", str))
+        self.id_to_type.get(&str).copied().ok_or_else(|| format!("cannot find symbol `{str}`"))
     }
 
-    fn get_symbol_value<'ctx, 'a>(
+    fn get_symbol_value<'ctx>(
         &self,
         _: StrRef,
-        _: &mut CodeGenContext<'ctx, 'a>,
+        _: &mut CodeGenContext<'ctx, '_>,
     ) -> Option<ValueEnum<'ctx>> {
         unimplemented!()
     }
@@ -46,7 +48,7 @@ impl SymbolResolver for Resolver {
     fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
         self.id_to_def
             .get(&id)
-            .cloned()
+            .copied()
             .ok_or_else(|| HashSet::from(["Unknown identifier".to_string()]))
     }
 
@@ -163,7 +165,7 @@ impl TestEnvironment {
         unifier.put_primitive_store(&primitives);
         set_primitives_magic_methods(&primitives, &mut unifier);
 
-        let id_to_name = [
+        let id_to_name: HashMap<_, _> = [
             (0, "int32".into()),
             (1, "int64".into()),
             (2, "float".into()),
@@ -173,23 +175,21 @@ impl TestEnvironment {
             (6, "str".into()),
             (7, "exception".into()),
         ]
-        .iter()
-        .cloned()
-        .collect();
+        .into();
 
         let mut identifier_mapping = HashMap::new();
         identifier_mapping.insert("None".into(), none);
 
         let resolver = Arc::new(Resolver {
             id_to_type: identifier_mapping.clone(),
-            id_to_def: Default::default(),
-            class_names: Default::default(),
+            id_to_def: HashMap::default(),
+            class_names: HashMap::default(),
         }) as Arc<dyn SymbolResolver + Send + Sync>;
 
         TestEnvironment {
             top_level: TopLevelContext {
-                definitions: Default::default(),
-                unifiers: Default::default(),
+                definitions: Arc::default(),
+                unifiers: Arc::default(),
                 personality_symbol: None,
             },
             unifier,
@@ -287,10 +287,10 @@ impl TestEnvironment {
                 RwLock::new(TopLevelDef::Class {
                     name: (*name).into(),
                     object_id: DefinitionId(i),
-                    type_vars: Default::default(),
-                    fields: Default::default(),
-                    methods: Default::default(),
-                    ancestors: Default::default(),
+                    type_vars: Vec::default(),
+                    fields: Vec::default(),
+                    methods: Vec::default(),
+                    ancestors: Vec::default(),
                     resolver: None,
                     constructor: None,
                     loc: None,
@@ -322,7 +322,7 @@ impl TestEnvironment {
 
         let foo_ty = unifier.add_ty(TypeEnum::TObj {
             obj_id: DefinitionId(defs + 1),
-            fields: [("a".into(), (tvar.ty, true))].iter().cloned().collect::<HashMap<_, _>>(),
+            fields: [("a".into(), (tvar.ty, true))].into(),
             params: into_var_map([tvar]),
         });
         top_level_defs.push(
@@ -331,8 +331,8 @@ impl TestEnvironment {
                 object_id: DefinitionId(defs + 1),
                 type_vars: vec![tvar.ty],
                 fields: [("a".into(), tvar.ty, true)].into(),
-                methods: Default::default(),
-                ancestors: Default::default(),
+                methods: Vec::default(),
+                ancestors: Vec::default(),
                 resolver: None,
                 constructor: None,
                 loc: None,
@@ -352,24 +352,21 @@ impl TestEnvironment {
         let fun = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
             ret: int32,
-            vars: Default::default(),
+            vars: IndexMap::default(),
         }));
         let bar = unifier.add_ty(TypeEnum::TObj {
             obj_id: DefinitionId(defs + 2),
-            fields: [("a".into(), (int32, true)), ("b".into(), (fun, true))]
-                .iter()
-                .cloned()
-                .collect::<HashMap<_, _>>(),
-            params: Default::default(),
+            fields: [("a".into(), (int32, true)), ("b".into(), (fun, true))].into(),
+            params: IndexMap::default(),
         });
         top_level_defs.push(
             RwLock::new(TopLevelDef::Class {
                 name: "Bar".into(),
                 object_id: DefinitionId(defs + 2),
-                type_vars: Default::default(),
+                type_vars: Vec::default(),
                 fields: [("a".into(), int32, true), ("b".into(), fun, true)].into(),
-                methods: Default::default(),
-                ancestors: Default::default(),
+                methods: Vec::default(),
+                ancestors: Vec::default(),
                 resolver: None,
                 constructor: None,
                 loc: None,
@@ -381,26 +378,23 @@ impl TestEnvironment {
             unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![],
                 ret: bar,
-                vars: Default::default(),
+                vars: IndexMap::default(),
             })),
         );
 
         let bar2 = unifier.add_ty(TypeEnum::TObj {
             obj_id: DefinitionId(defs + 3),
-            fields: [("a".into(), (bool, true)), ("b".into(), (fun, false))]
-                .iter()
-                .cloned()
-                .collect::<HashMap<_, _>>(),
-            params: Default::default(),
+            fields: [("a".into(), (bool, true)), ("b".into(), (fun, false))].into(),
+            params: IndexMap::default(),
         });
         top_level_defs.push(
             RwLock::new(TopLevelDef::Class {
                 name: "Bar2".into(),
                 object_id: DefinitionId(defs + 3),
-                type_vars: Default::default(),
+                type_vars: Vec::default(),
                 fields: [("a".into(), bool, true), ("b".into(), fun, false)].into(),
-                methods: Default::default(),
-                ancestors: Default::default(),
+                methods: Vec::default(),
+                ancestors: Vec::default(),
                 resolver: None,
                 constructor: None,
                 loc: None,
@@ -412,10 +406,10 @@ impl TestEnvironment {
             unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![],
                 ret: bar2,
-                vars: Default::default(),
+                vars: IndexMap::default(),
             })),
         );
-        let class_names = [("Bar".into(), bar), ("Bar2".into(), bar2)].iter().cloned().collect();
+        let class_names: HashMap<_, _> = [("Bar".into(), bar), ("Bar2".into(), bar2)].into();
 
         let id_to_name = [
             "int32".into(),
@@ -430,14 +424,13 @@ impl TestEnvironment {
             "Bar".into(),
             "Bar2".into(),
         ]
-        .iter()
+        .into_iter()
         .enumerate()
-        .map(|(a, b)| (a, *b))
         .collect();
 
         let top_level = TopLevelContext {
             definitions: Arc::new(top_level_defs.into()),
-            unifiers: Default::default(),
+            unifiers: Arc::default(),
             personality_symbol: None,
         };
 
@@ -448,9 +441,7 @@ impl TestEnvironment {
                 ("Bar".into(), DefinitionId(defs + 2)),
                 ("Bar2".into(), DefinitionId(defs + 3)),
             ]
-            .iter()
-            .cloned()
-            .collect(),
+            .into(),
             class_names,
         }) as Arc<dyn SymbolResolver + Send + Sync>;
 
@@ -475,11 +466,11 @@ impl TestEnvironment {
             top_level: &self.top_level,
             function_data: &mut self.function_data,
             unifier: &mut self.unifier,
-            variable_mapping: Default::default(),
+            variable_mapping: HashMap::default(),
             primitives: &mut self.primitives,
             virtual_checks: &mut self.virtual_checks,
             calls: &mut self.calls,
-            defined_identifiers: Default::default(),
+            defined_identifiers: HashSet::default(),
             in_handler: false,
         }
     }
@@ -491,7 +482,7 @@ impl TestEnvironment {
         c = 1.234
         d = True
     "},
-    [("a", "int32"), ("b", "int64"), ("c", "float"), ("d", "bool")].iter().cloned().collect(),
+    &[("a", "int32"), ("b", "int64"), ("c", "float"), ("d", "bool")].into(),
     &[]
     ; "primitives test")]
 #[test_case(indoc! {"
@@ -500,7 +491,7 @@ impl TestEnvironment {
         c = 1.234
         d = b(c)
     "},
-    [("a", "fn[[x:float, y:float], float]"), ("b", "fn[[x:float], float]"), ("c", "float"), ("d", "float")].iter().cloned().collect(),
+    &[("a", "fn[[x:float, y:float], float]"), ("b", "fn[[x:float], float]"), ("c", "float"), ("d", "float")].into(),
     &[]
     ; "lambda test")]
 #[test_case(indoc! {"
@@ -509,7 +500,7 @@ impl TestEnvironment {
         a = b
         c = b(1)
     "},
-    [("a", "fn[[x:int32], int32]"), ("b", "fn[[x:int32], int32]"), ("c", "int32")].iter().cloned().collect(),
+    &[("a", "fn[[x:int32], int32]"), ("b", "fn[[x:int32], int32]"), ("c", "int32")].into(),
     &[]
     ; "lambda test 2")]
 #[test_case(indoc! {"
@@ -525,15 +516,15 @@ impl TestEnvironment {
         b(123)
 
     "},
-    [("a", "fn[[x:bool], bool]"), ("b", "fn[[x:int32], int32]"), ("c", "bool"),
-     ("d", "int32"), ("foo1", "Foo[bool]"), ("foo2", "Foo[int32]")].iter().cloned().collect(),
+    &[("a", "fn[[x:bool], bool]"), ("b", "fn[[x:int32], int32]"), ("c", "bool"),
+     ("d", "int32"), ("foo1", "Foo[bool]"), ("foo2", "Foo[int32]")].into(),
     &[]
     ; "obj test")]
 #[test_case(indoc! {"
         a = [1, 2, 3]
         b = [x + x for x in a]
     "},
-    [("a", "list[int32]"), ("b", "list[int32]")].iter().cloned().collect(),
+    &[("a", "list[int32]"), ("b", "list[int32]")].into(),
     &[]
     ; "listcomp test")]
 #[test_case(indoc! {"
@@ -541,25 +532,25 @@ impl TestEnvironment {
         b = a.b()
         a = virtual(Bar2())
     "},
-    [("a", "virtual[Bar]"), ("b", "int32")].iter().cloned().collect(),
+    &[("a", "virtual[Bar]"), ("b", "int32")].into(),
     &[("Bar", "Bar"), ("Bar2", "Bar")]
     ; "virtual test")]
 #[test_case(indoc! {"
         a = [virtual(Bar(), Bar), virtual(Bar2())]
         b = [x.b() for x in a]
     "},
-    [("a", "list[virtual[Bar]]"), ("b", "list[int32]")].iter().cloned().collect(),
+    &[("a", "list[virtual[Bar]]"), ("b", "list[int32]")].into(),
     &[("Bar", "Bar"), ("Bar2", "Bar")]
     ; "virtual list test")]
-fn test_basic(source: &str, mapping: HashMap<&str, &str>, virtuals: &[(&str, &str)]) {
-    println!("source:\n{}", source);
+fn test_basic(source: &str, mapping: &HashMap<&str, &str>, virtuals: &[(&str, &str)]) {
+    println!("source:\n{source}");
     let mut env = TestEnvironment::new();
     let id_to_name = std::mem::take(&mut env.id_to_name);
-    let mut defined_identifiers: HashSet<_> = env.identifier_mapping.keys().cloned().collect();
+    let mut defined_identifiers: HashSet<_> = env.identifier_mapping.keys().copied().collect();
     defined_identifiers.insert("virtual".into());
     let mut inferencer = env.get_inferencer();
     inferencer.defined_identifiers = defined_identifiers.clone();
-    let statements = parse_program(source, Default::default()).unwrap();
+    let statements = parse_program(source, FileName::default()).unwrap();
     let statements = statements
         .into_iter()
         .map(|v| inferencer.fold_stmt(v))
@@ -568,37 +559,37 @@ fn test_basic(source: &str, mapping: HashMap<&str, &str>, virtuals: &[(&str, &st
 
     inferencer.check_block(&statements, &mut defined_identifiers).unwrap();
 
-    for (k, v) in inferencer.variable_mapping.iter() {
+    for (k, v) in &inferencer.variable_mapping {
         let name = inferencer.unifier.internal_stringify(
             *v,
             &mut |v| (*id_to_name.get(&v).unwrap()).into(),
-            &mut |v| format!("v{}", v),
+            &mut |v| format!("v{v}"),
             &mut None,
         );
-        println!("{}: {}", k, name);
+        println!("{k}: {name}");
     }
-    for (k, v) in mapping.iter() {
+    for (k, v) in mapping {
         let ty = inferencer.variable_mapping.get(&(*k).into()).unwrap();
         let name = inferencer.unifier.internal_stringify(
             *ty,
             &mut |v| (*id_to_name.get(&v).unwrap()).into(),
-            &mut |v| format!("v{}", v),
+            &mut |v| format!("v{v}"),
             &mut None,
         );
-        assert_eq!(format!("{}: {}", k, v), format!("{}: {}", k, name));
+        assert_eq!(format!("{k}: {v}"), format!("{k}: {name}"));
     }
     assert_eq!(inferencer.virtual_checks.len(), virtuals.len());
     for ((a, b, _), (x, y)) in zip(inferencer.virtual_checks.iter(), virtuals) {
         let a = inferencer.unifier.internal_stringify(
             *a,
             &mut |v| (*id_to_name.get(&v).unwrap()).into(),
-            &mut |v| format!("v{}", v),
+            &mut |v| format!("v{v}"),
             &mut None,
         );
         let b = inferencer.unifier.internal_stringify(
             *b,
             &mut |v| (*id_to_name.get(&v).unwrap()).into(),
-            &mut |v| format!("v{}", v),
+            &mut |v| format!("v{v}"),
             &mut None,
         );
 
@@ -617,14 +608,14 @@ fn test_basic(source: &str, mapping: HashMap<&str, &str>, virtuals: &[(&str, &st
         g = a // b
         h = a % b
     "},
-    [("a", "int32"),
+    &[("a", "int32"),
     ("b", "int32"),
     ("c", "int32"),
     ("d", "int32"),
     ("e", "int32"),
     ("f", "float"),
     ("g", "int32"),
-    ("h", "int32")].iter().cloned().collect()
+    ("h", "int32")].into()
     ; "int32")]
 #[test_case(
     indoc! {"
@@ -640,7 +631,7 @@ fn test_basic(source: &str, mapping: HashMap<&str, &str>, virtuals: &[(&str, &st
         ii = 3
         j = a ** b
     "},
-    [("a", "float"),
+    &[("a", "float"),
     ("b", "float"),
     ("c", "float"),
     ("d", "float"),
@@ -650,7 +641,7 @@ fn test_basic(source: &str, mapping: HashMap<&str, &str>, virtuals: &[(&str, &st
     ("h", "float"),
     ("i", "float"),
     ("ii", "int32"),
-    ("j", "float")].iter().cloned().collect()
+    ("j", "float")].into()
     ; "float"
 )]
 #[test_case(
@@ -668,7 +659,7 @@ fn test_basic(source: &str, mapping: HashMap<&str, &str>, virtuals: &[(&str, &st
         k = a < b
         l = a != b
     "},
-    [("a", "int64"),
+    &[("a", "int64"),
     ("b", "int64"),
     ("c", "int64"),
     ("d", "int64"),
@@ -679,7 +670,7 @@ fn test_basic(source: &str, mapping: HashMap<&str, &str>, virtuals: &[(&str, &st
     ("i", "bool"),
     ("j", "bool"),
     ("k", "bool"),
-    ("l", "bool")].iter().cloned().collect()
+    ("l", "bool")].into()
     ; "int64"
 )]
 #[test_case(
@@ -690,22 +681,22 @@ fn test_basic(source: &str, mapping: HashMap<&str, &str>, virtuals: &[(&str, &st
         d = not a
         e = a != b
     "},
-    [("a", "bool"),
+    &[("a", "bool"),
     ("b", "bool"),
     ("c", "bool"),
     ("d", "bool"),
-    ("e", "bool")].iter().cloned().collect()
+    ("e", "bool")].into()
     ; "boolean"
 )]
-fn test_primitive_magic_methods(source: &str, mapping: HashMap<&str, &str>) {
-    println!("source:\n{}", source);
+fn test_primitive_magic_methods(source: &str, mapping: &HashMap<&str, &str>) {
+    println!("source:\n{source}");
     let mut env = TestEnvironment::basic_test_env();
     let id_to_name = std::mem::take(&mut env.id_to_name);
-    let mut defined_identifiers: HashSet<_> = env.identifier_mapping.keys().cloned().collect();
+    let mut defined_identifiers: HashSet<_> = env.identifier_mapping.keys().copied().collect();
     defined_identifiers.insert("virtual".into());
     let mut inferencer = env.get_inferencer();
     inferencer.defined_identifiers = defined_identifiers.clone();
-    let statements = parse_program(source, Default::default()).unwrap();
+    let statements = parse_program(source, FileName::default()).unwrap();
     let statements = statements
         .into_iter()
         .map(|v| inferencer.fold_stmt(v))
@@ -714,23 +705,23 @@ fn test_primitive_magic_methods(source: &str, mapping: HashMap<&str, &str>) {
 
     inferencer.check_block(&statements, &mut defined_identifiers).unwrap();
 
-    for (k, v) in inferencer.variable_mapping.iter() {
+    for (k, v) in &inferencer.variable_mapping {
         let name = inferencer.unifier.internal_stringify(
             *v,
             &mut |v| (*id_to_name.get(&v).unwrap()).into(),
-            &mut |v| format!("v{}", v),
+            &mut |v| format!("v{v}"),
             &mut None,
         );
-        println!("{}: {}", k, name);
+        println!("{k}: {name}");
     }
-    for (k, v) in mapping.iter() {
+    for (k, v) in mapping {
         let ty = inferencer.variable_mapping.get(&(*k).into()).unwrap();
         let name = inferencer.unifier.internal_stringify(
             *ty,
             &mut |v| (*id_to_name.get(&v).unwrap()).into(),
-            &mut |v| format!("v{}", v),
+            &mut |v| format!("v{v}"),
             &mut None,
         );
-        assert_eq!(format!("{}: {}", k, v), format!("{}: {}", k, name));
+        assert_eq!(format!("{k}: {v}"), format!("{k}: {name}"));
     }
 }

@@ -8,6 +8,7 @@ use crate::{
     },
 };
 use indoc::indoc;
+use nac3parser::ast::FileName;
 use nac3parser::{ast::fold::Fold, parser::parse_program};
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
@@ -52,14 +53,14 @@ impl SymbolResolver for Resolver {
             .id_to_type
             .lock()
             .get(&str)
-            .cloned()
-            .ok_or_else(|| format!("cannot find symbol `{}`", str))
+            .copied()
+            .ok_or_else(|| format!("cannot find symbol `{str}`"))
     }
 
-    fn get_symbol_value<'ctx, 'a>(
+    fn get_symbol_value<'ctx>(
         &self,
         _: StrRef,
-        _: &mut CodeGenContext<'ctx, 'a>,
+        _: &mut CodeGenContext<'ctx, '_>,
     ) -> Option<ValueEnum<'ctx>> {
         unimplemented!()
     }
@@ -69,7 +70,7 @@ impl SymbolResolver for Resolver {
             .id_to_def
             .lock()
             .get(&id)
-            .cloned()
+            .copied()
             .ok_or_else(|| HashSet::from(["Unknown identifier".to_string()]))
     }
 
@@ -118,10 +119,10 @@ fn test_simple_register(source: Vec<&str>) {
     let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
 
     for s in source {
-        let ast = parse_program(s, Default::default()).unwrap();
+        let ast = parse_program(s, FileName::default()).unwrap();
         let ast = ast[0].clone();
 
-        composer.register_top_level(ast, None, "".into(), false).unwrap();
+        composer.register_top_level(ast, None, "", false).unwrap();
     }
 }
 
@@ -136,13 +137,13 @@ fn test_simple_register(source: Vec<&str>) {
 )]
 fn test_simple_register_without_constructor(source: &str) {
     let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
-    let ast = parse_program(source, Default::default()).unwrap();
+    let ast = parse_program(source, FileName::default()).unwrap();
     let ast = ast[0].clone();
-    composer.register_top_level(ast, None, "".into(), true).unwrap();
+    composer.register_top_level(ast, None, "", true).unwrap();
 }
 
 #[test_case(
-    vec![
+    &[
         indoc! {"
             def fun(a: int32) -> int32:
                 return a
@@ -156,35 +157,35 @@ fn test_simple_register_without_constructor(source: &str) {
                 return 3
         "},
     ],
-    vec![
+    &[
         "fn[[a:0], 0]",
         "fn[[a:2], 4]",
         "fn[[b:1], 0]",
     ],
-    vec![
+    &[
         "fun",
         "foo",
         "f"
     ];
     "function compose"
 )]
-fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&str>) {
+fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
     let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
 
     let internal_resolver = Arc::new(ResolverInternal {
-        id_to_def: Default::default(),
-        id_to_type: Default::default(),
-        class_names: Default::default(),
+        id_to_def: Mutex::default(),
+        id_to_type: Mutex::default(),
+        class_names: Mutex::default(),
     });
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
 
     for s in source {
-        let ast = parse_program(s, Default::default()).unwrap();
+        let ast = parse_program(s, FileName::default()).unwrap();
         let ast = ast[0].clone();
 
         let (id, def_id, ty) =
-            composer.register_top_level(ast, Some(resolver.clone()), "".into(), false).unwrap();
+            composer.register_top_level(ast, Some(resolver.clone()), "", false).unwrap();
         internal_resolver.add_id_def(id, def_id);
         if let Some(ty) = ty {
             internal_resolver.add_id_type(id, ty);
@@ -210,7 +211,7 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
 }
 
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A():
                 a: int32
@@ -243,11 +244,11 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                 pass
         "}
     ],
-    vec![];
+    &[];
     "simple class compose"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class Generic_A(Generic[V], B):
                 a: int64
@@ -265,11 +266,11 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec![];
+    &[];
     "generic class"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             def foo(a: list[int32], b: tuple[T, float]) -> A[B, bool]:
                 pass
@@ -294,11 +295,11 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec![];
+    &[];
     "list tuple generic"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A(Generic[T, V]):
                 a: A[float, bool]
@@ -319,11 +320,11 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec![];
+    &[];
     "self1"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A(Generic[T]):
                 a: int32
@@ -353,11 +354,11 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec![];
+    &[];
     "inheritance_override"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A(Generic[T]):
                 def __init__(self):
@@ -366,11 +367,11 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec!["application of type vars to generic class is not currently supported (at unknown:4:24)"];
+    &["application of type vars to generic class is not currently supported (at unknown:4:24)"];
     "err no type var in generic app"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A(B):
                 def __init__(self):
@@ -382,11 +383,11 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec!["cyclic inheritance detected"];
+    &["cyclic inheritance detected"];
     "cyclic1"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A(B[bool, int64]):
                 def __init__(self):
@@ -403,30 +404,30 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "},
     ],
-    vec!["cyclic inheritance detected"];
+    &["cyclic inheritance detected"];
     "cyclic2"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A:
                 pass
         "}
     ],
-    vec!["5: Class {\nname: \"A\",\ndef_id: DefinitionId(5),\nancestors: [CustomClassKind { id: DefinitionId(5), params: [] }],\nfields: [],\nmethods: [],\ntype_vars: []\n}"];
+    &["5: Class {\nname: \"A\",\ndef_id: DefinitionId(5),\nancestors: [CustomClassKind { id: DefinitionId(5), params: [] }],\nfields: [],\nmethods: [],\ntype_vars: []\n}"];
     "simple pass in class"
 )]
 #[test_case(
-    vec![indoc! {"
+    &[indoc! {"
         class A:
             def __init__():
                 pass
     "}],
-    vec!["__init__ method must have a `self` parameter (at unknown:2:5)"];
+    &["__init__ method must have a `self` parameter (at unknown:2:5)"];
     "err no self_1"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A(B, Generic[T], C):
                 def __init__(self):
@@ -444,11 +445,11 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
         "}
 
     ],
-    vec!["a class definition can only have at most one base class declaration and one generic declaration (at unknown:1:24)"];
+    &["a class definition can only have at most one base class declaration and one generic declaration (at unknown:1:24)"];
     "err multiple inheritance"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A(Generic[T]):
                 a: int32
@@ -469,11 +470,11 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec!["method fun has same name as ancestors' method, but incompatible type"];
+    &["method fun has same name as ancestors' method, but incompatible type"];
     "err_incompatible_inheritance_method"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A(Generic[T]):
                 a: int32
@@ -495,11 +496,11 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec!["field `a` has already declared in the ancestor classes"];
+    &["field `a` has already declared in the ancestor classes"];
     "err_incompatible_inheritance_field"
 )]
 #[test_case(
-    vec![
+    &[
         indoc! {"
             class A:
                 def __init__(self):
@@ -512,10 +513,10 @@ fn test_simple_function_analyze(source: Vec<&str>, tys: Vec<&str>, names: Vec<&s
                     pass
         "}
     ],
-    vec!["duplicate definition of class `A` (at unknown:1:1)"];
+    &["duplicate definition of class `A` (at unknown:1:1)"];
     "class same name"
 )]
-fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
+fn test_analyze(source: &[&str], res: &[&str]) {
     let print = false;
     let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
 
@@ -532,15 +533,15 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
 
     for s in source {
-        let ast = parse_program(s, Default::default()).unwrap();
+        let ast = parse_program(s, FileName::default()).unwrap();
         let ast = ast[0].clone();
 
         let (id, def_id, ty) = {
-            match composer.register_top_level(ast, Some(resolver.clone()), "".into(), false) {
+            match composer.register_top_level(ast, Some(resolver.clone()), "", false) {
                 Ok(x) => x,
                 Err(msg) => {
                     if print {
-                        println!("{}", msg);
+                        println!("{msg}");
                     } else {
                         assert_eq!(res[0], msg);
                     }
@@ -586,7 +587,7 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
                 return fib(n - 1)
         "}
     ],
-    vec![];
+    &[];
     "simple function"
 )]
 #[test_case(
@@ -619,7 +620,7 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
                 return a.fun() + 2
         "}
     ],
-    vec![];
+    &[];
     "simple class body"
 )]
 #[test_case(
@@ -644,7 +645,7 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
                 return [a, b]
         "}
     ],
-    vec![];
+    &[];
     "type var fun"
 )]
 #[test_case(
@@ -665,7 +666,7 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
                     return ret if self.b else self.fun(self.a)
         "}
     ],
-    vec![];
+    &[];
     "type var class"
 )]
 #[test_case(
@@ -689,10 +690,10 @@ fn test_analyze(source: Vec<&str>, res: Vec<&str>) {
                         self.b = True
         "}
     ],
-    vec![];
+    &[];
     "no_init_inst_check"
 )]
-fn test_inference(source: Vec<&str>, res: Vec<&str>) {
+fn test_inference(source: Vec<&str>, res: &[&str]) {
     let print = true;
     let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
 
@@ -716,15 +717,15 @@ fn test_inference(source: Vec<&str>, res: Vec<&str>) {
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
 
     for s in source {
-        let ast = parse_program(s, Default::default()).unwrap();
+        let ast = parse_program(s, FileName::default()).unwrap();
         let ast = ast[0].clone();
 
         let (id, def_id, ty) = {
-            match composer.register_top_level(ast, Some(resolver.clone()), "".into(), false) {
+            match composer.register_top_level(ast, Some(resolver.clone()), "", false) {
                 Ok(x) => x,
                 Err(msg) => {
                     if print {
-                        println!("{}", msg);
+                        println!("{msg}");
                     } else {
                         assert_eq!(res[0], msg);
                     }
@@ -747,9 +748,7 @@ fn test_inference(source: Vec<&str>, res: Vec<&str>) {
     } else {
         // skip 5 to skip primitives
         let mut stringify_folder = TypeToStringFolder { unifier: &mut composer.unifier };
-        for (_i, (def, _)) in
-            composer.definition_ast_list.iter().skip(composer.builtin_num).enumerate()
-        {
+        for (def, _) in composer.definition_ast_list.iter().skip(composer.builtin_num) {
             let def = &*def.read();
 
             if let TopLevelDef::Function { instance_to_stmt, name, .. } = def {
@@ -758,7 +757,7 @@ fn test_inference(source: Vec<&str>, res: Vec<&str>) {
                     name,
                     instance_to_stmt.len()
                 );
-                for inst in instance_to_stmt.iter() {
+                for inst in instance_to_stmt {
                     let ast = &inst.1.body;
                     for b in ast.iter() {
                         println!("{:?}", stringify_folder.fold_stmt(b.clone()).unwrap());
@@ -777,7 +776,7 @@ fn make_internal_resolver_with_tvar(
     print: bool,
 ) -> Arc<ResolverInternal> {
     let res: Arc<ResolverInternal> = ResolverInternal {
-        id_to_def: Default::default(),
+        id_to_def: Mutex::default(),
         id_to_type: tvars
             .into_iter()
             .map(|(name, range)| {
@@ -791,7 +790,7 @@ fn make_internal_resolver_with_tvar(
             })
             .collect::<HashMap<_, _>>()
             .into(),
-        class_names: Default::default(),
+        class_names: Mutex::default(),
     }
     .into();
     if print {
@@ -811,8 +810,8 @@ impl<'a> Fold<Option<Type>> for TypeToStringFolder<'a> {
         Ok(if let Some(ty) = user {
             self.unifier.internal_stringify(
                 ty,
-                &mut |id| format!("class{}", id.to_string()),
-                &mut |id| format!("typevar{}", id.to_string()),
+                &mut |id| format!("class{id}"),
+                &mut |id| format!("typevar{id}"),
                 &mut None,
             )
         } else {

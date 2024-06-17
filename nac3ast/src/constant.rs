@@ -118,7 +118,7 @@ mod tests {
         use crate::fold::Fold;
         use crate::*;
 
-        let location = Location::new(0, 0, Default::default());
+        let location = Location::new(0, 0, FileName::default());
         let custom = ();
         let ast = Located {
             location,
