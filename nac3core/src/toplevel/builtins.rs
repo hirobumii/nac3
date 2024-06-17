@@ -1,6 +1,6 @@
 use std::iter::once;
 
-use helper::{debug_assert_prim_is_allowed, PrimDefDetails};
+use helper::{debug_assert_prim_is_allowed, make_exception_fields, PrimDefDetails};
 use indexmap::IndexMap;
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
@@ -42,17 +42,7 @@ pub fn get_exn_constructor(
     let int32 = primitives.int32;
     let int64 = primitives.int64;
     let string = primitives.str;
-    let exception_fields = vec![
-        ("__name__".into(), int32, true),
-        ("__file__".into(), string, true),
-        ("__line__".into(), int32, true),
-        ("__col__".into(), int32, true),
-        ("__func__".into(), string, true),
-        ("__message__".into(), string, true),
-        ("__param0__".into(), int64, true),
-        ("__param1__".into(), int64, true),
-        ("__param2__".into(), int64, true),
-    ];
+    let exception_fields = make_exception_fields(int32, int64, string);
     let exn_cons_args = vec![
         FuncArg {
             name: "msg".into(),
@@ -65,7 +55,11 @@ pub fn get_exn_constructor(
     ];
     let exn_type = unifier.add_ty(TypeEnum::TObj {
         obj_id: DefinitionId(class_id),
-        fields: exception_fields.iter().map(|(a, b, c)| (*a, (*b, *c))).collect(),
+        fields: exception_fields
+            .clone()
+            .into_iter()
+            .map(|(name, ty, mutable)| (name, (ty, mutable)))
+            .collect(),
         params: VarMap::default(),
     });
     let signature = unifier.add_ty(TypeEnum::TFunc(FunSignature {
@@ -596,31 +590,17 @@ impl<'a> BuiltinBuilder<'a> {
         let PrimitiveStore { int32, int64, str, .. } = *self.primitives;
 
         match prim {
-            PrimDef::Exception => {
-                let exception_fields: Vec<(StrRef, Type, bool)> = vec![
-                    ("__name__".into(), int32, true),
-                    ("__file__".into(), str, true),
-                    ("__line__".into(), int32, true),
-                    ("__col__".into(), int32, true),
-                    ("__func__".into(), str, true),
-                    ("__message__".into(), str, true),
-                    ("__param0__".into(), int64, true),
-                    ("__param1__".into(), int64, true),
-                    ("__param2__".into(), int64, true),
-                ];
-
-                TopLevelDef::Class {
-                    name: prim.name().into(),
-                    object_id: prim.id(),
-                    type_vars: Vec::default(),
-                    fields: exception_fields,
-                    methods: Vec::default(),
-                    ancestors: vec![],
-                    constructor: None,
-                    resolver: None,
-                    loc: None,
-                }
-            }
+            PrimDef::Exception => TopLevelDef::Class {
+                name: prim.name().into(),
+                object_id: prim.id(),
+                type_vars: Vec::default(),
+                fields: make_exception_fields(int32, int64, str),
+                methods: Vec::default(),
+                ancestors: vec![],
+                constructor: None,
+                resolver: None,
+                loc: None,
+            },
             _ => unreachable!(),
         }
     }

@@ -269,6 +269,23 @@ pub fn debug_assert_prim_is_allowed(prim: PrimDef, allowlist: &[PrimDef]) {
     }
 }
 
+/// Construct the fields of class `Exception`
+/// See [`TypeEnum::TObj::fields`] and [`TopLevelDef::Class::fields`]
+#[must_use]
+pub fn make_exception_fields(int32: Type, int64: Type, str: Type) -> Vec<(StrRef, Type, bool)> {
+    vec![
+        ("__name__".into(), int32, true),
+        ("__file__".into(), str, true),
+        ("__line__".into(), int32, true),
+        ("__col__".into(), int32, true),
+        ("__func__".into(), str, true),
+        ("__message__".into(), str, true),
+        ("__param0__".into(), int64, true),
+        ("__param1__".into(), int64, true),
+        ("__param2__".into(), int64, true),
+    ]
+}
+
 impl TopLevelDef {
     pub fn to_string(&self, unifier: &mut Unifier) -> String {
         match self {
@@ -347,19 +364,10 @@ impl TopLevelComposer {
         });
         let exception = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Exception.id(),
-            fields: vec![
-                ("__name__".into(), (int32, true)),
-                ("__file__".into(), (str, true)),
-                ("__line__".into(), (int32, true)),
-                ("__col__".into(), (int32, true)),
-                ("__func__".into(), (str, true)),
-                ("__message__".into(), (str, true)),
-                ("__param0__".into(), (int64, true)),
-                ("__param1__".into(), (int64, true)),
-                ("__param2__".into(), (int64, true)),
-            ]
-            .into_iter()
-            .collect::<HashMap<_, _>>(),
+            fields: make_exception_fields(int32, int64, str)
+                .into_iter()
+                .map(|(name, ty, mutable)| (name, (ty, mutable)))
+                .collect(),
             params: VarMap::new(),
         });
         let uint32 = unifier.add_ty(TypeEnum::TObj {
