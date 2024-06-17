@@ -21,4 +21,4 @@ repos:
         types: [file, rust]
         pass_filenames: false
         description: Runs cargo clippy on the codebase.
-        args: [clippy]
+        args: [clippy, --tests]
