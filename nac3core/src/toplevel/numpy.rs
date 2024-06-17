@@ -2,7 +2,7 @@ use crate::{
     toplevel::helper::PrimDef,
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, TypeEnum, TypeVarId, Unifier, VarMap},
+        typedef::{Type, TypeEnum, Unifier, VarMap},
     },
 };
 use itertools::Itertools;
@@ -57,29 +57,25 @@ pub fn subst_ndarray_tvars(
     unifier.subst(ndarray, &tvar_subst).unwrap_or(ndarray)
 }
 
-fn unpack_ndarray_tvars(unifier: &mut Unifier, ndarray: Type) -> Vec<(TypeVarId, Type)> {
+#[derive(Clone, Copy, Debug)]
+pub struct NDArrayParams {
+    pub dtype: Type,
+    pub ndims: Type,
+}
+
+/// Extract the [`Type`]s of `ndarray`.
+#[must_use]
+pub fn unpack_ndarray_params(
+    unifier: &Unifier,
+    store: &PrimitiveStore,
+    ndarray: Type,
+) -> NDArrayParams {
     let TypeEnum::TObj { obj_id, params, .. } = &*unifier.get_ty_immutable(ndarray) else {
         panic!("Expected `ndarray` to be TObj, but got {}", unifier.stringify(ndarray))
     };
     debug_assert_eq!(*obj_id, PrimDef::NDArray.id());
     debug_assert_eq!(params.len(), 2);
-
-    params
-        .iter()
-        .sorted_by_key(|(obj_id, _)| *obj_id)
-        .map(|(var_id, ty)| (*var_id, *ty))
-        .collect_vec()
-}
-
-/// Unpacks the type variable IDs of `ndarray` into a tuple. The elements of the tuple corresponds
-/// to `dtype` (the element type) and `ndims` (the number of dimensions) of the `ndarray`
-/// respectively.
-pub fn unpack_ndarray_var_ids(unifier: &mut Unifier, ndarray: Type) -> (TypeVarId, TypeVarId) {
-    unpack_ndarray_tvars(unifier, ndarray).into_iter().map(|v| v.0).collect_tuple().unwrap()
-}
-
-/// Unpacks the type variables of `ndarray` into a tuple. The elements of the tuple corresponds to
-/// `dtype` (the element type) and `ndims` (the number of dimensions) of the `ndarray` respectively.
-pub fn unpack_ndarray_var_tys(unifier: &mut Unifier, ndarray: Type) -> (Type, Type) {
-    unpack_ndarray_tvars(unifier, ndarray).into_iter().map(|v| v.1).collect_tuple().unwrap()
+    let dtype = *params.get(&store.ndarray_dtype_tvar.id).unwrap();
+    let ndims = *params.get(&store.ndarray_ndims_tvar.id).unwrap();
+    NDArrayParams { dtype, ndims }
 }

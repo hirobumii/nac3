@@ -1,8 +1,8 @@
 use std::convert::TryInto;
 
 use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::numpy::unpack_ndarray_var_tys;
-use crate::typecheck::typedef::{into_var_map, Mapping, TypeVarId, VarMap};
+use crate::toplevel::numpy::unpack_ndarray_params;
+use crate::typecheck::typedef::{into_var_map, Mapping, TypeVar, TypeVarId, VarMap};
 use nac3parser::ast::{Constant, Location};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -286,6 +286,18 @@ pub fn make_exception_fields(int32: Type, int64: Type, str: Type) -> Vec<(StrRef
     ]
 }
 
+pub fn make_option_type_tvar(unifier: &mut Unifier) -> TypeVar {
+    unifier.get_fresh_var(Some("option_type_var".into()), None)
+}
+
+pub fn make_ndarray_dtype_tvar(unifier: &mut Unifier) -> TypeVar {
+    unifier.get_fresh_var(Some("ndarray_dtype".into()), None)
+}
+
+pub fn make_ndarray_ndims_tvar(unifier: &mut Unifier, size_ty: Type) -> TypeVar {
+    unifier.get_fresh_const_generic_var(size_ty, Some("ndarray_ndims".into()), None)
+}
+
 impl TopLevelDef {
     pub fn to_string(&self, unifier: &mut Unifier) -> String {
         match self {
@@ -381,16 +393,16 @@ impl TopLevelComposer {
             params: VarMap::new(),
         });
 
-        let option_type_var = unifier.get_fresh_var(Some("option_type_var".into()), None);
+        let option_type_tvar = make_option_type_tvar(&mut unifier);
         let is_some_type_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
             ret: bool,
-            vars: into_var_map([option_type_var]),
+            vars: into_var_map([option_type_tvar]),
         }));
         let unwrap_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
-            ret: option_type_var.ty,
-            vars: into_var_map([option_type_var]),
+            ret: option_type_tvar.ty,
+            vars: into_var_map([option_type_tvar]),
         }));
         let option = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Option.id(),
@@ -401,7 +413,7 @@ impl TopLevelComposer {
             ]
             .into_iter()
             .collect::<HashMap<_, _>>(),
-            params: into_var_map([option_type_var]),
+            params: into_var_map([option_type_tvar]),
         });
 
         let size_t_ty = match size_t {
@@ -410,9 +422,8 @@ impl TopLevelComposer {
             _ => unreachable!(),
         };
 
-        let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
-        let ndarray_ndims_tvar =
-            unifier.get_fresh_const_generic_var(size_t_ty, Some("ndarray_ndims".into()), None);
+        let ndarray_dtype_tvar = make_ndarray_dtype_tvar(&mut unifier);
+        let ndarray_ndims_tvar = make_ndarray_ndims_tvar(&mut unifier, size_t_ty);
         let ndarray_copy_fun_ret_ty = unifier.get_fresh_var(None, None);
         let ndarray_copy_fun_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: vec![],
@@ -451,7 +462,10 @@ impl TopLevelComposer {
             str,
             exception,
             option,
+            option_type_tvar,
             ndarray,
+            ndarray_dtype_tvar,
+            ndarray_ndims_tvar,
             size_t,
         };
         unifier.put_primitive_store(&primitives);
@@ -881,22 +895,26 @@ pub fn parse_parameter_default_value(
 }
 
 /// Obtains the element type of an array-like type.
-pub fn arraylike_flatten_element_type(unifier: &mut Unifier, ty: Type) -> Type {
+pub fn arraylike_flatten_element_type(
+    unifier: &mut Unifier,
+    store: &PrimitiveStore,
+    ty: Type,
+) -> Type {
     match &*unifier.get_ty(ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-            unpack_ndarray_var_tys(unifier, ty).0
+            unpack_ndarray_params(unifier, store, ty).dtype
         }
 
-        TypeEnum::TList { ty } => arraylike_flatten_element_type(unifier, *ty),
+        TypeEnum::TList { ty } => arraylike_flatten_element_type(unifier, store, *ty),
         _ => ty,
     }
 }
 
 /// Obtains the number of dimensions of an array-like type.
-pub fn arraylike_get_ndims(unifier: &mut Unifier, ty: Type) -> u64 {
+pub fn arraylike_get_ndims(unifier: &mut Unifier, store: &PrimitiveStore, ty: Type) -> u64 {
     match &*unifier.get_ty(ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-            let ndims = unpack_ndarray_var_tys(unifier, ty).1;
+            let ndims = unpack_ndarray_params(unifier, store, ty).ndims;
             let TypeEnum::TLiteral { values, .. } = &*unifier.get_ty_immutable(ndims) else {
                 panic!("Expected TLiteral for ndarray.ndims, got {}", unifier.stringify(ndims))
             };
@@ -908,7 +926,7 @@ pub fn arraylike_get_ndims(unifier: &mut Unifier, ty: Type) -> u64 {
             u64::try_from(values[0].clone()).unwrap()
         }
 
-        TypeEnum::TList { ty } => arraylike_get_ndims(unifier, *ty) + 1,
+        TypeEnum::TList { ty } => arraylike_get_ndims(unifier, store, *ty) + 1,
         _ => 0,
     }
 }

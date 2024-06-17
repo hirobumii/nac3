@@ -17,7 +17,7 @@ use crate::{
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
         helper::PrimDef,
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+        numpy::{make_ndarray_ty, unpack_ndarray_params},
         DefinitionId, TopLevelDef,
     },
     typecheck::{
@@ -150,7 +150,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                     TypeEnum::TObj { obj_id, params, .. }
                         if *obj_id == self.primitives.option.obj_id(&self.unifier).unwrap() =>
                     {
-                        *params.iter().next().unwrap().1
+                        *params.get(&self.primitives.option_type_tvar.id).unwrap()
                     }
                     _ => unreachable!("must be option type"),
                 };
@@ -166,7 +166,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                     TypeEnum::TObj { obj_id, params, .. }
                         if *obj_id == self.primitives.option.obj_id(&self.unifier).unwrap() =>
                     {
-                        *params.iter().next().unwrap().1
+                        *params.get(&self.primitives.option_type_tvar.id).unwrap()
                     }
                     _ => unreachable!("must be option type"),
                 };
@@ -188,6 +188,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             &self.module,
             generator,
             &mut self.unifier,
+            &self.primitives,
             self.top_level,
             &mut self.type_cache,
             ty,
@@ -205,6 +206,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             &self.module,
             generator,
             &mut self.unifier,
+            &self.primitives,
             self.top_level,
             &mut self.type_cache,
             &self.primitives,
@@ -1190,8 +1192,8 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
         let is_ndarray2 = ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
         if is_ndarray1 && is_ndarray2 {
-            let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty1);
-            let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty2);
+            let ndarray_dtype1 = unpack_ndarray_params(&ctx.unifier, &ctx.primitives, ty1).dtype;
+            let ndarray_dtype2 = unpack_ndarray_params(&ctx.unifier, &ctx.primitives, ty2).dtype;
 
             assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
 
@@ -1240,8 +1242,12 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
 
             Ok(Some(res.as_base_value().into()))
         } else {
-            let (ndarray_dtype, _) =
-                unpack_ndarray_var_tys(&mut ctx.unifier, if is_ndarray1 { ty1 } else { ty2 });
+            let ndarray_dtype = unpack_ndarray_params(
+                &ctx.unifier,
+                &ctx.primitives,
+                if is_ndarray1 { ty1 } else { ty2 },
+            )
+            .dtype;
             let ndarray_val = NDArrayValue::from_ptr_val(
                 if is_ndarray1 { left_val } else { right_val }.into_pointer_value(),
                 llvm_usize,
@@ -1427,7 +1433,7 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
         }
     } else if ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
         let llvm_usize = generator.get_size_type(ctx.ctx);
-        let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+        let ndarray_dtype = unpack_ndarray_params(&ctx.unifier, &ctx.primitives, ty).dtype;
 
         let val = NDArrayValue::from_ptr_val(val.into_pointer_value(), llvm_usize, None);
 
@@ -1511,8 +1517,10 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             return if is_ndarray1 && is_ndarray2 {
-                let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, left_ty);
-                let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, right_ty);
+                let ndarray_dtype1 =
+                    unpack_ndarray_params(&ctx.unifier, &ctx.primitives, left_ty).dtype;
+                let ndarray_dtype2 =
+                    unpack_ndarray_params(&ctx.unifier, &ctx.primitives, right_ty).dtype;
 
                 assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
 
@@ -1546,10 +1554,12 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 Ok(Some(res.as_base_value().into()))
             } else {
-                let (ndarray_dtype, _) = unpack_ndarray_var_tys(
-                    &mut ctx.unifier,
+                let ndarray_dtype = unpack_ndarray_params(
+                    &ctx.unifier,
+                    &ctx.primitives,
                     if is_ndarray1 { left_ty } else { right_ty },
-                );
+                )
+                .dtype;
                 let res = numpy::ndarray_elementwise_binop_impl(
                     generator,
                     ctx,
@@ -2014,10 +2024,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 (TypeEnum::TObj { obj_id, params, .. }, TypeEnum::TObj { obj_id: opt_id, .. })
                     if *obj_id == *opt_id =>
                 {
-                    ctx.get_llvm_type(generator, *params.iter().next().unwrap().1)
-                        .ptr_type(AddressSpace::default())
-                        .const_null()
-                        .into()
+                    ctx.get_llvm_type(
+                        generator,
+                        *params.get(&ctx.primitives.option_type_tvar.id).unwrap(),
+                    )
+                    .ptr_type(AddressSpace::default())
+                    .const_null()
+                    .into()
                 }
                 _ => unreachable!("must be option type"),
             }

@@ -25,7 +25,7 @@ use crate::{
     },
     symbol_resolver::SymbolValue,
     toplevel::{helper::PrimDef, numpy::make_ndarray_ty},
-    typecheck::typedef::{into_var_map, iter_type_vars, TypeVar, VarMap},
+    typecheck::typedef::{into_var_map, TypeVar, VarMap},
 };
 
 use super::*;
@@ -301,10 +301,7 @@ struct BuiltinBuilder<'a> {
 
     is_some_ty: (Type, bool),
     unwrap_ty: (Type, bool),
-    option_tvar: TypeVar,
 
-    ndarray_dtype_tvar: TypeVar,
-    ndarray_ndims_tvar: TypeVar,
     ndarray_copy_ty: (Type, bool),
     ndarray_fill_ty: (Type, bool),
 
@@ -339,24 +336,19 @@ impl<'a> BuiltinBuilder<'a> {
         } = *primitives;
 
         // Option-related
-        let (is_some_ty, unwrap_ty, option_tvar) =
-            if let TypeEnum::TObj { fields, params, .. } = unifier.get_ty(option).as_ref() {
+        let (is_some_ty, unwrap_ty) =
+            if let TypeEnum::TObj { fields, .. } = unifier.get_ty(option).as_ref() {
                 (
                     *fields.get(&PrimDef::OptionIsSome.simple_name().into()).unwrap(),
                     *fields.get(&PrimDef::OptionUnwrap.simple_name().into()).unwrap(),
-                    iter_type_vars(params).next().unwrap(),
                 )
             } else {
                 unreachable!()
             };
 
-        let TypeEnum::TObj { fields: ndarray_fields, params: ndarray_params, .. } =
-            &*unifier.get_ty(ndarray)
-        else {
+        let TypeEnum::TObj { fields: ndarray_fields, .. } = &*unifier.get_ty(ndarray) else {
             unreachable!()
         };
-        let ndarray_dtype_tvar = iter_type_vars(ndarray_params).next().unwrap();
-        let ndarray_ndims_tvar = iter_type_vars(ndarray_params).nth(1).unwrap();
         let ndarray_copy_ty =
             *ndarray_fields.get(&PrimDef::NDArrayCopy.simple_name().into()).unwrap();
         let ndarray_fill_ty =
@@ -398,10 +390,7 @@ impl<'a> BuiltinBuilder<'a> {
 
             is_some_ty,
             unwrap_ty,
-            option_tvar,
 
-            ndarray_dtype_tvar,
-            ndarray_ndims_tvar,
             ndarray_copy_ty,
             ndarray_fill_ty,
 
@@ -622,7 +611,7 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::Option => TopLevelDef::Class {
                 name: prim.name().into(),
                 object_id: prim.id(),
-                type_vars: vec![self.option_tvar.ty],
+                type_vars: vec![self.primitives.option_type_tvar.ty],
                 fields: vec![],
                 methods: vec![
                     Self::create_method(PrimDef::OptionIsSome, self.is_some_ty.0),
@@ -642,7 +631,7 @@ impl<'a> BuiltinBuilder<'a> {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
                 signature: self.unwrap_ty.0,
-                var_id: vec![self.option_tvar.id],
+                var_id: vec![self.primitives.option_type_tvar.id],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
@@ -656,7 +645,7 @@ impl<'a> BuiltinBuilder<'a> {
                 name: prim.name().to_string(),
                 simple_name: prim.simple_name().into(),
                 signature: self.is_some_ty.0,
-                var_id: vec![self.option_tvar.id],
+                var_id: vec![self.primitives.option_type_tvar.id],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
@@ -693,13 +682,13 @@ impl<'a> BuiltinBuilder<'a> {
                 signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                     args: vec![FuncArg {
                         name: "n".into(),
-                        ty: self.option_tvar.ty,
+                        ty: self.primitives.option_type_tvar.ty,
                         default_value: None,
                     }],
                     ret: self.primitives.option,
-                    vars: into_var_map([self.option_tvar]),
+                    vars: into_var_map([self.primitives.option_type_tvar]),
                 })),
-                var_id: vec![self.option_tvar.id],
+                var_id: vec![self.primitives.option_type_tvar.id],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
@@ -735,7 +724,10 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::NDArray => TopLevelDef::Class {
                 name: prim.name().into(),
                 object_id: prim.id(),
-                type_vars: vec![self.ndarray_dtype_tvar.ty, self.ndarray_ndims_tvar.ty],
+                type_vars: vec![
+                    self.primitives.ndarray_dtype_tvar.ty,
+                    self.primitives.ndarray_ndims_tvar.ty,
+                ],
                 fields: Vec::default(),
                 methods: vec![
                     Self::create_method(PrimDef::NDArrayCopy, self.ndarray_copy_ty.0),
@@ -751,7 +743,10 @@ impl<'a> BuiltinBuilder<'a> {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
                 signature: self.ndarray_copy_ty.0,
-                var_id: vec![self.ndarray_dtype_tvar.id, self.ndarray_ndims_tvar.id],
+                var_id: vec![
+                    self.primitives.ndarray_dtype_tvar.id,
+                    self.primitives.ndarray_ndims_tvar.id,
+                ],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
@@ -768,7 +763,10 @@ impl<'a> BuiltinBuilder<'a> {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
                 signature: self.ndarray_fill_ty.0,
-                var_id: vec![self.ndarray_dtype_tvar.id, self.ndarray_ndims_tvar.id],
+                var_id: vec![
+                    self.primitives.ndarray_dtype_tvar.id,
+                    self.primitives.ndarray_ndims_tvar.id,
+                ],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,

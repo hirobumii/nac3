@@ -4,13 +4,15 @@ use std::iter::once;
 use std::ops::Not;
 use std::{cell::RefCell, sync::Arc};
 
-use super::typedef::{Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, Unifier, VarMap};
+use super::typedef::{
+    Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, TypeVar, Unifier, VarMap,
+};
 use super::{magic_methods::*, type_error::TypeError, typedef::CallId};
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         helper::{arraylike_flatten_element_type, arraylike_get_ndims, PrimDef},
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+        numpy::{make_ndarray_ty, unpack_ndarray_params},
         TopLevelContext,
     },
 };
@@ -49,7 +51,11 @@ pub struct PrimitiveStore {
     pub str: Type,
     pub exception: Type,
     pub option: Type,
+    /// The contained type of an `Option`
+    pub option_type_tvar: TypeVar,
     pub ndarray: Type,
+    pub ndarray_dtype_tvar: TypeVar,
+    pub ndarray_ndims_tvar: TypeVar,
     pub size_t: u32,
 }
 
@@ -896,7 +902,8 @@ impl<'a> Inferencer<'a> {
 
             let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             {
-                let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+                let ndarray_ndims =
+                    unpack_ndarray_params(self.unifier, self.primitives, arg0_ty).ndims;
 
                 make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndarray_ndims))
             } else {
@@ -934,9 +941,7 @@ impl<'a> Inferencer<'a> {
 
             let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             {
-                let (ndarray_dtype, _) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
-
-                ndarray_dtype
+                unpack_ndarray_params(self.unifier, self.primitives, arg0_ty).dtype
             } else {
                 arg0_ty
             };
@@ -988,14 +993,14 @@ impl<'a> Inferencer<'a> {
 
             let arg0_dtype =
                 if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
-                    unpack_ndarray_var_tys(self.unifier, arg0_ty).0
+                    unpack_ndarray_params(self.unifier, self.primitives, arg0_ty).dtype
                 } else {
                     arg0_ty
                 };
 
             let arg1_dtype =
                 if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
-                    unpack_ndarray_var_tys(self.unifier, arg1_ty).0
+                    unpack_ndarray_params(self.unifier, self.primitives, arg1_ty).dtype
                 } else {
                     arg1_ty
                 };
@@ -1026,7 +1031,8 @@ impl<'a> Inferencer<'a> {
                 // (float, int32), so convert it to align with the dtype of the first arg
                 let arg1_ty = if id == &"np_ldexp".into() {
                     if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
-                        let (_, ndims) = unpack_ndarray_var_tys(self.unifier, arg1_ty);
+                        let ndims =
+                            unpack_ndarray_params(self.unifier, self.primitives, arg1_ty).ndims;
 
                         make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndims))
                     } else {
@@ -1115,7 +1121,8 @@ impl<'a> Inferencer<'a> {
 
             let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             {
-                let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+                let ndarray_ndims =
+                    unpack_ndarray_params(self.unifier, self.primitives, arg0_ty).ndims;
 
                 make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndarray_ndims))
             } else {
@@ -1258,7 +1265,8 @@ impl<'a> Inferencer<'a> {
             let ndmin_kw =
                 keywords.iter().find(|kwarg| kwarg.node.arg.is_some_and(|id| id == "ndmin".into()));
 
-            let ty = arraylike_flatten_element_type(self.unifier, arg0.custom.unwrap());
+            let ty =
+                arraylike_flatten_element_type(self.unifier, self.primitives, arg0.custom.unwrap());
             let ndims = if let Some(ndmin_kw) = ndmin_kw {
                 match &ndmin_kw.node.value.node {
                     ExprKind::Constant { value, .. } => match value {
@@ -1266,10 +1274,10 @@ impl<'a> Inferencer<'a> {
                         _ => return Err(HashSet::from(["Expected uint64 for ndims".to_string()])),
                     },
 
-                    _ => arraylike_get_ndims(self.unifier, arg0.custom.unwrap()),
+                    _ => arraylike_get_ndims(self.unifier, self.primitives, arg0.custom.unwrap()),
                 }
             } else {
-                arraylike_get_ndims(self.unifier, arg0.custom.unwrap())
+                arraylike_get_ndims(self.unifier, self.primitives, arg0.custom.unwrap())
             };
             let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
             let ret = make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims));
@@ -1666,8 +1674,12 @@ impl<'a> Inferencer<'a> {
                 let list_like_ty = match &*self.unifier.get_ty(value.custom.unwrap()) {
                     TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty }),
                     TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                        let (_, ndims) =
-                            unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
+                        let ndims = unpack_ndarray_params(
+                            self.unifier,
+                            self.primitives,
+                            value.custom.unwrap(),
+                        )
+                        .ndims;
 
                         make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims))
                     }
@@ -1680,8 +1692,13 @@ impl<'a> Inferencer<'a> {
             ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
                 match &*self.unifier.get_ty(value.custom.unwrap()) {
                     TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                        let (_, ndims) =
-                            unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
+                        let ndims = unpack_ndarray_params(
+                            self.unifier,
+                            self.primitives,
+                            value.custom.unwrap(),
+                        )
+                        .ndims;
+
                         self.infer_subscript_ndarray(value, ty, ndims)
                     }
                     _ => {
@@ -1724,7 +1741,9 @@ impl<'a> Inferencer<'a> {
                     }
                 }
 
-                let (_, ndims) = unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
+                let ndims =
+                    unpack_ndarray_params(self.unifier, self.primitives, value.custom.unwrap())
+                        .ndims;
                 let ndarray_ty =
                     make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims));
                 self.constrain(value.custom.unwrap(), ndarray_ty, &value.location)?;
@@ -1751,8 +1770,12 @@ impl<'a> Inferencer<'a> {
                         Ok(ty)
                     }
                     TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                        let (_, ndims) =
-                            unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
+                        let ndims = unpack_ndarray_params(
+                            self.unifier,
+                            self.primitives,
+                            value.custom.unwrap(),
+                        )
+                        .ndims;
 
                         let valid_index_tys = [self.primitives.int32, self.primitives.isize()]
                             .into_iter()

@@ -1,5 +1,8 @@
 use super::super::{magic_methods::with_fields, typedef::*};
 use super::*;
+use crate::toplevel::helper::{
+    make_ndarray_dtype_tvar, make_ndarray_ndims_tvar, make_option_type_tvar,
+};
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::ValueEnum,
@@ -132,14 +135,14 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: VarMap::new(),
         });
+        let option_type_tvar = make_option_type_tvar(&mut unifier);
         let option = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Option.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
-        let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
-        let ndarray_ndims_tvar =
-            unifier.get_fresh_const_generic_var(uint64, Some("ndarray_ndims".into()), None);
+        let ndarray_dtype_tvar = make_ndarray_dtype_tvar(&mut unifier);
+        let ndarray_ndims_tvar = make_ndarray_ndims_tvar(&mut unifier, uint64);
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::NDArray.id(),
             fields: HashMap::new(),
@@ -157,7 +160,10 @@ impl TestEnvironment {
             uint32,
             uint64,
             option,
+            option_type_tvar,
             ndarray,
+            ndarray_dtype_tvar,
+            ndarray_ndims_tvar,
             size_t: 64,
         };
         unifier.put_primitive_store(&primitives);
@@ -268,16 +274,22 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: VarMap::new(),
         });
+
+        let option_type_tvar = make_option_type_tvar(&mut unifier);
         let option = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Option.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
+
+        let ndarray_dtype_tvar = make_ndarray_dtype_tvar(&mut unifier);
+        let ndarray_ndims_tvar = make_ndarray_ndims_tvar(&mut unifier, uint64);
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::NDArray.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
+
         identifier_mapping.insert("None".into(), none);
         for (i, name) in ["int32", "int64", "float", "bool", "none", "range", "str", "Exception"]
             .iter()
@@ -312,7 +324,10 @@ impl TestEnvironment {
             uint32,
             uint64,
             option,
+            option_type_tvar,
             ndarray,
+            ndarray_dtype_tvar,
+            ndarray_ndims_tvar,
             size_t: 64,
         };
 

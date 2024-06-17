@@ -19,7 +19,7 @@ use crate::{
     symbol_resolver::ValueEnum,
     toplevel::{
         helper::PrimDef,
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+        numpy::{make_ndarray_ty, unpack_ndarray_params},
         DefinitionId,
     },
     typecheck::typedef::{FunSignature, Type, TypeEnum},
@@ -1776,7 +1776,7 @@ pub fn gen_ndarray_array<'ctx>(
     let obj_ty = fun.0.args[0].ty;
     let obj_elem_ty = match &*context.unifier.get_ty(obj_ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-            unpack_ndarray_var_tys(&mut context.unifier, obj_ty).0
+            unpack_ndarray_params(&context.unifier, &context.primitives, obj_ty).dtype
         }
 
         TypeEnum::TList { ty } => {
@@ -1916,7 +1916,7 @@ pub fn gen_ndarray_copy<'ctx>(
     let llvm_usize = generator.get_size_type(context.ctx);
 
     let this_ty = obj.as_ref().unwrap().0;
-    let (this_elem_ty, _) = unpack_ndarray_var_tys(&mut context.unifier, this_ty);
+    let this_elem_ty = unpack_ndarray_params(&context.unifier, &context.primitives, this_ty).dtype;
     let this_arg =
         obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, generator, this_ty)?;
 

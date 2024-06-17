@@ -4,7 +4,7 @@ use nac3core::{
     symbol_resolver::{StaticValue, SymbolResolver, SymbolValue, ValueEnum},
     toplevel::{
         helper::PrimDef,
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+        numpy::{make_ndarray_ty, unpack_ndarray_params},
         DefinitionId, TopLevelDef,
     },
     typecheck::{
@@ -665,11 +665,11 @@ impl InnerResolver {
                 }
             }
             (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PrimDef::NDArray.id() => {
-                let (ty, ndims) = unpack_ndarray_var_tys(unifier, extracted_ty);
+                let params = unpack_ndarray_params(unifier, primitives, extracted_ty);
                 let len: usize = self.helper.len_fn.call1(py, (obj,))?.extract(py)?;
                 if len == 0 {
                     assert!(matches!(
-                        &*unifier.get_ty(ty),
+                        &*unifier.get_ty(params.dtype),
                         TypeEnum::TVar { fields: None, range, .. }
                             if range.is_empty()
                     ));
@@ -678,10 +678,14 @@ impl InnerResolver {
                     let actual_ty =
                         self.get_list_elem_type(py, obj, len, unifier, defs, primitives)?;
                     match actual_ty {
-                        Ok(t) => match unifier.unify(ty, t) {
+                        Ok(t) => match unifier.unify(params.dtype, t) {
                             Ok(()) => {
-                                let ndarray_ty =
-                                    make_ndarray_ty(unifier, primitives, Some(ty), Some(ndims));
+                                let ndarray_ty = make_ndarray_ty(
+                                    unifier,
+                                    primitives,
+                                    Some(params.dtype),
+                                    Some(params.ndims),
+                                );
 
                                 Ok(Ok(ndarray_ty))
                             }
@@ -984,7 +988,7 @@ impl InnerResolver {
                 TypeEnum::TObj { obj_id, params, .. }
                     if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
                 {
-                    *params.iter().next().unwrap().1
+                    *params.get(&ctx.primitives.option_type_tvar.id).unwrap()
                 }
                 _ => unreachable!("must be option type"),
             };

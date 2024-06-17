@@ -1,6 +1,6 @@
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::helper::PrimDef;
-use crate::toplevel::numpy::{make_ndarray_ty, unpack_ndarray_var_tys};
+use crate::toplevel::numpy::{make_ndarray_ty, unpack_ndarray_params};
 use crate::typecheck::{
     type_inferencer::*,
     typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
@@ -369,16 +369,16 @@ pub fn typeof_ndarray_broadcast(
     if is_left_ndarray && is_right_ndarray {
         // Perform broadcasting on two ndarray operands.
 
-        let (left_ty_dtype, left_ty_ndims) = unpack_ndarray_var_tys(unifier, left);
-        let (right_ty_dtype, right_ty_ndims) = unpack_ndarray_var_tys(unifier, right);
+        let left_params = unpack_ndarray_params(unifier, primitives, left);
+        let right_params = unpack_ndarray_params(unifier, primitives, right);
 
-        assert!(unifier.unioned(left_ty_dtype, right_ty_dtype));
+        assert!(unifier.unioned(left_params.dtype, right_params.dtype));
 
-        let left_ty_ndims = match &*unifier.get_ty_immutable(left_ty_ndims) {
+        let left_ty_ndims = match &*unifier.get_ty_immutable(left_params.ndims) {
             TypeEnum::TLiteral { values, .. } => values.clone(),
             _ => unreachable!(),
         };
-        let right_ty_ndims = match &*unifier.get_ty_immutable(right_ty_ndims) {
+        let right_ty_ndims = match &*unifier.get_ty_immutable(right_params.ndims) {
             TypeEnum::TLiteral { values, .. } => values.clone(),
             _ => unreachable!(),
         };
@@ -397,11 +397,11 @@ pub fn typeof_ndarray_broadcast(
             .collect_vec();
         let res_ndims = unifier.get_fresh_literal(res_ndims, None);
 
-        Ok(make_ndarray_ty(unifier, primitives, Some(left_ty_dtype), Some(res_ndims)))
+        Ok(make_ndarray_ty(unifier, primitives, Some(left_params.dtype), Some(res_ndims)))
     } else {
         let (ndarray_ty, scalar_ty) = if is_left_ndarray { (left, right) } else { (right, left) };
 
-        let (ndarray_ty_dtype, _) = unpack_ndarray_var_tys(unifier, ndarray_ty);
+        let ndarray_ty_dtype = unpack_ndarray_params(unifier, primitives, ndarray_ty).dtype;
 
         if unifier.unioned(ndarray_ty_dtype, scalar_ty) {
             Ok(ndarray_ty)
@@ -444,7 +444,7 @@ pub fn typeof_binop(
         }
 
         Operator::MatMult => {
-            let (_, lhs_ndims) = unpack_ndarray_var_tys(unifier, lhs);
+            let lhs_ndims = unpack_ndarray_params(unifier, primitives, lhs).ndims;
             let lhs_ndims = match &*unifier.get_ty_immutable(lhs_ndims) {
                 TypeEnum::TLiteral { values, .. } => {
                     assert_eq!(values.len(), 1);
@@ -452,7 +452,7 @@ pub fn typeof_binop(
                 }
                 _ => unreachable!(),
             };
-            let (_, rhs_ndims) = unpack_ndarray_var_tys(unifier, rhs);
+            let rhs_ndims = unpack_ndarray_params(unifier, primitives, rhs).ndims;
             let rhs_ndims = match &*unifier.get_ty_immutable(rhs_ndims) {
                 TypeEnum::TLiteral { values, .. } => {
                     assert_eq!(values.len(), 1);
@@ -552,7 +552,7 @@ pub fn typeof_unaryop(
 
         Unaryop::UAdd | Unaryop::USub => {
             if operand_obj_id.is_some_and(|id| id == PrimDef::NDArray.id()) {
-                let (dtype, _) = unpack_ndarray_var_tys(unifier, operand);
+                let dtype = unpack_ndarray_params(unifier, primitives, operand).dtype;
                 if dtype.obj_id(unifier).is_some_and(|id| id == PrimDef::Bool.id()) {
                     return Err(if op == Unaryop::UAdd {
                         "The ufunc 'positive' cannot be applied to ndarray[bool, N]".to_string()
@@ -586,7 +586,7 @@ pub fn typeof_cmpop(
 
     Ok(Some(if is_left_ndarray || is_right_ndarray {
         let brd = typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?;
-        let (_, ndims) = unpack_ndarray_var_tys(unifier, brd);
+        let ndims = unpack_ndarray_params(unifier, primitives, brd).ndims;
 
         make_ndarray_ty(unifier, primitives, Some(primitives.bool), Some(ndims))
     } else if unifier.unioned(lhs, rhs) {
@@ -653,8 +653,8 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
         unifier.get_fresh_const_generic_var(size_t, Some("ndarray_ndims".into()), None);
     let ndarray_unsized_t =
         make_ndarray_ty(unifier, store, None, Some(ndarray_usized_ndims_tvar.ty));
-    let (ndarray_dtype_t, _) = unpack_ndarray_var_tys(unifier, ndarray_t);
-    let (ndarray_unsized_dtype_t, _) = unpack_ndarray_var_tys(unifier, ndarray_unsized_t);
+    let ndarray_dtype_t = unpack_ndarray_params(unifier, store, ndarray_t).dtype;
+    let ndarray_unsized_dtype_t = unpack_ndarray_params(unifier, store, ndarray_unsized_t).dtype;
     impl_basic_arithmetic(
         unifier,
         store,

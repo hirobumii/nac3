@@ -1,7 +1,7 @@
 use crate::{
     codegen::classes::{ListType, NDArrayType, ProxyType, RangeType},
     symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, TopLevelContext, TopLevelDef},
+    toplevel::{helper::PrimDef, numpy::unpack_ndarray_params, TopLevelContext, TopLevelDef},
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
@@ -423,6 +423,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
     module: &Module<'ctx>,
     generator: &mut G,
     unifier: &mut Unifier,
+    store: &PrimitiveStore,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
     ty: Type,
@@ -443,18 +444,20 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 module,
                                 generator,
                                 unifier,
+                                store,
                                 top_level,
                                 type_cache,
-                                *params.iter().next().unwrap().1,
+                                *params.get(&store.option_type_tvar.id).unwrap(),
                             )
                             .ptr_type(AddressSpace::default())
                             .into()
                         }
 
                         TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                            let (dtype, _) = unpack_ndarray_var_tys(unifier, ty);
+                            let dtype = unpack_ndarray_params(unifier, store, ty).dtype;
                             let element_type = get_llvm_type(
-                                ctx, module, generator, unifier, top_level, type_cache, dtype,
+                                ctx, module, generator, unifier, store, top_level, type_cache,
+                                dtype,
                             );
 
                             NDArrayType::new(generator, ctx, element_type).as_base_type().into()
@@ -490,6 +493,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 module,
                                 generator,
                                 unifier,
+                                store,
                                 top_level,
                                 type_cache,
                                 fields[&f.0].0,
@@ -506,14 +510,17 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                 let fields = ty
                     .iter()
                     .map(|ty| {
-                        get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, *ty)
+                        get_llvm_type(
+                            ctx, module, generator, unifier, store, top_level, type_cache, *ty,
+                        )
                     })
                     .collect_vec();
                 ctx.struct_type(&fields, false).into()
             }
             TList { ty } => {
-                let element_type =
-                    get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, *ty);
+                let element_type = get_llvm_type(
+                    ctx, module, generator, unifier, store, top_level, type_cache, *ty,
+                );
 
                 ListType::new(generator, ctx, element_type).as_base_type().into()
             }
@@ -540,6 +547,7 @@ fn get_llvm_abi_type<'ctx, G: CodeGenerator + ?Sized>(
     module: &Module<'ctx>,
     generator: &mut G,
     unifier: &mut Unifier,
+    store: &PrimitiveStore,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
     primitives: &PrimitiveStore,
@@ -550,7 +558,7 @@ fn get_llvm_abi_type<'ctx, G: CodeGenerator + ?Sized>(
     return if unifier.unioned(ty, primitives.bool) {
         ctx.bool_type().into()
     } else {
-        get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, ty)
+        get_llvm_type(ctx, module, generator, unifier, store, top_level, type_cache, ty)
     };
 }
 
@@ -699,6 +707,7 @@ pub fn gen_func_impl<
             &module,
             generator,
             &mut unifier,
+            &primitives,
             top_level_ctx.as_ref(),
             &mut type_cache,
             &primitives,
@@ -715,6 +724,7 @@ pub fn gen_func_impl<
                 &module,
                 generator,
                 &mut unifier,
+                &primitives,
                 top_level_ctx.as_ref(),
                 &mut type_cache,
                 &primitives,
@@ -767,6 +777,7 @@ pub fn gen_func_impl<
             &module,
             generator,
             &mut unifier,
+            &primitives,
             top_level_ctx.as_ref(),
             &mut type_cache,
             arg.ty,
