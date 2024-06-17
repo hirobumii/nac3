@@ -493,7 +493,23 @@ impl InnerResolver {
                         )));
                     }
 
-                    todo!()
+                    // npt.NDArray[T] == np.ndarray[Any, np.dtype[T]]
+                    let ndarray_dtype_pyty =
+                        self.helper.args_ty_fn.call1(py, (args.get_item(1)?,))?;
+                    let dtype = ndarray_dtype_pyty.downcast::<PyTuple>(py)?.get_item(0)?;
+
+                    let ty = match self.get_pyty_obj_type(py, dtype, unifier, defs, primitives)? {
+                        Ok(ty) => ty,
+                        Err(err) => return Ok(Err(err)),
+                    };
+
+                    if !unifier.is_concrete(ty.0, &[]) && !ty.1 {
+                        return Ok(Err(
+                            "type `ndarray` should take concrete parameters for dtype".into()
+                        ));
+                    }
+
+                    Ok(Ok((make_ndarray_ty(unifier, primitives, Some(ty.0), None), true)))
                 }
                 TypeEnum::TTuple { .. } => {
                     let args = match args
