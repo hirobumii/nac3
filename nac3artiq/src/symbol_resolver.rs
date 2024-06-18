@@ -311,9 +311,9 @@ impl InnerResolver {
             Ok(Ok((primitives.uint32, true)))
         } else if ty_id == self.primitive_ids.uint64 {
             Ok(Ok((primitives.uint64, true)))
-        } else if ty_id == self.primitive_ids.bool {
+        } else if ty_id == self.primitive_ids.bool || ty_id == self.primitive_ids.np_bool_ {
             Ok(Ok((primitives.bool, true)))
-        } else if ty_id == self.primitive_ids.string {
+        } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
             Ok(Ok((primitives.str, true)))
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             Ok(Ok((primitives.float, true)))
@@ -873,11 +873,11 @@ impl InnerResolver {
             let val: u64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::U64(val));
             Ok(Some(ctx.ctx.i64_type().const_int(val, false).into()))
-        } else if ty_id == self.primitive_ids.bool {
+        } else if ty_id == self.primitive_ids.bool || ty_id == self.primitive_ids.np_bool_ {
             let val: bool = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
             Ok(Some(ctx.ctx.i8_type().const_int(u64::from(val), false).into()))
-        } else if ty_id == self.primitive_ids.string {
+        } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
             let val: String = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Str(val.clone()));
             Ok(Some(ctx.ctx.const_string(val.as_bytes(), true).into()))
@@ -1124,10 +1124,10 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.uint64 {
             let val: u64 = obj.extract()?;
             Ok(SymbolValue::U64(val))
-        } else if ty_id == self.primitive_ids.bool {
+        } else if ty_id == self.primitive_ids.bool || ty_id == self.primitive_ids.np_bool_ {
             let val: bool = obj.extract()?;
             Ok(SymbolValue::Bool(val))
-        } else if ty_id == self.primitive_ids.string {
+        } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
             let val: String = obj.extract()?;
             Ok(SymbolValue::Str(val))
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
