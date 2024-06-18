@@ -20,7 +20,7 @@ use crate::{
     },
 };
 use inkwell::values::BasicValueEnum;
-use itertools::{izip, Itertools};
+use itertools::Itertools;
 use nac3parser::ast::{self, Location, Stmt, StrRef};
 use parking_lot::RwLock;
 

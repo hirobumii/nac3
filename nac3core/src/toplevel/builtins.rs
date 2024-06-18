@@ -269,14 +269,15 @@ fn create_fn_by_extern(
 }
 
 pub fn get_builtins(unifier: &mut Unifier, primitives: &PrimitiveStore) -> BuiltinInfo {
-    let top_level_def_list = BuiltinBuilder::new(unifier, primitives)
+    BuiltinBuilder::new(unifier, primitives)
         .build_all_builtins()
         .into_iter()
-        .map(|tld| Arc::new(RwLock::new(tld)));
-
-    let ast_list: Vec<Option<Stmt<()>>> = (0..top_level_def_list.len()).map(|_| None).collect();
-
-    izip!(top_level_def_list, ast_list).collect_vec()
+        .map(|tld| {
+            let tld = Arc::new(RwLock::new(tld));
+            let ast = None;
+            (tld, ast)
+        })
+        .collect()
 }
 
 /// A helper enum used by [`BuiltinBuilder`]
