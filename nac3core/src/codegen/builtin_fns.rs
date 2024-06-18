@@ -1157,6 +1157,7 @@ pub fn call_abs<'ctx, G: CodeGenerator + ?Sized>(
 /// Helper macro. Used so we don't have to keep typing out the type signature of the function.
 macro_rules! call_numpy {
     ($name:ident, $fn_name:literal, $get_ret_elem_type:expr, $on_elem:expr) => {
+        #[allow(clippy::redundant_closure_call)]
         pub fn $name<'ctx, G: CodeGenerator + ?Sized>(
             generator: &mut G,
             ctx: &mut CodeGenContext<'ctx, '_>,
