@@ -19,7 +19,7 @@ use crate::{
     symbol_resolver::ValueEnum,
     toplevel::{
         helper::PrimDef,
-        numpy::{make_ndarray_ty, unpack_ndarray_params},
+        prim_types::{make_ndarray_ty, unpack_ndarray_params},
         DefinitionId,
     },
     typecheck::typedef::{FunSignature, Type, TypeEnum},

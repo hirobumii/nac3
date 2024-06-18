@@ -12,7 +12,7 @@ use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         helper::{arraylike_flatten_element_type, arraylike_get_ndims, PrimDef},
-        numpy::{make_ndarray_ty, unpack_ndarray_params},
+        prim_types::{make_ndarray_ty, unpack_ndarray_params},
         TopLevelContext,
     },
 };

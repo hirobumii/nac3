@@ -30,7 +30,7 @@ pub struct DefinitionId(pub usize);
 pub mod builtins;
 pub mod composer;
 pub mod helper;
-pub mod numpy;
+pub mod prim_types;
 pub mod type_annotation;
 use composer::*;
 use type_annotation::*;

@@ -4,7 +4,7 @@ use nac3core::{
     symbol_resolver::{StaticValue, SymbolResolver, SymbolValue, ValueEnum},
     toplevel::{
         helper::PrimDef,
-        numpy::{make_ndarray_ty, unpack_ndarray_params},
+        prim_types::{make_ndarray_ty, unpack_ndarray_params},
         DefinitionId, TopLevelDef,
     },
     typecheck::{

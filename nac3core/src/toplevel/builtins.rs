@@ -24,7 +24,7 @@ use crate::{
         stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
-    toplevel::{helper::PrimDef, numpy::make_ndarray_ty},
+    toplevel::{helper::PrimDef, prim_types::make_ndarray_ty},
     typecheck::typedef::{into_var_map, TypeVar, VarMap},
 };
 

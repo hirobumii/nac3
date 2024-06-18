@@ -10,7 +10,7 @@ use crate::{
         expr::gen_binop_expr,
         gen_in_range_check,
     },
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_params, DefinitionId, TopLevelDef},
+    toplevel::{helper::PrimDef, prim_types::unpack_ndarray_params, DefinitionId, TopLevelDef},
     typecheck::typedef::{FunSignature, Type, TypeEnum},
 };
 use inkwell::{

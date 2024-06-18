@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::numpy::unpack_ndarray_params;
+use crate::toplevel::prim_types::unpack_ndarray_params;
 use crate::typecheck::typedef::{into_var_map, Mapping, TypeVar, TypeVarId, VarMap};
 use nac3parser::ast::{Constant, Location};
 use strum::IntoEnumIterator;

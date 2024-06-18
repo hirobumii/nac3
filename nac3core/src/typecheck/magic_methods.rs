@@ -1,6 +1,6 @@
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::helper::PrimDef;
-use crate::toplevel::numpy::{make_ndarray_ty, unpack_ndarray_params};
+use crate::toplevel::prim_types::{make_ndarray_ty, unpack_ndarray_params};
 use crate::typecheck::{
     type_inferencer::*,
     typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},

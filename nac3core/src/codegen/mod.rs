@@ -1,7 +1,7 @@
 use crate::{
     codegen::classes::{ListType, NDArrayType, ProxyType, RangeType},
     symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_params, TopLevelContext, TopLevelDef},
+    toplevel::{helper::PrimDef, prim_types::unpack_ndarray_params, TopLevelContext, TopLevelDef},
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},

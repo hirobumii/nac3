@@ -8,7 +8,7 @@ use crate::codegen::numpy::ndarray_elementwise_unaryop_impl;
 use crate::codegen::stmt::gen_for_callback_incrementing;
 use crate::codegen::{extern_fns, irrt, llvm_intrinsics, numpy, CodeGenContext, CodeGenerator};
 use crate::toplevel::helper::PrimDef;
-use crate::toplevel::numpy::unpack_ndarray_params;
+use crate::toplevel::prim_types::unpack_ndarray_params;
 use crate::typecheck::typedef::Type;
 
 /// Shorthand for [`unreachable!()`] when a type of argument is not supported.
