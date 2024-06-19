@@ -103,6 +103,10 @@ pub enum TopLevelDef {
         ///
         /// Name and type is mutable.
         fields: Vec<(StrRef, Type, bool)>,
+        /// Class Attributes.
+        ///
+        /// Name, type, value.
+        attributes: Vec<(StrRef, Type, ast::Constant)>,
         /// Class methods, pointing to the corresponding function definition.
         methods: Vec<(StrRef, Type, DefinitionId)>,
         /// Ancestor classes, including itself.
