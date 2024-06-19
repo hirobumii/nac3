@@ -627,12 +627,15 @@ impl InnerResolver {
         let pyid_to_def = self.pyid_to_def.read();
         let constructor_ty = pyid_to_def.get(&py_obj_id).and_then(|def_id| {
             defs.iter().find_map(|def| {
-                if let TopLevelDef::Class { object_id, methods, constructor, .. } = &*def.read() {
-                    if object_id == def_id
-                        && constructor.is_some()
-                        && methods.iter().any(|(s, _, _)| s == &"__init__".into())
+                if let Some(rear_guard) = def.try_read() {
+                    if let TopLevelDef::Class { object_id, methods, constructor, .. } = &*rear_guard
                     {
-                        return *constructor;
+                        if object_id == def_id
+                            && constructor.is_some()
+                            && methods.iter().any(|(s, _, _)| s == &"__init__".into())
+                        {
+                            return *constructor;
+                        }
                     }
                 }
                 None
@@ -664,7 +667,29 @@ impl InnerResolver {
             primitives,
         )? {
             Ok(s) => s,
-            Err(e) => return Ok(Err(e)),
+            Err(e) => {
+                // Allow access to Class Attributes of Classes without having to initialize Objects
+                if self.pyid_to_def.read().contains_key(&py_obj_id) {
+                    if let Some(def_id) = self.pyid_to_def.read().get(&py_obj_id).copied() {
+                        let def = defs[def_id.0].read();
+                        let TopLevelDef::Class { object_id, .. } = &*def else {
+                            // only object is supported, functions are not supported
+                            unreachable!("function type is not supported, should not be queried")
+                        };
+
+                        let ty = TypeEnum::TObj {
+                            obj_id: *object_id,
+                            params: VarMap::new(),
+                            fields: HashMap::new(),
+                        };
+                        (unifier.add_ty(ty), true)
+                    } else {
+                        return Ok(Err(e));
+                    }
+                } else {
+                    return Ok(Err(e));
+                }
+            }
         };
         match (&*unifier.get_ty(extracted_ty), inst_check) {
             // do the instantiation for these four types
