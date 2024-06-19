@@ -1050,7 +1050,8 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
 /// * `fn_name`: The name of the function, only used when throwing an error with [`unsupported_type`]
 /// * `get_ret_elem_type`: A function that takes in the input element [`Type`], and returns the correct return [`Type`].
 /// Return a constant [`Type`] here if the return type does not depend on the input type.
-/// * `on_elem`: The function to be called when the input argument is not an ndarray.
+/// * `on_elem`: The function to be called when the input argument is not an ndarray. Returns [`Option::None`]
+/// if the element type & value are faulty and should panic with [`unsupported_type`].
 fn helper_call_numpy<'ctx, OnElemFn, RetElemFn, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
