@@ -83,6 +83,7 @@ pub fn get_exn_constructor(
         object_id: DefinitionId(class_id),
         type_vars: Vec::default(),
         fields: exception_fields,
+        attributes: Vec::default(),
         methods: vec![("__init__".into(), signature, DefinitionId(cons_id))],
         ancestors: vec![
             TypeAnnotation::CustomClass { id: DefinitionId(class_id), params: Vec::default() },
@@ -596,6 +597,7 @@ impl<'a> BuiltinBuilder<'a> {
                 object_id: prim.id(),
                 type_vars: Vec::default(),
                 fields: make_exception_fields(int32, int64, str),
+                attributes: Vec::default(),
                 methods: Vec::default(),
                 ancestors: vec![],
                 constructor: None,
@@ -624,7 +626,8 @@ impl<'a> BuiltinBuilder<'a> {
                 name: prim.name().into(),
                 object_id: prim.id(),
                 type_vars: vec![self.option_tvar.ty],
-                fields: vec![],
+                fields: Vec::default(),
+                attributes: Vec::default(),
                 methods: vec![
                     Self::create_method(PrimDef::OptionIsSome, self.is_some_ty.0),
                     Self::create_method(PrimDef::OptionIsNone, self.is_some_ty.0),
@@ -738,6 +741,7 @@ impl<'a> BuiltinBuilder<'a> {
                 object_id: prim.id(),
                 type_vars: vec![self.ndarray_dtype_tvar.ty, self.ndarray_ndims_tvar.ty],
                 fields: Vec::default(),
+                attributes: Vec::default(),
                 methods: vec![
                     Self::create_method(PrimDef::NDArrayCopy, self.ndarray_copy_ty.0),
                     Self::create_method(PrimDef::NDArrayFill, self.ndarray_fill_ty.0),

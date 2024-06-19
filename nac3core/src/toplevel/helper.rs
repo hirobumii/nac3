@@ -474,6 +474,7 @@ impl TopLevelComposer {
             object_id: obj_id,
             type_vars: Vec::default(),
             fields: Vec::default(),
+            attributes: Vec::default(),
             methods: Vec::default(),
             ancestors: Vec::default(),
             constructor,
