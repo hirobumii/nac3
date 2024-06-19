@@ -1044,7 +1044,8 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
     })
 }
 
-/// Helper function to create a builtin that takes in either an ndarray or a value and returns a value of the structure.
+/// Helper function to create a builtin that takes in either an ndarray or a value and returns a value of the same structure.
+/// (e.g, `float` to `float`, `float` to `int`, `ndarray<float>` to `ndarray<float>`, or even `ndarray<float>` to `ndarray<int>`).
 ///
 /// * `(arg_ty, arg_val)`: The [`Type`] and llvm value of the input argument.
 /// * `fn_name`: The name of the function, only used when throwing an error with [`unsupported_type`]
