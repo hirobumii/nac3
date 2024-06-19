@@ -113,7 +113,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             }
         },
         ExprKind::Attribute { value, attr, .. } => {
-            let index = ctx.get_attr_index(value.custom.unwrap(), *attr);
+            let (index, _) = ctx.get_attr_index(value.custom.unwrap(), *attr);
             let val = if let Some(v) = generator.gen_expr(ctx, value)? {
                 v.to_basic_value_enum(ctx, generator, value.custom.unwrap())?
             } else {

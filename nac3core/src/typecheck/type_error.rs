@@ -34,6 +34,7 @@ pub enum TypeErrorKind {
     },
     RequiresTypeAnn,
     PolymorphicFunctionPointer,
+    NoSuchAttribute(RecordKey, Type),
 }
 
 #[derive(Debug, Clone)]
@@ -155,6 +156,10 @@ impl<'a> Display for DisplayTypeError<'a> {
             NoSuchField(name, t) => {
                 let t = self.unifier.stringify_with_notes(*t, &mut notes);
                 write!(f, "`{t}::{name}` field/method does not exist")
+            }
+            NoSuchAttribute(name, t) => {
+                let t = self.unifier.stringify_with_notes(*t, &mut notes);
+                write!(f, "`{t}::{name}` is not a class attribute")
             }
             TupleIndexOutOfBounds { index, len } => {
                 write!(
