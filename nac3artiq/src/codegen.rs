@@ -657,7 +657,7 @@ pub fn attributes_writeback(
                         }
                         if gen_rpc_tag(ctx, *field_ty, &mut scratch_buffer).is_ok() {
                             attributes.push(name.to_string());
-                            let index = ctx.get_attr_index(ty, *name);
+                            let (index, _) = ctx.get_attr_index(ty, *name);
                             values.push((
                                 *field_ty,
                                 ctx.build_gep_and_load(

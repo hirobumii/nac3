@@ -1057,7 +1057,14 @@ impl TopLevelComposer {
         let (keyword_list, core_config) = core_info;
         let mut class_def = class_def.write();
         let TopLevelDef::Class {
-            object_id, ancestors, fields, methods, resolver, type_vars, ..
+            object_id,
+            ancestors,
+            fields,
+            attributes,
+            methods,
+            resolver,
+            type_vars,
+            ..
         } = &mut *class_def
         else {
             unreachable!("here must be toplevel class def");
@@ -1073,10 +1080,14 @@ impl TopLevelComposer {
             class_body_ast,
             _class_ancestor_def,
             class_fields_def,
+            class_attributes_def,
             class_methods_def,
             class_type_vars_def,
             class_resolver,
-        ) = (*object_id, *name, bases, body, ancestors, fields, methods, type_vars, resolver);
+        ) = (
+            *object_id, *name, bases, body, ancestors, fields, attributes, methods, type_vars,
+            resolver,
+        );
 
         let class_resolver = class_resolver.as_ref().unwrap();
         let class_resolver = class_resolver.as_ref();
@@ -1285,34 +1296,74 @@ impl TopLevelComposer {
                         .unify(method_dummy_ty, method_type)
                         .map_err(|e| HashSet::from([e.to_display(unifier).to_string()]))?;
                 }
-                ast::StmtKind::AnnAssign { target, annotation, value: None, .. } => {
+                ast::StmtKind::AnnAssign { target, annotation, value, .. } => {
                     if let ast::ExprKind::Name { id: attr, .. } = &target.node {
                         if defined_fields.insert(attr.to_string()) {
                             let dummy_field_type = unifier.get_dummy_var().ty;
 
-                            // handle Kernel[T], KernelInvariant[T]
-                            let (annotation, mutable) = match &annotation.node {
-                                ast::ExprKind::Subscript { value, slice, .. }
-                                    if matches!(
-                                        &value.node,
-                                        ast::ExprKind::Name { id, .. } if id == &core_config.kernel_invariant_ann.into()
-                                    ) =>
-                                {
-                                    (slice, false)
+                            let annotation = match value {
+                                None => {
+                                    // handle Kernel[T], KernelInvariant[T]
+                                    let (annotation, mutable) = match &annotation.node {
+                                        ast::ExprKind::Subscript { value, slice, .. }
+                                            if matches!(
+                                                &value.node,
+                                                ast::ExprKind::Name { id, .. } if id == &core_config.kernel_invariant_ann.into()
+                                            ) =>
+                                        {
+                                            (slice, false)
+                                        }
+                                        ast::ExprKind::Subscript { value, slice, .. }
+                                            if matches!(
+                                                &value.node,
+                                                ast::ExprKind::Name { id, .. } if core_config.kernel_ann.map_or(false, |c| id == &c.into())
+                                            ) =>
+                                        {
+                                            (slice, true)
+                                        }
+                                        _ if core_config.kernel_ann.is_none() => (annotation, true),
+                                        _ => continue, // ignore fields annotated otherwise
+                                    };
+                                    class_fields_def.push((*attr, dummy_field_type, mutable));
+                                    annotation
                                 }
-                                ast::ExprKind::Subscript { value, slice, .. }
-                                    if matches!(
-                                        &value.node,
-                                        ast::ExprKind::Name { id, .. } if core_config.kernel_ann.map_or(false, |c| id == &c.into())
-                                    ) =>
-                                {
-                                    (slice, true)
-                                }
-                                _ if core_config.kernel_ann.is_none() => (annotation, true),
-                                _ => continue, // ignore fields annotated otherwise
-                            };
-                            class_fields_def.push((*attr, dummy_field_type, mutable));
+                                // Supporting Class Attributes
+                                Some(boxed_expr) => {
+                                    // Class attributes are set as immutable regardless
+                                    let (annotation, _) = match &annotation.node {
+                                        ast::ExprKind::Subscript { slice, .. } => (slice, false),
+                                        _ if core_config.kernel_ann.is_none() => (annotation, false),
+                                        _ => continue,
+                                    };
 
+                                    match &**boxed_expr {
+                                        ast::Located {location: _, custom: (), node: ast::ExprKind::Constant { value: v, kind: _ }} => {
+                                            // Restricting the types allowed to be defined as class attributes
+                                            match v {
+                                                ast::Constant::Bool(_) | ast::Constant::Str(_) | ast::Constant::Int(_) | ast::Constant::Float(_) => {}
+                                                _ => {
+                                                        return Err(HashSet::from([
+                                                        format!(
+                                                            "unsupported statement in class definition body (at {})",
+                                                            b.location
+                                                        ),
+                                                    ]))
+                                                }
+                                            }
+                                            class_attributes_def.push((*attr, dummy_field_type, v.clone()));
+                                        }
+                                        _ => {
+                                            return Err(HashSet::from([
+                                                format!(
+                                                    "unsupported statement in class definition body (at {})",
+                                                    b.location
+                                                ),
+                                            ]))
+                                        }
+                                    }
+                                    annotation
+                                }
+                            };
                             let parsed_annotation = parse_ast_to_type_annotation_kinds(
                                 class_resolver,
                                 temp_def_list,
@@ -1384,7 +1435,14 @@ impl TopLevelComposer {
         type_var_to_concrete_def: &mut HashMap<Type, TypeAnnotation>,
     ) -> Result<(), HashSet<String>> {
         let TopLevelDef::Class {
-            object_id, ancestors, fields, methods, resolver, type_vars, ..
+            object_id,
+            ancestors,
+            fields,
+            attributes,
+            methods,
+            resolver,
+            type_vars,
+            ..
         } = class_def
         else {
             unreachable!("here must be class def ast")
@@ -1393,10 +1451,11 @@ impl TopLevelComposer {
             _class_id,
             class_ancestor_def,
             class_fields_def,
+            class_attribute_def,
             class_methods_def,
             _class_type_vars_def,
             _class_resolver,
-        ) = (*object_id, ancestors, fields, methods, type_vars, resolver);
+        ) = (*object_id, ancestors, fields, attributes, methods, type_vars, resolver);
 
         // since when this function is called, the ancestors of the direct parent
         // are supposed to be already handled, so we only need to deal with the direct parent
@@ -1407,7 +1466,7 @@ impl TopLevelComposer {
 
         let base = temp_def_list.get(id.0).unwrap();
         let base = base.read();
-        let TopLevelDef::Class { methods, fields, .. } = &*base else {
+        let TopLevelDef::Class { methods, fields, attributes, .. } = &*base else {
             unreachable!("must be top level class def")
         };
 
@@ -1449,7 +1508,7 @@ impl TopLevelComposer {
             }
         }
         // use the new_child_methods to replace all the elements in `class_methods_def`
-        class_methods_def.drain(..);
+        class_methods_def.clear();
         class_methods_def.extend(new_child_methods);
 
         // handle class fields
@@ -1459,7 +1518,9 @@ impl TopLevelComposer {
             let to_be_added = (*anc_field_name, *anc_field_ty, *mutable);
             // find if there is a fields with the same name in the child class
             for (class_field_name, ..) in &*class_fields_def {
-                if class_field_name == anc_field_name {
+                if class_field_name == anc_field_name
+                    || attributes.iter().any(|f| f.0 == *class_field_name)
+                {
                     return Err(HashSet::from([format!(
                         "field `{class_field_name}` has already declared in the ancestor classes"
                     )]));
@@ -1467,14 +1528,33 @@ impl TopLevelComposer {
             }
             new_child_fields.push(to_be_added);
         }
+
+        // handle class attributes
+        let mut new_child_attributes: Vec<(StrRef, Type, ast::Constant)> = Vec::new();
+        for (anc_attr_name, anc_attr_ty, attr_value) in attributes {
+            let to_be_added = (*anc_attr_name, *anc_attr_ty, attr_value.clone());
+            // find if there is a attribute with the same name in the child class
+            for (class_attr_name, ..) in &*class_attribute_def {
+                if class_attr_name == anc_attr_name
+                    || fields.iter().any(|f| f.0 == *class_attr_name)
+                {
+                    return Err(HashSet::from([format!(
+                        "attribute `{class_attr_name}` has already declared in the ancestor classes"
+                    )]));
+                }
+            }
+            new_child_attributes.push(to_be_added);
+        }
+
         for (class_field_name, class_field_ty, mutable) in &*class_fields_def {
             if !is_override.contains(class_field_name) {
                 new_child_fields.push((*class_field_name, *class_field_ty, *mutable));
             }
         }
-        class_fields_def.drain(..);
+        class_fields_def.clear();
         class_fields_def.extend(new_child_fields);
-
+        class_attribute_def.clear();
+        class_attribute_def.extend(new_child_attributes);
         Ok(())
     }
 

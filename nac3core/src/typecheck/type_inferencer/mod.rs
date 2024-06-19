@@ -6,6 +6,7 @@ use std::{cell::RefCell, sync::Arc};
 
 use super::typedef::{Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, Unifier, VarMap};
 use super::{magic_methods::*, type_error::TypeError, typedef::CallId};
+use crate::toplevel::TopLevelDef;
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
@@ -1441,6 +1442,24 @@ impl<'a> Inferencer<'a> {
         Ok(self.unifier.add_ty(TypeEnum::TTuple { ty }))
     }
 
+    /// Checks for non-class attributes
+    fn infer_general_attribute(
+        &mut self,
+        value: &ast::Expr<Option<Type>>,
+        attr: StrRef,
+        ctx: ExprContext,
+    ) -> InferenceResult {
+        let attr_ty = self.unifier.get_dummy_var().ty;
+        let fields = once((
+            attr.into(),
+            RecordField::new(attr_ty, ctx == ExprContext::Store, Some(value.location)),
+        ))
+        .collect();
+        let record = self.unifier.add_record(fields);
+        self.constrain(value.custom.unwrap(), record, &value.location)?;
+        Ok(attr_ty)
+    }
+
     fn infer_attribute(
         &mut self,
         value: &ast::Expr<Option<Type>>,
@@ -1448,31 +1467,72 @@ impl<'a> Inferencer<'a> {
         ctx: ExprContext,
     ) -> InferenceResult {
         let ty = value.custom.unwrap();
-        if let TypeEnum::TObj { fields, .. } = &*self.unifier.get_ty(ty) {
+        if let TypeEnum::TObj { obj_id, fields, .. } = &*self.unifier.get_ty(ty) {
             // just a fast path
             match (fields.get(&attr), ctx == ExprContext::Store) {
                 (Some((ty, true)), _) | (Some((ty, false)), false) => Ok(*ty),
                 (Some((_, false)), true) => {
                     report_error(&format!("Field `{attr}` is immutable"), value.location)
                 }
-                (None, _) => {
-                    let t = self.unifier.stringify(ty);
-                    report_error(
-                        &format!("`{t}::{attr}` field/method does not exist"),
-                        value.location,
-                    )
+                (None, mutable) => {
+                    // Check whether it is a class attribute
+                    let defs = self.top_level.definitions.read();
+                    let result = {
+                        if let TopLevelDef::Class { attributes, .. } = &*defs[obj_id.0].read() {
+                            attributes.iter().find_map(|f| {
+                                if f.0 == attr {
+                                    return Some(f.1);
+                                }
+                                None
+                            })
+                        } else {
+                            None
+                        }
+                    };
+                    match result {
+                        Some(res) if !mutable => Ok(res),
+                        Some(_) => report_error(
+                            &format!("Class Attribute `{attr}` is immutable"),
+                            value.location,
+                        ),
+                        None => {
+                            let t = self.unifier.stringify(ty);
+                            report_error(
+                                &format!("`{t}::{attr}` field/method does not exist"),
+                                value.location,
+                            )
+                        }
+                    }
                 }
             }
+        } else if let TypeEnum::TFunc(sign) = &*self.unifier.get_ty(ty) {
+            // Access Class Attributes of classes with __init__ function using Class names e.g. Foo.ATTR1
+            let result = {
+                self.top_level.definitions.read().iter().find_map(|def| {
+                    if let Some(rear_guard) = def.try_read() {
+                        if let TopLevelDef::Class { name, attributes, .. } = &*rear_guard {
+                            if name.to_string() == self.unifier.stringify(sign.ret) {
+                                return attributes.iter().find_map(|f| {
+                                    if f.0 == attr {
+                                        return Some(f.clone().1);
+                                    }
+                                    None
+                                });
+                            }
+                        }
+                    }
+                    None
+                })
+            };
+            match result {
+                Some(f) if ctx != ExprContext::Store => Ok(f),
+                Some(_) => {
+                    report_error(&format!("Class Attribute `{attr}` is immutable"), value.location)
+                }
+                None => self.infer_general_attribute(value, attr, ctx),
+            }
         } else {
-            let attr_ty = self.unifier.get_dummy_var().ty;
-            let fields = once((
-                attr.into(),
-                RecordField::new(attr_ty, ctx == ExprContext::Store, Some(value.location)),
-            ))
-            .collect();
-            let record = self.unifier.add_record(fields);
-            self.constrain(value.custom.unwrap(), record, &value.location)?;
-            Ok(attr_ty)
+            self.infer_general_attribute(value, attr, ctx)
         }
     }
 

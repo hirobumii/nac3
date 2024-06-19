@@ -470,6 +470,7 @@ pub fn get_type_from_type_annotation_kinds(
                 }
                 result
             };
+            // Class Attributes keep a copy with Class Definition and are not added to objects
             let mut tobj_fields = methods
                 .iter()
                 .map(|(name, ty, _)| {
