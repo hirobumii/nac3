@@ -6,6 +6,10 @@ def output_int32(x: int32):
 def output_int64(x: int64):
     ...
 
+@extern
+def output_str(x: str):
+    ...
+
 
 class B:
     b: int32
@@ -27,6 +31,10 @@ class A:
     #     return self.b
 
 
+class Initless:
+    def foo(self):
+        output_str("hello")
+
 def run() -> int32:
     a = A(10)
     output_int32(a.a)
@@ -35,4 +43,8 @@ def run() -> int32:
     output_int32(a.a)
     output_int32(a.get_a())
     # output_int32(a.get_b().b) FIXME: NAC3 prints garbage
+
+    initless = Initless()
+    initless.foo()
+
     return 0
