@@ -802,7 +802,7 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
         ctx,
         llvm_usize.const_zero(),
         (min_ndims, false),
-        |generator, ctx, idx| {
+        |generator, ctx, _, idx| {
             let idx = ctx.builder.build_int_sub(min_ndims, idx, "").unwrap();
             let (lhs_dim_sz, rhs_dim_sz) = unsafe {
                 (

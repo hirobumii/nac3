@@ -86,7 +86,7 @@ where
         ctx,
         llvm_usize.const_zero(),
         (shape_len, false),
-        |generator, ctx, i| {
+        |generator, ctx, _, i| {
             let shape_dim = shape_data_fn(generator, ctx, shape, i)?;
             debug_assert!(shape_dim.get_type().get_bit_width() <= llvm_usize.get_bit_width());
 
@@ -131,7 +131,7 @@ where
         ctx,
         llvm_usize.const_zero(),
         (shape_len, false),
-        |generator, ctx, i| {
+        |generator, ctx, _, i| {
             let shape_dim = shape_data_fn(generator, ctx, shape, i)?;
             debug_assert!(shape_dim.get_type().get_bit_width() <= llvm_usize.get_bit_width());
             let shape_dim = ctx.builder.build_int_z_extend(shape_dim, llvm_usize, "").unwrap();
@@ -334,7 +334,7 @@ where
         ctx,
         llvm_usize.const_zero(),
         (ndarray_num_elems, false),
-        |generator, ctx, i| {
+        |generator, ctx, _, i| {
             let elem = unsafe { ndarray.data().ptr_offset_unchecked(ctx, generator, &i, None) };
 
             let value = value_fn(generator, ctx, i)?;
@@ -1193,7 +1193,7 @@ pub fn ndarray_sliced_copy<'ctx, G: CodeGenerator + ?Sized>(
             ctx,
             llvm_usize.const_int(slices.len() as u64, false),
             (this.load_ndims(ctx), false),
-            |generator, ctx, idx| {
+            |generator, ctx, _, idx| {
                 unsafe {
                     let dim_sz = this.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None);
                     ndarray.dim_sizes().set_typed_unchecked(ctx, generator, &idx, dim_sz);
@@ -1597,7 +1597,7 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
             ctx,
             llvm_i32.const_zero(),
             (common_dim, false),
-            |generator, ctx, i| {
+            |generator, ctx, _, i| {
                 let i = ctx.builder.build_int_truncate(i, llvm_i32, "").unwrap();
 
                 let ab_idx = generator.gen_array_var_alloc(
