@@ -1108,13 +1108,13 @@ where
 pub fn call_abs<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
-    arg: (Type, BasicValueEnum<'ctx>),
+    n: (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "abs";
     helper_call_numpy_unary_elementwise(
         generator,
         ctx,
-        arg,
+        n,
         FN_NAME,
         &|_ctx, elem_ty| elem_ty,
         &|_generator, ctx, val_ty, val| match val {
