@@ -462,7 +462,7 @@ pub fn gen_for<G: CodeGenerator>(
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BreakContinueHooks<'ctx> {
     /// [`BasicBlock`] to branch to for `break`-ing out of the loop.
     pub break_bb: BasicBlock<'ctx>,

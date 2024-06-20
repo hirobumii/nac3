@@ -7,12 +7,11 @@ use crate::{
         },
         expr::gen_binop_expr_with_values,
         irrt::{
-            calculate_len_for_slice_range, call_ndarray_calc_broadcast,
+            self, calculate_len_for_slice_range, call_ndarray_calc_broadcast,
             call_ndarray_calc_broadcast_index, call_ndarray_calc_nd_indices,
             call_ndarray_calc_size,
         },
-        llvm_intrinsics,
-        llvm_intrinsics::call_memcpy_generic,
+        llvm_intrinsics::{self, call_memcpy_generic},
         stmt::{gen_for_callback_incrementing, gen_for_range_callback, gen_if_else_expr_callback},
         CodeGenContext, CodeGenerator,
     },
@@ -31,6 +30,8 @@ use inkwell::{
     AddressSpace, IntPredicate, OptimizationLevel,
 };
 use nac3parser::ast::{Operator, StrRef};
+
+use super::{builtin_fns::call_bool, stmt::BreakContinueHooks};
 
 /// Creates an uninitialized `NDArray` instance.
 fn create_ndarray_uninitialized<'ctx, G: CodeGenerator + ?Sized>(
@@ -1366,6 +1367,46 @@ where
     Ok(ndarray)
 }
 
+/// LLVM-typed implementation for iterating through all elements within an `ndarray`.
+///
+/// * `ndarray`: The input [`NDArrayValue`] to iterate through.
+/// * `body`: A lambda containing IR statements that acts on every element within `ndarray`.
+/// It may also implement short-circuiting logic by branching with [`BreakContinueHooks`].
+pub fn ndarray_iter_elem_impl<'ctx, G, BodyFn>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndarray: NDArrayValue<'ctx>,
+    body: BodyFn,
+) -> Result<(), String>
+where
+    G: CodeGenerator + ?Sized,
+    BodyFn: FnOnce(
+        &mut G,
+        &mut CodeGenContext<'ctx, '_>,
+        BreakContinueHooks,
+        BasicValueEnum<'ctx>,
+    ) -> Result<(), String>,
+{
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    let ndarray_size =
+        irrt::call_ndarray_calc_size(generator, ctx, &ndarray.dim_sizes(), (None, None));
+
+    gen_for_callback_incrementing(
+        generator,
+        ctx,
+        llvm_usize.const_int(0, false),
+        (ndarray_size, false),
+        |generator, ctx, hooks, idx| {
+            let scalar = unsafe { ndarray.data().get_unchecked(ctx, generator, &idx, None) };
+            body(generator, ctx, hooks, scalar)
+        },
+        llvm_usize.const_int(1, false),
+    )?;
+
+    Ok(())
+}
+
 /// LLVM-typed implementation for computing matrix multiplication between two 2D `ndarray`s.
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
@@ -1983,4 +2024,137 @@ pub fn gen_ndarray_fill<'ctx>(
     )?;
 
     Ok(())
+}
+
+/// Used by [`call_ndarray_any_all_impl`]
+#[derive(Debug, Clone, Copy)]
+enum AnyOrAll {
+    /// The numpy function `np.any()`
+    IsAny,
+    /// The numpy function `np.all()`
+    IsAll,
+}
+
+/// Helper function to create `np.any()` and `np.all()`.
+///
+/// Returns a boolean result in the form of an `i8` [`IntValue`].
+///
+/// They are mixed together since they are extremely similar in terms of implementation.
+fn call_ndarray_any_all_impl<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    kind: AnyOrAll,
+    elem_ty: Type,
+    ndarray: NDArrayValue<'ctx>,
+) -> Result<IntValue<'ctx>, String> {
+    /*
+        NOTE: `np.any(<empty ndarray>)` returns false.
+        NOTE: `np.all(<empty ndarray>)` returns true.
+
+        Here is the reference C code of what the implemented LLVM of `np.any()` is essentially doing.
+        ```c
+        // np.any(ndarray)
+        const int8 neutral = 0;
+        const int8 on_hit = 1;
+
+        int8 has_true = neutral;
+        for (size_t index = 0; index < ndarray.size; index++) {
+            Element *elem = ndarray.get(index);
+            bool elem_is_truthy = call_bool(*elem);
+            if (elem_is_truthy) {
+                has_true = on_hit;
+                break; // Short-circuiting for performance
+            }
+        }
+        ```
+    */
+
+    // Name of the function. Used here for creating LLVM labels and names.
+    let fn_name = match kind {
+        AnyOrAll::IsAny => "np_any",
+        AnyOrAll::IsAll => "np_all",
+    };
+
+    let llvm_i8 = ctx.ctx.i8_type();
+
+    let (neutral, on_hit) = match kind {
+        AnyOrAll::IsAny => (0, 1),
+        AnyOrAll::IsAll => (1, 0),
+    };
+
+    // The result of `np.any()`/`np.all()`
+    let result_ptr =
+        ctx.builder.build_alloca(llvm_i8, format!("{fn_name}.result").as_str()).unwrap();
+    ctx.builder.build_store(result_ptr, llvm_i8.const_int(neutral, false)).unwrap();
+
+    ndarray_iter_elem_impl(generator, ctx, ndarray, |generator, ctx, hooks, elem| {
+        // The basic block to go to when...
+        //    - np.any() sees a `true`, then `result` is set from `false` to `true` and short-circuit.
+        //    - np.all() sees a `false`, then `result` is set from `true` to `false` and short-circuit.
+        let on_hit_bb =
+            ctx.ctx.insert_basic_block_after(hooks.break_bb, format!("{fn_name}.on_hit").as_str());
+
+        let elem_is_truthy = call_bool(generator, ctx, (elem_ty, elem)).unwrap().into_int_value();
+        let (on_true, on_false) = match kind {
+            AnyOrAll::IsAny => (on_hit_bb, hooks.continue_bb),
+            AnyOrAll::IsAll => (hooks.continue_bb, on_hit_bb),
+        };
+        ctx.builder.build_conditional_branch(elem_is_truthy, on_true, on_false).unwrap();
+
+        // Begin inserting into `on_hit_bb`
+        ctx.builder.position_at_end(on_hit_bb);
+        ctx.builder.build_store(result_ptr, llvm_i8.const_int(on_hit, false)).unwrap();
+        ctx.builder.build_unconditional_branch(hooks.break_bb).unwrap();
+
+        Ok(())
+    })?;
+
+    // Load `result` and return it
+    let result = ctx.builder.build_load(result_ptr, "result").unwrap();
+    Ok(result.into_int_value())
+}
+
+/// Helper function to generate LLVM IR for `np.any()` and `np.all()`.
+fn gen_ndarray_any_all_helper<'ctx>(
+    kind: AnyOrAll,
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+) -> Result<IntValue<'ctx>, String> {
+    assert!(obj.is_none());
+    assert_eq!(args.len(), 1);
+
+    let llvm_usize = generator.get_size_type(context.ctx);
+
+    let in_ty = fun.0.args[0].ty;
+    let (elem_ty, _) = unpack_ndarray_var_tys(&mut context.unifier, in_ty);
+    let in_arg = args[0].1.clone().to_basic_value_enum(context, generator, elem_ty)?;
+
+    let ndarray = NDArrayValue::from_ptr_val(in_arg.into_pointer_value(), llvm_usize, None);
+
+    call_ndarray_any_all_impl(generator, context, kind, elem_ty, ndarray)
+}
+
+/// Generates LLVM IR for `np.any()`.
+pub fn gen_ndarray_any<'ctx>(
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+) -> Result<IntValue<'ctx>, String> {
+    gen_ndarray_any_all_helper(AnyOrAll::IsAny, context, obj, fun, args, generator)
+}
+
+/// Generates LLVM IR for `np.all()`.
+pub fn gen_ndarray_all<'ctx>(
+    context: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+) -> Result<IntValue<'ctx>, String> {
+    gen_ndarray_any_all_helper(AnyOrAll::IsAll, context, obj, fun, args, generator)
 }

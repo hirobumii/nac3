@@ -226,6 +226,8 @@ def patch(module):
     module.np_full = np.full
     module.np_eye = np.eye
     module.np_identity = np.identity
+    module.np_any = np.any
+    module.np_all = np.all
 
 def file_import(filename, prefix="file_import_"):
     filename = pathlib.Path(filename)

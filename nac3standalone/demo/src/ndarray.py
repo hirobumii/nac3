@@ -1388,6 +1388,48 @@ def test_ndarray_nextafter_broadcast_rhs_scalar():
     output_ndarray_float_2(nextafter_x_zeros)
     output_ndarray_float_2(nextafter_x_ones)
 
+def test_ndarray_any():
+    x1 = np_identity(5)
+    y1 = np_any(x1)
+    output_ndarray_float_2(x1)
+    output_bool(y1)
+
+    x2 = np_identity(1)
+    y2 = np_any(x2)
+    output_ndarray_float_2(x2)
+    output_bool(y2)
+
+    x3 = np_array([[1.0, 2.0], [3.0, 4.0]])
+    y3 = np_any(x3)
+    output_ndarray_float_2(x3)
+    output_bool(y3)
+
+    x4 = np_zeros([3, 5])
+    y4 = np_any(x4)
+    output_ndarray_float_2(x4)
+    output_bool(y4)
+
+def test_ndarray_all():
+    x1 = np_identity(5)
+    y1 = np_all(x1)
+    output_ndarray_float_2(x1)
+    output_bool(y1)
+
+    x2 = np_identity(1)
+    y2 = np_all(x2)
+    output_ndarray_float_2(x2)
+    output_bool(y2)
+
+    x3 = np_array([[1.0, 2.0], [3.0, 4.0]])
+    y3 = np_all(x3)
+    output_ndarray_float_2(x3)
+    output_bool(y3)
+
+    x4 = np_zeros([3, 5])
+    y4 = np_all(x4)
+    output_ndarray_float_2(x4)
+    output_bool(y4)
+
 def run() -> int32:
     test_ndarray_ctor()
     test_ndarray_empty()
@@ -1564,5 +1606,8 @@ def run() -> int32:
     test_ndarray_nextafter_broadcast()
     test_ndarray_nextafter_broadcast_lhs_scalar()
     test_ndarray_nextafter_broadcast_rhs_scalar()
+
+    test_ndarray_any()
+    test_ndarray_all()
 
     return 0

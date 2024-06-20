@@ -497,6 +497,8 @@ impl<'a> BuiltinBuilder<'a> {
 
             PrimDef::FunNpIsNan | PrimDef::FunNpIsInf => self.build_np_float_to_bool_function(prim),
 
+            PrimDef::FunNpAny | PrimDef::FunNpAll => self.build_np_any_all_function(prim),
+
             PrimDef::FunNpSin
             | PrimDef::FunNpCos
             | PrimDef::FunNpTan
@@ -1755,6 +1757,24 @@ impl<'a> BuiltinBuilder<'a> {
             )))),
             loc: None,
         }
+    }
+
+    fn build_np_any_all_function(&mut self, prim: PrimDef) -> TopLevelDef {
+        debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpAny, PrimDef::FunNpAll]);
+        let param_ty = &[(self.ndarray_num_ty, "a")];
+        let ret_ty = self.primitives.bool;
+        let var_map = &into_var_map([]);
+        let codegen_callback: Box<GenCallCallback> =
+            Box::new(move |ctx, obj, fun, args, generator| {
+                let func = match prim {
+                    PrimDef::FunNpAny => gen_ndarray_any,
+                    PrimDef::FunNpAll => gen_ndarray_all,
+                    _ => unreachable!(),
+                };
+                func(ctx, &obj, fun, &args, generator).map(|val| Some(val.as_basic_value_enum()))
+            });
+
+        create_fn_by_codegen(self.unifier, var_map, prim.name(), ret_ty, param_ty, codegen_callback)
     }
 
     fn create_method(prim: PrimDef, method_ty: Type) -> (StrRef, Type, DefinitionId) {

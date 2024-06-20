@@ -100,6 +100,8 @@ pub enum PrimDef {
     FunNpHypot,
     FunNpNextAfter,
     FunSome,
+    FunNpAny,
+    FunNpAll,
 }
 
 /// Associated details of a [`PrimDef`]
@@ -251,6 +253,8 @@ impl PrimDef {
             PrimDef::FunNpHypot => fun("np_hypot", None),
             PrimDef::FunNpNextAfter => fun("np_nextafter", None),
             PrimDef::FunSome => fun("Some", None),
+            PrimDef::FunNpAny => fun("np_any", None),
+            PrimDef::FunNpAll => fun("np_all", None),
         }
     }
 }
