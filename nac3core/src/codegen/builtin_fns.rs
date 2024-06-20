@@ -1193,7 +1193,7 @@ macro_rules! create_helper_call_numpy_unary_elementwise {
 /// * `$on_scalar:expr`: The closure (see below for its type) that acts on float scalar values and returns
 /// the boolean results of LLVM type `i1`. The returned `i1` value will be converted into an `i8`.
 ///
-/// ```rust
+/// ```ignore
 /// // Type of `$on_scalar:expr`
 /// fn on_scalar<'ctx, G: CodeGenerator + ?Sized>(
 ///     generator: &mut G,
@@ -1229,7 +1229,7 @@ macro_rules! create_helper_call_numpy_unary_elementwise_float_to_bool {
 /// * `$fn_name:literal`: To be passed to the `fn_name` parameter of [`helper_call_numpy_unary_elementwise`].
 /// * `$on_scalar:expr`: The closure (see below for its type) that acts on float scalar values and returns float results.
 ///
-/// ```rust
+/// ```ignore
 /// // Type of `$on_scalar:expr`
 /// fn on_scalar<'ctx, G: CodeGenerator + ?Sized>(
 ///     generator: &mut G,
