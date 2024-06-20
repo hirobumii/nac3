@@ -150,6 +150,15 @@ def test_ndarray_slices():
     x2 = x[0::2, 0::2]
     output_ndarray_float_2(x2)
 
+def test_ndarray_nd_idx():
+    x = np_identity(2)
+
+    x0: float = x[0, 0]
+    output_float64(x0)
+    output_float64(x[0, 1])
+    output_float64(x[1, 0])
+    output_float64(x[1, 1])
+
 def test_ndarray_add():
     x = np_identity(2)
     y = x + np_ones([2, 2])
@@ -1393,6 +1402,7 @@ def run() -> int32:
 
     test_ndarray_neg_idx()
     test_ndarray_slices()
+    test_ndarray_nd_idx()
 
     test_ndarray_add()
     test_ndarray_add_broadcast()
