@@ -1044,1275 +1044,378 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
     })
 }
 
-/// Invokes the `abs` builtin function.
+/// Helper function to create a built-in elementwise unary numpy function that takes in either an ndarray or a scalar.
+///
+/// * `(arg_ty, arg_val)`: The [`Type`] and llvm value of the input argument.
+/// * `fn_name`: The name of the function, only used when throwing an error with [`unsupported_type`]
+/// * `get_ret_elem_type`: A function that takes in the input scalar [`Type`], and returns the function's return scalar [`Type`].
+/// Return a constant [`Type`] here if the return type does not depend on the input type.
+/// * `on_scalar`: The function that acts on the scalars of the input. Returns [`Option::None`]
+/// if the scalar type & value are faulty and should panic with [`unsupported_type`].
+fn helper_call_numpy_unary_elementwise<'ctx, OnScalarFn, RetElemFn, G>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    (arg_ty, arg_val): (Type, BasicValueEnum<'ctx>),
+    fn_name: &str,
+    get_ret_elem_type: &RetElemFn,
+    on_scalar: &OnScalarFn,
+) -> Result<BasicValueEnum<'ctx>, String>
+where
+    G: CodeGenerator + ?Sized,
+    OnScalarFn: Fn(
+        &mut G,
+        &mut CodeGenContext<'ctx, '_>,
+        Type,
+        BasicValueEnum<'ctx>,
+    ) -> Option<BasicValueEnum<'ctx>>,
+    RetElemFn: Fn(&mut CodeGenContext<'ctx, '_>, Type) -> Type,
+{
+    let result = match arg_val {
+        BasicValueEnum::PointerValue(x)
+            if arg_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
+        {
+            let llvm_usize = generator.get_size_type(ctx.ctx);
+            let (arg_elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
+            let ret_elem_ty = get_ret_elem_type(ctx, arg_elem_ty);
+
+            let ndarray = ndarray_elementwise_unaryop_impl(
+                generator,
+                ctx,
+                ret_elem_ty,
+                None,
+                NDArrayValue::from_ptr_val(x, llvm_usize, None),
+                |generator, ctx, elem_val| {
+                    helper_call_numpy_unary_elementwise(
+                        generator,
+                        ctx,
+                        (arg_elem_ty, elem_val),
+                        fn_name,
+                        get_ret_elem_type,
+                        on_scalar,
+                    )
+                },
+            )?;
+            ndarray.as_base_value().into()
+        }
+
+        _ => on_scalar(generator, ctx, arg_ty, arg_val)
+            .unwrap_or_else(|| unsupported_type(ctx, fn_name, &[arg_ty])),
+    };
+
+    Ok(result)
+}
+
 pub fn call_abs<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     n: (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "abs";
-
-    let llvm_i1 = ctx.ctx.bool_type();
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (n_ty, n) = n;
-
-    Ok(match n {
-        BasicValueEnum::IntValue(n) => {
-            debug_assert!([
-                ctx.primitives.bool,
-                ctx.primitives.int32,
-                ctx.primitives.uint32,
-                ctx.primitives.int64,
-                ctx.primitives.uint64,
-            ]
-            .iter()
-            .any(|ty| ctx.unifier.unioned(n_ty, *ty)));
-
-            if [ctx.primitives.int32, ctx.primitives.int64]
+    helper_call_numpy_unary_elementwise(
+        generator,
+        ctx,
+        n,
+        FN_NAME,
+        &|_ctx, elem_ty| elem_ty,
+        &|_generator, ctx, val_ty, val| match val {
+            BasicValueEnum::IntValue(n) => Some({
+                debug_assert!([
+                    ctx.primitives.bool,
+                    ctx.primitives.int32,
+                    ctx.primitives.uint32,
+                    ctx.primitives.int64,
+                    ctx.primitives.uint64,
+                ]
                 .iter()
-                .any(|ty| ctx.unifier.unioned(n_ty, *ty))
-            {
-                llvm_intrinsics::call_int_abs(ctx, n, llvm_i1.const_zero(), Some(FN_NAME)).into()
-            } else {
-                n.into()
+                .any(|ty| ctx.unifier.unioned(val_ty, *ty)));
+
+                if [ctx.primitives.int32, ctx.primitives.int64]
+                    .iter()
+                    .any(|ty| ctx.unifier.unioned(val_ty, *ty))
+                {
+                    llvm_intrinsics::call_int_abs(
+                        ctx,
+                        n,
+                        ctx.ctx.bool_type().const_zero(),
+                        Some(FN_NAME),
+                    )
+                    .into()
+                } else {
+                    n.into()
+                }
+            }),
+
+            BasicValueEnum::FloatValue(n) => Some({
+                debug_assert!(ctx.unifier.unioned(val_ty, ctx.primitives.float));
+
+                llvm_intrinsics::call_float_fabs(ctx, n, Some(FN_NAME)).into()
+            }),
+
+            _ => None,
+        },
+    )
+}
+
+/// Macro to conveniently generate numpy functions with [`helper_call_numpy_unary_elementwise`].
+///
+/// Arguments:
+/// * `$name:ident`: The identifier of the rust function to be generated.
+/// * `$fn_name:literal`: To be passed to the `fn_name` parameter of [`helper_call_numpy_unary_elementwise`]
+/// * `$get_ret_elem_type:expr`: To be passed to the `get_ret_elem_type` parameter of [`helper_call_numpy_unary_elementwise`].
+/// But there is no need to make it a reference.
+/// * `$on_scalar:expr`: To be passed to the `on_scalar` parameter of [`helper_call_numpy_unary_elementwise`].
+/// But there is no need to make it a reference.
+macro_rules! create_helper_call_numpy_unary_elementwise {
+    ($name:ident, $fn_name:literal, $get_ret_elem_type:expr, $on_scalar:expr) => {
+        #[allow(clippy::redundant_closure_call)]
+        pub fn $name<'ctx, G: CodeGenerator + ?Sized>(
+            generator: &mut G,
+            ctx: &mut CodeGenContext<'ctx, '_>,
+            arg: (Type, BasicValueEnum<'ctx>),
+        ) -> Result<BasicValueEnum<'ctx>, String> {
+            helper_call_numpy_unary_elementwise(
+                generator,
+                ctx,
+                arg,
+                $fn_name,
+                &$get_ret_elem_type,
+                &$on_scalar,
+            )
+        }
+    };
+}
+
+/// A specialized version of [`create_helper_call_numpy_unary_elementwise`] to generate functions that takes in float and returns boolean (as an `i8`) elementwise.
+///
+/// Arguments:
+/// * `$name:ident`: The identifier of the rust function to be generated.
+/// * `$fn_name:literal`: To be passed to the `fn_name` parameter of [`helper_call_numpy_unary_elementwise`].
+/// * `$on_scalar:expr`: The closure (see below for its type) that acts on float scalar values and returns
+/// the boolean results of LLVM type `i1`. The returned `i1` value will be converted into an `i8`.
+///
+/// ```rust
+/// // Type of `$on_scalar:expr`
+/// fn on_scalar<'ctx, G: CodeGenerator + ?Sized>(
+///     generator: &mut G,
+///     ctx: &mut CodeGenContext<'ctx, '_>,
+///     arg: FloatValue<'ctx>
+/// ) -> IntValue<'ctx> // of LLVM type `i1`
+/// ```
+macro_rules! create_helper_call_numpy_unary_elementwise_float_to_bool {
+    ($name:ident, $fn_name:literal, $on_scalar:expr) => {
+        create_helper_call_numpy_unary_elementwise!(
+            $name,
+            $fn_name,
+            |ctx, _| ctx.primitives.bool,
+            |generator, ctx, n_ty, val| {
+                match val {
+                    BasicValueEnum::FloatValue(n) => {
+                        debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
+
+                        let ret = $on_scalar(generator, ctx, n);
+                        Some(generator.bool_to_i8(ctx, ret).into())
+                    }
+                    _ => None,
+                }
             }
-        }
-
-        BasicValueEnum::FloatValue(n) => {
-            debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_fabs(ctx, n, Some(FN_NAME)).into()
-        }
-
-        BasicValueEnum::PointerValue(n)
-            if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
-                |generator, ctx, val| call_abs(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[n_ty]),
-    })
+        );
+    };
 }
 
-/// Invokes the `np_isnan` builtin function.
-pub fn call_numpy_isnan<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_isnan";
+/// A specialized version of [`create_helper_call_numpy_unary_elementwise`] to generate functions that takes in float and returns float elementwise.
+///
+/// Arguments:
+/// * `$name:ident`: The identifier of the rust function to be generated.
+/// * `$fn_name:literal`: To be passed to the `fn_name` parameter of [`helper_call_numpy_unary_elementwise`].
+/// * `$on_scalar:expr`: The closure (see below for its type) that acts on float scalar values and returns float results.
+///
+/// ```rust
+/// // Type of `$on_scalar:expr`
+/// fn on_scalar<'ctx, G: CodeGenerator + ?Sized>(
+///     generator: &mut G,
+///     ctx: &mut CodeGenContext<'ctx, '_>,
+///     arg: FloatValue<'ctx>
+/// ) -> FloatValue<'ctx>
+/// ```
+macro_rules! create_helper_call_numpy_unary_elementwise_float_to_float {
+    ($name:ident, $fn_name:literal, $elem_call:expr) => {
+        create_helper_call_numpy_unary_elementwise!(
+            $name,
+            $fn_name,
+            |ctx, _| ctx.primitives.float,
+            |_generator, ctx, val_ty, val| {
+                match val {
+                    BasicValueEnum::FloatValue(n) => {
+                        debug_assert!(ctx.unifier.unioned(val_ty, ctx.primitives.float));
 
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            irrt::call_isnan(generator, ctx, x).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                ctx.primitives.bool,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| {
-                    let val = call_numpy_isnan(generator, ctx, (elem_ty, val))?;
-
-                    Ok(generator.bool_to_i8(ctx, val.into_int_value()).into())
-                },
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
+                        Some($elem_call(ctx, n, Option::<&str>::None).into())
+                    }
+                    _ => None,
+                }
+            }
+        );
+    };
 }
 
-/// Invokes the `np_isinf` builtin function.
-pub fn call_numpy_isinf<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_isinf";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            irrt::call_isinf(generator, ctx, x).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                ctx.primitives.bool,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| {
-                    let val = call_numpy_isinf(generator, ctx, (elem_ty, val))?;
-
-                    Ok(generator.bool_to_i8(ctx, val.into_int_value()).into())
-                },
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_sin` builtin function.
-pub fn call_numpy_sin<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_sin";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_sin(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_sin(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_cos` builtin function.
-pub fn call_numpy_cos<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_cos";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_cos(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_cos(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_exp` builtin function.
-pub fn call_numpy_exp<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_exp";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_exp(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_exp(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_exp2` builtin function.
-pub fn call_numpy_exp2<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_exp2";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_exp2(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_exp2(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_log` builtin function.
-pub fn call_numpy_log<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_log";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_log(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_log(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_log10` builtin function.
-pub fn call_numpy_log10<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_log10";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_log10(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_log10(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_log2` builtin function.
-pub fn call_numpy_log2<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_log2";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_log2(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_log2(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_fabs` builtin function.
-pub fn call_numpy_fabs<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_fabs";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_fabs(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_fabs(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_sqrt` builtin function.
-pub fn call_numpy_sqrt<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_sqrt";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_sqrt(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_sqrt(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_rint` builtin function.
-pub fn call_numpy_rint<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_rint";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            llvm_intrinsics::call_float_roundeven(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_rint(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_tan` builtin function.
-pub fn call_numpy_tan<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_tan";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_tan(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_tan(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_arcsin` builtin function.
-pub fn call_numpy_arcsin<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_arcsin";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_asin(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_arcsin(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_arccos` builtin function.
-pub fn call_numpy_arccos<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_arccos";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_acos(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_arccos(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_arctan` builtin function.
-pub fn call_numpy_arctan<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_arctan";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_atan(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_arctan(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_sinh` builtin function.
-pub fn call_numpy_sinh<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_sinh";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_sinh(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_sinh(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_cosh` builtin function.
-pub fn call_numpy_cosh<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_cosh";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_cosh(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_cosh(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_tanh` builtin function.
-pub fn call_numpy_tanh<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_tanh";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_tanh(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_tanh(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_arcsinh` builtin function.
-pub fn call_numpy_arcsinh<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_arcsinh";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_asinh(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_arcsinh(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_arccosh` builtin function.
-pub fn call_numpy_arccosh<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_arccosh";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_acosh(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_arccosh(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_arctanh` builtin function.
-pub fn call_numpy_arctanh<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_arctanh";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_atanh(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_arctanh(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_expm1` builtin function.
-pub fn call_numpy_expm1<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_expm1";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_expm1(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_expm1(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `np_cbrt` builtin function.
-pub fn call_numpy_cbrt<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_cbrt";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_cbrt(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_numpy_cbrt(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `sp_spec_erf` builtin function.
-pub fn call_scipy_special_erf<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    z: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "sp_spec_erf";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (z_ty, z) = z;
-
-    Ok(match z {
-        BasicValueEnum::FloatValue(z) => {
-            debug_assert!(ctx.unifier.unioned(z_ty, ctx.primitives.float));
-
-            extern_fns::call_erf(ctx, z, None).into()
-        }
-
-        BasicValueEnum::PointerValue(z)
-            if z_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, z_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(z, llvm_usize, None),
-                |generator, ctx, val| call_scipy_special_erf(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[z_ty]),
-    })
-}
-
-/// Invokes the `sp_spec_erfc` builtin function.
-pub fn call_scipy_special_erfc<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "sp_spec_erfc";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_erfc(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_scipy_special_erfc(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `sp_spec_gamma` builtin function.
-pub fn call_scipy_special_gamma<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    z: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "sp_spec_gamma";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (z_ty, z) = z;
-
-    Ok(match z {
-        BasicValueEnum::FloatValue(z) => {
-            debug_assert!(ctx.unifier.unioned(z_ty, ctx.primitives.float));
-
-            irrt::call_gamma(ctx, z).into()
-        }
-
-        BasicValueEnum::PointerValue(z)
-            if z_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, z_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(z, llvm_usize, None),
-                |generator, ctx, val| call_scipy_special_gamma(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[z_ty]),
-    })
-}
-
-/// Invokes the `sp_spec_gammaln` builtin function.
-pub fn call_scipy_special_gammaln<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "sp_spec_gammaln";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            irrt::call_gammaln(ctx, x).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_scipy_special_gammaln(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `sp_spec_j0` builtin function.
-pub fn call_scipy_special_j0<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "sp_spec_j0";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            irrt::call_j0(ctx, x).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_scipy_special_j0(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
-
-/// Invokes the `sp_spec_j1` builtin function.
-pub fn call_scipy_special_j1<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "sp_spec_j1";
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let (x_ty, x) = x;
-
-    Ok(match x {
-        BasicValueEnum::FloatValue(x) => {
-            debug_assert!(ctx.unifier.unioned(x_ty, ctx.primitives.float));
-
-            extern_fns::call_j1(ctx, x, None).into()
-        }
-
-        BasicValueEnum::PointerValue(x)
-            if x_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
-        {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x_ty);
-
-            let ndarray = ndarray_elementwise_unaryop_impl(
-                generator,
-                ctx,
-                elem_ty,
-                None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
-                |generator, ctx, val| call_scipy_special_j1(generator, ctx, (elem_ty, val)),
-            )?;
-
-            ndarray.as_base_value().into()
-        }
-
-        _ => unsupported_type(ctx, FN_NAME, &[x_ty]),
-    })
-}
+create_helper_call_numpy_unary_elementwise_float_to_bool!(
+    call_numpy_isnan,
+    "np_isnan",
+    irrt::call_isnan
+);
+create_helper_call_numpy_unary_elementwise_float_to_bool!(
+    call_numpy_isinf,
+    "np_isinf",
+    irrt::call_isinf
+);
+
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_sin,
+    "np_sin",
+    llvm_intrinsics::call_float_sin
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_cos,
+    "np_cos",
+    llvm_intrinsics::call_float_cos
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_tan,
+    "np_tan",
+    extern_fns::call_tan
+);
+
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_arcsin,
+    "np_arcsin",
+    extern_fns::call_asin
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_arccos,
+    "np_arccos",
+    extern_fns::call_acos
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_arctan,
+    "np_arctan",
+    extern_fns::call_atan
+);
+
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_sinh,
+    "np_sinh",
+    extern_fns::call_sinh
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_cosh,
+    "np_cosh",
+    extern_fns::call_cosh
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_tanh,
+    "np_tanh",
+    extern_fns::call_tanh
+);
+
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_arcsinh,
+    "np_arcsinh",
+    extern_fns::call_asinh
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_arccosh,
+    "np_arccosh",
+    extern_fns::call_acosh
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_arctanh,
+    "np_arctanh",
+    extern_fns::call_atanh
+);
+
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_exp,
+    "np_exp",
+    llvm_intrinsics::call_float_exp
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_exp2,
+    "np_exp2",
+    llvm_intrinsics::call_float_exp2
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_expm1,
+    "np_expm1",
+    extern_fns::call_expm1
+);
+
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_log,
+    "np_log",
+    llvm_intrinsics::call_float_log
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_log2,
+    "np_log2",
+    llvm_intrinsics::call_float_log2
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_log10,
+    "np_log10",
+    llvm_intrinsics::call_float_log10
+);
+
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_sqrt,
+    "np_sqrt",
+    llvm_intrinsics::call_float_sqrt
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_cbrt,
+    "np_cbrt",
+    extern_fns::call_cbrt
+);
+
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_fabs,
+    "np_fabs",
+    llvm_intrinsics::call_float_fabs
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_numpy_rint,
+    "np_rint",
+    llvm_intrinsics::call_float_roundeven
+);
+
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_scipy_special_erf,
+    "sp_spec_erf",
+    extern_fns::call_erf
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_scipy_special_erfc,
+    "sp_spec_erfc",
+    extern_fns::call_erfc
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_scipy_special_gamma,
+    "sp_spec_gamma",
+    |ctx, val, _| irrt::call_gamma(ctx, val)
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_scipy_special_gammaln,
+    "sp_spec_gammaln",
+    |ctx, val, _| irrt::call_gammaln(ctx, val)
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_scipy_special_j0,
+    "sp_spec_j0",
+    |ctx, val, _| irrt::call_j0(ctx, val)
+);
+create_helper_call_numpy_unary_elementwise_float_to_float!(
+    call_scipy_special_j1,
+    "sp_spec_j1",
+    extern_fns::call_j1
+);
 
 /// Invokes the `np_arctan2` builtin function.
 pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
