@@ -37,7 +37,7 @@ def test_round64():
         output_int64(round64(x))
 
 def test_np_round():
-    for x in [-1.5, -0.5, 0.5, 1.5, dbl_inf(), -dbl_inf(), dbl_nan()]:
+    for x in [-1.5, -0.5, 0.5, 1.5, dbl_inf(), -dbl_inf(), dbl_nan(), 0.0, -0.0, 1.6, 1.4, -1.4, -1.6]:
         output_float64(np_round(x))
 
 def test_np_isnan():

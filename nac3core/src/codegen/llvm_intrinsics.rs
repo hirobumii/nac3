@@ -671,13 +671,14 @@ pub fn call_float_round<'ctx>(
 }
 
 /// Invokes the
-/// [`llvm.roundeven`](https://llvm.org/docs/LangRef.html#llvm-roundeven-intrinsic) intrinsic.
+/// [`llvm.nearbyint`](https://llvm.org/docs/LangRef.html#llvm-nearbyint-intrinsic)
+/// Note [`llvm.roundeven`](https://llvm.org/docs/LangRef.html#llvm-roundeven-intrinsic) not supported on all platforms
 pub fn call_float_roundeven<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     val: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
-    const FN_NAME: &str = "llvm.roundeven";
+    const FN_NAME: &str = "llvm.nearbyint";
 
     let llvm_float_t = val.get_type();
 
