@@ -296,10 +296,10 @@ pub trait StaticValue {
 
 #[derive(Clone)]
 pub enum ValueEnum<'ctx> {
-    /// [ValueEnum] representing a static value.
+    /// [`ValueEnum`] representing a static value.
     Static(Arc<dyn StaticValue + Send + Sync>),
 
-    /// [ValueEnum] representing a dynamic value.
+    /// [`ValueEnum`] representing a dynamic value.
     Dynamic(BasicValueEnum<'ctx>),
 }
 

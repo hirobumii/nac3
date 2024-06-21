@@ -208,7 +208,7 @@ pub enum TypeEnum {
 
     /// An object type.
     TObj {
-        /// The [DefintionId] of this object type.
+        /// The [`DefinitionId`] of this object type.
         obj_id: DefinitionId,
 
         /// The fields present in this object type.

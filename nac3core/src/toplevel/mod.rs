@@ -95,7 +95,7 @@ pub enum TopLevelDef {
     Class {
         /// Name for error messages and symbols.
         name: StrRef,
-        /// Object ID used for [TypeEnum].
+        /// Object ID used for [`TypeEnum`].
         object_id: DefinitionId,
         /// type variables bounded to the class.
         type_vars: Vec<Type>,

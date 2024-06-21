@@ -135,24 +135,23 @@ pub struct CodeGenContext<'ctx, 'a> {
 
     /// The [Builder] instance for creating LLVM IR statements.
     pub builder: Builder<'ctx>,
-    /// The [DebugInfoBuilder], [compilation unit information][DICompileUnit], and
+    /// The [`DebugInfoBuilder`], [compilation unit information][DICompileUnit], and
     /// [scope information][DIScope] of this context.
     pub debug_info: (DebugInfoBuilder<'ctx>, DICompileUnit<'ctx>, DIScope<'ctx>),
 
     /// The module for which [this context][CodeGenContext] is generating into.
     pub module: Module<'ctx>,
 
-    /// The [TopLevelContext] associated with [this context][CodeGenContext].
+    /// The [`TopLevelContext`] associated with [this context][CodeGenContext].
     pub top_level: &'a TopLevelContext,
     pub unifier: Unifier,
     pub resolver: Arc<dyn SymbolResolver + Send + Sync>,
     pub static_value_store: Arc<Mutex<StaticValueStore>>,
 
-    /// A [HashMap] containing the mapping between the names of variables currently in-scope and
+    /// A [`HashMap`] containing the mapping between the names of variables currently in-scope and
     /// its value information.
     pub var_assignment: HashMap<StrRef, VarValue<'ctx>>,
 
-    ///
     pub type_cache: HashMap<Type, BasicTypeEnum<'ctx>>,
     pub primitives: PrimitiveStore,
     pub calls: Arc<HashMap<CodeLocation, CallId>>,
@@ -161,24 +160,24 @@ pub struct CodeGenContext<'ctx, 'a> {
     /// Cache for constant strings.
     pub const_strings: HashMap<String, BasicValueEnum<'ctx>>,
 
-    /// [BasicBlock] containing all `alloca` statements for the current function.
+    /// [`BasicBlock`] containing all `alloca` statements for the current function.
     pub init_bb: BasicBlock<'ctx>,
     pub exception_val: Option<PointerValue<'ctx>>,
 
     /// The header and exit basic blocks of a loop in this context. See
-    /// https://llvm.org/docs/LoopTerminology.html for explanation of these terminology.
+    /// <https://llvm.org/docs/LoopTerminology.html> for explanation of these terminology.
     pub loop_target: Option<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
 
-    /// The target [BasicBlock] to jump to when performing stack unwind.
+    /// The target [`BasicBlock`] to jump to when performing stack unwind.
     pub unwind_target: Option<BasicBlock<'ctx>>,
 
-    /// The target [BasicBlock] to jump to before returning from the function.
+    /// The target [`BasicBlock`] to jump to before returning from the function.
     ///
     /// If this field is [None] when generating a return from a function, `ret` with no argument can
     /// be emitted.
     pub return_target: Option<BasicBlock<'ctx>>,
 
-    /// The [PointerValue] containing the return value of the function.
+    /// The [`PointerValue`] containing the return value of the function.
     pub return_buffer: Option<PointerValue<'ctx>>,
 
     // outer catch clauses
@@ -187,7 +186,7 @@ pub struct CodeGenContext<'ctx, 'a> {
 
     /// Whether `sret` is needed for the first parameter of the function.
     ///
-    /// See [need_sret].
+    /// See [`need_sret`].
     pub need_sret: bool,
 
     /// The current source location.

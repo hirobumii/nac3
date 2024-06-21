@@ -65,7 +65,7 @@ pub struct ArtiqCodeGenerator<'a> {
     end: Option<Expr<Option<Type>>>,
     timeline: &'a (dyn TimeFns + Sync),
 
-    /// The [ParallelMode] of the current parallel context.
+    /// The [`ParallelMode`] of the current parallel context.
     ///
     /// The current parallel context refers to the nearest `with parallel` or `with legacy_parallel`
     /// statement, which is used to determine when and how the timeline should be updated.

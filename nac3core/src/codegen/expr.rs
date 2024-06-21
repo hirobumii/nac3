@@ -764,7 +764,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                 }
                 // default value handling
                 for k in keys {
-                    if mapping.get(&k.name).is_some() {
+                    if mapping.contains_key(&k.name) {
                         continue;
                     }
                     mapping.insert(

@@ -549,7 +549,7 @@ fn test_basic(source: &str, mapping: &HashMap<&str, &str>, virtuals: &[(&str, &s
     let mut defined_identifiers: HashSet<_> = env.identifier_mapping.keys().copied().collect();
     defined_identifiers.insert("virtual".into());
     let mut inferencer = env.get_inferencer();
-    inferencer.defined_identifiers = defined_identifiers.clone();
+    inferencer.defined_identifiers.clone_from(&defined_identifiers);
     let statements = parse_program(source, FileName::default()).unwrap();
     let statements = statements
         .into_iter()
@@ -695,7 +695,7 @@ fn test_primitive_magic_methods(source: &str, mapping: &HashMap<&str, &str>) {
     let mut defined_identifiers: HashSet<_> = env.identifier_mapping.keys().copied().collect();
     defined_identifiers.insert("virtual".into());
     let mut inferencer = env.get_inferencer();
-    inferencer.defined_identifiers = defined_identifiers.clone();
+    inferencer.defined_identifiers.clone_from(&defined_identifiers);
     let statements = parse_program(source, FileName::default()).unwrap();
     let statements = statements
         .into_iter()
