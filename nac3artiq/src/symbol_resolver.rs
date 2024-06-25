@@ -4,6 +4,7 @@ use inkwell::{
     AddressSpace,
 };
 use itertools::Itertools;
+use nac3core::typecheck::typedef::{GenericObjectType, GenericTypeAdapter};
 use nac3core::{
     codegen::{
         classes::{NDArrayType, ProxyType},
@@ -17,7 +18,7 @@ use nac3core::{
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{into_var_map, iter_type_vars, Type, TypeEnum, TypeVar, Unifier, VarMap},
+        typedef::{Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
 use nac3parser::ast::{self, StrRef};
@@ -767,21 +768,23 @@ impl InnerResolver {
                 // if is `none`
                 let zelf_id: u64 = self.helper.id_fn.call1(py, (obj,))?.extract(py)?;
                 if zelf_id == self.primitive_ids.none {
-                    let ty_enum = unifier.get_ty_immutable(primitives.option);
-                    let TypeEnum::TObj { params, .. } = ty_enum.as_ref() else {
-                        unreachable!("must be tobj")
-                    };
+                    let extracted_ty = GenericTypeAdapter::create(extracted_ty, unifier);
+                    let var_map = extracted_ty.iter_var_map(unifier, |tvar_iter, unifier| {
+                        tvar_iter
+                            .map(|tvar| {
+                                let TypeEnum::TVar { id, range, name, loc, .. } =
+                                    &*unifier.get_ty(tvar.ty)
+                                else {
+                                    unreachable!()
+                                };
 
-                    let var_map = into_var_map(iter_type_vars(params).map(|tvar| {
-                        let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(tvar.ty)
-                        else {
-                            unreachable!()
-                        };
-
-                        assert_eq!(*id, tvar.id);
-                        let ty = unifier.get_fresh_var_with_range(range, *name, *loc).ty;
-                        TypeVar { id: *id, ty }
-                    }));
+                                assert_eq!(*id, tvar.id);
+                                let ty = unifier.get_fresh_var_with_range(range, *name, *loc).ty;
+                                TypeVar { id: *id, ty }
+                            })
+                            .map(TypeVar::into)
+                            .collect::<VarMap>()
+                    });
                     return Ok(Ok(unifier.subst(primitives.option, &var_map).unwrap()));
                 }
 
@@ -797,19 +800,26 @@ impl InnerResolver {
                 let res = unifier.subst(extracted_ty, &new_var_map).unwrap_or(extracted_ty);
                 Ok(Ok(res))
             }
-            (TypeEnum::TObj { params, fields, .. }, false) => {
+            (TypeEnum::TObj { fields, .. }, false) => {
                 self.pyid_to_type.write().insert(py_obj_id, extracted_ty);
-                let var_map = into_var_map(iter_type_vars(params).map(|tvar| {
-                    let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(tvar.ty)
-                    else {
-                        unreachable!()
-                    };
+                let extracted_ty = GenericTypeAdapter::create(extracted_ty, unifier);
+                let var_map = extracted_ty.iter_var_map(unifier, |tvar_iter, unifier| {
+                    tvar_iter
+                        .map(|tvar| {
+                            let TypeEnum::TVar { id, range, name, loc, .. } =
+                                &*unifier.get_ty(tvar.ty)
+                            else {
+                                unreachable!()
+                            };
 
-                    assert_eq!(*id, tvar.id);
-                    let ty = unifier.get_fresh_var_with_range(range, *name, *loc).ty;
-                    TypeVar { id: *id, ty }
-                }));
-                let mut instantiate_obj = || {
+                            assert_eq!(*id, tvar.id);
+                            let ty = unifier.get_fresh_var_with_range(range, *name, *loc).ty;
+                            TypeVar { id: *id, ty }
+                        })
+                        .map(TypeVar::into)
+                        .collect::<VarMap>()
+                });
+                let instantiate_obj = || {
                     // loop through non-function fields of the class to get the instantiated value
                     for field in fields {
                         let name: String = (*field.0).into();
@@ -844,6 +854,7 @@ impl InnerResolver {
                             return Ok(Err("object is not of concrete type".into()));
                         }
                     }
+                    let extracted_ty = extracted_ty.into();
                     let extracted_ty =
                         unifier.subst(extracted_ty, &var_map).unwrap_or(extracted_ty);
                     Ok(Ok(extracted_ty))

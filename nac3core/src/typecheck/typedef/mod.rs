@@ -89,6 +89,24 @@ pub struct TypeVar {
     pub ty: Type,
 }
 
+impl From<(TypeVarId, Type)> for TypeVar {
+    fn from((id, ty): (TypeVarId, Type)) -> Self {
+        TypeVar { id, ty }
+    }
+}
+
+impl From<(&TypeVarId, &Type)> for TypeVar {
+    fn from((id, ty): (&TypeVarId, &Type)) -> Self {
+        TypeVar { id: *id, ty: *ty }
+    }
+}
+
+impl From<TypeVar> for (TypeVarId, Type) {
+    fn from(value: TypeVar) -> Self {
+        (value.id, value.ty)
+    }
+}
+
 /// The mapping between [`TypeVarId`] and [unifier type][`Type`].
 pub type VarMap = IndexMapping<TypeVarId>;
 
@@ -102,9 +120,83 @@ where
     vars.into_iter().map(|var| (var.id, var.ty)).collect()
 }
 
-/// Get an iterator of [`TypeVar`]s from a [`VarMap`]
-pub fn iter_type_vars(var_map: &VarMap) -> impl Iterator<Item = TypeVar> + '_ {
-    var_map.iter().map(|(&id, &ty)| TypeVar { id, ty })
+/// A trait representing a possibly generic object type.
+pub trait GenericObjectType
+where
+    Self: Sized,
+{
+    fn try_create(ty: Type, unifier: &mut Unifier) -> Option<Self>;
+
+    /// Creates an instance from a [`Type`].
+    #[must_use]
+    fn create(ty: Type, unifier: &mut Unifier) -> Self {
+        Self::try_create(ty, unifier).unwrap()
+    }
+
+    /// Returns the [`Type`] underlying this instance.
+    #[must_use]
+    fn get_type(&self) -> Type;
+
+    /// See [`Type::obj_id`].
+    #[must_use]
+    fn obj_id(&self, unifier: &Unifier) -> DefinitionId {
+        self.get_type().obj_id(unifier).unwrap()
+    }
+
+    /// Returns a copy of the [`VarMap`] of this object type.
+    #[must_use]
+    fn var_map(&self, unifier: &mut Unifier) -> VarMap {
+        let TypeEnum::TObj { params, .. } = &*unifier.get_ty(self.get_type()) else {
+            unreachable!()
+        };
+
+        params.clone()
+    }
+
+    /// Creates an iterator over the [`VarMap`] of this object type, applying `iter_fn` on the
+    /// created [`Iterator`].
+    #[must_use]
+    fn iter_var_map<R, IterFn: FnOnce(&mut dyn Iterator<Item = TypeVar>, &mut Unifier) -> R>(
+        &self,
+        unifier: &mut Unifier,
+        iter_fn: IterFn,
+    ) -> R {
+        let TypeEnum::TObj { params, .. } = &*unifier.get_ty(self.get_type()) else {
+            unreachable!()
+        };
+
+        let res = iter_fn(&mut params.iter().map(TypeVar::from), unifier);
+        res
+    }
+
+    /// Returns the [`TypeVar`] instance at the given index.
+    #[must_use]
+    fn get_var_at(&self, unifier: &mut Unifier, i: usize) -> Option<TypeVar> {
+        self.iter_var_map(unifier, |iter, _| iter.nth(i))
+    }
+}
+
+impl<T: GenericObjectType> From<T> for Type {
+    fn from(value: T) -> Self {
+        value.get_type()
+    }
+}
+
+/// An adapter that converts [`Type`] into
+pub struct GenericTypeAdapter(Type);
+
+impl GenericObjectType for GenericTypeAdapter {
+    fn try_create(ty: Type, unifier: &mut Unifier) -> Option<Self> {
+        if let TypeEnum::TObj { .. } = &*unifier.get_ty_immutable(ty) {
+            Some(GenericTypeAdapter(ty))
+        } else {
+            None
+        }
+    }
+
+    fn get_type(&self) -> Type {
+        self.0
+    }
 }
 
 #[derive(Clone)]

@@ -11,6 +11,7 @@ use inkwell::{
 use itertools::Either;
 use strum::IntoEnumIterator;
 
+use crate::typecheck::typedef::{GenericObjectType, GenericTypeAdapter};
 use crate::{
     codegen::{
         builtin_fns,
@@ -25,7 +26,7 @@ use crate::{
     },
     symbol_resolver::SymbolValue,
     toplevel::{helper::PrimDef, numpy::make_ndarray_ty},
-    typecheck::typedef::{into_var_map, iter_type_vars, TypeVar, VarMap},
+    typecheck::typedef::{into_var_map, TypeVar, VarMap},
 };
 
 use super::*;
@@ -345,23 +346,23 @@ impl<'a> BuiltinBuilder<'a> {
 
         // Option-related
         let (is_some_ty, unwrap_ty, option_tvar) =
-            if let TypeEnum::TObj { fields, params, .. } = unifier.get_ty(option).as_ref() {
+            if let TypeEnum::TObj { fields, .. } = &*unifier.get_ty(option) {
+                let option = GenericTypeAdapter::create(option, unifier);
                 (
                     *fields.get(&PrimDef::OptionIsSome.simple_name().into()).unwrap(),
                     *fields.get(&PrimDef::OptionUnwrap.simple_name().into()).unwrap(),
-                    iter_type_vars(params).next().unwrap(),
+                    option.get_var_at(unifier, 0).unwrap(),
                 )
             } else {
                 unreachable!()
             };
 
-        let TypeEnum::TObj { fields: ndarray_fields, params: ndarray_params, .. } =
-            &*unifier.get_ty(ndarray)
-        else {
+        let TypeEnum::TObj { fields: ndarray_fields, .. } = &*unifier.get_ty(ndarray) else {
             unreachable!()
         };
-        let ndarray_dtype_tvar = iter_type_vars(ndarray_params).next().unwrap();
-        let ndarray_ndims_tvar = iter_type_vars(ndarray_params).nth(1).unwrap();
+        let ndarray = GenericTypeAdapter::create(ndarray, unifier);
+        let ndarray_dtype_tvar = ndarray.get_var_at(unifier, 0).unwrap();
+        let ndarray_ndims_tvar = ndarray.get_var_at(unifier, 1).unwrap();
         let ndarray_copy_ty =
             *ndarray_fields.get(&PrimDef::NDArrayCopy.simple_name().into()).unwrap();
         let ndarray_fill_ty =
