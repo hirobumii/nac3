@@ -82,14 +82,14 @@ pub struct Call {
     pub loc: Option<Location>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct FuncArg {
     pub name: StrRef,
     pub ty: Type,
     pub default_value: Option<SymbolValue>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct FunSignature {
     pub args: Vec<FuncArg>,
     pub ret: Type,
@@ -166,7 +166,7 @@ impl RecordField {
 }
 
 /// Category of variable and value types.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum TypeEnum {
     TRigidVar {
         id: TypeVarId,
