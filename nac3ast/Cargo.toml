@@ -10,7 +10,7 @@ constant-optimization = ["fold"]
 fold = []
 
 [dependencies]
-lazy_static = "1.4"
+lazy_static = "1.5"
 parking_lot = "0.12"
 string-interner = "0.17"
 fxhash = "0.2"
