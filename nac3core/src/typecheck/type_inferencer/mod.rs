@@ -814,6 +814,150 @@ impl<'a> Inferencer<'a> {
         })
     }
 
+    /// Fold an ndarray `shape` argument. This function aims to fold `shape` arguments like that of
+    /// <https://numpy.org/doc/stable/reference/generated/numpy.zeros.html> (for `np_zeros`).
+    ///
+    /// Arguments:
+    ///   * `id` - The name of the function of the function call this `shape` argument is in. Used for error reporting.
+    ///   * `arg_index` - The position (0-based) of this argument in the function call. Used for error reporting.
+    ///   * `shape_expr` - [`Located<ExprKind>`] of the input argument.
+    ///
+    /// On success, it returns a tuple of
+    ///   1) the `ndims` value inferred from the input `shape`,
+    ///   2) and the elaborated expression. Like what other fold functions of [`Inferencer`] would normally return.
+    fn fold_numpy_function_call_shape_argument(
+        &mut self,
+        id: StrRef,
+        arg_index: usize,
+        shape_expr: Located<ExprKind>,
+    ) -> Result<(u64, ast::Expr<Option<Type>>), HashSet<String>> {
+        /*
+            ### Further explanation
+
+            As said, this function aims to fold `shape` arguments, but this is *not* trivial.
+            The root of the issue is that `nac3core` has to deduce the `ndims`
+            of the created (for in the case of `np_zeros`) ndarray statically - i.e., during inference time.
+
+            There are three types of valid input to `shape`:
+              1. A python `List` (all `int32s`);   e.g., `np_zeros([600, 800, 3])`
+              2. A python `Tuple` (all `int32s`);  e.g., `np_zeros((600, 800, 3))`
+              3. An `int32`; e.g., `np_zeros(256)` - this is functionally equivalent to `np_zeros([256])`
+
+            For 2. and 3., `ndims` can be deduce immediately from the inferred type of the input:
+              - For 2. `ndims` is simply the number of elements found in [`TypeEnum::TTuple`] after typechecking the `shape` argument.
+              - For 3. `ndims` is simply 1.
+
+            For 1., `ndims` is supposedly the length of the input list. However, the length of the input list
+            is a runtime property. Therefore (as a hack) we resort to analyzing the argument expression [`ExprKind::List`]
+            itself to extract the input list length statically.
+
+            This implies that the user could only write:
+
+            ```python
+            my_rgba_image = np_zeros([600, 800, 4])
+            # the shape argument is directly written as a list literal.
+            # and `nac3core` could therefore tell that ndims is `3` by
+            # looking at the raw AST expression itself.
+            ```
+
+            But not:
+
+            ```python
+            my_image_dimension = [600, 800, 4]
+            mystery_function_that_mutates_my_list(my_image_dimension)
+            my_image = np_zeros(my_image_dimension)
+            # what is the length now? what is `ndims`?
+
+            # it is *basically impossible* to generally determine the
+            # length of `my_image_dimension` statically for `ndims`!!
+            ```
+        */
+
+        // Fold `shape`
+        let shape = self.fold_expr(shape_expr)?;
+        let shape_ty = shape.custom.unwrap(); // The inferred type of `shape`
+
+        // Check `shape_ty` to see if its a list of int32s, a tuple of int32s, or just int32.
+        // Otherwise throw an error as that would mean the user wrote an ill-typed `shape_expr`.
+        //
+        // Here, we also take the opportunity to deduce `ndims` statically for 2. and 3.
+        let shape_ty_enum = &*self.unifier.get_ty(shape_ty);
+        let ndims = match shape_ty_enum {
+            TypeEnum::TList { ty } => {
+                // Handle 1. A list of int32s
+
+                // Typecheck
+                self.unifier.unify(*ty, self.primitives.int32).map_err(|err| {
+                    HashSet::from([err
+                        .at(Some(shape.location))
+                        .to_display(self.unifier)
+                        .to_string()])
+                })?;
+
+                // Special handling for (1. A python `List` (all `int32s`)).
+                // Read the doc above this function to see what is going on here.
+                if let ExprKind::List { elts, .. } = &shape.node {
+                    // The user wrote a List literal as the input argument
+                    elts.len() as u64
+                } else {
+                    // This means the user is passing an expression of type `List`,
+                    // but it is done so indirectly (like putting a variable referencing a `List`)
+                    // rather than writing a List literal. We need to report an error.
+                    return Err(HashSet::from([
+                        format!(
+                            "Expected list literal, tuple, or int32 for argument {arg_num} of {id} at {location}. Input argument is of type list but not a list literal.",
+                            arg_num = arg_index + 1,
+                            location = shape.location
+                        )
+                    ]));
+                }
+            }
+            TypeEnum::TTuple { ty: tuple_element_types } => {
+                // Handle 2. A tuple of int32s
+
+                // Typecheck
+                // The expected type is just the tuple but with all its elements being int32.
+                let expected_ty = self.unifier.add_ty(TypeEnum::TTuple {
+                    ty: tuple_element_types.iter().map(|_| self.primitives.int32).collect_vec(),
+                });
+                self.unifier.unify(shape_ty, expected_ty).map_err(|err| {
+                    HashSet::from([err
+                        .at(Some(shape.location))
+                        .to_display(self.unifier)
+                        .to_string()])
+                })?;
+
+                // `ndims` can be deduced statically from the inferred Tuple type.
+                tuple_element_types.len() as u64
+            }
+            TypeEnum::TObj { .. } => {
+                // Handle 3. An integer (generalized as [`TypeEnum::TObj`])
+
+                // Typecheck
+                self.unify(self.primitives.int32, shape_ty, &shape.location)?;
+
+                // Deduce `ndims`
+                1
+            }
+            _ => {
+                // The user wrote an ill-typed `shape_expr`,
+                // so throw an error.
+                let shape_ty_str = self.unifier.stringify(shape_ty);
+                return report_error(
+                    format!(
+                        "Expected list literal, tuple, or int32 for argument {arg_num} of {id}, got {shape_expr_name} of type {shape_ty_str}",
+                        arg_num = arg_index + 1,
+                        shape_expr_name = shape.node.name(),
+                    )
+                    .as_str(),
+                    shape.location,
+                );
+            }
+        };
+
+        Ok((ndims, shape))
+    }
+
     /// Tries to fold a special call. Returns [`Some`] if the call expression `func` is a special call, otherwise
     /// returns [`None`].
     fn try_fold_special_call(
@@ -1141,25 +1285,15 @@ impl<'a> Inferencer<'a> {
             }));
         }
 
-        // 1-argument ndarray n-dimensional creation functions
+        // 1-argument ndarray n-dimensional factory functions
         if ["np_ndarray".into(), "np_empty".into(), "np_zeros".into(), "np_ones".into()]
             .contains(id)
             && args.len() == 1
         {
-            let ExprKind::List { elts, .. } = &args[0].node else {
-                return report_error(
-                    format!(
-                        "Expected List literal for first argument of {id}, got {}",
-                        args[0].node.name()
-                    )
-                    .as_str(),
-                    args[0].location,
-                );
-            };
+            let shape_expr = args.remove(0);
+            let (ndims, shape) =
+                self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling the `shape`
 
-            let ndims = elts.len() as u64;
-
-            let arg0 = self.fold_expr(args.remove(0))?;
             let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
             let ret = make_ndarray_ty(
                 self.unifier,
@@ -1170,7 +1304,7 @@ impl<'a> Inferencer<'a> {
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg {
                     name: "shape".into(),
-                    ty: arg0.custom.unwrap(),
+                    ty: shape.custom.unwrap(),
                     default_value: None,
                 }],
                 ret,
@@ -1186,7 +1320,7 @@ impl<'a> Inferencer<'a> {
                         location: func.location,
                         node: ExprKind::Name { id: *id, ctx: *ctx },
                     }),
-                    args: vec![arg0],
+                    args: vec![shape],
                     keywords: vec![],
                 },
             }));

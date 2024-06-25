@@ -71,17 +71,44 @@ def output_ndarray_float_2(n: ndarray[float, Literal[2]]):
 def consume_ndarray_1(n: ndarray[float, Literal[1]]):
     pass
 
+def consume_ndarray_2(n: ndarray[float, Literal[2]]):
+    pass
+
 def test_ndarray_ctor():
     n: ndarray[float, Literal[1]] = np_ndarray([1])
     consume_ndarray_1(n)
 
 def test_ndarray_empty():
-    n: ndarray[float, 1] = np_empty([1])
-    consume_ndarray_1(n)
+    n1: ndarray[float, 1] = np_empty([1])
+    consume_ndarray_1(n1)
+
+    n2: ndarray[float, 1] = np_empty(10)
+    consume_ndarray_1(n2)
+
+    n3: ndarray[float, 1] = np_empty((2,))
+    consume_ndarray_1(n3)
+
+    n4: ndarray[float, 2] = np_empty((4, 4))
+    consume_ndarray_2(n4)
+
+    dim4 = (5, 2)
+    n5: ndarray[float, 2] = np_empty(dim4)
+    consume_ndarray_2(n5)
 
 def test_ndarray_zeros():
-    n: ndarray[float, 1] = np_zeros([1])
-    output_ndarray_float_1(n)
+    n1: ndarray[float, 1] = np_zeros([1])
+    output_ndarray_float_1(n1)
+
+    k = 3 + int32(n1[0]) # to test variable shape inputs
+    n2: ndarray[float, 1] = np_zeros(k * k)
+    output_ndarray_float_1(n2)
+
+    n3: ndarray[float, 1] = np_zeros((k * 2,))
+    output_ndarray_float_1(n3)
+
+    dim4 = (3, 2 * k)
+    n4: ndarray[float, 2] = np_zeros(dim4)
+    output_ndarray_float_2(n4)
 
 def test_ndarray_ones():
     n: ndarray[float, 1] = np_ones([1])

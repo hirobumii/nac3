@@ -324,6 +324,9 @@ struct BuiltinBuilder<'a> {
 
     num_or_ndarray_ty: TypeVar,
     num_or_ndarray_var_map: VarMap,
+
+    /// See [`BuiltinBuilder::build_ndarray_from_shape_factory_function`]
+    ndarray_factory_fn_shape_arg_tvar: TypeVar,
 }
 
 impl<'a> BuiltinBuilder<'a> {
@@ -394,6 +397,8 @@ impl<'a> BuiltinBuilder<'a> {
 
         let list_int32 = unifier.add_ty(TypeEnum::TList { ty: int32 });
 
+        let ndarray_factory_fn_shape_arg_tvar = unifier.get_fresh_var(Some("Shape".into()), None);
+
         BuiltinBuilder {
             unifier,
             primitives,
@@ -421,6 +426,8 @@ impl<'a> BuiltinBuilder<'a> {
 
             num_or_ndarray_ty,
             num_or_ndarray_var_map,
+
+            ndarray_factory_fn_shape_arg_tvar,
         }
     }
 
@@ -959,21 +966,46 @@ impl<'a> BuiltinBuilder<'a> {
         )
     }
 
-    /// Build ndarray factory functions that only take in an argument `shape` of type `list[int32]` and return an ndarray.
+    /// Build ndarray factory functions that only take in an argument `shape`.
+    ///
+    /// `shape` can be a tuple of int32s, a list of int32s, or a scalar int32.
     fn build_ndarray_from_shape_factory_function(&mut self, prim: PrimDef) -> TopLevelDef {
         debug_assert_prim_is_allowed(
             prim,
             &[PrimDef::FunNpNDArray, PrimDef::FunNpEmpty, PrimDef::FunNpZeros, PrimDef::FunNpOnes],
         );
 
+        // NOTE: on `ndarray_factory_fn_shape_arg_tvar` and
+        // the `param_ty` for `create_fn_by_codegen`.
+        //
+        // Ideally, we should have created a [`TypeVar`] to define all possible input
+        // types for the parameter "shape" like so:
+        // ```rust
+        // self.unifier.get_fresh_var_with_range(
+        //   &[int32, list_int32, /* and more... */],
+        //   Some("T".into()), None)
+        // )
+        // ```
+        //
+        // However, there is (currently) no way to type a tuple of arbitrary length in `nac3core`.
+        //
+        // And this is the best we could do:
+        // ```rust
+        // &[ int32, list_int32, tuple_1_int32, tuple_2_int32, tuple_3_int32, ... ],
+        // ```
+        //
+        // But this is not ideal.
+        //
+        // Instead, we delegate the responsibility of typechecking
+        // to [`typecheck::type_inferencer::Inferencer::fold_numpy_function_call_shape_argument`],
+        // and use a dummy [`TypeVar`] `ndarray_factory_fn_shape_arg_tvar` as a placeholder for `param_ty`.
+
         create_fn_by_codegen(
             self.unifier,
             &VarMap::new(),
             prim.name(),
             self.ndarray_float,
-            // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
-            // type variable
-            &[(self.list_int32, "shape")],
+            &[(self.ndarray_factory_fn_shape_arg_tvar.ty, "shape")],
             Box::new(move |ctx, obj, fun, args, generator| {
                 let func = match prim {
                     PrimDef::FunNpNDArray | PrimDef::FunNpEmpty => gen_ndarray_empty,
