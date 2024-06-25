@@ -22,6 +22,16 @@ mod test;
 /// Handle for a type, implemented as a key in the unification table.
 pub type Type = UnificationKey;
 
+/// Macro for generating functions related to type traits, e.g. whether the type is integral.
+macro_rules! primitive_type_trait_fn {
+    ($id:ident, $( $matches:ident ),*) => {
+        #[must_use]
+        pub fn $id(self, unifier: &mut Unifier, store: &PrimitiveStore) -> bool {
+            [$(store.$matches,)*].into_iter().any(|ty| unifier.unioned(self, ty))
+        }
+    };
+}
+
 impl Type {
     /// Wrapper function for cleaner code so that we don't need to write this long pattern matching
     /// just to get the field `obj_id`.
@@ -33,6 +43,17 @@ impl Type {
             None
         }
     }
+
+    #[must_use]
+    pub fn is_primitive(self, unifier: &mut Unifier, store: &PrimitiveStore) -> bool {
+        store.into_iter().any(|ty| unifier.unioned(self, ty))
+    }
+
+    primitive_type_trait_fn!(is_integral, bool, int32, int64, uint32, uint64);
+    primitive_type_trait_fn!(is_floating_point, float);
+    primitive_type_trait_fn!(is_arithmetic, int32, int64, uint32, uint64, float);
+    primitive_type_trait_fn!(is_signed, int32, uint32, float);
+    primitive_type_trait_fn!(is_unsigned, uint32, uint64);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

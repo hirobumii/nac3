@@ -74,6 +74,34 @@ impl PrimitiveStore {
             _ => unreachable!(),
         }
     }
+
+    /// Returns an iterator over all primitive types in this store.
+    fn iter(&self) -> impl Iterator<Item = Type> {
+        self.into_iter()
+    }
+}
+
+impl IntoIterator for &PrimitiveStore {
+    type Item = Type;
+    type IntoIter = <Vec<Type> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        vec![
+            self.int32,
+            self.int64,
+            self.uint32,
+            self.uint64,
+            self.float,
+            self.bool,
+            self.none,
+            self.range,
+            self.str,
+            self.exception,
+            self.option,
+            self.ndarray,
+        ]
+        .into_iter()
+    }
 }
 
 pub struct FunctionData {
