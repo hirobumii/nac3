@@ -273,9 +273,15 @@ impl WorkerRegistry {
             let registry = registry.clone();
             let registry2 = registry.clone();
             let f = f.clone();
-            let handle = thread::spawn(move || {
-                registry.worker_thread(generator.as_mut(), &f);
-            });
+
+            let worker_thread_name =
+                format!("codegen-worker-{worker_id}", worker_id = generator.get_name());
+            let handle = thread::Builder::new()
+                .name(worker_thread_name)
+                .spawn(move || {
+                    registry.worker_thread(generator.as_mut(), &f);
+                })
+                .unwrap();
             let handle = thread::spawn(move || {
                 if let Err(e) = handle.join() {
                     if let Some(e) = e.downcast_ref::<&'static str>() {
