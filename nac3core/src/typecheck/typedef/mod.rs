@@ -22,6 +22,19 @@ mod test;
 /// Handle for a type, implemented as a key in the unification table.
 pub type Type = UnificationKey;
 
+impl Type {
+    /// Wrapper function for cleaner code so that we don't need to write this long pattern matching
+    /// just to get the field `obj_id`.
+    #[must_use]
+    pub fn obj_id(self, unifier: &Unifier) -> Option<DefinitionId> {
+        if let TypeEnum::TObj { obj_id, .. } = &*unifier.get_ty_immutable(self) {
+            Some(*obj_id)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CallId(pub(super) usize);
 
@@ -107,19 +120,6 @@ pub struct FunSignature {
 pub enum RecordKey {
     Str(StrRef),
     Int(i32),
-}
-
-impl Type {
-    /// Wrapper function for cleaner code so that we don't need to write this long pattern matching
-    /// just to get the field `obj_id`.
-    #[must_use]
-    pub fn obj_id(self, unifier: &Unifier) -> Option<DefinitionId> {
-        if let TypeEnum::TObj { obj_id, .. } = &*unifier.get_ty_immutable(self) {
-            Some(*obj_id)
-        } else {
-            None
-        }
-    }
 }
 
 impl From<&RecordKey> for StrRef {
