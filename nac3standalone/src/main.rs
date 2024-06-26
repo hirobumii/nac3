@@ -340,7 +340,19 @@ fn main() {
     let signature = store.from_signature(&mut composer.unifier, &primitive, &signature, &mut cache);
     let signature = store.add_cty(signature);
 
-    composer.start_analysis(true).unwrap();
+    if let Err(errors) = composer.start_analysis(true) {
+        let error_count = errors.len();
+        eprintln!("{error_count} error(s) occurred during top level analysis.");
+
+        for (error_i, error) in errors.iter().enumerate() {
+            let error_num = error_i + 1;
+            eprintln!("=========== ERROR {error_num}/{error_count} ============");
+            eprintln!("{error}");
+        }
+        eprintln!("==================================");
+
+        panic!("top level analysis failed");
+    }
 
     let top_level = Arc::new(composer.make_top_level_context());
 
