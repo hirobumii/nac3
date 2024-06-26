@@ -4,15 +4,22 @@ use std::fmt::Display;
 use crate::typecheck::typedef::TypeEnum;
 
 use super::typedef::{RecordKey, Type, Unifier};
+use itertools::Itertools;
 use nac3parser::ast::{Location, StrRef};
 
 #[derive(Debug, Clone)]
 pub enum TypeErrorKind {
-    TooManyArguments {
-        expected: usize,
-        got: usize,
+    GotMultipleValues {
+        name: StrRef,
     },
-    MissingArgs(String),
+    TooManyArguments {
+        expected_min_count: usize,
+        expected_max_count: usize,
+        got_count: usize,
+    },
+    MissingArgs {
+        missing_arg_names: Vec<StrRef>,
+    },
     UnknownArgName(StrRef),
     IncorrectArgType {
         name: StrRef,
@@ -78,10 +85,20 @@ impl<'a> Display for DisplayTypeError<'a> {
         use TypeErrorKind::*;
         let mut notes = Some(HashMap::new());
         match &self.err.kind {
-            TooManyArguments { expected, got } => {
-                write!(f, "Too many arguments. Expected {expected} but got {got}")
+            GotMultipleValues { name } => {
+                write!(f, "For multiple values for parameter {name}")
             }
-            MissingArgs(args) => {
+            TooManyArguments { expected_min_count, expected_max_count, got_count } => {
+                debug_assert!(expected_min_count <= expected_max_count);
+                if expected_min_count == expected_max_count {
+                    let expected_count = expected_min_count; // or expected_max_count
+                    write!(f, "Too many arguments. Expected {expected_count} but got {got_count}")
+                } else {
+                    write!(f, "Too many arguments. Expected {expected_min_count} to {expected_max_count} arguments but got {got_count}")
+                }
+            }
+            MissingArgs { missing_arg_names } => {
+                let args = missing_arg_names.iter().join(", ");
                 write!(f, "Missing arguments: {args}")
             }
             UnknownArgName(name) => {
@@ -90,7 +107,7 @@ impl<'a> Display for DisplayTypeError<'a> {
             IncorrectArgType { name, expected, got } => {
                 let expected = self.unifier.stringify_with_notes(*expected, &mut notes);
                 let got = self.unifier.stringify_with_notes(*got, &mut notes);
-                write!(f, "Incorrect argument type for {name}. Expected {expected}, but got {got}")
+                write!(f, "Incorrect argument type for parameter {name}. Expected {expected}, but got {got}")
             }
             FieldUnificationError { field, types, loc } => {
                 let lhs = self.unifier.stringify_with_notes(types.0, &mut notes);
