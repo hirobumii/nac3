@@ -642,14 +642,7 @@ impl<'a> Inferencer<'a> {
                                     })
                                     .unwrap();
                             }
-                            let required: Vec<_> = sign
-                                .args
-                                .iter()
-                                .filter(|v| v.default_value.is_none())
-                                .map(|v| v.name)
-                                .rev()
-                                .collect();
-                            self.unifier.unify_call(&call, ty, sign, &required).map_err(|e| {
+                            self.unifier.unify_call(&call, ty, sign).map_err(|e| {
                                 HashSet::from([e
                                     .at(Some(location))
                                     .to_display(self.unifier)
@@ -1347,16 +1340,9 @@ impl<'a> Inferencer<'a> {
                     ret: sign.ret,
                     loc: Some(location),
                 };
-                let required: Vec<_> = sign
-                    .args
-                    .iter()
-                    .filter(|v| v.default_value.is_none())
-                    .map(|v| v.name)
-                    .rev()
-                    .collect();
-                self.unifier.unify_call(&call, func.custom.unwrap(), sign, &required).map_err(
-                    |e| HashSet::from([e.at(Some(location)).to_display(self.unifier).to_string()]),
-                )?;
+                self.unifier.unify_call(&call, func.custom.unwrap(), sign).map_err(|e| {
+                    HashSet::from([e.at(Some(location)).to_display(self.unifier).to_string()])
+                })?;
                 return Ok(Located {
                     location,
                     custom: Some(sign.ret),
