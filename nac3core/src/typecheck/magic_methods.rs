@@ -5,7 +5,7 @@ use crate::typecheck::{
     type_inferencer::*,
     typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
 };
-use itertools::Itertools;
+use itertools::{iproduct, Itertools};
 use nac3parser::ast::StrRef;
 use nac3parser::ast::{Cmpop, Operator, Unaryop};
 use std::cmp::max;
@@ -13,64 +13,135 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use strum::IntoEnumIterator;
 
-#[must_use]
-pub fn binop_name(op: Operator) -> &'static str {
-    match op {
-        Operator::Add => "__add__",
-        Operator::Sub => "__sub__",
-        Operator::Div => "__truediv__",
-        Operator::Mod => "__mod__",
-        Operator::Mult => "__mul__",
-        Operator::Pow => "__pow__",
-        Operator::BitOr => "__or__",
-        Operator::BitXor => "__xor__",
-        Operator::BitAnd => "__and__",
-        Operator::LShift => "__lshift__",
-        Operator::RShift => "__rshift__",
-        Operator::FloorDiv => "__floordiv__",
-        Operator::MatMult => "__matmul__",
+/// The variant of a binary operator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinopVariant {
+    /// The normal variant.
+    /// For addition, it would be `+`.
+    Normal,
+    /// The "Augmented Assigning Operator" variant.
+    /// For addition, it would be `+=`.
+    AugAssign,
+}
+
+/// A binary operator with its variant.
+#[derive(Debug, Clone, Copy)]
+pub struct Binop {
+    /// The base [`Operator`] of this binary operator.
+    pub base: Operator,
+    /// The variant of this binary operator.
+    pub variant: BinopVariant,
+}
+
+impl Binop {
+    /// Make a [`Binop`] of the normal variant from an [`Operator`].
+    #[must_use]
+    pub fn normal(base: Operator) -> Self {
+        Binop { base, variant: BinopVariant::Normal }
+    }
+
+    /// Make a [`Binop`] of the aug assign variant from an [`Operator`].
+    #[must_use]
+    pub fn aug_assign(base: Operator) -> Self {
+        Binop { base, variant: BinopVariant::AugAssign }
     }
 }
 
-#[must_use]
-pub fn binop_assign_name(op: Operator) -> &'static str {
-    match op {
-        Operator::Add => "__iadd__",
-        Operator::Sub => "__isub__",
-        Operator::Div => "__itruediv__",
-        Operator::Mod => "__imod__",
-        Operator::Mult => "__imul__",
-        Operator::Pow => "__ipow__",
-        Operator::BitOr => "__ior__",
-        Operator::BitXor => "__ixor__",
-        Operator::BitAnd => "__iand__",
-        Operator::LShift => "__ilshift__",
-        Operator::RShift => "__irshift__",
-        Operator::FloorDiv => "__ifloordiv__",
-        Operator::MatMult => "__imatmul__",
-    }
+/// Details about an operator (unary, binary, etc...) in Python
+#[derive(Debug, Clone, Copy)]
+pub struct OpInfo {
+    /// The method name of the binary operator.
+    /// For addition, this would be `__add__`, and `__iadd__` if
+    /// it is the augmented assigning variant.
+    pub method_name: &'static str,
+    /// The symbol of the binary operator.
+    /// For addition, this would be `+`, and `+=` if
+    /// it is the augmented assigning variant.
+    pub symbol: &'static str,
 }
 
-#[must_use]
-pub fn unaryop_name(op: Unaryop) -> &'static str {
-    match op {
-        Unaryop::UAdd => "__pos__",
-        Unaryop::USub => "__neg__",
-        Unaryop::Not => "__not__",
-        Unaryop::Invert => "__inv__",
-    }
+/// Helper macro to conveniently build an [`OpInfo`].
+///
+/// Example usage: `make_info("add", "+")` generates `OpInfo { name: "__add__", symbol: "+" }`
+macro_rules! make_op_info {
+    ($name:expr, $symbol:expr) => {
+        OpInfo { method_name: concat!("__", $name, "__"), symbol: $symbol }
+    };
 }
 
-#[must_use]
-pub fn comparison_name(op: Cmpop) -> Option<&'static str> {
+pub trait HasOpInfo {
+    fn op_info(&self) -> OpInfo;
+}
+
+fn try_get_cmpop_info(op: Cmpop) -> Option<OpInfo> {
     match op {
-        Cmpop::Lt => Some("__lt__"),
-        Cmpop::LtE => Some("__le__"),
-        Cmpop::Gt => Some("__gt__"),
-        Cmpop::GtE => Some("__ge__"),
-        Cmpop::Eq => Some("__eq__"),
-        Cmpop::NotEq => Some("__ne__"),
+        Cmpop::Lt => Some(make_op_info!("lt", "<")),
+        Cmpop::LtE => Some(make_op_info!("le", "<=")),
+        Cmpop::Gt => Some(make_op_info!("gt", ">")),
+        Cmpop::GtE => Some(make_op_info!("ge", ">=")),
+        Cmpop::Eq => Some(make_op_info!("eq", "==")),
+        Cmpop::NotEq => Some(make_op_info!("ne", "!=")),
         _ => None,
+    }
+}
+
+impl OpInfo {
+    #[must_use]
+    pub fn supports_cmpop(op: Cmpop) -> bool {
+        try_get_cmpop_info(op).is_some()
+    }
+}
+
+impl HasOpInfo for Cmpop {
+    fn op_info(&self) -> OpInfo {
+        try_get_cmpop_info(*self).expect("{self:?} is not supported")
+    }
+}
+
+impl HasOpInfo for Binop {
+    fn op_info(&self) -> OpInfo {
+        // Helper macro to generate both the normal variant [`OpInfo`] and the
+        // augmented assigning variant [`OpInfo`] for a binary operator conveniently.
+        macro_rules! info {
+            ($name:literal, $symbol:literal) => {
+                (
+                    make_op_info!($name, $symbol),
+                    make_op_info!(concat!("i", $name), concat!($symbol, "=")),
+                )
+            };
+        }
+
+        let (normal_variant, aug_assign_variant) = match self.base {
+            Operator::Add => info!("add", "+"),
+            Operator::Sub => info!("sub", "-"),
+            Operator::Div => info!("truediv", "/"),
+            Operator::Mod => info!("mod", "%"),
+            Operator::Mult => info!("mul", "*"),
+            Operator::Pow => info!("pow", "**"),
+            Operator::BitOr => info!("or", "|"),
+            Operator::BitXor => info!("xor", "^"),
+            Operator::BitAnd => info!("and", "&"),
+            Operator::LShift => info!("lshift", "<<"),
+            Operator::RShift => info!("rshift", ">>"),
+            Operator::FloorDiv => info!("floordiv", "//"),
+            Operator::MatMult => info!("matmul", "@"),
+        };
+
+        match self.variant {
+            BinopVariant::Normal => normal_variant,
+            BinopVariant::AugAssign => aug_assign_variant,
+        }
+    }
+}
+
+impl HasOpInfo for Unaryop {
+    fn op_info(&self) -> OpInfo {
+        match self {
+            Unaryop::UAdd => make_op_info!("pos", "+"),
+            Unaryop::USub => make_op_info!("neg", "-"),
+            Unaryop::Not => make_op_info!("not", "not"), // i.e., `not False`, so the symbol is just `not`.
+            Unaryop::Invert => make_op_info!("inv", "~"),
+        }
     }
 }
 
@@ -115,23 +186,9 @@ pub fn impl_binop(
 
         let ret_ty = ret_ty.unwrap_or_else(|| unifier.get_fresh_var(None, None).ty);
 
-        for op in ops {
-            fields.insert(binop_name(*op).into(), {
-                (
-                    unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                        ret: ret_ty,
-                        vars: function_vars.clone(),
-                        args: vec![FuncArg {
-                            ty: other_ty,
-                            default_value: None,
-                            name: "other".into(),
-                        }],
-                    })),
-                    false,
-                )
-            });
-
-            fields.insert(binop_assign_name(*op).into(), {
+        for (base_op, variant) in iproduct!(ops, [BinopVariant::Normal, BinopVariant::AugAssign]) {
+            let op = Binop { base: *base_op, variant };
+            fields.insert(op.op_info().method_name.into(), {
                 (
                     unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         ret: ret_ty,
@@ -155,7 +212,7 @@ pub fn impl_unaryop(unifier: &mut Unifier, ty: Type, ret_ty: Option<Type>, ops: 
 
         for op in ops {
             fields.insert(
-                unaryop_name(*op).into(),
+                op.op_info().method_name.into(),
                 (
                     unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         ret: ret_ty,
@@ -195,7 +252,7 @@ pub fn impl_cmpop(
 
         for op in ops {
             fields.insert(
-                comparison_name(*op).unwrap().into(),
+                op.op_info().method_name.into(),
                 (
                     unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         ret: ret_ty,

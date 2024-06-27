@@ -11,7 +11,10 @@ use crate::{
         gen_in_range_check,
     },
     toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, DefinitionId, TopLevelDef},
-    typecheck::typedef::{FunSignature, Type, TypeEnum},
+    typecheck::{
+        magic_methods::Binop,
+        typedef::{FunSignature, Type, TypeEnum},
+    },
 };
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
@@ -1593,7 +1596,14 @@ pub fn gen_stmt<G: CodeGenerator>(
         StmtKind::For { .. } => generator.gen_for(ctx, stmt)?,
         StmtKind::With { .. } => generator.gen_with(ctx, stmt)?,
         StmtKind::AugAssign { target, op, value, .. } => {
-            let value = gen_binop_expr(generator, ctx, target, *op, value, stmt.location, true)?;
+            let value = gen_binop_expr(
+                generator,
+                ctx,
+                target,
+                Binop::aug_assign(*op),
+                value,
+                stmt.location,
+            )?;
             generator.gen_assign(ctx, target, value.unwrap())?;
         }
         StmtKind::Try { .. } => gen_try(generator, ctx, stmt)?,

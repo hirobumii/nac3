@@ -27,7 +27,7 @@ use crate::{
         DefinitionId, TopLevelDef,
     },
     typecheck::{
-        magic_methods::{binop_assign_name, binop_name, unaryop_name},
+        magic_methods::{Binop, BinopVariant, HasOpInfo},
         typedef::{FunSignature, FuncArg, Type, TypeEnum, TypeVarId, Unifier, VarMap},
     },
 };
@@ -1165,10 +1165,9 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     left: (&Option<Type>, BasicValueEnum<'ctx>),
-    op: Operator,
+    op: Binop,
     right: (&Option<Type>, BasicValueEnum<'ctx>),
     loc: Location,
-    is_aug_assign: bool,
 ) -> Result<Option<ValueEnum<'ctx>>, String> {
     let (left_ty, left_val) = left;
     let (right_ty, right_val) = right;
@@ -1180,17 +1179,17 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
     // which would be unchanged until further unification, which we would never do
     // when doing code generation for function instances
     if ty1 == ty2 && [ctx.primitives.int32, ctx.primitives.int64].contains(&ty1) {
-        Ok(Some(ctx.gen_int_ops(generator, op, left_val, right_val, true).into()))
+        Ok(Some(ctx.gen_int_ops(generator, op.base, left_val, right_val, true).into()))
     } else if ty1 == ty2 && [ctx.primitives.uint32, ctx.primitives.uint64].contains(&ty1) {
-        Ok(Some(ctx.gen_int_ops(generator, op, left_val, right_val, false).into()))
-    } else if [Operator::LShift, Operator::RShift].contains(&op) {
+        Ok(Some(ctx.gen_int_ops(generator, op.base, left_val, right_val, false).into()))
+    } else if [Operator::LShift, Operator::RShift].contains(&op.base) {
         let signed = [ctx.primitives.int32, ctx.primitives.int64].contains(&ty1);
-        Ok(Some(ctx.gen_int_ops(generator, op, left_val, right_val, signed).into()))
+        Ok(Some(ctx.gen_int_ops(generator, op.base, left_val, right_val, signed).into()))
     } else if ty1 == ty2 && ctx.primitives.float == ty1 {
-        Ok(Some(ctx.gen_float_ops(op, left_val, right_val).into()))
+        Ok(Some(ctx.gen_float_ops(op.base, left_val, right_val).into()))
     } else if ty1 == ctx.primitives.float && ty2 == ctx.primitives.int32 {
         // Pow is the only operator that would pass typecheck between float and int
-        assert_eq!(op, Operator::Pow);
+        assert_eq!(op.base, Operator::Pow);
         let res = call_float_powi(
             ctx,
             left_val.into_float_value(),
@@ -1379,13 +1378,16 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             let right_val =
                 NDArrayValue::from_ptr_val(right_val.into_pointer_value(), llvm_usize, None);
 
-            let res = if op == Operator::MatMult {
+            let res = if op.base == Operator::MatMult {
                 // MatMult is the only binop which is not an elementwise op
                 numpy::ndarray_matmul_2d(
                     generator,
                     ctx,
                     ndarray_dtype1,
-                    if is_aug_assign { Some(left_val) } else { None },
+                    match op.variant {
+                        BinopVariant::Normal => None,
+                        BinopVariant::AugAssign => Some(left_val),
+                    },
                     left_val,
                     right_val,
                 )?
@@ -1394,7 +1396,10 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                     generator,
                     ctx,
                     ndarray_dtype1,
-                    if is_aug_assign { Some(left_val) } else { None },
+                    match op.variant {
+                        BinopVariant::Normal => None,
+                        BinopVariant::AugAssign => Some(left_val),
+                    },
                     (left_val.as_base_value().into(), false),
                     (right_val.as_base_value().into(), false),
                     |generator, ctx, (lhs, rhs)| {
@@ -1405,7 +1410,6 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                             op,
                             (&Some(ndarray_dtype2), rhs),
                             ctx.current_loc,
-                            is_aug_assign,
                         )?
                         .unwrap()
                         .to_basic_value_enum(
@@ -1430,7 +1434,10 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 generator,
                 ctx,
                 ndarray_dtype,
-                if is_aug_assign { Some(ndarray_val) } else { None },
+                match op.variant {
+                    BinopVariant::Normal => None,
+                    BinopVariant::AugAssign => Some(ndarray_val),
+                },
                 (left_val, !is_ndarray1),
                 (right_val, !is_ndarray2),
                 |generator, ctx, (lhs, rhs)| {
@@ -1441,7 +1448,6 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                         op,
                         (&Some(ndarray_dtype), rhs),
                         ctx.current_loc,
-                        is_aug_assign,
                     )?
                     .unwrap()
                     .to_basic_value_enum(ctx, generator, ndarray_dtype)
@@ -1456,13 +1462,16 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             unreachable!("must be tobj")
         };
         let (op_name, id) = {
-            let (binop_name, binop_assign_name) =
-                (binop_name(op).into(), binop_assign_name(op).into());
+            let normal_method_name = Binop::normal(op.base).op_info().method_name;
+            let assign_method_name = Binop::aug_assign(op.base).op_info().method_name;
+
             // if is aug_assign, try aug_assign operator first
-            if is_aug_assign && fields.contains_key(&binop_assign_name) {
-                (binop_assign_name, *obj_id)
+            if op.variant == BinopVariant::AugAssign
+                && fields.contains_key(&assign_method_name.into())
+            {
+                (assign_method_name.into(), *obj_id)
             } else {
-                (binop_name, *obj_id)
+                (normal_method_name.into(), *obj_id)
             }
         };
 
@@ -1509,10 +1518,9 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     left: &Expr<Option<Type>>,
-    op: Operator,
+    op: Binop,
     right: &Expr<Option<Type>>,
     loc: Location,
-    is_aug_assign: bool,
 ) -> Result<Option<ValueEnum<'ctx>>, String> {
     let left_val = if let Some(v) = generator.gen_expr(ctx, left)? {
         v.to_basic_value_enum(ctx, generator, left.custom.unwrap())?
@@ -1532,7 +1540,6 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
         op,
         (&right.custom, right_val),
         loc,
-        is_aug_assign,
     )
 }
 
@@ -1616,7 +1623,10 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             if op == ast::Unaryop::Invert {
                 ast::Unaryop::Not
             } else {
-                unreachable!("ufunc {} not supported for ndarray[bool, N]", unaryop_name(op))
+                unreachable!(
+                    "ufunc {} not supported for ndarray[bool, N]",
+                    op.op_info().method_name,
+                )
             }
         } else {
             op
@@ -2698,7 +2708,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             }
         }
         ExprKind::BinOp { op, left, right } => {
-            return gen_binop_expr(generator, ctx, left, *op, right, expr.location, false);
+            return gen_binop_expr(generator, ctx, left, Binop::normal(*op), right, expr.location);
         }
         ExprKind::UnaryOp { op, operand } => return gen_unaryop_expr(generator, ctx, *op, operand),
         ExprKind::Compare { left, ops, comparators } => {

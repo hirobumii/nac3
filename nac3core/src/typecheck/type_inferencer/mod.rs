@@ -491,7 +491,8 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 (None, None) => {}
             },
             ast::StmtKind::AugAssign { target, op, value, .. } => {
-                let res_ty = self.infer_bin_ops(stmt.location, target, *op, value, true)?;
+                let res_ty =
+                    self.infer_bin_ops(stmt.location, target, Binop::aug_assign(*op), value)?;
                 self.unify(res_ty, target.custom.unwrap(), &stmt.location)?;
             }
             ast::StmtKind::Assert { test, msg, .. } => {
@@ -573,7 +574,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
             }
             ExprKind::BoolOp { values, .. } => Some(self.infer_bool_ops(values)?),
             ExprKind::BinOp { left, op, right } => {
-                Some(self.infer_bin_ops(expr.location, left, *op, right, false)?)
+                Some(self.infer_bin_ops(expr.location, left, Binop::normal(*op), right)?)
             }
             ExprKind::UnaryOp { op, operand } => {
                 Some(self.infer_unary_ops(expr.location, *op, operand)?)
@@ -1729,9 +1730,8 @@ impl<'a> Inferencer<'a> {
         &mut self,
         location: Location,
         left: &ast::Expr<Option<Type>>,
-        op: ast::Operator,
+        op: Binop,
         right: &ast::Expr<Option<Type>>,
-        is_aug_assign: bool,
     ) -> InferenceResult {
         let left_ty = left.custom.unwrap();
         let right_ty = right.custom.unwrap();
@@ -1739,27 +1739,33 @@ impl<'a> Inferencer<'a> {
         let method = if let TypeEnum::TObj { fields, .. } =
             self.unifier.get_ty_immutable(left_ty).as_ref()
         {
-            let (binop_name, binop_assign_name) =
-                (binop_name(op).into(), binop_assign_name(op).into());
+            let normal_method_name = Binop::normal(op.base).op_info().method_name;
+            let assign_method_name = Binop::aug_assign(op.base).op_info().method_name;
+
             // if is aug_assign, try aug_assign operator first
-            if is_aug_assign && fields.contains_key(&binop_assign_name) {
-                binop_assign_name
+            if op.variant == BinopVariant::AugAssign
+                && fields.contains_key(&assign_method_name.into())
+            {
+                assign_method_name
             } else {
-                binop_name
+                normal_method_name
             }
         } else {
-            binop_name(op).into()
+            op.op_info().method_name
         };
 
-        let ret = if is_aug_assign {
-            // The type of augmented assignment operator should never change
-            Some(left_ty)
-        } else {
-            typeof_binop(self.unifier, self.primitives, op, left_ty, right_ty)
-                .map_err(|e| HashSet::from([format!("{e} (at {location})")]))?
+        let ret = match op.variant {
+            BinopVariant::Normal => {
+                typeof_binop(self.unifier, self.primitives, op.base, left_ty, right_ty)
+                    .map_err(|e| HashSet::from([format!("{e} (at {location})")]))?
+            }
+            BinopVariant::AugAssign => {
+                // The type of augmented assignment operator should never change
+                Some(left_ty)
+            }
         };
 
-        self.build_method_call(location, method, left_ty, vec![right_ty], ret)
+        self.build_method_call(location, method.into(), left_ty, vec![right_ty], ret)
     }
 
     fn infer_unary_ops(
@@ -1768,7 +1774,7 @@ impl<'a> Inferencer<'a> {
         op: ast::Unaryop,
         operand: &ast::Expr<Option<Type>>,
     ) -> InferenceResult {
-        let method = unaryop_name(op).into();
+        let method = op.op_info().method_name.into();
 
         let ret = typeof_unaryop(self.unifier, self.primitives, op, operand.custom.unwrap())
             .map_err(|e| HashSet::from([format!("{e} (at {location})")]))?;
@@ -1798,9 +1804,11 @@ impl<'a> Inferencer<'a> {
 
         let mut res = None;
         for (a, b, c) in izip!(once(left).chain(comparators), comparators, ops) {
-            let method = comparison_name(*c)
-                .ok_or_else(|| HashSet::from(["unsupported comparator".to_string()]))?
-                .into();
+            if !OpInfo::supports_cmpop(*c) {
+                return Err(HashSet::from(["unsupported comparator".to_string()]));
+            }
+
+            let method = c.op_info().method_name.into();
 
             let ret = typeof_cmpop(
                 self.unifier,

@@ -11,8 +11,7 @@ use crate::{
             call_ndarray_calc_broadcast_index, call_ndarray_calc_nd_indices,
             call_ndarray_calc_size,
         },
-        llvm_intrinsics,
-        llvm_intrinsics::call_memcpy_generic,
+        llvm_intrinsics::{self, call_memcpy_generic},
         stmt::{gen_for_callback_incrementing, gen_for_range_callback, gen_if_else_expr_callback},
         CodeGenContext, CodeGenerator,
     },
@@ -22,7 +21,10 @@ use crate::{
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         DefinitionId,
     },
-    typecheck::typedef::{FunSignature, Type, TypeEnum},
+    typecheck::{
+        magic_methods::Binop,
+        typedef::{FunSignature, Type, TypeEnum},
+    },
 };
 use inkwell::types::{AnyTypeEnum, BasicTypeEnum, PointerType};
 use inkwell::{
@@ -1679,10 +1681,9 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
                     generator,
                     ctx,
                     (&Some(elem_ty), a),
-                    Operator::Mult,
+                    Binop::normal(Operator::Mult),
                     (&Some(elem_ty), b),
                     ctx.current_loc,
-                    false,
                 )?
                 .unwrap()
                 .to_basic_value_enum(ctx, generator, elem_ty)?;
@@ -1692,10 +1693,9 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
                     generator,
                     ctx,
                     (&Some(elem_ty), result),
-                    Operator::Add,
+                    Binop::normal(Operator::Add),
                     (&Some(elem_ty), a_mul_b),
                     ctx.current_loc,
-                    false,
                 )?
                 .unwrap()
                 .to_basic_value_enum(ctx, generator, elem_ty)?;
