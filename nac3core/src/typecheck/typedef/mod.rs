@@ -704,7 +704,7 @@ impl Unifier {
         }
 
         // After checking posargs and kwargs, check if there are any
-        // unsupported required parameters, and throw an error if they exist.
+        // unsupplied required parameters, and throw an error if they exist.
         let missing_arg_names = param_info_by_name
             .values()
             .filter(|param_info| param_info.param.is_required() && !param_info.has_been_supplied)
