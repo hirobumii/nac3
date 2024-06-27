@@ -139,6 +139,7 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: VarMap::new(),
         });
+        let option = OptionType::create(option, &mut unifier);
         let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
         let ndarray_ndims_tvar =
             unifier.get_fresh_const_generic_var(uint64, Some("ndarray_ndims".into()), None);
@@ -147,6 +148,7 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: into_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         });
+        let ndarray = NDArrayType::create(ndarray, &mut unifier);
         let primitives = PrimitiveStore {
             int32,
             int64,
@@ -273,11 +275,13 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: VarMap::new(),
         });
+        let option = OptionType::create(option, &mut unifier);
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::NDArray.id(),
             fields: HashMap::new(),
             params: VarMap::new(),
         });
+        let ndarray = NDArrayType::create(ndarray, &mut unifier);
         identifier_mapping.insert("None".into(), none);
         for (i, name) in ["int32", "int64", "float", "bool", "none", "range", "str", "Exception"]
             .iter()

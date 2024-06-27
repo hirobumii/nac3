@@ -4,13 +4,15 @@ use super::{
     irrt::{handle_slice_indices, list_slice_assignment},
     CodeGenContext, CodeGenerator,
 };
+use crate::toplevel::primitive_type;
+use crate::typecheck::typedef::GenericObjectType;
 use crate::{
     codegen::{
         classes::{ArrayLikeIndexer, ArraySliceValue, ListValue, RangeValue},
         expr::gen_binop_expr,
         gen_in_range_check,
     },
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, DefinitionId, TopLevelDef},
+    toplevel::{helper::PrimDef, DefinitionId, TopLevelDef},
     typecheck::typedef::{FunSignature, Type, TypeEnum},
 };
 use inkwell::{
@@ -245,7 +247,9 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
             let ty = match &*ctx.unifier.get_ty_immutable(target.custom.unwrap()) {
                 TypeEnum::TList { ty } => *ty,
                 TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                    unpack_ndarray_var_tys(&mut ctx.unifier, target.custom.unwrap()).0
+                    primitive_type::NDArrayType::create(target.custom.unwrap(), &mut ctx.unifier)
+                        .dtype_tvar(&mut ctx.unifier)
+                        .ty
                 }
                 _ => unreachable!(),
             };

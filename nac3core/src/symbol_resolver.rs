@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::{collections::HashMap, collections::HashSet, fmt::Display};
 
+use crate::typecheck::typedef::GenericObjectType;
 use crate::{
     codegen::{CodeGenContext, CodeGenerator},
     toplevel::{type_annotation::TypeAnnotation, DefinitionId, TopLevelDef},
@@ -43,7 +44,7 @@ impl SymbolValue {
     ) -> Result<Self, String> {
         match constant {
             Constant::None => {
-                if unifier.unioned(expected_ty, primitives.option) {
+                if unifier.unioned(expected_ty, primitives.option.into()) {
                     Ok(SymbolValue::OptionNone)
                 } else {
                     Err(format!("Expected {expected_ty:?}, but got Option"))
@@ -157,7 +158,7 @@ impl SymbolValue {
                 let vs_tys = vs.iter().map(|v| v.get_type(primitives, unifier)).collect::<Vec<_>>();
                 unifier.add_ty(TypeEnum::TTuple { ty: vs_tys })
             }
-            SymbolValue::OptionSome(_) | SymbolValue::OptionNone => primitives.option,
+            SymbolValue::OptionSome(_) | SymbolValue::OptionNone => primitives.option.into(),
         }
     }
 
@@ -183,13 +184,13 @@ impl SymbolValue {
                 TypeAnnotation::Tuple(vs_tys)
             }
             SymbolValue::OptionNone => TypeAnnotation::CustomClass {
-                id: primitives.option.obj_id(unifier).unwrap(),
+                id: primitives.option.obj_id(unifier),
                 params: Vec::default(),
             },
             SymbolValue::OptionSome(v) => {
                 let ty = v.get_type_annotation(primitives, unifier);
                 TypeAnnotation::CustomClass {
-                    id: primitives.option.obj_id(unifier).unwrap(),
+                    id: primitives.option.obj_id(unifier),
                     params: vec![ty],
                 }
             }

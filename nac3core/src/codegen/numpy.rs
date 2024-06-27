@@ -17,12 +17,8 @@ use crate::{
         CodeGenContext, CodeGenerator,
     },
     symbol_resolver::ValueEnum,
-    toplevel::{
-        helper::PrimDef,
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
-        DefinitionId,
-    },
-    typecheck::typedef::{FunSignature, Type, TypeEnum},
+    toplevel::{helper::PrimDef, primitive_type, DefinitionId},
+    typecheck::typedef::{FunSignature, GenericObjectType, Type, TypeEnum},
 };
 use inkwell::types::{AnyTypeEnum, BasicTypeEnum, PointerType};
 use inkwell::{
@@ -38,12 +34,17 @@ fn create_ndarray_uninitialized<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,
 ) -> Result<NDArrayValue<'ctx>, String> {
-    let ndarray_ty = make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(elem_ty), None);
+    let ndarray_ty = primitive_type::NDArrayType::from_primitive(
+        &mut ctx.unifier,
+        &ctx.primitives,
+        Some(elem_ty),
+        None,
+    );
 
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
     let llvm_ndarray_t = ctx
-        .get_llvm_type(generator, ndarray_ty)
+        .get_llvm_type(generator, ndarray_ty.into())
         .into_pointer_type()
         .get_element_type()
         .into_struct_type();
@@ -1799,7 +1800,9 @@ pub fn gen_ndarray_array<'ctx>(
     let obj_ty = fun.0.args[0].ty;
     let obj_elem_ty = match &*context.unifier.get_ty(obj_ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-            unpack_ndarray_var_tys(&mut context.unifier, obj_ty).0
+            primitive_type::NDArrayType::create(obj_ty, &mut context.unifier)
+                .dtype_tvar(&mut context.unifier)
+                .ty
         }
 
         TypeEnum::TList { ty } => {
@@ -1939,7 +1942,9 @@ pub fn gen_ndarray_copy<'ctx>(
     let llvm_usize = generator.get_size_type(context.ctx);
 
     let this_ty = obj.as_ref().unwrap().0;
-    let (this_elem_ty, _) = unpack_ndarray_var_tys(&mut context.unifier, this_ty);
+    let this_elem_ty = primitive_type::NDArrayType::create(this_ty, &mut context.unifier)
+        .dtype_tvar(&mut context.unifier)
+        .ty;
     let this_arg =
         obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, generator, this_ty)?;
 

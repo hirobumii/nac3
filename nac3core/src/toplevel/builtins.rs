@@ -11,7 +11,6 @@ use inkwell::{
 use itertools::Either;
 use strum::IntoEnumIterator;
 
-use crate::typecheck::typedef::{GenericObjectType, GenericTypeAdapter};
 use crate::{
     codegen::{
         builtin_fns,
@@ -25,7 +24,7 @@ use crate::{
         stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
-    toplevel::{helper::PrimDef, numpy::make_ndarray_ty},
+    toplevel::helper::PrimDef,
     typecheck::typedef::{into_var_map, TypeVar, VarMap},
 };
 
@@ -304,10 +303,7 @@ struct BuiltinBuilder<'a> {
 
     is_some_ty: (Type, bool),
     unwrap_ty: (Type, bool),
-    option_tvar: TypeVar,
 
-    ndarray_dtype_tvar: TypeVar,
-    ndarray_ndims_tvar: TypeVar,
     ndarray_copy_ty: (Type, bool),
     ndarray_fill_ty: (Type, bool),
 
@@ -316,9 +312,9 @@ struct BuiltinBuilder<'a> {
     num_ty: TypeVar,
     num_var_map: VarMap,
 
-    ndarray_float: Type,
-    ndarray_float_2d: Type,
-    ndarray_num_ty: Type,
+    ndarray_float: primitive_type::NDArrayType,
+    ndarray_float_2d: primitive_type::NDArrayType,
+    ndarray_num_ty: primitive_type::NDArrayType,
 
     float_or_ndarray_ty: TypeVar,
     float_or_ndarray_var_map: VarMap,
@@ -345,24 +341,19 @@ impl<'a> BuiltinBuilder<'a> {
         } = *primitives;
 
         // Option-related
-        let (is_some_ty, unwrap_ty, option_tvar) =
-            if let TypeEnum::TObj { fields, .. } = &*unifier.get_ty(option) {
-                let option = GenericTypeAdapter::create(option, unifier);
+        let (is_some_ty, unwrap_ty) =
+            if let TypeEnum::TObj { fields, .. } = &*unifier.get_ty(option.into()) {
                 (
                     *fields.get(&PrimDef::OptionIsSome.simple_name().into()).unwrap(),
                     *fields.get(&PrimDef::OptionUnwrap.simple_name().into()).unwrap(),
-                    option.get_var_at(unifier, 0).unwrap(),
                 )
             } else {
                 unreachable!()
             };
 
-        let TypeEnum::TObj { fields: ndarray_fields, .. } = &*unifier.get_ty(ndarray) else {
+        let TypeEnum::TObj { fields: ndarray_fields, .. } = &*unifier.get_ty(ndarray.into()) else {
             unreachable!()
         };
-        let ndarray = GenericTypeAdapter::create(ndarray, unifier);
-        let ndarray_dtype_tvar = ndarray.get_var_at(unifier, 0).unwrap();
-        let ndarray_ndims_tvar = ndarray.get_var_at(unifier, 1).unwrap();
         let ndarray_copy_ty =
             *ndarray_fields.get(&PrimDef::NDArrayCopy.simple_name().into()).unwrap();
         let ndarray_fill_ty =
@@ -375,7 +366,8 @@ impl<'a> BuiltinBuilder<'a> {
         );
         let num_var_map = into_var_map([num_ty]);
 
-        let ndarray_float = make_ndarray_ty(unifier, primitives, Some(float), None);
+        let ndarray_float =
+            primitive_type::NDArrayType::from_primitive(unifier, primitives, Some(float), None);
         let ndarray_float_2d = {
             let value = match primitives.size_t {
                 64 => SymbolValue::U64(2u64),
@@ -384,16 +376,28 @@ impl<'a> BuiltinBuilder<'a> {
             };
             let ndims = unifier.add_ty(TypeEnum::TLiteral { values: vec![value], loc: None });
 
-            make_ndarray_ty(unifier, primitives, Some(float), Some(ndims))
+            primitive_type::NDArrayType::from_primitive(
+                unifier,
+                primitives,
+                Some(float),
+                Some(ndims),
+            )
         };
 
-        let ndarray_num_ty = make_ndarray_ty(unifier, primitives, Some(num_ty.ty), None);
-        let float_or_ndarray_ty =
-            unifier.get_fresh_var_with_range(&[float, ndarray_float], Some("T".into()), None);
+        let ndarray_num_ty =
+            primitive_type::NDArrayType::from_primitive(unifier, primitives, Some(num_ty.ty), None);
+        let float_or_ndarray_ty = unifier.get_fresh_var_with_range(
+            &[float, ndarray_float.into()],
+            Some("T".into()),
+            None,
+        );
         let float_or_ndarray_var_map = into_var_map([float_or_ndarray_ty]);
 
-        let num_or_ndarray_ty =
-            unifier.get_fresh_var_with_range(&[num_ty.ty, ndarray_num_ty], Some("T".into()), None);
+        let num_or_ndarray_ty = unifier.get_fresh_var_with_range(
+            &[num_ty.ty, ndarray_num_ty.into()],
+            Some("T".into()),
+            None,
+        );
         let num_or_ndarray_var_map = into_var_map([num_ty, num_or_ndarray_ty]);
 
         let list_int32 = unifier.add_ty(TypeEnum::TList { ty: int32 });
@@ -406,10 +410,7 @@ impl<'a> BuiltinBuilder<'a> {
 
             is_some_ty,
             unwrap_ty,
-            option_tvar,
 
-            ndarray_dtype_tvar,
-            ndarray_ndims_tvar,
             ndarray_copy_ty,
             ndarray_fill_ty,
 
@@ -633,7 +634,7 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::Option => TopLevelDef::Class {
                 name: prim.name().into(),
                 object_id: prim.id(),
-                type_vars: vec![self.option_tvar.ty],
+                type_vars: vec![self.primitives.option.type_tvar(self.unifier).ty],
                 fields: Vec::default(),
                 attributes: Vec::default(),
                 methods: vec![
@@ -654,7 +655,7 @@ impl<'a> BuiltinBuilder<'a> {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
                 signature: self.unwrap_ty.0,
-                var_id: vec![self.option_tvar.id],
+                var_id: vec![self.primitives.option.type_tvar(self.unifier).id],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
@@ -668,7 +669,7 @@ impl<'a> BuiltinBuilder<'a> {
                 name: prim.name().to_string(),
                 simple_name: prim.simple_name().into(),
                 signature: self.is_some_ty.0,
-                var_id: vec![self.option_tvar.id],
+                var_id: vec![self.primitives.option.type_tvar(self.unifier).id],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
@@ -699,36 +700,40 @@ impl<'a> BuiltinBuilder<'a> {
                 loc: None,
             },
 
-            PrimDef::FunSome => TopLevelDef::Function {
-                name: prim.name().into(),
-                simple_name: prim.simple_name().into(),
-                signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                    args: vec![FuncArg {
-                        name: "n".into(),
-                        ty: self.option_tvar.ty,
-                        default_value: None,
-                    }],
-                    ret: self.primitives.option,
-                    vars: into_var_map([self.option_tvar]),
-                })),
-                var_id: vec![self.option_tvar.id],
-                instance_to_symbol: HashMap::default(),
-                instance_to_stmt: HashMap::default(),
-                resolver: None,
-                codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                    |ctx, _, fun, args, generator| {
-                        let arg_ty = fun.0.args[0].ty;
-                        let arg_val =
-                            args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                        let alloca = generator
-                            .gen_var_alloc(ctx, arg_val.get_type(), Some("alloca_some"))
-                            .unwrap();
-                        ctx.builder.build_store(alloca, arg_val).unwrap();
-                        Ok(Some(alloca.into()))
-                    },
-                )))),
-                loc: None,
-            },
+            PrimDef::FunSome => {
+                let option_tvar = self.primitives.option.type_tvar(self.unifier);
+
+                TopLevelDef::Function {
+                    name: prim.name().into(),
+                    simple_name: prim.simple_name().into(),
+                    signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                        args: vec![FuncArg {
+                            name: "n".into(),
+                            ty: option_tvar.ty,
+                            default_value: None,
+                        }],
+                        ret: self.primitives.option.into(),
+                        vars: into_var_map([option_tvar]),
+                    })),
+                    var_id: vec![self.primitives.option.type_tvar(self.unifier).id],
+                    instance_to_symbol: HashMap::default(),
+                    instance_to_stmt: HashMap::default(),
+                    resolver: None,
+                    codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                        |ctx, _, fun, args, generator| {
+                            let arg_ty = fun.0.args[0].ty;
+                            let arg_val =
+                                args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+                            let alloca = generator
+                                .gen_var_alloc(ctx, arg_val.get_type(), Some("alloca_some"))
+                                .unwrap();
+                            ctx.builder.build_store(alloca, arg_val).unwrap();
+                            Ok(Some(alloca.into()))
+                        },
+                    )))),
+                    loc: None,
+                }
+            }
 
             _ => {
                 unreachable!()
@@ -737,7 +742,7 @@ impl<'a> BuiltinBuilder<'a> {
     }
 
     /// Build the class `ndarray` and its associated methods.
-    fn build_ndarray_class_related(&self, prim: PrimDef) -> TopLevelDef {
+    fn build_ndarray_class_related(&mut self, prim: PrimDef) -> TopLevelDef {
         debug_assert_prim_is_allowed(
             prim,
             &[PrimDef::NDArray, PrimDef::NDArrayCopy, PrimDef::NDArrayFill],
@@ -747,7 +752,10 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::NDArray => TopLevelDef::Class {
                 name: prim.name().into(),
                 object_id: prim.id(),
-                type_vars: vec![self.ndarray_dtype_tvar.ty, self.ndarray_ndims_tvar.ty],
+                type_vars: vec![
+                    self.primitives.ndarray.dtype_tvar(self.unifier).ty,
+                    self.primitives.ndarray.ndims_tvar(self.unifier).ty,
+                ],
                 fields: Vec::default(),
                 attributes: Vec::default(),
                 methods: vec![
@@ -764,7 +772,10 @@ impl<'a> BuiltinBuilder<'a> {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
                 signature: self.ndarray_copy_ty.0,
-                var_id: vec![self.ndarray_dtype_tvar.id, self.ndarray_ndims_tvar.id],
+                var_id: vec![
+                    self.primitives.ndarray.dtype_tvar(self.unifier).id,
+                    self.primitives.ndarray.ndims_tvar(self.unifier).id,
+                ],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
@@ -781,7 +792,10 @@ impl<'a> BuiltinBuilder<'a> {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
                 signature: self.ndarray_fill_ty.0,
-                var_id: vec![self.ndarray_dtype_tvar.id, self.ndarray_ndims_tvar.id],
+                var_id: vec![
+                    self.primitives.ndarray.dtype_tvar(self.unifier).id,
+                    self.primitives.ndarray.ndims_tvar(self.unifier).id,
+                ],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
@@ -870,15 +884,26 @@ impl<'a> BuiltinBuilder<'a> {
         // The size variant of the function determines the size of the returned int.
         let int_sized = size_variant.of_int(self.primitives);
 
-        let ndarray_int_sized =
-            make_ndarray_ty(self.unifier, self.primitives, Some(int_sized), Some(common_ndim.ty));
-        let ndarray_float =
-            make_ndarray_ty(self.unifier, self.primitives, Some(float), Some(common_ndim.ty));
+        let ndarray_int_sized = primitive_type::NDArrayType::from_primitive(
+            self.unifier,
+            self.primitives,
+            Some(int_sized),
+            Some(common_ndim.ty),
+        );
+        let ndarray_float = primitive_type::NDArrayType::from_primitive(
+            self.unifier,
+            self.primitives,
+            Some(float),
+            Some(common_ndim.ty),
+        );
 
-        let p0_ty =
-            self.unifier.get_fresh_var_with_range(&[float, ndarray_float], Some("T".into()), None);
+        let p0_ty = self.unifier.get_fresh_var_with_range(
+            &[float, ndarray_float.into()],
+            Some("T".into()),
+            None,
+        );
         let ret_ty = self.unifier.get_fresh_var_with_range(
-            &[int_sized, ndarray_int_sized],
+            &[int_sized, ndarray_int_sized.into()],
             Some("R".into()),
             None,
         );
@@ -930,19 +955,30 @@ impl<'a> BuiltinBuilder<'a> {
             None,
         );
 
-        let ndarray_float =
-            make_ndarray_ty(self.unifier, self.primitives, Some(float), Some(common_ndim.ty));
+        let ndarray_float = primitive_type::NDArrayType::from_primitive(
+            self.unifier,
+            self.primitives,
+            Some(float),
+            Some(common_ndim.ty),
+        );
 
         // The size variant of the function determines the type of int returned
         let int_sized = size_variant.of_int(self.primitives);
-        let ndarray_int_sized =
-            make_ndarray_ty(self.unifier, self.primitives, Some(int_sized), Some(common_ndim.ty));
+        let ndarray_int_sized = primitive_type::NDArrayType::from_primitive(
+            self.unifier,
+            self.primitives,
+            Some(int_sized),
+            Some(common_ndim.ty),
+        );
 
-        let p0_ty =
-            self.unifier.get_fresh_var_with_range(&[float, ndarray_float], Some("T".into()), None);
+        let p0_ty = self.unifier.get_fresh_var_with_range(
+            &[float, ndarray_float.into()],
+            Some("T".into()),
+            None,
+        );
 
         let ret_ty = self.unifier.get_fresh_var_with_range(
-            &[int_sized, ndarray_int_sized],
+            &[int_sized, ndarray_int_sized.into()],
             Some("R".into()),
             None,
         );
@@ -1005,7 +1041,7 @@ impl<'a> BuiltinBuilder<'a> {
             self.unifier,
             &VarMap::new(),
             prim.name(),
-            self.ndarray_float,
+            self.ndarray_float.into(),
             &[(self.ndarray_factory_fn_shape_arg_tvar.ty, "shape")],
             Box::new(move |ctx, obj, fun, args, generator| {
                 let func = match prim {
@@ -1051,7 +1087,7 @@ impl<'a> BuiltinBuilder<'a> {
                                 default_value: Some(SymbolValue::U32(0)),
                             },
                         ],
-                        ret: ndarray,
+                        ret: ndarray.into(),
                         vars: into_var_map([tv]),
                     })),
                     var_id: vec![tv.id],
@@ -1074,7 +1110,7 @@ impl<'a> BuiltinBuilder<'a> {
                     self.unifier,
                     &into_var_map([tv]),
                     prim.name(),
-                    self.primitives.ndarray,
+                    self.primitives.ndarray.into(),
                     // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
                     // type variable
                     &[(self.list_int32, "shape"), (tv.ty, "fill_value")],
@@ -1103,7 +1139,7 @@ impl<'a> BuiltinBuilder<'a> {
                                 default_value: Some(SymbolValue::I32(0)),
                             },
                         ],
-                        ret: self.ndarray_float_2d,
+                        ret: self.ndarray_float_2d.into(),
                         vars: VarMap::default(),
                     })),
                     var_id: Vec::default(),
@@ -1123,7 +1159,7 @@ impl<'a> BuiltinBuilder<'a> {
                 self.unifier,
                 &VarMap::new(),
                 prim.name(),
-                self.ndarray_float_2d,
+                self.ndarray_float_2d.into(),
                 &[(int32, "n")],
                 Box::new(|ctx, obj, fun, args, generator| {
                     gen_ndarray_identity(ctx, &obj, fun, &args, generator)
@@ -1338,10 +1374,15 @@ impl<'a> BuiltinBuilder<'a> {
         let tvar = self.unifier.get_fresh_var(Some("L".into()), None);
         let list = self.unifier.add_ty(TypeEnum::TList { ty: tvar.ty });
         let ndims = self.unifier.get_fresh_const_generic_var(uint64, Some("N".into()), None);
-        let ndarray = make_ndarray_ty(self.unifier, self.primitives, Some(tvar.ty), Some(ndims.ty));
+        let ndarray = primitive_type::NDArrayType::from_primitive(
+            self.unifier,
+            self.primitives,
+            Some(tvar.ty),
+            Some(ndims.ty),
+        );
 
         let arg_ty = self.unifier.get_fresh_var_with_range(
-            &[list, ndarray, self.primitives.range],
+            &[list, ndarray.into(), self.primitives.range],
             Some("I".into()),
             None,
         );
@@ -1799,8 +1840,13 @@ impl<'a> BuiltinBuilder<'a> {
     }
 
     fn new_type_or_ndarray_ty(&mut self, scalar_ty: Type) -> TypeVar {
-        let ndarray = make_ndarray_ty(self.unifier, self.primitives, Some(scalar_ty), None);
+        let ndarray = primitive_type::NDArrayType::from_primitive(
+            self.unifier,
+            self.primitives,
+            Some(scalar_ty),
+            None,
+        );
 
-        self.unifier.get_fresh_var_with_range(&[scalar_ty, ndarray], Some("T".into()), None)
+        self.unifier.get_fresh_var_with_range(&[scalar_ty, ndarray.into()], Some("T".into()), None)
     }
 }

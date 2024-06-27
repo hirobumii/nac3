@@ -7,7 +7,7 @@ use nac3core::{
     },
     symbol_resolver::ValueEnum,
     toplevel::{helper::PrimDef, DefinitionId, GenCall},
-    typecheck::typedef::{FunSignature, FuncArg, Type, TypeEnum, VarMap},
+    typecheck::typedef::{FunSignature, FuncArg, GenericObjectType, Type, TypeEnum, VarMap},
 };
 
 use nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef};
@@ -23,7 +23,7 @@ use pyo3::{
 
 use crate::{symbol_resolver::InnerResolver, timeline::TimeFns};
 
-use nac3core::toplevel::numpy::unpack_ndarray_var_tys;
+use nac3core::toplevel::primitive_type;
 use std::{
     collections::hash_map::DefaultHasher,
     collections::HashMap,
@@ -399,7 +399,9 @@ fn gen_rpc_tag(
                 gen_rpc_tag(ctx, *ty, buffer)?;
             }
             TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                let (ndarray_dtype, ndarray_ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+                let ndarray_ty = primitive_type::NDArrayType::create(ty, &mut ctx.unifier);
+                let ndarray_dtype = ndarray_ty.dtype_tvar(&mut ctx.unifier).ty;
+                let ndarray_ndims = ndarray_ty.ndims_tvar(&mut ctx.unifier).ty;
                 let ndarray_ndims = if let TLiteral { values, .. } =
                     &*ctx.unifier.get_ty_immutable(ndarray_ndims)
                 {
@@ -645,7 +647,7 @@ pub fn attributes_writeback(
             let ty = ty.unwrap();
             match &*ctx.unifier.get_ty(ty) {
                 TypeEnum::TObj { fields, obj_id, .. }
-                    if *obj_id != ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
+                    if *obj_id != ctx.primitives.option.obj_id(&ctx.unifier) =>
                 {
                     // we only care about primitive attributes
                     // for non-primitive attributes, they should be in another global

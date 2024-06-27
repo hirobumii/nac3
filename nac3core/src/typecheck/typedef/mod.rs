@@ -137,7 +137,8 @@ where
     #[must_use]
     fn get_type(&self) -> Type;
 
-    /// See [`Type::obj_id`].
+    /// Similar to [`Type::obj_id`], except that the [`DefinitionId`] is not wrapped within an
+    /// [`Option`].
     #[must_use]
     fn obj_id(&self, unifier: &Unifier) -> DefinitionId {
         self.get_type().obj_id(unifier).unwrap()

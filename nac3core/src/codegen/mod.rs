@@ -1,7 +1,7 @@
 use crate::{
     codegen::classes::{ListType, NDArrayType, ProxyType, RangeType},
     symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, TopLevelContext, TopLevelDef},
+    toplevel::{helper::PrimDef, TopLevelContext, TopLevelDef},
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
@@ -47,6 +47,9 @@ pub mod stmt;
 #[cfg(test)]
 mod test;
 
+use crate::toplevel::primitive_type;
+use crate::toplevel::primitive_type::OptionType;
+use crate::typecheck::typedef::GenericObjectType;
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
 
@@ -457,7 +460,9 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         }
 
                         TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                            let (dtype, _) = unpack_ndarray_var_tys(unifier, ty);
+                            let dtype = primitive_type::NDArrayType::create(ty, unifier)
+                                .dtype_tvar(unifier)
+                                .ty;
                             let element_type = get_llvm_type(
                                 ctx, module, generator, unifier, top_level, type_cache, dtype,
                             );
@@ -634,7 +639,10 @@ pub fn gen_func_impl<
         range: unifier.get_representative(primitives.range),
         str: unifier.get_representative(primitives.str),
         exception: unifier.get_representative(primitives.exception),
-        option: unifier.get_representative(primitives.option),
+        option: OptionType::create(
+            unifier.get_representative(primitives.option.into()),
+            &mut unifier,
+        ),
         ..primitives
     };
 

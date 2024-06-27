@@ -1,7 +1,7 @@
 use super::*;
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::helper::PrimDef;
-use crate::typecheck::typedef::VarMap;
+use crate::typecheck::typedef::{GenericObjectType, VarMap};
 use nac3parser::ast::Constant;
 
 #[derive(Clone, Debug)]
@@ -267,12 +267,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                 slice.as_ref(),
                 locked,
             )?;
-            let id =
-                if let TypeEnum::TObj { obj_id, .. } = unifier.get_ty(primitives.option).as_ref() {
-                    *obj_id
-                } else {
-                    unreachable!()
-                };
+            let id = primitives.option.obj_id(unifier);
             Ok(TypeAnnotation::CustomClass { id, params: vec![def_ann] })
         }
 

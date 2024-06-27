@@ -1,9 +1,9 @@
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::helper::PrimDef;
-use crate::toplevel::numpy::{make_ndarray_ty, unpack_ndarray_var_tys};
+use crate::toplevel::primitive_type;
 use crate::typecheck::{
     type_inferencer::*,
-    typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
+    typedef::{FunSignature, FuncArg, GenericObjectType, Type, TypeEnum, Unifier, VarMap},
 };
 use itertools::Itertools;
 use nac3parser::ast::StrRef;
@@ -369,8 +369,12 @@ pub fn typeof_ndarray_broadcast(
     if is_left_ndarray && is_right_ndarray {
         // Perform broadcasting on two ndarray operands.
 
-        let (left_ty_dtype, left_ty_ndims) = unpack_ndarray_var_tys(unifier, left);
-        let (right_ty_dtype, right_ty_ndims) = unpack_ndarray_var_tys(unifier, right);
+        let left_ty = primitive_type::NDArrayType::create(left, unifier);
+        let left_ty_dtype = left_ty.dtype_tvar(unifier).ty;
+        let left_ty_ndims = left_ty.ndims_tvar(unifier).ty;
+        let right_ty = primitive_type::NDArrayType::create(right, unifier);
+        let right_ty_dtype = right_ty.dtype_tvar(unifier).ty;
+        let right_ty_ndims = right_ty.ndims_tvar(unifier).ty;
 
         assert!(unifier.unioned(left_ty_dtype, right_ty_dtype));
 
@@ -397,11 +401,18 @@ pub fn typeof_ndarray_broadcast(
             .collect_vec();
         let res_ndims = unifier.get_fresh_literal(res_ndims, None);
 
-        Ok(make_ndarray_ty(unifier, primitives, Some(left_ty_dtype), Some(res_ndims)))
+        Ok(primitive_type::NDArrayType::from_primitive(
+            unifier,
+            primitives,
+            Some(left_ty_dtype),
+            Some(res_ndims),
+        )
+        .into())
     } else {
         let (ndarray_ty, scalar_ty) = if is_left_ndarray { (left, right) } else { (right, left) };
 
-        let (ndarray_ty_dtype, _) = unpack_ndarray_var_tys(unifier, ndarray_ty);
+        let ndarray_ty_dtype =
+            primitive_type::NDArrayType::create(ndarray_ty, unifier).ndims_tvar(unifier).ty;
 
         if unifier.unioned(ndarray_ty_dtype, scalar_ty) {
             Ok(ndarray_ty)
@@ -444,7 +455,8 @@ pub fn typeof_binop(
         }
 
         Operator::MatMult => {
-            let (_, lhs_ndims) = unpack_ndarray_var_tys(unifier, lhs);
+            let lhs_ndims =
+                primitive_type::NDArrayType::create(lhs, unifier).ndims_tvar(unifier).ty;
             let lhs_ndims = match &*unifier.get_ty_immutable(lhs_ndims) {
                 TypeEnum::TLiteral { values, .. } => {
                     assert_eq!(values.len(), 1);
@@ -452,7 +464,8 @@ pub fn typeof_binop(
                 }
                 _ => unreachable!(),
             };
-            let (_, rhs_ndims) = unpack_ndarray_var_tys(unifier, rhs);
+            let rhs_ndims =
+                primitive_type::NDArrayType::create(rhs, unifier).ndims_tvar(unifier).ty;
             let rhs_ndims = match &*unifier.get_ty_immutable(rhs_ndims) {
                 TypeEnum::TLiteral { values, .. } => {
                     assert_eq!(values.len(), 1);
@@ -526,7 +539,7 @@ pub fn typeof_unaryop(
     let operand_obj_id = operand.obj_id(unifier);
 
     if op == Unaryop::Not
-        && operand_obj_id.is_some_and(|id| id == primitives.ndarray.obj_id(unifier).unwrap())
+        && operand_obj_id.is_some_and(|id| id == primitives.ndarray.obj_id(unifier))
     {
         return Err(
             "The truth value of an array with more than one element is ambiguous".to_string()
@@ -552,7 +565,8 @@ pub fn typeof_unaryop(
 
         Unaryop::UAdd | Unaryop::USub => {
             if operand_obj_id.is_some_and(|id| id == PrimDef::NDArray.id()) {
-                let (dtype, _) = unpack_ndarray_var_tys(unifier, operand);
+                let dtype =
+                    primitive_type::NDArrayType::create(operand, unifier).dtype_tvar(unifier).ty;
                 if dtype.obj_id(unifier).is_some_and(|id| id == PrimDef::Bool.id()) {
                     return Err(if op == Unaryop::UAdd {
                         "The ufunc 'positive' cannot be applied to ndarray[bool, N]".to_string()
@@ -586,9 +600,15 @@ pub fn typeof_cmpop(
 
     Ok(Some(if is_left_ndarray || is_right_ndarray {
         let brd = typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?;
-        let (_, ndims) = unpack_ndarray_var_tys(unifier, brd);
+        let ndims = primitive_type::NDArrayType::create(brd, unifier).ndims_tvar(unifier).ty;
 
-        make_ndarray_ty(unifier, primitives, Some(primitives.bool), Some(ndims))
+        primitive_type::NDArrayType::from_primitive(
+            unifier,
+            primitives,
+            Some(primitives.bool),
+            Some(ndims),
+        )
+        .into()
     } else if unifier.unioned(lhs, rhs) {
         primitives.bool
     } else {
@@ -611,64 +631,108 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
 
     /* int ======== */
     for t in [int32_t, int64_t, uint32_t, uint64_t] {
-        let ndarray_int_t = make_ndarray_ty(unifier, store, Some(t), None);
-        impl_basic_arithmetic(unifier, store, t, &[t, ndarray_int_t], None);
-        impl_pow(unifier, store, t, &[t, ndarray_int_t], None);
+        let ndarray_int_t =
+            primitive_type::NDArrayType::from_primitive(unifier, store, Some(t), None);
+        impl_basic_arithmetic(unifier, store, t, &[t, ndarray_int_t.into()], None);
+        impl_pow(unifier, store, t, &[t, ndarray_int_t.into()], None);
         impl_bitwise_arithmetic(unifier, store, t);
         impl_bitwise_shift(unifier, store, t);
-        impl_div(unifier, store, t, &[t, ndarray_int_t], None);
-        impl_floordiv(unifier, store, t, &[t, ndarray_int_t], None);
-        impl_mod(unifier, store, t, &[t, ndarray_int_t], None);
+        impl_div(unifier, store, t, &[t, ndarray_int_t.into()], None);
+        impl_floordiv(unifier, store, t, &[t, ndarray_int_t.into()], None);
+        impl_mod(unifier, store, t, &[t, ndarray_int_t.into()], None);
         impl_invert(unifier, store, t, Some(t));
         impl_not(unifier, store, t, Some(bool_t));
-        impl_comparison(unifier, store, t, &[t, ndarray_int_t], None);
-        impl_eq(unifier, store, t, &[t, ndarray_int_t], None);
+        impl_comparison(unifier, store, t, &[t, ndarray_int_t.into()], None);
+        impl_eq(unifier, store, t, &[t, ndarray_int_t.into()], None);
     }
     for t in [int32_t, int64_t] {
         impl_sign(unifier, store, t, Some(t));
     }
 
     /* float ======== */
-    let ndarray_float_t = make_ndarray_ty(unifier, store, Some(float_t), None);
-    let ndarray_int32_t = make_ndarray_ty(unifier, store, Some(int32_t), None);
-    impl_basic_arithmetic(unifier, store, float_t, &[float_t, ndarray_float_t], None);
-    impl_pow(unifier, store, float_t, &[int32_t, float_t, ndarray_int32_t, ndarray_float_t], None);
-    impl_div(unifier, store, float_t, &[float_t, ndarray_float_t], None);
-    impl_floordiv(unifier, store, float_t, &[float_t, ndarray_float_t], None);
-    impl_mod(unifier, store, float_t, &[float_t, ndarray_float_t], None);
+    let ndarray_float_t =
+        primitive_type::NDArrayType::from_primitive(unifier, store, Some(float_t), None);
+    let ndarray_int32_t =
+        primitive_type::NDArrayType::from_primitive(unifier, store, Some(int32_t), None);
+    impl_basic_arithmetic(unifier, store, float_t, &[float_t, ndarray_float_t.into()], None);
+    impl_pow(
+        unifier,
+        store,
+        float_t,
+        &[int32_t, float_t, ndarray_int32_t.into(), ndarray_float_t.into()],
+        None,
+    );
+    impl_div(unifier, store, float_t, &[float_t, ndarray_float_t.into()], None);
+    impl_floordiv(unifier, store, float_t, &[float_t, ndarray_float_t.into()], None);
+    impl_mod(unifier, store, float_t, &[float_t, ndarray_float_t.into()], None);
     impl_sign(unifier, store, float_t, Some(float_t));
     impl_not(unifier, store, float_t, Some(bool_t));
-    impl_comparison(unifier, store, float_t, &[float_t, ndarray_float_t], None);
-    impl_eq(unifier, store, float_t, &[float_t, ndarray_float_t], None);
+    impl_comparison(unifier, store, float_t, &[float_t, ndarray_float_t.into()], None);
+    impl_eq(unifier, store, float_t, &[float_t, ndarray_float_t.into()], None);
 
     /* bool ======== */
-    let ndarray_bool_t = make_ndarray_ty(unifier, store, Some(bool_t), None);
+    let ndarray_bool_t =
+        primitive_type::NDArrayType::from_primitive(unifier, store, Some(bool_t), None);
     impl_invert(unifier, store, bool_t, Some(int32_t));
     impl_not(unifier, store, bool_t, Some(bool_t));
     impl_sign(unifier, store, bool_t, Some(int32_t));
-    impl_eq(unifier, store, bool_t, &[bool_t, ndarray_bool_t], None);
+    impl_eq(unifier, store, bool_t, &[bool_t, ndarray_bool_t.into()], None);
 
     /* ndarray ===== */
     let ndarray_usized_ndims_tvar =
         unifier.get_fresh_const_generic_var(size_t, Some("ndarray_ndims".into()), None);
-    let ndarray_unsized_t =
-        make_ndarray_ty(unifier, store, None, Some(ndarray_usized_ndims_tvar.ty));
-    let (ndarray_dtype_t, _) = unpack_ndarray_var_tys(unifier, ndarray_t);
-    let (ndarray_unsized_dtype_t, _) = unpack_ndarray_var_tys(unifier, ndarray_unsized_t);
+    let ndarray_unsized_t = primitive_type::NDArrayType::from_primitive(
+        unifier,
+        store,
+        None,
+        Some(ndarray_usized_ndims_tvar.ty),
+    );
+    let ndarray_dtype_t = ndarray_t.dtype_tvar(unifier).ty;
+    let ndarray_unsized_dtype_t = ndarray_unsized_t.dtype_tvar(unifier).ty;
     impl_basic_arithmetic(
         unifier,
         store,
-        ndarray_t,
-        &[ndarray_unsized_t, ndarray_unsized_dtype_t],
+        ndarray_t.into(),
+        &[ndarray_unsized_t.into(), ndarray_unsized_dtype_t],
         None,
     );
-    impl_pow(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
-    impl_div(unifier, store, ndarray_t, &[ndarray_t, ndarray_dtype_t], None);
-    impl_floordiv(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
-    impl_mod(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
-    impl_matmul(unifier, store, ndarray_t, &[ndarray_t], Some(ndarray_t));
-    impl_sign(unifier, store, ndarray_t, Some(ndarray_t));
-    impl_invert(unifier, store, ndarray_t, Some(ndarray_t));
-    impl_eq(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
-    impl_comparison(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
+    impl_pow(
+        unifier,
+        store,
+        ndarray_t.into(),
+        &[ndarray_unsized_t.into(), ndarray_unsized_dtype_t],
+        None,
+    );
+    impl_div(unifier, store, ndarray_t.into(), &[ndarray_t.into(), ndarray_dtype_t], None);
+    impl_floordiv(
+        unifier,
+        store,
+        ndarray_t.into(),
+        &[ndarray_unsized_t.into(), ndarray_unsized_dtype_t],
+        None,
+    );
+    impl_mod(
+        unifier,
+        store,
+        ndarray_t.into(),
+        &[ndarray_unsized_t.into(), ndarray_unsized_dtype_t],
+        None,
+    );
+    impl_matmul(unifier, store, ndarray_t.into(), &[ndarray_t.into()], Some(ndarray_t.into()));
+    impl_sign(unifier, store, ndarray_t.into(), Some(ndarray_t.into()));
+    impl_invert(unifier, store, ndarray_t.into(), Some(ndarray_t.into()));
+    impl_eq(
+        unifier,
+        store,
+        ndarray_t.into(),
+        &[ndarray_unsized_t.into(), ndarray_unsized_dtype_t],
+        None,
+    );
+    impl_comparison(
+        unifier,
+        store,
+        ndarray_t.into(),
+        &[ndarray_unsized_t.into(), ndarray_unsized_dtype_t],
+        None,
+    );
 }

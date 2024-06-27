@@ -1,13 +1,12 @@
 use std::convert::TryInto;
 
+use super::*;
 use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::numpy::unpack_ndarray_var_tys;
-use crate::typecheck::typedef::{into_var_map, Mapping, TypeVarId, VarMap};
+use crate::toplevel::primitive_type::{NDArrayType, OptionType};
+use crate::typecheck::typedef::{into_var_map, GenericObjectType, Mapping, TypeVarId, VarMap};
 use nac3parser::ast::{Constant, Location};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-
-use super::*;
 
 /// All primitive types and functions in nac3core.
 #[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq)]
@@ -403,6 +402,7 @@ impl TopLevelComposer {
             .collect::<HashMap<_, _>>(),
             params: into_var_map([option_type_var]),
         });
+        let option = OptionType::create(option, &mut unifier);
 
         let size_t_ty = match size_t {
             32 => uint32,
@@ -436,8 +436,9 @@ impl TopLevelComposer {
             ]),
             params: into_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         });
+        let ndarray = NDArrayType::create(ndarray, &mut unifier);
 
-        unifier.unify(ndarray_copy_fun_ret_ty.ty, ndarray).unwrap();
+        unifier.unify(ndarray_copy_fun_ret_ty.ty, ndarray.into()).unwrap();
 
         let primitives = PrimitiveStore {
             int32,
@@ -747,7 +748,7 @@ impl TopLevelComposer {
                     TypeAnnotation::CustomClass { id: e_id, params: e_param },
                 ) => {
                     *f_id == *e_id
-                        && *f_id == primitive.option.obj_id(unifier).unwrap()
+                        && *f_id == primitive.option.obj_id(unifier)
                         && (f_param.is_empty()
                             || (f_param.len() == 1
                                 && e_param.len() == 1
@@ -885,7 +886,7 @@ pub fn parse_parameter_default_value(
 pub fn arraylike_flatten_element_type(unifier: &mut Unifier, ty: Type) -> Type {
     match &*unifier.get_ty(ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-            unpack_ndarray_var_tys(unifier, ty).0
+            NDArrayType::create(ty, unifier).dtype_tvar(unifier).ty
         }
 
         TypeEnum::TList { ty } => arraylike_flatten_element_type(unifier, *ty),
@@ -897,7 +898,7 @@ pub fn arraylike_flatten_element_type(unifier: &mut Unifier, ty: Type) -> Type {
 pub fn arraylike_get_ndims(unifier: &mut Unifier, ty: Type) -> u64 {
     match &*unifier.get_ty(ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-            let ndims = unpack_ndarray_var_tys(unifier, ty).1;
+            let ndims = NDArrayType::create(ty, unifier).ndims_tvar(unifier).ty;
             let TypeEnum::TLiteral { values, .. } = &*unifier.get_ty_immutable(ndims) else {
                 panic!("Expected TLiteral for ndarray.ndims, got {}", unifier.stringify(ndims))
             };

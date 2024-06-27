@@ -1,5 +1,9 @@
 use std::{collections::HashMap, convert::TryInto, iter::once, iter::zip};
 
+use super::{llvm_intrinsics::call_memcpy_generic, need_sret, CodeGenerator};
+use crate::toplevel::primitive_type;
+use crate::toplevel::primitive_type::OptionType;
+use crate::typecheck::typedef::GenericObjectType;
 use crate::{
     codegen::{
         classes::{
@@ -15,11 +19,7 @@ use crate::{
         CodeGenContext, CodeGenTask,
     },
     symbol_resolver::{SymbolValue, ValueEnum},
-    toplevel::{
-        helper::PrimDef,
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
-        DefinitionId, TopLevelDef,
-    },
+    toplevel::{helper::PrimDef, DefinitionId, TopLevelDef},
     typecheck::{
         magic_methods::{binop_assign_name, binop_name, unaryop_name},
         typedef::{FunSignature, FuncArg, Type, TypeEnum, TypeVarId, Unifier, VarMap},
@@ -35,8 +35,6 @@ use itertools::{chain, izip, Either, Itertools};
 use nac3parser::ast::{
     self, Boolop, Comprehension, Constant, Expr, ExprKind, Location, Operator, StrRef,
 };
-
-use super::{llvm_intrinsics::call_memcpy_generic, need_sret, CodeGenerator};
 
 pub fn get_subst_key(
     unifier: &mut Unifier,
@@ -162,14 +160,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 self.builder.build_load(ptr, "tup_val").unwrap()
             }
             SymbolValue::OptionSome(v) => {
-                let ty = match self.unifier.get_ty_immutable(ty).as_ref() {
-                    TypeEnum::TObj { obj_id, params, .. }
-                        if *obj_id == self.primitives.option.obj_id(&self.unifier).unwrap() =>
-                    {
-                        *params.iter().next().unwrap().1
-                    }
-                    _ => unreachable!("must be option type"),
-                };
+                let ty = OptionType::create(ty, &mut self.unifier).type_tvar(&mut self.unifier).ty;
                 let val = self.gen_symbol_val(generator, v, ty);
                 let ptr = generator
                     .gen_var_alloc(self, val.get_type(), Some("default_opt_some"))
@@ -178,14 +169,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 ptr.into()
             }
             SymbolValue::OptionNone => {
-                let ty = match self.unifier.get_ty_immutable(ty).as_ref() {
-                    TypeEnum::TObj { obj_id, params, .. }
-                        if *obj_id == self.primitives.option.obj_id(&self.unifier).unwrap() =>
-                    {
-                        *params.iter().next().unwrap().1
-                    }
-                    _ => unreachable!("must be option type"),
-                };
+                let ty = OptionType::create(ty, &mut self.unifier).type_tvar(&mut self.unifier).ty;
                 let actual_ptr_type =
                     self.get_llvm_type(generator, ty).ptr_type(AddressSpace::default());
                 actual_ptr_type.const_null().into()
@@ -1206,8 +1190,12 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
         let is_ndarray2 = ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
         if is_ndarray1 && is_ndarray2 {
-            let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty1);
-            let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty2);
+            let ndarray_dtype1 = primitive_type::NDArrayType::create(ty1, &mut ctx.unifier)
+                .dtype_tvar(&mut ctx.unifier)
+                .ty;
+            let ndarray_dtype2 = primitive_type::NDArrayType::create(ty2, &mut ctx.unifier)
+                .dtype_tvar(&mut ctx.unifier)
+                .ty;
 
             assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
 
@@ -1256,8 +1244,12 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
 
             Ok(Some(res.as_base_value().into()))
         } else {
-            let (ndarray_dtype, _) =
-                unpack_ndarray_var_tys(&mut ctx.unifier, if is_ndarray1 { ty1 } else { ty2 });
+            let ndarray_dtype = primitive_type::NDArrayType::create(
+                if is_ndarray1 { ty1 } else { ty2 },
+                &mut ctx.unifier,
+            )
+            .dtype_tvar(&mut ctx.unifier)
+            .ty;
             let ndarray_val = NDArrayValue::from_ptr_val(
                 if is_ndarray1 { left_val } else { right_val }.into_pointer_value(),
                 llvm_usize,
@@ -1443,7 +1435,9 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
         }
     } else if ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
         let llvm_usize = generator.get_size_type(ctx.ctx);
-        let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+        let ndarray_dtype = primitive_type::NDArrayType::create(ty, &mut ctx.unifier)
+            .dtype_tvar(&mut ctx.unifier)
+            .ty;
 
         let val = NDArrayValue::from_ptr_val(val.into_pointer_value(), llvm_usize, None);
 
@@ -1527,8 +1521,13 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
             return if is_ndarray1 && is_ndarray2 {
-                let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, left_ty);
-                let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, right_ty);
+                let ndarray_dtype1 = primitive_type::NDArrayType::create(left_ty, &mut ctx.unifier)
+                    .dtype_tvar(&mut ctx.unifier)
+                    .ty;
+                let ndarray_dtype2 =
+                    primitive_type::NDArrayType::create(right_ty, &mut ctx.unifier)
+                        .dtype_tvar(&mut ctx.unifier)
+                        .ty;
 
                 assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
 
@@ -1562,10 +1561,12 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 Ok(Some(res.as_base_value().into()))
             } else {
-                let (ndarray_dtype, _) = unpack_ndarray_var_tys(
-                    &mut ctx.unifier,
+                let ndarray_dtype = primitive_type::NDArrayType::create(
                     if is_ndarray1 { left_ty } else { right_ty },
-                );
+                    &mut ctx.unifier,
+                )
+                .dtype_tvar(&mut ctx.unifier)
+                .ty;
                 let res = numpy::ndarray_elementwise_binop_impl(
                     generator,
                     ctx,
@@ -1788,9 +1789,13 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         ndims.iter().map(|v| SymbolValue::U64(v - subscripted_dims)).collect(),
         None,
     );
-    let ndarray_ty =
-        make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(ty), Some(ndarray_ndims_ty));
-    let llvm_pndarray_t = ctx.get_llvm_type(generator, ndarray_ty).into_pointer_type();
+    let ndarray_ty = primitive_type::NDArrayType::from_primitive(
+        &mut ctx.unifier,
+        &ctx.primitives,
+        Some(ty),
+        Some(ndarray_ndims_ty),
+    );
+    let llvm_pndarray_t = ctx.get_llvm_type(generator, ndarray_ty.into()).into_pointer_type();
     let llvm_ndarray_t = llvm_pndarray_t.get_element_type().into_struct_type();
     let llvm_ndarray_data_t = ctx.get_llvm_type(generator, ty).as_basic_type_enum();
 
@@ -2082,7 +2087,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
         ExprKind::Name { id, .. } if id == &"none".into() => {
             match (
                 ctx.unifier.get_ty(expr.custom.unwrap()).as_ref(),
-                ctx.unifier.get_ty(ctx.primitives.option).as_ref(),
+                ctx.unifier.get_ty(ctx.primitives.option.into()).as_ref(),
             ) {
                 (TypeEnum::TObj { obj_id, params, .. }, TypeEnum::TObj { obj_id: opt_id, .. })
                     if *obj_id == *opt_id =>
@@ -2464,8 +2469,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     };
                     // directly generate code for option.unwrap
                     // since it needs to return static value to optimize for kernel invariant
-                    if attr == &"unwrap".into()
-                        && id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap()
+                    if attr == &"unwrap".into() && id == ctx.primitives.option.obj_id(&ctx.unifier)
                     {
                         match val {
                             ValueEnum::Static(v) => {

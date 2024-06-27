@@ -11,11 +11,7 @@ use nac3core::{
         CodeGenContext, CodeGenerator,
     },
     symbol_resolver::{StaticValue, SymbolResolver, SymbolValue, ValueEnum},
-    toplevel::{
-        helper::PrimDef,
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
-        DefinitionId, TopLevelDef,
-    },
+    toplevel::{helper::PrimDef, primitive_type, DefinitionId, TopLevelDef},
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{Type, TypeEnum, TypeVar, Unifier, VarMap},
@@ -337,13 +333,18 @@ impl InnerResolver {
             // do not handle type var param and concrete check here
             let var = unifier.get_dummy_var().ty;
             let ndims = unifier.get_fresh_const_generic_var(primitives.usize(), None, None).ty;
-            let ndarray = make_ndarray_ty(unifier, primitives, Some(var), Some(ndims));
-            Ok(Ok((ndarray, false)))
+            let ndarray = primitive_type::NDArrayType::from_primitive(
+                unifier,
+                primitives,
+                Some(var),
+                Some(ndims),
+            );
+            Ok(Ok((ndarray.into(), false)))
         } else if ty_id == self.primitive_ids.tuple {
             // do not handle type var param and concrete check here
             Ok(Ok((unifier.add_ty(TypeEnum::TTuple { ty: vec![] }), false)))
         } else if ty_id == self.primitive_ids.option {
-            Ok(Ok((primitives.option, false)))
+            Ok(Ok((primitives.option.into(), false)))
         } else if ty_id == self.primitive_ids.none {
             unreachable!("none cannot be typeid")
         } else if let Some(def_id) = self.pyid_to_def.read().get(&ty_id).copied() {
@@ -510,7 +511,16 @@ impl InnerResolver {
                         ));
                     }
 
-                    Ok(Ok((make_ndarray_ty(unifier, primitives, Some(ty.0), None), true)))
+                    Ok(Ok((
+                        primitive_type::NDArrayType::from_primitive(
+                            unifier,
+                            primitives,
+                            Some(ty.0),
+                            None,
+                        )
+                        .into(),
+                        true,
+                    )))
                 }
                 TypeEnum::TTuple { .. } => {
                     let args = match args
@@ -719,7 +729,9 @@ impl InnerResolver {
                 }
             }
             (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PrimDef::NDArray.id() => {
-                let (ty, ndims) = unpack_ndarray_var_tys(unifier, extracted_ty);
+                let ndarray = primitive_type::NDArrayType::create(extracted_ty, unifier);
+                let ty = ndarray.dtype_tvar(unifier).ty;
+                let ndims = ndarray.ndims_tvar(unifier).ty;
                 let len: usize = obj.getattr("ndim")?.extract()?;
                 if len == 0 {
                     assert!(matches!(
@@ -734,10 +746,14 @@ impl InnerResolver {
                     match dtype_ty {
                         Ok((t, _)) => match unifier.unify(ty, t) {
                             Ok(()) => {
-                                let ndarray_ty =
-                                    make_ndarray_ty(unifier, primitives, Some(ty), Some(ndims));
+                                let ndarray_ty = primitive_type::NDArrayType::from_primitive(
+                                    unifier,
+                                    primitives,
+                                    Some(ty),
+                                    Some(ndims),
+                                );
 
-                                Ok(Ok(ndarray_ty))
+                                Ok(Ok(ndarray_ty.into()))
                             }
                             Err(e) => Ok(Err(format!(
                                 "type error ({}) for the ndarray",
@@ -760,7 +776,7 @@ impl InnerResolver {
             // special handling for option type since its class member layout in python side
             // is special and cannot be mapped directly to a nac3 type as below
             (TypeEnum::TObj { obj_id, params, .. }, false)
-                if *obj_id == primitives.option.obj_id(unifier).unwrap() =>
+                if *obj_id == primitives.option.obj_id(unifier) =>
             {
                 let Ok(field_data) = obj.getattr("_nac3_option") else {
                     unreachable!("cannot be None")
@@ -785,7 +801,7 @@ impl InnerResolver {
                             .map(TypeVar::into)
                             .collect::<VarMap>()
                     });
-                    return Ok(Ok(unifier.subst(primitives.option, &var_map).unwrap()));
+                    return Ok(Ok(unifier.subst(primitives.option.into(), &var_map).unwrap()));
                 }
 
                 let ty = match self.get_obj_type(py, field_data, unifier, defs, primitives)? {
@@ -1038,8 +1054,9 @@ impl InnerResolver {
             } else {
                 unreachable!("must be ndarray")
             };
-            let (ndarray_dtype, ndarray_ndims) =
-                unpack_ndarray_var_tys(&mut ctx.unifier, ndarray_ty);
+            let ndarray_ty = primitive_type::NDArrayType::create(ndarray_ty, &mut ctx.unifier);
+            let ndarray_dtype = ndarray_ty.dtype_tvar(&mut ctx.unifier).ty;
+            let ndarray_ndims = ndarray_ty.ndims_tvar(&mut ctx.unifier).ty;
 
             let llvm_usize = generator.get_size_type(ctx.ctx);
             let ndarray_dtype_llvm_ty = ctx.get_llvm_type(generator, ndarray_dtype);
@@ -1186,7 +1203,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.option {
             let option_val_ty = match ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
                 TypeEnum::TObj { obj_id, params, .. }
-                    if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
+                    if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier) =>
                 {
                     *params.iter().next().unwrap().1
                 }
