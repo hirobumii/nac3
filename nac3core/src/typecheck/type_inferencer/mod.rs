@@ -1856,6 +1856,18 @@ impl<'a> Inferencer<'a> {
         slice: &ast::Expr<Option<Type>>,
         ctx: ExprContext,
     ) -> InferenceResult {
+        let report_unscriptable_error = |unifier: &mut Unifier| {
+            // User is attempting to index into a value of an unsupported type.
+
+            let value_ty = value.custom.unwrap();
+            let value_ty_str = unifier.stringify(value_ty);
+
+            return report_error(
+                format!("'{value_ty_str}' object is not subscriptable").as_str(),
+                slice.location, // using the slice's location (rather than value's) because it is more clear
+            );
+        };
+
         let ty = self.unifier.get_dummy_var().ty;
         match &slice.node {
             ExprKind::Slice { lower, upper, step } => {
@@ -1871,7 +1883,9 @@ impl<'a> Inferencer<'a> {
                         make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims))
                     }
 
-                    _ => unreachable!(),
+                    _ => {
+                        return report_unscriptable_error(self.unifier);
+                    }
                 };
                 self.constrain(value.custom.unwrap(), list_like_ty, &value.location)?;
                 Ok(list_like_ty)
@@ -1961,7 +1975,7 @@ impl<'a> Inferencer<'a> {
                         self.constrain(slice.custom.unwrap(), valid_index_ty, &slice.location)?;
                         self.infer_subscript_ndarray(value, slice, ty, ndims)
                     }
-                    _ => unreachable!(),
+                    _ => report_unscriptable_error(self.unifier),
                 }
             }
         }
