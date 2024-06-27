@@ -880,7 +880,7 @@ impl<'a> Inferencer<'a> {
         // Check `shape_ty` to see if its a list of int32s, a tuple of int32s, or just int32.
         // Otherwise throw an error as that would mean the user wrote an ill-typed `shape_expr`.
         //
-        // Here, we also take the opportunity to deduce `ndims` statically for 2. and 3.
+        // Here, we also take the opportunity to deduce `ndims` statically.
         let shape_ty_enum = &*self.unifier.get_ty(shape_ty);
         let ndims = match shape_ty_enum {
             TypeEnum::TList { ty } => {
@@ -1292,7 +1292,7 @@ impl<'a> Inferencer<'a> {
         {
             let shape_expr = args.remove(0);
             let (ndims, shape) =
-                self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling the `shape`
+                self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
 
             let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
             let ret = make_ndarray_ty(
