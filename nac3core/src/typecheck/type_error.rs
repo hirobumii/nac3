@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use crate::typecheck::typedef::TypeEnum;
+use crate::typecheck::{magic_methods::HasOpInfo, typedef::TypeEnum};
 
-use super::typedef::{RecordKey, Type, Unifier};
+use super::{
+    magic_methods::Binop,
+    typedef::{RecordKey, Type, Unifier},
+};
 use itertools::Itertools;
-use nac3parser::ast::{Location, StrRef};
+use nac3parser::ast::{Cmpop, Location, StrRef};
 
 #[derive(Debug, Clone)]
 pub enum TypeErrorKind {
@@ -25,6 +28,18 @@ pub enum TypeErrorKind {
         name: StrRef,
         expected: Type,
         got: Type,
+    },
+    UnsupportedBinaryOpTypes {
+        operator: Binop,
+        lhs_type: Type,
+        rhs_type: Type,
+        expected_rhs_type: Type,
+    },
+    UnsupportedComparsionOpTypes {
+        operator: Cmpop,
+        lhs_type: Type,
+        rhs_type: Type,
+        expected_rhs_type: Type,
     },
     FieldUnificationError {
         field: RecordKey,
@@ -100,6 +115,26 @@ impl<'a> Display for DisplayTypeError<'a> {
             MissingArgs { missing_arg_names } => {
                 let args = missing_arg_names.iter().join(", ");
                 write!(f, "Missing arguments: {args}")
+            }
+            UnsupportedBinaryOpTypes { operator, lhs_type, rhs_type, expected_rhs_type } => {
+                let op_symbol = operator.op_info().symbol;
+
+                let lhs_type_str = self.unifier.stringify_with_notes(*lhs_type, &mut notes);
+                let rhs_type_str = self.unifier.stringify_with_notes(*rhs_type, &mut notes);
+                let expected_rhs_type_str =
+                    self.unifier.stringify_with_notes(*expected_rhs_type, &mut notes);
+
+                write!(f, "Unsupported operand type(s) for {op_symbol}: '{lhs_type_str}' and '{rhs_type_str}' (right operand should have type {expected_rhs_type_str})")
+            }
+            UnsupportedComparsionOpTypes { operator, lhs_type, rhs_type, expected_rhs_type } => {
+                let op_symbol = operator.op_info().symbol;
+
+                let lhs_type_str = self.unifier.stringify_with_notes(*lhs_type, &mut notes);
+                let rhs_type_str = self.unifier.stringify_with_notes(*rhs_type, &mut notes);
+                let expected_rhs_type_str =
+                    self.unifier.stringify_with_notes(*expected_rhs_type, &mut notes);
+
+                write!(f, "'{op_symbol}' not supported between instances of '{lhs_type_str}' and '{rhs_type_str}' (right operand should have type {expected_rhs_type_str})")
             }
             UnknownArgName(name) => {
                 write!(f, "Unknown argument name: {name}")

@@ -4,6 +4,7 @@ use std::iter::once;
 use std::ops::Not;
 use std::{cell::RefCell, sync::Arc};
 
+use super::typedef::OperatorInfo;
 use super::{
     magic_methods::*,
     type_error::TypeError,
@@ -641,6 +642,7 @@ impl<'a> Inferencer<'a> {
         obj: Type,
         params: Vec<Type>,
         ret: Option<Type>,
+        operator_info: Option<OperatorInfo>,
     ) -> InferenceResult {
         if let TypeEnum::TObj { params: class_params, fields, .. } = &*self.unifier.get_ty(obj) {
             if class_params.is_empty() {
@@ -654,6 +656,7 @@ impl<'a> Inferencer<'a> {
                                 ret: sign.ret,
                                 fun: RefCell::new(None),
                                 loc: Some(location),
+                                operator_info,
                             };
                             if let Some(ret) = ret {
                                 self.unifier
@@ -688,6 +691,7 @@ impl<'a> Inferencer<'a> {
             ret,
             fun: RefCell::new(None),
             loc: Some(location),
+            operator_info,
         });
         self.calls.insert(location.into(), call);
         let call = self.unifier.add_ty(TypeEnum::TCall(vec![call]));
@@ -1523,6 +1527,7 @@ impl<'a> Inferencer<'a> {
                     fun: RefCell::new(None),
                     ret: sign.ret,
                     loc: Some(location),
+                    operator_info: None,
                 };
                 self.unifier.unify_call(&call, func.custom.unwrap(), sign).map_err(|e| {
                     HashSet::from([e.at(Some(location)).to_display(self.unifier).to_string()])
@@ -1545,6 +1550,7 @@ impl<'a> Inferencer<'a> {
             fun: RefCell::new(None),
             ret,
             loc: Some(location),
+            operator_info: None,
         });
         self.calls.insert(location.into(), call);
         let call = self.unifier.add_ty(TypeEnum::TCall(vec![call]));
@@ -1765,7 +1771,14 @@ impl<'a> Inferencer<'a> {
             }
         };
 
-        self.build_method_call(location, method.into(), left_ty, vec![right_ty], ret)
+        self.build_method_call(
+            location,
+            method.into(),
+            left_ty,
+            vec![right_ty],
+            ret,
+            Some(OperatorInfo::IsBinaryOp { self_type: left.custom.unwrap(), operator: op }),
+        )
     }
 
     fn infer_unary_ops(
@@ -1779,7 +1792,14 @@ impl<'a> Inferencer<'a> {
         let ret = typeof_unaryop(self.unifier, self.primitives, op, operand.custom.unwrap())
             .map_err(|e| HashSet::from([format!("{e} (at {location})")]))?;
 
-        self.build_method_call(location, method, operand.custom.unwrap(), vec![], ret)
+        self.build_method_call(
+            location,
+            method,
+            operand.custom.unwrap(),
+            vec![],
+            ret,
+            Some(OperatorInfo::IsUnaryOp { self_type: operand.custom.unwrap(), operator: op }),
+        )
     }
 
     fn infer_compare(
@@ -1825,6 +1845,10 @@ impl<'a> Inferencer<'a> {
                 a.custom.unwrap(),
                 vec![b.custom.unwrap()],
                 ret,
+                Some(OperatorInfo::IsComparisonOp {
+                    self_type: left.custom.unwrap(),
+                    operator: *c,
+                }),
             )?);
         }
 

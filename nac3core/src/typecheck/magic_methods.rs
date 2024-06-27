@@ -486,18 +486,20 @@ pub fn typeof_binop(
     lhs: Type,
     rhs: Type,
 ) -> Result<Option<Type>, String> {
+    let op = Binop { base: op, variant: BinopVariant::Normal };
+
     let is_left_list = lhs.obj_id(unifier).is_some_and(|id| id == PrimDef::List.id());
     let is_right_list = rhs.obj_id(unifier).is_some_and(|id| id == PrimDef::List.id());
     let is_left_ndarray = lhs.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id());
     let is_right_ndarray = rhs.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
-    Ok(Some(match op {
+    Ok(Some(match op.base {
         Operator::Add | Operator::Sub | Operator::Mult | Operator::Mod | Operator::FloorDiv => {
             if is_left_list || is_right_list {
-                if ![Operator::Add, Operator::Mult].contains(&op) {
+                if ![Operator::Add, Operator::Mult].contains(&op.base) {
                     return Err(format!(
                         "Binary operator {} not supported for list",
-                        binop_name(op)
+                        op.op_info().symbol
                     ));
                 }
 

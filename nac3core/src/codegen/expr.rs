@@ -1202,11 +1202,11 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
     {
         let llvm_usize = generator.get_size_type(ctx.ctx);
 
-        if is_aug_assign {
+        if op.variant == BinopVariant::AugAssign {
             todo!("Augmented assignment operators not implemented for lists")
         }
 
-        match op {
+        match op.base {
             Operator::Add => {
                 debug_assert_eq!(ty1.obj_id(&ctx.unifier), Some(PrimDef::List.id()));
                 debug_assert_eq!(ty2.obj_id(&ctx.unifier), Some(PrimDef::List.id()));

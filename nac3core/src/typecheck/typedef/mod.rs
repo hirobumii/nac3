@@ -8,12 +8,15 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::{borrow::Cow, collections::HashSet};
 
-use nac3parser::ast::{Location, StrRef};
+use nac3parser::ast::{Cmpop, Location, StrRef, Unaryop};
 
+use super::magic_methods::Binop;
 use super::type_error::{TypeError, TypeErrorKind};
 use super::unification_table::{UnificationKey, UnificationTable};
 use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::{helper::PrimDef, DefinitionId, TopLevelContext, TopLevelDef};
+use crate::toplevel::helper::PrimDef;
+use crate::toplevel::{DefinitionId, TopLevelContext, TopLevelDef};
+use crate::typecheck::magic_methods::OpInfo;
 use crate::typecheck::type_inferencer::PrimitiveStore;
 
 #[cfg(test)]
@@ -73,6 +76,28 @@ pub fn iter_type_vars(var_map: &VarMap) -> impl Iterator<Item = TypeVar> + '_ {
     var_map.iter().map(|(&id, &ty)| TypeVar { id, ty })
 }
 
+#[derive(Debug, Clone)]
+pub enum OperatorInfo {
+    /// The call was written as an unary operation, e.g., `~a` or `not a`.
+    IsUnaryOp {
+        /// The [`Type`] of the `self` object
+        self_type: Type,
+        operator: Unaryop,
+    },
+    /// The call was written as a binary operation, e.g., `a + b` or `a += b`.
+    IsBinaryOp {
+        /// The [`Type`] of the `self` object
+        self_type: Type,
+        operator: Binop,
+    },
+    /// The call was written as a binary comparison operation, e.g., `a < b`.
+    IsComparisonOp {
+        /// The [`Type`] of the `self` object
+        self_type: Type,
+        operator: Cmpop,
+    },
+}
+
 #[derive(Clone)]
 pub struct Call {
     pub posargs: Vec<Type>,
@@ -80,6 +105,9 @@ pub struct Call {
     pub ret: Type,
     pub fun: RefCell<Option<Type>>,
     pub loc: Option<Location>,
+
+    /// Details about the associated Python user operator expression of this call, if any.
+    pub operator_info: Option<OperatorInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -627,111 +655,178 @@ impl Unifier {
         let TypeEnum::TFunc(signature) = &*self.get_ty(b) else { unreachable!() };
 
         // Get details about the input arguments
-        let Call { posargs, kwargs, ret, fun, loc } = call;
+        let Call { posargs, kwargs, ret, fun, loc, operator_info } = call;
         let num_args = posargs.len() + kwargs.len();
 
-        // Now we check the arguments against the parameters
+        // Now we check the arguments against the parameters,
+        // and depending on what `call_info` is, we might change how the behavior `unify_call()`
+        // in hopes to improve user error messages when type checking fails.
+        match operator_info {
+            Some(OperatorInfo::IsBinaryOp { self_type, operator }) => {
+                // The call is written in the form of (say) `a + b`.
+                // Technically, it is `a.__add__(b)`, and they have the following constraints:
+                assert_eq!(posargs.len(), 1);
+                assert_eq!(kwargs.len(), 0);
+                assert_eq!(num_params, 1);
 
-        // Helper lambdas
-        let mut type_check_arg = |param_name, expected_arg_ty, arg_ty| {
-            let ok = self.unify_impl(expected_arg_ty, arg_ty, false).is_ok();
-            if ok {
-                Ok(())
-            } else {
-                // Typecheck failed, throw an error.
-                self.restore_snapshot();
-                Err(TypeError::new(
-                    TypeErrorKind::IncorrectArgType {
-                        name: param_name,
-                        expected: expected_arg_ty,
-                        got: arg_ty,
-                    },
-                    *loc,
-                ))
+                let other_type = posargs[0]; // the second operand
+                let expected_other_type = signature.args[0].ty;
+
+                let ok = self.unify_impl(expected_other_type, other_type, false).is_ok();
+                if !ok {
+                    self.restore_snapshot();
+                    return Err(TypeError::new(
+                        TypeErrorKind::UnsupportedBinaryOpTypes {
+                            operator: *operator,
+                            lhs_type: *self_type,
+                            rhs_type: other_type,
+                            expected_rhs_type: expected_other_type,
+                        },
+                        *loc,
+                    ));
+                }
             }
-        };
+            Some(OperatorInfo::IsComparisonOp { self_type, operator })
+                if OpInfo::supports_cmpop(*operator) // Otherwise that comparison operator is not supported.
+                =>
+            {
+                // The call is written in the form of (say) `a <= b`.
+                // Technically, it is `a.__le__(b)`, and they have the following constraints:
+                assert_eq!(posargs.len(), 1);
+                assert_eq!(kwargs.len(), 0);
+                assert_eq!(num_params, 1);
 
-        // Check for "too many arguments"
-        if num_params < posargs.len() {
-            let expected_min_count =
-                signature.args.iter().filter(|param| param.is_required()).count();
-            let expected_max_count = num_params;
+                let other_type = posargs[0]; // the second operand
+                let expected_other_type = signature.args[0].ty;
 
-            self.restore_snapshot();
-            return Err(TypeError::new(
-                TypeErrorKind::TooManyArguments {
-                    expected_min_count,
-                    expected_max_count,
-                    got_count: num_args,
-                },
-                *loc,
-            ));
-        }
-
-        // NOTE: order of `param_info_by_name` is leveraged, so use an IndexMap
-        let mut param_info_by_name: IndexMap<StrRef, ParamInfo> = signature
-            .args
-            .iter()
-            .map(|arg| (arg.name, ParamInfo { has_been_supplied: false, param: arg }))
-            .collect();
-
-        // Now consume all positional arguments and typecheck them.
-        for (&arg_ty, param) in zip(posargs, signature.args.iter()) {
-            // We will also use this opportunity to mark the corresponding `param_info` as having been supplied.
-            let param_info = param_info_by_name.get_mut(&param.name).unwrap();
-            param_info.has_been_supplied = true;
-
-            // Typecheck
-            type_check_arg(param.name, param.ty, arg_ty)?;
-        }
-
-        // Now consume all keyword arguments and typecheck them.
-        for (&param_name, &arg_ty) in kwargs {
-            // We will also use this opportunity to check if this keyword argument is "legal".
-
-            let Some(param_info) = param_info_by_name.get_mut(&param_name) else {
-                self.restore_snapshot();
-                return Err(TypeError::new(TypeErrorKind::UnknownArgName(param_name), *loc));
-            };
-
-            if param_info.has_been_supplied {
-                // NOTE: Duplicate keyword argument (i.e., `hello(1, 2, 3, arg = 4, arg = 5)`)
-                // is IMPOSSIBLE as the parser would have already failed.
-                // We only have to care about "got multiple values for XYZ"
-
-                self.restore_snapshot();
-                return Err(TypeError::new(
-                    TypeErrorKind::GotMultipleValues { name: param_name },
-                    *loc,
-                ));
+                let ok = self.unify_impl(expected_other_type, other_type, false).is_ok();
+                if !ok {
+                    self.restore_snapshot();
+                    return Err(TypeError::new(
+                        TypeErrorKind::UnsupportedComparsionOpTypes {
+                            operator: *operator,
+                            lhs_type: *self_type,
+                            rhs_type: other_type,
+                            expected_rhs_type: expected_other_type,
+                        },
+                        *loc,
+                    ));
+                }
             }
+            _ => {
+                // Handle [`CallInfo::IsNormalFunctionCall`] and other uninteresting variants
+                // of [`CallInfo`] (e.g, `CallInfo::IsUnaryOp` and unsupported comparison operators)
 
-            param_info.has_been_supplied = true;
+                // Helper lambdas
+                let mut type_check_arg = |param_name, expected_arg_ty, arg_ty| {
+                    let ok = self.unify_impl(expected_arg_ty, arg_ty, false).is_ok();
+                    if ok {
+                        Ok(())
+                    } else {
+                        // Typecheck failed, throw an error.
+                        self.restore_snapshot();
+                        Err(TypeError::new(
+                            TypeErrorKind::IncorrectArgType {
+                                name: param_name,
+                                expected: expected_arg_ty,
+                                got: arg_ty,
+                            },
+                            *loc,
+                        ))
+                    }
+                };
 
-            // Typecheck
-            type_check_arg(param_name, param_info.param.ty, arg_ty)?;
-        }
+                // Check for "too many arguments"
+                if num_params < posargs.len() {
+                    let expected_min_count =
+                        signature.args.iter().filter(|param| param.is_required()).count();
+                    let expected_max_count = num_params;
 
-        // After checking posargs and kwargs, check if there are any
-        // unsupplied required parameters, and throw an error if they exist.
-        let missing_arg_names = param_info_by_name
-            .values()
-            .filter(|param_info| param_info.param.is_required() && !param_info.has_been_supplied)
-            .map(|param_info| param_info.param.name)
-            .collect_vec();
-        if !missing_arg_names.is_empty() {
-            self.restore_snapshot();
-            return Err(TypeError::new(TypeErrorKind::MissingArgs { missing_arg_names }, *loc));
-        }
+                    self.restore_snapshot();
+                    return Err(TypeError::new(
+                        TypeErrorKind::TooManyArguments {
+                            expected_min_count,
+                            expected_max_count,
+                            got_count: num_args,
+                        },
+                        *loc,
+                    ));
+                }
 
-        // Finally, check the Call's return type
-        self.unify_impl(*ret, signature.ret, false).map_err(|mut err| {
-            self.restore_snapshot();
-            if err.loc.is_none() {
-                err.loc = *loc;
+                // NOTE: order of `param_info_by_name` is leveraged, so use an IndexMap
+                let mut param_info_by_name: IndexMap<StrRef, ParamInfo> = signature
+                    .args
+                    .iter()
+                    .map(|arg| (arg.name, ParamInfo { has_been_supplied: false, param: arg }))
+                    .collect();
+
+                // Now consume all positional arguments and typecheck them.
+                for (&arg_ty, param) in zip(posargs, signature.args.iter()) {
+                    // We will also use this opportunity to mark the corresponding `param_info` as having been supplied.
+                    let param_info = param_info_by_name.get_mut(&param.name).unwrap();
+                    param_info.has_been_supplied = true;
+
+                    // Typecheck
+                    type_check_arg(param.name, param.ty, arg_ty)?;
+                }
+
+                // Now consume all keyword arguments and typecheck them.
+                for (&param_name, &arg_ty) in kwargs {
+                    // We will also use this opportunity to check if this keyword argument is "legal".
+
+                    let Some(param_info) = param_info_by_name.get_mut(&param_name) else {
+                        self.restore_snapshot();
+                        return Err(TypeError::new(
+                            TypeErrorKind::UnknownArgName(param_name),
+                            *loc,
+                        ));
+                    };
+
+                    if param_info.has_been_supplied {
+                        // NOTE: Duplicate keyword argument (i.e., `hello(1, 2, 3, arg = 4, arg = 5)`)
+                        // is IMPOSSIBLE as the parser would have already failed.
+                        // We only have to care about "got multiple values for XYZ"
+
+                        self.restore_snapshot();
+                        return Err(TypeError::new(
+                            TypeErrorKind::GotMultipleValues { name: param_name },
+                            *loc,
+                        ));
+                    }
+
+                    param_info.has_been_supplied = true;
+
+                    // Typecheck
+                    type_check_arg(param_name, param_info.param.ty, arg_ty)?;
+                }
+
+                // After checking posargs and kwargs, check if there are any
+                // unsupplied required parameters, and throw an error if they exist.
+                let missing_arg_names = param_info_by_name
+                    .values()
+                    .filter(|param_info| {
+                        param_info.param.is_required() && !param_info.has_been_supplied
+                    })
+                    .map(|param_info| param_info.param.name)
+                    .collect_vec();
+                if !missing_arg_names.is_empty() {
+                    self.restore_snapshot();
+                    return Err(TypeError::new(
+                        TypeErrorKind::MissingArgs { missing_arg_names },
+                        *loc,
+                    ));
+                }
+
+                // Finally, check the Call's return type
+                self.unify_impl(*ret, signature.ret, false).map_err(|mut err| {
+                    self.restore_snapshot();
+                    if err.loc.is_none() {
+                        err.loc = *loc;
+                    }
+                    err
+                })?;
             }
-            err
-        })?;
+        }
 
         *fun.borrow_mut() = Some(b);
 
