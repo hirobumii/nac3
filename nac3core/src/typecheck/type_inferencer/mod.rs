@@ -248,7 +248,17 @@ impl<'a> Fold<()> for Inferencer<'a> {
                         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                             todo!()
                         }
-                        _ => unreachable!(),
+                        _ => {
+                            // User is attempting to use a for loop to iterate
+                            // over a value of an unsupported type.
+
+                            let iter_ty = iter.custom.unwrap();
+                            let iter_ty_str = self.unifier.stringify(iter_ty);
+                            return report_error(
+                                format!("'{iter_ty_str}' object is not iterable").as_str(),
+                                iter.location,
+                            );
+                        }
                     };
                     self.unify(list_like_ty, iter.custom.unwrap(), &iter.location)?;
                 }
