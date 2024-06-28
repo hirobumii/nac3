@@ -159,9 +159,11 @@
           # development tools
           cargo-insta
           clippy
-          pre-commit
           rustfmt
+          rust-analyzer
         ];
+        # https://nixos.wiki/wiki/Rust#Shell.nix_example
+        RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
       };
       devShells.x86_64-linux.msys2 = pkgs.mkShell {
         name = "nac3-dev-shell-msys2";
