@@ -429,12 +429,27 @@ pub fn typeof_binop(
     lhs: Type,
     rhs: Type,
 ) -> Result<Option<Type>, String> {
+    let is_left_list = lhs.obj_id(unifier).is_some_and(|id| id == PrimDef::List.id());
+    let is_right_list = rhs.obj_id(unifier).is_some_and(|id| id == PrimDef::List.id());
     let is_left_ndarray = lhs.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id());
     let is_right_ndarray = rhs.obj_id(unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
     Ok(Some(match op {
         Operator::Add | Operator::Sub | Operator::Mult | Operator::Mod | Operator::FloorDiv => {
-            if is_left_ndarray || is_right_ndarray {
+            if is_left_list || is_right_list {
+                if op != Operator::Mult {
+                    return Err(format!(
+                        "Binary operator {} not supported for list",
+                        binop_name(op)
+                    ));
+                }
+
+                if is_left_list {
+                    lhs
+                } else {
+                    rhs
+                }
+            } else if is_left_ndarray || is_right_ndarray {
                 typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?
             } else if unifier.unioned(lhs, rhs) {
                 lhs
@@ -604,6 +619,7 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
         bool: bool_t,
         uint32: uint32_t,
         uint64: uint64_t,
+        list: list_t,
         ndarray: ndarray_t,
         ..
     } = *store;
@@ -647,6 +663,9 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     impl_not(unifier, store, bool_t, Some(bool_t));
     impl_sign(unifier, store, bool_t, Some(int32_t));
     impl_eq(unifier, store, bool_t, &[bool_t, ndarray_bool_t], None);
+
+    /* list ======== */
+    impl_binop(unifier, store, list_t, &[int32_t, int64_t], Some(list_t), &[Operator::Mult]);
 
     /* ndarray ===== */
     let ndarray_usized_ndims_tvar =

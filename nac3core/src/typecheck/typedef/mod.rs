@@ -895,27 +895,6 @@ impl Unifier {
                 self.set_a_to_b(a, x);
             }
             (
-                TVar { fields: Some(fields), range, is_const_generic: false, .. },
-                TObj { obj_id, params, .. },
-            ) if *obj_id == PrimDef::List.id() => {
-                let ty = iter_type_vars(params).nth(0).unwrap().ty;
-
-                for (k, v) in fields {
-                    match *k {
-                        RecordKey::Int(_) => {
-                            self.unify_impl(v.ty, ty, false).map_err(|e| e.at(v.loc))?;
-                        }
-                        RecordKey::Str(_) => {
-                            return Err(TypeError::new(TypeErrorKind::NoSuchField(*k, b), v.loc))
-                        }
-                    }
-                }
-                let x = self.check_var_compatibility(b, range)?.unwrap_or(b);
-                self.unify_impl(x, b, false)?;
-                self.set_a_to_b(a, x);
-            }
-
-            (
                 TVar { id: id1, range: ty1, is_const_generic: true, .. },
                 TVar { id: id2, range: ty2, .. },
             ) => {
@@ -993,7 +972,7 @@ impl Unifier {
                 }
                 self.set_a_to_b(a, b);
             }
-            (TVar { fields: Some(map), range, .. }, TObj { fields, .. }) => {
+            (TVar { fields: Some(map), range, .. }, TObj { obj_id, fields, params }) => {
                 for (k, field) in map {
                     match *k {
                         RecordKey::Str(s) => {
@@ -1012,10 +991,18 @@ impl Unifier {
                             self.unify_impl(field.ty, ty, false).map_err(|v| v.at(field.loc))?;
                         }
                         RecordKey::Int(_) => {
-                            return Err(TypeError::new(
-                                TypeErrorKind::NoSuchField(*k, b),
-                                field.loc,
-                            ))
+                            // Allow expressions such as list[0]
+                            if *obj_id == PrimDef::List.id() {
+                                let ty = iter_type_vars(params).nth(0).unwrap().ty;
+
+                                self.unify_impl(field.ty, ty, false)
+                                    .map_err(|e| e.at(field.loc))?;
+                            } else {
+                                return Err(TypeError::new(
+                                    TypeErrorKind::NoSuchField(*k, b),
+                                    field.loc,
+                                ));
+                            }
                         }
                     }
                 }

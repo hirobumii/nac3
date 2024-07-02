@@ -10,10 +10,11 @@ use crate::{
         gen_in_range_check, get_llvm_abi_type, get_llvm_type,
         irrt::*,
         llvm_intrinsics::{
-            call_expect, call_float_floor, call_float_pow, call_float_powi, call_memcpy_generic,
+            call_expect, call_float_floor, call_float_pow, call_float_powi, call_int_smax,
+            call_memcpy_generic,
         },
         need_sret, numpy,
-        stmt::{gen_if_else_expr_callback, gen_raise, gen_var},
+        stmt::{gen_for_callback_incrementing, gen_if_else_expr_callback, gen_raise, gen_var},
         CodeGenContext, CodeGenTask, CodeGenerator,
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -1193,6 +1194,87 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             Some("f_pow_i"),
         );
         Ok(Some(res.into()))
+    } else if ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id())
+        || ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id())
+    {
+        let llvm_usize = generator.get_size_type(ctx.ctx);
+
+        if is_aug_assign || op != Operator::Mult {
+            todo!("Only __mul__ is implemented for lists")
+        }
+
+        let (elem_ty, list_val, int_val) =
+            if ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id()) {
+                let elem_ty =
+                    if let TypeEnum::TObj { params, .. } = &*ctx.unifier.get_ty_immutable(ty1) {
+                        *params.iter().next().unwrap().1
+                    } else {
+                        unreachable!()
+                    };
+
+                (elem_ty, left_val, right_val)
+            } else if ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id()) {
+                let elem_ty =
+                    if let TypeEnum::TObj { params, .. } = &*ctx.unifier.get_ty_immutable(ty2) {
+                        *params.iter().next().unwrap().1
+                    } else {
+                        unreachable!()
+                    };
+
+                (elem_ty, right_val, left_val)
+            } else {
+                unreachable!()
+            };
+        let list_val = ListValue::from_ptr_val(list_val.into_pointer_value(), llvm_usize, None);
+        let int_val =
+            ctx.builder.build_int_s_extend(int_val.into_int_value(), llvm_usize, "").unwrap();
+        // [...] * (i where i < 0) => []
+        let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None);
+
+        let elem_llvm_ty = ctx.get_llvm_type(generator, elem_ty);
+
+        let new_list = allocate_list(
+            generator,
+            ctx,
+            Some(elem_llvm_ty),
+            ctx.builder.build_int_mul(list_val.load_size(ctx, None), int_val, "").unwrap(),
+            None,
+        );
+
+        gen_for_callback_incrementing(
+            generator,
+            ctx,
+            llvm_usize.const_zero(),
+            (int_val, false),
+            |generator, ctx, _, i| {
+                let offset =
+                    ctx.builder.build_int_mul(i, list_val.load_size(ctx, None), "").unwrap();
+                let ptr =
+                    unsafe { new_list.data().ptr_offset_unchecked(ctx, generator, &offset, None) };
+
+                let memcpy_sz = ctx
+                    .builder
+                    .build_int_mul(
+                        list_val.load_size(ctx, None),
+                        elem_llvm_ty.size_of().unwrap(),
+                        "",
+                    )
+                    .unwrap();
+
+                call_memcpy_generic(
+                    ctx,
+                    ptr,
+                    list_val.data().base_ptr(ctx, generator),
+                    memcpy_sz,
+                    ctx.ctx.bool_type().const_zero(),
+                );
+
+                Ok(())
+            },
+            llvm_usize.const_int(1, false),
+        )?;
+
+        Ok(Some(new_list.as_base_value().into()))
     } else if ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
         || ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
     {
