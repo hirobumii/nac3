@@ -667,6 +667,7 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     /* list ======== */
     impl_binop(unifier, store, list_t, &[list_t], Some(list_t), &[Operator::Add]);
     impl_binop(unifier, store, list_t, &[int32_t, int64_t], Some(list_t), &[Operator::Mult]);
+    impl_cmpop(unifier, store, list_t, &[list_t], &[Cmpop::Eq, Cmpop::NotEq], Some(bool_t));
 
     /* ndarray ===== */
     let ndarray_usized_ndims_tvar =
