@@ -2124,11 +2124,19 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             }
 
             let ty = if elements.is_empty() {
-                let TypeEnum::TList { ty } = &*ctx.unifier.get_ty(expr.custom.unwrap()) else {
+                let ty = if let TypeEnum::TObj { obj_id, params, .. } =
+                    &*ctx.unifier.get_ty(expr.custom.unwrap())
+                {
+                    if *obj_id != PrimDef::List.id() {
+                        unreachable!()
+                    }
+
+                    *params.iter().next().unwrap().1
+                } else {
                     unreachable!()
                 };
 
-                ctx.get_llvm_type(generator, *ty)
+                ctx.get_llvm_type(generator, ty)
             } else {
                 elements[0].get_type()
             };
@@ -2550,7 +2558,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
         }
         ExprKind::Subscript { value, slice, .. } => {
             match &*ctx.unifier.get_ty(value.custom.unwrap()) {
-                TypeEnum::TList { ty } => {
+                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                    let ty = params.iter().next().unwrap().1;
+
                     let v = if let Some(v) = generator.gen_expr(ctx, value)? {
                         v.to_basic_value_enum(ctx, generator, value.custom.unwrap())?
                             .into_pointer_value()

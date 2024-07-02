@@ -456,6 +456,20 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                             .into()
                         }
 
+                        TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                            let element_type = get_llvm_type(
+                                ctx,
+                                module,
+                                generator,
+                                unifier,
+                                top_level,
+                                type_cache,
+                                *params.iter().next().unwrap().1,
+                            );
+
+                            ListType::new(generator, ctx, element_type).as_base_type().into()
+                        }
+
                         TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                             let (dtype, _) = unpack_ndarray_var_tys(unifier, ty);
                             let element_type = get_llvm_type(
@@ -515,12 +529,6 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                     })
                     .collect_vec();
                 ctx.struct_type(&fields, false).into()
-            }
-            TList { ty } => {
-                let element_type =
-                    get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, *ty);
-
-                ListType::new(generator, ctx, element_type).as_base_type().into()
             }
             TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),

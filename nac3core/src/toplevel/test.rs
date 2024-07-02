@@ -1,3 +1,6 @@
+use super::*;
+use crate::toplevel::helper::PrimDef;
+use crate::typecheck::typedef::into_var_map;
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::{SymbolResolver, ValueEnum},
@@ -13,8 +16,6 @@ use nac3parser::{ast::fold::Fold, parser::parse_program};
 use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
 use test_case::test_case;
-
-use super::*;
 
 struct ResolverInternal {
     id_to_type: Mutex<HashMap<StrRef, Type>>,
@@ -775,8 +776,15 @@ fn make_internal_resolver_with_tvar(
     unifier: &mut Unifier,
     print: bool,
 ) -> Arc<ResolverInternal> {
+    let list_elem_tvar = unifier.get_fresh_var(Some("list_elem".into()), None);
+    let list = unifier.add_ty(TypeEnum::TObj {
+        obj_id: PrimDef::List.id(),
+        fields: HashMap::new(),
+        params: into_var_map([list_elem_tvar]),
+    });
+
     let res: Arc<ResolverInternal> = ResolverInternal {
-        id_to_def: Mutex::default(),
+        id_to_def: Mutex::new(HashMap::from([("list".into(), PrimDef::List.id())])),
         id_to_type: tvars
             .into_iter()
             .map(|(name, range)| {
@@ -790,7 +798,7 @@ fn make_internal_resolver_with_tvar(
             })
             .collect::<HashMap<_, _>>()
             .into(),
-        class_names: Mutex::default(),
+        class_names: Mutex::new(HashMap::from([("list".into(), list)])),
     }
     .into();
     if print {

@@ -329,8 +329,19 @@ impl InnerResolver {
             Ok(Ok((primitives.exception, true)))
         } else if ty_id == self.primitive_ids.list {
             // do not handle type var param and concrete check here
+            let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
+                &*unifier.get_ty_immutable(primitives.list)
+            {
+                assert_eq!(*obj_id, PrimDef::List.id());
+                iter_type_vars(params).nth(0).unwrap()
+            } else {
+                unreachable!()
+            };
+
             let var = unifier.get_dummy_var().ty;
-            let list = unifier.add_ty(TypeEnum::TList { ty: var });
+            let list = unifier
+                .subst(primitives.list, &into_var_map([TypeVar { id: list_tvar.id, ty: var }]))
+                .unwrap();
             Ok(Ok((list, false)))
         } else if ty_id == self.primitive_ids.ndarray {
             // do not handle type var param and concrete check here
@@ -460,7 +471,7 @@ impl InnerResolver {
                 };
 
             match &*unifier.get_ty(origin_ty) {
-                TypeEnum::TList { .. } => {
+                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
                     if args.len() == 1 {
                         let ty = match self.get_pyty_obj_type(
                             py,
@@ -477,7 +488,21 @@ impl InnerResolver {
                                 "type list should take concrete parameters in typevar range".into(),
                             ));
                         }
-                        Ok(Ok((unifier.add_ty(TypeEnum::TList { ty: ty.0 }), true)))
+                        let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
+                            &*unifier.get_ty_immutable(primitives.list)
+                        {
+                            assert_eq!(*obj_id, PrimDef::List.id());
+                            iter_type_vars(params).nth(0).unwrap()
+                        } else {
+                            unreachable!()
+                        };
+                        let list = unifier
+                            .subst(
+                                primitives.list,
+                                &into_var_map([TypeVar { id: list_tvar.id, ty: ty.0 }]),
+                            )
+                            .unwrap();
+                        Ok(Ok((list, true)))
                     } else {
                         return Ok(Err(format!(
                             "type list needs exactly 1 type parameters, found {}",
@@ -693,11 +718,12 @@ impl InnerResolver {
         };
         match (&*unifier.get_ty(extracted_ty), inst_check) {
             // do the instantiation for these four types
-            (TypeEnum::TList { ty }, false) => {
+            (TypeEnum::TObj { obj_id, params, .. }, false) if *obj_id == PrimDef::List.id() => {
+                let ty = iter_type_vars(params).nth(0).unwrap().ty;
                 let len: usize = self.helper.len_fn.call1(py, (obj,))?.extract(py)?;
                 if len == 0 {
                     assert!(matches!(
-                        &*unifier.get_ty(*ty),
+                        &*unifier.get_ty(ty),
                         TypeEnum::TVar { fields: None, range, .. }
                             if range.is_empty()
                     ));
@@ -706,8 +732,25 @@ impl InnerResolver {
                     let actual_ty =
                         self.get_list_elem_type(py, obj, len, unifier, defs, primitives)?;
                     match actual_ty {
-                        Ok(t) => match unifier.unify(*ty, t) {
-                            Ok(()) => Ok(Ok(unifier.add_ty(TypeEnum::TList { ty: *ty }))),
+                        Ok(t) => match unifier.unify(ty, t) {
+                            Ok(()) => {
+                                let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
+                                    &*unifier.get_ty_immutable(primitives.list)
+                                {
+                                    assert_eq!(*obj_id, PrimDef::List.id());
+                                    iter_type_vars(params).nth(0).unwrap()
+                                } else {
+                                    unreachable!()
+                                };
+                                let list = unifier
+                                    .subst(
+                                        primitives.list,
+                                        &into_var_map([TypeVar { id: list_tvar.id, ty }]),
+                                    )
+                                    .unwrap();
+                                Ok(Ok(list))
+                            }
+
                             Err(e) => Ok(Err(format!(
                                 "type error ({}) for the list",
                                 e.to_display(unifier)
@@ -942,12 +985,11 @@ impl InnerResolver {
             }
 
             let len: usize = self.helper.len_fn.call1(py, (obj,))?.extract(py)?;
-            let elem_ty = if let TypeEnum::TList { ty } =
-                ctx.unifier.get_ty_immutable(expected_ty).as_ref()
-            {
-                *ty
-            } else {
-                unreachable!("must be list")
+            let elem_ty = match ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
+                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                    iter_type_vars(params).nth(0).unwrap().ty
+                }
+                _ => unreachable!("must be list"),
             };
             let ty = ctx.get_llvm_type(generator, elem_ty);
             let size_t = generator.get_size_type(ctx.ctx);

@@ -6,8 +6,8 @@ use nac3core::{
         CodeGenContext, CodeGenerator,
     },
     symbol_resolver::ValueEnum,
-    toplevel::{helper::PrimDef, DefinitionId, GenCall},
-    typecheck::typedef::{FunSignature, FuncArg, Type, TypeEnum, VarMap},
+    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, DefinitionId, GenCall},
+    typecheck::typedef::{iter_type_vars, FunSignature, FuncArg, Type, TypeEnum, VarMap},
 };
 
 use nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef};
@@ -23,7 +23,6 @@ use pyo3::{
 
 use crate::{symbol_resolver::InnerResolver, timeline::TimeFns};
 
-use nac3core::toplevel::numpy::unpack_ndarray_var_tys;
 use std::{
     collections::hash_map::DefaultHasher,
     collections::HashMap,
@@ -394,9 +393,11 @@ fn gen_rpc_tag(
                     gen_rpc_tag(ctx, *ty, buffer)?;
                 }
             }
-            TList { ty } => {
+            TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                let ty = iter_type_vars(params).next().unwrap().ty;
+
                 buffer.push(b'l');
-                gen_rpc_tag(ctx, *ty, buffer)?;
+                gen_rpc_tag(ctx, ty, buffer)?;
             }
             TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                 let (ndarray_dtype, ndarray_ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
@@ -675,8 +676,10 @@ pub fn attributes_writeback(
                         host_attributes.append(pydict)?;
                     }
                 }
-                TypeEnum::TList { ty: elem_ty } => {
-                    if gen_rpc_tag(ctx, *elem_ty, &mut scratch_buffer).is_ok() {
+                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                    let elem_ty = iter_type_vars(params).next().unwrap().ty;
+
+                    if gen_rpc_tag(ctx, elem_ty, &mut scratch_buffer).is_ok() {
                         let pydict = PyDict::new(py);
                         pydict.set_item("obj", val)?;
                         host_attributes.append(pydict)?;

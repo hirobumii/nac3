@@ -1804,10 +1804,15 @@ pub fn gen_ndarray_array<'ctx>(
             unpack_ndarray_var_tys(&mut context.unifier, obj_ty).0
         }
 
-        TypeEnum::TList { ty } => {
-            let mut ty = *ty;
-            while let TypeEnum::TList { ty: elem_ty } = &*context.unifier.get_ty_immutable(ty) {
-                ty = *elem_ty;
+        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+            let mut ty = *params.iter().next().unwrap().1;
+            while let TypeEnum::TObj { obj_id, params, .. } = &*context.unifier.get_ty_immutable(ty)
+            {
+                if *obj_id != PrimDef::List.id() {
+                    break;
+                }
+
+                ty = *params.iter().next().unwrap().1;
             }
             ty
         }

@@ -305,6 +305,8 @@ struct BuiltinBuilder<'a> {
     unwrap_ty: (Type, bool),
     option_tvar: TypeVar,
 
+    list_tvar: TypeVar,
+
     ndarray_dtype_tvar: TypeVar,
     ndarray_ndims_tvar: TypeVar,
     ndarray_copy_ty: (Type, bool),
@@ -395,7 +397,17 @@ impl<'a> BuiltinBuilder<'a> {
             unifier.get_fresh_var_with_range(&[num_ty.ty, ndarray_num_ty], Some("T".into()), None);
         let num_or_ndarray_var_map = into_var_map([num_ty, num_or_ndarray_ty]);
 
-        let list_int32 = unifier.add_ty(TypeEnum::TList { ty: int32 });
+        let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
+            &*unifier.get_ty_immutable(primitives.list)
+        {
+            assert_eq!(*obj_id, PrimDef::List.id());
+            iter_type_vars(params).nth(0).unwrap()
+        } else {
+            unreachable!()
+        };
+        let list_int32 = unifier
+            .subst(primitives.list, &into_var_map([TypeVar { id: list_tvar.id, ty: int32 }]))
+            .unwrap();
 
         let ndarray_factory_fn_shape_arg_tvar = unifier.get_fresh_var(Some("Shape".into()), None);
 
@@ -406,6 +418,8 @@ impl<'a> BuiltinBuilder<'a> {
             is_some_ty,
             unwrap_ty,
             option_tvar,
+
+            list_tvar,
 
             ndarray_dtype_tvar,
             ndarray_ndims_tvar,
@@ -456,6 +470,8 @@ impl<'a> BuiltinBuilder<'a> {
             | PrimDef::OptionIsNone
             | PrimDef::OptionUnwrap
             | PrimDef::FunSome => self.build_option_class_related(prim),
+
+            PrimDef::List => self.build_list_class_related(prim),
 
             PrimDef::NDArray | PrimDef::NDArrayCopy | PrimDef::NDArrayFill => {
                 self.build_ndarray_class_related(prim)
@@ -732,6 +748,27 @@ impl<'a> BuiltinBuilder<'a> {
             _ => {
                 unreachable!()
             }
+        }
+    }
+
+    fn build_list_class_related(&self, prim: PrimDef) -> TopLevelDef {
+        debug_assert_prim_is_allowed(prim, &[PrimDef::List]);
+
+        match prim {
+            PrimDef::List => TopLevelDef::Class {
+                name: prim.name().into(),
+                object_id: prim.id(),
+                type_vars: vec![self.list_tvar.ty],
+                fields: Vec::default(),
+                attributes: Vec::default(),
+                methods: Vec::default(),
+                ancestors: Vec::default(),
+                constructor: None,
+                resolver: None,
+                loc: None,
+            },
+
+            _ => unreachable!(),
         }
     }
 
@@ -1335,7 +1372,13 @@ impl<'a> BuiltinBuilder<'a> {
         let PrimitiveStore { uint64, int32, .. } = *self.primitives;
 
         let tvar = self.unifier.get_fresh_var(Some("L".into()), None);
-        let list = self.unifier.add_ty(TypeEnum::TList { ty: tvar.ty });
+        let list = self
+            .unifier
+            .subst(
+                self.primitives.list,
+                &into_var_map([TypeVar { id: self.list_tvar.id, ty: tvar.ty }]),
+            )
+            .unwrap();
         let ndims = self.unifier.get_fresh_const_generic_var(uint64, Some("N".into()), None);
         let ndarray = make_ndarray_ty(self.unifier, self.primitives, Some(tvar.ty), Some(ndims.ty));
 
@@ -1367,7 +1410,7 @@ impl<'a> BuiltinBuilder<'a> {
                         Some(calculate_len_for_slice_range(generator, ctx, start, end, step).into())
                     } else {
                         match &*ctx.unifier.get_ty_immutable(arg_ty) {
-                            TypeEnum::TList { .. } => {
+                            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
                                 let int32 = ctx.ctx.i32_type();
                                 let zero = int32.const_zero();
                                 let len = ctx

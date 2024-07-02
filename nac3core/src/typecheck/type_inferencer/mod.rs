@@ -4,15 +4,20 @@ use std::iter::once;
 use std::ops::Not;
 use std::{cell::RefCell, sync::Arc};
 
-use super::typedef::{Call, FunSignature, FuncArg, RecordField, Type, TypeEnum, Unifier, VarMap};
-use super::{magic_methods::*, type_error::TypeError, typedef::CallId};
-use crate::toplevel::TopLevelDef;
+use super::{
+    magic_methods::*,
+    type_error::TypeError,
+    typedef::{
+        into_var_map, iter_type_vars, Call, CallId, FunSignature, FuncArg, RecordField, Type,
+        TypeEnum, TypeVar, Unifier, VarMap,
+    },
+};
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         helper::{arraylike_flatten_element_type, arraylike_get_ndims, PrimDef},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
-        TopLevelContext,
+        TopLevelContext, TopLevelDef,
     },
 };
 use itertools::{izip, Itertools};
@@ -50,6 +55,7 @@ pub struct PrimitiveStore {
     pub str: Type,
     pub exception: Type,
     pub option: Type,
+    pub list: Type,
     pub ndarray: Type,
     pub size_t: u32,
 }
@@ -242,8 +248,17 @@ impl<'a> Fold<()> for Inferencer<'a> {
                     self.unify(self.primitives.int32, target.custom.unwrap(), &target.location)?;
                 } else {
                     let list_like_ty = match &*self.unifier.get_ty(iter.custom.unwrap()) {
-                        TypeEnum::TList { .. } => {
-                            self.unifier.add_ty(TypeEnum::TList { ty: target.custom.unwrap() })
+                        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                            let list_tvar = iter_type_vars(params).nth(0).unwrap();
+                            self.unifier
+                                .subst(
+                                    self.primitives.list,
+                                    &into_var_map([TypeVar {
+                                        id: list_tvar.id,
+                                        ty: target.custom.unwrap(),
+                                    }]),
+                                )
+                                .unwrap()
                         }
                         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                             todo!()
@@ -764,6 +779,16 @@ impl<'a> Inferencer<'a> {
                 generators[0].target.location,
             );
         }
+
+        let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
+            &*self.unifier.get_ty_immutable(self.primitives.list)
+        {
+            assert_eq!(*obj_id, PrimDef::List.id());
+            iter_type_vars(params).nth(0).unwrap()
+        } else {
+            unreachable!()
+        };
+
         let variable_mapping = self.variable_mapping.clone();
         let defined_identifiers = self.defined_identifiers.clone();
         let mut new_context = Inferencer {
@@ -792,7 +817,13 @@ impl<'a> Inferencer<'a> {
                 &target.location,
             )?;
         } else {
-            let list = new_context.unifier.add_ty(TypeEnum::TList { ty: target.custom.unwrap() });
+            let list = new_context
+                .unifier
+                .subst(
+                    self.primitives.list,
+                    &into_var_map([TypeVar { id: list_tvar.id, ty: target.custom.unwrap() }]),
+                )
+                .unwrap();
             new_context.unify(iter.custom.unwrap(), list, &iter.location)?;
         }
         let ifs: Vec<_> = generator
@@ -809,9 +840,16 @@ impl<'a> Inferencer<'a> {
             new_context.unify(v.custom.unwrap(), new_context.primitives.bool, &v.location)?;
         }
 
+        let custom = new_context
+            .unifier
+            .subst(
+                self.primitives.list,
+                &into_var_map([TypeVar { id: list_tvar.id, ty: elt.custom.unwrap() }]),
+            )
+            .unwrap();
         Ok(Located {
             location,
-            custom: Some(new_context.unifier.add_ty(TypeEnum::TList { ty: elt.custom.unwrap() })),
+            custom: Some(custom),
             node: ExprKind::ListComp {
                 elt: Box::new(elt),
                 generators: vec![Comprehension {
@@ -893,11 +931,13 @@ impl<'a> Inferencer<'a> {
         // Here, we also take the opportunity to deduce `ndims` statically.
         let shape_ty_enum = &*self.unifier.get_ty(shape_ty);
         let ndims = match shape_ty_enum {
-            TypeEnum::TList { ty } => {
+            TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
                 // Handle 1. A list of int32s
 
+                let ty = iter_type_vars(params).nth(0).unwrap().ty;
+
                 // Typecheck
-                self.unifier.unify(*ty, self.primitives.int32).map_err(|err| {
+                self.unifier.unify(ty, self.primitives.int32).map_err(|err| {
                     HashSet::from([err
                         .at(Some(shape.location))
                         .to_display(self.unifier)
@@ -1563,7 +1603,19 @@ impl<'a> Inferencer<'a> {
         for t in elts {
             self.unify(ty, t.custom.unwrap(), &t.location)?;
         }
-        Ok(self.unifier.add_ty(TypeEnum::TList { ty }))
+        let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
+            &*self.unifier.get_ty_immutable(self.primitives.list)
+        {
+            assert_eq!(*obj_id, PrimDef::List.id());
+            iter_type_vars(params).nth(0).unwrap()
+        } else {
+            unreachable!()
+        };
+        let list = self
+            .unifier
+            .subst(self.primitives.list, &into_var_map([TypeVar { id: list_tvar.id, ty }]))
+            .unwrap();
+        Ok(list)
     }
 
     #[allow(clippy::unnecessary_wraps)]
@@ -1885,7 +1937,16 @@ impl<'a> Inferencer<'a> {
                     self.constrain(v.custom.unwrap(), self.primitives.int32, &v.location)?;
                 }
                 let list_like_ty = match &*self.unifier.get_ty(value.custom.unwrap()) {
-                    TypeEnum::TList { .. } => self.unifier.add_ty(TypeEnum::TList { ty }),
+                    TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                        let list_tvar = iter_type_vars(params).nth(0).unwrap();
+                        self.unifier
+                            .subst(
+                                self.primitives.list,
+                                &into_var_map([TypeVar { id: list_tvar.id, ty }]),
+                            )
+                            .unwrap()
+                    }
+
                     TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                         let (_, ndims) =
                             unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
@@ -1960,13 +2021,20 @@ impl<'a> Inferencer<'a> {
 
                 // the index is not a constant, so value can only be a list-like structure
                 match &*self.unifier.get_ty(value.custom.unwrap()) {
-                    TypeEnum::TList { .. } => {
+                    TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
                         self.constrain(
                             slice.custom.unwrap(),
                             self.primitives.int32,
                             &slice.location,
                         )?;
-                        let list = self.unifier.add_ty(TypeEnum::TList { ty });
+                        let list_tvar = iter_type_vars(params).nth(0).unwrap();
+                        let list = self
+                            .unifier
+                            .subst(
+                                self.primitives.list,
+                                &into_var_map([TypeVar { id: list_tvar.id, ty }]),
+                            )
+                            .unwrap();
                         self.constrain(value.custom.unwrap(), list, &value.location)?;
                         Ok(ty)
                     }

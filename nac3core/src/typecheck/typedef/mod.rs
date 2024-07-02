@@ -13,7 +13,7 @@ use nac3parser::ast::{Location, StrRef};
 use super::type_error::{TypeError, TypeErrorKind};
 use super::unification_table::{UnificationKey, UnificationTable};
 use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::{DefinitionId, TopLevelContext, TopLevelDef};
+use crate::toplevel::{helper::PrimDef, DefinitionId, TopLevelContext, TopLevelDef};
 use crate::typecheck::type_inferencer::PrimitiveStore;
 
 #[cfg(test)]
@@ -207,12 +207,6 @@ pub enum TypeEnum {
         ty: Vec<Type>,
     },
 
-    /// A list type.
-    TList {
-        /// The type of elements present in this list.
-        ty: Type,
-    },
-
     /// An object type.
     TObj {
         /// The [`DefinitionId`] of this object type.
@@ -246,7 +240,6 @@ impl TypeEnum {
             TypeEnum::TVar { .. } => "TVar",
             TypeEnum::TLiteral { .. } => "TConstant",
             TypeEnum::TTuple { .. } => "TTuple",
-            TypeEnum::TList { .. } => "TList",
             TypeEnum::TObj { .. } => "TObj",
             TypeEnum::TVirtual { .. } => "TVirtual",
             TypeEnum::TCall { .. } => "TCall",
@@ -482,9 +475,27 @@ impl Unifier {
                     )
                 }
             }
-            TypeEnum::TList { ty } => self
-                .get_instantiations(*ty)
-                .map(|ty| ty.iter().map(|&ty| self.add_ty(TypeEnum::TList { ty })).collect_vec()),
+            TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                let tv = iter_type_vars(params).nth(0).unwrap();
+
+                let tv_id = if let TypeEnum::TVar { id, .. } =
+                    self.unification_table.probe_value(tv.ty).as_ref()
+                {
+                    *id
+                } else {
+                    tv.id
+                };
+
+                self.get_instantiations(tv.ty).map(|ty_insts| {
+                    ty_insts
+                        .iter()
+                        .map(|&ty_inst| {
+                            self.subst(ty, &into_var_map([TypeVar { id: tv_id, ty: ty_inst }]))
+                                .unwrap_or(ty)
+                        })
+                        .collect()
+                })
+            }
             TypeEnum::TVirtual { ty } => self.get_instantiations(*ty).map(|ty| {
                 ty.iter().map(|&ty| self.add_ty(TypeEnum::TVirtual { ty })).collect_vec()
             }),
@@ -541,9 +552,7 @@ impl Unifier {
 
             TVar { .. } => allowed_typevars.iter().any(|b| self.unification_table.unioned(a, *b)),
             TCall { .. } => false,
-            TList { ty }
-            | TVirtual { ty } => self.is_concrete(*ty, allowed_typevars),
-
+            TVirtual { ty } => self.is_concrete(*ty, allowed_typevars),
             TTuple { ty } => ty.iter().all(|ty| self.is_concrete(*ty, allowed_typevars)),
             TObj { params: vars, .. } => {
                 vars.values().all(|ty| self.is_concrete(*ty, allowed_typevars))
@@ -885,11 +894,16 @@ impl Unifier {
                 self.unify_impl(x, b, false)?;
                 self.set_a_to_b(a, x);
             }
-            (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TList { ty }) => {
+            (
+                TVar { fields: Some(fields), range, is_const_generic: false, .. },
+                TObj { obj_id, params, .. },
+            ) if *obj_id == PrimDef::List.id() => {
+                let ty = iter_type_vars(params).nth(0).unwrap().ty;
+
                 for (k, v) in fields {
                     match *k {
                         RecordKey::Int(_) => {
-                            self.unify_impl(v.ty, *ty, false).map_err(|e| e.at(v.loc))?;
+                            self.unify_impl(v.ty, ty, false).map_err(|e| e.at(v.loc))?;
                         }
                         RecordKey::Str(_) => {
                             return Err(TypeError::new(TypeErrorKind::NoSuchField(*k, b), v.loc))
@@ -976,12 +990,6 @@ impl Unifier {
                     if self.unify_impl(*x, *y, false).is_err() {
                         return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
                     }
-                }
-                self.set_a_to_b(a, b);
-            }
-            (TList { ty: ty1 }, TList { ty: ty2 }) => {
-                if self.unify_impl(*ty1, *ty2, false).is_err() {
-                    return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
                 }
                 self.set_a_to_b(a, b);
             }
@@ -1222,9 +1230,6 @@ impl Unifier {
                     ty.iter().map(|v| self.internal_stringify(*v, obj_to_name, var_to_name, notes));
                 format!("tuple[{}]", fields.join(", "))
             }
-            TypeEnum::TList { ty } => {
-                format!("list[{}]", self.internal_stringify(*ty, obj_to_name, var_to_name, notes))
-            }
             TypeEnum::TVirtual { ty } => {
                 format!(
                     "virtual[{}]",
@@ -1357,9 +1362,6 @@ impl Unifier {
                     None
                 }
             }
-            TypeEnum::TList { ty } => {
-                self.subst_impl(*ty, mapping, cache).map(|t| self.add_ty(TypeEnum::TList { ty: t }))
-            }
             TypeEnum::TVirtual { ty } => self
                 .subst_impl(*ty, mapping, cache)
                 .map(|t| self.add_ty(TypeEnum::TVirtual { ty: t })),
@@ -1370,6 +1372,7 @@ impl Unifier {
                 // This is also used to prevent infinite substitution...
                 let need_subst = params.values().any(|v| {
                     let ty = self.unification_table.probe_value(*v);
+                    // TODO(Derppening): #444
                     if let TypeEnum::TVar { id, .. } = ty.as_ref() {
                         mapping.contains_key(id)
                     } else {
@@ -1526,8 +1529,22 @@ impl Unifier {
                     Ok(None)
                 }
             }
-            (TList { ty: ty1 }, TList { ty: ty2 }) => {
-                Ok(self.get_intersection(*ty1, *ty2)?.map(|ty| self.add_ty(TList { ty })))
+            // TODO(Derppening): #444
+            (
+                TObj { obj_id: id1, fields, params: params1 },
+                TObj { obj_id: id2, params: params2, .. },
+            ) if *id1 == PrimDef::List.id() && *id2 == PrimDef::List.id() => {
+                let tv_id = iter_type_vars(params1).nth(0).unwrap().id;
+                let ty1 = iter_type_vars(params1).nth(0).unwrap().ty;
+                let ty2 = iter_type_vars(params2).nth(0).unwrap().ty;
+
+                Ok(self.get_intersection(ty1, ty2)?.map(|ty| {
+                    self.add_ty(TObj {
+                        obj_id: *id1,
+                        fields: fields.clone(),
+                        params: into_var_map([TypeVar { id: tv_id, ty }]),
+                    })
+                }))
             }
             (TVirtual { ty: ty1 }, TVirtual { ty: ty2 }) => {
                 Ok(self.get_intersection(*ty1, *ty2)?.map(|ty| self.add_ty(TVirtual { ty })))

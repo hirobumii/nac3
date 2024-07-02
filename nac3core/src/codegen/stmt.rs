@@ -136,7 +136,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
         }
         ExprKind::Subscript { value, slice, .. } => {
             match ctx.unifier.get_ty_immutable(value.custom.unwrap()).as_ref() {
-                TypeEnum::TList { .. } => {
+                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
                     let v = generator
                         .gen_expr(ctx, value)?
                         .unwrap()
@@ -243,7 +243,9 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 .into_pointer_value();
             let value = ListValue::from_ptr_val(value, llvm_usize, None);
             let ty = match &*ctx.unifier.get_ty_immutable(target.custom.unwrap()) {
-                TypeEnum::TList { ty } => *ty,
+                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                    *params.iter().next().unwrap().1
+                }
                 TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                     unpack_ndarray_var_tys(&mut ctx.unifier, target.custom.unwrap()).0
                 }

@@ -2,7 +2,7 @@ use std::convert::TryInto;
 
 use crate::symbol_resolver::SymbolValue;
 use crate::toplevel::numpy::unpack_ndarray_var_tys;
-use crate::typecheck::typedef::{into_var_map, Mapping, TypeVarId, VarMap};
+use crate::typecheck::typedef::{into_var_map, iter_type_vars, Mapping, TypeVarId, VarMap};
 use nac3parser::ast::{Constant, Location};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -12,6 +12,7 @@ use super::*;
 /// All primitive types and functions in nac3core.
 #[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq)]
 pub enum PrimDef {
+    // Classes
     Int32,
     Int64,
     Float,
@@ -23,10 +24,13 @@ pub enum PrimDef {
     UInt32,
     UInt64,
     Option,
+    List,
+    NDArray,
+
+    // Member Functions
     OptionIsSome,
     OptionIsNone,
     OptionUnwrap,
-    NDArray,
     NDArrayCopy,
     NDArrayFill,
     FunInt32,
@@ -99,6 +103,8 @@ pub enum PrimDef {
     FunNpLdExp,
     FunNpHypot,
     FunNpNextAfter,
+
+    // Top-Level Functions
     FunSome,
 }
 
@@ -177,6 +183,7 @@ impl PrimDef {
             PrimDef::OptionIsSome => fun("Option.is_some", Some("is_some")),
             PrimDef::OptionIsNone => fun("Option.is_none", Some("is_none")),
             PrimDef::OptionUnwrap => fun("Option.unwrap", Some("unwrap")),
+            PrimDef::List => class("list"),
             PrimDef::NDArray => class("ndarray"),
             PrimDef::NDArrayCopy => fun("ndarray.copy", Some("copy")),
             PrimDef::NDArrayFill => fun("ndarray.fill", Some("fill")),
@@ -410,6 +417,13 @@ impl TopLevelComposer {
             _ => unreachable!(),
         };
 
+        let list_elem_tvar = unifier.get_fresh_var(Some("list_elem".into()), None);
+        let list = unifier.add_ty(TypeEnum::TObj {
+            obj_id: PrimDef::List.id(),
+            fields: Mapping::new(),
+            params: into_var_map([list_elem_tvar]),
+        });
+
         let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
         let ndarray_ndims_tvar =
             unifier.get_fresh_const_generic_var(size_t_ty, Some("ndarray_ndims".into()), None);
@@ -451,6 +465,7 @@ impl TopLevelComposer {
             str,
             exception,
             option,
+            list,
             ndarray,
             size_t,
         };
@@ -888,7 +903,9 @@ pub fn arraylike_flatten_element_type(unifier: &mut Unifier, ty: Type) -> Type {
             unpack_ndarray_var_tys(unifier, ty).0
         }
 
-        TypeEnum::TList { ty } => arraylike_flatten_element_type(unifier, *ty),
+        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+            arraylike_flatten_element_type(unifier, iter_type_vars(params).next().unwrap().ty)
+        }
         _ => ty,
     }
 }
@@ -909,7 +926,9 @@ pub fn arraylike_get_ndims(unifier: &mut Unifier, ty: Type) -> u64 {
             u64::try_from(values[0].clone()).unwrap()
         }
 
-        TypeEnum::TList { ty } => arraylike_get_ndims(unifier, *ty) + 1,
+        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+            arraylike_get_ndims(unifier, iter_type_vars(params).next().unwrap().ty) + 1
+        }
         _ => 0,
     }
 }

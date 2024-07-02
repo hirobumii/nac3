@@ -47,9 +47,6 @@ pub enum ConcreteTypeEnum {
     TTuple {
         ty: Vec<ConcreteType>,
     },
-    TList {
-        ty: ConcreteType,
-    },
     TObj {
         obj_id: DefinitionId,
         fields: HashMap<StrRef, (ConcreteType, bool)>,
@@ -167,9 +164,6 @@ impl ConcreteTypeStore {
                         .map(|t| self.from_unifier_type(unifier, primitives, *t, cache))
                         .collect(),
                 },
-                TypeEnum::TList { ty } => ConcreteTypeEnum::TList {
-                    ty: self.from_unifier_type(unifier, primitives, *ty, cache),
-                },
                 TypeEnum::TObj { obj_id, fields, params } => ConcreteTypeEnum::TObj {
                     obj_id: *obj_id,
                     fields: fields
@@ -260,9 +254,6 @@ impl ConcreteTypeStore {
                     .map(|cty| self.to_unifier_type(unifier, primitives, *cty, cache))
                     .collect(),
             },
-            ConcreteTypeEnum::TList { ty } => {
-                TypeEnum::TList { ty: self.to_unifier_type(unifier, primitives, *ty, cache) }
-            }
             ConcreteTypeEnum::TVirtual { ty } => {
                 TypeEnum::TVirtual { ty: self.to_unifier_type(unifier, primitives, *ty, cache) }
             }

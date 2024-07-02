@@ -18,7 +18,6 @@ pub enum TypeAnnotation {
     TypeVar(Type),
     /// A `Literal` allowing a subset of literals.
     Literal(Vec<Constant>),
-    List(Box<TypeAnnotation>),
     Tuple(Vec<TypeAnnotation>),
 }
 
@@ -51,7 +50,6 @@ impl TypeAnnotation {
                 format!("Literal({})", values.iter().map(|v| format!("{v:?}")).join(", "))
             }
             Virtual(ty) => format!("virtual[{}]", ty.stringify(unifier)),
-            List(ty) => format!("list[{}]", ty.stringify(unifier)),
             Tuple(types) => {
                 format!(
                     "tuple[{}]",
@@ -145,9 +143,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
          slice: &ast::Expr<T>,
          unifier: &mut Unifier,
          mut locked: HashMap<DefinitionId, Vec<Type>, S>| {
-            if ["virtual".into(), "Generic".into(), "list".into(), "tuple".into(), "Option".into()]
-                .contains(id)
-            {
+            if ["virtual".into(), "Generic".into(), "tuple".into(), "Option".into()].contains(id) {
                 return Err(HashSet::from([format!(
                     "keywords cannot be class name (at {})",
                     expr.location
@@ -234,23 +230,6 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                 unreachable!("must be concretized custom class kind in the virtual")
             }
             Ok(TypeAnnotation::Virtual(def.into()))
-        }
-
-        // list
-        ast::ExprKind::Subscript { value, slice, .. }
-            if {
-                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"list".into())
-            } =>
-        {
-            let def_ann = parse_ast_to_type_annotation_kinds(
-                resolver,
-                top_level_defs,
-                unifier,
-                primitives,
-                slice.as_ref(),
-                locked,
-            )?;
-            Ok(TypeAnnotation::List(def_ann.into()))
         }
 
         // option
@@ -516,15 +495,6 @@ pub fn get_type_from_type_annotation_kinds(
             )?;
             Ok(unifier.add_ty(TypeEnum::TVirtual { ty }))
         }
-        TypeAnnotation::List(ty) => {
-            let ty = get_type_from_type_annotation_kinds(
-                top_level_defs,
-                unifier,
-                ty.as_ref(),
-                subst_list,
-            )?;
-            Ok(unifier.add_ty(TypeEnum::TList { ty }))
-        }
         TypeAnnotation::Tuple(tys) => {
             let tys = tys
                 .iter()
@@ -565,7 +535,7 @@ pub fn get_type_var_contained_in_type_annotation(ann: &TypeAnnotation) -> Vec<Ty
     let mut result: Vec<TypeAnnotation> = Vec::new();
     match ann {
         TypeAnnotation::TypeVar(..) => result.push(ann.clone()),
-        TypeAnnotation::Virtual(ann) | TypeAnnotation::List(ann) => {
+        TypeAnnotation::Virtual(ann) => {
             result.extend(get_type_var_contained_in_type_annotation(ann.as_ref()));
         }
         TypeAnnotation::CustomClass { params, .. } => {
@@ -606,8 +576,7 @@ pub fn check_overload_type_annotation_compatible(
 
             a == b
         }
-        (TypeAnnotation::Virtual(a), TypeAnnotation::Virtual(b))
-        | (TypeAnnotation::List(a), TypeAnnotation::List(b)) => {
+        (TypeAnnotation::Virtual(a), TypeAnnotation::Virtual(b)) => {
             check_overload_type_annotation_compatible(a.as_ref(), b.as_ref(), unifier)
         }
 
