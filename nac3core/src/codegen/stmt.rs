@@ -464,6 +464,16 @@ pub fn gen_for<G: CodeGenerator>(
     Ok(())
 }
 
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
+pub struct BreakContinueHooks<'ctx> {
+    /// The [exit block][`BasicBlock`] to branch to when `break`-ing out of a loop.
+    pub exit_bb: BasicBlock<'ctx>,
+
+    /// The [latch basic block][`BasicBlock`] to branch to for `continue`-ing to the next iteration
+    /// of the loop.
+    pub latch_bb: BasicBlock<'ctx>,
+}
+
 /// Generates a C-style `for` construct using lambdas, similar to the following C code:
 ///
 /// ```c
@@ -491,7 +501,8 @@ where
     I: Clone,
     InitFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<I, String>,
     CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<IntValue<'ctx>, String>,
-    BodyFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
+    BodyFn:
+        FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, BreakContinueHooks, I) -> Result<(), String>,
     UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
 {
     let current_bb = ctx.builder.get_insert_block().unwrap();
@@ -522,7 +533,8 @@ where
     }
 
     ctx.builder.position_at_end(body_bb);
-    body(generator, ctx, loop_var.clone())?;
+    let hooks = BreakContinueHooks { exit_bb: cont_bb, latch_bb: update_bb };
+    body(generator, ctx, hooks, loop_var.clone())?;
     if !ctx.is_terminated() {
         ctx.builder.build_unconditional_branch(update_bb).unwrap();
     }
@@ -564,7 +576,12 @@ pub fn gen_for_callback_incrementing<'ctx, 'a, G, BodyFn>(
 ) -> Result<(), String>
 where
     G: CodeGenerator + ?Sized,
-    BodyFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, IntValue<'ctx>) -> Result<(), String>,
+    BodyFn: FnOnce(
+        &mut G,
+        &mut CodeGenContext<'ctx, 'a>,
+        BreakContinueHooks,
+        IntValue<'ctx>,
+    ) -> Result<(), String>,
 {
     let init_val_t = init_val.get_type();
 
@@ -586,10 +603,10 @@ where
 
             Ok(ctx.builder.build_int_compare(cmp_op, i, max_val, "").unwrap())
         },
-        |generator, ctx, i_addr| {
+        |generator, ctx, hooks, i_addr| {
             let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();
 
-            body(generator, ctx, i)
+            body(generator, ctx, hooks, i)
         },
         |_, ctx, i_addr| {
             let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();
@@ -700,7 +717,7 @@ where
 
             Ok(cond)
         },
-        |generator, ctx, (i_addr, _)| {
+        |generator, ctx, _, (i_addr, _)| {
             let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();
 
             body_fn(generator, ctx, i)

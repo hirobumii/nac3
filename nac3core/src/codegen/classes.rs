@@ -1719,7 +1719,7 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
             ctx,
             llvm_usize.const_zero(),
             (len, false),
-            |generator, ctx, i| {
+            |generator, ctx, _, i| {
                 let (dim_idx, dim_sz) = unsafe {
                     (
                         indices.get_unchecked(ctx, generator, &i, None).into_int_value(),

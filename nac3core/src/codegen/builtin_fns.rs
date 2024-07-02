@@ -725,7 +725,7 @@ pub fn call_numpy_min<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 llvm_usize.const_int(1, false),
                 (n_sz, false),
-                |generator, ctx, idx| {
+                |generator, ctx, _, idx| {
                     let elem = unsafe { n.data().get_unchecked(ctx, generator, &idx, None) };
 
                     let accumulator = ctx.builder.build_load(accumulator_addr, "").unwrap();
@@ -941,7 +941,7 @@ pub fn call_numpy_max<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 llvm_usize.const_int(1, false),
                 (n_sz, false),
-                |generator, ctx, idx| {
+                |generator, ctx, _, idx| {
                     let elem = unsafe { n.data().get_unchecked(ctx, generator, &idx, None) };
 
                     let accumulator = ctx.builder.build_load(accumulator_addr, "").unwrap();
