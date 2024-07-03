@@ -579,10 +579,8 @@ where
     G: CodeGenerator + ?Sized,
     Dims: ArrayLikeIndexer<'ctx>,
 {
-    let llvm_i64 = ctx.ctx.i64_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let llvm_pi64 = llvm_i64.ptr_type(AddressSpace::default());
+    let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
     let ndarray_calc_size_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_calc_size",
@@ -590,7 +588,7 @@ where
         bw => unreachable!("Unsupported size type bit width: {}", bw),
     };
     let ndarray_calc_size_fn_t = llvm_usize.fn_type(
-        &[llvm_pi64.into(), llvm_usize.into(), llvm_usize.into(), llvm_usize.into()],
+        &[llvm_pusize.into(), llvm_usize.into(), llvm_usize.into(), llvm_usize.into()],
         false,
     );
     let ndarray_calc_size_fn =
