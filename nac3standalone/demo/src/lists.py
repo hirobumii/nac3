@@ -1,4 +1,8 @@
 @extern
+def output_bool(x: bool):
+    ...
+
+@extern
 def output_int32_list(x: list[int32]):
     ...
 
@@ -30,6 +34,32 @@ def run() -> int32:
 
     get_list_slice()
     list_slice_assignment()
+
+    output_int32_list([1, 2, 3] + [4, 5, 6])
+    output_int32_list([1, 2, 3] * 3)
+    output_bool([] == [])
+    output_bool([0] == [])
+    output_bool([0] == [0])
+    output_bool([0, 1] == [0])
+    output_bool([0, 1] == [0, 1])
+    output_bool([] != [])
+    output_bool([0] != [])
+    output_bool([0] != [0])
+    output_bool([0] != [0, 1])
+    output_bool([0, 1] != [0, 1])
+    output_bool([] == [] == [])
+    output_bool([0] == [0] == [0])
+    output_bool([0, 1] == [0] == [0, 1])
+    output_bool([0, 1] == [0, 1] == [0])
+    output_bool([0] == [0, 1] == [0, 1])
+    output_bool([0, 1] == [0, 1] == [0, 1])
+    output_bool([] != [] != [])
+    output_bool([0] != [0] != [0])
+    output_bool([0, 1] != [0] != [0, 1])
+    output_bool([0, 1] != [0, 1] != [0])
+    output_bool([0] != [0, 1] != [0, 1])
+    output_bool([0, 1] != [0, 1] != [0, 1])
+
     return 0
 
 def get_list_slice():
