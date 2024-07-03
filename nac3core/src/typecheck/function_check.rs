@@ -1,7 +1,7 @@
-use crate::typecheck::typedef::TypeEnum;
+use crate::toplevel::helper::PrimDef;
 
 use super::type_inferencer::Inferencer;
-use super::typedef::Type;
+use super::typedef::{Type, TypeEnum};
 use nac3parser::ast::{
     self, Constant, Expr, ExprKind,
     Operator::{LShift, RShift},
@@ -69,6 +69,7 @@ impl<'a> Inferencer<'a> {
         // there are some cases where the custom field is None
         if let Some(ty) = &expr.custom {
             if !matches!(&expr.node, ExprKind::Constant { value: Constant::Ellipsis, .. })
+                && !ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::List.id())
                 && !self.unifier.is_concrete(*ty, &self.function_data.bound_variables)
             {
                 return Err(HashSet::from([format!(

@@ -713,12 +713,25 @@ impl<'ctx> ListValue<'ctx> {
     /// If `size` is [None], the size stored in the field of this instance is used instead.
     pub fn create_data(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         elem_ty: BasicTypeEnum<'ctx>,
         size: Option<IntValue<'ctx>>,
     ) {
         let size = size.unwrap_or_else(|| self.load_size(ctx, None));
-        self.store_data(ctx, ctx.builder.build_array_alloca(elem_ty, size, "").unwrap());
+
+        let data = ctx
+            .builder
+            .build_select(
+                ctx.builder
+                    .build_int_compare(IntPredicate::NE, size, self.llvm_usize.const_zero(), "")
+                    .unwrap(),
+                ctx.builder.build_array_alloca(elem_ty, size, "").unwrap(),
+                elem_ty.ptr_type(AddressSpace::default()).const_zero(),
+                "",
+            )
+            .map(BasicValueEnum::into_pointer_value)
+            .unwrap();
+        self.store_data(ctx, data);
     }
 
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`

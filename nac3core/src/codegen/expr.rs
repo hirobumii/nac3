@@ -3,16 +3,18 @@ use std::{collections::HashMap, convert::TryInto, iter::once, iter::zip};
 use crate::{
     codegen::{
         classes::{
-            ArrayLikeIndexer, ArrayLikeValue, ListValue, NDArrayValue, ProxyValue, RangeValue,
-            TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
+            ArrayLikeIndexer, ArrayLikeValue, ListType, ListValue, NDArrayValue, ProxyType,
+            ProxyValue, RangeValue, TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
         },
         concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
         gen_in_range_check, get_llvm_abi_type, get_llvm_type,
         irrt::*,
-        llvm_intrinsics::{call_expect, call_float_floor, call_float_pow, call_float_powi},
-        numpy,
+        llvm_intrinsics::{
+            call_expect, call_float_floor, call_float_pow, call_float_powi, call_memcpy_generic,
+        },
+        need_sret, numpy,
         stmt::{gen_if_else_expr_callback, gen_raise, gen_var},
-        CodeGenContext, CodeGenTask,
+        CodeGenContext, CodeGenTask, CodeGenerator,
     },
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
@@ -29,14 +31,12 @@ use inkwell::{
     attributes::{Attribute, AttributeLoc},
     types::{AnyType, BasicType, BasicTypeEnum},
     values::{BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue},
-    AddressSpace, IntPredicate,
+    AddressSpace, IntPredicate, OptimizationLevel,
 };
 use itertools::{chain, izip, Either, Itertools};
 use nac3parser::ast::{
     self, Boolop, Comprehension, Constant, Expr, ExprKind, Location, Operator, StrRef,
 };
-
-use super::{llvm_intrinsics::call_memcpy_generic, need_sret, CodeGenerator};
 
 pub fn get_subst_key(
     unifier: &mut Unifier,
@@ -946,30 +946,26 @@ pub fn destructure_range<'ctx>(
 /// Allocates a List structure with the given [type][ty] and [length]. The name of the resulting
 /// LLVM value is `{name}.addr`, or `list.addr` if [name] is not specified.
 ///
-/// Returns an instance of [`PointerValue`] pointing to the List structure. The List structure is
-/// defined as `type { ty*, size_t }` in LLVM, where the first element stores the pointer to the
-/// data, and the second element stores the size of the List.
+/// Setting `ty` to [`None`] implies that the list does not have a known element type, which is only
+/// valid for empty lists. It is undefined behavior to generate a sized list with an unknown element
+/// type.
 pub fn allocate_list<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
-    ty: BasicTypeEnum<'ctx>,
+    ty: Option<BasicTypeEnum<'ctx>>,
     length: IntValue<'ctx>,
-    name: Option<&str>,
+    name: Option<&'ctx str>,
 ) -> ListValue<'ctx> {
-    let size_t = generator.get_size_type(ctx.ctx);
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_elem_ty = ty.unwrap_or(llvm_usize.into());
+
     // List structure; type { ty*, size_t }
-    let arr_ty =
-        ctx.ctx.struct_type(&[ty.ptr_type(AddressSpace::default()).into(), size_t.into()], false);
+    let arr_ty = ListType::new(generator, ctx.ctx, llvm_elem_ty);
+    let list = arr_ty.new_value(generator, ctx, name);
 
-    let arr_str_ptr = ctx
-        .builder
-        .build_alloca(arr_ty, format!("{}.addr", name.unwrap_or("list")).as_str())
-        .unwrap();
-    let list = ListValue::from_ptr_val(arr_str_ptr, size_t, Some("list"));
-
-    let length = ctx.builder.build_int_z_extend(length, size_t, "").unwrap();
+    let length = ctx.builder.build_int_z_extend(length, llvm_usize, "").unwrap();
     list.store_size(ctx, generator, length);
-    list.create_data(ctx, ty, None);
+    list.create_data(ctx, llvm_elem_ty, None);
 
     list
 }
@@ -1042,7 +1038,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         list = allocate_list(
             generator,
             ctx,
-            elem_ty,
+            Some(elem_ty),
             list_alloc_size.into_int_value(),
             Some("listcomp.addr"),
         );
@@ -1081,7 +1077,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                 Some("length"),
             )
             .into_int_value();
-        list = allocate_list(generator, ctx, elem_ty, length, Some("listcomp"));
+        list = allocate_list(generator, ctx, Some(elem_ty), length, Some("listcomp"));
         list_content = list.data().base_ptr(ctx, generator);
         let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
         // counter = -1
@@ -1674,6 +1670,19 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     _ => unreachable!(),
                 };
                 ctx.builder.build_float_compare(op, lhs, rhs, "cmp").unwrap()
+            } else if [left_ty, right_ty].iter().any(|ty| matches!(&*ctx.unifier.get_ty_immutable(*ty), TypeEnum::TVar { .. })) {
+                if ctx.registry.llvm_options.opt_level != OptimizationLevel::None {
+                    ctx.make_assert(
+                        generator,
+                        ctx.ctx.bool_type().const_all_ones(),
+                        "0:AssertionError",
+                        "nac3core::codegen::expr::gen_cmpop_expr_with_values: Unexpected comparison between two typevar values",
+                        [None, None, None],
+                        ctx.current_loc,
+                    );
+                }
+
+                ctx.ctx.bool_type().get_poison()
             } else {
                 unimplemented!()
             };
@@ -2127,18 +2136,20 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 let ty = if let TypeEnum::TObj { obj_id, params, .. } =
                     &*ctx.unifier.get_ty(expr.custom.unwrap())
                 {
-                    if *obj_id != PrimDef::List.id() {
-                        unreachable!()
-                    }
+                    assert_eq!(*obj_id, PrimDef::List.id());
 
                     *params.iter().next().unwrap().1
                 } else {
                     unreachable!()
                 };
 
-                ctx.get_llvm_type(generator, ty)
+                if let TypeEnum::TVar { .. } = &*ctx.unifier.get_ty_immutable(ty) {
+                    None
+                } else {
+                    Some(ctx.get_llvm_type(generator, ty))
+                }
             } else {
-                elements[0].get_type()
+                Some(elements[0].get_type())
             };
             let length = generator.get_size_type(ctx.ctx).const_int(elements.len() as u64, false);
             let arr_str_ptr = allocate_list(generator, ctx, ty, length, Some("list"));
@@ -2599,7 +2610,8 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                 .unwrap(),
                             step,
                         );
-                        let res_array_ret = allocate_list(generator, ctx, ty, length, Some("ret"));
+                        let res_array_ret =
+                            allocate_list(generator, ctx, Some(ty), length, Some("ret"));
                         let Some(res_ind) = handle_slice_indices(
                             &None,
                             &None,
