@@ -201,7 +201,7 @@ double __nac3_j0(double x) {
 }
 
 uint32_t __nac3_ndarray_calc_size(
-    const uint64_t *list_data,
+    const uint32_t *list_data,
     uint32_t list_len,
     uint32_t begin_idx,
     uint32_t end_idx
@@ -210,7 +210,7 @@ uint32_t __nac3_ndarray_calc_size(
 
     uint32_t num_elems = 1;
     for (uint32_t i = begin_idx; i < end_idx; ++i) {
-        uint64_t val = list_data[i];
+        uint32_t val = list_data[i];
         __builtin_assume(val > 0);
         num_elems *= val;
     }
