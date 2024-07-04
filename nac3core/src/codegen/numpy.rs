@@ -739,6 +739,8 @@ fn ndarray_from_ndlist_impl<'ctx, G: CodeGenerator + ?Sized>(
         _ => {
             let lst_len = src_lst.load_size(ctx, None);
             let sizeof_elem = ctx.get_llvm_type(generator, elem_ty).size_of().unwrap();
+            let sizeof_elem = ctx.builder.build_int_cast(sizeof_elem, llvm_usize, "").unwrap();
+
             let cpy_len = ctx
                 .builder
                 .build_int_mul(
