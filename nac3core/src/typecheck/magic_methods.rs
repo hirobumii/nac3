@@ -437,7 +437,7 @@ pub fn typeof_binop(
     Ok(Some(match op {
         Operator::Add | Operator::Sub | Operator::Mult | Operator::Mod | Operator::FloorDiv => {
             if is_left_list || is_right_list {
-                if op != Operator::Mult {
+                if ![Operator::Add, Operator::Mult].contains(&op) {
                     return Err(format!(
                         "Binary operator {} not supported for list",
                         binop_name(op)
@@ -665,6 +665,7 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     impl_eq(unifier, store, bool_t, &[bool_t, ndarray_bool_t], None);
 
     /* list ======== */
+    impl_binop(unifier, store, list_t, &[list_t], Some(list_t), &[Operator::Add]);
     impl_binop(unifier, store, list_t, &[int32_t, int64_t], Some(list_t), &[Operator::Mult]);
 
     /* ndarray ===== */
