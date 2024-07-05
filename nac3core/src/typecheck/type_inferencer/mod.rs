@@ -980,11 +980,10 @@ impl<'a> Inferencer<'a> {
                 // `ndims` can be deduced statically from the inferred Tuple type.
                 tuple_element_types.len() as u64
             }
-            TypeEnum::TObj { .. } => {
-                // Handle 3. An integer (generalized as [`TypeEnum::TObj`])
-
-                // Typecheck
-                self.unify(self.primitives.int32, shape_ty, &shape.location)?;
+            TypeEnum::TObj { obj_id, .. }
+                if *obj_id == self.primitives.int32.obj_id(self.unifier).unwrap() =>
+            {
+                // Handle 3. An int32 (generalized as [`TypeEnum::TObj`])
 
                 // Deduce `ndims`
                 1
