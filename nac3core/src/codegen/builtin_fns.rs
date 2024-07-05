@@ -419,7 +419,7 @@ pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            llvm_intrinsics::call_float_roundeven(ctx, n, None).into()
+            llvm_intrinsics::call_float_rint(ctx, n, None).into()
         }
 
         BasicValueEnum::PointerValue(n)
@@ -1383,7 +1383,7 @@ create_helper_call_numpy_unary_elementwise_float_to_float!(
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_rint,
     "np_rint",
-    llvm_intrinsics::call_float_roundeven
+    llvm_intrinsics::call_float_rint
 );
 
 create_helper_call_numpy_unary_elementwise_float_to_float!(
