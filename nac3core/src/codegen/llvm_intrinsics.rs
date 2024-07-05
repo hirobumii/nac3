@@ -62,12 +62,26 @@ pub fn call_stacksave<'ctx>(
 pub fn call_stackrestore<'ctx>(ctx: &CodeGenContext<'ctx, '_>, ptr: PointerValue<'ctx>) {
     const FN_NAME: &str = "llvm.stackrestore";
 
-    let llvm_i8 = ctx.ctx.i8_type();
-    let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
+    /*
+        SEE https://github.com/TheDan64/inkwell/issues/496
 
-    let intrinsic_fn = Intrinsic::find(FN_NAME)
-        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_p0i8.into()]))
-        .unwrap();
+        We want `llvm.stackrestore`, but the following would generate `llvm.stackrestore.p0i8`.
+        ```ignore
+        let intrinsic_fn = Intrinsic::find(FN_NAME)
+            .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_p0i8.into()]))
+            .unwrap();
+        ```
+
+        Temp workaround by manually declaring the intrinsic with the correct function name instead.
+    */
+    let intrinsic_fn = ctx.module.get_function(FN_NAME).unwrap_or_else(|| {
+        let llvm_void = ctx.ctx.void_type();
+        let llvm_i8 = ctx.ctx.i8_type();
+        let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
+        let fn_type = llvm_void.fn_type(&[llvm_p0i8.into()], false);
+
+        ctx.module.add_function(FN_NAME, fn_type, None)
+    });
 
     ctx.builder.build_call(intrinsic_fn, &[ptr.into()], "").unwrap();
 }
