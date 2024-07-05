@@ -80,7 +80,7 @@ in rec {
   llvm-tools-irrt = pkgs.runCommandNoCC "llvm-tools-irrt" {}
     ''
     mkdir -p $out/bin
-    ln -s ${llvm-nac3}/bin/clang.exe $out/bin/clang-irrt.exe
+    ln -s ${llvm-nac3}/bin/clang++.exe $out/bin/clang++-irrt.exe
     ln -s ${llvm-nac3}/bin/llvm-as.exe $out/bin/llvm-as-irrt.exe
     '';
   nac3artiq = pkgs.rustPlatform.buildRustPackage {

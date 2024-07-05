@@ -8,7 +8,7 @@ use std::{
 };
 
 fn main() {
-    const FILE: &str = "src/codegen/irrt/irrt.c";
+    const FILE: &str = "src/codegen/irrt/irrt.cpp";
 
     /*
      * HACK: Sadly, clang doesn't let us emit generic LLVM bitcode.
@@ -18,6 +18,8 @@ fn main() {
         "--target=wasm32",
         FILE,
         "-fno-discard-value-names",
+        "-fno-exceptions",
+        "-fno-rtti",
         match env::var("PROFILE").as_deref() {
             Ok("debug") => "-O0",
             Ok("release") => "-O3",
@@ -35,7 +37,7 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_path = Path::new(&out_dir);
 
-    let output = Command::new("clang-irrt")
+    let output = Command::new("clang++-irrt")
         .args(flags)
         .output()
         .map(|o| {
