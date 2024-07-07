@@ -17,6 +17,7 @@ fn main() {
     let flags: &[&str] = &[
         "--target=wasm32",
         FILE,
+        "-x", "c++",
         "-fno-discard-value-names",
         "-fno-exceptions",
         "-fno-rtti",
@@ -37,7 +38,7 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_path = Path::new(&out_dir);
 
-    let output = Command::new("clang++-irrt")
+    let output = Command::new("clang-irrt")
         .args(flags)
         .output()
         .map(|o| {

@@ -12,7 +12,7 @@
         llvm-tools-irrt = pkgs.runCommandNoCC "llvm-tools-irrt" {}
           ''
           mkdir -p $out/bin
-          ln -s ${pkgs.llvmPackages_14.clang-unwrapped}/bin/clang++ $out/bin/clang++-irrt
+          ln -s ${pkgs.llvmPackages_14.clang-unwrapped}/bin/clang $out/bin/clang-irrt
           ln -s ${pkgs.llvmPackages_14.llvm.out}/bin/llvm-as $out/bin/llvm-as-irrt
           '';
         nac3artiq = pkgs.python3Packages.toPythonModule (
