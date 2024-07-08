@@ -44,6 +44,18 @@ void output_float64(double x) {
     }
 }
 
+void output_range(int32_t range[3]) {
+    printf("range(");
+    if (range[0] != 0) {
+        printf("%d, ", range[0]);
+    }
+    printf("%d", range[1]);
+    if (range[2] != 1) {
+        printf(", %d", range[2]);
+    }
+    puts(")");
+}
+
 void output_asciiart(int32_t x) {
     static const char *chars = " .,-:;i+hHM$*#@    ";
     if (x < 0) {
