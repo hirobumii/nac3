@@ -23,11 +23,12 @@ def run() -> int32:
                     output_int32(x)
                     output_str(" * ")
                     output_float64(n / x)
+                    output_str("\n")
             except:  # Assume this is intended to catch x == 0
                 break
         else:
             # loop fell through without finding a factor
             output_int32(n)
-            output_str(" is a prime number")
+            output_str(" is a prime number\n")
 
     return 0

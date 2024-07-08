@@ -79,6 +79,10 @@ void output_str(struct cslice *slice) {
     for (usize i = 0; i < slice->len; ++i) {
         putchar(data[i]);
     }
+}
+
+void output_strln(struct cslice *slice) {
+    output_str(slice);
     putchar('\n');
 }
 
