@@ -34,6 +34,10 @@ def output_asciiart(x: int32):
 def output_str(x: str):
     ...
 
+@extern
+def output_strln(x: str):
+    ...
+
 def test_output_bool():
     output_bool(True)
     output_bool(False)
@@ -68,7 +72,8 @@ def test_output_int32_list():
     output_int32_list([0, 1, 3, 5, 10])
 
 def test_output_str_family():
-    output_str("hello world")
+    output_str("hello")
+    output_strln(" world")
 
 def run() -> int32:
     test_output_bool()

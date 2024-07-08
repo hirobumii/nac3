@@ -7,7 +7,7 @@ def output_int64(x: int64):
     ...
 
 @extern
-def output_str(x: str):
+def output_strln(x: str):
     ...
 
 
@@ -33,7 +33,7 @@ class A:
 
 class Initless:
     def foo(self):
-        output_str("hello")
+        output_strln("hello")
 
 def run() -> int32:
     a = A(10)

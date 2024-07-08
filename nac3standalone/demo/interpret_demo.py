@@ -107,6 +107,9 @@ def patch(module):
     def output_float(x):
         print("%f" % x)
 
+    def output_strln(x):
+        print(x, end='')
+
     def dbg_stack_address(_):
         return 0
 
@@ -120,6 +123,8 @@ def patch(module):
             return output_asciiart
         elif name == "output_float64":
             return output_float
+        elif name == "output_str":
+            return output_strln
         elif name in {
             "output_bool",
             "output_int32",
@@ -127,7 +132,7 @@ def patch(module):
             "output_int32_list",
             "output_uint32",
             "output_uint64",
-            "output_str",
+            "output_strln",
         }:
             return print
         elif name == "dbg_stack_address":
