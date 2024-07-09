@@ -133,6 +133,7 @@ def patch(module):
             "output_uint32",
             "output_uint64",
             "output_strln",
+            "output_range",
         }:
             return print
         elif name == "dbg_stack_address":
