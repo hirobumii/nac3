@@ -63,7 +63,9 @@ fn main() {
     // Regex:
     // - `(?ms:^define.*?\}$)` captures LLVM `define` blocks
     // - `(?m:^declare.*?$)` captures LLVM `declare` lines
-    let regex_filter = Regex::new(r"(?ms:^define.*?\}$)|(?m:^declare.*?$)").unwrap();
+    // - `(?m:^%.+?=\s*type\s*\{.+?\}$)` captures LLVM `type` declarations
+    let regex_filter =
+        Regex::new(r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*\{.+?\}$)").unwrap();
     for f in regex_filter.captures_iter(&output) {
         assert_eq!(f.len(), 1);
         filtered_output.push_str(&f[0]);
