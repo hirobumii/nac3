@@ -265,7 +265,7 @@ impl Nac3 {
                     arg_names.len(),
                 ));
             }
-            for (i, FuncArg { ty, default_value, name }) in args.iter().enumerate() {
+            for (i, FuncArg { ty, default_value, name, .. }) in args.iter().enumerate() {
                 let in_name = match arg_names.get(i) {
                     Some(n) => n,
                     None if default_value.is_none() => {
@@ -869,6 +869,7 @@ impl Nac3 {
                         name: "t".into(),
                         ty: primitive.int64,
                         default_value: None,
+                        is_vararg: false,
                     }],
                     ret: primitive.none,
                     vars: VarMap::new(),
@@ -888,6 +889,7 @@ impl Nac3 {
                         name: "dt".into(),
                         ty: primitive.int64,
                         default_value: None,
+                        is_vararg: false,
                     }],
                     ret: primitive.none,
                     vars: VarMap::new(),

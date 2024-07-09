@@ -25,6 +25,7 @@ pub struct ConcreteFuncArg {
     pub name: StrRef,
     pub ty: ConcreteType,
     pub default_value: Option<SymbolValue>,
+    pub is_vararg: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -104,6 +105,7 @@ impl ConcreteTypeStore {
                     name: arg.name,
                     ty: self.from_unifier_type(unifier, primitives, arg.ty, cache),
                     default_value: arg.default_value.clone(),
+                    is_vararg: arg.is_vararg,
                 })
                 .collect(),
             ret: self.from_unifier_type(unifier, primitives, signature.ret, cache),
@@ -277,6 +279,7 @@ impl ConcreteTypeStore {
                         name: arg.name,
                         ty: self.to_unifier_type(unifier, primitives, arg.ty, cache),
                         default_value: arg.default_value.clone(),
+                        is_vararg: false,
                     })
                     .collect(),
                 ret: self.to_unifier_type(unifier, primitives, *ret, cache),

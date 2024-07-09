@@ -700,6 +700,7 @@ pub fn attributes_writeback(
                     name: i.to_string().into(),
                     ty: *ty,
                     default_value: None,
+                    is_vararg: false,
                 })
                 .collect(),
             ret: ctx.primitives.none,

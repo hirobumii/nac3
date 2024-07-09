@@ -759,7 +759,7 @@ impl<'a> Inferencer<'a> {
         let fun = FunSignature {
             args: fn_args
                 .iter()
-                .map(|(k, ty)| FuncArg { name: *k, ty: *ty, default_value: None })
+                .map(|(k, ty)| FuncArg { name: *k, ty: *ty, default_value: None, is_vararg: false })
                 .collect(),
             ret,
             vars: VarMap::default(),
@@ -1106,6 +1106,7 @@ impl<'a> Inferencer<'a> {
                     name: "n".into(),
                     ty: arg0.custom.unwrap(),
                     default_value: None,
+                    is_vararg: false,
                 }],
                 ret,
                 vars: VarMap::new(),
@@ -1142,8 +1143,18 @@ impl<'a> Inferencer<'a> {
 
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
-                    FuncArg { name: "x1".into(), ty: arg0.custom.unwrap(), default_value: None },
-                    FuncArg { name: "x2".into(), ty: arg1.custom.unwrap(), default_value: None },
+                    FuncArg {
+                        name: "x1".into(),
+                        ty: arg0.custom.unwrap(),
+                        default_value: None,
+                        is_vararg: false,
+                    },
+                    FuncArg {
+                        name: "x2".into(),
+                        ty: arg1.custom.unwrap(),
+                        default_value: None,
+                        is_vararg: false,
+                    },
                 ],
                 ret,
                 vars: VarMap::new(),
@@ -1182,6 +1193,7 @@ impl<'a> Inferencer<'a> {
                     name: "a".into(),
                     ty: arg0.custom.unwrap(),
                     default_value: None,
+                    is_vararg: false,
                 }],
                 ret,
                 vars: VarMap::new(),
@@ -1282,8 +1294,18 @@ impl<'a> Inferencer<'a> {
 
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
-                    FuncArg { name: "x1".into(), ty: arg0.custom.unwrap(), default_value: None },
-                    FuncArg { name: "x2".into(), ty: arg1.custom.unwrap(), default_value: None },
+                    FuncArg {
+                        name: "x1".into(),
+                        ty: arg0.custom.unwrap(),
+                        default_value: None,
+                        is_vararg: false,
+                    },
+                    FuncArg {
+                        name: "x2".into(),
+                        ty: arg1.custom.unwrap(),
+                        default_value: None,
+                        is_vararg: false,
+                    },
                 ],
                 ret,
                 vars: VarMap::new(),
@@ -1363,6 +1385,7 @@ impl<'a> Inferencer<'a> {
                     name: "n".into(),
                     ty: arg0.custom.unwrap(),
                     default_value: None,
+                    is_vararg: false,
                 }],
                 ret,
                 vars: VarMap::new(),
@@ -1404,6 +1427,7 @@ impl<'a> Inferencer<'a> {
                     name: "shape".into(),
                     ty: shape.custom.unwrap(),
                     default_value: None,
+                    is_vararg: false,
                 }],
                 ret,
                 vars: VarMap::new(),
@@ -1437,11 +1461,17 @@ impl<'a> Inferencer<'a> {
 
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
-                    FuncArg { name: "x1".into(), ty: arg0.custom.unwrap(), default_value: None },
+                    FuncArg {
+                        name: "x1".into(),
+                        ty: arg0.custom.unwrap(),
+                        default_value: None,
+                        is_vararg: false,
+                    },
                     FuncArg {
                         name: "shape".into(),
                         ty: shape.custom.unwrap(),
                         default_value: None,
+                        is_vararg: false,
                     },
                 ],
                 ret,
@@ -1485,11 +1515,17 @@ impl<'a> Inferencer<'a> {
             let ret = make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims));
             let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
-                    FuncArg { name: "shape".into(), ty: arg0.custom.unwrap(), default_value: None },
+                    FuncArg {
+                        name: "shape".into(),
+                        ty: arg0.custom.unwrap(),
+                        default_value: None,
+                        is_vararg: false,
+                    },
                     FuncArg {
                         name: "fill_value".into(),
                         ty: arg1.custom.unwrap(),
                         default_value: None,
+                        is_vararg: false,
                     },
                 ],
                 ret,
@@ -1544,16 +1580,19 @@ impl<'a> Inferencer<'a> {
                         name: "object".into(),
                         ty: arg0.custom.unwrap(),
                         default_value: None,
+                        is_vararg: false,
                     },
                     FuncArg {
                         name: "copy".into(),
                         ty: self.primitives.bool,
                         default_value: Some(SymbolValue::Bool(true)),
+                        is_vararg: false,
                     },
                     FuncArg {
                         name: "ndmin".into(),
                         ty: self.primitives.int32,
                         default_value: Some(SymbolValue::U32(0)),
+                        is_vararg: false,
                     },
                 ],
                 ret,

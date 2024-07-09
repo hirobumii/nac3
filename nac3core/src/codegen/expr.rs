@@ -731,7 +731,15 @@ pub fn gen_func_instance<'ctx>(
         let zelf = store.from_unifier_type(&mut ctx.unifier, &ctx.primitives, obj.0, &mut cache);
         let ConcreteTypeEnum::TFunc { args, .. } = &mut signature else { unreachable!() };
 
-        args.insert(0, ConcreteFuncArg { name: "self".into(), ty: zelf, default_value: None });
+        args.insert(
+            0,
+            ConcreteFuncArg {
+                name: "self".into(),
+                ty: zelf,
+                default_value: None,
+                is_vararg: false,
+            },
+        );
     }
     let signature = store.add_cty(signature);
 
@@ -852,7 +860,10 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
     let fun_val = ctx.module.get_function(&symbol).unwrap_or_else(|| {
         let mut args = fun.0.args.clone();
         if let Some(obj) = &obj {
-            args.insert(0, FuncArg { name: "self".into(), ty: obj.0, default_value: None });
+            args.insert(
+                0,
+                FuncArg { name: "self".into(), ty: obj.0, default_value: None, is_vararg: false },
+            );
         }
         let ret_type = if ctx.unifier.unioned(fun.0.ret, ctx.primitives.none) {
             None

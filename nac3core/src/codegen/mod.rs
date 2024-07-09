@@ -718,6 +718,7 @@ pub fn gen_func_impl<
                 name: arg.name,
                 ty: task.store.to_unifier_type(&mut unifier, &primitives, arg.ty, &mut cache),
                 default_value: arg.default_value.clone(),
+                is_vararg: arg.is_vararg,
             })
             .collect_vec(),
         task.store.to_unifier_type(&mut unifier, &primitives, *ret, &mut cache),

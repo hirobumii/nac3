@@ -115,6 +115,7 @@ pub struct FuncArg {
     pub name: StrRef,
     pub ty: Type,
     pub default_value: Option<SymbolValue>,
+    pub is_vararg: bool,
 }
 
 impl FuncArg {

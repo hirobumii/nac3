@@ -83,7 +83,12 @@ impl TestEnvironment {
         });
         with_fields(&mut unifier, int32, |unifier, fields| {
             let add_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "other".into(), ty: int32, default_value: None }],
+                args: vec![FuncArg {
+                    name: "other".into(),
+                    ty: int32,
+                    default_value: None,
+                    is_vararg: false,
+                }],
                 ret: int32,
                 vars: VarMap::new(),
             }));
@@ -224,7 +229,12 @@ impl TestEnvironment {
         });
         with_fields(&mut unifier, int32, |unifier, fields| {
             let add_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "other".into(), ty: int32, default_value: None }],
+                args: vec![FuncArg {
+                    name: "other".into(),
+                    ty: int32,
+                    default_value: None,
+                    is_vararg: false,
+                }],
                 ret: int32,
                 vars: VarMap::new(),
             }));

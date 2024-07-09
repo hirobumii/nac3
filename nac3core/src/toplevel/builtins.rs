@@ -45,10 +45,26 @@ pub fn get_exn_constructor(
             name: "msg".into(),
             ty: string,
             default_value: Some(SymbolValue::Str(String::new())),
+            is_vararg: false,
         },
-        FuncArg { name: "param0".into(), ty: int64, default_value: Some(SymbolValue::I64(0)) },
-        FuncArg { name: "param1".into(), ty: int64, default_value: Some(SymbolValue::I64(0)) },
-        FuncArg { name: "param2".into(), ty: int64, default_value: Some(SymbolValue::I64(0)) },
+        FuncArg {
+            name: "param0".into(),
+            ty: int64,
+            default_value: Some(SymbolValue::I64(0)),
+            is_vararg: false,
+        },
+        FuncArg {
+            name: "param1".into(),
+            ty: int64,
+            default_value: Some(SymbolValue::I64(0)),
+            is_vararg: false,
+        },
+        FuncArg {
+            name: "param2".into(),
+            ty: int64,
+            default_value: Some(SymbolValue::I64(0)),
+            is_vararg: false,
+        },
     ];
     let exn_type = unifier.add_ty(TypeEnum::TObj {
         obj_id: DefinitionId(class_id),
@@ -114,7 +130,12 @@ fn create_fn_by_codegen(
         signature: unifier.add_ty(TypeEnum::TFunc(FunSignature {
             args: param_ty
                 .iter()
-                .map(|p| FuncArg { name: p.1.into(), ty: p.0, default_value: None })
+                .map(|p| FuncArg {
+                    name: p.1.into(),
+                    ty: p.0,
+                    default_value: None,
+                    is_vararg: false,
+                })
                 .collect(),
             ret: ret_ty,
             vars: var_map.clone(),
@@ -629,17 +650,24 @@ impl<'a> BuiltinBuilder<'a> {
         let make_ctor_signature = |unifier: &mut Unifier| {
             unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
-                    FuncArg { name: "start".into(), ty: int32, default_value: None },
+                    FuncArg {
+                        name: "start".into(),
+                        ty: int32,
+                        default_value: None,
+                        is_vararg: false,
+                    },
                     FuncArg {
                         name: "stop".into(),
                         ty: int32,
                         // placeholder
                         default_value: Some(SymbolValue::I32(0)),
+                        is_vararg: false,
                     },
                     FuncArg {
                         name: "step".into(),
                         ty: int32,
                         default_value: Some(SymbolValue::I32(1)),
+                        is_vararg: false,
                     },
                 ],
                 ret: range,
@@ -895,6 +923,7 @@ impl<'a> BuiltinBuilder<'a> {
                         name: "n".into(),
                         ty: self.option_tvar.ty,
                         default_value: None,
+                        is_vararg: false,
                     }],
                     ret: self.primitives.option,
                     vars: into_var_map([self.option_tvar]),
@@ -1029,6 +1058,7 @@ impl<'a> BuiltinBuilder<'a> {
                     name: "n".into(),
                     ty: self.num_or_ndarray_ty.ty,
                     default_value: None,
+                    is_vararg: false,
                 }],
                 ret: self.num_or_ndarray_ty.ty,
                 vars: self.num_or_ndarray_var_map.clone(),
@@ -1248,16 +1278,23 @@ impl<'a> BuiltinBuilder<'a> {
                     simple_name: prim.simple_name().into(),
                     signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         args: vec![
-                            FuncArg { name: "object".into(), ty: tv.ty, default_value: None },
+                            FuncArg {
+                                name: "object".into(),
+                                ty: tv.ty,
+                                default_value: None,
+                                is_vararg: false,
+                            },
                             FuncArg {
                                 name: "copy".into(),
                                 ty: bool,
                                 default_value: Some(SymbolValue::Bool(true)),
+                                is_vararg: false,
                             },
                             FuncArg {
                                 name: "ndmin".into(),
                                 ty: int32,
                                 default_value: Some(SymbolValue::U32(0)),
+                                is_vararg: false,
                             },
                         ],
                         ret: ndarray,
@@ -1299,17 +1336,24 @@ impl<'a> BuiltinBuilder<'a> {
                     simple_name: prim.simple_name().into(),
                     signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         args: vec![
-                            FuncArg { name: "N".into(), ty: int32, default_value: None },
+                            FuncArg {
+                                name: "N".into(),
+                                ty: int32,
+                                default_value: None,
+                                is_vararg: false,
+                            },
                             // TODO(Derppening): Default values current do not work?
                             FuncArg {
                                 name: "M".into(),
                                 ty: int32,
                                 default_value: Some(SymbolValue::OptionNone),
+                                is_vararg: false,
                             },
                             FuncArg {
                                 name: "k".into(),
                                 ty: int32,
                                 default_value: Some(SymbolValue::I32(0)),
+                                is_vararg: false,
                             },
                         ],
                         ret: self.ndarray_float_2d,
@@ -1353,7 +1397,12 @@ impl<'a> BuiltinBuilder<'a> {
             name: prim.name().into(),
             simple_name: prim.simple_name().into(),
             signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "s".into(), ty: str, default_value: None }],
+                args: vec![FuncArg {
+                    name: "s".into(),
+                    ty: str,
+                    default_value: None,
+                    is_vararg: false,
+                }],
                 ret: str,
                 vars: VarMap::default(),
             })),
@@ -1439,7 +1488,12 @@ impl<'a> BuiltinBuilder<'a> {
             name: prim.name().into(),
             simple_name: prim.simple_name().into(),
             signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg { name: "ls".into(), ty: arg_ty.ty, default_value: None }],
+                args: vec![FuncArg {
+                    name: "ls".into(),
+                    ty: arg_ty.ty,
+                    default_value: None,
+                    is_vararg: false,
+                }],
                 ret: int32,
                 vars: into_var_map([tvar, arg_ty]),
             })),
@@ -1544,8 +1598,18 @@ impl<'a> BuiltinBuilder<'a> {
             simple_name: prim.simple_name().into(),
             signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![
-                    FuncArg { name: "m".into(), ty: self.num_ty.ty, default_value: None },
-                    FuncArg { name: "n".into(), ty: self.num_ty.ty, default_value: None },
+                    FuncArg {
+                        name: "m".into(),
+                        ty: self.num_ty.ty,
+                        default_value: None,
+                        is_vararg: false,
+                    },
+                    FuncArg {
+                        name: "n".into(),
+                        ty: self.num_ty.ty,
+                        default_value: None,
+                        is_vararg: false,
+                    },
                 ],
                 ret: self.num_ty.ty,
                 vars: self.num_var_map.clone(),
@@ -1627,7 +1691,12 @@ impl<'a> BuiltinBuilder<'a> {
             signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: param_ty
                     .iter()
-                    .map(|p| FuncArg { name: p.1.into(), ty: p.0, default_value: None })
+                    .map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                        is_vararg: false,
+                    })
                     .collect(),
                 ret: ret_ty.ty,
                 vars: into_var_map([x1_ty, x2_ty, ret_ty]),
@@ -1668,6 +1737,7 @@ impl<'a> BuiltinBuilder<'a> {
                     name: "n".into(),
                     ty: self.num_or_ndarray_ty.ty,
                     default_value: None,
+                    is_vararg: false,
                 }],
                 ret: self.num_or_ndarray_ty.ty,
                 vars: self.num_or_ndarray_var_map.clone(),
@@ -1856,7 +1926,12 @@ impl<'a> BuiltinBuilder<'a> {
             signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: param_ty
                     .iter()
-                    .map(|p| FuncArg { name: p.1.into(), ty: p.0, default_value: None })
+                    .map(|p| FuncArg {
+                        name: p.1.into(),
+                        ty: p.0,
+                        default_value: None,
+                        is_vararg: false,
+                    })
                     .collect(),
                 ret: ret_ty.ty,
                 vars: into_var_map([x1_ty, x2_ty, ret_ty]),

@@ -921,6 +921,7 @@ impl TopLevelComposer {
                         name: vararg.node.arg,
                         ty,
                         default_value: Some(SymbolValue::Tuple(Vec::default())),
+                        is_vararg: true,
                     })
                 })
                 .transpose()?;
@@ -1026,13 +1027,14 @@ impl TopLevelComposer {
                                     v
                                 }),
                             },
+                            is_vararg: false,
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?
             };
 
             if let Some(vararg) = vararg {
-                arg_types.push(vararg)
+                arg_types.push(vararg);
             };
 
             let arg_types = arg_types;
@@ -1288,6 +1290,7 @@ impl TopLevelComposer {
                                             })
                                         }
                                     },
+                                    is_vararg: false,
                                 };
                                 // push the dummy type and the type annotation
                                 // into the list for later unification
@@ -1713,21 +1716,25 @@ impl TopLevelComposer {
                                 name: "msg".into(),
                                 ty: string,
                                 default_value: Some(SymbolValue::Str(String::new())),
+                                is_vararg: false,
                             },
                             FuncArg {
                                 name: "param0".into(),
                                 ty: int64,
                                 default_value: Some(SymbolValue::I64(0)),
+                                is_vararg: false,
                             },
                             FuncArg {
                                 name: "param1".into(),
                                 ty: int64,
                                 default_value: Some(SymbolValue::I64(0)),
+                                is_vararg: false,
                             },
                             FuncArg {
                                 name: "param2".into(),
                                 ty: int64,
                                 default_value: Some(SymbolValue::I64(0)),
+                                is_vararg: false,
                             },
                         ],
                         ret: self_type,
@@ -1937,6 +1944,7 @@ impl TopLevelComposer {
                                 name: a.name,
                                 ty: unifier.subst(a.ty, &subst).unwrap_or(a.ty),
                                 default_value: a.default_value.clone(),
+                                is_vararg: false,
                             })
                             .collect_vec()
                     };

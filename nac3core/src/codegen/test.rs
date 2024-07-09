@@ -109,8 +109,18 @@ fn test_primitives() {
     let threads = vec![DefaultCodeGenerator::new("test".into(), 32).into()];
     let signature = FunSignature {
         args: vec![
-            FuncArg { name: "a".into(), ty: primitives.int32, default_value: None },
-            FuncArg { name: "b".into(), ty: primitives.int32, default_value: None },
+            FuncArg {
+                name: "a".into(),
+                ty: primitives.int32,
+                default_value: None,
+                is_vararg: false,
+            },
+            FuncArg {
+                name: "b".into(),
+                ty: primitives.int32,
+                default_value: None,
+                is_vararg: false,
+            },
         ],
         ret: primitives.int32,
         vars: VarMap::new(),
@@ -255,7 +265,12 @@ fn test_simple_call() {
     unifier.top_level = Some(top_level.clone());
 
     let signature = FunSignature {
-        args: vec![FuncArg { name: "a".into(), ty: primitives.int32, default_value: None }],
+        args: vec![FuncArg {
+            name: "a".into(),
+            ty: primitives.int32,
+            default_value: None,
+            is_vararg: false,
+        }],
         ret: primitives.int32,
         vars: VarMap::new(),
     };

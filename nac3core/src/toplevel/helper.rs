@@ -505,6 +505,7 @@ impl TopLevelComposer {
                 name: "value".into(),
                 ty: ndarray_dtype_tvar.ty,
                 default_value: None,
+                is_vararg: false,
             }],
             ret: none,
             vars: into_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
