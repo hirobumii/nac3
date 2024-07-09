@@ -46,10 +46,7 @@ void output_float64(double x) {
 
 void output_range(int32_t range[3]) {
     printf("range(");
-    if (range[0] != 0) {
-        printf("%d, ", range[0]);
-    }
-    printf("%d", range[1]);
+    printf("%d, %d", range[0], range[1]);
     if (range[2] != 1) {
         printf(", %d", range[2]);
     }
