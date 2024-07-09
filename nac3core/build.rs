@@ -17,7 +17,8 @@ fn main() {
     let flags: &[&str] = &[
         "--target=wasm32",
         FILE,
-        "-x", "c++",
+        "-x",
+        "c++",
         "-fno-discard-value-names",
         "-fno-exceptions",
         "-fno-rtti",
