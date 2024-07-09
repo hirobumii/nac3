@@ -165,34 +165,34 @@ pub fn call_memcpy_generic<'ctx>(
     call_memcpy(ctx, dest, src, len, is_volatile);
 }
 
-/// Macro to geneate llvm intrinsic build call.
+/// Macro to find and generate build call for llvm intrinsic (body of llvm intrinsic function)
 ///
 /// Arguments:
 /// * `$ctx:ident`: Reference to the current Code Generation Context
 /// * `$name:ident`: Optional name to be assigned to the llvm build call (Option<&str>)
 /// * `$llvm_name:literal`: Name of underlying llvm intrinsic function
-/// * `$map_fn:ident`: Function from `BasicValueEnum` to be applied on `BasicValue` (`BasicValue` -> Function Return Type)
-/// Use `into_int_value` for Integer return type and `into_float_value` for Float return type
+/// * `$map_fn:ident`: Mapping function to be applied on `BasicValue` (`BasicValue` -> Function Return Type)
+/// Use `BasicValueEnum::into_int_value` for Integer return type and `BasicValueEnum::into_float_value` for Float return type
 /// * `$llvm_ty:ident`: Type of first operand
 /// * `,($val:ident)*`: Comma separated list of operands
-macro_rules! helper_generate_llvm_intrinsic_fn_call {
-    ($ctx:ident, $name:ident, $llvm_name:literal, $map_fn:ident, $llvm_ty:ident $(,$val:ident)*) => {{
+macro_rules! generate_llvm_intrinsic_fn_body {
+    ($ctx:ident, $name:ident, $llvm_name:literal, $map_fn:expr, $llvm_ty:ident $(,$val:ident)*) => {{
         const FN_NAME: &str = concat!("llvm.", $llvm_name);
         let intrinsic_fn = Intrinsic::find(FN_NAME).and_then(|intrinsic| intrinsic.get_declaration(&$ctx.module, &[$llvm_ty.into()])).unwrap();
-        $ctx.builder.build_call(intrinsic_fn, &[$($val.into()),*],  $name.unwrap_or_default()).map(CallSiteValue::try_as_basic_value).map(|v| v.map_left(BasicValueEnum::$map_fn)).map(Either::unwrap_left).unwrap()
+        $ctx.builder.build_call(intrinsic_fn, &[$($val.into()),*],  $name.unwrap_or_default()).map(CallSiteValue::try_as_basic_value).map(|v| v.map_left($map_fn)).map(Either::unwrap_left).unwrap()
     }};
 }
 
-/// Macro to conveniently generate llvm intrinsic function call with [`helper_generate_llvm_intrinsic_fn_call`].
+/// Macro to generate the llvm intrinsic function using [`generate_llvm_intrinsic_fn_body`].
 ///
 /// Arguments:
-/// * `float/int`: Indicates the return type and argument type of the function
+/// * `float/int`: Indicates the return and argument type of the function
 /// * `$fn_name:ident`: The identifier of the rust function to be generated
 /// * `$llvm_name:literal`: Name of underlying llvm intrinsic function
-/// Omit "llvm." prefix from the function name i.e. use ceil instead of llvm.ceil
+/// Omit "llvm." prefix from the function name i.e. use "ceil" instead of "llvm.ceil"
 /// * `$val:ident`: The operand for unary operations
 /// * `$val1:ident`, `$val2:ident`: The operands for binary operations
-macro_rules! generate_llvm_intrinsic_fn_call {
+macro_rules! generate_llvm_intrinsic_fn {
     ("float", $fn_name:ident, $llvm_name:literal, $val:ident) => {
         #[doc = concat!("Invokes the [`", stringify!($llvm_name), "`](https://llvm.org/docs/LangRef.html#llvm-", stringify!($llvm_name), "-intrinsic) intrinsic." )]
         pub fn $fn_name<'ctx> (
@@ -201,7 +201,7 @@ macro_rules! generate_llvm_intrinsic_fn_call {
             name: Option<&str>,
         ) -> FloatValue<'ctx> {
             let llvm_ty = $val.get_type();
-            helper_generate_llvm_intrinsic_fn_call!(ctx, name, $llvm_name, into_float_value, llvm_ty, $val)
+            generate_llvm_intrinsic_fn_body!(ctx, name, $llvm_name, BasicValueEnum::into_float_value, llvm_ty, $val)
         }
     };
     ("float", $fn_name:ident, $llvm_name:literal, $val1:ident, $val2:ident) => {
@@ -214,7 +214,7 @@ macro_rules! generate_llvm_intrinsic_fn_call {
         ) -> FloatValue<'ctx> {
             debug_assert_eq!($val1.get_type(), $val2.get_type());
             let llvm_ty = $val1.get_type();
-            helper_generate_llvm_intrinsic_fn_call!(ctx, name, $llvm_name, into_float_value, llvm_ty, $val1, $val2)
+            generate_llvm_intrinsic_fn_body!(ctx, name, $llvm_name, BasicValueEnum::into_float_value, llvm_ty, $val1, $val2)
         }
     };
     ("int", $fn_name:ident, $llvm_name:literal, $val1:ident, $val2:ident) => {
@@ -227,7 +227,7 @@ macro_rules! generate_llvm_intrinsic_fn_call {
         ) -> IntValue<'ctx> {
             debug_assert_eq!($val1.get_type().get_bit_width(), $val2.get_type().get_bit_width());
             let llvm_ty = $val1.get_type();
-            helper_generate_llvm_intrinsic_fn_call!(ctx, name, $llvm_name, into_int_value, llvm_ty, $val1, $val2)
+            generate_llvm_intrinsic_fn_body!(ctx, name, $llvm_name, BasicValueEnum::into_int_value, llvm_ty, $val1, $val2)
         }
     };
 }
@@ -246,40 +246,40 @@ pub fn call_int_abs<'ctx>(
     debug_assert!(is_int_min_poison.is_const());
 
     let src_type = src.get_type();
-    helper_generate_llvm_intrinsic_fn_call!(
+    generate_llvm_intrinsic_fn_body!(
         ctx,
         name,
         "abs",
-        into_int_value,
+        BasicValueEnum::into_int_value,
         src_type,
         src,
         is_int_min_poison
     )
 }
 
-generate_llvm_intrinsic_fn_call!("int", call_int_smax, "smax", a, b);
-generate_llvm_intrinsic_fn_call!("int", call_int_smin, "smin", a, b);
-generate_llvm_intrinsic_fn_call!("int", call_int_umax, "umax", a, b);
-generate_llvm_intrinsic_fn_call!("int", call_int_umin, "umin", a, b);
-generate_llvm_intrinsic_fn_call!("int", call_expect, "expect", val, expected_val);
+generate_llvm_intrinsic_fn!("int", call_int_smax, "smax", a, b);
+generate_llvm_intrinsic_fn!("int", call_int_smin, "smin", a, b);
+generate_llvm_intrinsic_fn!("int", call_int_umax, "umax", a, b);
+generate_llvm_intrinsic_fn!("int", call_int_umin, "umin", a, b);
+generate_llvm_intrinsic_fn!("int", call_expect, "expect", val, expected_val);
 
-generate_llvm_intrinsic_fn_call!("float", call_float_sqrt, "sqrt", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_sin, "sin", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_cos, "cos", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_pow, "pow", val, power);
-generate_llvm_intrinsic_fn_call!("float", call_float_exp, "exp", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_exp2, "exp2", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_log, "log", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_log10, "log10", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_log2, "log2", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_fabs, "fabs", src);
-generate_llvm_intrinsic_fn_call!("float", call_float_minnum, "minnum", val, power);
-generate_llvm_intrinsic_fn_call!("float", call_float_maxnum, "maxnum", val, power);
-generate_llvm_intrinsic_fn_call!("float", call_float_copysign, "copysign", mag, sgn);
-generate_llvm_intrinsic_fn_call!("float", call_float_floor, "floor", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_ceil, "ceil", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_round, "round", val);
-generate_llvm_intrinsic_fn_call!("float", call_float_rint, "rint", val);
+generate_llvm_intrinsic_fn!("float", call_float_sqrt, "sqrt", val);
+generate_llvm_intrinsic_fn!("float", call_float_sin, "sin", val);
+generate_llvm_intrinsic_fn!("float", call_float_cos, "cos", val);
+generate_llvm_intrinsic_fn!("float", call_float_pow, "pow", val, power);
+generate_llvm_intrinsic_fn!("float", call_float_exp, "exp", val);
+generate_llvm_intrinsic_fn!("float", call_float_exp2, "exp2", val);
+generate_llvm_intrinsic_fn!("float", call_float_log, "log", val);
+generate_llvm_intrinsic_fn!("float", call_float_log10, "log10", val);
+generate_llvm_intrinsic_fn!("float", call_float_log2, "log2", val);
+generate_llvm_intrinsic_fn!("float", call_float_fabs, "fabs", src);
+generate_llvm_intrinsic_fn!("float", call_float_minnum, "minnum", val, power);
+generate_llvm_intrinsic_fn!("float", call_float_maxnum, "maxnum", val, power);
+generate_llvm_intrinsic_fn!("float", call_float_copysign, "copysign", mag, sgn);
+generate_llvm_intrinsic_fn!("float", call_float_floor, "floor", val);
+generate_llvm_intrinsic_fn!("float", call_float_ceil, "ceil", val);
+generate_llvm_intrinsic_fn!("float", call_float_round, "round", val);
+generate_llvm_intrinsic_fn!("float", call_float_rint, "rint", val);
 
 /// Invokes the [`llvm.powi`](https://llvm.org/docs/LangRef.html#llvm-powi-intrinsic) intrinsic.
 pub fn call_float_powi<'ctx>(
