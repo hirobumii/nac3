@@ -361,7 +361,13 @@ impl TopLevelComposer {
         });
         let range = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Range.id(),
-            fields: HashMap::new(),
+            fields: [
+                ("start".into(), (int32, true)),
+                ("stop".into(), (int32, true)),
+                ("step".into(), (int32, true)),
+            ]
+            .into_iter()
+            .collect(),
             params: VarMap::new(),
         });
         let str = unifier.add_ty(TypeEnum::TObj {
