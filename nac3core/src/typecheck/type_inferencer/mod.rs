@@ -4,13 +4,12 @@ use std::iter::once;
 use std::ops::Not;
 use std::{cell::RefCell, sync::Arc};
 
-use super::typedef::OperatorInfo;
 use super::{
     magic_methods::*,
-    type_error::TypeError,
+    type_error::{TypeError, TypeErrorKind},
     typedef::{
-        into_var_map, iter_type_vars, Call, CallId, FunSignature, FuncArg, RecordField, Type,
-        TypeEnum, TypeVar, Unifier, VarMap,
+        into_var_map, iter_type_vars, Call, CallId, FunSignature, FuncArg, OperatorInfo,
+        RecordField, RecordKey, Type, TypeEnum, TypeVar, Unifier, VarMap,
     },
 };
 use crate::{
@@ -112,6 +111,14 @@ impl Fold<()> for NaiveFolder {
 
 fn report_error<T>(msg: &str, location: Location) -> Result<T, HashSet<String>> {
     Err(HashSet::from([format!("{msg} at {location}")]))
+}
+
+fn report_type_error<T>(
+    kind: TypeErrorKind,
+    loc: Option<Location>,
+    unifier: &Unifier,
+) -> Result<T, HashSet<String>> {
+    Err(HashSet::from([TypeError::new(kind, loc).to_display(unifier).to_string()]))
 }
 
 impl<'a> Fold<()> for Inferencer<'a> {
@@ -1659,9 +1666,11 @@ impl<'a> Inferencer<'a> {
             // just a fast path
             match (fields.get(&attr), ctx == ExprContext::Store) {
                 (Some((ty, true)), _) | (Some((ty, false)), false) => Ok(*ty),
-                (Some((_, false)), true) => {
-                    report_error(&format!("Field `{attr}` is immutable"), value.location)
-                }
+                (Some((ty, false)), true) => report_type_error(
+                    TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
+                    Some(value.location),
+                    self.unifier,
+                ),
                 (None, mutable) => {
                     // Check whether it is a class attribute
                     let defs = self.top_level.definitions.read();
@@ -1683,13 +1692,11 @@ impl<'a> Inferencer<'a> {
                             &format!("Class Attribute `{attr}` is immutable"),
                             value.location,
                         ),
-                        None => {
-                            let t = self.unifier.stringify(ty);
-                            report_error(
-                                &format!("`{t}::{attr}` field/method does not exist"),
-                                value.location,
-                            )
-                        }
+                        None => report_type_error(
+                            TypeErrorKind::NoSuchField(RecordKey::Str(attr), ty),
+                            Some(value.location),
+                            self.unifier,
+                        ),
                     }
                 }
             }
