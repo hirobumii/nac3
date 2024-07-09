@@ -860,7 +860,72 @@ impl TopLevelComposer {
             let resolver = &**resolver;
 
             let mut function_var_map = VarMap::new();
-            let arg_types = {
+
+            let vararg = args
+                .vararg
+                .as_ref()
+                .map(|vararg| -> Result<_, HashSet<String>> {
+                    let vararg = vararg.as_ref();
+
+                    let annotation = vararg
+                        .node
+                        .annotation
+                        .as_ref()
+                        .ok_or_else(|| {
+                            HashSet::from([format!(
+                                "function parameter `{}` needs type annotation at {}",
+                                vararg.node.arg, vararg.location
+                            )])
+                        })?
+                        .as_ref();
+
+                    let type_annotation = parse_ast_to_type_annotation_kinds(
+                        resolver,
+                        temp_def_list.as_slice(),
+                        unifier,
+                        primitives_store,
+                        annotation,
+                        // NOTE: since only class need this, for function
+                        // it should be fine to be empty map
+                        HashMap::new(),
+                    )?;
+
+                    let type_vars_within =
+                        get_type_var_contained_in_type_annotation(&type_annotation)
+                            .into_iter()
+                            .map(|x| -> Result<TypeVar, HashSet<String>> {
+                                let TypeAnnotation::TypeVar(ty) = x else {
+                                    unreachable!("must be type var annotation kind")
+                                };
+
+                                let id = Self::get_var_id(ty, unifier)?;
+                                Ok(TypeVar { id, ty })
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                    for var in type_vars_within {
+                        if let Some(prev_ty) = function_var_map.insert(var.id, var.ty) {
+                            // if already have the type inserted, make sure they are the same thing
+                            assert_eq!(prev_ty, var.ty);
+                        }
+                    }
+
+                    let ty = get_type_from_type_annotation_kinds(
+                        temp_def_list.as_ref(),
+                        unifier,
+                        primitives_store,
+                        &type_annotation,
+                        &mut None,
+                    )?;
+
+                    Ok(FuncArg {
+                        name: vararg.node.arg,
+                        ty,
+                        default_value: Some(SymbolValue::Tuple(Vec::default())),
+                    })
+                })
+                .transpose()?;
+
+            let mut arg_types = {
                 // make sure no duplicate parameter
                 let mut defined_parameter_name: HashSet<_> = HashSet::new();
                 for x in &args.args {
@@ -965,6 +1030,12 @@ impl TopLevelComposer {
                     })
                     .collect::<Result<Vec<_>, _>>()?
             };
+
+            if let Some(vararg) = vararg {
+                arg_types.push(vararg)
+            };
+
+            let arg_types = arg_types;
 
             let return_ty = {
                 if let Some(returns) = returns {
