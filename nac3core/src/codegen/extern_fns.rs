@@ -4,17 +4,34 @@ use itertools::Either;
 
 use crate::codegen::CodeGenContext;
 
-/// Macro to conveniently generate extern function call
-/// Generates a public function with `FloatValue` return type
+/// Macro to generate extern function
+/// Both function return type and function parameter type are `FloatValue`
 ///
 /// Arguments:
+/// * `unary/binary`: Whether the extern function requires one (unary) or two (binary) operands
 /// * `$fn_name:ident`: The identifier of the rust function to be generated
 /// * `$extern_fn:literal`: Name of underlying extern function
-/// * `$(,$args:ident)*`: Operands of the function
-/// The data type of these operands must be `FloatValue`
+///
+/// Optional Arguments:
 /// * `$(,$attributes:literal)*)`: Attributes linked with the extern function
+/// The default attributes are "mustprogress", "nofree", "nounwind", "willreturn", and "writeonly"
+/// These will be used unless other attributes are specified
+/// * `$(,$args:ident)*`: Operands of the extern function
+/// The data type of these operands will be set to `FloatValue`
 ///  
-macro_rules! helper_generate_extern_fn_call {
+macro_rules! generate_extern_fn {
+    ("unary", $fn_name:ident, $extern_fn:literal) => {
+        generate_extern_fn!($fn_name, $extern_fn, arg, "mustprogress", "nofree", "nounwind", "willreturn", "writeonly");
+    };
+    ("unary", $fn_name:ident, $extern_fn:literal $(,$attributes:literal)*) => {
+        generate_extern_fn!($fn_name, $extern_fn, arg $(,$attributes)*);
+    };
+    ("binary", $fn_name:ident, $extern_fn:literal) => {
+        generate_extern_fn!($fn_name, $extern_fn, arg1, arg2, "mustprogress", "nofree", "nounwind", "willreturn", "writeonly");
+    };
+    ("binary", $fn_name:ident, $extern_fn:literal $(,$attributes:literal)*) => {
+        generate_extern_fn!($fn_name, $extern_fn, arg1, arg2 $(,$attributes)*);
+    };
     ($fn_name:ident, $extern_fn:literal $(,$args:ident)* $(,$attributes:literal)*) => {
         #[doc = concat!("Invokes the [`", stringify!($extern_fn), "`](https://en.cppreference.com/w/c/numeric/math/", stringify!($llvm_name), ") function." )]
         pub fn $fn_name<'ctx>(
@@ -49,58 +66,19 @@ macro_rules! helper_generate_extern_fn_call {
     };
 }
 
-/// Macro to conveniently generate extern function call with [`helper_generate_extern_fn_call`].
-/// Handles unary extern functions only (Use `generate_extern_binary_fn_call` for binary functions)
-/// Both function return type and function parameter type are `FloatValue`
-///
-/// Arguments:
-/// * `$fn_name:ident`: The identifier of the rust function to be generated
-/// * `$extern_fn:literal`: Name of underlying extern function
-/// * `$(,$attributes:literal)*)`: Attributes linked with the extern function
-/// The default attributes are "mustprogress", "nofree", "nounwind", "willreturn", and "writeonly"
-/// These will be used unless other attributes are specified
-///  
-macro_rules! generate_extern_unary_fn_call {
-    ($fn_name:ident, $extern_fn:literal) => {
-        helper_generate_extern_fn_call!($fn_name, $extern_fn, arg, "mustprogress", "nofree", "nounwind", "willreturn", "writeonly");
-    };
-    ($fn_name:ident, $extern_fn:literal $(,$attributes:literal)*) => {
-        helper_generate_extern_fn_call!($fn_name, $extern_fn, arg $(,$attributes)*);
-    };
-}
-
-/// Macro to conveniently generate extern function call with [`helper_generate_extern_fn_call`].
-/// Handles binary extern functions only (Use `generate_extern_unary_fn_call` for unary functions)
-/// Both function return type and function parameter type are `FloatValue`
-///
-/// Arguments:
-/// * `$fn_name:ident`: The identifier of the rust function to be generated
-/// * `$extern_fn:literal`: Name of underlying extern function
-/// * `$(,$attributes:literal)*)`: Attributes linked with the extern function
-/// The default attributes are "mustprogress", "nofree", "nounwind", "willreturn", and "writeonly"
-/// These will be used unless other attributes are specified
-///  
-macro_rules! generate_extern_binary_fn_call {
-    ($fn_name:ident, $extern_fn:literal) => {
-        helper_generate_extern_fn_call!($fn_name, $extern_fn, arg1, arg2, "mustprogress", "nofree", "nounwind", "willreturn", "writeonly");
-    };
-    ($fn_name:ident, $extern_fn:literal $(,$attributes:literal)*) => {
-        helper_generate_extern_fn_call!($fn_name, $extern_fn, arg1, arg2 $(,$attributes)*);
-    };
-}
-
-generate_extern_unary_fn_call!(call_tan, "tan");
-generate_extern_unary_fn_call!(call_asin, "asin");
-generate_extern_unary_fn_call!(call_acos, "acos");
-generate_extern_unary_fn_call!(call_atan, "atan");
-generate_extern_unary_fn_call!(call_sinh, "sinh");
-generate_extern_unary_fn_call!(call_cosh, "cosh");
-generate_extern_unary_fn_call!(call_tanh, "tanh");
-generate_extern_unary_fn_call!(call_asinh, "asinh");
-generate_extern_unary_fn_call!(call_acosh, "acosh");
-generate_extern_unary_fn_call!(call_atanh, "atanh");
-generate_extern_unary_fn_call!(call_expm1, "expm1");
-generate_extern_unary_fn_call!(
+generate_extern_fn!("unary", call_tan, "tan");
+generate_extern_fn!("unary", call_asin, "asin");
+generate_extern_fn!("unary", call_acos, "acos");
+generate_extern_fn!("unary", call_atan, "atan");
+generate_extern_fn!("unary", call_sinh, "sinh");
+generate_extern_fn!("unary", call_cosh, "cosh");
+generate_extern_fn!("unary", call_tanh, "tanh");
+generate_extern_fn!("unary", call_asinh, "asinh");
+generate_extern_fn!("unary", call_acosh, "acosh");
+generate_extern_fn!("unary", call_atanh, "atanh");
+generate_extern_fn!("unary", call_expm1, "expm1");
+generate_extern_fn!(
+    "unary",
     call_cbrt,
     "cbrt",
     "mustprogress",
@@ -110,13 +88,13 @@ generate_extern_unary_fn_call!(
     "readonly",
     "willreturn"
 );
-generate_extern_unary_fn_call!(call_erf, "erf", "nounwind");
-generate_extern_unary_fn_call!(call_erfc, "erfc", "nounwind");
-generate_extern_unary_fn_call!(call_j1, "j1", "nounwind");
+generate_extern_fn!("unary", call_erf, "erf", "nounwind");
+generate_extern_fn!("unary", call_erfc, "erfc", "nounwind");
+generate_extern_fn!("unary", call_j1, "j1", "nounwind");
 
-generate_extern_binary_fn_call!(call_atan2, "atan2");
-generate_extern_binary_fn_call!(call_hypot, "hypot", "nounwind");
-generate_extern_binary_fn_call!(call_nextafter, "nextafter", "nounwind");
+generate_extern_fn!("binary", call_atan2, "atan2");
+generate_extern_fn!("binary", call_hypot, "hypot", "nounwind");
+generate_extern_fn!("binary", call_nextafter, "nextafter", "nounwind");
 
 /// Invokes the [`ldexp`](https://en.cppreference.com/w/c/numeric/math/ldexp) function.
 pub fn call_ldexp<'ctx>(
