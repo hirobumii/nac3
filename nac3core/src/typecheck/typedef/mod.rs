@@ -3,7 +3,7 @@ use itertools::Itertools;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Display};
-use std::iter::zip;
+use std::iter::{repeat, zip};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::{borrow::Cow, collections::HashSet};
@@ -650,6 +650,7 @@ impl Unifier {
 
         // Get details about the function signature/parameters.
         let num_params = signature.args.len();
+        let is_vararg = signature.args.iter().any(|arg| arg.is_vararg);
 
         // Force the type vars in `b` and `signature' to be up-to-date.
         let b = self.instantiate_fun(b, signature);
@@ -738,7 +739,7 @@ impl Unifier {
                 };
 
                 // Check for "too many arguments"
-                if num_params < posargs.len() {
+                if !is_vararg && num_params < posargs.len() {
                     let expected_min_count =
                         signature.args.iter().filter(|param| param.is_required()).count();
                     let expected_max_count = num_params;
@@ -769,6 +770,19 @@ impl Unifier {
 
                     // Typecheck
                     type_check_arg(param.name, param.ty, arg_ty)?;
+                }
+
+                if is_vararg {
+                    debug_assert!(!signature.args.is_empty());
+
+                    let vararg_args = posargs.iter().skip(signature.args.len());
+                    let vararg_param = signature.args.last().unwrap();
+
+                    for (&arg_ty, param) in zip(vararg_args, repeat(vararg_param)) {
+                        // `param_info` for this argument would've already been marked as supplied
+                        // during non-vararg posarg typecheck
+                        type_check_arg(param.name, param.ty, arg_ty)?;
+                    }
                 }
 
                 // Now consume all keyword arguments and typecheck them.
