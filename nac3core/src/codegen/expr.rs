@@ -2457,7 +2457,29 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             Some((_, Some(static_value), _)) => ValueEnum::Static(static_value.clone()),
             None => {
                 let resolver = ctx.resolver.clone();
-                resolver.get_symbol_value(*id, ctx).unwrap()
+                if let Some(res) = resolver.get_symbol_value(*id, ctx) {
+                    res
+                } else {
+                    // Allow "raise Exception" short form
+                    let def_id = resolver.get_identifier_def(*id).map_err(|e| {
+                        format!("{} (at {})", e.iter().next().unwrap(), expr.location)
+                    })?;
+                    let def = ctx.top_level.definitions.read();
+                    if let TopLevelDef::Class { constructor, .. } = *def[def_id.0].read() {
+                        let TypeEnum::TFunc(signature) =
+                            ctx.unifier.get_ty(constructor.unwrap()).as_ref().clone()
+                        else {
+                            return Err(format!(
+                                "Failed to resolve symbol {} (at {})",
+                                id, expr.location
+                            ));
+                        };
+                        return Ok(generator
+                            .gen_call(ctx, None, (&signature, def_id), Vec::default())?
+                            .map(Into::into));
+                    }
+                    return Err(format!("Failed to resolve symbol {} (at {})", id, expr.location));
+                }
             }
         },
         ExprKind::List { elts, .. } => {
