@@ -267,13 +267,16 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             }
             Constant::Tuple(v) => {
                 let ty = self.unifier.get_ty(ty);
-                let types =
-                    if let TypeEnum::TTuple { ty } = &*ty { ty.clone() } else { unreachable!() };
+                let (types, is_vararg_ctx) = if let TypeEnum::TTuple { ty, is_vararg_ctx } = &*ty {
+                    (ty.clone(), *is_vararg_ctx)
+                } else {
+                    unreachable!()
+                };
                 let values = zip(types, v.iter())
                     .map_while(|(ty, v)| self.gen_const(generator, v, ty))
                     .collect_vec();
 
-                if values.len() == v.len() {
+                if is_vararg_ctx || values.len() == v.len() {
                     let types = values.iter().map(BasicValueEnum::get_type).collect_vec();
                     let ty = self.ctx.struct_type(&types, false);
                     Some(ty.const_named_struct(&values).into())

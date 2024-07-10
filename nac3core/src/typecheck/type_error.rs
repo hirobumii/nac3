@@ -183,9 +183,10 @@ impl<'a> Display for DisplayTypeError<'a> {
                         }
                         result
                     }
-                    (TypeEnum::TTuple { ty: ty1 }, TypeEnum::TTuple { ty: ty2 })
-                        if ty1.len() != ty2.len() =>
-                    {
+                    (
+                        TypeEnum::TTuple { ty: ty1, is_vararg_ctx: is_vararg1 },
+                        TypeEnum::TTuple { ty: ty2, is_vararg_ctx: is_vararg2 },
+                    ) if !is_vararg1 && !is_vararg2 && ty1.len() != ty2.len() => {
                         let t1 = self.unifier.stringify_with_notes(*t1, &mut notes);
                         let t2 = self.unifier.stringify_with_notes(*t2, &mut notes);
                         write!(f, "Tuple length mismatch: got {t1} and {t2}")

@@ -223,7 +223,7 @@ impl<'a> Inferencer<'a> {
             ]
             .iter()
             .any(|allowed_ty| self.unifier.unioned(ret_ty, *allowed_ty)),
-            TypeEnum::TTuple { ty } => ty.iter().all(|t| self.check_return_value_ty(*t)),
+            TypeEnum::TTuple { ty, .. } => ty.iter().all(|t| self.check_return_value_ty(*t)),
             _ => false,
         }
     }

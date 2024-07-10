@@ -552,7 +552,7 @@ pub fn get_type_from_type_annotation_kinds(
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(unifier.add_ty(TypeEnum::TTuple { ty: tys }))
+            Ok(unifier.add_ty(TypeEnum::TTuple { ty: tys, is_vararg_ctx: false }))
         }
     }
 }

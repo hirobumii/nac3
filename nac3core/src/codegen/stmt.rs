@@ -197,7 +197,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     };
 
     // NOTE: Currently, RHS's type is forced to be a Tuple by the type inferencer.
-    let TypeEnum::TTuple { ty: tuple_tys } = &*ctx.unifier.get_ty(value_ty) else {
+    let TypeEnum::TTuple { ty: tuple_tys, .. } = &*ctx.unifier.get_ty(value_ty) else {
         unreachable!();
     };
 
@@ -252,7 +252,8 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 ctx.builder.build_load(psub_tuple_val, "starred_target_value").unwrap();
 
             // Create the typechecker type of the sub-tuple
-            let sub_tuple_ty = ctx.unifier.add_ty(TypeEnum::TTuple { ty: val_tys.to_vec() });
+            let sub_tuple_ty =
+                ctx.unifier.add_ty(TypeEnum::TTuple { ty: val_tys.to_vec(), is_vararg_ctx: false });
 
             // Now assign with that sub-tuple to the starred target.
             generator.gen_assign(ctx, target, ValueEnum::Dynamic(sub_tuple_val), sub_tuple_ty)?;

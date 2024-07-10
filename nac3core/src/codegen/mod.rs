@@ -538,8 +538,10 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                 };
                 return ty;
             }
-            TTuple { ty } => {
+            TTuple { ty, is_vararg_ctx } => {
                 // a struct with fields in the order present in the tuple
+                assert!(!is_vararg_ctx, "Tuples in vararg context must be instantiated with the correct number of arguments before calling get_llvm_type");
+
                 let fields = ty
                     .iter()
                     .map(|ty| {

@@ -1,5 +1,6 @@
 use indexmap::IndexMap;
-use itertools::Itertools;
+use itertools::{repeat_n, Itertools};
+use nac3parser::ast::{Cmpop, Location, StrRef, Unaryop};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Display};
@@ -7,8 +8,6 @@ use std::iter::{repeat, zip};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::{borrow::Cow, collections::HashSet};
-
-use nac3parser::ast::{Cmpop, Location, StrRef, Unaryop};
 
 use super::magic_methods::Binop;
 use super::type_error::{TypeError, TypeErrorKind};
@@ -234,6 +233,12 @@ pub enum TypeEnum {
     TTuple {
         /// The types of elements present in this tuple.
         ty: Vec<Type>,
+
+        /// Whether this tuple is used in a vararg context.
+        ///
+        /// If `true`, `ty` must only contain one type, and the tuple is assumed to contain any
+        /// number of `ty`-typed values.
+        is_vararg_ctx: bool,
     },
 
     /// An object type.
@@ -528,7 +533,7 @@ impl Unifier {
             TypeEnum::TVirtual { ty } => self.get_instantiations(*ty).map(|ty| {
                 ty.iter().map(|&ty| self.add_ty(TypeEnum::TVirtual { ty })).collect_vec()
             }),
-            TypeEnum::TTuple { ty } => {
+            TypeEnum::TTuple { ty, is_vararg_ctx } => {
                 let tuples = ty
                     .iter()
                     .map(|ty| self.get_instantiations(*ty).unwrap_or_else(|| vec![*ty]))
@@ -538,7 +543,12 @@ impl Unifier {
                     None
                 } else {
                     Some(
-                        tuples.into_iter().map(|ty| self.add_ty(TypeEnum::TTuple { ty })).collect(),
+                        tuples
+                            .into_iter()
+                            .map(|ty| {
+                                self.add_ty(TypeEnum::TTuple { ty, is_vararg_ctx: *is_vararg_ctx })
+                            })
+                            .collect(),
                     )
                 }
             }
@@ -582,7 +592,7 @@ impl Unifier {
             TVar { .. } => allowed_typevars.iter().any(|b| self.unification_table.unioned(a, *b)),
             TCall { .. } => false,
             TVirtual { ty } => self.is_concrete(*ty, allowed_typevars),
-            TTuple { ty } => ty.iter().all(|ty| self.is_concrete(*ty, allowed_typevars)),
+            TTuple { ty, .. } => ty.iter().all(|ty| self.is_concrete(*ty, allowed_typevars)),
             TObj { params: vars, .. } => {
                 vars.values().all(|ty| self.is_concrete(*ty, allowed_typevars))
             }
@@ -974,7 +984,10 @@ impl Unifier {
                 self.unify_impl(x, b, false)?;
                 self.set_a_to_b(a, x);
             }
-            (TVar { fields: Some(fields), range, is_const_generic: false, .. }, TTuple { ty }) => {
+            (
+                TVar { fields: Some(fields), range, is_const_generic: false, .. },
+                TTuple { ty, .. },
+            ) => {
                 let len = i32::try_from(ty.len()).unwrap();
                 for (k, v) in fields {
                     match *k {
@@ -1071,15 +1084,47 @@ impl Unifier {
                 self.set_a_to_b(a, b);
             }
 
-            (TTuple { ty: ty1 }, TTuple { ty: ty2 }) => {
-                if ty1.len() != ty2.len() {
-                    return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
-                }
-                for (x, y) in ty1.iter().zip(ty2.iter()) {
-                    if self.unify_impl(*x, *y, false).is_err() {
-                        return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
+            (
+                TTuple { ty: ty1, is_vararg_ctx: is_vararg1 },
+                TTuple { ty: ty2, is_vararg_ctx: is_vararg2 },
+            ) => {
+                // Rules for Tuples:
+                // - ty1: is_vararg && ty2: is_vararg -> ty1[0] == ty2[0]
+                // - ty1: is_vararg && ty2: !is_vararg -> type error (not enough info to infer the correct number of arguments)
+                // - ty1: !is_vararg && ty2: is_vararg -> ty1[..] == ty2[0]
+                // - ty1: !is_vararg && ty2: !is_vararg -> ty1.len() == ty2.len() && ty1[i] == ty2[i]
+
+                debug_assert!(!is_vararg1 || ty1.len() == 1);
+                debug_assert!(!is_vararg2 || ty2.len() == 1);
+
+                match (*is_vararg1, *is_vararg2) {
+                    (true, true) => {
+                        if self.unify_impl(ty1[0], ty2[0], false).is_err() {
+                            return Self::incompatible_types(a, b);
+                        }
+                    }
+                    (true, false) => return Self::incompatible_types(a, b),
+
+                    (false, true) => {
+                        for y in ty2 {
+                            if self.unify_impl(ty1[0], *y, false).is_err() {
+                                return Self::incompatible_types(a, b);
+                            }
+                        }
+                    }
+                    (false, false) => {
+                        if ty1.len() != ty2.len() {
+                            return Self::incompatible_types(a, b);
+                        }
+
+                        for (x, y) in ty1.iter().zip(ty2.iter()) {
+                            if self.unify_impl(*x, *y, false).is_err() {
+                                return Self::incompatible_types(a, b);
+                            }
+                        }
                     }
                 }
+
                 self.set_a_to_b(a, b);
             }
             (TVar { fields: Some(map), range, .. }, TObj { obj_id, fields, params }) => {
@@ -1322,10 +1367,22 @@ impl Unifier {
             TypeEnum::TLiteral { values, .. } => {
                 format!("const({})", values.iter().map(|v| format!("{v:?}")).join(", "))
             }
-            TypeEnum::TTuple { ty } => {
-                let mut fields =
-                    ty.iter().map(|v| self.internal_stringify(*v, obj_to_name, var_to_name, notes));
-                format!("tuple[{}]", fields.join(", "))
+            TypeEnum::TTuple { ty, is_vararg_ctx } => {
+                if *is_vararg_ctx {
+                    debug_assert_eq!(ty.len(), 1);
+                    let field = self.internal_stringify(
+                        *ty.iter().next().unwrap(),
+                        obj_to_name,
+                        var_to_name,
+                        notes,
+                    );
+                    format!("tuple[*{field}]")
+                } else {
+                    let mut fields = ty
+                        .iter()
+                        .map(|v| self.internal_stringify(*v, obj_to_name, var_to_name, notes));
+                    format!("tuple[{}]", fields.join(", "))
+                }
             }
             TypeEnum::TVirtual { ty } => {
                 format!(
@@ -1446,7 +1503,7 @@ impl Unifier {
         match &*ty {
             TypeEnum::TRigidVar { .. } | TypeEnum::TLiteral { .. } => None,
             TypeEnum::TVar { id, .. } => mapping.get(id).copied(),
-            TypeEnum::TTuple { ty } => {
+            TypeEnum::TTuple { ty, is_vararg_ctx } => {
                 let mut new_ty = Cow::from(ty);
                 for (i, t) in ty.iter().enumerate() {
                     if let Some(t1) = self.subst_impl(*t, mapping, cache) {
@@ -1454,7 +1511,10 @@ impl Unifier {
                     }
                 }
                 if matches!(new_ty, Cow::Owned(_)) {
-                    Some(self.add_ty(TypeEnum::TTuple { ty: new_ty.into_owned() }))
+                    Some(self.add_ty(TypeEnum::TTuple {
+                        ty: new_ty.into_owned(),
+                        is_vararg_ctx: *is_vararg_ctx,
+                    }))
                 } else {
                     None
                 }
@@ -1614,16 +1674,37 @@ impl Unifier {
                 }
             }
             (TVar { range, .. }, _) => self.check_var_compatibility(b, range).or(Err(())),
-            (TTuple { ty: ty1 }, TTuple { ty: ty2 }) if ty1.len() == ty2.len() => {
-                let ty: Vec<_> = zip(ty1.iter(), ty2.iter())
-                    .map(|(a, b)| self.get_intersection(*a, *b))
-                    .try_collect()?;
-                if ty.iter().any(Option::is_some) {
-                    Ok(Some(self.add_ty(TTuple {
-                        ty: zip(ty, ty1.iter()).map(|(a, b)| a.unwrap_or(*b)).collect(),
-                    })))
+            (
+                TTuple { ty: ty1, is_vararg_ctx: is_vararg1 },
+                TTuple { ty: ty2, is_vararg_ctx: is_vararg2 },
+            ) => {
+                if *is_vararg1 && *is_vararg2 {
+                    let isect_ty = self.get_intersection(ty1[0], ty2[0])?;
+                    Ok(isect_ty.map(|ty| self.add_ty(TTuple { ty: vec![ty], is_vararg_ctx: true })))
                 } else {
-                    Ok(None)
+                    let zip_iter: Box<dyn Iterator<Item = (&Type, &Type)>> =
+                        match (*is_vararg1, *is_vararg2) {
+                            (true, _) => Box::new(repeat_n(&ty1[0], ty2.len()).zip(ty2.iter())),
+                            (_, false) => Box::new(ty1.iter().zip(repeat_n(&ty2[0], ty1.len()))),
+                            _ => {
+                                if ty1.len() != ty2.len() {
+                                    return Err(());
+                                }
+
+                                Box::new(ty1.iter().zip(ty2.iter()))
+                            }
+                        };
+
+                    let ty: Vec<_> =
+                        zip_iter.map(|(a, b)| self.get_intersection(*a, *b)).try_collect()?;
+                    Ok(if ty.iter().any(Option::is_some) {
+                        Some(self.add_ty(TTuple {
+                            ty: zip(ty, ty1.iter()).map(|(a, b)| a.unwrap_or(*b)).collect(),
+                            is_vararg_ctx: false,
+                        }))
+                    } else {
+                        None
+                    })
                 }
             }
             // TODO(Derppening): #444

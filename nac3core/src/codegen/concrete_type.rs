@@ -47,6 +47,7 @@ pub enum ConcreteTypeEnum {
     TPrimitive(Primitive),
     TTuple {
         ty: Vec<ConcreteType>,
+        is_vararg_ctx: bool,
     },
     TObj {
         obj_id: DefinitionId,
@@ -103,7 +104,14 @@ impl ConcreteTypeStore {
                 .iter()
                 .map(|arg| ConcreteFuncArg {
                     name: arg.name,
-                    ty: self.from_unifier_type(unifier, primitives, arg.ty, cache),
+                    ty: if arg.is_vararg {
+                        let tuple_ty = unifier
+                            .add_ty(TypeEnum::TTuple { ty: vec![arg.ty], is_vararg_ctx: true });
+
+                        self.from_unifier_type(unifier, primitives, tuple_ty, cache)
+                    } else {
+                        self.from_unifier_type(unifier, primitives, arg.ty, cache)
+                    },
                     default_value: arg.default_value.clone(),
                     is_vararg: arg.is_vararg,
                 })
@@ -160,11 +168,12 @@ impl ConcreteTypeStore {
             cache.insert(ty, None);
             let ty_enum = unifier.get_ty(ty);
             let result = match &*ty_enum {
-                TypeEnum::TTuple { ty } => ConcreteTypeEnum::TTuple {
+                TypeEnum::TTuple { ty, is_vararg_ctx } => ConcreteTypeEnum::TTuple {
                     ty: ty
                         .iter()
                         .map(|t| self.from_unifier_type(unifier, primitives, *t, cache))
                         .collect(),
+                    is_vararg_ctx: *is_vararg_ctx,
                 },
                 TypeEnum::TObj { obj_id, fields, params } => ConcreteTypeEnum::TObj {
                     obj_id: *obj_id,
@@ -250,11 +259,12 @@ impl ConcreteTypeStore {
                 *cache.get_mut(&cty).unwrap() = Some(ty);
                 return ty;
             }
-            ConcreteTypeEnum::TTuple { ty } => TypeEnum::TTuple {
+            ConcreteTypeEnum::TTuple { ty, is_vararg_ctx } => TypeEnum::TTuple {
                 ty: ty
                     .iter()
                     .map(|cty| self.to_unifier_type(unifier, primitives, *cty, cache))
                     .collect(),
+                is_vararg_ctx: *is_vararg_ctx,
             },
             ConcreteTypeEnum::TVirtual { ty } => {
                 TypeEnum::TVirtual { ty: self.to_unifier_type(unifier, primitives, *ty, cache) }

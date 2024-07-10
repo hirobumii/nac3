@@ -78,14 +78,14 @@ impl SymbolValue {
             }
             Constant::Tuple(t) => {
                 let expected_ty = unifier.get_ty(expected_ty);
-                let TypeEnum::TTuple { ty } = expected_ty.as_ref() else {
+                let TypeEnum::TTuple { ty, is_vararg_ctx } = expected_ty.as_ref() else {
                     return Err(format!(
                         "Expected {:?}, but got Tuple",
                         expected_ty.get_type_name()
                     ));
                 };
 
-                assert_eq!(ty.len(), t.len());
+                assert!(*is_vararg_ctx || ty.len() == t.len());
 
                 let elems = t
                     .iter()
@@ -155,7 +155,7 @@ impl SymbolValue {
             SymbolValue::Bool(_) => primitives.bool,
             SymbolValue::Tuple(vs) => {
                 let vs_tys = vs.iter().map(|v| v.get_type(primitives, unifier)).collect::<Vec<_>>();
-                unifier.add_ty(TypeEnum::TTuple { ty: vs_tys })
+                unifier.add_ty(TypeEnum::TTuple { ty: vs_tys, is_vararg_ctx: false })
             }
             SymbolValue::OptionSome(_) | SymbolValue::OptionNone => primitives.option,
         }
@@ -482,7 +482,7 @@ pub fn parse_type_annotation<T>(
                         parse_type_annotation(resolver, top_level_defs, unifier, primitives, elt)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(unifier.add_ty(TypeEnum::TTuple { ty }))
+                Ok(unifier.add_ty(TypeEnum::TTuple { ty, is_vararg_ctx: false }))
             } else {
                 Err(HashSet::from(["Expected multiple elements for tuple".into()]))
             }

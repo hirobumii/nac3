@@ -28,7 +28,10 @@ impl Unifier {
                 TypeEnum::TVar { fields: Some(map1), .. },
                 TypeEnum::TVar { fields: Some(map2), .. },
             ) => self.map_eq2(map1, map2),
-            (TypeEnum::TTuple { ty: ty1 }, TypeEnum::TTuple { ty: ty2 }) => {
+            (
+                TypeEnum::TTuple { ty: ty1, is_vararg_ctx: false },
+                TypeEnum::TTuple { ty: ty2, is_vararg_ctx: false },
+            ) => {
                 ty1.len() == ty2.len()
                     && ty1.iter().zip(ty2.iter()).all(|(t1, t2)| self.eq(*t1, *t2))
             }
@@ -178,7 +181,7 @@ impl TestEnvironment {
                     ty.push(result.0);
                     s = result.1;
                 }
-                (self.unifier.add_ty(TypeEnum::TTuple { ty }), &s[1..])
+                (self.unifier.add_ty(TypeEnum::TTuple { ty, is_vararg_ctx: false }), &s[1..])
             }
             "Record" => {
                 let mut s = &typ[end..];
@@ -608,7 +611,7 @@ fn test_instantiation() {
     let v1 = env.unifier.get_fresh_var_with_range(&[list_v, int], None, None).ty;
     let v2 = env.unifier.get_fresh_var_with_range(&[list_int, float], None, None).ty;
     let t = env.unifier.get_dummy_var().ty;
-    let tuple = env.unifier.add_ty(TypeEnum::TTuple { ty: vec![v, v1, v2] });
+    let tuple = env.unifier.add_ty(TypeEnum::TTuple { ty: vec![v, v1, v2], is_vararg_ctx: false });
     let v3 = env.unifier.get_fresh_var_with_range(&[tuple, t], None, None).ty;
     // t = TypeVar('t')
     // v = TypeVar('v', int, bool)

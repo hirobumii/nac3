@@ -2083,6 +2083,7 @@ impl<'a> BuiltinBuilder<'a> {
             | PrimDef::FunSpLinalgHessenberg => {
                 let ret_ty = self.unifier.add_ty(TypeEnum::TTuple {
                     ty: vec![self.ndarray_float_2d, self.ndarray_float_2d],
+                    is_vararg_ctx: false,
                 });
                 create_fn_by_codegen(
                     self.unifier,
@@ -2112,6 +2113,7 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::FunNpLinalgSvd => {
                 let ret_ty = self.unifier.add_ty(TypeEnum::TTuple {
                     ty: vec![self.ndarray_float_2d, self.ndarray_float, self.ndarray_float_2d],
+                    is_vararg_ctx: false,
                 });
                 create_fn_by_codegen(
                     self.unifier,

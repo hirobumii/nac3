@@ -386,7 +386,7 @@ fn gen_rpc_tag(
     } else {
         let ty_enum = ctx.unifier.get_ty(ty);
         match &*ty_enum {
-            TTuple { ty } => {
+            TTuple { ty, is_vararg_ctx: false } => {
                 buffer.push(b't');
                 buffer.push(ty.len() as u8);
                 for ty in ty {

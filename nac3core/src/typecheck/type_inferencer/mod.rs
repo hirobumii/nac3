@@ -973,13 +973,14 @@ impl<'a> Inferencer<'a> {
                     ]));
                 }
             }
-            TypeEnum::TTuple { ty: tuple_element_types } => {
+            TypeEnum::TTuple { ty: tuple_element_types, .. } => {
                 // Handle 2. A tuple of int32s
 
                 // Typecheck
                 // The expected type is just the tuple but with all its elements being int32.
                 let expected_ty = self.unifier.add_ty(TypeEnum::TTuple {
                     ty: tuple_element_types.iter().map(|_| self.primitives.int32).collect_vec(),
+                    is_vararg_ctx: false,
                 });
                 self.unifier.unify(shape_ty, expected_ty).map_err(|err| {
                     HashSet::from([err
@@ -1714,7 +1715,7 @@ impl<'a> Inferencer<'a> {
             ast::Constant::Tuple(vals) => {
                 let ty: Result<Vec<_>, _> =
                     vals.iter().map(|x| self.infer_constant(x, loc)).collect();
-                Ok(self.unifier.add_ty(TypeEnum::TTuple { ty: ty? }))
+                Ok(self.unifier.add_ty(TypeEnum::TTuple { ty: ty?, is_vararg_ctx: false }))
             }
             ast::Constant::Str(_) => Ok(self.primitives.str),
             ast::Constant::None => {
@@ -1748,7 +1749,7 @@ impl<'a> Inferencer<'a> {
     #[allow(clippy::unnecessary_wraps)]
     fn infer_tuple(&mut self, elts: &[ast::Expr<Option<Type>>]) -> InferenceResult {
         let ty = elts.iter().map(|x| x.custom.unwrap()).collect();
-        Ok(self.unifier.add_ty(TypeEnum::TTuple { ty }))
+        Ok(self.unifier.add_ty(TypeEnum::TTuple { ty, is_vararg_ctx: false }))
     }
 
     /// Checks for non-class attributes
@@ -1985,7 +1986,7 @@ impl<'a> Inferencer<'a> {
         rhs_ty: Type,
     ) -> Result<Vec<ast::Expr<Option<Type>>>, InferenceError> {
         // TODO: Allow bidirectional typechecking? Currently RHS's type has to be resolved.
-        let TypeEnum::TTuple { ty: rhs_tys } = &*self.unifier.get_ty(rhs_ty) else {
+        let TypeEnum::TTuple { ty: rhs_tys, .. } = &*self.unifier.get_ty(rhs_ty) else {
             // TODO: Allow RHS AST-aware error reporting
             return report_error(
                 "LHS target list pattern requires RHS to be a tuple type",
@@ -2055,7 +2056,10 @@ impl<'a> Inferencer<'a> {
 
             // Fold the starred target
             if let ExprKind::Starred { value: target, .. } = target_starred.node {
-                let ty = self.unifier.add_ty(TypeEnum::TTuple { ty: rhs_tys_starred.to_vec() });
+                let ty = self.unifier.add_ty(TypeEnum::TTuple {
+                    ty: rhs_tys_starred.to_vec(),
+                    is_vararg_ctx: false,
+                });
                 let folded_target = self.fold_assign_target(*target, ty)?;
                 folded_targets.push(Located {
                     location: target_starred.location,

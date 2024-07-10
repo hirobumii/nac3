@@ -351,7 +351,7 @@ impl InnerResolver {
             Ok(Ok((ndarray, false)))
         } else if ty_id == self.primitive_ids.tuple {
             // do not handle type var param and concrete check here
-            Ok(Ok((unifier.add_ty(TypeEnum::TTuple { ty: vec![] }), false)))
+            Ok(Ok((unifier.add_ty(TypeEnum::TTuple { ty: vec![], is_vararg_ctx: false }), false)))
         } else if ty_id == self.primitive_ids.option {
             Ok(Ok((primitives.option, false)))
         } else if ty_id == self.primitive_ids.none {
@@ -555,7 +555,10 @@ impl InnerResolver {
                             Err(err) => return Ok(Err(err)),
                             _ => return Ok(Err("tuple type needs at least 1 type parameters".to_string()))
                         };
-                    Ok(Ok((unifier.add_ty(TypeEnum::TTuple { ty: args }), true)))
+                    Ok(Ok((
+                        unifier.add_ty(TypeEnum::TTuple { ty: args, is_vararg_ctx: false }),
+                        true,
+                    )))
                 }
                 TypeEnum::TObj { params, obj_id, .. } => {
                     let subst = {
@@ -797,7 +800,9 @@ impl InnerResolver {
                     .map(|elem| self.get_obj_type(py, elem, unifier, defs, primitives))
                     .collect();
                 let types = types?;
-                Ok(types.map(|types| unifier.add_ty(TypeEnum::TTuple { ty: types })))
+                Ok(types.map(|types| {
+                    unifier.add_ty(TypeEnum::TTuple { ty: types, is_vararg_ctx: false })
+                }))
             }
             // special handling for option type since its class member layout in python side
             // is special and cannot be mapped directly to a nac3 type as below
@@ -1203,7 +1208,9 @@ impl InnerResolver {
             Ok(Some(ndarray.as_pointer_value().into()))
         } else if ty_id == self.primitive_ids.tuple {
             let expected_ty_enum = ctx.unifier.get_ty_immutable(expected_ty);
-            let TypeEnum::TTuple { ty } = expected_ty_enum.as_ref() else { unreachable!() };
+            let TypeEnum::TTuple { ty, is_vararg_ctx: false } = expected_ty_enum.as_ref() else {
+                unreachable!()
+            };
 
             let tup_tys = ty.iter();
             let elements: &PyTuple = obj.downcast()?;
