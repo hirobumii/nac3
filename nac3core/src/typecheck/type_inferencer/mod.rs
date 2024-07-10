@@ -398,7 +398,10 @@ impl<'a> Fold<()> for Inferencer<'a> {
                 }
                 if let Some(exc) = exc {
                     self.virtual_checks.push((
-                        exc.custom.unwrap(),
+                        match &*self.unifier.get_ty(exc.custom.unwrap()) {
+                            TypeEnum::TFunc(sign) => sign.ret,
+                            _ => exc.custom.unwrap(),
+                        },
                         self.primitives.exception,
                         exc.location,
                     ));
