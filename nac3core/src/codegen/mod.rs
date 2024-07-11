@@ -1049,3 +1049,9 @@ fn gen_in_range_check<'ctx>(
 
     ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp").unwrap()
 }
+
+/// Returns the internal name for the `va_count` argument, used to indicate the number of arguments
+/// passed to the variadic function.
+fn get_va_count_arg_name(arg_name: StrRef) -> StrRef {
+    format!("__{}_va_count", &arg_name).into()
+}
