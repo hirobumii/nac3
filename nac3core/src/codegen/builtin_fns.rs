@@ -807,7 +807,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
     let (a_ty, a) = a;
-    Ok( match a {
+    Ok(match a {
         BasicValueEnum::IntValue(_) | BasicValueEnum::FloatValue(_) => {
             debug_assert!([
                 ctx.primitives.bool,
@@ -819,17 +819,17 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             ]
             .iter()
             .any(|ty| ctx.unifier.unioned(a_ty, *ty)));
-            
+
             match fn_name {
                 "np_argmin" | "np_argmax" => llvm_int64.const_zero().into(),
                 "np_max" | "np_min" => a,
-                _ => unreachable!()
+                _ => unreachable!(),
             }
         }
         BasicValueEnum::PointerValue(n)
             if a_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, a_ty);  
+            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, a_ty);
             let llvm_ndarray_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let n = NDArrayValue::from_ptr_val(n, llvm_usize, None);
@@ -865,32 +865,42 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 llvm_int64.const_int(1, false),
                 (n_sz, false),
-                |generator, ctx, _, idx,| {
+                |generator, ctx, _, idx| {
                     let elem = unsafe { n.data().get_unchecked(ctx, generator, &idx, None) };
                     let accumulator = ctx.builder.build_load(accumulator_addr, "").unwrap();
                     let cur_idx = ctx.builder.build_load(res_idx, "").unwrap();
 
                     let result = match fn_name {
-                        "np_argmin" | "np_min" => call_min(ctx, (elem_ty, accumulator), (elem_ty, elem)),
-                        "np_argmax" | "np_max" => call_max(ctx, (elem_ty, accumulator), (elem_ty, elem)),
-                        _ => unreachable!()
+                        "np_argmin" | "np_min" => {
+                            call_min(ctx, (elem_ty, accumulator), (elem_ty, elem))
+                        }
+                        "np_argmax" | "np_max" => {
+                            call_max(ctx, (elem_ty, accumulator), (elem_ty, elem))
+                        }
+                        _ => unreachable!(),
                     };
 
-                    let updated_idx = match (accumulator, result){
-                        (BasicValueEnum::IntValue(m), BasicValueEnum::IntValue(n)) => {
-                            ctx.builder.build_select(
-                                ctx.builder.build_int_compare(IntPredicate::NE,m, n, "").unwrap(), 
-                                idx.into(), 
+                    let updated_idx = match (accumulator, result) {
+                        (BasicValueEnum::IntValue(m), BasicValueEnum::IntValue(n)) => ctx
+                            .builder
+                            .build_select(
+                                ctx.builder.build_int_compare(IntPredicate::NE, m, n, "").unwrap(),
+                                idx.into(),
                                 cur_idx,
-                                "").unwrap()
-                        },
-                        (BasicValueEnum::FloatValue(m), BasicValueEnum::FloatValue(n)) => {
-                            ctx.builder.build_select(
-                                ctx.builder.build_float_compare(FloatPredicate::ONE,m, n, "").unwrap(), 
-                                idx.into(), 
+                                "",
+                            )
+                            .unwrap(),
+                        (BasicValueEnum::FloatValue(m), BasicValueEnum::FloatValue(n)) => ctx
+                            .builder
+                            .build_select(
+                                ctx.builder
+                                    .build_float_compare(FloatPredicate::ONE, m, n, "")
+                                    .unwrap(),
+                                idx.into(),
                                 cur_idx,
-                                "").unwrap()
-                        },
+                                "",
+                            )
+                            .unwrap(),
                         _ => unsupported_type(ctx, fn_name, &[elem_ty, elem_ty]),
                     };
                     ctx.builder.build_store(res_idx, updated_idx).unwrap();
@@ -904,11 +914,11 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             match fn_name {
                 "np_argmin" | "np_argmax" => ctx.builder.build_load(res_idx, "").unwrap(),
                 "np_max" | "np_min" => ctx.builder.build_load(accumulator_addr, "").unwrap(),
-                _ => unreachable!()
+                _ => unreachable!(),
             }
         }
 
-        _ => unsupported_type(ctx, fn_name, &[a_ty])
+        _ => unsupported_type(ctx, fn_name, &[a_ty]),
     })
 }
 

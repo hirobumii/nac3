@@ -510,10 +510,9 @@ impl<'a> BuiltinBuilder<'a> {
 
             PrimDef::FunMin | PrimDef::FunMax => self.build_min_max_function(prim),
 
-            PrimDef::FunNpArgmin 
-            | PrimDef::FunNpArgmax
-            | PrimDef::FunNpMin 
-            | PrimDef::FunNpMax => self.build_np_max_min_function(prim),
+            PrimDef::FunNpArgmin | PrimDef::FunNpArgmax | PrimDef::FunNpMin | PrimDef::FunNpMax => {
+                self.build_np_max_min_function(prim)
+            }
 
             PrimDef::FunNpMinimum | PrimDef::FunNpMaximum => {
                 self.build_np_minimum_maximum_function(prim)
@@ -1561,12 +1560,15 @@ impl<'a> BuiltinBuilder<'a> {
     /// Build the functions `np_max()`, `np_min()`, `np_argmax()` and `np_argmin()`
     /// Calls `call_numpy_max_min` with the function name
     fn build_np_max_min_function(&mut self, prim: PrimDef) -> TopLevelDef {
-        debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpArgmin, PrimDef::FunNpArgmax, PrimDef::FunNpMin, PrimDef::FunNpMax]);
+        debug_assert_prim_is_allowed(
+            prim,
+            &[PrimDef::FunNpArgmin, PrimDef::FunNpArgmax, PrimDef::FunNpMin, PrimDef::FunNpMax],
+        );
 
         let (var_map, ret_ty) = match prim {
             PrimDef::FunNpArgmax | PrimDef::FunNpArgmin => {
                 (self.num_or_ndarray_var_map.clone(), self.primitives.int64)
-            },
+            }
             PrimDef::FunNpMax | PrimDef::FunNpMin => {
                 let ret_ty = self.unifier.get_fresh_var(Some("R".into()), None);
                 let var_map = self
@@ -1576,8 +1578,8 @@ impl<'a> BuiltinBuilder<'a> {
                     .chain(once((ret_ty.id, ret_ty.ty)))
                     .collect::<IndexMap<_, _>>();
                 (var_map, ret_ty.ty)
-            },
-            _ => unreachable!()
+            }
+            _ => unreachable!(),
         };
 
         create_fn_by_codegen(
@@ -1589,7 +1591,7 @@ impl<'a> BuiltinBuilder<'a> {
             Box::new(move |ctx, _, fun, args, generator| {
                 let a_ty = fun.0.args[0].ty;
                 let a = args[0].1.clone().to_basic_value_enum(ctx, generator, a_ty)?;
-                
+
                 Ok(Some(builtin_fns::call_numpy_max_min(generator, ctx, (a_ty, a), &prim.name())?))
             }),
         )
