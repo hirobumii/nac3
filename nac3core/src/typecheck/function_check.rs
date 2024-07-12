@@ -212,19 +212,23 @@ impl<'a> Inferencer<'a> {
     /// This is a workaround preventing the caller from using a variable `alloca`-ed in the body, which
     /// is freed when the function returns.
     fn check_return_value_ty(&mut self, ret_ty: Type) -> bool {
-        match &*self.unifier.get_ty_immutable(ret_ty) {
-            TypeEnum::TObj { .. } => [
-                self.primitives.int32,
-                self.primitives.int64,
-                self.primitives.uint32,
-                self.primitives.uint64,
-                self.primitives.float,
-                self.primitives.bool,
-            ]
-            .iter()
-            .any(|allowed_ty| self.unifier.unioned(ret_ty, *allowed_ty)),
-            TypeEnum::TTuple { ty, .. } => ty.iter().all(|t| self.check_return_value_ty(*t)),
-            _ => false,
+        if cfg!(feature = "no-escape-analysis") {
+            true
+        } else {
+            match &*self.unifier.get_ty_immutable(ret_ty) {
+                TypeEnum::TObj { .. } => [
+                    self.primitives.int32,
+                    self.primitives.int64,
+                    self.primitives.uint32,
+                    self.primitives.uint64,
+                    self.primitives.float,
+                    self.primitives.bool,
+                ]
+                .iter()
+                .any(|allowed_ty| self.unifier.unioned(ret_ty, *allowed_ty)),
+                TypeEnum::TTuple { ty, .. } => ty.iter().all(|t| self.check_return_value_ty(*t)),
+                _ => false,
+            }
         }
     }
 

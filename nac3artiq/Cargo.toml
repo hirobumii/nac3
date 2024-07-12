@@ -24,3 +24,4 @@ features = ["llvm14-0", "target-x86", "target-arm", "target-riscv", "no-libffi-l
 
 [features]
 init-llvm-profile = []
+no-escape-analysis = ["nac3core/no-escape-analysis"]
