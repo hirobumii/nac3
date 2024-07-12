@@ -8,7 +8,11 @@ use std::{
 };
 
 fn main() {
-    const FILE: &str = "src/codegen/irrt/irrt.cpp";
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let out_dir = Path::new(&out_dir);
+    let irrt_dir = Path::new("irrt");
+
+    let irrt_cpp_path = irrt_dir.join("irrt.cpp");
 
     /*
      * HACK: Sadly, clang doesn't let us emit generic LLVM bitcode.
@@ -16,7 +20,6 @@ fn main() {
      */
     let flags: &[&str] = &[
         "--target=wasm32",
-        FILE,
         "-x",
         "c++",
         "-fno-discard-value-names",
@@ -33,12 +36,13 @@ fn main() {
         "-Wextra",
         "-o",
         "-",
+        irrt_cpp_path.to_str().unwrap(),
     ];
 
-    println!("cargo:rerun-if-changed={FILE}");
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let out_path = Path::new(&out_dir);
+    // Tell Cargo to rerun if any file under `irrt_dir` (recursive) changes
+    println!("cargo:rerun-if-changed={}", irrt_dir.to_str().unwrap());
 
+    // Compile IRRT and capture the LLVM IR output
     let output = Command::new("clang-irrt")
         .args(flags)
         .output()
@@ -52,6 +56,11 @@ fn main() {
     let output = std::str::from_utf8(&output.stdout).unwrap().replace("\r\n", "\n");
     let mut filtered_output = String::with_capacity(output.len());
 
+    // Filter out irrelevant IR
+    //
+    // Regex:
+    // - `(?ms:^define.*?\}$)` captures LLVM `define` blocks
+    // - `(?m:^declare.*?$)` captures LLVM `declare` lines
     let regex_filter = Regex::new(r"(?ms:^define.*?\}$)|(?m:^declare.*?$)").unwrap();
     for f in regex_filter.captures_iter(&output) {
         assert_eq!(f.len(), 1);
@@ -63,18 +72,22 @@ fn main() {
         .unwrap()
         .replace_all(&filtered_output, "");
 
-    println!("cargo:rerun-if-env-changed=DEBUG_DUMP_IRRT");
-    if env::var("DEBUG_DUMP_IRRT").is_ok() {
-        let mut file = File::create(out_path.join("irrt.ll")).unwrap();
+    // For debugging
+    // Doing `DEBUG_DUMP_IRRT=1 cargo build -p nac3core` dumps the LLVM IR generated
+    const DEBUG_DUMP_IRRT: &str = "DEBUG_DUMP_IRRT";
+    println!("cargo:rerun-if-env-changed={DEBUG_DUMP_IRRT}");
+    if env::var(DEBUG_DUMP_IRRT).is_ok() {
+        let mut file = File::create(out_dir.join("irrt.ll")).unwrap();
         file.write_all(output.as_bytes()).unwrap();
-        let mut file = File::create(out_path.join("irrt-filtered.ll")).unwrap();
+
+        let mut file = File::create(out_dir.join("irrt-filtered.ll")).unwrap();
         file.write_all(filtered_output.as_bytes()).unwrap();
     }
 
     let mut llvm_as = Command::new("llvm-as-irrt")
         .stdin(Stdio::piped())
         .arg("-o")
-        .arg(out_path.join("irrt.bc"))
+        .arg(out_dir.join("irrt.bc"))
         .spawn()
         .unwrap();
     llvm_as.stdin.as_mut().unwrap().write_all(filtered_output.as_bytes()).unwrap();
