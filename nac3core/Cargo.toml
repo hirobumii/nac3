@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["M-Labs"]
 edition = "2021"
 
+[features]
+no-escape-analysis = []
+
 [dependencies]
 itertools = "0.13"
 crossbeam = "0.8"

@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["M-Labs"]
 edition = "2021"
 
+[features]
+no-escape-analysis = ["nac3core/no-escape-analysis"]
+
 [dependencies]
 parking_lot = "0.12"
 nac3parser = { path = "../nac3parser" }
