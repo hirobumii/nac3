@@ -183,8 +183,10 @@ def patch(module):
     module.np_isinf = np.isinf
     module.np_min = np.min
     module.np_minimum = np.minimum
+    module.np_argmin = np.argmin
     module.np_max = np.max
     module.np_maximum = np.maximum
+    module.np_argmax = np.argmax
     module.np_sin = np.sin
     module.np_cos = np.cos
     module.np_exp = np.exp
