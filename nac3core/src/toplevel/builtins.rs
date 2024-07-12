@@ -510,7 +510,10 @@ impl<'a> BuiltinBuilder<'a> {
 
             PrimDef::FunMin | PrimDef::FunMax => self.build_min_max_function(prim),
 
-            PrimDef::FunNpMin | PrimDef::FunNpMax => self.build_np_min_max_function(prim),
+            PrimDef::FunNpArgmin 
+            | PrimDef::FunNpArgmax
+            | PrimDef::FunNpMin 
+            | PrimDef::FunNpMax => self.build_np_max_min_function(prim),
 
             PrimDef::FunNpMinimum | PrimDef::FunNpMaximum => {
                 self.build_np_minimum_maximum_function(prim)
@@ -1555,39 +1558,42 @@ impl<'a> BuiltinBuilder<'a> {
         }
     }
 
-    /// Build the functions `np_min()` and `np_max()`.
-    fn build_np_min_max_function(&mut self, prim: PrimDef) -> TopLevelDef {
-        debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpMin, PrimDef::FunNpMax]);
+    /// Build the functions `np_max()`, `np_min()`, `np_argmax()` and `np_argmin()`
+    /// Calls `call_numpy_max_min` with the function name
+    fn build_np_max_min_function(&mut self, prim: PrimDef) -> TopLevelDef {
+        debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpArgmin, PrimDef::FunNpArgmax, PrimDef::FunNpMin, PrimDef::FunNpMax]);
 
-        let ret_ty = self.unifier.get_fresh_var(Some("R".into()), None);
-        let var_map = self
-            .num_or_ndarray_var_map
-            .clone()
-            .into_iter()
-            .chain(once((ret_ty.id, ret_ty.ty)))
-            .collect::<IndexMap<_, _>>();
+        let (var_map, ret_ty) = match prim {
+            PrimDef::FunNpArgmax | PrimDef::FunNpArgmin => {
+                (self.num_or_ndarray_var_map.clone(), self.primitives.int64)
+            },
+            PrimDef::FunNpMax | PrimDef::FunNpMin => {
+                let ret_ty = self.unifier.get_fresh_var(Some("R".into()), None);
+                let var_map = self
+                    .num_or_ndarray_var_map
+                    .clone()
+                    .into_iter()
+                    .chain(once((ret_ty.id, ret_ty.ty)))
+                    .collect::<IndexMap<_, _>>();
+                (var_map, ret_ty.ty)
+            },
+            _ => unreachable!()
+        };
 
         create_fn_by_codegen(
             self.unifier,
             &var_map,
             prim.name(),
-            ret_ty.ty,
-            &[(self.float_or_ndarray_ty.ty, "a")],
+            ret_ty,
+            &[(self.num_or_ndarray_ty.ty, "a")],
             Box::new(move |ctx, _, fun, args, generator| {
                 let a_ty = fun.0.args[0].ty;
                 let a = args[0].1.clone().to_basic_value_enum(ctx, generator, a_ty)?;
-
-                let func = match prim {
-                    PrimDef::FunNpMin => builtin_fns::call_numpy_min,
-                    PrimDef::FunNpMax => builtin_fns::call_numpy_max,
-                    _ => unreachable!(),
-                };
-
-                Ok(Some(func(generator, ctx, (a_ty, a))?))
+                
+                Ok(Some(builtin_fns::call_numpy_max_min(generator, ctx, (a_ty, a), &prim.name())?))
             }),
         )
     }
-
     /// Build the functions `np_minimum()` and `np_maximum()`.
     fn build_np_minimum_maximum_function(&mut self, prim: PrimDef) -> TopLevelDef {
         debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpMinimum, PrimDef::FunNpMaximum]);
