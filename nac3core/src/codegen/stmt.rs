@@ -1637,7 +1637,7 @@ pub fn gen_stmt<G: CodeGenerator>(
             };
             ctx.make_assert_impl(
                 generator,
-                test.into_int_value(),
+                generator.bool_to_i1(ctx, test.into_int_value()),
                 "0:AssertionError",
                 err_msg,
                 [None, None, None],
