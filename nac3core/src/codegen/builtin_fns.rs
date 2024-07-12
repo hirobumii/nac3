@@ -793,8 +793,8 @@ pub fn call_max<'ctx>(
     }
 }
 
-/// Invokes the np_max, np_min, np_argmax, np_argmin functions
-/// * `fn_name`: Can be one of "np_argmin", "np_argmax", "np_max", "np_min"
+/// Invokes the `np_max`, `np_min`, `np_argmax`, `np_argmin` functions
+/// * `fn_name`: Can be one of `"np_argmin"`, `"np_argmax"`, `"np_max"`, `"np_min"`
 pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -844,7 +844,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
                     generator,
                     n_sz_eqz,
                     "0:ValueError",
-                    format!("zero-size array to reduction operation {}", fn_name).as_str(),
+                    format!("zero-size array to reduction operation {fn_name}").as_str(),
                     [None, None, None],
                     ctx.current_loc,
                 );

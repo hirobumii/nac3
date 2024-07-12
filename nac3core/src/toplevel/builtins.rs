@@ -1592,7 +1592,7 @@ impl<'a> BuiltinBuilder<'a> {
                 let a_ty = fun.0.args[0].ty;
                 let a = args[0].1.clone().to_basic_value_enum(ctx, generator, a_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_max_min(generator, ctx, (a_ty, a), &prim.name())?))
+                Ok(Some(builtin_fns::call_numpy_max_min(generator, ctx, (a_ty, a), prim.name())?))
             }),
         )
     }
