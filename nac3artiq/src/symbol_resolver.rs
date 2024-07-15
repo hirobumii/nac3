@@ -991,8 +991,15 @@ impl InnerResolver {
                 }
                 _ => unreachable!("must be list"),
             };
-            let ty = ctx.get_llvm_type(generator, elem_ty);
             let size_t = generator.get_size_type(ctx.ctx);
+            let ty = if len == 0
+                && matches!(&*ctx.unifier.get_ty_immutable(elem_ty), TypeEnum::TVar { .. })
+            {
+                // The default type for zero-length lists of unknown element type is size_t
+                size_t.into()
+            } else {
+                ctx.get_llvm_type(generator, elem_ty)
+            };
             let arr_ty = ctx
                 .ctx
                 .struct_type(&[ty.ptr_type(AddressSpace::default()).into(), size_t.into()], false);

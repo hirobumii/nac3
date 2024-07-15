@@ -951,9 +951,9 @@ pub fn destructure_range<'ctx>(
 /// Allocates a List structure with the given [type][ty] and [length]. The name of the resulting
 /// LLVM value is `{name}.addr`, or `list.addr` if [name] is not specified.
 ///
-/// Setting `ty` to [`None`] implies that the list does not have a known element type, which is only
-/// valid for empty lists. It is undefined behavior to generate a sized list with an unknown element
-/// type.
+/// Setting `ty` to [`None`] implies that the list is empty **and** does not have a known element
+/// type, and will therefore set the `list.data` type as `size_t*`. It is undefined behavior to
+/// generate a sized list with an unknown element type.
 pub fn allocate_list<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
