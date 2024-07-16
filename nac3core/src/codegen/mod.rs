@@ -743,7 +743,10 @@ pub fn gen_func_impl<
     let has_sret = ret_type.map_or(false, |ty| need_sret(ty));
     let mut params = args
         .iter()
+        .filter(|arg| !arg.is_vararg)
         .map(|arg| {
+            debug_assert!(!arg.is_vararg);
+
             get_llvm_abi_type(
                 context,
                 &module,
@@ -762,9 +765,12 @@ pub fn gen_func_impl<
         params.insert(0, ret_type.unwrap().ptr_type(AddressSpace::default()).into());
     }
 
+    debug_assert!(matches!(args.iter().filter(|arg| arg.is_vararg).count(), 0..=1));
+    let vararg_arg = args.iter().find(|arg| arg.is_vararg);
+
     let fn_type = match ret_type {
-        Some(ret_type) if !has_sret => ret_type.fn_type(&params, false),
-        _ => context.void_type().fn_type(&params, false),
+        Some(ret_type) if !has_sret => ret_type.fn_type(&params, vararg_arg.is_some()),
+        _ => context.void_type().fn_type(&params, vararg_arg.is_some()),
     };
 
     let symbol = &task.symbol_name;
@@ -794,7 +800,9 @@ pub fn gen_func_impl<
 
     let mut var_assignment = HashMap::new();
     let offset = u32::from(has_sret);
-    for (n, arg) in args.iter().enumerate() {
+
+    // Store non-vararg argument values into local variables
+    for (n, arg) in args.iter().enumerate().filter(|(_, arg)| !arg.is_vararg) {
         let param = fn_val.get_nth_param((n as u32) + offset).unwrap();
         let local_type = get_llvm_type(
             context,
@@ -826,6 +834,8 @@ pub fn gen_func_impl<
         builder.build_store(alloca, param).unwrap();
         var_assignment.insert(arg.name, (alloca, None, 0));
     }
+
+    // TODO: Save vararg parameters as list
 
     let return_buffer = if has_sret {
         Some(fn_val.get_nth_param(0).unwrap().into_pointer_value())
