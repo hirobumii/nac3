@@ -14,9 +14,7 @@ use strum::IntoEnumIterator;
 use crate::{
     codegen::{
         builtin_fns,
-        classes::{ArrayLikeValue, NDArrayValue, ProxyValue, RangeValue, TypedArrayLikeAccessor},
-        expr::destructure_range,
-        irrt::*,
+        classes::{ProxyValue, RangeValue},
         numpy::*,
         stmt::exn_constructor,
     },
@@ -1503,86 +1501,10 @@ impl<'a> BuiltinBuilder<'a> {
             resolver: None,
             codegen_callback: Some(Arc::new(GenCall::new(Box::new(
                 move |ctx, _, fun, args, generator| {
-                    let range_ty = ctx.primitives.range;
                     let arg_ty = fun.0.args[0].ty;
                     let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    Ok(if ctx.unifier.unioned(arg_ty, range_ty) {
-                        let arg = RangeValue::from_ptr_val(arg.into_pointer_value(), Some("range"));
-                        let (start, end, step) = destructure_range(ctx, arg);
-                        Some(calculate_len_for_slice_range(generator, ctx, start, end, step).into())
-                    } else {
-                        match &*ctx.unifier.get_ty_immutable(arg_ty) {
-                            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
-                                let int32 = ctx.ctx.i32_type();
-                                let zero = int32.const_zero();
-                                let len = ctx
-                                    .build_gep_and_load(
-                                        arg.into_pointer_value(),
-                                        &[zero, int32.const_int(1, false)],
-                                        None,
-                                    )
-                                    .into_int_value();
-                                if len.get_type().get_bit_width() == 32 {
-                                    Some(len.into())
-                                } else {
-                                    Some(
-                                        ctx.builder
-                                            .build_int_truncate(len, int32, "len2i32")
-                                            .map(Into::into)
-                                            .unwrap(),
-                                    )
-                                }
-                            }
-                            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                                let llvm_i32 = ctx.ctx.i32_type();
-                                let llvm_usize = generator.get_size_type(ctx.ctx);
 
-                                let arg = NDArrayValue::from_ptr_val(
-                                    arg.into_pointer_value(),
-                                    llvm_usize,
-                                    None,
-                                );
-
-                                let ndims = arg.dim_sizes().size(ctx, generator);
-                                ctx.make_assert(
-                                    generator,
-                                    ctx.builder
-                                        .build_int_compare(
-                                            IntPredicate::NE,
-                                            ndims,
-                                            llvm_usize.const_zero(),
-                                            "",
-                                        )
-                                        .unwrap(),
-                                    "0:TypeError",
-                                    &format!("{name}() of unsized object", name = prim.name()),
-                                    [None, None, None],
-                                    ctx.current_loc,
-                                );
-
-                                let len = unsafe {
-                                    arg.dim_sizes().get_typed_unchecked(
-                                        ctx,
-                                        generator,
-                                        &llvm_usize.const_zero(),
-                                        None,
-                                    )
-                                };
-
-                                if len.get_type().get_bit_width() == 32 {
-                                    Some(len.into())
-                                } else {
-                                    Some(
-                                        ctx.builder
-                                            .build_int_truncate(len, llvm_i32, "len")
-                                            .map(Into::into)
-                                            .unwrap(),
-                                    )
-                                }
-                            }
-                            _ => unreachable!(),
-                        }
-                    })
+                    builtin_fns::call_len(generator, ctx, (arg_ty, arg)).map(|ret| Some(ret.into()))
                 },
             )))),
             loc: None,
