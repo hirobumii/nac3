@@ -32,6 +32,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     n: (Type, BasicValueEnum<'ctx>),
 ) -> Result<IntValue<'ctx>, String> {
+    let llvm_i32 = ctx.ctx.i32_type();
     let range_ty = ctx.primitives.range;
     let (arg_ty, arg) = n;
 
@@ -41,24 +42,19 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
         calculate_len_for_slice_range(generator, ctx, start, end, step)
     } else {
         match &*ctx.unifier.get_ty_immutable(arg_ty) {
+            TypeEnum::TTuple { ty, .. } => llvm_i32.const_int(ty.len() as u64, false),
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
-                let int32 = ctx.ctx.i32_type();
-                let zero = int32.const_zero();
+                let zero = llvm_i32.const_zero();
                 let len = ctx
                     .build_gep_and_load(
                         arg.into_pointer_value(),
-                        &[zero, int32.const_int(1, false)],
+                        &[zero, llvm_i32.const_int(1, false)],
                         None,
                     )
                     .into_int_value();
-                if len.get_type().get_bit_width() == 32 {
-                    len
-                } else {
-                    ctx.builder.build_int_truncate(len, int32, "len2i32").unwrap()
-                }
+                ctx.builder.build_int_truncate_or_bit_cast(len, llvm_i32, "len").unwrap()
             }
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                let llvm_i32 = ctx.ctx.i32_type();
                 let llvm_usize = generator.get_size_type(ctx.ctx);
 
                 let arg = NDArrayValue::from_ptr_val(arg.into_pointer_value(), llvm_usize, None);
@@ -84,11 +80,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
                     )
                 };
 
-                if len.get_type().get_bit_width() == 32 {
-                    len
-                } else {
-                    ctx.builder.build_int_truncate(len, llvm_i32, "len").unwrap()
-                }
+                ctx.builder.build_int_truncate_or_bit_cast(len, llvm_i32, "len").unwrap()
             }
             _ => unreachable!(),
         }
