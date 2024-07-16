@@ -1,17 +1,20 @@
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicValue, BasicValueEnum, PointerValue};
+use inkwell::values::{BasicValue, BasicValueEnum, IntValue, PointerValue};
 use inkwell::{FloatPredicate, IntPredicate, OptimizationLevel};
 use itertools::Itertools;
 
 use crate::codegen::classes::{
-    NDArrayValue, ProxyValue, UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
+    ArrayLikeValue, NDArrayValue, ProxyValue, RangeValue, TypedArrayLikeAccessor,
+    UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
 };
+use crate::codegen::expr::destructure_range;
+use crate::codegen::irrt::calculate_len_for_slice_range;
 use crate::codegen::numpy::ndarray_elementwise_unaryop_impl;
 use crate::codegen::stmt::gen_for_callback_incrementing;
 use crate::codegen::{extern_fns, irrt, llvm_intrinsics, numpy, CodeGenContext, CodeGenerator};
 use crate::toplevel::helper::PrimDef;
 use crate::toplevel::numpy::unpack_ndarray_var_tys;
-use crate::typecheck::typedef::Type;
+use crate::typecheck::typedef::{Type, TypeEnum};
 
 /// Shorthand for [`unreachable!()`] when a type of argument is not supported.
 ///
@@ -21,6 +24,75 @@ fn unsupported_type(ctx: &CodeGenContext<'_, '_>, fn_name: &str, tys: &[Type]) -
         "{fn_name}() not supported for '{}'",
         tys.iter().map(|ty| format!("'{}'", ctx.unifier.stringify(*ty))).join(", "),
     )
+}
+
+/// Invokes the `len` builtin function.
+pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    n: (Type, BasicValueEnum<'ctx>),
+) -> Result<IntValue<'ctx>, String> {
+    let range_ty = ctx.primitives.range;
+    let (arg_ty, arg) = n;
+
+    Ok(if ctx.unifier.unioned(arg_ty, range_ty) {
+        let arg = RangeValue::from_ptr_val(arg.into_pointer_value(), Some("range"));
+        let (start, end, step) = destructure_range(ctx, arg);
+        calculate_len_for_slice_range(generator, ctx, start, end, step)
+    } else {
+        match &*ctx.unifier.get_ty_immutable(arg_ty) {
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
+                let int32 = ctx.ctx.i32_type();
+                let zero = int32.const_zero();
+                let len = ctx
+                    .build_gep_and_load(
+                        arg.into_pointer_value(),
+                        &[zero, int32.const_int(1, false)],
+                        None,
+                    )
+                    .into_int_value();
+                if len.get_type().get_bit_width() == 32 {
+                    len
+                } else {
+                    ctx.builder.build_int_truncate(len, int32, "len2i32").unwrap()
+                }
+            }
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
+                let llvm_i32 = ctx.ctx.i32_type();
+                let llvm_usize = generator.get_size_type(ctx.ctx);
+
+                let arg = NDArrayValue::from_ptr_val(arg.into_pointer_value(), llvm_usize, None);
+
+                let ndims = arg.dim_sizes().size(ctx, generator);
+                ctx.make_assert(
+                    generator,
+                    ctx.builder
+                        .build_int_compare(IntPredicate::NE, ndims, llvm_usize.const_zero(), "")
+                        .unwrap(),
+                    "0:TypeError",
+                    "len() of unsized object",
+                    [None, None, None],
+                    ctx.current_loc,
+                );
+
+                let len = unsafe {
+                    arg.dim_sizes().get_typed_unchecked(
+                        ctx,
+                        generator,
+                        &llvm_usize.const_zero(),
+                        None,
+                    )
+                };
+
+                if len.get_type().get_bit_width() == 32 {
+                    len
+                } else {
+                    ctx.builder.build_int_truncate(len, llvm_i32, "len").unwrap()
+                }
+            }
+            _ => unreachable!(),
+        }
+    })
 }
 
 /// Invokes the `int32` builtin function.
