@@ -107,8 +107,25 @@ uint32_t __nac3_personality(uint32_t state, uint32_t exception_object, uint32_t 
     __builtin_unreachable();
 }
 
-uint32_t __nac3_raise(uint32_t state, uint32_t exception_object, uint32_t context) {
-    printf("__nac3_raise(state: %u, exception_object: %u, context: %u)\n", state, exception_object, context);
+// See `struct Exception<'a>` in
+// https://github.com/m-labs/artiq/blob/master/artiq/firmware/libeh/eh_artiq.rs
+struct Exception {
+    uint32_t id;
+    struct cslice file;
+    uint32_t line;
+    uint32_t column;
+    struct cslice function;
+    struct cslice message;
+    int64_t param[3];
+};
+
+uint32_t __nac3_raise(struct Exception* e) {
+    printf("__nac3_raise called. Exception details:\n");
+    printf("          ID: %lld\n", e->id);
+    printf("    Location: %*s:%lld:%lld\n" , e->file.len, (const char*) e->file.data, e->line, e->column);
+    printf("    Function: %*s\n" , e->function.len, (const char*) e->function.data);
+    printf("     Message: \"%*s\"\n" , e->message.len, (const char*) e->message.data);
+    printf("      Params: {0}=%lld, {1}=%lld, {2}=%lld\n", e->param[0], e->param[1], e->param[2]);
     exit(101);
     __builtin_unreachable();
 }
