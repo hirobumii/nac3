@@ -766,6 +766,7 @@ impl TopLevelComposer {
             let target_ty = get_type_from_type_annotation_kinds(
                 &temp_def_list,
                 unifier,
+                primitives,
                 &def,
                 &mut subst_list,
             )?;
@@ -936,6 +937,7 @@ impl TopLevelComposer {
                         let ty = get_type_from_type_annotation_kinds(
                             temp_def_list.as_ref(),
                             unifier,
+                            primitives_store,
                             &type_annotation,
                             &mut None,
                         )?;
@@ -1002,6 +1004,7 @@ impl TopLevelComposer {
                     get_type_from_type_annotation_kinds(
                         &temp_def_list,
                         unifier,
+                        primitives_store,
                         &return_ty_annotation,
                         &mut None,
                     )?
@@ -1622,6 +1625,7 @@ impl TopLevelComposer {
                 let self_type = get_type_from_type_annotation_kinds(
                     &def_list,
                     unifier,
+                    primitives_ty,
                     &make_self_type_annotation(type_vars, *object_id),
                     &mut None,
                 )?;
@@ -1803,7 +1807,11 @@ impl TopLevelComposer {
 
                         let ty_ann = make_self_type_annotation(type_vars, *class_id);
                         let self_ty = get_type_from_type_annotation_kinds(
-                            &def_list, unifier, &ty_ann, &mut None,
+                            &def_list,
+                            unifier,
+                            primitives_ty,
+                            &ty_ann,
+                            &mut None,
                         )?;
                         vars.extend(type_vars.iter().map(|ty| {
                             let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*ty) else {

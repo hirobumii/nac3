@@ -564,7 +564,7 @@ impl<'a> BuiltinBuilder<'a> {
             match (&tld, prim.details()) {
                 (
                     TopLevelDef::Class { name, object_id, .. },
-                    PrimDefDetails::PrimClass { name: exp_name },
+                    PrimDefDetails::PrimClass { name: exp_name, .. },
                 ) => {
                     let exp_object_id = prim.id();
                     assert_eq!(name, &exp_name.into());

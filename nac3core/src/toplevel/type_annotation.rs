@@ -1,8 +1,9 @@
 use super::*;
 use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::helper::PrimDef;
+use crate::toplevel::helper::{PrimDef, PrimDefDetails};
 use crate::typecheck::typedef::VarMap;
 use nac3parser::ast::Constant;
+use strum::IntoEnumIterator;
 
 #[derive(Clone, Debug)]
 pub enum TypeAnnotation {
@@ -357,6 +358,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 pub fn get_type_from_type_annotation_kinds(
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
     unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
     ann: &TypeAnnotation,
     subst_list: &mut Option<Vec<Type>>,
 ) -> Result<Type, HashSet<String>> {
@@ -379,100 +381,141 @@ pub fn get_type_from_type_annotation_kinds(
             let param_ty = params
                 .iter()
                 .map(|x| {
-                    get_type_from_type_annotation_kinds(top_level_defs, unifier, x, subst_list)
+                    get_type_from_type_annotation_kinds(
+                        top_level_defs,
+                        unifier,
+                        primitives,
+                        x,
+                        subst_list,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let subst = {
-                // check for compatible range
-                // TODO: if allow type var to be applied(now this disallowed in the parse_to_type_annotation), need more check
-                let mut result = VarMap::new();
-                for (tvar, p) in type_vars.iter().zip(param_ty) {
-                    match unifier.get_ty(*tvar).as_ref() {
-                        TypeEnum::TVar {
-                            id,
-                            range,
-                            fields: None,
-                            name,
-                            loc,
-                            is_const_generic: false,
-                        } => {
-                            let ok: bool = {
-                                // create a temp type var and unify to check compatibility
-                                p == *tvar || {
-                                    let temp = unifier.get_fresh_var_with_range(
-                                        range.as_slice(),
-                                        *name,
-                                        *loc,
-                                    );
-                                    unifier.unify(temp.ty, p).is_ok()
-                                }
-                            };
-                            if ok {
-                                result.insert(*id, p);
-                            } else {
-                                return Err(HashSet::from([format!(
-                                    "cannot apply type {} to type variable with id {:?}",
-                                    unifier.internal_stringify(
-                                        p,
-                                        &mut |id| format!("class{id}"),
-                                        &mut |id| format!("typevar{id}"),
-                                        &mut None
-                                    ),
-                                    *id
-                                )]));
-                            }
-                        }
+            let ty = if let Some(prim_def) = PrimDef::iter().find(|prim| prim.id() == *obj_id) {
+                // Primitive TopLevelDefs do not contain all fields that are present in their Type
+                // counterparts, so directly perform subst on the Type instead.
 
-                        TypeEnum::TVar { id, range, name, loc, is_const_generic: true, .. } => {
-                            let ty = range[0];
-                            let ok: bool = {
-                                // create a temp type var and unify to check compatibility
-                                p == *tvar || {
-                                    let temp = unifier.get_fresh_const_generic_var(ty, *name, *loc);
-                                    unifier.unify(temp.ty, p).is_ok()
-                                }
-                            };
-                            if ok {
-                                result.insert(*id, p);
-                            } else {
-                                return Err(HashSet::from([format!(
-                                    "cannot apply type {} to type variable {}",
-                                    unifier.stringify(p),
-                                    name.unwrap_or_else(|| format!("typevar{id}").into()),
-                                )]));
-                            }
-                        }
+                let PrimDefDetails::PrimClass { get_ty_fn, .. } = prim_def.details() else {
+                    unreachable!()
+                };
 
-                        _ => unreachable!("must be generic type var"),
+                let base_ty = get_ty_fn(primitives);
+                let params =
+                    if let TypeEnum::TObj { params, .. } = &*unifier.get_ty_immutable(base_ty) {
+                        params.clone()
+                    } else {
+                        unreachable!()
+                    };
+
+                unifier
+                    .subst(
+                        get_ty_fn(primitives),
+                        &params
+                            .iter()
+                            .zip(param_ty)
+                            .map(|(obj_tv, param)| (*obj_tv.0, param))
+                            .collect(),
+                    )
+                    .unwrap_or(base_ty)
+            } else {
+                let subst = {
+                    // check for compatible range
+                    // TODO: if allow type var to be applied(now this disallowed in the parse_to_type_annotation), need more check
+                    let mut result = VarMap::new();
+                    for (tvar, p) in type_vars.iter().zip(param_ty) {
+                        match unifier.get_ty(*tvar).as_ref() {
+                            TypeEnum::TVar {
+                                id,
+                                range,
+                                fields: None,
+                                name,
+                                loc,
+                                is_const_generic: false,
+                            } => {
+                                let ok: bool = {
+                                    // create a temp type var and unify to check compatibility
+                                    p == *tvar || {
+                                        let temp = unifier.get_fresh_var_with_range(
+                                            range.as_slice(),
+                                            *name,
+                                            *loc,
+                                        );
+                                        unifier.unify(temp.ty, p).is_ok()
+                                    }
+                                };
+                                if ok {
+                                    result.insert(*id, p);
+                                } else {
+                                    return Err(HashSet::from([format!(
+                                        "cannot apply type {} to type variable with id {:?}",
+                                        unifier.internal_stringify(
+                                            p,
+                                            &mut |id| format!("class{id}"),
+                                            &mut |id| format!("typevar{id}"),
+                                            &mut None
+                                        ),
+                                        *id
+                                    )]));
+                                }
+                            }
+
+                            TypeEnum::TVar {
+                                id, range, name, loc, is_const_generic: true, ..
+                            } => {
+                                let ty = range[0];
+                                let ok: bool = {
+                                    // create a temp type var and unify to check compatibility
+                                    p == *tvar || {
+                                        let temp =
+                                            unifier.get_fresh_const_generic_var(ty, *name, *loc);
+                                        unifier.unify(temp.ty, p).is_ok()
+                                    }
+                                };
+                                if ok {
+                                    result.insert(*id, p);
+                                } else {
+                                    return Err(HashSet::from([format!(
+                                        "cannot apply type {} to type variable {}",
+                                        unifier.stringify(p),
+                                        name.unwrap_or_else(|| format!("typevar{id}").into()),
+                                    )]));
+                                }
+                            }
+
+                            _ => unreachable!("must be generic type var"),
+                        }
+                    }
+                    result
+                };
+                // Class Attributes keep a copy with Class Definition and are not added to objects
+                let mut tobj_fields = methods
+                    .iter()
+                    .map(|(name, ty, _)| {
+                        let subst_ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
+                        // methods are immutable
+                        (*name, (subst_ty, false))
+                    })
+                    .collect::<HashMap<_, _>>();
+                tobj_fields.extend(fields.iter().map(|(name, ty, mutability)| {
+                    let subst_ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
+                    (*name, (subst_ty, *mutability))
+                }));
+                let need_subst = !subst.is_empty();
+                let ty = unifier.add_ty(TypeEnum::TObj {
+                    obj_id: *obj_id,
+                    fields: tobj_fields,
+                    params: subst,
+                });
+
+                if need_subst {
+                    if let Some(wl) = subst_list.as_mut() {
+                        wl.push(ty);
                     }
                 }
-                result
+
+                ty
             };
-            // Class Attributes keep a copy with Class Definition and are not added to objects
-            let mut tobj_fields = methods
-                .iter()
-                .map(|(name, ty, _)| {
-                    let subst_ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
-                    // methods are immutable
-                    (*name, (subst_ty, false))
-                })
-                .collect::<HashMap<_, _>>();
-            tobj_fields.extend(fields.iter().map(|(name, ty, mutability)| {
-                let subst_ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
-                (*name, (subst_ty, *mutability))
-            }));
-            let need_subst = !subst.is_empty();
-            let ty = unifier.add_ty(TypeEnum::TObj {
-                obj_id: *obj_id,
-                fields: tobj_fields,
-                params: subst,
-            });
-            if need_subst {
-                if let Some(wl) = subst_list.as_mut() {
-                    wl.push(ty);
-                }
-            }
+
             Ok(ty)
         }
         TypeAnnotation::Primitive(ty) | TypeAnnotation::TypeVar(ty) => Ok(*ty),
@@ -490,6 +533,7 @@ pub fn get_type_from_type_annotation_kinds(
             let ty = get_type_from_type_annotation_kinds(
                 top_level_defs,
                 unifier,
+                primitives,
                 ty.as_ref(),
                 subst_list,
             )?;
@@ -499,7 +543,13 @@ pub fn get_type_from_type_annotation_kinds(
             let tys = tys
                 .iter()
                 .map(|x| {
-                    get_type_from_type_annotation_kinds(top_level_defs, unifier, x, subst_list)
+                    get_type_from_type_annotation_kinds(
+                        top_level_defs,
+                        unifier,
+                        primitives,
+                        x,
+                        subst_list,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(unifier.add_ty(TypeEnum::TTuple { ty: tys }))

@@ -113,7 +113,7 @@ pub enum PrimDef {
 /// Associated details of a [`PrimDef`]
 pub enum PrimDefDetails {
     PrimFunction { name: &'static str, simple_name: &'static str },
-    PrimClass { name: &'static str },
+    PrimClass { name: &'static str, get_ty_fn: fn(&PrimitiveStore) -> Type },
 }
 
 impl PrimDef {
@@ -155,15 +155,17 @@ impl PrimDef {
     #[must_use]
     pub fn name(&self) -> &'static str {
         match self.details() {
-            PrimDefDetails::PrimFunction { name, .. } | PrimDefDetails::PrimClass { name } => name,
+            PrimDefDetails::PrimFunction { name, .. } | PrimDefDetails::PrimClass { name, .. } => {
+                name
+            }
         }
     }
 
     /// Get the associated details of this [`PrimDef`]
     #[must_use]
     pub fn details(self) -> PrimDefDetails {
-        fn class(name: &'static str) -> PrimDefDetails {
-            PrimDefDetails::PrimClass { name }
+        fn class(name: &'static str, get_ty_fn: fn(&PrimitiveStore) -> Type) -> PrimDefDetails {
+            PrimDefDetails::PrimClass { name, get_ty_fn }
         }
 
         fn fun(name: &'static str, simple_name: Option<&'static str>) -> PrimDefDetails {
@@ -171,22 +173,22 @@ impl PrimDef {
         }
 
         match self {
-            PrimDef::Int32 => class("int32"),
-            PrimDef::Int64 => class("int64"),
-            PrimDef::Float => class("float"),
-            PrimDef::Bool => class("bool"),
-            PrimDef::None => class("none"),
-            PrimDef::Range => class("range"),
-            PrimDef::Str => class("str"),
-            PrimDef::Exception => class("Exception"),
-            PrimDef::UInt32 => class("uint32"),
-            PrimDef::UInt64 => class("uint64"),
-            PrimDef::Option => class("Option"),
+            PrimDef::Int32 => class("int32", |primitives| primitives.int32),
+            PrimDef::Int64 => class("int64", |primitives| primitives.int64),
+            PrimDef::Float => class("float", |primitives| primitives.float),
+            PrimDef::Bool => class("bool", |primitives| primitives.bool),
+            PrimDef::None => class("none", |primitives| primitives.none),
+            PrimDef::Range => class("range", |primitives| primitives.range),
+            PrimDef::Str => class("str", |primitives| primitives.str),
+            PrimDef::Exception => class("Exception", |primitives| primitives.exception),
+            PrimDef::UInt32 => class("uint32", |primitives| primitives.uint32),
+            PrimDef::UInt64 => class("uint64", |primitives| primitives.uint64),
+            PrimDef::Option => class("Option", |primitives| primitives.option),
             PrimDef::OptionIsSome => fun("Option.is_some", Some("is_some")),
             PrimDef::OptionIsNone => fun("Option.is_none", Some("is_none")),
             PrimDef::OptionUnwrap => fun("Option.unwrap", Some("unwrap")),
-            PrimDef::List => class("list"),
-            PrimDef::NDArray => class("ndarray"),
+            PrimDef::List => class("list", |primitives| primitives.list),
+            PrimDef::NDArray => class("ndarray", |primitives| primitives.ndarray),
             PrimDef::NDArrayCopy => fun("ndarray.copy", Some("copy")),
             PrimDef::NDArrayFill => fun("ndarray.fill", Some("fill")),
             PrimDef::FunInt32 => fun("int32", None),

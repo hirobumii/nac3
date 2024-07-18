@@ -113,7 +113,9 @@ fn handle_typevar_definition(
                         x,
                         HashMap::new(),
                     )?;
-                    get_type_from_type_annotation_kinds(def_list, unifier, &ty, &mut None)
+                    get_type_from_type_annotation_kinds(
+                        def_list, unifier, primitives, &ty, &mut None,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let loc = func.location;
@@ -152,7 +154,7 @@ fn handle_typevar_definition(
                 HashMap::new(),
             )?;
             let constraint =
-                get_type_from_type_annotation_kinds(def_list, unifier, &ty, &mut None)?;
+                get_type_from_type_annotation_kinds(def_list, unifier, primitives, &ty, &mut None)?;
             let loc = func.location;
 
             Ok(unifier.get_fresh_const_generic_var(constraint, Some(generic_name), Some(loc)).ty)
