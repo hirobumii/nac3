@@ -1407,17 +1407,21 @@ impl Unifier {
                     .args
                     .iter()
                     .map(|arg| {
+                        let vararg_prefix = if arg.is_vararg { "*" } else { "" };
+
                         if let Some(dv) = &arg.default_value {
                             format!(
-                                "{}:{}={}",
+                                "{}:{}{}={}",
                                 arg.name,
+                                vararg_prefix,
                                 self.internal_stringify(arg.ty, obj_to_name, var_to_name, notes),
                                 dv
                             )
                         } else {
                             format!(
-                                "{}:{}",
+                                "{}:{}{}",
                                 arg.name,
+                                vararg_prefix,
                                 self.internal_stringify(arg.ty, obj_to_name, var_to_name, notes)
                             )
                         }
