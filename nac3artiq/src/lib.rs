@@ -24,6 +24,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use inkwell::{
+    context::Context,
     memory_buffer::MemoryBuffer,
     module::{Linkage, Module},
     passes::PassBuilderOptions,
@@ -625,7 +626,9 @@ impl Nac3 {
             let buffer = buffer.as_slice().into();
             membuffer.lock().push(buffer);
         })));
-        let size_t = if self.isa == Isa::Host { 64 } else { 32 };
+        let size_t = Context::create()
+            .ptr_sized_int_type(&self.get_llvm_target_machine().get_target_data(), None)
+            .get_bit_width();
         let num_threads = if is_multithreaded() { 4 } else { 1 };
         let thread_names: Vec<String> = (0..num_threads).map(|_| "main".to_string()).collect();
         let threads: Vec<_> = thread_names

@@ -9,15 +9,11 @@
 #![allow(clippy::too_many_lines, clippy::wildcard_imports)]
 
 use clap::Parser;
+use inkwell::context::Context;
 use inkwell::{
     memory_buffer::MemoryBuffer, passes::PassBuilderOptions, support::is_multithreaded, targets::*,
     OptimizationLevel,
 };
-use parking_lot::{Mutex, RwLock};
-use std::collections::HashSet;
-use std::num::NonZeroUsize;
-use std::{collections::HashMap, fs, path::Path, sync::Arc};
-
 use nac3core::{
     codegen::{
         concrete_type::ConcreteTypeStore, irrt::load_irrt, CodeGenLLVMOptions,
@@ -39,6 +35,10 @@ use nac3parser::{
     ast::{Constant, Expr, ExprKind, StmtKind, StrRef},
     parser,
 };
+use parking_lot::{Mutex, RwLock};
+use std::collections::HashSet;
+use std::num::NonZeroUsize;
+use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
 mod basic_symbol_resolver;
 use basic_symbol_resolver::*;
@@ -241,8 +241,6 @@ fn handle_assignment_pattern(
 }
 
 fn main() {
-    const SIZE_T: u32 = usize::BITS;
-
     let cli = CommandLineArgs::parse();
     let CommandLineArgs { file_name, threads, opt_level, emit_llvm, triple, mcpu, target_features } =
         cli;
@@ -275,6 +273,24 @@ fn main() {
         _ => OptimizationLevel::Aggressive,
     };
 
+    let target_machine_options = CodeGenTargetMachineOptions {
+        triple,
+        cpu: mcpu,
+        features: target_features,
+        reloc_mode: RelocMode::PIC,
+        ..host_target_machine
+    };
+
+    let size_t = Context::create()
+        .ptr_sized_int_type(
+            &target_machine_options
+                .create_target_machine(opt_level)
+                .map(|tm| tm.get_target_data())
+                .unwrap(),
+            None,
+        )
+        .get_bit_width();
+
     let program = match fs::read_to_string(file_name.clone()) {
         Ok(program) => program,
         Err(err) => {
@@ -283,9 +299,9 @@ fn main() {
         }
     };
 
-    let primitive: PrimitiveStore = TopLevelComposer::make_primitives(SIZE_T).0;
+    let primitive: PrimitiveStore = TopLevelComposer::make_primitives(size_t).0;
     let (mut composer, builtins_def, builtins_ty) =
-        TopLevelComposer::new(vec![], ComposerConfig::default(), SIZE_T);
+        TopLevelComposer::new(vec![], ComposerConfig::default(), size_t);
 
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
         id_to_type: builtins_ty.into(),
@@ -373,16 +389,7 @@ fn main() {
         instance_to_stmt[""].clone()
     };
 
-    let llvm_options = CodeGenLLVMOptions {
-        opt_level,
-        target: CodeGenTargetMachineOptions {
-            triple,
-            cpu: mcpu,
-            features: target_features,
-            reloc_mode: RelocMode::PIC,
-            ..host_target_machine
-        },
-    };
+    let llvm_options = CodeGenLLVMOptions { opt_level, target: target_machine_options };
 
     let task = CodeGenTask {
         subst: Vec::default(),
@@ -405,7 +412,7 @@ fn main() {
         membuffer.lock().push(buffer);
     })));
     let threads = (0..threads)
-        .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{i}"), SIZE_T)))
+        .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{i}"), size_t)))
         .collect();
     let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
     registry.add_task(task);
