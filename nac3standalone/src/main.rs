@@ -73,6 +73,10 @@ struct CommandLineArgs {
     #[arg(long)]
     mcpu: Option<String>,
 
+    /// The number of bits of `size_t` of the NAC3 code generator.
+    #[arg(short = 's', default_value_t = usize::BITS)]
+    size_t_bits: u32,
+
     /// Additional target features to enable/disable, specified using the `+`/`-` prefixes.
     #[arg(long)]
     target_features: Option<String>,
@@ -241,11 +245,22 @@ fn handle_assignment_pattern(
 }
 
 fn main() {
-    const SIZE_T: u32 = usize::BITS;
-
     let cli = CommandLineArgs::parse();
-    let CommandLineArgs { file_name, threads, opt_level, emit_llvm, triple, mcpu, target_features } =
-        cli;
+    let CommandLineArgs {
+        file_name,
+        threads,
+        opt_level,
+        emit_llvm,
+        triple,
+        mcpu,
+        size_t_bits,
+        target_features,
+    } = cli;
+
+    if !(size_t_bits == 32 || size_t_bits == 64) {
+        println!("size_t_bits cannot be {size_t_bits}. Must be 32 or 64.");
+        return;
+    }
 
     Target::initialize_all(&InitializationConfig::default());
 
@@ -283,9 +298,9 @@ fn main() {
         }
     };
 
-    let primitive: PrimitiveStore = TopLevelComposer::make_primitives(SIZE_T).0;
+    let primitive: PrimitiveStore = TopLevelComposer::make_primitives(size_t_bits).0;
     let (mut composer, builtins_def, builtins_ty) =
-        TopLevelComposer::new(vec![], ComposerConfig::default(), SIZE_T);
+        TopLevelComposer::new(vec![], ComposerConfig::default(), size_t_bits);
 
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
         id_to_type: builtins_ty.into(),
@@ -405,7 +420,7 @@ fn main() {
         membuffer.lock().push(buffer);
     })));
     let threads = (0..threads)
-        .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{i}"), SIZE_T)))
+        .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{i}"), size_t_bits)))
         .collect();
     let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
     registry.add_task(task);
