@@ -121,11 +121,11 @@ struct Exception {
 
 uint32_t __nac3_raise(struct Exception* e) {
     printf("__nac3_raise called. Exception details:\n");
-    printf("          ID: %lld\n", e->id);
-    printf("    Location: %*s:%lld:%lld\n" , e->file.len, (const char*) e->file.data, e->line, e->column);
-    printf("    Function: %*s\n" , e->function.len, (const char*) e->function.data);
-    printf("     Message: \"%*s\"\n" , e->message.len, (const char*) e->message.data);
-    printf("      Params: {0}=%lld, {1}=%lld, {2}=%lld\n", e->param[0], e->param[1], e->param[2]);
+    printf("          ID: %"PRIu32"\n", e->id);
+    printf("    Location: %*s:%"PRIu32":%"PRIu32"\n" , (int) e->file.len, (const char*) e->file.data, e->line, e->column);
+    printf("    Function: %*s\n" , (int) e->function.len, (const char*) e->function.data);
+    printf("     Message: \"%*s\"\n" , (int) e->message.len, (const char*) e->message.data);
+    printf("      Params: {0}=%"PRId64", {1}=%"PRId64", {2}=%"PRId64"\n", e->param[0], e->param[1], e->param[2]);
     exit(101);
     __builtin_unreachable();
 }
