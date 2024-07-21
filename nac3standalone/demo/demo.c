@@ -64,14 +64,14 @@ void output_asciiart(int32_t x) {
 
 struct cslice {
     void *data;
-    usize len;
+    uint32_t len;
 };
 
 void output_int32_list(struct cslice *slice) {
     const int32_t *data = (int32_t *) slice->data;
 
     putchar('[');
-    for (usize i = 0; i < slice->len; ++i) {
+    for (uint32_t i = 0; i < slice->len; ++i) {
         if (i == slice->len - 1) {
             printf("%d", data[i]);
         } else {
@@ -85,7 +85,7 @@ void output_int32_list(struct cslice *slice) {
 void output_str(struct cslice *slice) {
     const char *data = (const char *) slice->data;
 
-    for (usize i = 0; i < slice->len; ++i) {
+    for (uint32_t i = 0; i < slice->len; ++i) {
         putchar(data[i]);
     }
 }
