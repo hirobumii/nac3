@@ -1226,6 +1226,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 debug_assert!(ctx.unifier.unioned(elem_ty1, elem_ty2));
 
                 let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty1);
+                let sizeof_elem = llvm_elem_ty.size_of().unwrap();
 
                 let lhs = ListValue::from_ptr_val(left_val.into_pointer_value(), llvm_usize, None);
                 let rhs = ListValue::from_ptr_val(right_val.into_pointer_value(), llvm_usize, None);
@@ -1237,14 +1238,25 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 let new_list = allocate_list(generator, ctx, Some(llvm_elem_ty), size, None);
 
-                let lhs_len = ctx
+                let lhs_size = ctx
                     .builder
-                    .build_int_mul(lhs.load_size(ctx, None), llvm_elem_ty.size_of().unwrap(), "")
+                    .build_int_z_extend_or_bit_cast(
+                        lhs.load_size(ctx, None),
+                        sizeof_elem.get_type(),
+                        "",
+                    )
                     .unwrap();
-                let rhs_len = ctx
+                let lhs_len = ctx.builder.build_int_mul(lhs_size, sizeof_elem, "").unwrap();
+
+                let rhs_size = ctx
                     .builder
-                    .build_int_mul(rhs.load_size(ctx, None), llvm_elem_ty.size_of().unwrap(), "")
+                    .build_int_z_extend_or_bit_cast(
+                        rhs.load_size(ctx, None),
+                        sizeof_elem.get_type(),
+                        "",
+                    )
                     .unwrap();
+                let rhs_len = ctx.builder.build_int_mul(rhs_size, sizeof_elem, "").unwrap();
 
                 let list_ptr = new_list.data().base_ptr(ctx, generator);
                 call_memcpy_generic(
@@ -1309,6 +1321,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None);
 
                 let elem_llvm_ty = ctx.get_llvm_type(generator, elem_ty);
+                let sizeof_elem = elem_llvm_ty.size_of().unwrap();
 
                 let new_list = allocate_list(
                     generator,
@@ -1332,14 +1345,17 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                             new_list.data().ptr_offset_unchecked(ctx, generator, &offset, None)
                         };
 
-                        let memcpy_sz = ctx
+                        let list_size = ctx
                             .builder
-                            .build_int_mul(
+                            .build_int_z_extend_or_bit_cast(
                                 list_val.load_size(ctx, None),
-                                elem_llvm_ty.size_of().unwrap(),
+                                sizeof_elem.get_type(),
                                 "",
                             )
                             .unwrap();
+
+                        let memcpy_sz =
+                            ctx.builder.build_int_mul(list_size, sizeof_elem, "").unwrap();
 
                         call_memcpy_generic(
                             ctx,
@@ -2148,6 +2164,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
     let llvm_pndarray_t = ctx.get_llvm_type(generator, ndarray_ty).into_pointer_type();
     let llvm_ndarray_t = llvm_pndarray_t.get_element_type().into_struct_type();
     let llvm_ndarray_data_t = ctx.get_llvm_type(generator, ty).as_basic_type_enum();
+    let sizeof_elem = llvm_ndarray_data_t.size_of().unwrap();
 
     // Check that len is non-zero
     let len = v.load_ndims(ctx);
@@ -2358,7 +2375,14 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                 let ndarray_num_dims = ndarray.load_ndims(ctx);
                 ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
 
-                let ndarray_num_dims = ndarray.load_ndims(ctx);
+                let ndarray_num_dims = ctx
+                    .builder
+                    .build_int_z_extend_or_bit_cast(
+                        ndarray.load_ndims(ctx),
+                        llvm_usize.size_of().get_type(),
+                        "",
+                    )
+                    .unwrap();
                 let v_dims_src_ptr = unsafe {
                     v.dim_sizes().ptr_offset_unchecked(
                         ctx,
@@ -2384,6 +2408,10 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                     &ndarray.dim_sizes().as_slice_value(ctx, generator),
                     (None, None),
                 );
+                let ndarray_num_elems = ctx
+                    .builder
+                    .build_int_z_extend_or_bit_cast(ndarray_num_elems, sizeof_elem.get_type(), "")
+                    .unwrap();
                 ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
                 let v_data_src_ptr = v.data().ptr_offset(ctx, generator, &index_addr, None);

@@ -1086,13 +1086,17 @@ fn ndarray_sliced_copyto_impl<'ctx, G: CodeGenerator + ?Sized>(
 
     // If there are no (remaining) slice expressions, memcpy the entire dimension
     if slices.is_empty() {
+        let sizeof_elem = ctx.get_llvm_type(generator, elem_ty).size_of().unwrap();
+
         let stride = call_ndarray_calc_size(
             generator,
             ctx,
             &src_arr.dim_sizes(),
             (Some(llvm_usize.const_int(dim, false)), None),
         );
-        let sizeof_elem = ctx.get_llvm_type(generator, elem_ty).size_of().unwrap();
+        let stride =
+            ctx.builder.build_int_z_extend_or_bit_cast(stride, sizeof_elem.get_type(), "").unwrap();
+
         let cpy_len = ctx.builder.build_int_mul(stride, sizeof_elem, "").unwrap();
 
         call_memcpy_generic(ctx, dst_slice_ptr, src_slice_ptr, cpy_len, llvm_i1.const_zero());
