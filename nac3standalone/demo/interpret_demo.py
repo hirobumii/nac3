@@ -226,15 +226,6 @@ def patch(module):
     module.sp_spec_j0 = special.j0
     module.sp_spec_j1 = special.j1
 
-    # NumPy NDArray functions
-    module.np_ndarray = np.ndarray
-    module.np_empty = np.empty
-    module.np_zeros = np.zeros
-    module.np_ones = np.ones
-    module.np_full = np.full
-    module.np_eye = np.eye
-    module.np_identity = np.identity
-
 def file_import(filename, prefix="file_import_"):
     filename = pathlib.Path(filename)
     modname = prefix + filename.stem
