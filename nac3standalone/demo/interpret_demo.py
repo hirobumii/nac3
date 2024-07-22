@@ -167,7 +167,7 @@ def patch(module):
     module.ceil64 = _ceil
     module.np_ceil = np.ceil
 
-    # NumPy ndarray functions
+    # NumPy NDArray factory functions
     module.ndarray = NDArray
     module.np_ndarray = np.ndarray
     module.np_empty = np.empty
@@ -218,7 +218,7 @@ def patch(module):
     module.np_hypot = np.hypot
     module.np_nextafter = np.nextafter
 
-    # SciPy Math Functions
+    # SciPy Math functions
     module.sp_spec_erf = special.erf
     module.sp_spec_erfc = special.erfc
     module.sp_spec_gamma = special.gamma
@@ -226,7 +226,7 @@ def patch(module):
     module.sp_spec_j0 = special.j0
     module.sp_spec_j1 = special.j1
 
-    # NumPy NDArray Functions
+    # NumPy NDArray functions
     module.np_ndarray = np.ndarray
     module.np_empty = np.empty
     module.np_zeros = np.zeros
