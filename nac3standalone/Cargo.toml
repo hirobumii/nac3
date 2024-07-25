@@ -8,6 +8,7 @@ edition = "2021"
 parking_lot = "0.12"
 nac3parser = { path = "../nac3parser" }
 nac3core = { path = "../nac3core" }
+linalg_externfns = { path = "./linalg_externfns" }
 
 [dependencies.clap]
 version = "4.5"
