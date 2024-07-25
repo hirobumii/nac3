@@ -1429,6 +1429,104 @@ def test_ndarray_nextafter_broadcast_rhs_scalar():
     output_ndarray_float_2(nextafter_x_zeros)
     output_ndarray_float_2(nextafter_x_ones)
 
+def test_ndarray_dot():
+    x: ndarray[float, 1] = np_array([5.0, 1.0])
+    y: ndarray[float, 1] = np_array([5.0, 1.0])
+    z = np_dot(x, y)
+
+    output_ndarray_float_1(x)
+    output_ndarray_float_1(y)
+    output_float64(z)
+
+def test_ndarray_linalg_matmul():
+    x: ndarray[float, 2] = np_array([[5.0, 1.0], [1.0, 4.0]])
+    y: ndarray[float, 2] = np_array([[5.0, 1.0], [1.0, 4.0]])
+    z = np_linalg_matmul(x, y)
+
+    m = np_argmax(z)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(y)
+    output_ndarray_float_2(z)
+    output_int64(m)
+
+def test_ndarray_cholesky():
+    x: ndarray[float, 2] = np_array([[5.0, 1.0], [1.0, 4.0]])
+    y = np_linalg_cholesky(x)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(y)
+
+def test_ndarray_qr():
+    x: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5], [-1.0, 8.0, -8.5]])
+    y, z  = np_linalg_qr(x)
+
+    output_ndarray_float_2(x)
+
+    # QR Factorization is not unique and gives different results in numpy and nalgebra
+    # Reverting the decomposition to compare the initial arrays
+    a = np_linalg_matmul(y, z)
+    output_ndarray_float_2(a)
+
+def test_ndarray_linalg_inv():
+    x: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5], [-1.0, 8.0, -8.5]])
+    y = np_linalg_inv(x)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(y)
+
+def test_ndarray_pinv():
+    x: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5]])
+    y = np_linalg_pinv(x)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(y)
+
+def test_ndarray_schur():
+    x: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5], [-1.0, 8.0, -8.5]])
+    t, z = sp_linalg_schur(x)
+
+    output_ndarray_float_2(x)
+
+    # Schur Factorization is not unique and gives different results in scipy and nalgebra
+    # Reverting the decomposition to compare the initial arrays
+    a = np_linalg_matmul(np_linalg_matmul(z, t), np_linalg_inv(z))
+    output_ndarray_float_2(a)
+
+def test_ndarray_hessenberg():
+    x: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5], [-1.0, 5.0, 8.5]])
+    h, q = sp_linalg_hessenberg(x)
+
+    output_ndarray_float_2(x)
+
+    # Hessenberg Factorization is not unique and gives different results in scipy and nalgebra
+    # Reverting the decomposition to compare the initial arrays
+    a = np_linalg_matmul(np_linalg_matmul(q, h), np_linalg_inv(q))
+    output_ndarray_float_2(a)
+
+
+def test_ndarray_lu():
+    x: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5]])
+    l, u = sp_linalg_lu(x)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(l)
+    output_ndarray_float_2(u)
+
+
+def test_ndarray_svd():
+    w: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5], [-1.0, 8.0, -8.5]])
+    x, y, z = np_linalg_svd(w)
+
+    output_ndarray_float_2(w)
+
+    # SVD Factorization is not unique and gives different results in numpy and nalgebra
+    # Reverting the decomposition to compare the initial arrays
+    a = np_linalg_matmul(x, z)
+    output_ndarray_float_2(a)
+    output_ndarray_float_1(y)
+
+
 def run() -> int32:
     test_ndarray_ctor()
     test_ndarray_empty()
@@ -1608,4 +1706,14 @@ def run() -> int32:
     test_ndarray_nextafter_broadcast_lhs_scalar()
     test_ndarray_nextafter_broadcast_rhs_scalar()
 
+    test_ndarray_dot()
+    test_ndarray_linalg_matmul()
+    test_ndarray_cholesky()
+    test_ndarray_qr()
+    test_ndarray_svd()
+    test_ndarray_linalg_inv()
+    test_ndarray_pinv()
+    test_ndarray_lu()
+    test_ndarray_schur()
+    test_ndarray_hessenberg()
     return 0

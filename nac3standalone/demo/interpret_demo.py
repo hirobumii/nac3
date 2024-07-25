@@ -5,6 +5,7 @@ import importlib.util
 import importlib.machinery
 import math
 import numpy as np
+import scipy as sp
 import numpy.typing as npt
 import pathlib
 
@@ -225,6 +226,19 @@ def patch(module):
     module.sp_spec_gammaln = special.gammaln
     module.sp_spec_j0 = special.j0
     module.sp_spec_j1 = special.j1
+
+    # Linalg functions
+    module.np_dot = np.dot
+    module.np_linalg_matmul = np.matmul
+    module.np_linalg_cholesky = np.linalg.cholesky
+    module.np_linalg_qr = np.linalg.qr
+    module.np_linalg_svd = np.linalg.svd
+    module.np_linalg_inv = np.linalg.inv
+    module.np_linalg_pinv = np.linalg.pinv
+    
+    module.sp_linalg_lu = lambda x: sp.linalg.lu(x, True)
+    module.sp_linalg_schur = sp.linalg.schur
+    module.sp_linalg_hessenberg = lambda x: sp.linalg.hessenberg(x, True)
 
 def file_import(filename, prefix="file_import_"):
     filename = pathlib.Path(filename)
