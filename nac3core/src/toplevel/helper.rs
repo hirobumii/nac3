@@ -100,6 +100,17 @@ pub enum PrimDef {
     FunNpHypot,
     FunNpNextAfter,
 
+    FunNpDot,
+    FunNpLinalgMatmul,
+    FunNpLinalgCholesky,
+    FunNpLinalgQr,
+    FunNpLinalgSvd,
+    FunNpLinalgInv,
+    FunNpLinalgPinv,
+    FunSpLinalgLu,
+    FunSpLinalgSchur,
+    FunSpLinalgHessenberg,
+
     // Miscellaneous Python & NAC3 functions
     FunInt32,
     FunInt64,
@@ -270,6 +281,16 @@ impl PrimDef {
             PrimDef::FunNpLdExp => fun("np_ldexp", None),
             PrimDef::FunNpHypot => fun("np_hypot", None),
             PrimDef::FunNpNextAfter => fun("np_nextafter", None),
+            PrimDef::FunNpDot => fun("np_dot", None),
+            PrimDef::FunNpLinalgMatmul => fun("np_linalg_matmul", None),
+            PrimDef::FunNpLinalgCholesky => fun("np_linalg_cholesky", None),
+            PrimDef::FunNpLinalgQr => fun("np_linalg_qr", None),
+            PrimDef::FunNpLinalgSvd => fun("np_linalg_svd", None),
+            PrimDef::FunNpLinalgInv => fun("np_linalg_inv", None),
+            PrimDef::FunNpLinalgPinv => fun("np_linalg_pinv", None),
+            PrimDef::FunSpLinalgLu => fun("sp_linalg_lu", None),
+            PrimDef::FunSpLinalgSchur => fun("sp_linalg_schur", None),
+            PrimDef::FunSpLinalgHessenberg => fun("sp_linalg_hessenberg", None),
 
             // Miscellaneous Python & NAC3 functions
             PrimDef::FunInt32 => fun("int32", None),

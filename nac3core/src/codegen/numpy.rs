@@ -159,7 +159,7 @@ where
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
 /// * `shape` - The shape of the `NDArray`, represented am array of [`IntValue`]s.
-fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
+pub fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     elem_ty: Type,

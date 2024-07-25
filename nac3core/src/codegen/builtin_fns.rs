@@ -1,5 +1,5 @@
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::BasicValueEnum;
+use inkwell::values::{BasicValue, BasicValueEnum, PointerValue};
 use inkwell::{FloatPredicate, IntPredicate, OptimizationLevel};
 use itertools::Itertools;
 
@@ -31,7 +31,6 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
     let (n_ty, n) = n;
-
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.bool));
@@ -1835,4 +1834,481 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
     })
+}
+
+/// Allocates a struct with the fields specified by `out_matrices` and returns a pointer to it
+fn build_output_struct<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    out_matrices: Vec<BasicValueEnum<'ctx>>,
+) -> PointerValue<'ctx> {
+    let field_ty =
+        out_matrices.iter().map(BasicValueEnum::get_type).collect::<Vec<BasicTypeEnum>>();
+    let out_ty = ctx.ctx.struct_type(&field_ty, false);
+    let out_ptr = ctx.builder.build_alloca(out_ty, "").unwrap();
+
+    for (i, v) in out_matrices.into_iter().enumerate() {
+        unsafe {
+            let ptr = ctx
+                .builder
+                .build_in_bounds_gep(
+                    out_ptr,
+                    &[
+                        ctx.ctx.i32_type().const_zero(),
+                        ctx.ctx.i32_type().const_int(i as u64, false),
+                    ],
+                    "",
+                )
+                .unwrap();
+            ctx.builder.build_store(ptr, v).unwrap();
+        }
+    }
+    out_ptr
+}
+
+/// Invokes the `np_dot` using `nalgebra` crate
+pub fn call_np_dot<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+    x2: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_dot";
+    let (x1_ty, x1) = x1;
+    let (x2_ty, x2) = x2;
+
+    if let (BasicValueEnum::PointerValue(_), BasicValueEnum::PointerValue(_)) = (x1, x2) {
+        let (n1_elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+        let n1_elem_ty = ctx.get_llvm_type(generator, n1_elem_ty);
+        let (n2_elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty);
+        let n2_elem_ty = ctx.get_llvm_type(generator, n2_elem_ty);
+
+        let (BasicTypeEnum::FloatType(_), BasicTypeEnum::FloatType(_)) = (n1_elem_ty, n2_elem_ty)
+        else {
+            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+        };
+
+        Ok(extern_fns::call_np_dot(ctx, x1, x2, None).into())
+    } else {
+        unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
+    }
+}
+
+/// Invokes the `np_linalg_matmul` using `nalgebra` crate
+pub fn call_np_linalg_matmul<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+    x2: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_linalg_matmul";
+    let (x1_ty, x1) = x1;
+    let (x2_ty, x2) = x2;
+
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+    if let (BasicValueEnum::PointerValue(n1), BasicValueEnum::PointerValue(n2)) = (x1, x2) {
+        let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+        let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+        let (n2_elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty);
+        let n2_elem_ty = ctx.get_llvm_type(generator, n2_elem_ty);
+
+        let (BasicTypeEnum::FloatType(_), BasicTypeEnum::FloatType(_)) = (n1_elem_ty, n2_elem_ty)
+        else {
+            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+        };
+
+        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n2 = NDArrayValue::from_ptr_val(n2, llvm_usize, None);
+
+        let outdim0 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                .into_int_value()
+        };
+        let outdim1 = unsafe {
+            n2.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
+                .into_int_value()
+        };
+
+        let out = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[outdim0, outdim1])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+
+        extern_fns::call_np_linalg_matmul(ctx, x1, x2, out, None);
+        Ok(out)
+    } else {
+        unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
+    }
+}
+
+/// Invokes the `np_linalg_cholesky` using `nalgebra` crate
+pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_linalg_cholesky";
+    let (x1_ty, x1) = x1;
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    if let BasicValueEnum::PointerValue(n1) = x1 {
+        let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+        let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+
+        let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
+            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+        };
+
+        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let dim0 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                .into_int_value()
+        };
+        let dim1 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
+                .into_int_value()
+        };
+
+        let out = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim0, dim1])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+
+        extern_fns::call_np_linalg_cholesky(ctx, x1, out, None);
+        Ok(out)
+    } else {
+        unsupported_type(ctx, FN_NAME, &[x1_ty])
+    }
+}
+
+/// Invokes the `np_linalg_qr` using `nalgebra` crate
+pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_linalg_qr";
+    let (x1_ty, x1) = x1;
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    if let BasicValueEnum::PointerValue(n1) = x1 {
+        let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+        let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+
+        let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
+            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+        };
+
+        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let dim0 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                .into_int_value()
+        };
+        let dim1 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
+                .into_int_value()
+        };
+        let k = llvm_intrinsics::call_int_smin(ctx, dim0, dim1, None);
+
+        let out_q = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim0, k])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+        let out_r = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[k, dim1])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+
+        extern_fns::call_np_linalg_qr(ctx, x1, out_q, out_r, None);
+
+        let out_ptr = build_output_struct(ctx, vec![out_q, out_r]);
+
+        Ok(ctx.builder.build_load(out_ptr, "QR_Factorization_result").map(Into::into).unwrap())
+    } else {
+        unsupported_type(ctx, FN_NAME, &[x1_ty])
+    }
+}
+
+/// Invokes the `np_linalg_svd` using `nalgebra` crate
+pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_linalg_svd";
+    let (x1_ty, x1) = x1;
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    if let BasicValueEnum::PointerValue(n1) = x1 {
+        let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+        let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+
+        let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
+            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+        };
+
+        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+
+        let dim0 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                .into_int_value()
+        };
+        let dim1 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
+                .into_int_value()
+        };
+        let k = llvm_intrinsics::call_int_smin(ctx, dim0, dim1, None);
+
+        let out_u = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim0, dim0])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+        let out_s = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[k])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+        let out_vh = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim1, dim1])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+
+        extern_fns::call_np_linalg_svd(ctx, x1, out_u, out_s, out_vh, None);
+
+        let out_ptr = build_output_struct(ctx, vec![out_u, out_s, out_vh]);
+
+        Ok(ctx.builder.build_load(out_ptr, "SVD_Factorization_result").map(Into::into).unwrap())
+    } else {
+        unsupported_type(ctx, FN_NAME, &[x1_ty])
+    }
+}
+
+/// Invokes the `np_linalg_inv` using `nalgebra` crate
+pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_linalg_inv";
+    let (x1_ty, x1) = x1;
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    if let BasicValueEnum::PointerValue(n1) = x1 {
+        let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+        let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+
+        let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
+            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+        };
+
+        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let dim0 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                .into_int_value()
+        };
+        let dim1 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
+                .into_int_value()
+        };
+
+        let out = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim0, dim1])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+
+        extern_fns::call_np_linalg_inv(ctx, x1, out, None);
+        Ok(out)
+    } else {
+        unsupported_type(ctx, FN_NAME, &[x1_ty])
+    }
+}
+
+/// Invokes the `np_linalg_pinv` using `nalgebra` crate
+pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "np_linalg_pinv";
+    let (x1_ty, x1) = x1;
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    if let BasicValueEnum::PointerValue(n1) = x1 {
+        let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+        let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+
+        let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
+            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+        };
+
+        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+
+        let dim0 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                .into_int_value()
+        };
+        let dim1 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
+                .into_int_value()
+        };
+
+        let out = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim1, dim0])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+
+        extern_fns::call_np_linalg_pinv(ctx, x1, out, None);
+        Ok(out)
+    } else {
+        unsupported_type(ctx, FN_NAME, &[x1_ty])
+    }
+}
+
+/// Invokes the `sp_linalg_lu` using `nalgebra` crate
+pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "sp_linalg_lu";
+    let (x1_ty, x1) = x1;
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    if let BasicValueEnum::PointerValue(n1) = x1 {
+        let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+        let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+
+        let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
+            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+        };
+
+        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+
+        let dim0 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                .into_int_value()
+        };
+        let dim1 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
+                .into_int_value()
+        };
+        let k = llvm_intrinsics::call_int_smin(ctx, dim0, dim1, None);
+
+        let out_l = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim0, k])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+        let out_u = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[k, dim1])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+
+        extern_fns::call_sp_linalg_lu(ctx, x1, out_l, out_u, None);
+
+        let out_ptr = build_output_struct(ctx, vec![out_l, out_u]);
+        Ok(ctx.builder.build_load(out_ptr, "LU_Factorization_result").map(Into::into).unwrap())
+    } else {
+        unsupported_type(ctx, FN_NAME, &[x1_ty])
+    }
+}
+
+/// Invokes the `sp_linalg_schur` using `nalgebra` crate
+pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "sp_linalg_schur";
+    let (x1_ty, x1) = x1;
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    if let BasicValueEnum::PointerValue(n1) = x1 {
+        let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+        let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+
+        let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
+            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+        };
+
+        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+
+        let dim0 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                .into_int_value()
+        };
+        let out_t = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim0, dim0])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+        let out_z = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim0, dim0])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+
+        extern_fns::call_sp_linalg_schur(ctx, x1, out_t, out_z, None);
+
+        let out_ptr = build_output_struct(ctx, vec![out_t, out_z]);
+        Ok(ctx.builder.build_load(out_ptr, "Schur_Factorization_result").map(Into::into).unwrap())
+    } else {
+        unsupported_type(ctx, FN_NAME, &[x1_ty])
+    }
+}
+
+/// Invokes the `sp_linalg_hessenberg` using `nalgebra` crate
+pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "sp_linalg_hessenberg";
+    let (x1_ty, x1) = x1;
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    if let BasicValueEnum::PointerValue(n1) = x1 {
+        let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
+        let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+
+        let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
+            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+        };
+
+        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+
+        let dim0 = unsafe {
+            n1.dim_sizes()
+                .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                .into_int_value()
+        };
+        let out_h = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim0, dim0])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+        let out_q = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[dim0, dim0])
+            .unwrap()
+            .as_base_value()
+            .as_basic_value_enum();
+        extern_fns::call_sp_linalg_hessenberg(ctx, x1, out_h, out_q, None);
+
+        let out_ptr = build_output_struct(ctx, vec![out_h, out_q]);
+        Ok(ctx
+            .builder
+            .build_load(out_ptr, "Hessenberg_decomposition_result")
+            .map(Into::into)
+            .unwrap())
+    } else {
+        unsupported_type(ctx, FN_NAME, &[x1_ty])
+    }
 }

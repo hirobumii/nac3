@@ -556,6 +556,17 @@ impl<'a> BuiltinBuilder<'a> {
             | PrimDef::FunNpLdExp
             | PrimDef::FunNpHypot
             | PrimDef::FunNpNextAfter => self.build_np_2ary_function(prim),
+
+            PrimDef::FunNpDot
+            | PrimDef::FunNpLinalgMatmul
+            | PrimDef::FunNpLinalgCholesky
+            | PrimDef::FunNpLinalgQr
+            | PrimDef::FunNpLinalgSvd
+            | PrimDef::FunNpLinalgInv
+            | PrimDef::FunNpLinalgPinv
+            | PrimDef::FunSpLinalgLu
+            | PrimDef::FunSpLinalgSchur
+            | PrimDef::FunSpLinalgHessenberg => self.build_linalg_methods(prim),
         };
 
         if cfg!(debug_assertions) {
@@ -1871,6 +1882,150 @@ impl<'a> BuiltinBuilder<'a> {
                 },
             )))),
             loc: None,
+        }
+    }
+
+    /// Build `np_linalg` and `sp_linalg` functions
+    ///
+    /// The input to these functions must be floating point `NDArray`
+    fn build_linalg_methods(&mut self, prim: PrimDef) -> TopLevelDef {
+        debug_assert_prim_is_allowed(
+            prim,
+            &[
+                PrimDef::FunNpDot,
+                PrimDef::FunNpLinalgMatmul,
+                PrimDef::FunNpLinalgCholesky,
+                PrimDef::FunNpLinalgQr,
+                PrimDef::FunNpLinalgSvd,
+                PrimDef::FunNpLinalgInv,
+                PrimDef::FunNpLinalgPinv,
+                PrimDef::FunSpLinalgLu,
+                PrimDef::FunSpLinalgSchur,
+                PrimDef::FunSpLinalgHessenberg,
+            ],
+        );
+
+        match prim {
+            PrimDef::FunNpDot => create_fn_by_codegen(
+                self.unifier,
+                &self.num_or_ndarray_var_map,
+                prim.name(),
+                self.primitives.float,
+                &[(self.num_or_ndarray_ty.ty, "x1"), (self.num_or_ndarray_ty.ty, "x2")],
+                Box::new(move |ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
+
+                    Ok(Some(builtin_fns::call_np_dot(
+                        generator,
+                        ctx,
+                        (x1_ty, x1_val),
+                        (x2_ty, x2_val),
+                    )?))
+                }),
+            ),
+
+            PrimDef::FunNpLinalgMatmul => create_fn_by_codegen(
+                self.unifier,
+                &VarMap::new(),
+                prim.name(),
+                self.ndarray_float_2d,
+                &[(self.ndarray_float_2d, "x1"), (self.ndarray_float_2d, "x2")],
+                Box::new(move |ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
+
+                    Ok(Some(builtin_fns::call_np_linalg_matmul(
+                        generator,
+                        ctx,
+                        (x1_ty, x1_val),
+                        (x2_ty, x2_val),
+                    )?))
+                }),
+            ),
+
+            PrimDef::FunNpLinalgCholesky | PrimDef::FunNpLinalgInv | PrimDef::FunNpLinalgPinv => {
+                create_fn_by_codegen(
+                    self.unifier,
+                    &VarMap::new(),
+                    prim.name(),
+                    self.ndarray_float_2d,
+                    &[(self.ndarray_float_2d, "x1")],
+                    Box::new(move |ctx, _, fun, args, generator| {
+                        let x1_ty = fun.0.args[0].ty;
+                        let x1_val =
+                            args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+
+                        let func = match prim {
+                            PrimDef::FunNpLinalgCholesky => builtin_fns::call_np_linalg_cholesky,
+                            PrimDef::FunNpLinalgInv => builtin_fns::call_np_linalg_inv,
+                            PrimDef::FunNpLinalgPinv => builtin_fns::call_np_linalg_pinv,
+                            _ => unreachable!(),
+                        };
+                        Ok(Some(func(generator, ctx, (x1_ty, x1_val))?))
+                    }),
+                )
+            }
+
+            PrimDef::FunNpLinalgQr
+            | PrimDef::FunSpLinalgLu
+            | PrimDef::FunSpLinalgSchur
+            | PrimDef::FunSpLinalgHessenberg => {
+                let ret_ty = self.unifier.add_ty(TypeEnum::TTuple {
+                    ty: vec![self.ndarray_float_2d, self.ndarray_float_2d],
+                });
+                create_fn_by_codegen(
+                    self.unifier,
+                    &VarMap::new(),
+                    prim.name(),
+                    ret_ty,
+                    &[(self.ndarray_float_2d, "x1")],
+                    Box::new(move |ctx, _, fun, args, generator| {
+                        let x1_ty = fun.0.args[0].ty;
+                        let x1_val =
+                            args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+
+                        let func = match prim {
+                            PrimDef::FunNpLinalgQr => builtin_fns::call_np_linalg_qr,
+                            PrimDef::FunSpLinalgLu => builtin_fns::call_sp_linalg_lu,
+                            PrimDef::FunSpLinalgSchur => builtin_fns::call_sp_linalg_schur,
+                            PrimDef::FunSpLinalgHessenberg => {
+                                builtin_fns::call_sp_linalg_hessenberg
+                            }
+                            _ => unreachable!(),
+                        };
+                        Ok(Some(func(generator, ctx, (x1_ty, x1_val))?))
+                    }),
+                )
+            }
+
+            PrimDef::FunNpLinalgSvd => {
+                let ret_ty = self.unifier.add_ty(TypeEnum::TTuple {
+                    ty: vec![self.ndarray_float_2d, self.ndarray_float, self.ndarray_float_2d],
+                });
+                create_fn_by_codegen(
+                    self.unifier,
+                    &VarMap::new(),
+                    prim.name(),
+                    ret_ty,
+                    &[(self.ndarray_float_2d, "x1")],
+                    Box::new(move |ctx, _, fun, args, generator| {
+                        let x1_ty = fun.0.args[0].ty;
+                        let x1_val =
+                            args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+
+                        Ok(Some(builtin_fns::call_np_linalg_svd(generator, ctx, (x1_ty, x1_val))?))
+                    }),
+                )
+            }
+            _ => {
+                println!("{:?}", prim.name());
+                unreachable!()
+            }
         }
     }
 
