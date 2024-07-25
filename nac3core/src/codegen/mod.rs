@@ -68,6 +68,16 @@ pub struct CodeGenLLVMOptions {
     pub target: CodeGenTargetMachineOptions,
 }
 
+impl CodeGenLLVMOptions {
+    /// Creates a [`TargetMachine`] using the target options specified by this struct.
+    ///
+    /// See [`Target::create_target_machine`].
+    #[must_use]
+    pub fn create_target_machine(&self) -> Option<TargetMachine> {
+        self.target.create_target_machine(self.opt_level)
+    }
+}
+
 /// Additional options for code generation for the target machine.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodeGenTargetMachineOptions {
@@ -338,6 +348,10 @@ impl WorkerRegistry {
         let mut builder = context.create_builder();
         let mut module = context.create_module(generator.get_name());
 
+        let target_machine = self.llvm_options.create_target_machine().unwrap();
+        module.set_data_layout(&target_machine.get_target_data().get_data_layout());
+        module.set_triple(&target_machine.get_triple());
+
         module.add_basic_value_flag(
             "Debug Info Version",
             inkwell::module::FlagBehavior::Warning,
@@ -361,6 +375,10 @@ impl WorkerRegistry {
                     errors.insert(e);
                     // create a new empty module just to continue codegen and collect errors
                     module = context.create_module(&format!("{}_recover", generator.get_name()));
+
+                    let target_machine = self.llvm_options.create_target_machine().unwrap();
+                    module.set_data_layout(&target_machine.get_target_data().get_data_layout());
+                    module.set_triple(&target_machine.get_triple());
                 }
             }
             *self.task_count.lock() -= 1;

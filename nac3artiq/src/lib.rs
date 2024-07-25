@@ -647,6 +647,9 @@ impl Nac3 {
                 ArtiqCodeGenerator::new("attributes_writeback".to_string(), size_t, self.time_fns);
             let context = inkwell::context::Context::create();
             let module = context.create_module("attributes_writeback");
+            let target_machine = self.llvm_options.create_target_machine().unwrap();
+            module.set_data_layout(&target_machine.get_target_data().get_data_layout());
+            module.set_triple(&target_machine.get_triple());
             let builder = context.create_builder();
             let (_, module, _) = gen_func_impl(
                 &context,
