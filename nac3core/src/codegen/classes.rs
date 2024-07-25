@@ -1717,6 +1717,7 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
         gen_for_callback_incrementing(
             generator,
             ctx,
+            None,
             llvm_usize.const_zero(),
             (len, false),
             |generator, ctx, _, i| {

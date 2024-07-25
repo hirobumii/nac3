@@ -86,6 +86,7 @@ where
     gen_for_callback_incrementing(
         generator,
         ctx,
+        None,
         llvm_usize.const_zero(),
         (shape_len, false),
         |generator, ctx, _, i| {
@@ -131,6 +132,7 @@ where
     gen_for_callback_incrementing(
         generator,
         ctx,
+        None,
         llvm_usize.const_zero(),
         (shape_len, false),
         |generator, ctx, _, i| {
@@ -382,6 +384,7 @@ where
     gen_for_callback_incrementing(
         generator,
         ctx,
+        None,
         llvm_usize.const_zero(),
         (ndarray_num_elems, false),
         |generator, ctx, _, i| {
@@ -703,11 +706,12 @@ fn ndarray_from_ndlist_impl<'ctx, G: CodeGenerator + ?Sized>(
             gen_for_range_callback(
                 generator,
                 ctx,
+                None,
                 true,
                 |_, _| Ok(llvm_usize.const_zero()),
                 (|_, ctx| Ok(src_lst.load_size(ctx, None)), false),
                 |_, _| Ok(llvm_usize.const_int(1, false)),
-                |generator, ctx, i| {
+                |generator, ctx, _, i| {
                     let offset = ctx.builder.build_int_mul(stride, i, "").unwrap();
 
                     let dst_ptr =
@@ -943,11 +947,12 @@ fn call_ndarray_array_impl<'ctx, G: CodeGenerator + ?Sized>(
                     gen_for_range_callback(
                         generator,
                         ctx,
+                        None,
                         true,
                         |_, _| Ok(llvm_usize.const_zero()),
                         (|_, _| Ok(stop), false),
                         |_, _| Ok(llvm_usize.const_int(1, false)),
-                        |generator, ctx, _| {
+                        |generator, ctx, _, _| {
                             let plist_plist_i8 = make_llvm_list(llvm_plist_i8.into())
                                 .ptr_type(AddressSpace::default());
 
@@ -1130,11 +1135,12 @@ fn ndarray_sliced_copyto_impl<'ctx, G: CodeGenerator + ?Sized>(
     gen_for_range_callback(
         generator,
         ctx,
+        None,
         false,
         |_, _| Ok(start),
         (|_, _| Ok(stop), true),
         |_, _| Ok(step),
-        |generator, ctx, src_i| {
+        |generator, ctx, _, src_i| {
             // Calculate the offset of the active slice
             let src_data_offset = ctx.builder.build_int_mul(src_stride, src_i, "").unwrap();
             let dst_i =
@@ -1247,6 +1253,7 @@ pub fn ndarray_sliced_copy<'ctx, G: CodeGenerator + ?Sized>(
         gen_for_callback_incrementing(
             generator,
             ctx,
+            None,
             llvm_usize.const_int(slices.len() as u64, false),
             (this.load_ndims(ctx), false),
             |generator, ctx, _, idx| {
@@ -1651,6 +1658,7 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
         gen_for_callback_incrementing(
             generator,
             ctx,
+            None,
             llvm_i32.const_zero(),
             (common_dim, false),
             |generator, ctx, _, i| {

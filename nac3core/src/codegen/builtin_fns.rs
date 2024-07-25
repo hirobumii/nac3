@@ -863,6 +863,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             gen_for_callback_incrementing(
                 generator,
                 ctx,
+                None,
                 llvm_int64.const_int(1, false),
                 (n_sz, false),
                 |generator, ctx, _, idx| {

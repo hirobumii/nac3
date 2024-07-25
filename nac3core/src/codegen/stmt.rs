@@ -494,6 +494,7 @@ pub struct BreakContinueHooks<'ctx> {
 pub fn gen_for_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
+    label: Option<&str>,
     init: InitFn,
     cond: CondFn,
     body: BodyFn,
@@ -508,14 +509,16 @@ where
         FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, BreakContinueHooks, I) -> Result<(), String>,
     UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
 {
+    let label = label.unwrap_or("for");
+
     let current_bb = ctx.builder.get_insert_block().unwrap();
-    let init_bb = ctx.ctx.insert_basic_block_after(current_bb, "for.init");
+    let init_bb = ctx.ctx.insert_basic_block_after(current_bb, &format!("{label}.init"));
     // The BB containing the loop condition check
-    let cond_bb = ctx.ctx.insert_basic_block_after(init_bb, "for.cond");
-    let body_bb = ctx.ctx.insert_basic_block_after(cond_bb, "for.body");
+    let cond_bb = ctx.ctx.insert_basic_block_after(init_bb, &format!("{label}.cond"));
+    let body_bb = ctx.ctx.insert_basic_block_after(cond_bb, &format!("{label}.body"));
     // The BB containing the increment expression
-    let update_bb = ctx.ctx.insert_basic_block_after(body_bb, "for.update");
-    let cont_bb = ctx.ctx.insert_basic_block_after(update_bb, "for.end");
+    let update_bb = ctx.ctx.insert_basic_block_after(body_bb, &format!("{label}.update"));
+    let cont_bb = ctx.ctx.insert_basic_block_after(update_bb, &format!("{label}.end"));
 
     // store loop bb information and restore it later
     let loop_bb = ctx.loop_target.replace((update_bb, cont_bb));
@@ -572,6 +575,7 @@ where
 pub fn gen_for_callback_incrementing<'ctx, 'a, G, BodyFn>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
+    label: Option<&str>,
     init_val: IntValue<'ctx>,
     max_val: (IntValue<'ctx>, bool),
     body: BodyFn,
@@ -591,6 +595,7 @@ where
     gen_for_callback(
         generator,
         ctx,
+        label,
         |generator, ctx| {
             let i_addr = generator.gen_var_alloc(ctx, init_val_t.into(), None)?;
             ctx.builder.build_store(i_addr, init_val).unwrap();
@@ -642,9 +647,11 @@ where
 /// - `step_fn`: A lambda of IR statements that retrieves the `step` value of the  `range`-like
 /// iterable. This value will be extended to the size of `start`.
 /// - `body_fn`: A lambda of IR statements within the loop body.
+#[allow(clippy::too_many_arguments)]
 pub fn gen_for_range_callback<'ctx, 'a, G, StartFn, StopFn, StepFn, BodyFn>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
+    label: Option<&str>,
     is_unsigned: bool,
     start_fn: StartFn,
     (stop_fn, stop_inclusive): (StopFn, bool),
@@ -656,13 +663,19 @@ where
     StartFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
     StopFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
     StepFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
-    BodyFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, IntValue<'ctx>) -> Result<(), String>,
+    BodyFn: FnOnce(
+        &mut G,
+        &mut CodeGenContext<'ctx, 'a>,
+        BreakContinueHooks,
+        IntValue<'ctx>,
+    ) -> Result<(), String>,
 {
     let init_val_t = start_fn(generator, ctx).map(IntValue::get_type).unwrap();
 
     gen_for_callback(
         generator,
         ctx,
+        label,
         |generator, ctx| {
             let i_addr = generator.gen_var_alloc(ctx, init_val_t.into(), None)?;
 
@@ -720,10 +733,10 @@ where
 
             Ok(cond)
         },
-        |generator, ctx, _, (i_addr, _)| {
+        |generator, ctx, hooks, (i_addr, _)| {
             let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();
 
-            body_fn(generator, ctx, i)
+            body_fn(generator, ctx, hooks, i)
         },
         |generator, ctx, (i_addr, _)| {
             let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();

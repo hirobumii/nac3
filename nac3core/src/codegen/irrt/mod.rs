@@ -798,6 +798,7 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
     gen_for_callback_incrementing(
         generator,
         ctx,
+        None,
         llvm_usize.const_zero(),
         (min_ndims, false),
         |generator, ctx, _, idx| {

@@ -1334,6 +1334,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 gen_for_callback_incrementing(
                     generator,
                     ctx,
+                    None,
                     llvm_usize.const_zero(),
                     (int_val, false),
                     |generator, ctx, _, i| {
@@ -1944,6 +1945,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                             gen_for_callback_incrementing(
                                 generator,
                                 ctx,
+                                None,
                                 llvm_usize.const_zero(),
                                 (left_val.load_size(ctx, None), false),
                                 |generator, ctx, hooks, i| {
