@@ -1016,7 +1016,6 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let elem_ty = ctx.get_llvm_type(generator, elt.custom.unwrap());
     let is_range = ctx.unifier.unioned(iter.custom.unwrap(), ctx.primitives.range);
     let list;
-    let list_content;
 
     if is_range {
         let iter_val = RangeValue::from_ptr_val(iter_val.into_pointer_value(), Some("range"));
@@ -1047,7 +1046,6 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             list_alloc_size.into_int_value(),
             Some("listcomp.addr"),
         );
-        list_content = list.data().base_ptr(ctx, generator);
 
         let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
         ctx.builder
@@ -1083,10 +1081,10 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             )
             .into_int_value();
         list = allocate_list(generator, ctx, Some(elem_ty), length, Some("listcomp"));
-        list_content = list.data().base_ptr(ctx, generator);
+
         let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
         // counter = -1
-        ctx.builder.build_store(counter, size_t.const_int(u64::MAX, true)).unwrap();
+        ctx.builder.build_store(counter, size_t.const_all_ones()).unwrap();
         ctx.builder.build_unconditional_branch(test_bb).unwrap();
 
         ctx.builder.position_at_end(test_bb);
@@ -1143,7 +1141,8 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         return Ok(None);
     };
     let i = ctx.builder.build_load(index, "i").map(BasicValueEnum::into_int_value).unwrap();
-    let elem_ptr = unsafe { ctx.builder.build_gep(list_content, &[i], "elem_ptr") }.unwrap();
+    let elem_ptr =
+        unsafe { list.data().ptr_offset_unchecked(ctx, generator, &i, Some("elem_ptr")) };
     let val = elem.to_basic_value_enum(ctx, generator, elt.custom.unwrap())?;
     ctx.builder.build_store(elem_ptr, val).unwrap();
     ctx.builder
