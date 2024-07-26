@@ -42,7 +42,7 @@ pub enum PrimDef {
     // Range methods
     FunRangeInit,
 
-    // NumPy & SciPy functions
+    // NumPy factory functions
     FunNpNDArray,
     FunNpEmpty,
     FunNpZeros,
@@ -51,6 +51,8 @@ pub enum PrimDef {
     FunNpArray,
     FunNpEye,
     FunNpIdentity,
+
+    // Miscellaneous NumPy & SciPy functions
     FunNpRound,
     FunNpFloor,
     FunNpCeil,
@@ -98,7 +100,7 @@ pub enum PrimDef {
     FunNpHypot,
     FunNpNextAfter,
 
-    // Miscellaneous
+    // Miscellaneous Python & NAC3 functions
     FunInt32,
     FunInt64,
     FunUInt32,
@@ -211,7 +213,7 @@ impl PrimDef {
             // Range methods
             PrimDef::FunRangeInit => fun("range.__init__", Some("__init__")),
 
-            // NumPy & SciPy functions
+            // NumPy factory functions
             PrimDef::FunNpNDArray => fun("np_ndarray", None),
             PrimDef::FunNpEmpty => fun("np_empty", None),
             PrimDef::FunNpZeros => fun("np_zeros", None),
@@ -220,6 +222,8 @@ impl PrimDef {
             PrimDef::FunNpArray => fun("np_array", None),
             PrimDef::FunNpEye => fun("np_eye", None),
             PrimDef::FunNpIdentity => fun("np_identity", None),
+
+            // Miscellaneous NumPy & SciPy functions
             PrimDef::FunNpRound => fun("np_round", None),
             PrimDef::FunNpFloor => fun("np_floor", None),
             PrimDef::FunNpCeil => fun("np_ceil", None),
@@ -267,7 +271,7 @@ impl PrimDef {
             PrimDef::FunNpHypot => fun("np_hypot", None),
             PrimDef::FunNpNextAfter => fun("np_nextafter", None),
 
-            // Miscellaneous
+            // Miscellaneous Python & NAC3 functions
             PrimDef::FunInt32 => fun("int32", None),
             PrimDef::FunInt64 => fun("int64", None),
             PrimDef::FunUInt32 => fun("uint32", None),
