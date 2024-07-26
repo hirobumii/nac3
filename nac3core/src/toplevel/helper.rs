@@ -28,16 +28,16 @@ pub enum PrimDef {
     NDArray,
 
     // Option methods
-    OptionIsSome,
-    OptionIsNone,
-    OptionUnwrap,
+    FunOptionIsSome,
+    FunOptionIsNone,
+    FunOptionUnwrap,
 
     // Option-related functions
     FunSome,
 
     // NDArray methods
-    NDArrayCopy,
-    NDArrayFill,
+    FunNDArrayCopy,
+    FunNDArrayFill,
 
     // Range methods
     FunRangeInit,
@@ -192,13 +192,13 @@ impl PrimDef {
             PrimDef::UInt32 => class("uint32", |primitives| primitives.uint32),
             PrimDef::UInt64 => class("uint64", |primitives| primitives.uint64),
             PrimDef::Option => class("Option", |primitives| primitives.option),
-            PrimDef::OptionIsSome => fun("Option.is_some", Some("is_some")),
-            PrimDef::OptionIsNone => fun("Option.is_none", Some("is_none")),
-            PrimDef::OptionUnwrap => fun("Option.unwrap", Some("unwrap")),
+            PrimDef::FunOptionIsSome => fun("Option.is_some", Some("is_some")),
+            PrimDef::FunOptionIsNone => fun("Option.is_none", Some("is_none")),
+            PrimDef::FunOptionUnwrap => fun("Option.unwrap", Some("unwrap")),
             PrimDef::List => class("list", |primitives| primitives.list),
             PrimDef::NDArray => class("ndarray", |primitives| primitives.ndarray),
-            PrimDef::NDArrayCopy => fun("ndarray.copy", Some("copy")),
-            PrimDef::NDArrayFill => fun("ndarray.fill", Some("fill")),
+            PrimDef::FunNDArrayCopy => fun("ndarray.copy", Some("copy")),
+            PrimDef::FunNDArrayFill => fun("ndarray.fill", Some("fill")),
             PrimDef::FunInt32 => fun("int32", None),
             PrimDef::FunInt64 => fun("int64", None),
             PrimDef::FunUInt32 => fun("uint32", None),
@@ -422,9 +422,9 @@ impl TopLevelComposer {
         let option = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Option.id(),
             fields: vec![
-                (PrimDef::OptionIsSome.simple_name().into(), (is_some_type_fun_ty, true)),
-                (PrimDef::OptionIsNone.simple_name().into(), (is_some_type_fun_ty, true)),
-                (PrimDef::OptionUnwrap.simple_name().into(), (unwrap_fun_ty, true)),
+                (PrimDef::FunOptionIsSome.simple_name().into(), (is_some_type_fun_ty, true)),
+                (PrimDef::FunOptionIsNone.simple_name().into(), (is_some_type_fun_ty, true)),
+                (PrimDef::FunOptionUnwrap.simple_name().into(), (unwrap_fun_ty, true)),
             ]
             .into_iter()
             .collect::<HashMap<_, _>>(),
@@ -465,8 +465,8 @@ impl TopLevelComposer {
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::NDArray.id(),
             fields: Mapping::from([
-                (PrimDef::NDArrayCopy.simple_name().into(), (ndarray_copy_fun_ty, true)),
-                (PrimDef::NDArrayFill.simple_name().into(), (ndarray_fill_fun_ty, true)),
+                (PrimDef::FunNDArrayCopy.simple_name().into(), (ndarray_copy_fun_ty, true)),
+                (PrimDef::FunNDArrayFill.simple_name().into(), (ndarray_fill_fun_ty, true)),
             ]),
             params: into_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         });
