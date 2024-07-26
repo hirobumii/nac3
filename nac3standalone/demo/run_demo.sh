@@ -11,15 +11,12 @@ declare -a nac3args
 while [ $# -ge 1 ]; do
   case "$1" in
     --help)
-      echo "Usage: run_demo.sh [--help] [--out OUTFILE] [--lli] [--debug] -- [NAC3ARGS...]"
+      echo "Usage: run_demo.sh [--help] [--out OUTFILE] [--debug] -- [NAC3ARGS...]"
       exit
       ;;
     --out)
       shift
       outfile="$1"
-      ;;
-    --lli)
-      use_lli=1
       ;;
     --debug)
       debug=1
@@ -50,29 +47,14 @@ else
 fi
 
 rm -f ./*.o ./*.bc demo
-if [ -z "$use_lli" ]; then
-  $nac3standalone "${nac3args[@]}"
 
-  clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
-  clang -lm -o demo module.o demo.o
+$nac3standalone "${nac3args[@]}"
 
-  if [ -z "$outfile" ]; then
-    ./demo
-  else
-    ./demo > "$outfile"
-  fi
+clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
+clang -lm -o demo module.o demo.o
+
+if [ -z "$outfile" ]; then
+  ./demo
 else
-  $nac3standalone --emit-llvm "${nac3args[@]}"
-
-  clang -c -std=gnu11 -Wall -Wextra -O3 -emit-llvm -o demo.bc demo.c
-
-  shopt -s nullglob
-  llvm-link -o nac3out.bc module*.bc main.bc
-  shopt -u nullglob
-
-  if [ -z "$outfile" ]; then
-    lli --extra-module demo.bc --extra-module irrt.bc nac3out.bc
-  else
-    lli --extra-module demo.bc --extra-module irrt.bc nac3out.bc > "$outfile"
-  fi
+  ./demo > "$outfile"
 fi
