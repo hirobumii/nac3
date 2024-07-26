@@ -27,17 +27,22 @@ pub enum PrimDef {
     List,
     NDArray,
 
-    // Member Functions
+    // Option methods
     OptionIsSome,
     OptionIsNone,
     OptionUnwrap,
+
+    // Option-related functions
+    FunSome,
+
+    // NDArray methods
     NDArrayCopy,
     NDArrayFill,
-    FunInt32,
-    FunInt64,
-    FunUInt32,
-    FunUInt64,
-    FunFloat,
+
+    // Range methods
+    FunRangeInit,
+
+    // NumPy & SciPy functions
     FunNpNDArray,
     FunNpEmpty,
     FunNpZeros,
@@ -46,28 +51,15 @@ pub enum PrimDef {
     FunNpArray,
     FunNpEye,
     FunNpIdentity,
-    FunRound,
-    FunRound64,
     FunNpRound,
-    FunRangeInit,
-    FunStr,
-    FunBool,
-    FunFloor,
-    FunFloor64,
     FunNpFloor,
-    FunCeil,
-    FunCeil64,
     FunNpCeil,
-    FunLen,
-    FunMin,
     FunNpMin,
     FunNpMinimum,
     FunNpArgmin,
-    FunMax,
     FunNpMax,
     FunNpMaximum,
     FunNpArgmax,
-    FunAbs,
     FunNpIsNan,
     FunNpIsInf,
     FunNpSin,
@@ -106,8 +98,24 @@ pub enum PrimDef {
     FunNpHypot,
     FunNpNextAfter,
 
-    // Top-Level Functions
-    FunSome,
+    // Miscellaneous
+    FunInt32,
+    FunInt64,
+    FunUInt32,
+    FunUInt64,
+    FunFloat,
+    FunRound,
+    FunRound64,
+    FunStr,
+    FunBool,
+    FunFloor,
+    FunFloor64,
+    FunCeil,
+    FunCeil64,
+    FunLen,
+    FunMin,
+    FunMax,
+    FunAbs,
 }
 
 /// Associated details of a [`PrimDef`]
