@@ -181,6 +181,7 @@ impl PrimDef {
         }
 
         match self {
+            // Classes
             PrimDef::Int32 => class("int32", |primitives| primitives.int32),
             PrimDef::Int64 => class("int64", |primitives| primitives.int64),
             PrimDef::Float => class("float", |primitives| primitives.float),
@@ -192,18 +193,25 @@ impl PrimDef {
             PrimDef::UInt32 => class("uint32", |primitives| primitives.uint32),
             PrimDef::UInt64 => class("uint64", |primitives| primitives.uint64),
             PrimDef::Option => class("Option", |primitives| primitives.option),
+            PrimDef::List => class("list", |primitives| primitives.list),
+            PrimDef::NDArray => class("ndarray", |primitives| primitives.ndarray),
+
+            // Option methods
             PrimDef::FunOptionIsSome => fun("Option.is_some", Some("is_some")),
             PrimDef::FunOptionIsNone => fun("Option.is_none", Some("is_none")),
             PrimDef::FunOptionUnwrap => fun("Option.unwrap", Some("unwrap")),
-            PrimDef::List => class("list", |primitives| primitives.list),
-            PrimDef::NDArray => class("ndarray", |primitives| primitives.ndarray),
+
+            // Option-related functions
+            PrimDef::FunSome => fun("Some", None),
+
+            // NDArray methods
             PrimDef::FunNDArrayCopy => fun("ndarray.copy", Some("copy")),
             PrimDef::FunNDArrayFill => fun("ndarray.fill", Some("fill")),
-            PrimDef::FunInt32 => fun("int32", None),
-            PrimDef::FunInt64 => fun("int64", None),
-            PrimDef::FunUInt32 => fun("uint32", None),
-            PrimDef::FunUInt64 => fun("uint64", None),
-            PrimDef::FunFloat => fun("float", None),
+
+            // Range methods
+            PrimDef::FunRangeInit => fun("range.__init__", Some("__init__")),
+
+            // NumPy & SciPy functions
             PrimDef::FunNpNDArray => fun("np_ndarray", None),
             PrimDef::FunNpEmpty => fun("np_empty", None),
             PrimDef::FunNpZeros => fun("np_zeros", None),
@@ -212,28 +220,15 @@ impl PrimDef {
             PrimDef::FunNpArray => fun("np_array", None),
             PrimDef::FunNpEye => fun("np_eye", None),
             PrimDef::FunNpIdentity => fun("np_identity", None),
-            PrimDef::FunRound => fun("round", None),
-            PrimDef::FunRound64 => fun("round64", None),
             PrimDef::FunNpRound => fun("np_round", None),
-            PrimDef::FunRangeInit => fun("range.__init__", Some("__init__")),
-            PrimDef::FunStr => fun("str", None),
-            PrimDef::FunBool => fun("bool", None),
-            PrimDef::FunFloor => fun("floor", None),
-            PrimDef::FunFloor64 => fun("floor64", None),
             PrimDef::FunNpFloor => fun("np_floor", None),
-            PrimDef::FunCeil => fun("ceil", None),
-            PrimDef::FunCeil64 => fun("ceil64", None),
             PrimDef::FunNpCeil => fun("np_ceil", None),
-            PrimDef::FunLen => fun("len", None),
-            PrimDef::FunMin => fun("min", None),
             PrimDef::FunNpMin => fun("np_min", None),
             PrimDef::FunNpMinimum => fun("np_minimum", None),
             PrimDef::FunNpArgmin => fun("np_argmin", None),
-            PrimDef::FunMax => fun("max", None),
             PrimDef::FunNpMax => fun("np_max", None),
             PrimDef::FunNpMaximum => fun("np_maximum", None),
             PrimDef::FunNpArgmax => fun("np_argmax", None),
-            PrimDef::FunAbs => fun("abs", None),
             PrimDef::FunNpIsNan => fun("np_isnan", None),
             PrimDef::FunNpIsInf => fun("np_isinf", None),
             PrimDef::FunNpSin => fun("np_sin", None),
@@ -271,7 +266,25 @@ impl PrimDef {
             PrimDef::FunNpLdExp => fun("np_ldexp", None),
             PrimDef::FunNpHypot => fun("np_hypot", None),
             PrimDef::FunNpNextAfter => fun("np_nextafter", None),
-            PrimDef::FunSome => fun("Some", None),
+
+            // Miscellaneous
+            PrimDef::FunInt32 => fun("int32", None),
+            PrimDef::FunInt64 => fun("int64", None),
+            PrimDef::FunUInt32 => fun("uint32", None),
+            PrimDef::FunUInt64 => fun("uint64", None),
+            PrimDef::FunFloat => fun("float", None),
+            PrimDef::FunRound => fun("round", None),
+            PrimDef::FunRound64 => fun("round64", None),
+            PrimDef::FunStr => fun("str", None),
+            PrimDef::FunBool => fun("bool", None),
+            PrimDef::FunFloor => fun("floor", None),
+            PrimDef::FunFloor64 => fun("floor64", None),
+            PrimDef::FunCeil => fun("ceil", None),
+            PrimDef::FunCeil64 => fun("ceil64", None),
+            PrimDef::FunLen => fun("len", None),
+            PrimDef::FunMin => fun("min", None),
+            PrimDef::FunMax => fun("max", None),
+            PrimDef::FunAbs => fun("abs", None),
         }
     }
 }
