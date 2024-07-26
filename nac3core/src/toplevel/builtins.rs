@@ -346,8 +346,8 @@ impl<'a> BuiltinBuilder<'a> {
         let (is_some_ty, unwrap_ty, option_tvar) =
             if let TypeEnum::TObj { fields, params, .. } = unifier.get_ty(option).as_ref() {
                 (
-                    *fields.get(&PrimDef::OptionIsSome.simple_name().into()).unwrap(),
-                    *fields.get(&PrimDef::OptionUnwrap.simple_name().into()).unwrap(),
+                    *fields.get(&PrimDef::FunOptionIsSome.simple_name().into()).unwrap(),
+                    *fields.get(&PrimDef::FunOptionUnwrap.simple_name().into()).unwrap(),
                     iter_type_vars(params).next().unwrap(),
                 )
             } else {
@@ -362,9 +362,9 @@ impl<'a> BuiltinBuilder<'a> {
         let ndarray_dtype_tvar = iter_type_vars(ndarray_params).next().unwrap();
         let ndarray_ndims_tvar = iter_type_vars(ndarray_params).nth(1).unwrap();
         let ndarray_copy_ty =
-            *ndarray_fields.get(&PrimDef::NDArrayCopy.simple_name().into()).unwrap();
+            *ndarray_fields.get(&PrimDef::FunNDArrayCopy.simple_name().into()).unwrap();
         let ndarray_fill_ty =
-            *ndarray_fields.get(&PrimDef::NDArrayFill.simple_name().into()).unwrap();
+            *ndarray_fields.get(&PrimDef::FunNDArrayFill.simple_name().into()).unwrap();
 
         let num_ty = unifier.get_fresh_var_with_range(
             &[int32, int64, float, boolean, uint32, uint64],
@@ -464,14 +464,14 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::Exception => self.build_exception_class_related(prim),
 
             PrimDef::Option
-            | PrimDef::OptionIsSome
-            | PrimDef::OptionIsNone
-            | PrimDef::OptionUnwrap
+            | PrimDef::FunOptionIsSome
+            | PrimDef::FunOptionIsNone
+            | PrimDef::FunOptionUnwrap
             | PrimDef::FunSome => self.build_option_class_related(prim),
 
             PrimDef::List => self.build_list_class_related(prim),
 
-            PrimDef::NDArray | PrimDef::NDArrayCopy | PrimDef::NDArrayFill => {
+            PrimDef::NDArray | PrimDef::FunNDArrayCopy | PrimDef::FunNDArrayFill => {
                 self.build_ndarray_class_related(prim)
             }
 
@@ -794,9 +794,9 @@ impl<'a> BuiltinBuilder<'a> {
             prim,
             &[
                 PrimDef::Option,
-                PrimDef::OptionIsSome,
-                PrimDef::OptionIsNone,
-                PrimDef::OptionUnwrap,
+                PrimDef::FunOptionIsSome,
+                PrimDef::FunOptionIsNone,
+                PrimDef::FunOptionUnwrap,
                 PrimDef::FunSome,
             ],
         );
@@ -809,9 +809,9 @@ impl<'a> BuiltinBuilder<'a> {
                 fields: Vec::default(),
                 attributes: Vec::default(),
                 methods: vec![
-                    Self::create_method(PrimDef::OptionIsSome, self.is_some_ty.0),
-                    Self::create_method(PrimDef::OptionIsNone, self.is_some_ty.0),
-                    Self::create_method(PrimDef::OptionUnwrap, self.unwrap_ty.0),
+                    Self::create_method(PrimDef::FunOptionIsSome, self.is_some_ty.0),
+                    Self::create_method(PrimDef::FunOptionIsNone, self.is_some_ty.0),
+                    Self::create_method(PrimDef::FunOptionUnwrap, self.unwrap_ty.0),
                 ],
                 ancestors: vec![TypeAnnotation::CustomClass {
                     id: prim.id(),
@@ -822,7 +822,7 @@ impl<'a> BuiltinBuilder<'a> {
                 loc: None,
             },
 
-            PrimDef::OptionUnwrap => TopLevelDef::Function {
+            PrimDef::FunOptionUnwrap => TopLevelDef::Function {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
                 signature: self.unwrap_ty.0,
@@ -836,7 +836,7 @@ impl<'a> BuiltinBuilder<'a> {
                 loc: None,
             },
 
-            PrimDef::OptionIsNone | PrimDef::OptionIsSome => TopLevelDef::Function {
+            PrimDef::FunOptionIsNone | PrimDef::FunOptionIsSome => TopLevelDef::Function {
                 name: prim.name().to_string(),
                 simple_name: prim.simple_name().into(),
                 signature: self.is_some_ty.0,
@@ -857,10 +857,10 @@ impl<'a> BuiltinBuilder<'a> {
                         };
 
                         let returned_int = match prim {
-                            PrimDef::OptionIsNone => {
+                            PrimDef::FunOptionIsNone => {
                                 ctx.builder.build_is_null(ptr, prim.simple_name())
                             }
-                            PrimDef::OptionIsSome => {
+                            PrimDef::FunOptionIsSome => {
                                 ctx.builder.build_is_not_null(ptr, prim.simple_name())
                             }
                             _ => unreachable!(),
@@ -933,7 +933,7 @@ impl<'a> BuiltinBuilder<'a> {
     fn build_ndarray_class_related(&self, prim: PrimDef) -> TopLevelDef {
         debug_assert_prim_is_allowed(
             prim,
-            &[PrimDef::NDArray, PrimDef::NDArrayCopy, PrimDef::NDArrayFill],
+            &[PrimDef::NDArray, PrimDef::FunNDArrayCopy, PrimDef::FunNDArrayFill],
         );
 
         match prim {
@@ -944,8 +944,8 @@ impl<'a> BuiltinBuilder<'a> {
                 fields: Vec::default(),
                 attributes: Vec::default(),
                 methods: vec![
-                    Self::create_method(PrimDef::NDArrayCopy, self.ndarray_copy_ty.0),
-                    Self::create_method(PrimDef::NDArrayFill, self.ndarray_fill_ty.0),
+                    Self::create_method(PrimDef::FunNDArrayCopy, self.ndarray_copy_ty.0),
+                    Self::create_method(PrimDef::FunNDArrayFill, self.ndarray_fill_ty.0),
                 ],
                 ancestors: Vec::default(),
                 constructor: None,
@@ -953,7 +953,7 @@ impl<'a> BuiltinBuilder<'a> {
                 loc: None,
             },
 
-            PrimDef::NDArrayCopy => TopLevelDef::Function {
+            PrimDef::FunNDArrayCopy => TopLevelDef::Function {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
                 signature: self.ndarray_copy_ty.0,
@@ -970,7 +970,7 @@ impl<'a> BuiltinBuilder<'a> {
                 loc: None,
             },
 
-            PrimDef::NDArrayFill => TopLevelDef::Function {
+            PrimDef::FunNDArrayFill => TopLevelDef::Function {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
                 signature: self.ndarray_fill_ty.0,
