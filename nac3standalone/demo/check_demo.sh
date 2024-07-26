@@ -14,12 +14,21 @@ while [ $# -gt 1 ]; do
 done
 demo="$1"
 
-echo -n "Checking $demo... "
-./interpret_demo.py "$demo" > interpreted.log
-./run_demo.sh --out run.log "${nac3args[@]}" "$demo"
-./run_demo.sh --lli --out run_lli.log "${nac3args[@]}" "$demo"
-diff -Nau interpreted.log run.log
-diff -Nau interpreted.log run_lli.log
-echo "ok"
+echo "### Checking $demo..."
 
-rm -f interpreted.log run.log run_lli.log
+# Get reference output
+echo ">>>>>> Running $demo with the Python interpreter"
+./interpret_demo.py "$demo" > interpreted.log
+
+echo "...... Trying NAC3's 32-bit code generator output"
+./run_demo.sh -m32 --out run_32.log "${nac3args[@]}" "$demo"
+diff -Nau interpreted.log run_32.log
+
+echo "...... Trying NAC3's 64-bit code generator output"
+./run_demo.sh --out run_64.log "${nac3args[@]}" "$demo"
+diff -Nau interpreted.log run_64.log
+
+echo "...... OK"
+
+rm -f interpreted.log \
+  run_32.log run_64.log

@@ -11,7 +11,7 @@ declare -a nac3args
 while [ $# -ge 1 ]; do
   case "$1" in
     --help)
-      echo "Usage: run_demo.sh [--help] [--out OUTFILE] [--debug] -- [NAC3ARGS...]"
+      echo "Usage: run_demo.sh [--help] [--out OUTFILE] [--debug] [-m32] -- [NAC3ARGS...]"
       exit
       ;;
     --out)
@@ -20,6 +20,9 @@ while [ $# -ge 1 ]; do
       ;;
     --debug)
       debug=1
+      ;;
+    -m32)
+      m32=1
       ;;
     --)
       shift
@@ -48,10 +51,19 @@ fi
 
 rm -f ./*.o ./*.bc demo
 
-$nac3standalone "${nac3args[@]}"
+if [ -z "$m32" ]; then
+  $nac3standalone "${nac3args[@]}"
 
-clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
-clang -lm -o demo module.o demo.o
+  clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
+  clang -lm -Wl,--no-warn-search-mismatch -o demo module.o demo.o
+else
+   # Enable SSE2 to avoid rounding errors with X87's 80-bit fp precision computations
+
+   $nac3standalone --triple i386-pc-linux-gnu --target-features +sse2 "${nac3args[@]}"
+
+   clang -m32 -c -std=gnu11 -Wall -Wextra -O3 -msse2 -o demo.o demo.c
+   clang -m32 -lm -Wl,--no-warn-search-mismatch -o demo module.o demo.o
+fi
 
 if [ -z "$outfile" ]; then
   ./demo
