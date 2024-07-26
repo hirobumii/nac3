@@ -1,36 +1,27 @@
-/// Uses `nalgebra` crate to invoke `np_linalg` and `sp_linalg` functions
-/// When converting between `nalgebra::Matrix` and `NDArray` following considerations are necessary
-///
-/// * Both `nalgebra::Matrix` and `NDArray` require their content to be stored in row-major order
-/// * `NDArray` data pointer can be directly read and converted to `nalgebra::Matrix` (row and column number must be known)
-/// * `nalgebra::Matrix::as_slice` returns the content of matrix in column-major order and initial data needs to be transposed before storing it in `NDArray` data pointer
-mod runtime_exception;
+// Uses `nalgebra` crate to invoke `np_linalg` and `sp_linalg` functions
+// When converting between `nalgebra::Matrix` and `NDArray` following considerations are necessary
+//
+// * Both `nalgebra::Matrix` and `NDArray` require their content to be stored in row-major order
+// * `NDArray` data pointer can be directly read and converted to `nalgebra::Matrix` (row and column number must be known)
+// * `nalgebra::Matrix::as_slice` returns the content of matrix in column-major order and initial data needs to be transposed before storing it in `NDArray` data pointer
+
 use core::slice;
 use nalgebra::DMatrix;
 
-macro_rules! raise_exn {
-    ($name:expr, $fn_name:expr, $message:expr, $param0:expr, $param1:expr, $param2:expr) => {{
-        use cslice::AsCSlice;
-        let name_id = $crate::runtime_exception::get_exception_id($name);
-        let exn = $crate::runtime_exception::Exception {
-            id: name_id,
-            file: file!().as_c_slice(),
-            line: line!(),
-            column: column!(),
-            // https://github.com/rust-lang/rfcs/pull/1719
-            function: $fn_name.as_c_slice(),
-            message: $message.as_c_slice(),
-            param: [$param0, $param1, $param2],
-        };
-        #[allow(unused_unsafe)]
-        unsafe {
-            $crate::runtime_exception::raise(&exn)
-        }
-    }};
-    ($name:expr, $fn_name:expr, $message:expr) => {{
-        raise_exn!($name, $fn_name, $message, 0, 0, 0)
-    }};
+fn report_error(
+    error_name: &str,
+    fn_name: &str,
+    file_name: &str,
+    line_num: u32,
+    col_num: u32,
+    err_msg: &str,
+) -> ! {
+    panic!(
+        "Exception {} from {} in {}:{}:{}, message: {}",
+        error_name, fn_name, file_name, line_num, col_num, err_msg
+    );
 }
+
 pub struct InputMatrix {
     pub ndims: usize,
     pub dims: *const usize,
@@ -56,7 +47,7 @@ pub unsafe extern "C" fn np_dot(mat1: *mut InputMatrix, mat2: *mut InputMatrix) 
             "expected 1D Vector Input, but received {}D and {}D input",
             mat1.ndims, mat2.ndims
         );
-        raise_exn!("ValueError", "np_dot", err_msg);
+        report_error("ValueError", "np_dot", file!(), line!(), column!(), &err_msg);
     }
 
     let dim1 = (*mat1).get_dims();
@@ -64,7 +55,7 @@ pub unsafe extern "C" fn np_dot(mat1: *mut InputMatrix, mat2: *mut InputMatrix) 
 
     if dim1[0] != dim2[0] {
         let err_msg = format!("shapes ({},) and ({},) not aligned", dim1[0], dim2[0]);
-        raise_exn!("ValueError", "np_dot", err_msg);
+        report_error("ValueError", "np_dot", file!(), line!(), column!(), &err_msg);
     }
     let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0]) };
     let data_slice2 = unsafe { slice::from_raw_parts_mut(mat2.data, dim2[0]) };
@@ -93,7 +84,7 @@ pub unsafe extern "C" fn np_linalg_matmul(
             "expected 2D Vector Input, but received {}D and {}D input",
             mat1.ndims, mat2.ndims
         );
-        raise_exn!("ValueError", "np_matmul", err_msg);
+        report_error("ValueError", "np_matmul", file!(), line!(), column!(), &err_msg);
     }
 
     let dim1 = (*mat1).get_dims();
@@ -104,7 +95,7 @@ pub unsafe extern "C" fn np_linalg_matmul(
             "shapes ({},{}) and ({},{}) not aligned: {} (dim 1) != {} (dim 0)",
             dim1[0], dim1[1], dim2[0], dim2[1], dim1[1], dim2[0]
         );
-        raise_exn!("ValueError", "np_matmul", err_msg);
+        report_error("ValueError", "np_matmul", file!(), line!(), column!(), &err_msg);
     }
 
     let outdim = out.get_dims();
@@ -130,14 +121,14 @@ pub unsafe extern "C" fn np_linalg_cholesky(mat1: *mut InputMatrix, out: *mut In
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
-        raise_exn!("ValueError", "np_linalg_cholesky", err_msg);
+        report_error("ValueError", "np_linalg_cholesky", file!(), line!(), column!(), &err_msg);
     }
 
     let dim1 = (*mat1).get_dims();
     if dim1[0] != dim1[1] {
         let err_msg =
             format!("last 2 dimensions of the array must be square: {0} != {1}", dim1[0], dim1[1]);
-        raise_exn!("LinAlgError", "np_linalg_cholesky", err_msg);
+        report_error("LinAlgError", "np_linalg_cholesky", file!(), line!(), column!(), &err_msg);
     }
 
     let outdim = out.get_dims();
@@ -151,7 +142,14 @@ pub unsafe extern "C" fn np_linalg_cholesky(mat1: *mut InputMatrix, out: *mut In
             out_slice.copy_from_slice(res.unpack().transpose().as_slice());
         }
         None => {
-            raise_exn!("LinAlgError", "np_linalg_cholesky", "Matrix is not positive definite");
+            report_error(
+                "LinAlgError",
+                "np_linalg_cholesky",
+                file!(),
+                line!(),
+                column!(),
+                "Matrix is not positive definite",
+            );
         }
     };
 }
@@ -171,7 +169,7 @@ pub unsafe extern "C" fn np_linalg_qr(
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
-        raise_exn!("ValueError", "np_linalg_cholesky", err_msg);
+        report_error("ValueError", "np_linalg_cholesky", file!(), line!(), column!(), &err_msg);
     }
 
     let dim1 = (*mat1).get_dims();
@@ -210,7 +208,7 @@ pub unsafe extern "C" fn np_linalg_svd(
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
-        raise_exn!("ValueError", "np_linalg_svd", err_msg);
+        report_error("ValueError", "np_linalg_svd", file!(), line!(), column!(), &err_msg);
     }
 
     let dim1 = (*mat1).get_dims();
@@ -241,14 +239,14 @@ pub unsafe extern "C" fn np_linalg_inv(mat1: *mut InputMatrix, out: *mut InputMa
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
-        raise_exn!("ValueError", "np_linalg_inv", err_msg);
+        report_error("ValueError", "np_linalg_inv", file!(), line!(), column!(), &err_msg);
     }
     let dim1 = (*mat1).get_dims();
 
     if dim1[0] != dim1[1] {
         let err_msg =
             format!("last 2 dimensions of the array must be square: {0} != {1}", dim1[0], dim1[1]);
-        raise_exn!("LinAlgError", "np_linalg_inv", err_msg);
+        report_error("LinAlgError", "np_linalg_inv", file!(), line!(), column!(), &err_msg);
     }
 
     let outdim = out.get_dims();
@@ -257,7 +255,14 @@ pub unsafe extern "C" fn np_linalg_inv(mat1: *mut InputMatrix, out: *mut InputMa
 
     let matrix = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
     if !matrix.is_invertible() {
-        raise_exn!("LinAlgError", "np_linalg_inv", "no inverse for Singular Matrix");
+        report_error(
+            "LinAlgError",
+            "np_linalg_inv",
+            file!(),
+            line!(),
+            column!(),
+            "no inverse for Singular Matrix",
+        );
     }
     let inv = matrix.try_inverse().unwrap();
     out_slice.copy_from_slice(inv.transpose().as_slice());
@@ -273,7 +278,7 @@ pub unsafe extern "C" fn np_linalg_pinv(mat1: *mut InputMatrix, out: *mut InputM
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
-        raise_exn!("ValueError", "np_linalg_pinv", err_msg);
+        report_error("ValueError", "np_linalg_pinv", file!(), line!(), column!(), &err_msg);
     }
     let dim1 = (*mat1).get_dims();
     let outdim = out.get_dims();
@@ -288,8 +293,8 @@ pub unsafe extern "C" fn np_linalg_pinv(mat1: *mut InputMatrix, out: *mut InputM
         Ok(m) => {
             out_slice.copy_from_slice(m.transpose().as_slice());
         }
-        Err(e) => {
-            raise_exn!("LinAlgError", "np_linalg_pinv", e);
+        Err(err_msg) => {
+            report_error("LinAlgError", "np_linalg_pinv", file!(), line!(), column!(), err_msg);
         }
     }
 }
@@ -309,7 +314,7 @@ pub unsafe extern "C" fn sp_linalg_lu(
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
-        raise_exn!("ValueError", "sp_linalg_lu", err_msg);
+        report_error("ValueError", "sp_linalg_lu", file!(), line!(), column!(), &err_msg);
     }
 
     let dim1 = (*mat1).get_dims();
@@ -342,7 +347,7 @@ pub unsafe extern "C" fn sp_linalg_schur(
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
-        raise_exn!("ValueError", "sp_linalg_schur", err_msg);
+        report_error("ValueError", "sp_linalg_schur", file!(), line!(), column!(), &err_msg);
     }
 
     let dim1 = (*mat1).get_dims();
@@ -350,7 +355,7 @@ pub unsafe extern "C" fn sp_linalg_schur(
     if dim1[0] != dim1[1] {
         let err_msg =
             format!("last 2 dimensions of the array must be square: {0} != {1}", dim1[0], dim1[1]);
-        raise_exn!("LinAlgError", "np_linalg_schur", err_msg);
+        report_error("LinAlgError", "np_linalg_schur", file!(), line!(), column!(), &err_msg);
     }
 
     let out_t_dim = (*out_t).get_dims();
@@ -382,7 +387,7 @@ pub unsafe extern "C" fn sp_linalg_hessenberg(
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
-        raise_exn!("ValueError", "sp_linalg_hessenberg", err_msg);
+        report_error("ValueError", "sp_linalg_hessenberg", file!(), line!(), column!(), &err_msg);
     }
 
     let dim1 = (*mat1).get_dims();
@@ -390,7 +395,7 @@ pub unsafe extern "C" fn sp_linalg_hessenberg(
     if dim1[0] != dim1[1] {
         let err_msg =
             format!("last 2 dimensions of the array must be square: {} != {}", dim1[0], dim1[1]);
-        raise_exn!("LinAlgError", "sp_linalg_hessenberg", err_msg);
+        report_error("LinAlgError", "sp_linalg_hessenberg", file!(), line!(), column!(), &err_msg);
     }
 
     let out_h_dim = (*out_h).get_dims();

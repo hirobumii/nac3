@@ -553,7 +553,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "linalg_externfns"
+name = "linalg"
 version = "0.1.0"
 dependencies = [
  "cslice",
@@ -688,7 +688,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "inkwell",
- "linalg_externfns",
+ "linalg",
  "nac3core",
  "nac3parser",
  "parking_lot",

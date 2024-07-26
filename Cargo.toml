@@ -4,7 +4,6 @@ members = [
   "nac3ast",
   "nac3parser",
   "nac3core",
-  "nac3standalone/linalg_externfns",
   "nac3standalone",
   "nac3artiq",
   "runkernel",
