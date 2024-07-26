@@ -24,7 +24,7 @@
               lockFile = ./Cargo.lock;
             };
             passthru.cargoLock = cargoLock;
-            nativeBuildInputs = [ pkgs.python3 pkgs.llvmPackages_14.clang llvm-tools-irrt pkgs.llvmPackages_14.llvm.out llvm-nac3 ];
+            nativeBuildInputs = [ pkgs.python3 (pkgs.wrapClangMulti pkgs.llvmPackages_14.clang) llvm-tools-irrt pkgs.llvmPackages_14.llvm.out llvm-nac3 ];
             buildInputs = [ pkgs.python3 llvm-nac3 ];
             checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ps.scipy ])) ];
             checkPhase =
@@ -149,7 +149,7 @@
         buildInputs = with pkgs; [
           # build dependencies
           packages.x86_64-linux.llvm-nac3
-          llvmPackages_14.clang llvmPackages_14.llvm.out  # for running nac3standalone demos
+          (pkgs.wrapClangMulti llvmPackages_14.clang) llvmPackages_14.llvm.out  # for running nac3standalone demos
           packages.x86_64-linux.llvm-tools-irrt
           cargo
           rustc
