@@ -1865,7 +1865,7 @@ fn build_output_struct<'ctx>(
     out_ptr
 }
 
-/// Invokes the `np_dot` using `nalgebra` crate
+/// Invokes the `np_dot` linalg function
 pub fn call_np_dot<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -1884,7 +1884,7 @@ pub fn call_np_dot<'ctx, G: CodeGenerator + ?Sized>(
 
         let (BasicTypeEnum::FloatType(_), BasicTypeEnum::FloatType(_)) = (n1_elem_ty, n2_elem_ty)
         else {
-            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+            unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]);
         };
 
         Ok(extern_fns::call_np_dot(ctx, x1, x2, None).into())
@@ -1893,7 +1893,7 @@ pub fn call_np_dot<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Invokes the `np_linalg_matmul` using `nalgebra` crate
+/// Invokes the `np_linalg_matmul` linalg function
 pub fn call_np_linalg_matmul<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -1913,7 +1913,7 @@ pub fn call_np_linalg_matmul<'ctx, G: CodeGenerator + ?Sized>(
 
         let (BasicTypeEnum::FloatType(_), BasicTypeEnum::FloatType(_)) = (n1_elem_ty, n2_elem_ty)
         else {
-            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+            unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]);
         };
 
         let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
@@ -1942,7 +1942,7 @@ pub fn call_np_linalg_matmul<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Invokes the `np_linalg_cholesky` using `nalgebra` crate
+/// Invokes the `np_linalg_cholesky` linalg function
 pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -1957,7 +1957,7 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
         let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
         let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
-            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+            unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
         let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
@@ -1984,7 +1984,7 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Invokes the `np_linalg_qr` using `nalgebra` crate
+/// Invokes the `np_linalg_qr` linalg function
 pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -2034,7 +2034,7 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Invokes the `np_linalg_svd` using `nalgebra` crate
+/// Invokes the `np_linalg_svd` linalg function
 pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -2049,7 +2049,7 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
         let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
         let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
-            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+            unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
         let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
@@ -2089,7 +2089,7 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Invokes the `np_linalg_inv` using `nalgebra` crate
+/// Invokes the `np_linalg_inv` linalg function
 pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -2104,7 +2104,7 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
         let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
         let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
-            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+            unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
         let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
@@ -2131,7 +2131,7 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Invokes the `np_linalg_pinv` using `nalgebra` crate
+/// Invokes the `np_linalg_pinv` linalg function
 pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -2146,7 +2146,7 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
         let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
         let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
-            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+            unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
         let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
@@ -2174,7 +2174,7 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Invokes the `sp_linalg_lu` using `nalgebra` crate
+/// Invokes the `sp_linalg_lu` linalg function
 pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -2189,7 +2189,7 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
         let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
         let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
-            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+            unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
         let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
@@ -2224,7 +2224,7 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Invokes the `sp_linalg_schur` using `nalgebra` crate
+/// Invokes the `sp_linalg_schur` linalg function
 pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -2239,7 +2239,7 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
         let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
         let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
-            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+            unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
         let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
@@ -2267,7 +2267,7 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Invokes the `sp_linalg_hessenberg` using `nalgebra` crate
+/// Invokes the `sp_linalg_hessenberg` linalg function
 pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -2282,7 +2282,7 @@ pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
         let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
         let BasicTypeEnum::FloatType(_) = n1_elem_ty else {
-            unimplemented!("{FN_NAME} operates on float type NdArrays only");
+            unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
         let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
