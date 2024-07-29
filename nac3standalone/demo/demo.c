@@ -6,8 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define usize size_t
-
 double dbl_nan(void) {
   return NAN;
 }
@@ -64,14 +62,14 @@ void output_asciiart(int32_t x) {
 
 struct cslice {
     void *data;
-    uint32_t len;
+    size_t len;
 };
 
 void output_int32_list(struct cslice *slice) {
     const int32_t *data = (int32_t *) slice->data;
 
     putchar('[');
-    for (uint32_t i = 0; i < slice->len; ++i) {
+    for (size_t i = 0; i < slice->len; ++i) {
         if (i == slice->len - 1) {
             printf("%d", data[i]);
         } else {
@@ -85,7 +83,7 @@ void output_int32_list(struct cslice *slice) {
 void output_str(struct cslice *slice) {
     const char *data = (const char *) slice->data;
 
-    for (uint32_t i = 0; i < slice->len; ++i) {
+    for (size_t i = 0; i < slice->len; ++i) {
         putchar(data[i]);
     }
 }
