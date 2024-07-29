@@ -100,6 +100,7 @@ pub enum PrimDef {
     FunNpHypot,
     FunNpNextAfter,
 
+    // Linalg functions
     FunNpDot,
     FunNpLinalgMatmul,
     FunNpLinalgCholesky,
