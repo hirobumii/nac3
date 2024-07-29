@@ -21,7 +21,7 @@ echo ">>>>>> Running $demo with the Python interpreter"
 ./interpret_demo.py "$demo" > interpreted.log
 
 echo "...... Trying NAC3's 32-bit code generator output"
-./run_demo.sh -m32 --out run_32.log "${nac3args[@]}" "$demo"
+./run_demo.sh -i386 --out run_32.log "${nac3args[@]}" "$demo"
 diff -Nau interpreted.log run_32.log
 
 echo "...... Trying NAC3's 64-bit code generator output"

@@ -11,7 +11,7 @@ declare -a nac3args
 while [ $# -ge 1 ]; do
   case "$1" in
     --help)
-      echo "Usage: run_demo.sh [--help] [--out OUTFILE] [--debug] [-m32] -- [NAC3ARGS...]"
+      echo "Usage: run_demo.sh [--help] [--out OUTFILE] [--debug] [-i386] -- [NAC3ARGS...]"
       exit
       ;;
     --out)
@@ -21,8 +21,8 @@ while [ $# -ge 1 ]; do
     --debug)
       debug=1
       ;;
-    -m32)
-      m32=1
+    -i386)
+      i386=1
       ;;
     --)
       shift
@@ -51,7 +51,7 @@ fi
 
 rm -f ./*.o ./*.bc demo
 
-if [ -z "$m32" ]; then
+if [ -z "$i386" ]; then
   $nac3standalone "${nac3args[@]}"
 
   clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
