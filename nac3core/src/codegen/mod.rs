@@ -609,6 +609,40 @@ fn need_sret(ty: BasicTypeEnum) -> bool {
     need_sret_impl(ty, true)
 }
 
+/// Returns the [`BasicTypeEnum`] representing a `va_list` struct for variadic arguments.
+fn get_llvm_valist_type<'ctx>(ctx: &'ctx Context, triple: &TargetTriple) -> BasicTypeEnum<'ctx> {
+    let triple = TargetMachine::normalize_triple(triple);
+    let triple = triple.as_str().to_str().unwrap();
+    let arch = triple.split('-').next().unwrap();
+
+    let llvm_pi8 = ctx.i8_type().ptr_type(AddressSpace::default());
+
+    // Referenced from parseArch() in llvm/lib/Support/Triple.cpp
+    match arch {
+        "i386" | "i486" | "i586" | "i686" | "riscv32" => {
+            ctx.i8_type().ptr_type(AddressSpace::default()).into()
+        }
+        "amd64" | "x86_64" | "x86_64h" => {
+            let llvm_i32 = ctx.i32_type();
+
+            let va_list_tag = ctx.opaque_struct_type("struct.__va_list_tag");
+            va_list_tag.set_body(
+                &[llvm_i32.into(), llvm_i32.into(), llvm_pi8.into(), llvm_pi8.into()],
+                false,
+            );
+            va_list_tag.into()
+        }
+        "armv7" => {
+            let va_list = ctx.opaque_struct_type("struct.__va_list");
+            va_list.set_body(&[llvm_pi8.into()], false);
+            va_list.into()
+        }
+        triple => {
+            todo!("Unsupported platform for varargs: {triple}")
+        }
+    }
+}
+
 /// Implementation for generating LLVM IR for a function.
 pub fn gen_func_impl<
     'ctx,
