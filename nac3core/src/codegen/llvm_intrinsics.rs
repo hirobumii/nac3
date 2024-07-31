@@ -35,6 +35,40 @@ fn get_float_intrinsic_repr(ctx: &Context, ft: FloatType) -> &'static str {
     unreachable!()
 }
 
+/// Invokes the [`llvm.va_start`](https://llvm.org/docs/LangRef.html#llvm-va-start-intrinsic)
+/// intrinsic.
+pub fn call_va_start<'ctx>(ctx: &CodeGenContext<'ctx, '_>, arglist: PointerValue<'ctx>) {
+    const FN_NAME: &str = "llvm.va_start";
+
+    let intrinsic_fn = ctx.module.get_function(FN_NAME).unwrap_or_else(|| {
+        let llvm_void = ctx.ctx.void_type();
+        let llvm_i8 = ctx.ctx.i8_type();
+        let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
+        let fn_type = llvm_void.fn_type(&[llvm_p0i8.into()], false);
+
+        ctx.module.add_function(FN_NAME, fn_type, None)
+    });
+
+    ctx.builder.build_call(intrinsic_fn, &[arglist.into()], "").unwrap();
+}
+
+/// Invokes the [`llvm.va_start`](https://llvm.org/docs/LangRef.html#llvm-va-start-intrinsic)
+/// intrinsic.
+pub fn call_va_end<'ctx>(ctx: &CodeGenContext<'ctx, '_>, arglist: PointerValue<'ctx>) {
+    const FN_NAME: &str = "llvm.va_end";
+
+    let intrinsic_fn = ctx.module.get_function(FN_NAME).unwrap_or_else(|| {
+        let llvm_void = ctx.ctx.void_type();
+        let llvm_i8 = ctx.ctx.i8_type();
+        let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
+        let fn_type = llvm_void.fn_type(&[llvm_p0i8.into()], false);
+
+        ctx.module.add_function(FN_NAME, fn_type, None)
+    });
+
+    ctx.builder.build_call(intrinsic_fn, &[arglist.into()], "").unwrap();
+}
+
 /// Invokes the [`llvm.stacksave`](https://llvm.org/docs/LangRef.html#llvm-stacksave-intrinsic)
 /// intrinsic.
 pub fn call_stacksave<'ctx>(
