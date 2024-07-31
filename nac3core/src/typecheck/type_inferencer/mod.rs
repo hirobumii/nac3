@@ -1389,7 +1389,45 @@ impl<'a> Inferencer<'a> {
                 },
             }));
         }
+        // 2-argument ndarray n-dimensional factory functions
+        if id == &"np_reshape".into() && args.len() == 2 {
+            let arg0 = self.fold_expr(args.remove(0))?;
 
+            let shape_expr = args.remove(0);
+            let (ndims, shape) =
+                self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
+
+            let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
+            let (elem_ty, _) = unpack_ndarray_var_tys(self.unifier, arg0.custom.unwrap());
+            let ret = make_ndarray_ty(self.unifier, self.primitives, Some(elem_ty), Some(ndims));
+
+            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                args: vec![
+                    FuncArg { name: "x1".into(), ty: arg0.custom.unwrap(), default_value: None },
+                    FuncArg {
+                        name: "shape".into(),
+                        ty: shape.custom.unwrap(),
+                        default_value: None,
+                    },
+                ],
+                ret,
+                vars: VarMap::new(),
+            }));
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(ret),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(custom),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
+                    }),
+                    args: vec![arg0, shape],
+                    keywords: vec![],
+                },
+            }));
+        }
         // 2-argument ndarray n-dimensional creation functions
         if id == &"np_full".into() && args.len() == 2 {
             let ExprKind::List { elts, .. } = &args[0].node else {

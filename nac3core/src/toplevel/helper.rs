@@ -99,6 +99,8 @@ pub enum PrimDef {
     FunNpLdExp,
     FunNpHypot,
     FunNpNextAfter,
+    FunNpTranspose,
+    FunNpReshape,
 
     // Linalg functions
     FunNpDot,
@@ -282,6 +284,10 @@ impl PrimDef {
             PrimDef::FunNpLdExp => fun("np_ldexp", None),
             PrimDef::FunNpHypot => fun("np_hypot", None),
             PrimDef::FunNpNextAfter => fun("np_nextafter", None),
+            PrimDef::FunNpTranspose => fun("np_transpose", None),
+            PrimDef::FunNpReshape => fun("np_reshape", None),
+
+            // Linalg functions
             PrimDef::FunNpDot => fun("np_dot", None),
             PrimDef::FunNpLinalgMatmul => fun("np_linalg_matmul", None),
             PrimDef::FunNpLinalgCholesky => fun("np_linalg_cholesky", None),
