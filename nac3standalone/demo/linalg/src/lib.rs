@@ -36,38 +36,6 @@ impl InputMatrix {
 
 /// # Safety
 ///
-/// `mat1` and `mat2` should point to a valid 1DArray of `f64` floats in row-major order
-#[no_mangle]
-pub unsafe extern "C" fn np_dot(mat1: *mut InputMatrix, mat2: *mut InputMatrix) -> f64 {
-    let mat1 = mat1.as_mut().unwrap();
-    let mat2 = mat2.as_mut().unwrap();
-
-    if !(mat1.ndims == 1 && mat2.ndims == 1) {
-        let err_msg = format!(
-            "expected 1D Vector Input, but received {}D and {}D input",
-            mat1.ndims, mat2.ndims
-        );
-        report_error("ValueError", "np_dot", file!(), line!(), column!(), &err_msg);
-    }
-
-    let dim1 = (*mat1).get_dims();
-    let dim2 = (*mat2).get_dims();
-
-    if dim1[0] != dim2[0] {
-        let err_msg = format!("shapes ({},) and ({},) not aligned", dim1[0], dim2[0]);
-        report_error("ValueError", "np_dot", file!(), line!(), column!(), &err_msg);
-    }
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0]) };
-    let data_slice2 = unsafe { slice::from_raw_parts_mut(mat2.data, dim2[0]) };
-
-    let matrix1 = DMatrix::from_row_slice(dim1[0], 1, data_slice1);
-    let matrix2 = DMatrix::from_row_slice(dim2[0], 1, data_slice2);
-
-    matrix1.dot(&matrix2)
-}
-
-/// # Safety
-///
 /// `mat1` and `mat2` should point to a valid 2DArray of `f64` floats in row-major order
 #[no_mangle]
 pub unsafe extern "C" fn np_linalg_matmul(

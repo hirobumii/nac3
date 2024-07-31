@@ -26,11 +26,14 @@ use crate::{
         typedef::{FunSignature, Type, TypeEnum},
     },
 };
-use inkwell::types::{AnyTypeEnum, BasicTypeEnum, PointerType};
 use inkwell::{
     types::BasicType,
     values::{BasicValueEnum, IntValue, PointerValue},
     AddressSpace, IntPredicate, OptimizationLevel,
+};
+use inkwell::{
+    types::{AnyTypeEnum, BasicTypeEnum, PointerType},
+    values::BasicValue,
 };
 use nac3parser::ast::{Operator, StrRef};
 
@@ -2390,7 +2393,7 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
             generator,
             ctx.builder.build_int_compare(IntPredicate::EQ, out_sz, n_sz, "").unwrap(),
             "0:ValueError",
-            "cannot reshape array of size {} into provided shape of size {}",
+            "cannot reshape array of size {0} into provided shape of size {1}",
             [Some(n_sz), Some(out_sz), None],
             ctx.current_loc,
         );
@@ -2415,5 +2418,104 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
             "{FN_NAME}() not supported for '{}'",
             format!("'{}'", ctx.unifier.stringify(x1_ty))
         )
+    }
+}
+
+/// Generates LLVM IR for `ndarray.dot`.
+/// Calculate inner product of two vectors or literals
+/// For matrix multiplication use `np_matmul`
+///
+/// The input `NDArray` are flattened and treated as 1D
+/// The operation is equivalent to np.dot(arr1.ravel(), arr2.ravel())
+pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    x1: (Type, BasicValueEnum<'ctx>),
+    x2: (Type, BasicValueEnum<'ctx>),
+) -> Result<BasicValueEnum<'ctx>, String> {
+    const FN_NAME: &str = "ndarray_dot";
+    let (x1_ty, x1) = x1;
+    let (_, x2) = x2;
+
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    match (x1, x2) {
+        (BasicValueEnum::PointerValue(n1), BasicValueEnum::PointerValue(n2)) => {
+            let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+            let n2 = NDArrayValue::from_ptr_val(n2, llvm_usize, None);
+
+            let n1_sz = call_ndarray_calc_size(generator, ctx, &n1.dim_sizes(), (None, None));
+            let n2_sz = call_ndarray_calc_size(generator, ctx, &n1.dim_sizes(), (None, None));
+
+            ctx.make_assert(
+                generator,
+                ctx.builder.build_int_compare(IntPredicate::EQ, n1_sz, n2_sz, "").unwrap(),
+                "0:ValueError",
+                "shapes ({0}), ({1}) not aligned",
+                [Some(n1_sz), Some(n2_sz), None],
+                ctx.current_loc,
+            );
+
+            let identity =
+                unsafe { n1.data().get_unchecked(ctx, generator, &llvm_usize.const_zero(), None) };
+            let acc = ctx.builder.build_alloca(identity.get_type(), "").unwrap();
+            ctx.builder.build_store(acc, identity.get_type().const_zero()).unwrap();
+
+            gen_for_callback_incrementing(
+                generator,
+                ctx,
+                None,
+                llvm_usize.const_zero(),
+                (n1_sz, false),
+                |generator, ctx, _, idx| {
+                    let elem1 = unsafe { n1.data().get_unchecked(ctx, generator, &idx, None) };
+                    let elem2 = unsafe { n2.data().get_unchecked(ctx, generator, &idx, None) };
+
+                    let product = match elem1 {
+                        BasicValueEnum::IntValue(e1) => ctx
+                            .builder
+                            .build_int_mul(e1, elem2.into_int_value(), "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                        BasicValueEnum::FloatValue(e1) => ctx
+                            .builder
+                            .build_float_mul(e1, elem2.into_float_value(), "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                        _ => unreachable!(),
+                    };
+                    let acc_val = ctx.builder.build_load(acc, "").unwrap();
+                    let acc_val = match acc_val {
+                        BasicValueEnum::IntValue(e1) => ctx
+                            .builder
+                            .build_int_add(e1, product.into_int_value(), "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                        BasicValueEnum::FloatValue(e1) => ctx
+                            .builder
+                            .build_float_add(e1, product.into_float_value(), "")
+                            .unwrap()
+                            .as_basic_value_enum(),
+                        _ => unreachable!(),
+                    };
+                    ctx.builder.build_store(acc, acc_val).unwrap();
+
+                    Ok(())
+                },
+                llvm_usize.const_int(1, false),
+            )?;
+            let acc_val = ctx.builder.build_load(acc, "").unwrap();
+            Ok(acc_val)
+        }
+        (BasicValueEnum::IntValue(e1), BasicValueEnum::IntValue(e2)) => {
+            Ok(ctx.builder.build_int_mul(e1, e2, "").unwrap().as_basic_value_enum())
+        }
+        (BasicValueEnum::FloatValue(e1), BasicValueEnum::FloatValue(e2)) => {
+            Ok(ctx.builder.build_float_mul(e1, e2, "").unwrap().as_basic_value_enum())
+        }
+        _ => unreachable!(
+            "{FN_NAME}() not supported for '{}'",
+            format!("'{}'", ctx.unifier.stringify(x1_ty))
+        ),
     }
 }

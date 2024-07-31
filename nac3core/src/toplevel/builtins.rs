@@ -1965,7 +1965,7 @@ impl<'a> BuiltinBuilder<'a> {
                 self.unifier,
                 &self.num_or_ndarray_var_map,
                 prim.name(),
-                self.primitives.float,
+                self.num_ty.ty,
                 &[(self.num_or_ndarray_ty.ty, "x1"), (self.num_or_ndarray_ty.ty, "x2")],
                 Box::new(move |ctx, _, fun, args, generator| {
                     let x1_ty = fun.0.args[0].ty;
@@ -1973,12 +1973,7 @@ impl<'a> BuiltinBuilder<'a> {
                     let x2_ty = fun.0.args[1].ty;
                     let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
 
-                    Ok(Some(builtin_fns::call_np_dot(
-                        generator,
-                        ctx,
-                        (x1_ty, x1_val),
-                        (x2_ty, x2_val),
-                    )?))
+                    Ok(Some(ndarray_dot(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
                 }),
             ),
 

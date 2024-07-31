@@ -1865,34 +1865,6 @@ fn build_output_struct<'ctx>(
     out_ptr
 }
 
-/// Invokes the `np_dot` linalg function
-pub fn call_np_dot<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x1: (Type, BasicValueEnum<'ctx>),
-    x2: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_dot";
-    let (x1_ty, x1) = x1;
-    let (x2_ty, x2) = x2;
-
-    if let (BasicValueEnum::PointerValue(_), BasicValueEnum::PointerValue(_)) = (x1, x2) {
-        let (n1_elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
-        let n1_elem_ty = ctx.get_llvm_type(generator, n1_elem_ty);
-        let (n2_elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty);
-        let n2_elem_ty = ctx.get_llvm_type(generator, n2_elem_ty);
-
-        let (BasicTypeEnum::FloatType(_), BasicTypeEnum::FloatType(_)) = (n1_elem_ty, n2_elem_ty)
-        else {
-            unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]);
-        };
-
-        Ok(extern_fns::call_np_dot(ctx, x1, x2, None).into())
-    } else {
-        unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
-    }
-}
-
 /// Invokes the `np_linalg_matmul` linalg function
 pub fn call_np_linalg_matmul<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,

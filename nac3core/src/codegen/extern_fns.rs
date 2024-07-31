@@ -188,33 +188,3 @@ generate_linalg_extern_fn!(call_np_linalg_pinv, "np_linalg_pinv", 2);
 generate_linalg_extern_fn!(call_sp_linalg_lu, "sp_linalg_lu", 3);
 generate_linalg_extern_fn!(call_sp_linalg_schur, "sp_linalg_schur", 3);
 generate_linalg_extern_fn!(call_sp_linalg_hessenberg, "sp_linalg_hessenberg", 3);
-
-/// Invokes the linalg `np_dot` function.
-pub fn call_np_dot<'ctx>(
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    mat1: BasicValueEnum<'ctx>,
-    mat2: BasicValueEnum<'ctx>,
-    name: Option<&str>,
-) -> FloatValue<'ctx> {
-    const FN_NAME: &str = "np_dot";
-
-    let extern_fn = ctx.module.get_function(FN_NAME).unwrap_or_else(|| {
-        let fn_type =
-            ctx.ctx.f64_type().fn_type(&[mat1.get_type().into(), mat2.get_type().into()], false);
-        let func = ctx.module.add_function(FN_NAME, fn_type, None);
-        for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
-            func.add_attribute(
-                AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
-            );
-        }
-        func
-    });
-
-    ctx.builder
-        .build_call(extern_fn, &[mat1.into(), mat2.into()], name.unwrap_or_default())
-        .map(CallSiteValue::try_as_basic_value)
-        .map(|v| v.map_left(BasicValueEnum::into_float_value))
-        .map(Either::unwrap_left)
-        .unwrap()
-}

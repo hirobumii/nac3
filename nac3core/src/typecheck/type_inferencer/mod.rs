@@ -1130,6 +1130,44 @@ impl<'a> Inferencer<'a> {
             }));
         }
 
+        if id == &"np_dot".into() {
+            let arg0 = self.fold_expr(args.remove(0))?;
+            let arg1 = self.fold_expr(args.remove(0))?;
+            let arg0_ty = arg0.custom.unwrap();
+
+            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
+            {
+                let (ndarray_dtype, _) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+
+                ndarray_dtype
+            } else {
+                arg0_ty
+            };
+
+            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                args: vec![
+                    FuncArg { name: "x1".into(), ty: arg0.custom.unwrap(), default_value: None },
+                    FuncArg { name: "x2".into(), ty: arg1.custom.unwrap(), default_value: None },
+                ],
+                ret,
+                vars: VarMap::new(),
+            }));
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(ret),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(custom),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
+                    }),
+                    args: vec![arg0, arg1],
+                    keywords: vec![],
+                },
+            }));
+        }
+
         if ["np_min", "np_max"].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 1 {
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();

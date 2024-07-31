@@ -1451,13 +1451,28 @@ def test_ndarray_reshape():
     output_ndarray_float_1(z)
 
 def test_ndarray_dot():
-    x: ndarray[float, 1] = np_array([5.0, 1.0])
-    y: ndarray[float, 1] = np_array([5.0, 1.0])
-    z = np_dot(x, y)
+    x1: ndarray[float, 1] = np_array([5.0, 1.0, 4.0, 2.0])
+    y1: ndarray[float, 1] = np_array([5.0, 1.0, 6.0, 6.0])
+    z1 = np_dot(x1, y1)
 
-    output_ndarray_float_1(x)
-    output_ndarray_float_1(y)
-    output_float64(z)
+    x2: ndarray[int32, 1] = np_array([5, 1, 4, 2])
+    y2: ndarray[int32, 1] = np_array([5, 1, 6, 6])
+    z2 = np_dot(x2, y2)
+
+    x3: ndarray[bool, 1] = np_array([True, True, True, True])
+    y3: ndarray[bool, 1] = np_array([True, True, True, True])
+    z3 = np_dot(x3, y3)
+
+    z4 = np_dot(2, 3)
+    z5 = np_dot(2., 3.)
+    z6 = np_dot(True, False)
+
+    output_float64(z1)
+    output_int32(z2)
+    output_bool(z3)
+    output_int32(z4)
+    output_float64(z5)
+    output_bool(z6)
 
 def test_ndarray_linalg_matmul():
     x: ndarray[float, 2] = np_array([[5.0, 1.0], [1.0, 4.0]])
