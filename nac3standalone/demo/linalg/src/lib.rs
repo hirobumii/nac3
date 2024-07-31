@@ -271,6 +271,76 @@ pub unsafe extern "C" fn np_linalg_pinv(mat1: *mut InputMatrix, out: *mut InputM
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
 #[no_mangle]
+pub unsafe extern "C" fn np_linalg_matrix_power(
+    mat1: *mut InputMatrix,
+    mat2: *mut InputMatrix,
+    out: *mut InputMatrix,
+) {
+    let mat1 = mat1.as_mut().unwrap();
+    let mat2 = mat2.as_mut().unwrap();
+    let out = out.as_mut().unwrap();
+
+    if mat1.ndims != 2 {
+        let err_msg = format!("expected 2D Vector Input, but received {}D", mat1.ndims);
+        report_error("ValueError", "np_linalg_matrix_power", file!(), line!(), column!(), &err_msg);
+    }
+
+    let dim1 = (*mat1).get_dims();
+    let power = unsafe { slice::from_raw_parts_mut(mat2.data, 1) };
+    let power = power[0];
+    let outdim = out.get_dims();
+    let out_slice = unsafe { slice::from_raw_parts_mut(out.data, outdim[0] * outdim[1]) };
+    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
+
+    let abs_pow = power.abs();
+    let matrix1 = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
+    let mut result = matrix1.pow(abs_pow as u32);
+
+    if power < 0.0 {
+        if !result.is_invertible() {
+            report_error(
+                "LinAlgError",
+                "np_linalg_inv",
+                file!(),
+                line!(),
+                column!(),
+                "no inverse for Singular Matrix",
+            );
+        }
+        result = result.try_inverse().unwrap();
+    }
+    out_slice.copy_from_slice(result.transpose().as_slice());
+}
+
+/// # Safety
+///
+/// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
+#[no_mangle]
+pub unsafe extern "C" fn np_linalg_det(mat1: *mut InputMatrix, out: *mut InputMatrix) {
+    let mat1 = mat1.as_mut().unwrap();
+    let out = out.as_mut().unwrap();
+
+    if mat1.ndims != 2 {
+        let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
+        report_error("ValueError", "np_linalg_det", file!(), line!(), column!(), &err_msg);
+    }
+    let dim1 = (*mat1).get_dims();
+    let out_slice = unsafe { slice::from_raw_parts_mut(out.data, 1) };
+    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
+
+    let matrix = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
+    if !matrix.is_square() {
+        let err_msg =
+            format!("last 2 dimensions of the array must be square: {0} != {1}", dim1[0], dim1[1]);
+        report_error("LinAlgError", "np_linalg_inv", file!(), line!(), column!(), &err_msg);
+    }
+    out_slice[0] = matrix.determinant();
+}
+
+/// # Safety
+///
+/// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
+#[no_mangle]
 pub unsafe extern "C" fn sp_linalg_lu(
     mat1: *mut InputMatrix,
     out_l: *mut InputMatrix,

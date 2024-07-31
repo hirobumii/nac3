@@ -1518,6 +1518,20 @@ def test_ndarray_pinv():
     output_ndarray_float_2(x)
     output_ndarray_float_2(y)
 
+def test_ndarray_matrix_power():
+    x: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5], [-1.0, 8.0, -8.5]])
+    y = np_linalg_matrix_power(x, -9)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(y)
+
+def test_ndarray_det():
+    x: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5], [-1.0, 8.0, -8.5]])
+    y = np_linalg_det(x)
+
+    output_ndarray_float_2(x)
+    output_float64(y)
+
 def test_ndarray_schur():
     x: ndarray[float, 2] = np_array([[-5.0, -1.0, 2.0], [-1.0, 4.0, 7.5], [-1.0, 8.0, -8.5]])
     t, z = sp_linalg_schur(x)
@@ -1751,6 +1765,8 @@ def run() -> int32:
     test_ndarray_svd()
     test_ndarray_linalg_inv()
     test_ndarray_pinv()
+    test_ndarray_matrix_power()
+    test_ndarray_det()
     test_ndarray_lu()
     test_ndarray_schur()
     test_ndarray_hessenberg()

@@ -185,6 +185,8 @@ generate_linalg_extern_fn!(call_np_linalg_qr, "np_linalg_qr", 3);
 generate_linalg_extern_fn!(call_np_linalg_svd, "np_linalg_svd", 4);
 generate_linalg_extern_fn!(call_np_linalg_inv, "np_linalg_inv", 2);
 generate_linalg_extern_fn!(call_np_linalg_pinv, "np_linalg_pinv", 2);
+generate_linalg_extern_fn!(call_np_linalg_matrix_power, "np_linalg_matrix_power", 3);
+generate_linalg_extern_fn!(call_np_linalg_det, "np_linalg_det", 2);
 generate_linalg_extern_fn!(call_sp_linalg_lu, "sp_linalg_lu", 3);
 generate_linalg_extern_fn!(call_sp_linalg_schur, "sp_linalg_schur", 3);
 generate_linalg_extern_fn!(call_sp_linalg_hessenberg, "sp_linalg_hessenberg", 3);

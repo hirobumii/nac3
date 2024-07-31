@@ -237,6 +237,8 @@ def patch(module):
     module.np_linalg_svd = np.linalg.svd
     module.np_linalg_inv = np.linalg.inv
     module.np_linalg_pinv = np.linalg.pinv
+    module.np_linalg_matrix_power = np.linalg.matrix_power
+    module.np_linalg_det = np.linalg.det
     
     module.sp_linalg_lu = lambda x: sp.linalg.lu(x, True)
     module.sp_linalg_schur = sp.linalg.schur

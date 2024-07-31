@@ -2426,7 +2426,7 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
 /// For matrix multiplication use `np_matmul`
 ///
 /// The input `NDArray` are flattened and treated as 1D
-/// The operation is equivalent to np.dot(arr1.ravel(), arr2.ravel())
+/// The operation is equivalent to `np.dot(arr1.ravel(), arr2.ravel())`
 pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
