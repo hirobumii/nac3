@@ -218,6 +218,8 @@ def patch(module):
     module.np_ldexp = np.ldexp
     module.np_hypot = np.hypot
     module.np_nextafter = np.nextafter
+    module.np_transpose = np.transpose
+    module.np_reshape = np.reshape
 
     # SciPy Math functions
     module.sp_spec_erf = special.erf

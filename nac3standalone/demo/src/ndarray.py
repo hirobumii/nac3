@@ -1429,6 +1429,27 @@ def test_ndarray_nextafter_broadcast_rhs_scalar():
     output_ndarray_float_2(nextafter_x_zeros)
     output_ndarray_float_2(nextafter_x_ones)
 
+def test_ndarray_transpose():
+    x: ndarray[float, 2] = np_array([[1., 2., 3.], [4., 5., 6.]])
+    y = np_transpose(x)
+    z = np_transpose(y)
+
+    output_ndarray_float_2(x)
+    output_ndarray_float_2(y)
+
+def test_ndarray_reshape():
+    w: ndarray[float, 1] = np_array([1., 2., 3., 4., 5., 6., 7., 8., 9., 10.])
+    x = np_reshape(w, (1, 2, 1, -1))
+    y = np_reshape(x, [2, -1])
+    z = np_reshape(y, 10)
+
+    x1: ndarray[int32, 1] = np_array([1, 2, 3, 4])
+    x2: ndarray[int32, 2] = np_reshape(x1, (2, 2))
+
+    output_ndarray_float_1(w)
+    output_ndarray_float_2(y)
+    output_ndarray_float_1(z)
+
 def test_ndarray_dot():
     x: ndarray[float, 1] = np_array([5.0, 1.0])
     y: ndarray[float, 1] = np_array([5.0, 1.0])
@@ -1705,7 +1726,9 @@ def run() -> int32:
     test_ndarray_nextafter_broadcast()
     test_ndarray_nextafter_broadcast_lhs_scalar()
     test_ndarray_nextafter_broadcast_rhs_scalar()
-
+    test_ndarray_transpose()
+    test_ndarray_reshape()
+    
     test_ndarray_dot()
     test_ndarray_linalg_matmul()
     test_ndarray_cholesky()
