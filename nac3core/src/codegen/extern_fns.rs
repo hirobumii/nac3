@@ -179,7 +179,6 @@ macro_rules! generate_linalg_extern_fn {
     };
 }
 
-generate_linalg_extern_fn!(call_np_linalg_matmul, "np_linalg_matmul", 3);
 generate_linalg_extern_fn!(call_np_linalg_cholesky, "np_linalg_cholesky", 2);
 generate_linalg_extern_fn!(call_np_linalg_qr, "np_linalg_qr", 3);
 generate_linalg_extern_fn!(call_np_linalg_svd, "np_linalg_svd", 4);

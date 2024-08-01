@@ -104,7 +104,6 @@ pub enum PrimDef {
 
     // Linalg functions
     FunNpDot,
-    FunNpLinalgMatmul,
     FunNpLinalgCholesky,
     FunNpLinalgQr,
     FunNpLinalgSvd,
@@ -291,7 +290,6 @@ impl PrimDef {
 
             // Linalg functions
             PrimDef::FunNpDot => fun("np_dot", None),
-            PrimDef::FunNpLinalgMatmul => fun("np_linalg_matmul", None),
             PrimDef::FunNpLinalgCholesky => fun("np_linalg_cholesky", None),
             PrimDef::FunNpLinalgQr => fun("np_linalg_qr", None),
             PrimDef::FunNpLinalgSvd => fun("np_linalg_svd", None),

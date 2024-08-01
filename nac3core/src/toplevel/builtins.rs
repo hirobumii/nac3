@@ -562,7 +562,6 @@ impl<'a> BuiltinBuilder<'a> {
             }
 
             PrimDef::FunNpDot
-            | PrimDef::FunNpLinalgMatmul
             | PrimDef::FunNpLinalgCholesky
             | PrimDef::FunNpLinalgQr
             | PrimDef::FunNpLinalgSvd
@@ -1950,7 +1949,6 @@ impl<'a> BuiltinBuilder<'a> {
             prim,
             &[
                 PrimDef::FunNpDot,
-                PrimDef::FunNpLinalgMatmul,
                 PrimDef::FunNpLinalgCholesky,
                 PrimDef::FunNpLinalgQr,
                 PrimDef::FunNpLinalgSvd,
@@ -1978,27 +1976,6 @@ impl<'a> BuiltinBuilder<'a> {
                     let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
 
                     Ok(Some(ndarray_dot(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
-                }),
-            ),
-
-            PrimDef::FunNpLinalgMatmul => create_fn_by_codegen(
-                self.unifier,
-                &VarMap::new(),
-                prim.name(),
-                self.ndarray_float_2d,
-                &[(self.ndarray_float_2d, "x1"), (self.ndarray_float_2d, "x2")],
-                Box::new(move |ctx, _, fun, args, generator| {
-                    let x1_ty = fun.0.args[0].ty;
-                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
-                    let x2_ty = fun.0.args[1].ty;
-                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
-
-                    Ok(Some(builtin_fns::call_np_linalg_matmul(
-                        generator,
-                        ctx,
-                        (x1_ty, x1_val),
-                        (x2_ty, x2_val),
-                    )?))
                 }),
             ),
 

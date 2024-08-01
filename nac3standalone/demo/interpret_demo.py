@@ -5,8 +5,8 @@ import importlib.util
 import importlib.machinery
 import math
 import numpy as np
-import scipy as sp
 import numpy.typing as npt
+import scipy as sp
 import pathlib
 
 from numpy import int32, int64, uint32, uint64
@@ -231,7 +231,6 @@ def patch(module):
 
     # Linalg functions
     module.np_dot = np.dot
-    module.np_linalg_matmul = np.matmul
     module.np_linalg_cholesky = np.linalg.cholesky
     module.np_linalg_qr = np.linalg.qr
     module.np_linalg_svd = np.linalg.svd

@@ -36,51 +36,6 @@ impl InputMatrix {
 
 /// # Safety
 ///
-/// `mat1` and `mat2` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
-pub unsafe extern "C" fn np_linalg_matmul(
-    mat1: *mut InputMatrix,
-    mat2: *mut InputMatrix,
-    out: *mut InputMatrix,
-) {
-    let mat1 = mat1.as_mut().unwrap();
-    let mat2 = mat2.as_mut().unwrap();
-    let out = out.as_mut().unwrap();
-
-    if !(mat1.ndims == 2 && mat2.ndims == 2) {
-        let err_msg = format!(
-            "expected 2D Vector Input, but received {}D and {}D input",
-            mat1.ndims, mat2.ndims
-        );
-        report_error("ValueError", "np_matmul", file!(), line!(), column!(), &err_msg);
-    }
-
-    let dim1 = (*mat1).get_dims();
-    let dim2 = (*mat2).get_dims();
-
-    if dim1[1] != dim2[0] {
-        let err_msg = format!(
-            "shapes ({},{}) and ({},{}) not aligned: {} (dim 1) != {} (dim 0)",
-            dim1[0], dim1[1], dim2[0], dim2[1], dim1[1], dim2[0]
-        );
-        report_error("ValueError", "np_matmul", file!(), line!(), column!(), &err_msg);
-    }
-
-    let outdim = out.get_dims();
-    let out_slice = unsafe { slice::from_raw_parts_mut(out.data, outdim[0] * outdim[1]) };
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
-    let data_slice2 = unsafe { slice::from_raw_parts_mut(mat2.data, dim2[0] * dim2[1]) };
-
-    let matrix1 = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
-    let matrix2 = DMatrix::from_row_slice(dim2[0], dim2[1], data_slice2);
-    let mut result = DMatrix::<f64>::zeros(outdim[0], outdim[1]);
-
-    matrix1.mul_to(&matrix2, &mut result);
-    out_slice.copy_from_slice(result.transpose().as_slice());
-}
-
-/// # Safety
-///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
 #[no_mangle]
 pub unsafe extern "C" fn np_linalg_cholesky(mat1: *mut InputMatrix, out: *mut InputMatrix) {

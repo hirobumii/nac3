@@ -1867,55 +1867,6 @@ fn build_output_struct<'ctx>(
     out_ptr
 }
 
-/// Invokes the `np_linalg_matmul` linalg function
-pub fn call_np_linalg_matmul<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    x1: (Type, BasicValueEnum<'ctx>),
-    x2: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
-    const FN_NAME: &str = "np_linalg_matmul";
-    let (x1_ty, x1) = x1;
-    let (x2_ty, x2) = x2;
-
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-    if let (BasicValueEnum::PointerValue(n1), BasicValueEnum::PointerValue(n2)) = (x1, x2) {
-        let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
-        let n1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
-        let (n2_elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty);
-        let n2_elem_ty = ctx.get_llvm_type(generator, n2_elem_ty);
-
-        let (BasicTypeEnum::FloatType(_), BasicTypeEnum::FloatType(_)) = (n1_elem_ty, n2_elem_ty)
-        else {
-            unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]);
-        };
-
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
-        let n2 = NDArrayValue::from_ptr_val(n2, llvm_usize, None);
-
-        let outdim0 = unsafe {
-            n1.dim_sizes()
-                .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
-                .into_int_value()
-        };
-        let outdim1 = unsafe {
-            n2.dim_sizes()
-                .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
-                .into_int_value()
-        };
-
-        let out = numpy::create_ndarray_const_shape(generator, ctx, elem_ty, &[outdim0, outdim1])
-            .unwrap()
-            .as_base_value()
-            .as_basic_value_enum();
-
-        extern_fns::call_np_linalg_matmul(ctx, x1, x2, out, None);
-        Ok(out)
-    } else {
-        unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
-    }
-}
-
 /// Invokes the `np_linalg_cholesky` linalg function
 pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,

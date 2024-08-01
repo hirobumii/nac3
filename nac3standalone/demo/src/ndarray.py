@@ -1474,18 +1474,6 @@ def test_ndarray_dot():
     output_float64(z5)
     output_bool(z6)
 
-def test_ndarray_linalg_matmul():
-    x: ndarray[float, 2] = np_array([[5.0, 1.0], [1.0, 4.0]])
-    y: ndarray[float, 2] = np_array([[5.0, 1.0], [1.0, 4.0]])
-    z = np_linalg_matmul(x, y)
-
-    m = np_argmax(z)
-
-    output_ndarray_float_2(x)
-    output_ndarray_float_2(y)
-    output_ndarray_float_2(z)
-    output_int64(m)
-
 def test_ndarray_cholesky():
     x: ndarray[float, 2] = np_array([[5.0, 1.0], [1.0, 4.0]])
     y = np_linalg_cholesky(x)
@@ -1501,7 +1489,7 @@ def test_ndarray_qr():
 
     # QR Factorization is not unique and gives different results in numpy and nalgebra
     # Reverting the decomposition to compare the initial arrays
-    a = np_linalg_matmul(y, z)
+    a = y @ z
     output_ndarray_float_2(a)
 
 def test_ndarray_linalg_inv():
@@ -1540,7 +1528,7 @@ def test_ndarray_schur():
 
     # Schur Factorization is not unique and gives different results in scipy and nalgebra
     # Reverting the decomposition to compare the initial arrays
-    a = np_linalg_matmul(np_linalg_matmul(z, t), np_linalg_inv(z))
+    a = (z @ t) @ np_linalg_inv(z)
     output_ndarray_float_2(a)
 
 def test_ndarray_hessenberg():
@@ -1551,7 +1539,7 @@ def test_ndarray_hessenberg():
 
     # Hessenberg Factorization is not unique and gives different results in scipy and nalgebra
     # Reverting the decomposition to compare the initial arrays
-    a = np_linalg_matmul(np_linalg_matmul(q, h), np_linalg_inv(q))
+    a = (q @ h) @ np_linalg_inv(q)
     output_ndarray_float_2(a)
 
 
@@ -1572,7 +1560,7 @@ def test_ndarray_svd():
 
     # SVD Factorization is not unique and gives different results in numpy and nalgebra
     # Reverting the decomposition to compare the initial arrays
-    a = np_linalg_matmul(x, z)
+    a = x @ z
     output_ndarray_float_2(a)
     output_ndarray_float_1(y)
 
@@ -1759,7 +1747,6 @@ def run() -> int32:
     test_ndarray_reshape()
     
     test_ndarray_dot()
-    test_ndarray_linalg_matmul()
     test_ndarray_cholesky()
     test_ndarray_qr()
     test_ndarray_svd()
