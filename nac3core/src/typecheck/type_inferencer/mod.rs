@@ -100,16 +100,18 @@ pub struct Inferencer<'a> {
     pub in_handler: bool,
 }
 
+type InferenceError = HashSet<String>;
+
 struct NaiveFolder();
 impl Fold<()> for NaiveFolder {
     type TargetU = Option<Type>;
-    type Error = HashSet<String>;
+    type Error = InferenceError;
     fn map_user(&mut self, (): ()) -> Result<Self::TargetU, Self::Error> {
         Ok(None)
     }
 }
 
-fn report_error<T>(msg: &str, location: Location) -> Result<T, HashSet<String>> {
+fn report_error<T>(msg: &str, location: Location) -> Result<T, InferenceError> {
     Err(HashSet::from([format!("{msg} at {location}")]))
 }
 
@@ -117,13 +119,13 @@ fn report_type_error<T>(
     kind: TypeErrorKind,
     loc: Option<Location>,
     unifier: &Unifier,
-) -> Result<T, HashSet<String>> {
+) -> Result<T, InferenceError> {
     Err(HashSet::from([TypeError::new(kind, loc).to_display(unifier).to_string()]))
 }
 
 impl<'a> Fold<()> for Inferencer<'a> {
     type TargetU = Option<Type>;
-    type Error = HashSet<String>;
+    type Error = InferenceError;
 
     fn map_user(&mut self, (): ()) -> Result<Self::TargetU, Self::Error> {
         Ok(None)
@@ -612,22 +614,22 @@ impl<'a> Fold<()> for Inferencer<'a> {
     }
 }
 
-type InferenceResult = Result<Type, HashSet<String>>;
+type InferenceResult = Result<Type, InferenceError>;
 
 impl<'a> Inferencer<'a> {
     /// Constrain a <: b
     /// Currently implemented as unification
-    fn constrain(&mut self, a: Type, b: Type, location: &Location) -> Result<(), HashSet<String>> {
+    fn constrain(&mut self, a: Type, b: Type, location: &Location) -> Result<(), InferenceError> {
         self.unify(a, b, location)
     }
 
-    fn unify(&mut self, a: Type, b: Type, location: &Location) -> Result<(), HashSet<String>> {
+    fn unify(&mut self, a: Type, b: Type, location: &Location) -> Result<(), InferenceError> {
         self.unifier.unify(a, b).map_err(|e| {
             HashSet::from([e.at(Some(*location)).to_display(self.unifier).to_string()])
         })
     }
 
-    fn infer_pattern(&mut self, pattern: &ast::Expr<()>) -> Result<(), HashSet<String>> {
+    fn infer_pattern(&mut self, pattern: &ast::Expr<()>) -> Result<(), InferenceError> {
         match &pattern.node {
             ExprKind::Name { id, .. } => {
                 if !self.defined_identifiers.contains(id) {
@@ -716,7 +718,7 @@ impl<'a> Inferencer<'a> {
         location: Location,
         args: Arguments,
         body: ast::Expr<()>,
-    ) -> Result<ast::Expr<Option<Type>>, HashSet<String>> {
+    ) -> Result<ast::Expr<Option<Type>>, InferenceError> {
         if !args.posonlyargs.is_empty()
             || args.vararg.is_some()
             || !args.kwonlyargs.is_empty()
@@ -787,7 +789,7 @@ impl<'a> Inferencer<'a> {
         location: Location,
         elt: ast::Expr<()>,
         mut generators: Vec<Comprehension>,
-    ) -> Result<ast::Expr<Option<Type>>, HashSet<String>> {
+    ) -> Result<ast::Expr<Option<Type>>, InferenceError> {
         if generators.len() != 1 {
             return report_error(
                 "Only 1 generator statement for list comprehension is supported",
@@ -893,7 +895,7 @@ impl<'a> Inferencer<'a> {
         id: StrRef,
         arg_index: usize,
         shape_expr: Located<ExprKind>,
-    ) -> Result<(u64, ast::Expr<Option<Type>>), HashSet<String>> {
+    ) -> Result<(u64, ast::Expr<Option<Type>>), InferenceError> {
         /*
             ### Further explanation
 
@@ -1030,7 +1032,7 @@ impl<'a> Inferencer<'a> {
         func: &ast::Expr<()>,
         args: &mut Vec<ast::Expr<()>>,
         keywords: &[Located<ast::KeywordData>],
-    ) -> Result<Option<ast::Expr<Option<Type>>>, HashSet<String>> {
+    ) -> Result<Option<ast::Expr<Option<Type>>>, InferenceError> {
         let Located { location: func_location, node: ExprKind::Name { id, ctx }, .. } = func else {
             return Ok(None);
         };
@@ -1588,7 +1590,7 @@ impl<'a> Inferencer<'a> {
         func: ast::Expr<()>,
         mut args: Vec<ast::Expr<()>>,
         keywords: Vec<Located<ast::KeywordData>>,
-    ) -> Result<ast::Expr<Option<Type>>, HashSet<String>> {
+    ) -> Result<ast::Expr<Option<Type>>, InferenceError> {
         if let Some(spec_call_func) =
             self.try_fold_special_call(location, &func, &mut args, &keywords)?
         {
