@@ -42,14 +42,11 @@ done
 
 if [ -n "$debug" ] && [ -e ../../target/debug/nac3standalone ]; then
     nac3standalone=../../target/debug/nac3standalone
-    linalg=../../target/debug/deps/liblinalg-?*.a
 elif [ -e ../../target/release/nac3standalone ]; then
     nac3standalone=../../target/release/nac3standalone
-    linalg=../../target/release/deps/liblinalg-?*.a
 else
     # used by Nix builds
     nac3standalone=../../target/x86_64-unknown-linux-gnu/release/nac3standalone
-    linalg=../../target/x86_64-unknown-linux-gnu/release/deps/liblinalg-?*.a
 fi
 
 rm -f ./*.o ./*.bc demo
@@ -57,19 +54,17 @@ rm -f ./*.o ./*.bc demo
 if [ -z "$i386" ]; then
   $nac3standalone "${nac3args[@]}"
 
+  cd linalg && cargo build --release --target x86_64-unknown-linux-gnu -q && cd ..
   clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
-  clang -lm -Wl,--no-warn-search-mismatch -o demo module.o demo.o $linalg
+  clang -lm -Wl,--no-warn-search-mismatch -o demo module.o demo.o linalg/target/x86_64-unknown-linux-gnu/release/liblinalg.a
 else
    # Enable SSE2 to avoid rounding errors with X87's 80-bit fp precision computations
 
    $nac3standalone --triple i386-pc-linux-gnu --target-features +sse2 "${nac3args[@]}"
    
-   # Compile linalg crate to provide functions compatible with i386 architecture
-   cd linalg && nix-shell -p rustup --command "RUSTFLAGS=\"-C target-cpu=i386 -C target-feature=+sse2\" cargo build -q --release --target=i686-unknown-linux-gnu" && cd ..
-
-   linalg=../../target/i686-unknown-linux-gnu/release/liblinalg.a
-   clang -m32 -c -std=gnu11 -Wall -Wextra -O3 -msse2 -o demo.o demo.c
-   clang -m32 -lm -Wl,--no-warn-search-mismatch -o demo module.o demo.o $linalg
+  cd linalg && cargo build --release --target i686-unknown-linux-gnu -q && cd ..
+   clang -m32 -c -std=gnu11 -Wall -Wextra -O3 -msse2 -o demo.o demo.c 
+   clang -m32 -lm -Wl,--no-warn-search-mismatch -o demo module.o demo.o linalg/target/i686-unknown-linux-gnu/release/liblinalg.a
 fi
 
 if [ -z "$outfile" ]; then
