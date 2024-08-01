@@ -995,8 +995,10 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     ctx.builder.position_at_end(init_bb);
 
     let Comprehension { target, iter, ifs, .. } = &generators[0];
+
+    let iter_ty = iter.custom.unwrap();
     let iter_val = if let Some(v) = generator.gen_expr(ctx, iter)? {
-        v.to_basic_value_enum(ctx, generator, iter.custom.unwrap())?
+        v.to_basic_value_enum(ctx, generator, iter_ty)?
     } else {
         for bb in [test_bb, body_bb, cont_bb] {
             ctx.builder.position_at_end(bb);
@@ -1014,96 +1016,120 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     ctx.builder.build_store(index, zero_size_t).unwrap();
 
     let elem_ty = ctx.get_llvm_type(generator, elt.custom.unwrap());
-    let is_range = ctx.unifier.unioned(iter.custom.unwrap(), ctx.primitives.range);
     let list;
 
-    if is_range {
-        let iter_val = RangeValue::from_ptr_val(iter_val.into_pointer_value(), Some("range"));
-        let (start, stop, step) = destructure_range(ctx, iter_val);
-        let diff = ctx.builder.build_int_sub(stop, start, "diff").unwrap();
-        // add 1 to the length as the value is rounded to zero
-        // the length may be 1 more than the actual length if the division is exact, but the
-        // length is a upper bound only anyway so it does not matter.
-        let length = ctx.builder.build_int_signed_div(diff, step, "div").unwrap();
-        let length = ctx.builder.build_int_add(length, int32.const_int(1, false), "add1").unwrap();
-        // in case length is non-positive
-        let is_valid =
-            ctx.builder.build_int_compare(IntPredicate::SGT, length, zero_32, "check").unwrap();
+    match &*ctx.unifier.get_ty(iter_ty) {
+        TypeEnum::TObj { obj_id, .. }
+            if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
+        {
+            let iter_val = RangeValue::from_ptr_val(iter_val.into_pointer_value(), Some("range"));
+            let (start, stop, step) = destructure_range(ctx, iter_val);
+            let diff = ctx.builder.build_int_sub(stop, start, "diff").unwrap();
+            // add 1 to the length as the value is rounded to zero
+            // the length may be 1 more than the actual length if the division is exact, but the
+            // length is a upper bound only anyway so it does not matter.
+            let length = ctx.builder.build_int_signed_div(diff, step, "div").unwrap();
+            let length =
+                ctx.builder.build_int_add(length, int32.const_int(1, false), "add1").unwrap();
+            // in case length is non-positive
+            let is_valid =
+                ctx.builder.build_int_compare(IntPredicate::SGT, length, zero_32, "check").unwrap();
 
-        let list_alloc_size = ctx
-            .builder
-            .build_select(
-                is_valid,
-                ctx.builder.build_int_z_extend_or_bit_cast(length, size_t, "z_ext_len").unwrap(),
-                zero_size_t,
-                "listcomp.alloc_size",
-            )
-            .unwrap();
-        list = allocate_list(
-            generator,
-            ctx,
-            Some(elem_ty),
-            list_alloc_size.into_int_value(),
-            Some("listcomp.addr"),
-        );
+            let list_alloc_size = ctx
+                .builder
+                .build_select(
+                    is_valid,
+                    ctx.builder
+                        .build_int_z_extend_or_bit_cast(length, size_t, "z_ext_len")
+                        .unwrap(),
+                    zero_size_t,
+                    "listcomp.alloc_size",
+                )
+                .unwrap();
+            list = allocate_list(
+                generator,
+                ctx,
+                Some(elem_ty),
+                list_alloc_size.into_int_value(),
+                Some("listcomp.addr"),
+            );
 
-        let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
-        ctx.builder
-            .build_store(i, ctx.builder.build_int_sub(start, step, "start_init").unwrap())
-            .unwrap();
+            let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
+            ctx.builder
+                .build_store(i, ctx.builder.build_int_sub(start, step, "start_init").unwrap())
+                .unwrap();
 
-        ctx.builder
-            .build_conditional_branch(gen_in_range_check(ctx, start, stop, step), test_bb, cont_bb)
-            .unwrap();
+            ctx.builder
+                .build_conditional_branch(
+                    gen_in_range_check(ctx, start, stop, step),
+                    test_bb,
+                    cont_bb,
+                )
+                .unwrap();
 
-        ctx.builder.position_at_end(test_bb);
-        // add and test
-        let tmp = ctx
-            .builder
-            .build_int_add(
-                ctx.builder.build_load(i, "i").map(BasicValueEnum::into_int_value).unwrap(),
-                step,
-                "start_loop",
-            )
-            .unwrap();
-        ctx.builder.build_store(i, tmp).unwrap();
-        ctx.builder
-            .build_conditional_branch(gen_in_range_check(ctx, tmp, stop, step), body_bb, cont_bb)
-            .unwrap();
+            ctx.builder.position_at_end(test_bb);
+            // add and test
+            let tmp = ctx
+                .builder
+                .build_int_add(
+                    ctx.builder.build_load(i, "i").map(BasicValueEnum::into_int_value).unwrap(),
+                    step,
+                    "start_loop",
+                )
+                .unwrap();
+            ctx.builder.build_store(i, tmp).unwrap();
+            ctx.builder
+                .build_conditional_branch(
+                    gen_in_range_check(ctx, tmp, stop, step),
+                    body_bb,
+                    cont_bb,
+                )
+                .unwrap();
 
-        ctx.builder.position_at_end(body_bb);
-    } else {
-        let length = ctx
-            .build_gep_and_load(
-                iter_val.into_pointer_value(),
-                &[zero_size_t, int32.const_int(1, false)],
-                Some("length"),
-            )
-            .into_int_value();
-        list = allocate_list(generator, ctx, Some(elem_ty), length, Some("listcomp"));
+            ctx.builder.position_at_end(body_bb);
+        }
+        TypeEnum::TObj { obj_id, .. }
+            if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
+        {
+            let length = ctx
+                .build_gep_and_load(
+                    iter_val.into_pointer_value(),
+                    &[zero_size_t, int32.const_int(1, false)],
+                    Some("length"),
+                )
+                .into_int_value();
+            list = allocate_list(generator, ctx, Some(elem_ty), length, Some("listcomp"));
 
-        let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
-        // counter = -1
-        ctx.builder.build_store(counter, size_t.const_all_ones()).unwrap();
-        ctx.builder.build_unconditional_branch(test_bb).unwrap();
+            let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
+            // counter = -1
+            ctx.builder.build_store(counter, size_t.const_all_ones()).unwrap();
+            ctx.builder.build_unconditional_branch(test_bb).unwrap();
 
-        ctx.builder.position_at_end(test_bb);
-        let tmp = ctx.builder.build_load(counter, "i").map(BasicValueEnum::into_int_value).unwrap();
-        let tmp = ctx.builder.build_int_add(tmp, size_t.const_int(1, false), "inc").unwrap();
-        ctx.builder.build_store(counter, tmp).unwrap();
-        let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, length, "cmp").unwrap();
-        ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb).unwrap();
+            ctx.builder.position_at_end(test_bb);
+            let tmp =
+                ctx.builder.build_load(counter, "i").map(BasicValueEnum::into_int_value).unwrap();
+            let tmp = ctx.builder.build_int_add(tmp, size_t.const_int(1, false), "inc").unwrap();
+            ctx.builder.build_store(counter, tmp).unwrap();
+            let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, length, "cmp").unwrap();
+            ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb).unwrap();
 
-        ctx.builder.position_at_end(body_bb);
-        let arr_ptr = ctx
-            .build_gep_and_load(
-                iter_val.into_pointer_value(),
-                &[zero_size_t, zero_32],
-                Some("arr.addr"),
-            )
-            .into_pointer_value();
-        let val = ctx.build_gep_and_load(arr_ptr, &[tmp], Some("val"));
-        generator.gen_assign(ctx, target, val.into())?;
+            ctx.builder.position_at_end(body_bb);
+            let arr_ptr = ctx
+                .build_gep_and_load(
+                    iter_val.into_pointer_value(),
+                    &[zero_size_t, zero_32],
+                    Some("arr.addr"),
+                )
+                .into_pointer_value();
+            let val = ctx.build_gep_and_load(arr_ptr, &[tmp], Some("val"));
+            generator.gen_assign(ctx, target, val.into())?;
+        }
+        _ => {
+            panic!(
+                "unsupported list comprehension iterator type: {}",
+                ctx.unifier.stringify(iter_ty)
+            );
+        }
     }
 
     // Emits the content of `cont_bb`

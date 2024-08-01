@@ -315,9 +315,6 @@ pub fn gen_for<G: CodeGenerator>(
     let orelse_bb =
         if orelse.is_empty() { cont_bb } else { ctx.ctx.append_basic_block(current, "for.orelse") };
 
-    // Whether the iterable is a range() expression
-    let is_iterable_range_expr = ctx.unifier.unioned(iter.custom.unwrap(), ctx.primitives.range);
-
     // The BB containing the increment expression
     let incr_bb = ctx.ctx.append_basic_block(current, "for.incr");
     // The BB containing the loop condition check
@@ -326,113 +323,132 @@ pub fn gen_for<G: CodeGenerator>(
     // store loop bb information and restore it later
     let loop_bb = ctx.loop_target.replace((incr_bb, cont_bb));
 
+    let iter_ty = iter.custom.unwrap();
     let iter_val = if let Some(v) = generator.gen_expr(ctx, iter)? {
-        v.to_basic_value_enum(ctx, generator, iter.custom.unwrap())?
+        v.to_basic_value_enum(ctx, generator, iter_ty)?
     } else {
         return Ok(());
     };
-    if is_iterable_range_expr {
-        let iter_val = RangeValue::from_ptr_val(iter_val.into_pointer_value(), Some("range"));
-        // Internal variable for loop; Cannot be assigned
-        let i = generator.gen_var_alloc(ctx, int32.into(), Some("for.i.addr"))?;
-        // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed
-        let Some(target_i) = generator.gen_store_target(ctx, target, Some("for.target.addr"))?
-        else {
-            unreachable!()
-        };
-        let (start, stop, step) = destructure_range(ctx, iter_val);
 
-        ctx.builder.build_store(i, start).unwrap();
-
-        // Check "If step is zero, ValueError is raised."
-        let rangenez =
-            ctx.builder.build_int_compare(IntPredicate::NE, step, int32.const_zero(), "").unwrap();
-        ctx.make_assert(
-            generator,
-            rangenez,
-            "ValueError",
-            "range() arg 3 must not be zero",
-            [None, None, None],
-            ctx.current_loc,
-        );
-        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
-
+    match &*ctx.unifier.get_ty(iter_ty) {
+        TypeEnum::TObj { obj_id, .. }
+            if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
         {
-            ctx.builder.position_at_end(cond_bb);
-            ctx.builder
-                .build_conditional_branch(
-                    gen_in_range_check(
-                        ctx,
-                        ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
-                        stop,
-                        step,
-                    ),
-                    body_bb,
-                    orelse_bb,
+            let iter_val = RangeValue::from_ptr_val(iter_val.into_pointer_value(), Some("range"));
+            // Internal variable for loop; Cannot be assigned
+            let i = generator.gen_var_alloc(ctx, int32.into(), Some("for.i.addr"))?;
+            // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed
+            let Some(target_i) =
+                generator.gen_store_target(ctx, target, Some("for.target.addr"))?
+            else {
+                unreachable!()
+            };
+            let (start, stop, step) = destructure_range(ctx, iter_val);
+
+            ctx.builder.build_store(i, start).unwrap();
+
+            // Check "If step is zero, ValueError is raised."
+            let rangenez = ctx
+                .builder
+                .build_int_compare(IntPredicate::NE, step, int32.const_zero(), "")
+                .unwrap();
+            ctx.make_assert(
+                generator,
+                rangenez,
+                "ValueError",
+                "range() arg 3 must not be zero",
+                [None, None, None],
+                ctx.current_loc,
+            );
+            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+
+            {
+                ctx.builder.position_at_end(cond_bb);
+                ctx.builder
+                    .build_conditional_branch(
+                        gen_in_range_check(
+                            ctx,
+                            ctx.builder
+                                .build_load(i, "")
+                                .map(BasicValueEnum::into_int_value)
+                                .unwrap(),
+                            stop,
+                            step,
+                        ),
+                        body_bb,
+                        orelse_bb,
+                    )
+                    .unwrap();
+            }
+
+            ctx.builder.position_at_end(incr_bb);
+            let next_i = ctx
+                .builder
+                .build_int_add(
+                    ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
+                    step,
+                    "inc",
                 )
                 .unwrap();
+            ctx.builder.build_store(i, next_i).unwrap();
+            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+
+            ctx.builder.position_at_end(body_bb);
+            ctx.builder
+                .build_store(
+                    target_i,
+                    ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
+                )
+                .unwrap();
+            generator.gen_block(ctx, body.iter())?;
         }
+        TypeEnum::TObj { obj_id, .. }
+            if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
+        {
+            let index_addr = generator.gen_var_alloc(ctx, size_t.into(), Some("for.index.addr"))?;
+            ctx.builder.build_store(index_addr, size_t.const_zero()).unwrap();
+            let len = ctx
+                .build_gep_and_load(
+                    iter_val.into_pointer_value(),
+                    &[zero, int32.const_int(1, false)],
+                    Some("len"),
+                )
+                .into_int_value();
+            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
 
-        ctx.builder.position_at_end(incr_bb);
-        let next_i = ctx
-            .builder
-            .build_int_add(
-                ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
-                step,
-                "inc",
-            )
-            .unwrap();
-        ctx.builder.build_store(i, next_i).unwrap();
-        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+            ctx.builder.position_at_end(cond_bb);
+            let index = ctx
+                .builder
+                .build_load(index_addr, "for.index")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, index, len, "cond").unwrap();
+            ctx.builder.build_conditional_branch(cmp, body_bb, orelse_bb).unwrap();
 
-        ctx.builder.position_at_end(body_bb);
-        ctx.builder
-            .build_store(
-                target_i,
-                ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
-            )
-            .unwrap();
-        generator.gen_block(ctx, body.iter())?;
-    } else {
-        let index_addr = generator.gen_var_alloc(ctx, size_t.into(), Some("for.index.addr"))?;
-        ctx.builder.build_store(index_addr, size_t.const_zero()).unwrap();
-        let len = ctx
-            .build_gep_and_load(
-                iter_val.into_pointer_value(),
-                &[zero, int32.const_int(1, false)],
-                Some("len"),
-            )
-            .into_int_value();
-        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+            ctx.builder.position_at_end(incr_bb);
+            let index =
+                ctx.builder.build_load(index_addr, "").map(BasicValueEnum::into_int_value).unwrap();
+            let inc = ctx.builder.build_int_add(index, size_t.const_int(1, true), "inc").unwrap();
+            ctx.builder.build_store(index_addr, inc).unwrap();
+            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
 
-        ctx.builder.position_at_end(cond_bb);
-        let index = ctx
-            .builder
-            .build_load(index_addr, "for.index")
-            .map(BasicValueEnum::into_int_value)
-            .unwrap();
-        let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, index, len, "cond").unwrap();
-        ctx.builder.build_conditional_branch(cmp, body_bb, orelse_bb).unwrap();
+            ctx.builder.position_at_end(body_bb);
+            let arr_ptr = ctx
+                .build_gep_and_load(iter_val.into_pointer_value(), &[zero, zero], Some("arr.addr"))
+                .into_pointer_value();
+            let index = ctx
+                .builder
+                .build_load(index_addr, "for.index")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let val = ctx.build_gep_and_load(arr_ptr, &[index], Some("val"));
 
-        ctx.builder.position_at_end(incr_bb);
-        let index =
-            ctx.builder.build_load(index_addr, "").map(BasicValueEnum::into_int_value).unwrap();
-        let inc = ctx.builder.build_int_add(index, size_t.const_int(1, true), "inc").unwrap();
-        ctx.builder.build_store(index_addr, inc).unwrap();
-        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
-
-        ctx.builder.position_at_end(body_bb);
-        let arr_ptr = ctx
-            .build_gep_and_load(iter_val.into_pointer_value(), &[zero, zero], Some("arr.addr"))
-            .into_pointer_value();
-        let index = ctx
-            .builder
-            .build_load(index_addr, "for.index")
-            .map(BasicValueEnum::into_int_value)
-            .unwrap();
-        let val = ctx.build_gep_and_load(arr_ptr, &[index], Some("val"));
-        generator.gen_assign(ctx, target, val.into())?;
-        generator.gen_block(ctx, body.iter())?;
+            generator.gen_assign(ctx, target, val.into())?;
+            generator.gen_block(ctx, body.iter())?;
+        }
+        _ => {
+            panic!("unsupported for loop iterator type: {}", ctx.unifier.stringify(iter_ty));
+        }
     }
 
     for (k, (_, _, counter)) in &var_assignment {
