@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::{From, TryInto};
 use std::iter::once;
-use std::ops::Not;
 use std::{cell::RefCell, sync::Arc};
 
 use super::{
@@ -19,6 +18,7 @@ use crate::{
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         TopLevelContext, TopLevelDef,
     },
+    typecheck::typedef::Mapping,
 };
 use itertools::{izip, Itertools};
 use nac3parser::ast::{
@@ -123,6 +123,25 @@ fn report_type_error<T>(
     Err(HashSet::from([TypeError::new(kind, loc).to_display(unifier).to_string()]))
 }
 
+/// Traverse through a LHS expression in an assignment and set [`ExprContext`] to [`ExprContext::Store`]
+/// when appropriate.
+///
+/// nac3parser's `ExprContext` output is generally incorrect, and requires manual fixes.
+fn fix_assignment_target_context(node: &mut ast::Located<ExprKind>) {
+    match &mut node.node {
+        ExprKind::Name { ctx, .. }
+        | ExprKind::Attribute { ctx, .. }
+        | ExprKind::Subscript { ctx, .. } => {
+            *ctx = ExprContext::Store;
+        }
+        ExprKind::Tuple { ctx, elts } | ExprKind::List { ctx, elts } => {
+            *ctx = ExprContext::Store;
+            elts.iter_mut().for_each(fix_assignment_target_context);
+        }
+        _ => {}
+    }
+}
+
 impl<'a> Fold<()> for Inferencer<'a> {
     type TargetU = Option<Type>;
     type Error = InferenceError;
@@ -131,18 +150,13 @@ impl<'a> Fold<()> for Inferencer<'a> {
         Ok(None)
     }
 
-    fn fold_stmt(
-        &mut self,
-        mut node: ast::Stmt<()>,
-    ) -> Result<ast::Stmt<Self::TargetU>, Self::Error> {
+    fn fold_stmt(&mut self, node: ast::Stmt<()>) -> Result<ast::Stmt<Self::TargetU>, Self::Error> {
         let stmt = match node.node {
             // we don't want fold over type annotation
             ast::StmtKind::AnnAssign { mut target, annotation, value, simple, config_comment } => {
+                fix_assignment_target_context(&mut target); // Fix parser bug
+
                 self.infer_pattern(&target)?;
-                // fix parser problem...
-                if let ExprKind::Attribute { ctx, .. } = &mut target.node {
-                    *ctx = ExprContext::Store;
-                }
 
                 let target = Box::new(self.fold_expr(*target)?);
                 let value = if let Some(v) = value {
@@ -304,69 +318,41 @@ impl<'a> Fold<()> for Inferencer<'a> {
                     custom: None,
                 }
             }
-            ast::StmtKind::Assign { ref mut targets, ref config_comment, .. } => {
-                for target in &mut *targets {
-                    if let ExprKind::Attribute { ctx, .. } = &mut target.node {
-                        *ctx = ExprContext::Store;
-                    }
-                }
-                if targets.iter().all(|t| matches!(t.node, ExprKind::Name { .. })) {
-                    let ast::StmtKind::Assign { targets, value, .. } = node.node else {
-                        unreachable!()
-                    };
+            ast::StmtKind::Assign { mut targets, type_comment, config_comment, value, .. } => {
+                // Fix parser bug
+                targets.iter_mut().for_each(fix_assignment_target_context);
 
-                    let value = self.fold_expr(*value)?;
-                    let value_ty = value.custom.unwrap();
-                    let targets: Result<Vec<_>, _> = targets
-                        .into_iter()
-                        .map(|target| {
-                            let ExprKind::Name { id, ctx } = target.node else { unreachable!() };
+                // NOTE: Do not register identifiers into `self.defined_identifiers` before checking targets
+                // and value, otherwise the Inferencer might use undefined variables in `self.defined_identifiers`
+                // and produce strange errors.
 
-                            self.defined_identifiers.insert(id);
-                            let target_ty = if let Some(ty) = self.variable_mapping.get(&id) {
-                                *ty
-                            } else {
-                                let unifier: &mut Unifier = self.unifier;
-                                self.function_data
-                                    .resolver
-                                    .get_symbol_type(
-                                        unifier,
-                                        &self.top_level.definitions.read(),
-                                        self.primitives,
-                                        id,
-                                    )
-                                    .unwrap_or_else(|_| {
-                                        self.variable_mapping.insert(id, value_ty);
-                                        value_ty
-                                    })
-                            };
-                            let location = target.location;
-                            self.unifier.unify(value_ty, target_ty).map(|()| Located {
-                                location,
-                                node: ExprKind::Name { id, ctx },
-                                custom: Some(target_ty),
-                            })
-                        })
-                        .collect();
-                    let loc = node.location;
-                    let targets = targets.map_err(|e| {
-                        HashSet::from([e.at(Some(loc)).to_display(self.unifier).to_string()])
-                    })?;
-                    return Ok(Located {
-                        location: node.location,
-                        node: ast::StmtKind::Assign {
-                            targets,
-                            value: Box::new(value),
-                            type_comment: None,
-                            config_comment: config_comment.clone(),
-                        },
-                        custom: None,
-                    });
-                }
-                for target in targets {
+                let value = self.fold_expr(*value)?;
+
+                let targets: Vec<_> = targets
+                    .into_iter()
+                    .map(|target| -> Result<_, InferenceError> {
+                        // In cases like `x = y = z = rhs`, `rhs`'s type will be constrained by
+                        // the intersection of `x`, `y`, and `z` here.
+                        let target = self.fold_assign_target(target, value.custom.unwrap())?;
+                        Ok(target)
+                    })
+                    .try_collect()?;
+
+                // Do this only after folding targets and value
+                for target in &targets {
                     self.infer_pattern(target)?;
                 }
-                fold::fold_stmt(self, node)?
+
+                Located {
+                    location: node.location,
+                    node: ast::StmtKind::Assign {
+                        targets,
+                        type_comment,
+                        config_comment,
+                        value: Box::new(value),
+                    },
+                    custom: None,
+                }
             }
             ast::StmtKind::With { ref items, .. } => {
                 for item in items {
@@ -379,7 +365,8 @@ impl<'a> Fold<()> for Inferencer<'a> {
             _ => fold::fold_stmt(self, node)?,
         };
         match &stmt.node {
-            ast::StmtKind::AnnAssign { .. }
+            ast::StmtKind::Assign { .. }
+            | ast::StmtKind::AnnAssign { .. }
             | ast::StmtKind::Break { .. }
             | ast::StmtKind::Continue { .. }
             | ast::StmtKind::Expr { .. }
@@ -388,11 +375,6 @@ impl<'a> Fold<()> for Inferencer<'a> {
             | ast::StmtKind::Try { .. } => {}
             ast::StmtKind::If { test, .. } | ast::StmtKind::While { test, .. } => {
                 self.unify(test.custom.unwrap(), self.primitives.bool, &test.location)?;
-            }
-            ast::StmtKind::Assign { targets, value, .. } => {
-                for target in targets {
-                    self.unify(target.custom.unwrap(), value.custom.unwrap(), &target.location)?;
-                }
             }
             ast::StmtKind::Raise { exc, cause, .. } => {
                 if let Some(cause) = cause {
@@ -533,6 +515,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
             }
             _ => fold::fold_expr(self, node)?,
         };
+
         let custom = match &expr.node {
             ExprKind::Constant { value, .. } => Some(self.infer_constant(value, &expr.location)?),
             ExprKind::Name { id, .. } => {
@@ -580,8 +563,6 @@ impl<'a> Fold<()> for Inferencer<'a> {
                     Some(self.infer_identifier(*id)?)
                 }
             }
-            ExprKind::List { elts, .. } => Some(self.infer_list(elts)?),
-            ExprKind::Tuple { elts, .. } => Some(self.infer_tuple(elts)?),
             ExprKind::Attribute { value, attr, ctx } => {
                 Some(self.infer_attribute(value, *attr, *ctx)?)
             }
@@ -595,8 +576,10 @@ impl<'a> Fold<()> for Inferencer<'a> {
             ExprKind::Compare { left, ops, comparators } => {
                 Some(self.infer_compare(expr.location, left, ops, comparators)?)
             }
-            ExprKind::Subscript { value, slice, ctx, .. } => {
-                Some(self.infer_subscript(value.as_ref(), slice.as_ref(), *ctx)?)
+            ExprKind::List { elts, .. } => Some(self.infer_list(elts)?),
+            ExprKind::Tuple { elts, .. } => Some(self.infer_tuple(elts)?),
+            ExprKind::Subscript { value, slice, .. } => {
+                Some(self.infer_getitem(value.as_ref(), slice.as_ref())?)
             }
             ExprKind::IfExp { test, body, orelse } => {
                 Some(self.infer_if_expr(test, body.as_ref(), orelse.as_ref())?)
@@ -629,7 +612,7 @@ impl<'a> Inferencer<'a> {
         })
     }
 
-    fn infer_pattern(&mut self, pattern: &ast::Expr<()>) -> Result<(), InferenceError> {
+    fn infer_pattern<T>(&mut self, pattern: &ast::Expr<T>) -> Result<(), InferenceError> {
         match &pattern.node {
             ExprKind::Name { id, .. } => {
                 if !self.defined_identifiers.contains(id) {
@@ -643,6 +626,13 @@ impl<'a> Inferencer<'a> {
                 }
                 Ok(())
             }
+            ExprKind::List { elts, .. } => {
+                for elt in elts {
+                    self.infer_pattern(elt)?;
+                }
+                Ok(())
+            }
+            ExprKind::Starred { value, .. } => self.infer_pattern(value),
             _ => Ok(()),
         }
     }
@@ -1943,28 +1933,270 @@ impl<'a> Inferencer<'a> {
         Ok(res.unwrap())
     }
 
-    /// Infers the type of a subscript expression on an `ndarray`.
-    fn infer_subscript_ndarray(
+    /// Fold an assignment `"target_list"` recursively, and check RHS's type.
+    /// See definition of `"target_list"` in <https://docs.python.org/3/reference/simple_stmts.html#assignment-statements>.
+    fn fold_assign_target_list(
         &mut self,
-        value: &ast::Expr<Option<Type>>,
-        slice: &ast::Expr<Option<Type>>,
-        dummy_tvar: Type,
-        ndims: Type,
-    ) -> InferenceResult {
-        debug_assert!(matches!(
-            &*self.unifier.get_ty_immutable(dummy_tvar),
-            TypeEnum::TVar { is_const_generic: false, .. }
-        ));
-
-        let constrained_ty =
-            make_ndarray_ty(self.unifier, self.primitives, Some(dummy_tvar), Some(ndims));
-        self.constrain(value.custom.unwrap(), constrained_ty, &value.location)?;
-
-        let TypeEnum::TLiteral { values, .. } = &*self.unifier.get_ty_immutable(ndims) else {
-            panic!("Expected TLiteral for ndarray.ndims, got {}", self.unifier.stringify(ndims))
+        target_list_location: &Location,
+        mut targets: Vec<ast::Expr<()>>,
+        rhs_ty: Type,
+    ) -> Result<Vec<ast::Expr<Option<Type>>>, InferenceError> {
+        // TODO: Allow bidirectional typechecking? Currently RHS's type has to be resolved.
+        let TypeEnum::TTuple { ty: rhs_tys } = &*self.unifier.get_ty(rhs_ty) else {
+            // TODO: Allow RHS AST-aware error reporting
+            return report_error(
+                "LHS target list pattern requires RHS to be a tuple type",
+                *target_list_location,
+            );
         };
 
-        let ndims = values
+        // Find the starred target if it exists.
+        let mut starred_target_index: Option<usize> = None; // Index of the "starred" target. If it exists, there may only be one.
+        for (i, target) in targets.iter().enumerate() {
+            if matches!(target.node, ExprKind::Starred { .. }) {
+                if starred_target_index.is_none() {
+                    // First "starred" target found.
+                    starred_target_index = Some(i);
+                } else {
+                    // Second "starred" targets found. This is an error.
+                    return report_error(
+                        "there can only be one starred target, but found another one",
+                        target.location,
+                    );
+                }
+            }
+        }
+
+        let mut folded_targets: Vec<ast::Expr<Option<Type>>> = Vec::new();
+        if let Some(starred_target_index) = starred_target_index {
+            if rhs_tys.len() < targets.len() - 1 {
+                /*
+                    Rules:
+                    ```
+                    (x, *ys, z) = (1,) # error
+                    (x, *ys, z) = (1, 2) # ok, ys = ()
+                    (x, *ys, z) = (1, 2, 3) # ok, ys = (2,)
+                    ```
+                */
+                return report_error(
+                    &format!(
+                        "Target list pattern requires RHS tuple type have to at least {} element(s), but RHS only has {} element(s)",
+                        targets.len() - 1,
+                        rhs_tys.len()
+                    ),
+                    *target_list_location
+                );
+            }
+
+            /*
+                      (a, b, c, ..., *xs, ..., x, y, z)
+                before ^^^^^^^^^^^^  ^^^  ^^^^^^^^^^^^ after
+                                   starred
+            */
+
+            let targets_after = targets.drain(starred_target_index + 1..).collect_vec();
+            let target_starred = targets.pop().unwrap();
+            let targets_before = targets;
+
+            let a = targets_before.len();
+            let b = rhs_tys.len() - targets_after.len();
+
+            let rhs_tys_before = &rhs_tys[..a];
+            let rhs_tys_starred = &rhs_tys[a..b];
+            let rhs_tys_after = &rhs_tys[b..];
+
+            // Fold before the starred target
+            for (target, rhs_ty) in izip!(targets_before, rhs_tys_before) {
+                folded_targets.push(self.fold_assign_target(target, *rhs_ty)?);
+            }
+
+            // Fold the starred target
+            if let ExprKind::Starred { value: target, .. } = target_starred.node {
+                let ty = self.unifier.add_ty(TypeEnum::TTuple { ty: rhs_tys_starred.to_vec() });
+                let folded_target = self.fold_assign_target(*target, ty)?;
+                folded_targets.push(Located {
+                    location: target_starred.location,
+                    node: ExprKind::Starred {
+                        value: Box::new(folded_target),
+                        ctx: ExprContext::Store,
+                    },
+                    custom: None,
+                });
+            } else {
+                unreachable!()
+            }
+
+            // Fold after the starred target
+            for (target, rhs_ty) in izip!(targets_after, rhs_tys_after) {
+                folded_targets.push(self.fold_assign_target(target, *rhs_ty)?);
+            }
+        } else {
+            // Fold target list without a "starred" target.
+            if rhs_tys.len() != targets.len() {
+                return report_error(
+                    &format!(
+                        "Target list pattern requires RHS tuple type have to {} element(s), but RHS only has {} element(s)",
+                        targets.len() - 1,
+                        rhs_tys.len()
+                    ),
+                    *target_list_location
+                );
+            }
+
+            for (target, rhs_ty) in izip!(targets, rhs_tys) {
+                folded_targets.push(self.fold_assign_target(target, *rhs_ty)?);
+            }
+        }
+
+        Ok(folded_targets)
+    }
+
+    /// Fold an assignment "target" recursively, and check RHS's type.
+    /// See definition of "target" in <https://docs.python.org/3/reference/simple_stmts.html#assignment-statements>.
+    fn fold_assign_target(
+        &mut self,
+        target: ast::Expr<()>,
+        rhs_ty: Type,
+    ) -> Result<ast::Expr<Option<Type>>, InferenceError> {
+        match target.node {
+            ExprKind::Name { id, .. } => {
+                // Fold on "identifier"
+                match self.variable_mapping.get(&id) {
+                    None => {
+                        // Assigning to a new variable name; RHS's type could be anything.
+                        let expected_rhs_ty = self
+                            .unifier
+                            .get_fresh_var(
+                                Some(format!("type_of_{id}").into()),
+                                Some(target.location),
+                            )
+                            .ty;
+                        self.variable_mapping.insert(id, expected_rhs_ty); // Register new variable
+                        self.constrain(rhs_ty, expected_rhs_ty, &target.location)?;
+                    }
+                    Some(expected_rhs_ty) => {
+                        // Re-assigning to an existing variable name.
+                        self.constrain(rhs_ty, *expected_rhs_ty, &target.location)?;
+                    }
+                };
+                Ok(Located {
+                    location: target.location,
+                    node: ExprKind::Name { id, ctx: ExprContext::Store },
+                    custom: Some(rhs_ty), // Type info is needed here because of the CodeGenerator.
+                })
+            }
+            ExprKind::Attribute { .. } => {
+                // Fold on "attributeref"
+                let pattern = self.fold_expr(target)?;
+                let expected_rhs_ty = pattern.custom.unwrap();
+                self.constrain(rhs_ty, expected_rhs_ty, &pattern.location)?;
+                Ok(pattern)
+            }
+            ExprKind::Subscript { value: target, slice: key, .. } => {
+                // Fold on "slicing" or "subscription"
+                // TODO: Make `__setitem__` a general object field like `__add__` in NAC3?
+                let target = self.fold_expr(*target)?;
+                let key = self.fold_expr(*key)?;
+
+                let expected_rhs_ty = self.infer_setitem_value_type(&target, &key)?;
+                self.constrain(rhs_ty, expected_rhs_ty, &target.location)?;
+
+                Ok(Located {
+                    location: target.location,
+                    node: ExprKind::Subscript {
+                        value: Box::new(target),
+                        slice: Box::new(key),
+                        ctx: ExprContext::Store,
+                    },
+                    custom: None, // We don't need to know the type of `target[key]`
+                })
+            }
+            ExprKind::List { elts, .. } => {
+                // Fold on `"[" [target_list] "]"`
+                let elts = self.fold_assign_target_list(&target.location, elts, rhs_ty)?;
+                Ok(Located {
+                    location: target.location,
+                    node: ExprKind::List { ctx: ExprContext::Store, elts },
+                    custom: None,
+                })
+            }
+            ExprKind::Tuple { elts, .. } => {
+                // Fold on `"(" [target_list] ")"`
+                let elts = self.fold_assign_target_list(&target.location, elts, rhs_ty)?;
+                Ok(Located {
+                    location: target.location,
+                    node: ExprKind::Tuple { ctx: ExprContext::Store, elts },
+                    custom: None,
+                })
+            }
+            ExprKind::Starred { .. } => report_error(
+                "starred assignment target must be in a list or tuple",
+                target.location,
+            ),
+            _ => report_error("encountered unsupported/illegal LHS pattern", target.location),
+        }
+    }
+
+    /// Typecheck the subscript slice indexing into an ndarray.
+    ///
+    /// That is:
+    /// ```python
+    /// my_ndarray[::-2, 1, :, None, 9:23]
+    ///            ^^^^^^^^^^^^^^^^^^^^^^ this
+    /// ```
+    ///
+    /// The number of dimensions to subtract from the ndarray being indexed is also calculated and returned,
+    /// it could even be negative when more axes are added because of `None`.
+    fn fold_ndarray_subscript_slice(
+        &mut self,
+        slice: &ast::Expr<Option<Type>>,
+    ) -> Result<i128, InferenceError> {
+        // TODO: Handle `None` / `np.newaxis`
+
+        // Flatten `slice` into subscript indices.
+        let indices = match &slice.node {
+            ExprKind::Tuple { elts, .. } => elts.iter().collect_vec(),
+            _ => vec![slice],
+        };
+
+        // Typecheck the subscript indices.
+        // We will also take the opportunity to deduce `dims_to_subtract` as well
+        let mut dims_to_subtract: i128 = 0;
+        for index in indices {
+            if let ExprKind::Slice { lower, upper, step } = &index.node {
+                for v in [lower.as_ref(), upper.as_ref(), step.as_ref()].iter().flatten() {
+                    self.constrain(v.custom.unwrap(), self.primitives.int32, &v.location)?;
+                }
+            } else {
+                // Treat anything else as an integer index, and force unify their type to int32.
+                self.unify(index.custom.unwrap(), self.primitives.int32, &index.location)?;
+                dims_to_subtract += 1;
+            }
+        }
+
+        Ok(dims_to_subtract)
+    }
+
+    /// Check if the `ndims` [`Type`] of an ndarray is valid (e.g., no negative values),
+    /// and attempt to subtract `ndims` by `dims_to_subtract` and return subtracted `ndims`.
+    ///
+    /// `dims_to_subtract` can be set to `0` if you only want to check if `ndims` is valid.
+    fn check_ndarray_ndims_and_subtract(
+        &mut self,
+        target_ty: Type,
+        ndims: Type,
+        dims_to_subtract: i128,
+    ) -> Result<Type, InferenceError> {
+        // Typecheck `ndims`.
+        let TypeEnum::TLiteral { values: ndims, .. } = &*self.unifier.get_ty_immutable(ndims)
+        else {
+            panic!("Expected TLiteral for ndarray.ndims, got {}", self.unifier.stringify(ndims))
+        };
+        assert!(!ndims.is_empty());
+
+        // Check if there are negative literals.
+        // NOTE: Don't mix this with subtracting dims, otherwise the user errors could be confusing.
+        let ndims = ndims
             .iter()
             .map(|ndim| u64::try_from(ndim.clone()).map_err(|()| ndim.clone()))
             .collect::<Result<Vec<_>, _>>()
@@ -1975,204 +2207,229 @@ impl<'a> Inferencer<'a> {
                 )])
             })?;
 
-        assert!(!ndims.is_empty());
+        // Infer the new `ndims` after indexing the ndarray with `slice`.
+        // Disallow subscripting if any Literal value will subscript on an element.
+        let new_ndims = ndims
+            .into_iter()
+            .map(|v| {
+                let v = i128::from(v) - dims_to_subtract;
+                u64::try_from(v)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| {
+                HashSet::from([format!(
+                    "Cannot subscript {} by {dims_to_subtract} dimension(s)",
+                    self.unifier.stringify(target_ty),
+                )])
+            })?;
 
-        // The number of dimensions subscripted by the index expression.
-        // Slicing a ndarray will yield the same number of dimensions, whereas indexing into a
-        // dimension will remove a dimension.
-        let subscripted_dims = match &slice.node {
-            ExprKind::Tuple { elts, .. } => elts.iter().fold(0, |acc, value_subexpr| {
-                if let ExprKind::Slice { .. } = &value_subexpr.node {
-                    acc
-                } else {
-                    acc + 1
-                }
-            }),
+        let new_ndims_ty = self
+            .unifier
+            .get_fresh_literal(new_ndims.into_iter().map(SymbolValue::U64).collect(), None);
 
-            ExprKind::Slice { .. } => 0,
-            _ => 1,
+        Ok(new_ndims_ty)
+    }
+
+    /// Infer the type of the result of indexing into an ndarray.
+    ///
+    /// * `ndarray_ty` - The [`Type`] of the ndarray being indexed into.
+    /// * `slice` - The subscript expression indexing into the ndarray.
+    fn infer_ndarray_subscript(
+        &mut self,
+        ndarray_ty: Type,
+        slice: &ast::Expr<Option<Type>>,
+    ) -> InferenceResult {
+        let (dtype, ndims) = unpack_ndarray_var_tys(self.unifier, ndarray_ty);
+
+        let dims_to_substract = self.fold_ndarray_subscript_slice(slice)?;
+        let new_ndims =
+            self.check_ndarray_ndims_and_subtract(ndarray_ty, ndims, dims_to_substract)?;
+
+        // Now we need extra work to check `new_ndims` to see if the user has indexed into a single element.
+
+        let TypeEnum::TLiteral { values: new_ndims_values, .. } = &*self.unifier.get_ty(new_ndims)
+        else {
+            unreachable!("infer_ndarray_ndims should always return TLiteral")
         };
 
-        if ndims.len() == 1 && ndims[0] - subscripted_dims == 0 {
-            // ndarray[T, Literal[1]] - Non-Slice index always returns an object of type T
+        let new_ndims_values = new_ndims_values
+            .iter()
+            .map(|v| u64::try_from(v.clone()).expect("new_ndims should be convertible to u64"))
+            .collect_vec();
 
-            assert_ne!(ndims[0], 0);
-
-            Ok(dummy_tvar)
+        if new_ndims_values.len() == 1 && new_ndims_values[0] == 0 {
+            // The subscripted ndarray must be unsized
+            // The user must be indexing into a single element
+            Ok(dtype)
         } else {
-            // Otherwise - Index returns an object of type ndarray[T, Literal[N - subscripted_dims]]
+            // The subscripted ndarray is not unsized / may not be unsized. (i.e., may or may not have indexed into a single element)
 
-            // Disallow subscripting if any Literal value will subscript on an element
-            let new_ndims = ndims
-                .into_iter()
-                .map(|v| {
-                    let v = i128::from(v) - i128::from(subscripted_dims);
-                    u64::try_from(v)
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|_| {
-                    HashSet::from([format!(
-                        "Cannot subscript {} by {subscripted_dims} dimensions",
-                        self.unifier.stringify(value.custom.unwrap()),
-                    )])
-                })?;
-
-            if new_ndims.iter().any(|v| *v == 0) {
+            if new_ndims_values.iter().any(|v| *v == 0) {
+                // TODO: Difficult to implement since now the return may both be a scalar type, or an ndarray type.
                 unimplemented!("Inference for ndarray subscript operator with Literal[0, ...] bound unimplemented")
             }
 
-            let ndims_ty = self
-                .unifier
-                .get_fresh_literal(new_ndims.into_iter().map(SymbolValue::U64).collect(), None);
-            let subscripted_ty =
-                make_ndarray_ty(self.unifier, self.primitives, Some(dummy_tvar), Some(ndims_ty));
-
-            Ok(subscripted_ty)
+            let new_ndarray_ty =
+                make_ndarray_ty(self.unifier, self.primitives, Some(dtype), Some(new_ndims));
+            Ok(new_ndarray_ty)
         }
     }
 
-    fn infer_subscript(
+    /// Infer the type of the result of indexing into a list.
+    ///
+    /// * `list_ty` - The [`Type`] of the list being indexed into.
+    /// * `key` - The subscript expression indexing into the list.
+    fn infer_list_subscript(
         &mut self,
-        value: &ast::Expr<Option<Type>>,
-        slice: &ast::Expr<Option<Type>>,
-        ctx: ExprContext,
+        list_ty: Type,
+        key: &ast::Expr<Option<Type>>,
+    ) -> Result<Type, InferenceError> {
+        let TypeEnum::TObj { params: list_params, .. } = &*self.unifier.get_ty(list_ty) else {
+            unreachable!()
+        };
+        let item_ty = iter_type_vars(list_params).nth(0).unwrap().ty;
+
+        if let ExprKind::Slice { lower, upper, step } = &key.node {
+            // Typecheck on the slice
+            for v in [lower.as_ref(), upper.as_ref(), step.as_ref()].iter().flatten() {
+                let v_ty = v.custom.unwrap();
+                self.constrain(v_ty, self.primitives.int32, &v.location)?;
+            }
+            Ok(list_ty) // type list[T]
+        } else {
+            // Treat anything else as an integer index, and force unify their type to int32.
+            self.constrain(key.custom.unwrap(), self.primitives.int32, &key.location)?;
+            Ok(item_ty) // type T
+        }
+    }
+
+    /// Generate a type that constrains the type of `target` to have a `__getitem__` at `index`.
+    ///
+    /// * `target` - The target being indexed by `index`.
+    /// * `index` - The constant index.
+    /// * `mutable` - Should the constraint be mutable or immutable?
+    fn get_constant_index_item_type(
+        &mut self,
+        target: &ast::Expr<Option<Type>>,
+        index: i128,
+        mutable: bool,
     ) -> InferenceResult {
-        let report_unscriptable_error = |unifier: &mut Unifier| {
-            // User is attempting to index into a value of an unsupported type.
-
-            let value_ty = value.custom.unwrap();
-            let value_ty_str = unifier.stringify(value_ty);
-
-            return report_error(
-                format!("'{value_ty_str}' object is not subscriptable").as_str(),
-                slice.location, // using the slice's location (rather than value's) because it is more clear
-            );
+        let Ok(index) = i32::try_from(index) else {
+            return Err(HashSet::from(["Index must be int32".to_string()]));
         };
 
-        let ty = self.unifier.get_dummy_var().ty;
-        match &slice.node {
-            ExprKind::Slice { lower, upper, step } => {
-                for v in [lower.as_ref(), upper.as_ref(), step.as_ref()].iter().flatten() {
-                    self.constrain(v.custom.unwrap(), self.primitives.int32, &v.location)?;
-                }
-                let list_like_ty = match &*self.unifier.get_ty(value.custom.unwrap()) {
-                    TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
-                        let list_tvar = iter_type_vars(params).nth(0).unwrap();
-                        self.unifier
-                            .subst(
-                                self.primitives.list,
-                                &into_var_map([TypeVar { id: list_tvar.id, ty }]),
-                            )
-                            .unwrap()
-                    }
+        let item_ty = self.unifier.get_dummy_var().ty; // To be resolved by the unifier
 
-                    TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                        let (_, ndims) =
-                            unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
+        // Constrain `target`
+        let fields_constrain = Mapping::from_iter([(
+            RecordKey::Int(index),
+            RecordField::new(item_ty, mutable, Some(target.location)),
+        )]);
+        let fields_constrain_ty = self.unifier.add_record(fields_constrain);
+        self.constrain(target.custom.unwrap(), fields_constrain_ty, &target.location)?;
 
-                        make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims))
-                    }
+        Ok(item_ty)
+    }
 
-                    _ => {
-                        return report_unscriptable_error(self.unifier);
-                    }
-                };
-                self.constrain(value.custom.unwrap(), list_like_ty, &value.location)?;
-                Ok(list_like_ty)
+    /// Infer the return type of a `__getitem__` expression.
+    ///
+    /// i.e., `target[key]`, where the [`ExprContext`] is [`ExprContext::Load`].
+    fn infer_getitem(
+        &mut self,
+        target: &ast::Expr<Option<Type>>,
+        key: &ast::Expr<Option<Type>>,
+    ) -> InferenceResult {
+        let target_ty = target.custom.unwrap();
+
+        match &*self.unifier.get_ty(target_ty) {
+            TypeEnum::TObj { obj_id, .. }
+                if *obj_id == self.primitives.list.obj_id(self.unifier).unwrap() =>
+            {
+                self.infer_list_subscript(target_ty, key)
             }
-            ExprKind::Constant { value: ast::Constant::Int(val), .. } => {
-                match &*self.unifier.get_ty(value.custom.unwrap()) {
-                    TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                        let (_, ndims) =
-                            unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
-                        self.infer_subscript_ndarray(value, slice, ty, ndims)
-                    }
-                    _ => {
-                        // the index is a constant, so value can be a sequence.
-                        let ind: Option<i32> = (*val).try_into().ok();
-                        let ind =
-                            ind.ok_or_else(|| HashSet::from(["Index must be int32".to_string()]))?;
-                        let map = once((
-                            ind.into(),
-                            RecordField::new(ty, ctx == ExprContext::Store, Some(value.location)),
-                        ))
-                        .collect();
-                        let seq = self.unifier.add_record(map);
-                        self.constrain(value.custom.unwrap(), seq, &value.location)?;
-                        Ok(ty)
-                    }
-                }
-            }
-            ExprKind::Tuple { elts, .. } => {
-                if value
-                    .custom
-                    .unwrap()
-                    .obj_id(self.unifier)
-                    .is_some_and(|id| id == PrimDef::NDArray.id())
-                    .not()
-                {
-                    return report_error(
-                        "Tuple slices are only supported for ndarrays",
-                        slice.location,
-                    );
-                }
-
-                for elt in elts {
-                    if let ExprKind::Slice { lower, upper, step } = &elt.node {
-                        for v in [lower.as_ref(), upper.as_ref(), step.as_ref()].iter().flatten() {
-                            self.constrain(v.custom.unwrap(), self.primitives.int32, &v.location)?;
-                        }
-                    } else {
-                        self.constrain(elt.custom.unwrap(), self.primitives.int32, &elt.location)?;
-                    }
-                }
-
-                let (_, ndims) = unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
-                self.infer_subscript_ndarray(value, slice, ty, ndims)
+            TypeEnum::TObj { obj_id, .. }
+                if *obj_id == self.primitives.ndarray.obj_id(self.unifier).unwrap() =>
+            {
+                self.infer_ndarray_subscript(target_ty, key)
             }
             _ => {
-                if let TypeEnum::TTuple { .. } = &*self.unifier.get_ty(value.custom.unwrap()) {
-                    return report_error(
-                        "Tuple index must be a constant (KernelInvariant is also not supported)",
-                        slice.location,
-                    );
+                // Now `target_ty` either:
+                //   1) is a `TTuple`, or
+                //   2) is simply not obvious for doing __getitem__ on.
+
+                if let ExprKind::Constant { value: ast::Constant::Int(index), .. } = &key.node {
+                    // If `key` is a constant int, then the value can be a sequence.
+                    // Therefore, this can be handled by the unifier
+                    let getitem_ty = self.get_constant_index_item_type(target, *index, false)?;
+                    Ok(getitem_ty)
+                } else {
+                    // Out of ways to resolve __getitem__, throw an error.
+                    report_error(
+                        &format!(
+                            "'{}' cannot be indexed by this subscript",
+                            self.unifier.stringify(target_ty)
+                        ),
+                        key.location,
+                    )
                 }
+            }
+        }
+    }
 
-                // the index is not a constant, so value can only be a list-like structure
-                match &*self.unifier.get_ty(value.custom.unwrap()) {
-                    TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
-                        self.constrain(
-                            slice.custom.unwrap(),
-                            self.primitives.int32,
-                            &slice.location,
-                        )?;
-                        let list_tvar = iter_type_vars(params).nth(0).unwrap();
-                        let list = self
-                            .unifier
-                            .subst(
-                                self.primitives.list,
-                                &into_var_map([TypeVar { id: list_tvar.id, ty }]),
-                            )
-                            .unwrap();
-                        self.constrain(value.custom.unwrap(), list, &value.location)?;
-                        Ok(ty)
-                    }
-                    TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                        let (_, ndims) =
-                            unpack_ndarray_var_tys(self.unifier, value.custom.unwrap());
+    /// Fold an item assignment, and return a type that constrains the type of RHS.
+    fn infer_setitem_value_type(
+        &mut self,
+        target: &ast::Expr<Option<Type>>,
+        key: &ast::Expr<Option<Type>>,
+    ) -> Result<Type, InferenceError> {
+        let target_ty = target.custom.unwrap();
+        match &*self.unifier.get_ty(target_ty) {
+            TypeEnum::TObj { obj_id, .. }
+                if *obj_id == self.primitives.list.obj_id(self.unifier).unwrap() =>
+            {
+                // Handle list item assignment
 
-                        let valid_index_tys = [self.primitives.int32, self.primitives.isize()]
-                            .into_iter()
-                            .unique()
-                            .collect_vec();
-                        let valid_index_ty = self
-                            .unifier
-                            .get_fresh_var_with_range(valid_index_tys.as_slice(), None, None)
-                            .ty;
-                        self.constrain(slice.custom.unwrap(), valid_index_ty, &slice.location)?;
-                        self.infer_subscript_ndarray(value, slice, ty, ndims)
-                    }
-                    _ => report_unscriptable_error(self.unifier),
+                // The expected value type is the same as the type of list.__getitem__
+                self.infer_list_subscript(target_ty, key)
+            }
+            TypeEnum::TObj { obj_id, .. }
+                if *obj_id == self.primitives.ndarray.obj_id(self.unifier).unwrap() =>
+            {
+                // Handle ndarray item assignment
+
+                // NOTE: `value` can either be an ndarray of or a scalar, even if `target` is an unsized ndarray.
+
+                // TODO: NumPy does automatic casting on `value`. (Currently not supported)
+                // See https://numpy.org/doc/stable/user/basics.indexing.html#assigning-values-to-indexed-arrays
+
+                let (scalar_ty, _) = unpack_ndarray_var_tys(self.unifier, target_ty);
+                let ndarray_ty =
+                    make_ndarray_ty(self.unifier, self.primitives, Some(scalar_ty), None);
+
+                let expected_value_ty =
+                    self.unifier.get_fresh_var_with_range(&[scalar_ty, ndarray_ty], None, None).ty;
+                Ok(expected_value_ty)
+            }
+            _ => {
+                // Handle item assignments of other types.
+
+                // Now `target_ty` either:
+                //   1) is a `TTuple`, or
+                //   2) is simply not obvious for doing __setitem__ on.
+
+                if let ExprKind::Constant { value: ast::Constant::Int(index), .. } = &key.node {
+                    // If `key` is a constant int, then the value can be a sequence.
+                    // Therefore, this can be handled by the unifier
+                    self.get_constant_index_item_type(target, *index, false)
+                } else {
+                    // Out of ways to resolve __getitem__, throw an error.
+                    report_error(
+                        &format!(
+                            "'{}' does not allow item assignment with this subscript",
+                            self.unifier.stringify(target_ty)
+                        ),
+                        key.location,
+                    )
                 }
             }
         }
