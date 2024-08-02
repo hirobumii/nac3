@@ -123,11 +123,45 @@ pub trait CodeGenerator {
         ctx: &mut CodeGenContext<'ctx, '_>,
         target: &Expr<Option<Type>>,
         value: ValueEnum<'ctx>,
+        value_ty: Type,
     ) -> Result<(), String>
     where
         Self: Sized,
     {
-        gen_assign(self, ctx, target, value)
+        gen_assign(self, ctx, target, value, value_ty)
+    }
+
+    /// Generate code for an assignment expression where LHS is a `"target_list"`.
+    ///
+    /// See <https://docs.python.org/3/reference/simple_stmts.html#assignment-statements>.
+    fn gen_assign_target_list<'ctx>(
+        &mut self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        targets: &Vec<Expr<Option<Type>>>,
+        value: ValueEnum<'ctx>,
+        value_ty: Type,
+    ) -> Result<(), String>
+    where
+        Self: Sized,
+    {
+        gen_assign_target_list(self, ctx, targets, value, value_ty)
+    }
+
+    /// Generate code for an item assignment.
+    ///
+    /// i.e., `target[key] = value`
+    fn gen_setitem<'ctx>(
+        &mut self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        target: &Expr<Option<Type>>,
+        key: &Expr<Option<Type>>,
+        value: ValueEnum<'ctx>,
+        value_ty: Type,
+    ) -> Result<(), String>
+    where
+        Self: Sized,
+    {
+        gen_setitem(self, ctx, target, key, value, value_ty)
     }
 
     /// Generate code for a while expression.

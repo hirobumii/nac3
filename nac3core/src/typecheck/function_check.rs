@@ -34,11 +34,16 @@ impl<'a> Inferencer<'a> {
                 self.should_have_value(pattern)?;
                 Ok(())
             }
-            ExprKind::Tuple { elts, .. } => {
+            ExprKind::List { elts, .. } | ExprKind::Tuple { elts, .. } => {
                 for elt in elts {
                     self.check_pattern(elt, defined_identifiers)?;
                     self.should_have_value(elt)?;
                 }
+                Ok(())
+            }
+            ExprKind::Starred { value, .. } => {
+                self.check_pattern(value, defined_identifiers)?;
+                self.should_have_value(value)?;
                 Ok(())
             }
             ExprKind::Subscript { value, slice, .. } => {

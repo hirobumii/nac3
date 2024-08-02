@@ -1122,7 +1122,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                 )
                 .into_pointer_value();
             let val = ctx.build_gep_and_load(arr_ptr, &[tmp], Some("val"));
-            generator.gen_assign(ctx, target, val.into())?;
+            generator.gen_assign(ctx, target, val.into(), elt.custom.unwrap())?;
         }
         _ => {
             panic!(

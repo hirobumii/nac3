@@ -10,10 +10,10 @@ use crate::{
         expr::gen_binop_expr,
         gen_in_range_check,
     },
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, DefinitionId, TopLevelDef},
+    toplevel::{DefinitionId, TopLevelDef},
     typecheck::{
         magic_methods::Binop,
-        typedef::{FunSignature, Type, TypeEnum},
+        typedef::{iter_type_vars, FunSignature, Type, TypeEnum},
     },
 };
 use inkwell::{
@@ -23,10 +23,10 @@ use inkwell::{
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
     IntPredicate,
 };
+use itertools::{izip, Itertools};
 use nac3parser::ast::{
     Constant, ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKind, StrRef,
 };
-use std::convert::TryFrom;
 
 /// See [`CodeGenerator::gen_var_alloc`].
 pub fn gen_var<'ctx>(
@@ -97,8 +97,6 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
     pattern: &Expr<Option<Type>>,
     name: Option<&str>,
 ) -> Result<Option<PointerValue<'ctx>>, String> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
     // very similar to gen_expr, but we don't do an extra load at the end
     // and we flatten nested tuples
     Ok(Some(match &pattern.node {
@@ -137,65 +135,6 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             }
             .unwrap()
         }
-        ExprKind::Subscript { value, slice, .. } => {
-            match ctx.unifier.get_ty_immutable(value.custom.unwrap()).as_ref() {
-                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
-                    let v = generator
-                        .gen_expr(ctx, value)?
-                        .unwrap()
-                        .to_basic_value_enum(ctx, generator, value.custom.unwrap())?
-                        .into_pointer_value();
-                    let v = ListValue::from_ptr_val(v, llvm_usize, None);
-                    let len = v.load_size(ctx, Some("len"));
-                    let raw_index = generator
-                        .gen_expr(ctx, slice)?
-                        .unwrap()
-                        .to_basic_value_enum(ctx, generator, slice.custom.unwrap())?
-                        .into_int_value();
-                    let raw_index = ctx
-                        .builder
-                        .build_int_s_extend(raw_index, generator.get_size_type(ctx.ctx), "sext")
-                        .unwrap();
-                    // handle negative index
-                    let is_negative = ctx
-                        .builder
-                        .build_int_compare(
-                            IntPredicate::SLT,
-                            raw_index,
-                            generator.get_size_type(ctx.ctx).const_zero(),
-                            "is_neg",
-                        )
-                        .unwrap();
-                    let adjusted = ctx.builder.build_int_add(raw_index, len, "adjusted").unwrap();
-                    let index = ctx
-                        .builder
-                        .build_select(is_negative, adjusted, raw_index, "index")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap();
-                    // unsigned less than is enough, because negative index after adjustment is
-                    // bigger than the length (for unsigned cmp)
-                    let bound_check = ctx
-                        .builder
-                        .build_int_compare(IntPredicate::ULT, index, len, "inbound")
-                        .unwrap();
-                    ctx.make_assert(
-                        generator,
-                        bound_check,
-                        "0:IndexError",
-                        "index {0} out of bounds 0:{1}",
-                        [Some(raw_index), Some(len), None],
-                        slice.location,
-                    );
-                    v.data().ptr_offset(ctx, generator, &index, name)
-                }
-
-                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                    todo!()
-                }
-
-                _ => unreachable!(),
-            }
-        }
         _ => unreachable!(),
     }))
 }
@@ -206,70 +145,20 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     target: &Expr<Option<Type>>,
     value: ValueEnum<'ctx>,
+    value_ty: Type,
 ) -> Result<(), String> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
+    // See https://docs.python.org/3/reference/simple_stmts.html#assignment-statements.
     match &target.node {
-        ExprKind::Tuple { elts, .. } => {
-            let BasicValueEnum::StructValue(v) =
-                value.to_basic_value_enum(ctx, generator, target.custom.unwrap())?
-            else {
-                unreachable!()
-            };
-
-            for (i, elt) in elts.iter().enumerate() {
-                let v = ctx
-                    .builder
-                    .build_extract_value(v, u32::try_from(i).unwrap(), "struct_elem")
-                    .unwrap();
-                generator.gen_assign(ctx, elt, v.into())?;
-            }
+        ExprKind::Subscript { value: target, slice: key, .. } => {
+            // Handle "slicing" or "subscription"
+            generator.gen_setitem(ctx, target, key, value, value_ty)?;
         }
-        ExprKind::Subscript { value: ls, slice, .. }
-            if matches!(&slice.node, ExprKind::Slice { .. }) =>
-        {
-            let ExprKind::Slice { lower, upper, step } = &slice.node else { unreachable!() };
-
-            let ls = generator
-                .gen_expr(ctx, ls)?
-                .unwrap()
-                .to_basic_value_enum(ctx, generator, ls.custom.unwrap())?
-                .into_pointer_value();
-            let ls = ListValue::from_ptr_val(ls, llvm_usize, None);
-            let Some((start, end, step)) =
-                handle_slice_indices(lower, upper, step, ctx, generator, ls.load_size(ctx, None))?
-            else {
-                return Ok(());
-            };
-            let value = value
-                .to_basic_value_enum(ctx, generator, target.custom.unwrap())?
-                .into_pointer_value();
-            let value = ListValue::from_ptr_val(value, llvm_usize, None);
-            let ty = match &*ctx.unifier.get_ty_immutable(target.custom.unwrap()) {
-                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
-                    *params.iter().next().unwrap().1
-                }
-                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                    unpack_ndarray_var_tys(&mut ctx.unifier, target.custom.unwrap()).0
-                }
-                _ => unreachable!(),
-            };
-
-            let ty = ctx.get_llvm_type(generator, ty);
-            let Some(src_ind) = handle_slice_indices(
-                &None,
-                &None,
-                &None,
-                ctx,
-                generator,
-                value.load_size(ctx, None),
-            )?
-            else {
-                return Ok(());
-            };
-            list_slice_assignment(generator, ctx, ty, ls, (start, end, step), value, src_ind);
+        ExprKind::Tuple { elts, .. } | ExprKind::List { elts, .. } => {
+            // Fold on `"[" [target_list] "]"` and `"(" [target_list] ")"`
+            generator.gen_assign_target_list(ctx, elts, value, value_ty)?;
         }
         _ => {
+            // Handle attribute and direct variable assignments.
             let name = if let ExprKind::Name { id, .. } = &target.node {
                 format!("{id}.addr")
             } else {
@@ -290,6 +179,232 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
             ctx.builder.build_store(ptr, val).unwrap();
         }
     };
+    Ok(())
+}
+
+pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    targets: &Vec<Expr<Option<Type>>>,
+    value: ValueEnum<'ctx>,
+    value_ty: Type,
+) -> Result<(), String> {
+    // Deconstruct the tuple `value`
+    let BasicValueEnum::StructValue(tuple) = value.to_basic_value_enum(ctx, generator, value_ty)?
+    else {
+        unreachable!()
+    };
+
+    // NOTE: Currently, RHS's type is forced to be a Tuple by the type inferencer.
+    let TypeEnum::TTuple { ty: tuple_tys } = &*ctx.unifier.get_ty(value_ty) else {
+        unreachable!();
+    };
+
+    assert_eq!(tuple.get_type().count_fields() as usize, tuple_tys.len());
+
+    let tuple = (0..tuple.get_type().count_fields())
+        .map(|i| ctx.builder.build_extract_value(tuple, i, "item").unwrap())
+        .collect_vec();
+
+    // Find the starred target if it exists.
+    let mut starred_target_index: Option<usize> = None; // Index of the "starred" target. If it exists, there may only be one.
+    for (i, target) in targets.iter().enumerate() {
+        if matches!(target.node, ExprKind::Starred { .. }) {
+            assert!(starred_target_index.is_none()); // The typechecker ensures this
+            starred_target_index = Some(i);
+        }
+    }
+
+    if let Some(starred_target_index) = starred_target_index {
+        assert!(tuple_tys.len() >= targets.len() - 1); // The typechecker ensures this
+
+        let a = starred_target_index; // Number of RHS values before the starred target
+        let b = tuple_tys.len() - (targets.len() - 1 - starred_target_index); // Number of RHS values after the starred target
+                                                                              // Thus `tuple[a..b]` is assigned to the starred target.
+
+        // Handle assignment before the starred target
+        for (target, val, val_ty) in
+            izip!(&targets[..starred_target_index], &tuple[..a], &tuple_tys[..a])
+        {
+            generator.gen_assign(ctx, target, ValueEnum::Dynamic(*val), *val_ty)?;
+        }
+
+        // Handle assignment to the starred target
+        if let ExprKind::Starred { value: target, .. } = &targets[starred_target_index].node {
+            let vals = &tuple[a..b];
+            let val_tys = &tuple_tys[a..b];
+
+            // Create a sub-tuple from `value` for the starred target.
+            let sub_tuple_ty = ctx
+                .ctx
+                .struct_type(&vals.iter().map(BasicValueEnum::get_type).collect_vec(), false);
+            let psub_tuple_val =
+                ctx.builder.build_alloca(sub_tuple_ty, "starred_target_value_ptr").unwrap();
+            for (i, val) in vals.iter().enumerate() {
+                let pitem = ctx
+                    .builder
+                    .build_struct_gep(psub_tuple_val, i as u32, "starred_target_value_item")
+                    .unwrap();
+                ctx.builder.build_store(pitem, *val).unwrap();
+            }
+            let sub_tuple_val =
+                ctx.builder.build_load(psub_tuple_val, "starred_target_value").unwrap();
+
+            // Create the typechecker type of the sub-tuple
+            let sub_tuple_ty = ctx.unifier.add_ty(TypeEnum::TTuple { ty: val_tys.to_vec() });
+
+            // Now assign with that sub-tuple to the starred target.
+            generator.gen_assign(ctx, target, ValueEnum::Dynamic(sub_tuple_val), sub_tuple_ty)?;
+        } else {
+            unreachable!() // The typechecker ensures this
+        }
+
+        // Handle assignment after the starred target
+        for (target, val, val_ty) in
+            izip!(&targets[starred_target_index + 1..], &tuple[b..], &tuple_tys[b..])
+        {
+            generator.gen_assign(ctx, target, ValueEnum::Dynamic(*val), *val_ty)?;
+        }
+    } else {
+        assert_eq!(tuple_tys.len(), targets.len()); // The typechecker ensures this
+
+        for (target, val, val_ty) in izip!(targets, tuple, tuple_tys) {
+            generator.gen_assign(ctx, target, ValueEnum::Dynamic(val), *val_ty)?;
+        }
+    }
+    Ok(())
+}
+
+/// See [`CodeGenerator::gen_setitem`].
+pub fn gen_setitem<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    target: &Expr<Option<Type>>,
+    key: &Expr<Option<Type>>,
+    value: ValueEnum<'ctx>,
+    value_ty: Type,
+) -> Result<(), String> {
+    let target_ty = target.custom.unwrap();
+    let key_ty = key.custom.unwrap();
+
+    match &*ctx.unifier.get_ty(target_ty) {
+        TypeEnum::TObj { obj_id, params: list_params, .. }
+            if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
+        {
+            // Handle list item assignment
+            let llvm_usize = generator.get_size_type(ctx.ctx);
+            let target_item_ty = iter_type_vars(list_params).next().unwrap().ty;
+
+            let target = generator
+                .gen_expr(ctx, target)?
+                .unwrap()
+                .to_basic_value_enum(ctx, generator, target_ty)?
+                .into_pointer_value();
+            let target = ListValue::from_ptr_val(target, llvm_usize, None);
+
+            if let ExprKind::Slice { .. } = &key.node {
+                // Handle assigning to a slice
+                let ExprKind::Slice { lower, upper, step } = &key.node else { unreachable!() };
+                let Some((start, end, step)) = handle_slice_indices(
+                    lower,
+                    upper,
+                    step,
+                    ctx,
+                    generator,
+                    target.load_size(ctx, None),
+                )?
+                else {
+                    return Ok(());
+                };
+
+                let value =
+                    value.to_basic_value_enum(ctx, generator, value_ty)?.into_pointer_value();
+                let value = ListValue::from_ptr_val(value, llvm_usize, None);
+
+                let target_item_ty = ctx.get_llvm_type(generator, target_item_ty);
+                let Some(src_ind) = handle_slice_indices(
+                    &None,
+                    &None,
+                    &None,
+                    ctx,
+                    generator,
+                    value.load_size(ctx, None),
+                )?
+                else {
+                    return Ok(());
+                };
+                list_slice_assignment(
+                    generator,
+                    ctx,
+                    target_item_ty,
+                    target,
+                    (start, end, step),
+                    value,
+                    src_ind,
+                );
+            } else {
+                // Handle assigning to an index
+                let len = target.load_size(ctx, Some("len"));
+
+                let index = generator
+                    .gen_expr(ctx, key)?
+                    .unwrap()
+                    .to_basic_value_enum(ctx, generator, key_ty)?
+                    .into_int_value();
+                let index = ctx
+                    .builder
+                    .build_int_s_extend(index, generator.get_size_type(ctx.ctx), "sext")
+                    .unwrap();
+
+                // handle negative index
+                let is_negative = ctx
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::SLT,
+                        index,
+                        generator.get_size_type(ctx.ctx).const_zero(),
+                        "is_neg",
+                    )
+                    .unwrap();
+                let adjusted = ctx.builder.build_int_add(index, len, "adjusted").unwrap();
+                let index = ctx
+                    .builder
+                    .build_select(is_negative, adjusted, index, "index")
+                    .map(BasicValueEnum::into_int_value)
+                    .unwrap();
+
+                // unsigned less than is enough, because negative index after adjustment is
+                // bigger than the length (for unsigned cmp)
+                let bound_check = ctx
+                    .builder
+                    .build_int_compare(IntPredicate::ULT, index, len, "inbound")
+                    .unwrap();
+                ctx.make_assert(
+                    generator,
+                    bound_check,
+                    "0:IndexError",
+                    "index {0} out of bounds 0:{1}",
+                    [Some(index), Some(len), None],
+                    key.location,
+                );
+
+                // Write value to index on list
+                let item_ptr =
+                    target.data().ptr_offset(ctx, generator, &index, Some("list_item_ptr"));
+                let value = value.to_basic_value_enum(ctx, generator, value_ty)?;
+                ctx.builder.build_store(item_ptr, value).unwrap();
+            }
+        }
+        TypeEnum::TObj { obj_id, .. }
+            if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
+        {
+            // Handle NDArray item assignment
+            todo!("ndarray subscript assignment is not yet implemented");
+        }
+        _ => {
+            panic!("encountered unknown target type: {}", ctx.unifier.stringify(target_ty));
+        }
+    }
     Ok(())
 }
 
@@ -402,7 +517,7 @@ pub fn gen_for<G: CodeGenerator>(
                 .unwrap();
             generator.gen_block(ctx, body.iter())?;
         }
-        TypeEnum::TObj { obj_id, .. }
+        TypeEnum::TObj { obj_id, params: list_params, .. }
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
             let index_addr = generator.gen_var_alloc(ctx, size_t.into(), Some("for.index.addr"))?;
@@ -442,8 +557,8 @@ pub fn gen_for<G: CodeGenerator>(
                 .map(BasicValueEnum::into_int_value)
                 .unwrap();
             let val = ctx.build_gep_and_load(arr_ptr, &[index], Some("val"));
-
-            generator.gen_assign(ctx, target, val.into())?;
+            let val_ty = iter_type_vars(list_params).next().unwrap().ty;
+            generator.gen_assign(ctx, target, val.into(), val_ty)?;
             generator.gen_block(ctx, body.iter())?;
         }
         _ => {
@@ -1604,14 +1719,14 @@ pub fn gen_stmt<G: CodeGenerator>(
         }
         StmtKind::AnnAssign { target, value, .. } => {
             if let Some(value) = value {
-                let Some(value) = generator.gen_expr(ctx, value)? else { return Ok(()) };
-                generator.gen_assign(ctx, target, value)?;
+                let Some(value_enum) = generator.gen_expr(ctx, value)? else { return Ok(()) };
+                generator.gen_assign(ctx, target, value_enum, value.custom.unwrap())?;
             }
         }
         StmtKind::Assign { targets, value, .. } => {
-            let Some(value) = generator.gen_expr(ctx, value)? else { return Ok(()) };
+            let Some(value_enum) = generator.gen_expr(ctx, value)? else { return Ok(()) };
             for target in targets {
-                generator.gen_assign(ctx, target, value.clone())?;
+                generator.gen_assign(ctx, target, value_enum.clone(), value.custom.unwrap())?;
             }
         }
         StmtKind::Continue { .. } => {
@@ -1625,15 +1740,16 @@ pub fn gen_stmt<G: CodeGenerator>(
         StmtKind::For { .. } => generator.gen_for(ctx, stmt)?,
         StmtKind::With { .. } => generator.gen_with(ctx, stmt)?,
         StmtKind::AugAssign { target, op, value, .. } => {
-            let value = gen_binop_expr(
+            let value_enum = gen_binop_expr(
                 generator,
                 ctx,
                 target,
                 Binop::aug_assign(*op),
                 value,
                 stmt.location,
-            )?;
-            generator.gen_assign(ctx, target, value.unwrap())?;
+            )?
+            .unwrap();
+            generator.gen_assign(ctx, target, value_enum, value.custom.unwrap())?;
         }
         StmtKind::Try { .. } => gen_try(generator, ctx, stmt)?,
         StmtKind::Raise { exc, .. } => {
