@@ -134,6 +134,10 @@ fn fix_assignment_target_context(node: &mut ast::Located<ExprKind>) {
         | ExprKind::Subscript { ctx, .. } => {
             *ctx = ExprContext::Store;
         }
+        ExprKind::Starred { ctx, value } => {
+            *ctx = ExprContext::Store;
+            fix_assignment_target_context(value);
+        }
         ExprKind::Tuple { ctx, elts } | ExprKind::List { ctx, elts } => {
             *ctx = ExprContext::Store;
             elts.iter_mut().for_each(fix_assignment_target_context);
