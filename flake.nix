@@ -6,6 +6,7 @@
   outputs = { self, nixpkgs }:
     let
       pkgs = import nixpkgs { system = "x86_64-linux"; };
+      pkgs32 = import nixpkgs { system = "i686-linux"; };
     in rec {
       packages.x86_64-linux = rec {
         llvm-nac3 = pkgs.callPackage ./nix/llvm {};
@@ -15,6 +16,22 @@
           ln -s ${pkgs.llvmPackages_14.clang-unwrapped}/bin/clang $out/bin/clang-irrt
           ln -s ${pkgs.llvmPackages_14.llvm.out}/bin/llvm-as $out/bin/llvm-as-irrt
           '';
+        demo-linalg-stub = pkgs.rustPlatform.buildRustPackage {
+          name = "demo-linalg-stub";
+          src = ./nac3standalone/demo/linalg;
+          cargoLock = {
+            lockFile = ./nac3standalone/demo/linalg/Cargo.lock;
+          };
+          doCheck = false;
+        };
+        demo-linalg-stub32 = pkgs32.rustPlatform.buildRustPackage {
+          name = "demo-linalg-stub32";
+          src = ./nac3standalone/demo/linalg;
+          cargoLock = {
+            lockFile = ./nac3standalone/demo/linalg/Cargo.lock;
+          };
+          doCheck = false;
+        };
         nac3artiq = pkgs.python3Packages.toPythonModule (
           pkgs.rustPlatform.buildRustPackage rec {
             name = "nac3artiq";
@@ -32,7 +49,9 @@
               echo "Checking nac3standalone demos..."
               pushd nac3standalone/demo
               patchShebangs .
-              ./check_demos.sh
+              export DEMO_LINALG_STUB=${demo-linalg-stub}/lib/liblinalg.a
+              export DEMO_LINALG_STUB32=${demo-linalg-stub32}/lib/liblinalg.a
+              ./check_demos.sh -i686
               popd
               echo "Running Cargo tests..."
               cargoCheckHook
@@ -162,6 +181,11 @@
           pre-commit
           rustfmt
         ];
+        shellHook =
+          ''
+          export DEMO_LINALG_STUB=${packages.x86_64-linux.demo-linalg-stub}/lib/liblinalg.a
+          export DEMO_LINALG_STUB32=${packages.x86_64-linux.demo-linalg-stub32}/lib/liblinalg.a
+          '';
       };
       devShells.x86_64-linux.msys2 = pkgs.mkShell {
         name = "nac3-dev-shell-msys2";

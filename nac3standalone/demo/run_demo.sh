@@ -2,6 +2,9 @@
 
 set -e
 
+: "${DEMO_LINALG_STUB:=linalg/target/release/liblinalg.a}"
+: "${DEMO_LINALG_STUB32:=linalg/target/i686-unknown-linux-gnu/release/liblinalg.a}"
+
 if [ -z "$1" ]; then
     echo "No argument supplied"
     exit 1
@@ -11,7 +14,7 @@ declare -a nac3args
 while [ $# -ge 1 ]; do
   case "$1" in
     --help)
-      echo "Usage: run_demo.sh [--help] [--out OUTFILE] [--debug] [-i386] -- [NAC3ARGS...]"
+      echo "Usage: run_demo.sh [--help] [--out OUTFILE] [--debug] [-i686] -- [NAC3ARGS...]"
       exit
       ;;
     --out)
@@ -21,8 +24,8 @@ while [ $# -ge 1 ]; do
     --debug)
       debug=1
       ;;
-    -i386)
-      i386=1
+    -i686)
+      i686=1
       ;;
     --)
       shift
@@ -51,20 +54,14 @@ fi
 
 rm -f ./*.o ./*.bc demo
 
-if [ -z "$i386" ]; then
+if [ -z "$i686" ]; then
   $nac3standalone "${nac3args[@]}"
-
-  cd linalg && cargo build --release --target x86_64-unknown-linux-gnu -q && cd ..
   clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
-  clang -lm -Wl,--no-warn-search-mismatch -o demo module.o demo.o linalg/target/x86_64-unknown-linux-gnu/release/liblinalg.a
+  clang -o demo module.o demo.o $DEMO_LINALG_STUB -lm -Wl,--no-warn-search-mismatch
 else
-   # Enable SSE2 to avoid rounding errors with X87's 80-bit fp precision computations
-
-   $nac3standalone --triple i386-pc-linux-gnu --target-features +sse2 "${nac3args[@]}"
-   
-  cd linalg && cargo build --release --target i686-unknown-linux-gnu -q && cd ..
-   clang -m32 -c -std=gnu11 -Wall -Wextra -O3 -msse2 -o demo.o demo.c 
-   clang -m32 -lm -Wl,--no-warn-search-mismatch -o demo module.o demo.o linalg/target/i686-unknown-linux-gnu/release/liblinalg.a
+  $nac3standalone --triple i686-unknown-linux-gnu "${nac3args[@]}"
+  clang -m32 -c -std=gnu11 -Wall -Wextra -O3 -msse2 -o demo.o demo.c
+  clang -m32 -o demo module.o demo.o $DEMO_LINALG_STUB32 -lm -Wl,--no-warn-search-mismatch
 fi
 
 if [ -z "$outfile" ]; then
