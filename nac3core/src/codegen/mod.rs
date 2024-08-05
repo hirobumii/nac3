@@ -444,7 +444,7 @@ pub struct CodeGenTask {
 fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &'ctx Context,
     module: &Module<'ctx>,
-    generator: &mut G,
+    generator: &G,
     unifier: &mut Unifier,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
@@ -569,7 +569,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
 fn get_llvm_abi_type<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &'ctx Context,
     module: &Module<'ctx>,
-    generator: &mut G,
+    generator: &G,
     unifier: &mut Unifier,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,

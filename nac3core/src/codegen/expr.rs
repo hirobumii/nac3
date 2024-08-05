@@ -201,7 +201,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     /// See [`get_llvm_type`].
     pub fn get_llvm_type<G: CodeGenerator + ?Sized>(
         &mut self,
-        generator: &mut G,
+        generator: &G,
         ty: Type,
     ) -> BasicTypeEnum<'ctx> {
         get_llvm_type(
@@ -218,7 +218,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     /// See [`get_llvm_abi_type`].
     pub fn get_llvm_abi_type<G: CodeGenerator + ?Sized>(
         &mut self,
-        generator: &mut G,
+        generator: &G,
         ty: Type,
     ) -> BasicTypeEnum<'ctx> {
         get_llvm_abi_type(
