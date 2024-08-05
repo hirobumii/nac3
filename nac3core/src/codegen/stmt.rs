@@ -182,6 +182,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
     Ok(())
 }
 
+/// See [`CodeGenerator::gen_assign_target_list`].
 pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
