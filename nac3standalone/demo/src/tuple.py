@@ -25,5 +25,12 @@ def run() -> int32:
         output_int32(tl[0][0])
         output_int32(tl[0][1])
         output_int32(tl[1])
-    
+
+    output_int32(len(()))
+    output_int32(len((1,)))
+    output_int32(len((1, 2)))
+    output_int32(len((1, 2, 3)))
+    output_int32(len((1, 2, 3, 4)))
+    output_int32(len((1, 2, 3, 4, 5)))
+
     return 0
