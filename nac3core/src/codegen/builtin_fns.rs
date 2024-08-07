@@ -603,7 +603,7 @@ pub fn call_ceil<'ctx, G: CodeGenerator + ?Sized>(
                 ret_elem_ty,
                 None,
                 NDArrayValue::from_ptr_val(n, llvm_usize, None),
-                |generator, ctx, val| call_floor(generator, ctx, (elem_ty, val), ret_elem_ty),
+                |generator, ctx, val| call_ceil(generator, ctx, (elem_ty, val), ret_elem_ty),
             )?;
 
             ndarray.as_base_value().into()
