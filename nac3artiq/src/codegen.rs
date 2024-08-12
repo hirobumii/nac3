@@ -1,8 +1,10 @@
 use nac3core::{
     codegen::{
-        expr::gen_call,
+        classes::{ListValue, NDArrayValue, RangeValue, UntypedArrayLikeAccessor},
+        expr::{destructure_range, gen_call},
+        irrt::call_ndarray_calc_size,
         llvm_intrinsics::{call_int_smax, call_stackrestore, call_stacksave},
-        stmt::{gen_block, gen_with},
+        stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         CodeGenContext, CodeGenerator,
     },
     symbol_resolver::ValueEnum,
@@ -13,7 +15,11 @@ use nac3core::{
 use nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef};
 
 use inkwell::{
-    context::Context, module::Linkage, types::IntType, values::BasicValueEnum, AddressSpace,
+    context::Context,
+    module::Linkage,
+    types::IntType,
+    values::{BasicValueEnum, StructValue},
+    AddressSpace, IntPredicate,
 };
 
 use pyo3::{
@@ -23,10 +29,12 @@ use pyo3::{
 
 use crate::{symbol_resolver::InnerResolver, timeline::TimeFns};
 
+use itertools::Itertools;
 use std::{
-    collections::hash_map::DefaultHasher,
-    collections::HashMap,
+    collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
+    iter::once,
+    mem,
     sync::Arc,
 };
 
@@ -753,4 +761,443 @@ fn get_fprintf_format_constant<'ctx>(
             llvm_usize.get_bit_width()
         ),
     }
+}
+
+/// Prints one or more `values` to `core_log` or `rtio_log`.
+///
+/// * `separator` - The separator between multiple values.
+/// * `suffix` - String to terminate the printed string, if any.
+/// * `as_repr` - Whether the `repr()` output of values instead of `str()`.
+/// * `as_rtio` - Whether to print to `rtio_log` instead of `core_log`.
+fn polymorphic_print<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    generator: &mut dyn CodeGenerator,
+    values: &[(Type, ValueEnum<'ctx>)],
+    separator: &str,
+    suffix: Option<&str>,
+    as_repr: bool,
+    as_rtio: bool,
+) -> Result<(), String> {
+    let printf = |ctx: &mut CodeGenContext<'ctx, '_>,
+                  generator: &mut dyn CodeGenerator,
+                  fmt: String,
+                  args: Vec<BasicValueEnum<'ctx>>| {
+        debug_assert!(!fmt.is_empty());
+        debug_assert_eq!(fmt.as_bytes().last().unwrap(), &0u8);
+
+        let fn_name = if as_rtio { "rtio_log" } else { "core_log" };
+        let print_fn = ctx.module.get_function(fn_name).unwrap_or_else(|| {
+            let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
+            let fn_t = if as_rtio {
+                let llvm_void = ctx.ctx.void_type();
+                llvm_void.fn_type(&[llvm_pi8.into()], true)
+            } else {
+                let llvm_i32 = ctx.ctx.i32_type();
+                llvm_i32.fn_type(&[llvm_pi8.into()], true)
+            };
+            ctx.module.add_function(fn_name, fn_t, None)
+        });
+
+        let fmt = ctx.gen_string(generator, fmt);
+        let fmt = unsafe { fmt.get_field_at_index_unchecked(0) }.into_pointer_value();
+
+        ctx.builder
+            .build_call(
+                print_fn,
+                &once(fmt.into()).chain(args).map(BasicValueEnum::into).collect_vec(),
+                "",
+            )
+            .unwrap();
+    };
+
+    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_i64 = ctx.ctx.i64_type();
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+
+    let suffix = suffix.unwrap_or_default();
+
+    let mut fmt = String::new();
+    let mut args = Vec::new();
+
+    let flush = |ctx: &mut CodeGenContext<'ctx, '_>,
+                 generator: &mut dyn CodeGenerator,
+                 fmt: &mut String,
+                 args: &mut Vec<BasicValueEnum<'ctx>>| {
+        if !fmt.is_empty() {
+            fmt.push('\0');
+            printf(ctx, generator, mem::take(fmt), mem::take(args));
+        }
+    };
+
+    for (ty, value) in values {
+        let ty = *ty;
+        let value = value.clone().to_basic_value_enum(ctx, generator, ty).unwrap();
+
+        if !fmt.is_empty() {
+            fmt.push_str(separator);
+        }
+
+        match &*ctx.unifier.get_ty_immutable(ty) {
+            TypeEnum::TTuple { ty: tys, is_vararg_ctx: false } => {
+                let pvalue = {
+                    let pvalue = generator.gen_var_alloc(ctx, value.get_type(), None).unwrap();
+                    ctx.builder.build_store(pvalue, value).unwrap();
+                    pvalue
+                };
+
+                fmt.push('(');
+                flush(ctx, generator, &mut fmt, &mut args);
+
+                let tuple_vals = tys
+                    .iter()
+                    .enumerate()
+                    .map(|(i, ty)| {
+                        (*ty, {
+                            let pfield =
+                                ctx.builder.build_struct_gep(pvalue, i as u32, "").unwrap();
+
+                            ValueEnum::from(ctx.builder.build_load(pfield, "").unwrap())
+                        })
+                    })
+                    .collect_vec();
+
+                polymorphic_print(ctx, generator, &tuple_vals, ", ", None, true, as_rtio)?;
+
+                if tuple_vals.len() == 1 {
+                    fmt.push_str(",)");
+                } else {
+                    fmt.push(')');
+                }
+            }
+
+            TypeEnum::TFunc { .. } => todo!(),
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::None.id() => {
+                fmt.push_str("None");
+            }
+
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Bool.id() => {
+                fmt.push_str("%.*s");
+
+                let true_str = ctx.gen_string(generator, "True");
+                let true_data =
+                    unsafe { true_str.get_field_at_index_unchecked(0) }.into_pointer_value();
+                let true_len = unsafe { true_str.get_field_at_index_unchecked(1) }.into_int_value();
+                let false_str = ctx.gen_string(generator, "False");
+                let false_data =
+                    unsafe { false_str.get_field_at_index_unchecked(0) }.into_pointer_value();
+                let false_len =
+                    unsafe { false_str.get_field_at_index_unchecked(1) }.into_int_value();
+
+                let bool_val = generator.bool_to_i1(ctx, value.into_int_value());
+
+                args.extend([
+                    ctx.builder.build_select(bool_val, true_len, false_len, "").unwrap(),
+                    ctx.builder.build_select(bool_val, true_data, false_data, "").unwrap(),
+                ]);
+            }
+
+            TypeEnum::TObj { obj_id, .. }
+                if *obj_id == PrimDef::Int32.id()
+                    || *obj_id == PrimDef::Int64.id()
+                    || *obj_id == PrimDef::UInt32.id()
+                    || *obj_id == PrimDef::UInt64.id() =>
+            {
+                let is_unsigned =
+                    *obj_id == PrimDef::UInt32.id() || *obj_id == PrimDef::UInt64.id();
+
+                let llvm_int_t = value.get_type().into_int_type();
+                debug_assert!(matches!(llvm_usize.get_bit_width(), 32 | 64));
+                debug_assert!(matches!(llvm_int_t.get_bit_width(), 32 | 64));
+
+                let fmt_spec = format!(
+                    "%{}",
+                    get_fprintf_format_constant(llvm_usize, llvm_int_t, is_unsigned)
+                );
+
+                fmt.push_str(fmt_spec.as_str());
+                args.push(value);
+            }
+
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Float.id() => {
+                fmt.push_str("%g");
+                args.push(value);
+            }
+
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Str.id() => {
+                if as_repr {
+                    fmt.push_str("\"%.*s\"");
+                } else {
+                    fmt.push_str("%.*s");
+                }
+
+                let str = value.into_struct_value();
+                let str_data = unsafe { str.get_field_at_index_unchecked(0) }.into_pointer_value();
+                let str_len = unsafe { str.get_field_at_index_unchecked(1) }.into_int_value();
+
+                args.extend(&[str_len.into(), str_data.into()]);
+            }
+
+            TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                let elem_ty = *params.iter().next().unwrap().1;
+
+                fmt.push('[');
+                flush(ctx, generator, &mut fmt, &mut args);
+
+                let val = ListValue::from_ptr_val(value.into_pointer_value(), llvm_usize, None);
+                let len = val.load_size(ctx, None);
+                let last =
+                    ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "").unwrap();
+
+                gen_for_callback_incrementing(
+                    generator,
+                    ctx,
+                    None,
+                    llvm_usize.const_zero(),
+                    (len, false),
+                    |generator, ctx, _, i| {
+                        let elem = unsafe { val.data().get_unchecked(ctx, generator, &i, None) };
+
+                        polymorphic_print(
+                            ctx,
+                            generator,
+                            &[(elem_ty, elem.into())],
+                            "",
+                            None,
+                            true,
+                            as_rtio,
+                        )?;
+
+                        gen_if_callback(
+                            generator,
+                            ctx,
+                            |_, ctx| {
+                                Ok(ctx
+                                    .builder
+                                    .build_int_compare(IntPredicate::ULT, i, last, "")
+                                    .unwrap())
+                            },
+                            |generator, ctx| {
+                                printf(ctx, generator, ", \0".into(), Vec::default());
+
+                                Ok(())
+                            },
+                            |_, _| Ok(()),
+                        )?;
+
+                        Ok(())
+                    },
+                    llvm_usize.const_int(1, false),
+                )?;
+
+                fmt.push(']');
+                flush(ctx, generator, &mut fmt, &mut args);
+            }
+
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
+                let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+
+                fmt.push_str("array([");
+                flush(ctx, generator, &mut fmt, &mut args);
+
+                let val = NDArrayValue::from_ptr_val(value.into_pointer_value(), llvm_usize, None);
+                let len = call_ndarray_calc_size(generator, ctx, &val.dim_sizes(), (None, None));
+                let last =
+                    ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "").unwrap();
+
+                gen_for_callback_incrementing(
+                    generator,
+                    ctx,
+                    None,
+                    llvm_usize.const_zero(),
+                    (len, false),
+                    |generator, ctx, _, i| {
+                        let elem = unsafe { val.data().get_unchecked(ctx, generator, &i, None) };
+
+                        polymorphic_print(
+                            ctx,
+                            generator,
+                            &[(elem_ty, elem.into())],
+                            "",
+                            None,
+                            true,
+                            as_rtio,
+                        )?;
+
+                        gen_if_callback(
+                            generator,
+                            ctx,
+                            |_, ctx| {
+                                Ok(ctx
+                                    .builder
+                                    .build_int_compare(IntPredicate::ULT, i, last, "")
+                                    .unwrap())
+                            },
+                            |generator, ctx| {
+                                printf(ctx, generator, ", \0".into(), Vec::default());
+
+                                Ok(())
+                            },
+                            |_, _| Ok(()),
+                        )?;
+
+                        Ok(())
+                    },
+                    llvm_usize.const_int(1, false),
+                )?;
+
+                fmt.push_str(")]");
+                flush(ctx, generator, &mut fmt, &mut args);
+            }
+
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Range.id() => {
+                fmt.push_str("range(");
+                flush(ctx, generator, &mut fmt, &mut args);
+
+                let val = RangeValue::from_ptr_val(value.into_pointer_value(), None);
+
+                let (start, stop, step) = destructure_range(ctx, val);
+
+                polymorphic_print(
+                    ctx,
+                    generator,
+                    &[
+                        (ctx.primitives.int32, start.into()),
+                        (ctx.primitives.int32, stop.into()),
+                        (ctx.primitives.int32, step.into()),
+                    ],
+                    ", ",
+                    None,
+                    false,
+                    as_rtio,
+                )?;
+
+                fmt.push(')');
+            }
+
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Exception.id() => {
+                let fmt_str = format!(
+                    "%{}(%{}, %{1:}, %{1:})",
+                    get_fprintf_format_constant(llvm_usize, llvm_i32, false),
+                    get_fprintf_format_constant(llvm_usize, llvm_i64, false),
+                );
+
+                let exn = value.into_pointer_value();
+                let name = ctx
+                    .build_in_bounds_gep_and_load(
+                        exn,
+                        &[llvm_i32.const_zero(), llvm_i32.const_zero()],
+                        None,
+                    )
+                    .into_int_value();
+                let param0 = ctx
+                    .build_in_bounds_gep_and_load(
+                        exn,
+                        &[llvm_i32.const_zero(), llvm_i32.const_int(6, false)],
+                        None,
+                    )
+                    .into_int_value();
+                let param1 = ctx
+                    .build_in_bounds_gep_and_load(
+                        exn,
+                        &[llvm_i32.const_zero(), llvm_i32.const_int(7, false)],
+                        None,
+                    )
+                    .into_int_value();
+                let param2 = ctx
+                    .build_in_bounds_gep_and_load(
+                        exn,
+                        &[llvm_i32.const_zero(), llvm_i32.const_int(8, false)],
+                        None,
+                    )
+                    .into_int_value();
+
+                fmt.push_str(fmt_str.as_str());
+                args.extend_from_slice(&[name.into(), param0.into(), param1.into(), param2.into()]);
+            }
+
+            _ => unreachable!(
+                "Unsupported object type for polymorphic_print: {}",
+                ctx.unifier.stringify(ty)
+            ),
+        }
+    }
+
+    fmt.push_str(suffix);
+    flush(ctx, generator, &mut fmt, &mut args);
+
+    Ok(())
+}
+
+/// Invokes the `core_log` intrinsic function.
+pub fn call_core_log_impl<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    generator: &mut dyn CodeGenerator,
+    arg: (Type, BasicValueEnum<'ctx>),
+) -> Result<(), String> {
+    let (arg_ty, arg_val) = arg;
+
+    polymorphic_print(ctx, generator, &[(arg_ty, arg_val.into())], " ", Some("\n"), false, false)?;
+
+    Ok(())
+}
+
+/// Invokes the `rtio_log` intrinsic function.
+pub fn call_rtio_log_impl<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    generator: &mut dyn CodeGenerator,
+    channel: StructValue<'ctx>,
+    arg: (Type, BasicValueEnum<'ctx>),
+) -> Result<(), String> {
+    let (arg_ty, arg_val) = arg;
+
+    polymorphic_print(
+        ctx,
+        generator,
+        &[(ctx.primitives.str, channel.into())],
+        " ",
+        Some("\x1E"),
+        false,
+        true,
+    )?;
+    polymorphic_print(ctx, generator, &[(arg_ty, arg_val.into())], " ", Some("\x1D"), false, true)?;
+
+    Ok(())
+}
+
+/// Generates a call to `core_log`.
+pub fn gen_core_log<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+) -> Result<(), String> {
+    assert!(obj.is_none());
+    assert_eq!(args.len(), 1);
+
+    let value_ty = fun.0.args[0].ty;
+    let value_arg = args[0].1.clone().to_basic_value_enum(ctx, generator, value_ty)?;
+
+    call_core_log_impl(ctx, generator, (value_ty, value_arg))
+}
+
+/// Generates a call to `rtio_log`.
+pub fn gen_rtio_log<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+) -> Result<(), String> {
+    assert!(obj.is_none());
+    assert_eq!(args.len(), 2);
+
+    let channel_ty = fun.0.args[0].ty;
+    assert!(ctx.unifier.unioned(channel_ty, ctx.primitives.str));
+    let channel_arg =
+        args[0].1.clone().to_basic_value_enum(ctx, generator, channel_ty)?.into_struct_value();
+    let value_ty = fun.0.args[1].ty;
+    let value_arg = args[1].1.clone().to_basic_value_enum(ctx, generator, value_ty)?;
+
+    call_rtio_log_impl(ctx, generator, channel_arg, (value_ty, value_arg))
 }

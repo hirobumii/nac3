@@ -60,9 +60,10 @@ use nac3core::{
 
 use nac3ld::Linker;
 
-use crate::codegen::attributes_writeback;
 use crate::{
-    codegen::{rpc_codegen_callback, ArtiqCodeGenerator},
+    codegen::{
+        attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback, ArtiqCodeGenerator,
+    },
     symbol_resolver::{DeferredEvaluationStore, InnerResolver, PythonHelper, Resolver},
 };
 use tempfile::{self, TempDir};
@@ -318,7 +319,11 @@ impl Nac3 {
                         ret: primitives.none,
                         vars: into_var_map([arg_ty]),
                     },
-                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| todo!()))),
+                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
+                        gen_core_log(ctx, &obj, fun, &args, generator)?;
+
+                        Ok(None)
+                    }))),
                 )
             }),
             Box::new(|primitives, unifier| {
@@ -344,7 +349,11 @@ impl Nac3 {
                         ret: primitives.none,
                         vars: into_var_map([arg_ty]),
                     },
-                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| todo!()))),
+                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
+                        gen_rtio_log(ctx, &obj, fun, &args, generator)?;
+
+                        Ok(None)
+                    }))),
                 )
             }),
         ]
