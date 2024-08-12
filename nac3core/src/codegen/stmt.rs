@@ -1780,7 +1780,7 @@ pub fn gen_stmt<G: CodeGenerator>(
                         return Ok(());
                     }
                 }
-                None => ctx.gen_string(generator, ""),
+                None => ctx.gen_string(generator, "").into(),
             };
             ctx.make_assert_impl(
                 generator,

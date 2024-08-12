@@ -32,7 +32,7 @@ use crate::{
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     types::{AnyType, BasicType, BasicTypeEnum},
-    values::{BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue},
+    values::{BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue, StructValue},
     AddressSpace, IntPredicate, OptimizationLevel,
 };
 use itertools::{chain, izip, Either, Itertools};
@@ -322,7 +322,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 self.raise_exn(
                     generator,
                     "0:NotImplementedError",
-                    msg,
+                    msg.into(),
                     [None, None, None],
                     self.current_loc,
                 );
@@ -582,12 +582,14 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
     }
 
     /// Helper function for generating a LLVM variable storing a [String].
-    pub fn gen_string<G, S>(&mut self, generator: &mut G, s: S) -> BasicValueEnum<'ctx>
+    pub fn gen_string<G, S>(&mut self, generator: &mut G, s: S) -> StructValue<'ctx>
     where
         G: CodeGenerator + ?Sized,
         S: Into<String>,
     {
-        self.gen_const(generator, &Constant::Str(s.into()), self.primitives.str).unwrap()
+        self.gen_const(generator, &Constant::Str(s.into()), self.primitives.str)
+            .map(BasicValueEnum::into_struct_value)
+            .unwrap()
     }
 
     pub fn raise_exn<G: CodeGenerator + ?Sized>(
@@ -646,7 +648,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         loc: Location,
     ) {
         let err_msg = self.gen_string(generator, err_msg);
-        self.make_assert_impl(generator, cond, err_name, err_msg, params, loc);
+        self.make_assert_impl(generator, cond, err_name, err_msg.into(), params, loc);
     }
 
     pub fn make_assert_impl<G: CodeGenerator + ?Sized>(
@@ -3067,7 +3069,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                         ctx.raise_exn(
                                             generator,
                                             "0:UnwrapNoneError",
-                                            err_msg,
+                                            err_msg.into(),
                                             [None, None, None],
                                             ctx.current_loc,
                                         );
