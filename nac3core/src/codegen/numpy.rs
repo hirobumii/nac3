@@ -257,7 +257,7 @@ fn ndarray_zero_value<'ctx, G: CodeGenerator + ?Sized>(
     } else if ctx.unifier.unioned(elem_ty, ctx.primitives.bool) {
         ctx.ctx.bool_type().const_zero().into()
     } else if ctx.unifier.unioned(elem_ty, ctx.primitives.str) {
-        ctx.gen_string(generator, "")
+        ctx.gen_string(generator, "").into()
     } else {
         unreachable!()
     }
@@ -285,7 +285,7 @@ fn ndarray_one_value<'ctx, G: CodeGenerator + ?Sized>(
     } else if ctx.unifier.unioned(elem_ty, ctx.primitives.bool) {
         ctx.ctx.bool_type().const_int(1, false).into()
     } else if ctx.unifier.unioned(elem_ty, ctx.primitives.str) {
-        ctx.gen_string(generator, "1")
+        ctx.gen_string(generator, "1").into()
     } else {
         unreachable!()
     }
