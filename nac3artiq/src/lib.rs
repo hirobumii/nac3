@@ -51,7 +51,7 @@ use nac3core::{
     codegen::{concrete_type::ConcreteTypeStore, CodeGenTask, WithCall, WorkerRegistry},
     symbol_resolver::SymbolResolver,
     toplevel::{
-        composer::{ComposerConfig, TopLevelComposer},
+        composer::{BuiltinFuncSpec, ComposerConfig, TopLevelComposer},
         DefinitionId, GenCall, TopLevelDef,
     },
     typecheck::typedef::{FunSignature, FuncArg},
@@ -60,13 +60,12 @@ use nac3core::{
 
 use nac3ld::Linker;
 
-use tempfile::{self, TempDir};
-
 use crate::codegen::attributes_writeback;
 use crate::{
     codegen::{rpc_codegen_callback, ArtiqCodeGenerator},
     symbol_resolver::{DeferredEvaluationStore, InnerResolver, PythonHelper, Resolver},
 };
+use tempfile::{self, TempDir};
 
 mod codegen;
 mod symbol_resolver;
@@ -127,7 +126,7 @@ struct Nac3 {
     isa: Isa,
     time_fns: &'static (dyn TimeFns + Sync),
     primitive: PrimitiveStore,
-    builtins: Vec<(StrRef, FunSignature, Arc<GenCall>)>,
+    builtins: Vec<BuiltinFuncSpec>,
     pyid_to_def: Arc<RwLock<HashMap<u64, DefinitionId>>>,
     primitive_ids: PrimitivePythonId,
     working_directory: TempDir,
@@ -313,6 +312,7 @@ impl Nac3 {
         let size_t = self.isa.get_size_type();
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
             self.builtins.clone(),
+            Vec::new(),
             ComposerConfig { kernel_ann: Some("Kernel"), kernel_invariant_ann: "KernelInvariant" },
             size_t,
         );

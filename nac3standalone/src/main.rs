@@ -301,7 +301,7 @@ fn main() {
 
     let primitive: PrimitiveStore = TopLevelComposer::make_primitives(size_t).0;
     let (mut composer, builtins_def, builtins_ty) =
-        TopLevelComposer::new(vec![], ComposerConfig::default(), size_t);
+        TopLevelComposer::new(vec![], vec![], ComposerConfig::default(), size_t);
 
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
         id_to_type: builtins_ty.into(),

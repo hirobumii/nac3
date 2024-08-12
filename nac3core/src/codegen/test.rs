@@ -94,7 +94,7 @@ fn test_primitives() {
         "};
     let statements = parse_program(source, FileName::default()).unwrap();
 
-    let composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 32).0;
+    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 32).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
     let top_level = Arc::new(composer.make_top_level_context());
@@ -258,7 +258,7 @@ fn test_simple_call() {
         "};
     let statements_2 = parse_program(source_2, FileName::default()).unwrap();
 
-    let composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 32).0;
+    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 32).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
     let top_level = Arc::new(composer.make_top_level_context());
