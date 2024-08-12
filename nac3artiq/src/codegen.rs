@@ -724,3 +724,33 @@ pub fn rpc_codegen_callback() -> Arc<GenCall> {
         rpc_codegen_callback_fn(ctx, obj, fun, args, generator)
     })))
 }
+
+/// Returns the `fprintf` format constant for the given [`llvm_int_t`][`IntType`] on a platform with
+/// [`llvm_usize`] as its native word size.
+///
+/// Note that, similar to format constants in `<inttypes.h>`, these constants need to be prepended
+/// with `%`.
+#[must_use]
+fn get_fprintf_format_constant<'ctx>(
+    llvm_usize: IntType<'ctx>,
+    llvm_int_t: IntType<'ctx>,
+    is_unsigned: bool,
+) -> String {
+    debug_assert!(matches!(llvm_usize.get_bit_width(), 8 | 16 | 32 | 64));
+
+    let conv_spec = if is_unsigned { 'u' } else { 'd' };
+
+    // https://en.cppreference.com/w/c/language/arithmetic_types
+    // Note that NAC3 does **not** support LP32 and LLP64 configurations
+    match llvm_int_t.get_bit_width() {
+        8 => format!("hh{conv_spec}"),
+        16 => format!("h{conv_spec}"),
+        32 => conv_spec.to_string(),
+        64 => format!("{}{conv_spec}", if llvm_usize.get_bit_width() == 64 { "l" } else { "ll" }),
+        _ => todo!(
+            "Not yet implemented for i{} on {}-bit platform",
+            llvm_int_t.get_bit_width(),
+            llvm_usize.get_bit_width()
+        ),
+    }
+}
