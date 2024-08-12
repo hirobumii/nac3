@@ -117,7 +117,8 @@ impl SymbolResolver for Resolver {
     "register"
 )]
 fn test_simple_register(source: Vec<&str>) {
-    let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
+    let mut composer =
+        TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
 
     for s in source {
         let ast = parse_program(s, FileName::default()).unwrap();
@@ -137,7 +138,8 @@ fn test_simple_register(source: Vec<&str>) {
     "register"
 )]
 fn test_simple_register_without_constructor(source: &str) {
-    let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
+    let mut composer =
+        TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
     let ast = parse_program(source, FileName::default()).unwrap();
     let ast = ast[0].clone();
     composer.register_top_level(ast, None, "", true).unwrap();
@@ -171,7 +173,8 @@ fn test_simple_register_without_constructor(source: &str) {
     "function compose"
 )]
 fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
-    let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
+    let mut composer =
+        TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
 
     let internal_resolver = Arc::new(ResolverInternal {
         id_to_def: Mutex::default(),
@@ -519,7 +522,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
 )]
 fn test_analyze(source: &[&str], res: &[&str]) {
     let print = false;
-    let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
+    let mut composer =
+        TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
 
     let internal_resolver = make_internal_resolver_with_tvar(
         vec![
@@ -696,7 +700,8 @@ fn test_analyze(source: &[&str], res: &[&str]) {
 )]
 fn test_inference(source: Vec<&str>, res: &[&str]) {
     let print = true;
-    let mut composer = TopLevelComposer::new(Vec::new(), ComposerConfig::default(), 64).0;
+    let mut composer =
+        TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
 
     let internal_resolver = make_internal_resolver_with_tvar(
         vec![

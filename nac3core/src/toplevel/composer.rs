@@ -44,12 +44,27 @@ pub struct TopLevelComposer {
     pub size_t: u32,
 }
 
+/// The specification for a builtin function, consisting of the function name, the function
+/// signature, and a [code generation callback][`GenCall`].
+pub type BuiltinFuncSpec = (StrRef, FunSignature, Arc<GenCall>);
+
+/// A function that creates a [`BuiltinFuncSpec`] using the provided [`PrimitiveStore`] and
+/// [`Unifier`].
+pub type BuiltinFuncCreator = dyn Fn(&PrimitiveStore, &mut Unifier) -> BuiltinFuncSpec;
+
 impl TopLevelComposer {
     /// return a composer and things to make a "primitive" symbol resolver, so that the symbol
-    /// resolver can later figure out primitive type definitions when passed a primitive type name
+    /// resolver can later figure out primitive tye definitions when passed a primitive type name
+    ///
+    /// `lateinit_builtins` are specifically for the ARTIQ module. Since the [`Unifier`] instance
+    /// used to create builtin functions do not persist until method compilation, any types
+    /// created (e.g. [`TypeEnum::TVar`]) also do not persist. Those functions should be instead put
+    /// in `lateinit_builtins`, where they will be instantiated with the [`Unifier`] instance used
+    /// for method compilation.
     #[must_use]
     pub fn new(
-        builtins: Vec<(StrRef, FunSignature, Arc<GenCall>)>,
+        builtins: Vec<BuiltinFuncSpec>,
+        lateinit_builtins: Vec<Box<BuiltinFuncCreator>>,
         core_config: ComposerConfig,
         size_t: u32,
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
@@ -119,7 +134,13 @@ impl TopLevelComposer {
             }
         }
 
-        for (name, sig, codegen_callback) in builtins {
+        // Materialize lateinit_builtins, now that the unifier is ready
+        let lateinit_builtins = lateinit_builtins
+            .into_iter()
+            .map(|builtin| builtin(&primitives_ty, &mut unifier))
+            .collect_vec();
+
+        for (name, sig, codegen_callback) in builtins.into_iter().chain(lateinit_builtins) {
             let fun_sig = unifier.add_ty(TypeEnum::TFunc(sig));
             builtin_ty.insert(name, fun_sig);
             builtin_id.insert(name, DefinitionId(definition_ast_list.len()));
