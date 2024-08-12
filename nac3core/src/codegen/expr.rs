@@ -82,6 +82,20 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         self.builder.build_load(gep, name.unwrap_or_default()).unwrap()
     }
 
+    /// Builds a sequence of `getelementptr inbounds` and `load` instructions which stores the value
+    /// of a struct field into an LLVM value.
+    ///
+    /// Any out-of-bounds accesses to `ptr` will return in a `poison` value.
+    pub fn build_in_bounds_gep_and_load(
+        &mut self,
+        ptr: PointerValue<'ctx>,
+        index: &[IntValue<'ctx>],
+        name: Option<&str>,
+    ) -> BasicValueEnum<'ctx> {
+        let gep = unsafe { self.builder.build_in_bounds_gep(ptr, index, "") }.unwrap();
+        self.builder.build_load(gep, name.unwrap_or_default()).unwrap()
+    }
+
     fn get_subst_key(
         &mut self,
         obj: Option<Type>,
