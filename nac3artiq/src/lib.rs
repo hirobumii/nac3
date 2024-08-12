@@ -35,7 +35,7 @@ use inkwell::{
 use itertools::Itertools;
 use nac3core::codegen::{gen_func_impl, CodeGenLLVMOptions, CodeGenTargetMachineOptions};
 use nac3core::toplevel::builtins::get_exn_constructor;
-use nac3core::typecheck::typedef::{TypeEnum, Unifier, VarMap};
+use nac3core::typecheck::typedef::{into_var_map, TypeEnum, Unifier, VarMap};
 use nac3parser::{
     ast::{ExprKind, Stmt, StmtKind, StrRef},
     parser::parse_program,
@@ -51,7 +51,7 @@ use nac3core::{
     codegen::{concrete_type::ConcreteTypeStore, CodeGenTask, WithCall, WorkerRegistry},
     symbol_resolver::SymbolResolver,
     toplevel::{
-        composer::{BuiltinFuncSpec, ComposerConfig, TopLevelComposer},
+        composer::{BuiltinFuncCreator, BuiltinFuncSpec, ComposerConfig, TopLevelComposer},
         DefinitionId, GenCall, TopLevelDef,
     },
     typecheck::typedef::{FunSignature, FuncArg},
@@ -300,6 +300,56 @@ impl Nac3 {
         None
     }
 
+    /// Returns a [`Vec`] of builtins that needs to be initialized during method compilation time.
+    fn get_lateinit_builtins() -> Vec<Box<BuiltinFuncCreator>> {
+        vec![
+            Box::new(|primitives, unifier| {
+                let arg_ty = unifier.get_fresh_var(Some("T".into()), None);
+
+                (
+                    "core_log".into(),
+                    FunSignature {
+                        args: vec![FuncArg {
+                            name: "arg".into(),
+                            ty: arg_ty.ty,
+                            default_value: None,
+                            is_vararg: false,
+                        }],
+                        ret: primitives.none,
+                        vars: into_var_map([arg_ty]),
+                    },
+                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| todo!()))),
+                )
+            }),
+            Box::new(|primitives, unifier| {
+                let arg_ty = unifier.get_fresh_var(Some("T".into()), None);
+
+                (
+                    "rtio_log".into(),
+                    FunSignature {
+                        args: vec![
+                            FuncArg {
+                                name: "channel".into(),
+                                ty: primitives.str,
+                                default_value: None,
+                                is_vararg: false,
+                            },
+                            FuncArg {
+                                name: "arg".into(),
+                                ty: arg_ty.ty,
+                                default_value: None,
+                                is_vararg: false,
+                            },
+                        ],
+                        ret: primitives.none,
+                        vars: into_var_map([arg_ty]),
+                    },
+                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| todo!()))),
+                )
+            }),
+        ]
+    }
+
     fn compile_method<T>(
         &self,
         obj: &PyAny,
@@ -312,7 +362,7 @@ impl Nac3 {
         let size_t = self.isa.get_size_type();
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
             self.builtins.clone(),
-            Vec::new(),
+            Self::get_lateinit_builtins(),
             ComposerConfig { kernel_ann: Some("Kernel"), kernel_invariant_ann: "KernelInvariant" },
             size_t,
         );
@@ -853,7 +903,7 @@ impl Nac3 {
             Isa::RiscV32IMA => &timeline::NOW_PINNING_TIME_FNS,
             Isa::CortexA9 | Isa::Host => &timeline::EXTERN_TIME_FNS,
         };
-        let primitive: PrimitiveStore = TopLevelComposer::make_primitives(isa.get_size_type()).0;
+        let (primitive, _) = TopLevelComposer::make_primitives(isa.get_size_type());
         let builtins = vec![
             (
                 "now_mu".into(),
