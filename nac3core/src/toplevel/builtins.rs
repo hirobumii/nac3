@@ -1464,36 +1464,21 @@ impl<'a> BuiltinBuilder<'a> {
     fn build_len_function(&mut self) -> TopLevelDef {
         let prim = PrimDef::FunLen;
 
-        let PrimitiveStore { uint64, int32, .. } = *self.primitives;
+        // Type handled in [`Inferencer::try_fold_special_call`]
+        let arg_tvar = self.unifier.get_dummy_var();
 
-        let tvar = self.unifier.get_fresh_var(Some("L".into()), None);
-        let list = self
-            .unifier
-            .subst(
-                self.primitives.list,
-                &into_var_map([TypeVar { id: self.list_tvar.id, ty: tvar.ty }]),
-            )
-            .unwrap();
-        let ndims = self.unifier.get_fresh_const_generic_var(uint64, Some("N".into()), None);
-        let ndarray = make_ndarray_ty(self.unifier, self.primitives, Some(tvar.ty), Some(ndims.ty));
-
-        let arg_ty = self.unifier.get_fresh_var_with_range(
-            &[list, ndarray, self.primitives.range],
-            Some("I".into()),
-            None,
-        );
         TopLevelDef::Function {
             name: prim.name().into(),
             simple_name: prim.simple_name().into(),
             signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
                 args: vec![FuncArg {
-                    name: "ls".into(),
-                    ty: arg_ty.ty,
+                    name: "obj".into(),
+                    ty: arg_tvar.ty,
                     default_value: None,
                     is_vararg: false,
                 }],
-                ret: int32,
-                vars: into_var_map([tvar, arg_ty]),
+                ret: self.primitives.int32,
+                vars: into_var_map([arg_tvar]),
             })),
             var_id: Vec::default(),
             instance_to_symbol: HashMap::default(),

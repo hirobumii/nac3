@@ -1070,6 +1070,58 @@ impl<'a> Inferencer<'a> {
             }));
         }
 
+        if id == &"len".into() && args.len() == 1 {
+            let obj = self.fold_expr(args.remove(0))?;
+            let obj_ty = obj.custom.unwrap();
+
+            match &*self.unifier.get_ty(obj_ty) {
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == self.primitives.range.obj_id(self.unifier).unwrap() => {}
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == self.primitives.list.obj_id(self.unifier).unwrap() => {}
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == self.primitives.ndarray.obj_id(self.unifier).unwrap() => {}
+                TypeEnum::TTuple { .. } => {}
+                _ => {
+                    return report_error(
+                        format!(
+                            "len() only accepts range, list, ndarray, or tuple. Got {}",
+                            self.unifier.stringify(obj_ty)
+                        )
+                        .as_str(),
+                        obj.location,
+                    )
+                }
+            }
+
+            let ret_ty = self.primitives.int32;
+
+            let func_ty = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                args: vec![FuncArg {
+                    name: "obj".into(),
+                    ty: obj_ty,
+                    default_value: None,
+                    is_vararg: false,
+                }],
+                ret: ret_ty,
+                vars: VarMap::new(),
+            }));
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(ret_ty),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(func_ty),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
+                    }),
+                    args: vec![obj],
+                    keywords: vec![],
+                },
+            }));
+        }
+
         if ["int32", "float", "bool", "round", "round64", "np_isnan", "np_isinf"]
             .iter()
             .any(|fun_id| id == &(*fun_id).into())
