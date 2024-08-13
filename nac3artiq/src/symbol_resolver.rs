@@ -163,7 +163,7 @@ impl StaticValue for PythonValue {
                 PrimitiveValue::Bool(val) => {
                     ctx.ctx.i8_type().const_int(u64::from(*val), false).into()
                 }
-                PrimitiveValue::Str(val) => ctx.ctx.const_string(val.as_bytes(), true).into(),
+                PrimitiveValue::Str(val) => ctx.gen_string(generator, val).into(),
             });
         }
         if let Some(global) = ctx.module.get_global(&self.id.to_string()) {
@@ -977,7 +977,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
             let val: String = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Str(val.clone()));
-            Ok(Some(ctx.ctx.const_string(val.as_bytes(), true).into()))
+            Ok(Some(ctx.gen_string(generator, val).into()))
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             let val: f64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::F64(val));
