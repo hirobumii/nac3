@@ -1404,7 +1404,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
     /// on the field.
-    fn ptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    pub fn ptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.name.map(|v| format!("{v}.data.addr")).unwrap_or_default();
 
