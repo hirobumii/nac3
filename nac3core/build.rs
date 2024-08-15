@@ -36,6 +36,8 @@ fn main() {
         "-Wextra",
         "-o",
         "-",
+        "-I",
+        irrt_dir.to_str().unwrap(),
         irrt_cpp_path.to_str().unwrap(),
     ];
 
