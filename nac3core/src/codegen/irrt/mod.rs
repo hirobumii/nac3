@@ -1,4 +1,4 @@
-use crate::typecheck::typedef::Type;
+use crate::{symbol_resolver::SymbolResolver, typecheck::typedef::Type};
 
 use super::{
     classes::{
@@ -15,7 +15,7 @@ use inkwell::{
     memory_buffer::MemoryBuffer,
     module::Module,
     types::{BasicTypeEnum, IntType},
-    values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue},
+    values::{BasicValue, BasicValueEnum, CallSiteValue, FloatValue, IntValue},
     AddressSpace, IntPredicate,
 };
 use itertools::Either;
@@ -928,4 +928,30 @@ pub fn call_ndarray_calc_broadcast_index<
         Box::new(|_, v| v.into_int_value()),
         Box::new(|_, v| v.into()),
     )
+}
+
+/// Initialize all global `EXN_*` exception IDs in IRRT with the [`SymbolResolver`].
+pub fn setup_irrt_exceptions<'ctx>(
+    ctx: &'ctx Context,
+    module: &Module<'ctx>,
+    symbol_resolver: &dyn SymbolResolver,
+) {
+    let exn_id_type = ctx.i32_type();
+
+    let errors = &[
+        ("EXN_INDEX_ERROR", "0:IndexError"),
+        ("EXN_VALUE_ERROR", "0:ValueError"),
+        ("EXN_ASSERTION_ERROR", "0:AssertionError"),
+        ("EXN_TYPE_ERROR", "0:TypeError"),
+    ];
+
+    for (irrt_name, symbol_name) in errors {
+        let exn_id = symbol_resolver.get_string_id(symbol_name);
+        let exn_id = exn_id_type.const_int(exn_id as u64, false).as_basic_value_enum();
+
+        let global = module.get_global(irrt_name).unwrap_or_else(|| {
+            panic!("Exception symbol name '{irrt_name}' should exist in the IRRT LLVM module")
+        });
+        global.set_initializer(&exn_id);
+    }
 }

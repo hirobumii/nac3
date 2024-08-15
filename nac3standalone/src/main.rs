@@ -14,6 +14,7 @@ use inkwell::{
     memory_buffer::MemoryBuffer, passes::PassBuilderOptions, support::is_multithreaded, targets::*,
     OptimizationLevel,
 };
+use nac3core::codegen::irrt::setup_irrt_exceptions;
 use nac3core::{
     codegen::{
         concrete_type::ConcreteTypeStore, irrt::load_irrt, CodeGenLLVMOptions,
@@ -314,6 +315,16 @@ fn main() {
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
 
+    let context = inkwell::context::Context::create();
+
+    // Process IRRT
+    let irrt = load_irrt(&context);
+    setup_irrt_exceptions(&context, &irrt, resolver.as_ref());
+    if emit_llvm {
+        irrt.write_bitcode_to_path(Path::new("irrt.bc"));
+    }
+
+    // Process the Python script
     let parser_result = parser::parse_program(&program, file_name.into()).unwrap();
 
     for stmt in parser_result {
@@ -418,8 +429,8 @@ fn main() {
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 
+    // Link all modules together into `main`
     let buffers = membuffers.lock();
-    let context = inkwell::context::Context::create();
     let main = context
         .create_module_from_ir(MemoryBuffer::create_from_memory_range(&buffers[0], "main"))
         .unwrap();
@@ -439,12 +450,9 @@ fn main() {
         main.link_in_module(other).unwrap();
     }
 
-    let irrt = load_irrt(&context);
-    if emit_llvm {
-        irrt.write_bitcode_to_path(Path::new("irrt.bc"));
-    }
     main.link_in_module(irrt).unwrap();
 
+    // Private all functions except "run"
     let mut function_iter = main.get_first_function();
     while let Some(func) = function_iter {
         if func.count_basic_blocks() > 0 && func.get_name().to_str().unwrap() != "run" {
@@ -453,6 +461,7 @@ fn main() {
         function_iter = func.get_next_function();
     }
 
+    // Optimize `main`
     let target_machine = llvm_options
         .target
         .create_target_machine(llvm_options.opt_level)
@@ -466,6 +475,7 @@ fn main() {
         panic!("Failed to run optimization for module `main`: {}", err.to_string());
     }
 
+    // Write output
     target_machine
         .write_to_file(&main, FileType::Object, Path::new("module.o"))
         .expect("couldn't write module to file");
