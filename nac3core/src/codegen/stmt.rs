@@ -638,8 +638,12 @@ where
     I: Clone,
     InitFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<I, String>,
     CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<IntValue<'ctx>, String>,
-    BodyFn:
-        FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, BreakContinueHooks, I) -> Result<(), String>,
+    BodyFn: FnOnce(
+        &mut G,
+        &mut CodeGenContext<'ctx, 'a>,
+        BreakContinueHooks<'ctx>,
+        I,
+    ) -> Result<(), String>,
     UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
 {
     let label = label.unwrap_or("for");
@@ -719,7 +723,7 @@ where
     BodyFn: FnOnce(
         &mut G,
         &mut CodeGenContext<'ctx, 'a>,
-        BreakContinueHooks,
+        BreakContinueHooks<'ctx>,
         IntValue<'ctx>,
     ) -> Result<(), String>,
 {
@@ -799,7 +803,7 @@ where
     BodyFn: FnOnce(
         &mut G,
         &mut CodeGenContext<'ctx, 'a>,
-        BreakContinueHooks,
+        BreakContinueHooks<'ctx>,
         IntValue<'ctx>,
     ) -> Result<(), String>,
 {
