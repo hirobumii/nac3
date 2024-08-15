@@ -18,18 +18,13 @@ fn main() {
      * HACK: Sadly, clang doesn't let us emit generic LLVM bitcode.
      * Compiling for WASM32 and filtering the output with regex is the closest we can get.
      */
-    let flags: &[&str] = &[
+    let mut flags: Vec<&str> = vec![
         "--target=wasm32",
         "-x",
         "c++",
         "-fno-discard-value-names",
         "-fno-exceptions",
         "-fno-rtti",
-        match env::var("PROFILE").as_deref() {
-            Ok("debug") => "-O0",
-            Ok("release") => "-O3",
-            flavor => panic!("Unknown or missing build flavor {flavor:?}"),
-        },
         "-emit-llvm",
         "-S",
         "-Wall",
@@ -40,6 +35,17 @@ fn main() {
         irrt_dir.to_str().unwrap(),
         irrt_cpp_path.to_str().unwrap(),
     ];
+
+    match env::var("PROFILE").as_deref() {
+        Ok("debug") => {
+            flags.push("-O0");
+            flags.push("-DIRRT_DEBUG_ASSERT");
+        }
+        Ok("release") => {
+            flags.push("-O3");
+        }
+        flavor => panic!("Unknown or missing build flavor {flavor:?}"),
+    }
 
     // Tell Cargo to rerun if any file under `irrt_dir` (recursive) changes
     println!("cargo:rerun-if-changed={}", irrt_dir.to_str().unwrap());
