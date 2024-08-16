@@ -3025,6 +3025,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     let Some(val) = generator.gen_expr(ctx, value)? else { return Ok(None) };
 
                     // Handle Class Method calls
+                    // The attribute will be `DefinitionId` of the method if the call is to one of the parent methods
+                    let func_id = attr.to_string().parse::<usize>();
+
                     let id = if let TypeEnum::TObj { obj_id, .. } =
                         &*ctx.unifier.get_ty(value.custom.unwrap())
                     {
@@ -3032,7 +3035,11 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     } else {
                         unreachable!()
                     };
-                    let fun_id = {
+
+                    // Use the `DefinitionID` from attribute if it is available
+                    let fun_id = if let Ok(func_id) = func_id {
+                        DefinitionId(func_id)
+                    } else {
                         let defs = ctx.top_level.definitions.read();
                         let obj_def = defs.get(id.0).unwrap().read();
                         let TopLevelDef::Class { methods, .. } = &*obj_def else { unreachable!() };
