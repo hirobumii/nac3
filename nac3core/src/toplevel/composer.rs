@@ -23,7 +23,7 @@ impl Default for ComposerConfig {
     }
 }
 
-type DefAst = (Arc<RwLock<TopLevelDef>>, Option<Stmt<()>>);
+pub type DefAst = (Arc<RwLock<TopLevelDef>>, Option<Stmt<()>>);
 pub struct TopLevelComposer {
     // list of top level definitions, same as top level context
     pub definition_ast_list: Vec<DefAst>,
@@ -1822,7 +1822,12 @@ impl TopLevelComposer {
                         if *name != init_str_id {
                             unreachable!("must be init function here")
                         }
-                        let all_inited = Self::get_all_assigned_field(body.as_slice())?;
+
+                        let all_inited = Self::get_all_assigned_field(
+                            object_id.0,
+                            definition_ast_list,
+                            body.as_slice(),
+                        )?;
                         for (f, _, _) in fields {
                             if !all_inited.contains(f) {
                                 return Err(HashSet::from([
