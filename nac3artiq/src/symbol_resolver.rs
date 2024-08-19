@@ -1,4 +1,6 @@
+use crate::PrimitivePythonId;
 use inkwell::{
+    module::Linkage,
     types::{BasicType, BasicTypeEnum},
     values::BasicValueEnum,
     AddressSpace,
@@ -33,8 +35,6 @@ use std::{
         Arc,
     },
 };
-
-use crate::PrimitivePythonId;
 
 pub enum PrimitiveValue {
     I32(i32),
@@ -133,6 +133,8 @@ impl StaticValue for PythonValue {
                         format!("{}_const", self.id).as_str(),
                     );
                     global.set_constant(true);
+                    // Set linkage of global to private to avoid name collisions
+                    global.set_linkage(Linkage::Private);
                     global.set_initializer(&ctx.ctx.const_struct(
                         &[ctx.ctx.i32_type().const_int(u64::from(id), false).into()],
                         false,
