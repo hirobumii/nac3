@@ -515,7 +515,7 @@ fn format_rpc_arg<'ctx>(
             ctx.builder.build_store(arg_slot, arg).unwrap();
 
             ctx.builder
-                .build_bitcast(arg_slot, llvm_pi8, "rpc.arg")
+                .build_bit_cast(arg_slot, llvm_pi8, "rpc.arg")
                 .map(BasicValueEnum::into_pointer_value)
                 .unwrap()
         }
@@ -662,7 +662,7 @@ fn format_rpc_ret<'ctx>(
                 .unwrap();
             let buffer = ctx
                 .builder
-                .build_bitcast(buffer, llvm_pi8, "")
+                .build_bit_cast(buffer, llvm_pi8, "")
                 .map(BasicValueEnum::into_pointer_value)
                 .unwrap();
             let buffer = ArraySliceValue::from_ptr_val(buffer, buffer_size, None);
@@ -785,7 +785,7 @@ fn format_rpc_ret<'ctx>(
 
         _ => {
             let slot = ctx.builder.build_alloca(llvm_ret_ty, "rpc.ret.slot").unwrap();
-            let slotgen = ctx.builder.build_bitcast(slot, llvm_pi8, "rpc.ret.ptr").unwrap();
+            let slotgen = ctx.builder.build_bit_cast(slot, llvm_pi8, "rpc.ret.ptr").unwrap();
             ctx.builder.build_unconditional_branch(head_bb).unwrap();
             ctx.builder.position_at_end(head_bb);
 
@@ -806,7 +806,7 @@ fn format_rpc_ret<'ctx>(
             let alloc_ptr =
                 ctx.builder.build_array_alloca(llvm_pi8, alloc_size, "rpc.alloc").unwrap();
             let alloc_ptr =
-                ctx.builder.build_bitcast(alloc_ptr, llvm_pi8, "rpc.alloc.ptr").unwrap();
+                ctx.builder.build_bit_cast(alloc_ptr, llvm_pi8, "rpc.alloc.ptr").unwrap();
             phi.add_incoming(&[(&alloc_ptr, alloc_bb)]);
             ctx.builder.build_unconditional_branch(head_bb).unwrap();
 

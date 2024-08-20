@@ -942,7 +942,7 @@ fn call_ndarray_array_impl<'ctx, G: CodeGenerator + ?Sized>(
                         .build_store(
                             lst,
                             ctx.builder
-                                .build_bitcast(object.as_base_value(), llvm_plist_i8, "")
+                                .build_bit_cast(object.as_base_value(), llvm_plist_i8, "")
                                 .unwrap(),
                         )
                         .unwrap();
@@ -964,7 +964,7 @@ fn call_ndarray_array_impl<'ctx, G: CodeGenerator + ?Sized>(
                                 .builder
                                 .build_load(lst, "")
                                 .map(BasicValueEnum::into_pointer_value)
-                                .map(|v| ctx.builder.build_bitcast(v, plist_plist_i8, "").unwrap())
+                                .map(|v| ctx.builder.build_bit_cast(v, plist_plist_i8, "").unwrap())
                                 .map(BasicValueEnum::into_pointer_value)
                                 .unwrap();
                             let this_dim = ListValue::from_ptr_val(this_dim, llvm_usize, None);
@@ -983,7 +983,9 @@ fn call_ndarray_array_impl<'ctx, G: CodeGenerator + ?Sized>(
                             ctx.builder
                                 .build_store(
                                     lst,
-                                    ctx.builder.build_bitcast(next_dim, llvm_plist_i8, "").unwrap(),
+                                    ctx.builder
+                                        .build_bit_cast(next_dim, llvm_plist_i8, "")
+                                        .unwrap(),
                                 )
                                 .unwrap();
 

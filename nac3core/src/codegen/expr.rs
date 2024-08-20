@@ -551,7 +551,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                             && val_ty.get_element_type().is_struct_type()
                     } =>
                 {
-                    self.builder.build_bitcast(*val, arg_ty, "call_arg_cast").unwrap()
+                    self.builder.build_bit_cast(*val, arg_ty, "call_arg_cast").unwrap()
                 }
                 _ => *val,
             })

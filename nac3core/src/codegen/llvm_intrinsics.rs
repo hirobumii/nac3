@@ -183,7 +183,7 @@ pub fn call_memcpy_generic<'ctx>(
         dest
     } else {
         ctx.builder
-            .build_bitcast(dest, llvm_p0i8, "")
+            .build_bit_cast(dest, llvm_p0i8, "")
             .map(BasicValueEnum::into_pointer_value)
             .unwrap()
     };
@@ -191,7 +191,7 @@ pub fn call_memcpy_generic<'ctx>(
         src
     } else {
         ctx.builder
-            .build_bitcast(src, llvm_p0i8, "")
+            .build_bit_cast(src, llvm_p0i8, "")
             .map(BasicValueEnum::into_pointer_value)
             .unwrap()
     };

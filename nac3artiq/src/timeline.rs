@@ -31,7 +31,7 @@ impl TimeFns for NowPinningTimeFns64 {
             .unwrap_or_else(|| ctx.module.add_global(i64_type, None, "now"));
         let now_hiptr = ctx
             .builder
-            .build_bitcast(now, i32_type.ptr_type(AddressSpace::default()), "now.hi.addr")
+            .build_bit_cast(now, i32_type.ptr_type(AddressSpace::default()), "now.hi.addr")
             .map(BasicValueEnum::into_pointer_value)
             .unwrap();
 
@@ -80,7 +80,7 @@ impl TimeFns for NowPinningTimeFns64 {
             .unwrap_or_else(|| ctx.module.add_global(i64_type, None, "now"));
         let now_hiptr = ctx
             .builder
-            .build_bitcast(now, i32_type.ptr_type(AddressSpace::default()), "now.hi.addr")
+            .build_bit_cast(now, i32_type.ptr_type(AddressSpace::default()), "now.hi.addr")
             .map(BasicValueEnum::into_pointer_value)
             .unwrap();
 
@@ -109,7 +109,7 @@ impl TimeFns for NowPinningTimeFns64 {
             .unwrap_or_else(|| ctx.module.add_global(i64_type, None, "now"));
         let now_hiptr = ctx
             .builder
-            .build_bitcast(now, i32_type.ptr_type(AddressSpace::default()), "now.hi.addr")
+            .build_bit_cast(now, i32_type.ptr_type(AddressSpace::default()), "now.hi.addr")
             .map(BasicValueEnum::into_pointer_value)
             .unwrap();
 
@@ -207,7 +207,7 @@ impl TimeFns for NowPinningTimeFns {
             .unwrap_or_else(|| ctx.module.add_global(i64_type, None, "now"));
         let now_hiptr = ctx
             .builder
-            .build_bitcast(now, i32_type.ptr_type(AddressSpace::default()), "now.hi.addr")
+            .build_bit_cast(now, i32_type.ptr_type(AddressSpace::default()), "now.hi.addr")
             .map(BasicValueEnum::into_pointer_value)
             .unwrap();
 
@@ -258,7 +258,7 @@ impl TimeFns for NowPinningTimeFns {
         let time_lo = ctx.builder.build_int_truncate(time, i32_type, "time.lo").unwrap();
         let now_hiptr = ctx
             .builder
-            .build_bitcast(now, i32_type.ptr_type(AddressSpace::default()), "now.hi.addr")
+            .build_bit_cast(now, i32_type.ptr_type(AddressSpace::default()), "now.hi.addr")
             .map(BasicValueEnum::into_pointer_value)
             .unwrap();
 
