@@ -1000,3 +1000,23 @@ pub fn arraylike_get_ndims(unifier: &mut Unifier, ty: Type) -> u64 {
         _ => 0,
     }
 }
+
+/// Extract an ndarray's `ndims` [type][`Type`] in `u64`. Panic if not possible.
+/// The `ndims` must only contain 1 value.
+#[must_use]
+pub fn extract_ndims(unifier: &Unifier, ndims_ty: Type) -> u64 {
+    let ndims_ty_enum = unifier.get_ty_immutable(ndims_ty);
+    let TypeEnum::TLiteral { values, .. } = &*ndims_ty_enum else {
+        panic!("ndims_ty should be a TLiteral");
+    };
+
+    assert_eq!(values.len(), 1, "ndims_ty TLiteral should only contain 1 value");
+
+    let ndims = values[0].clone();
+    u64::try_from(ndims).unwrap()
+}
+
+/// Return an ndarray's `ndims` as a typechecker [`Type`] from its `u64` value.
+pub fn create_ndims(unifier: &mut Unifier, ndims: u64) -> Type {
+    unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None)
+}
