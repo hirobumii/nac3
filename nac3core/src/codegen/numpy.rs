@@ -2144,7 +2144,8 @@ pub fn ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
 ///   1. A list of `int32`;   e.g., `np.reshape(arr, [600, -1, 3])`
 ///   2. A tuple of `int32`;  e.g., `np.reshape(arr, (-1, 800, 3))`
 ///   3. A scalar `int32`;     e.g., `np.reshape(arr, 3)`
-///      Note that unlike other generating functions, one of the dimesions in the shape can be negative
+///
+/// Note that unlike other generating functions, one of the dimensions in the shape can be negative.
 pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,

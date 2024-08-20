@@ -568,7 +568,8 @@ pub fn call_j0<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> Flo
 ///
 /// * `dims` - An [`ArrayLikeIndexer`] containing the size of each dimension.
 /// * `range` - The dimension index to begin and end (exclusively) calculating the dimensions for,
-///   or [`None`] if starting from the first dimension and ending at the last dimension respectively.
+///   or [`None`] if starting from the first dimension and ending at the last dimension
+///   respectively.
 pub fn call_ndarray_calc_size<'ctx, G, Dims>(
     generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,

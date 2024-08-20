@@ -59,7 +59,7 @@ pub trait CodeGenerator {
     ///   function is a class method.
     ///
     /// Note that this function should check if the function is generated in another thread (due to
-    ///   possible race condition), see the default implementation for an example.
+    /// possible race condition), see the default implementation for an example.
     fn gen_func_instance<'ctx>(
         &mut self,
         ctx: &mut CodeGenContext<'ctx, '_>,
