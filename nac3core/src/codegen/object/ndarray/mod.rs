@@ -27,7 +27,7 @@ use crate::{
     typecheck::typedef::Type,
 };
 
-use super::any::AnyObject;
+use super::{any::AnyObject, tuple::TupleObject};
 
 /// Fields of [`NDArray`]
 pub struct NDArrayFields<'ctx, F: FieldTraversal<'ctx>> {
@@ -424,6 +424,62 @@ impl<'ctx> NDArrayObject<'ctx> {
             Ok(())
         })
         .unwrap();
+    }
+
+    /// Create the shape tuple of this ndarray like `np.shape(<ndarray>)`.
+    ///
+    /// The returned integers in the tuple are in int32.
+    pub fn make_shape_tuple<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> TupleObject<'ctx> {
+        // TODO: Return a tuple of SizeT
+
+        let mut objects = Vec::with_capacity(self.ndims as usize);
+
+        for i in 0..self.ndims {
+            let dim = self
+                .instance
+                .get(generator, ctx, |f| f.shape)
+                .get_index_const(generator, ctx, i)
+                .truncate_or_bit_cast(generator, ctx, Int32);
+
+            objects.push(AnyObject {
+                ty: ctx.primitives.int32,
+                value: dim.value.as_basic_value_enum(),
+            });
+        }
+
+        TupleObject::from_objects(generator, ctx, objects)
+    }
+
+    /// Create the strides tuple of this ndarray like `<ndarray>.strides`.
+    ///
+    /// The returned integers in the tuple are in int32.
+    pub fn make_strides_tuple<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> TupleObject<'ctx> {
+        // TODO: Return a tuple of SizeT.
+
+        let mut objects = Vec::with_capacity(self.ndims as usize);
+
+        for i in 0..self.ndims {
+            let dim = self
+                .instance
+                .get(generator, ctx, |f| f.strides)
+                .get_index_const(generator, ctx, i)
+                .truncate_or_bit_cast(generator, ctx, Int32);
+
+            objects.push(AnyObject {
+                ty: ctx.primitives.int32,
+                value: dim.value.as_basic_value_enum(),
+            });
+        }
+
+        TupleObject::from_objects(generator, ctx, objects)
     }
 }
 

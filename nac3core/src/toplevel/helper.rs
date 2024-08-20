@@ -52,6 +52,10 @@ pub enum PrimDef {
     FunNpEye,
     FunNpIdentity,
 
+    // NumPy ndarray property getters
+    FunNpShape,
+    FunNpStrides,
+
     // Miscellaneous NumPy & SciPy functions
     FunNpRound,
     FunNpFloor,
@@ -237,6 +241,10 @@ impl PrimDef {
             PrimDef::FunNpArray => fun("np_array", None),
             PrimDef::FunNpEye => fun("np_eye", None),
             PrimDef::FunNpIdentity => fun("np_identity", None),
+
+            // NumPy NDArray property getters,
+            PrimDef::FunNpShape => fun("np_shape", None),
+            PrimDef::FunNpStrides => fun("np_strides", None),
 
             // Miscellaneous NumPy & SciPy functions
             PrimDef::FunNpRound => fun("np_round", None),
