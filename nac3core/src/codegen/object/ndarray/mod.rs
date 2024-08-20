@@ -18,7 +18,10 @@ use crate::{
         model::*,
         CodeGenContext, CodeGenerator,
     },
-    toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},
+    toplevel::{
+        helper::{create_ndims, extract_ndims},
+        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+    },
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -102,6 +105,18 @@ impl<'ctx> NDArrayObject<'ctx> {
         ctx: &'ctx Context,
     ) -> Instance<'ctx, Int<SizeT>> {
         Int(SizeT).const_int(generator, ctx, self.ndims, false)
+    }
+
+    /// Get the typechecker ndarray type of this [`NDArrayObject`].
+    pub fn get_type(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Type {
+        let ndims = create_ndims(&mut ctx.unifier, self.ndims);
+        make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(self.dtype), Some(ndims))
+    }
+
+    /// Forget that this is an ndarray and convert into an [`AnyObject`].
+    pub fn to_any(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> AnyObject<'ctx> {
+        let ty = self.get_type(ctx);
+        AnyObject { value: self.instance.value.as_basic_value_enum(), ty }
     }
 
     /// Allocate an ndarray on the stack given its `ndims` and `dtype`.
