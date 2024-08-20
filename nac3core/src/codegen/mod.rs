@@ -1,7 +1,7 @@
 use crate::{
-    codegen::classes::{ListType, NDArrayType, ProxyType, RangeType},
+    codegen::classes::{ListType, ProxyType, RangeType},
     symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, TopLevelContext, TopLevelDef},
+    toplevel::{helper::PrimDef, TopLevelContext, TopLevelDef},
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
@@ -24,7 +24,9 @@ use inkwell::{
     AddressSpace, IntPredicate, OptimizationLevel,
 };
 use itertools::Itertools;
+use model::*;
 use nac3parser::ast::{Location, Stmt, StrRef};
+use object::ndarray::NDArray;
 use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, HashSet};
 use std::sync::{
@@ -491,12 +493,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         }
 
                         TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                            let (dtype, _) = unpack_ndarray_var_tys(unifier, ty);
-                            let element_type = get_llvm_type(
-                                ctx, module, generator, unifier, top_level, type_cache, dtype,
-                            );
-
-                            NDArrayType::new(generator, ctx, element_type).as_base_type().into()
+                            Ptr(Struct(NDArray)).get_type(generator, ctx).as_basic_type_enum()
                         }
 
                         _ => unreachable!(
