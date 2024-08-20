@@ -18,6 +18,8 @@ use super::{
     },
     llvm_intrinsics,
     macros::codegen_unreachable,
+    model::{function::FnCall, *},
+    object::ndarray::NDArray,
     stmt::gen_for_callback_incrementing,
     CodeGenContext, CodeGenerator,
 };
@@ -949,4 +951,135 @@ pub fn call_ndarray_calc_broadcast_index<
         Box::new(|_, v| v.into_int_value()),
         Box::new(|_, v| v.into()),
     )
+}
+
+// When [`TypeContext::size_type`] is 32-bits, the function name is "{fn_name}".
+// When [`TypeContext::size_type`] is 64-bits, the function name is "{fn_name}64".
+#[must_use]
+pub fn get_sizet_dependent_function_name<G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &CodeGenContext<'_, '_>,
+    name: &str,
+) -> String {
+    let mut name = name.to_owned();
+    match generator.get_size_type(ctx.ctx).get_bit_width() {
+        32 => {}
+        64 => name.push_str("64"),
+        bit_width => {
+            panic!("Unsupported int type bit width {bit_width}, must be either 32-bits or 64-bits")
+        }
+    }
+    name
+}
+
+pub fn call_nac3_ndarray_util_assert_shape_no_negative<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndims: Instance<'ctx, Int<SizeT>>,
+    shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+) {
+    let name = get_sizet_dependent_function_name(
+        generator,
+        ctx,
+        "__nac3_ndarray_util_assert_shape_no_negative",
+    );
+    FnCall::builder(generator, ctx, &name).arg(ndims).arg(shape).returning_void();
+}
+
+pub fn call_nac3_ndarray_util_assert_output_shape_same<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndarray_ndims: Instance<'ctx, Int<SizeT>>,
+    ndarray_shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+    output_ndims: Instance<'ctx, Int<SizeT>>,
+    output_shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+) {
+    let name = get_sizet_dependent_function_name(
+        generator,
+        ctx,
+        "__nac3_ndarray_util_assert_output_shape_same",
+    );
+    FnCall::builder(generator, ctx, &name)
+        .arg(ndarray_ndims)
+        .arg(ndarray_shape)
+        .arg(output_ndims)
+        .arg(output_shape)
+        .returning_void();
+}
+
+pub fn call_nac3_ndarray_size<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+) -> Instance<'ctx, Int<SizeT>> {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_size");
+    FnCall::builder(generator, ctx, &name).arg(ndarray).returning_auto("size")
+}
+
+pub fn call_nac3_ndarray_nbytes<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+) -> Instance<'ctx, Int<SizeT>> {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_nbytes");
+    FnCall::builder(generator, ctx, &name).arg(ndarray).returning_auto("nbytes")
+}
+
+pub fn call_nac3_ndarray_len<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+) -> Instance<'ctx, Int<SizeT>> {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_len");
+    FnCall::builder(generator, ctx, &name).arg(ndarray).returning_auto("len")
+}
+
+pub fn call_nac3_ndarray_is_c_contiguous<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+) -> Instance<'ctx, Int<Bool>> {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_is_c_contiguous");
+    FnCall::builder(generator, ctx, &name).arg(ndarray).returning_auto("is_c_contiguous")
+}
+
+pub fn call_nac3_ndarray_get_nth_pelement<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+    index: Instance<'ctx, Int<SizeT>>,
+) -> Instance<'ctx, Ptr<Int<Byte>>> {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_get_nth_pelement");
+    FnCall::builder(generator, ctx, &name).arg(ndarray).arg(index).returning_auto("pelement")
+}
+
+pub fn call_nac3_ndarray_get_pelement_by_indices<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+    indices: Instance<'ctx, Ptr<Int<SizeT>>>,
+) -> Instance<'ctx, Ptr<Int<Byte>>> {
+    let name =
+        get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_get_pelement_by_indices");
+    FnCall::builder(generator, ctx, &name).arg(ndarray).arg(indices).returning_auto("pelement")
+}
+
+pub fn call_nac3_ndarray_set_strides_by_shape<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+) {
+    let name =
+        get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_set_strides_by_shape");
+    FnCall::builder(generator, ctx, &name).arg(ndarray).returning_void();
+}
+
+pub fn call_nac3_ndarray_copy_data<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    src_ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+    dst_ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+) {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_copy_data");
+    FnCall::builder(generator, ctx, &name).arg(src_ndarray).arg(dst_ndarray).returning_void();
 }

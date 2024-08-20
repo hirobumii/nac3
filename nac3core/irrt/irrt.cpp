@@ -4,3 +4,5 @@
 #include "irrt/math.hpp"
 #include "irrt/ndarray.hpp"
 #include "irrt/slice.hpp"
+#include "irrt/ndarray/basic.hpp"
+#include "irrt/ndarray/def.hpp"
