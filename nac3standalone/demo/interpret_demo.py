@@ -179,6 +179,10 @@ def patch(module):
     module.np_identity = np.identity
     module.np_array = np.array
 
+    # NumPy NDArray property getters
+    module.np_shape = np.shape
+    module.np_strides = lambda ndarray: ndarray.strides
+
     # NumPy Math functions
     module.np_isnan = np.isnan
     module.np_isinf = np.isinf

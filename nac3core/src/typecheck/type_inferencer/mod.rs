@@ -3,7 +3,7 @@ use std::{
     cmp::max,
     collections::{HashMap, HashSet},
     convert::{From, TryInto},
-    iter::once,
+    iter::{self, once},
     sync::Arc,
 };
 
@@ -1230,6 +1230,45 @@ impl<'a> Inferencer<'a> {
                         node: ExprKind::Name { id: *id, ctx: *ctx },
                     }),
                     args: vec![arg0],
+                    keywords: vec![],
+                },
+            }));
+        }
+
+        if ["np_shape".into(), "np_strides".into()].contains(id) && args.len() == 1 {
+            let ndarray = self.fold_expr(args.remove(0))?;
+
+            let ndims = arraylike_get_ndims(self.unifier, ndarray.custom.unwrap());
+
+            // Make a tuple of size `ndims` full of int32 (TODO: Make it usize)
+            let ret_ty = TypeEnum::TTuple {
+                ty: iter::repeat(self.primitives.int32).take(ndims as usize).collect_vec(),
+                is_vararg_ctx: false,
+            };
+            let ret_ty = self.unifier.add_ty(ret_ty);
+
+            let func_ty = TypeEnum::TFunc(FunSignature {
+                args: vec![FuncArg {
+                    name: "a".into(),
+                    default_value: None,
+                    ty: ndarray.custom.unwrap(),
+                    is_vararg: false,
+                }],
+                ret: ret_ty,
+                vars: VarMap::new(),
+            });
+            let func_ty = self.unifier.add_ty(func_ty);
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(ret_ty),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(func_ty),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
+                    }),
+                    args: vec![ndarray],
                     keywords: vec![],
                 },
             }));
