@@ -2208,7 +2208,10 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 ctx.ctx.bool_type().get_poison()
             } else {
-                unimplemented!()
+                return Err(format!("'{}' not supported between instances of '{}' and '{}'",
+                                   op.op_info().symbol,
+                                   ctx.unifier.stringify(left_ty),
+                                   ctx.unifier.stringify(right_ty)))
             };
 
             Ok(prev?.map(|v| ctx.builder.build_and(v, current, "cmp").unwrap()).or(Some(current)))
