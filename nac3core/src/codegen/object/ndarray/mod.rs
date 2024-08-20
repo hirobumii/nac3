@@ -16,6 +16,8 @@ use crate::{
     typecheck::typedef::Type,
 };
 
+pub mod nditer;
+
 /// Fields of [`NDArray`]
 pub struct NDArrayFields<'ctx, F: FieldTraversal<'ctx>> {
     pub data: F::Output<Ptr<Int<Byte>>>,

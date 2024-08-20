@@ -19,7 +19,7 @@ use super::{
     llvm_intrinsics,
     macros::codegen_unreachable,
     model::{function::FnCall, *},
-    object::ndarray::NDArray,
+    object::ndarray::{nditer::NDIter, NDArray},
     stmt::gen_for_callback_incrementing,
     CodeGenContext, CodeGenerator,
 };
@@ -1082,4 +1082,33 @@ pub fn call_nac3_ndarray_copy_data<'ctx, G: CodeGenerator + ?Sized>(
 ) {
     let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_copy_data");
     FnCall::builder(generator, ctx, &name).arg(src_ndarray).arg(dst_ndarray).returning_void();
+}
+
+pub fn call_nac3_nditer_initialize<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    iter: Instance<'ctx, Ptr<Struct<NDIter>>>,
+    ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+    indices: Instance<'ctx, Ptr<Int<SizeT>>>,
+) {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_nditer_initialize");
+    FnCall::builder(generator, ctx, &name).arg(iter).arg(ndarray).arg(indices).returning_void();
+}
+
+pub fn call_nac3_nditer_has_element<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    iter: Instance<'ctx, Ptr<Struct<NDIter>>>,
+) -> Instance<'ctx, Int<Bool>> {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_nditer_has_element");
+    FnCall::builder(generator, ctx, &name).arg(iter).returning_auto("has_element")
+}
+
+pub fn call_nac3_nditer_next<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    iter: Instance<'ctx, Ptr<Struct<NDIter>>>,
+) {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_nditer_next");
+    FnCall::builder(generator, ctx, &name).arg(iter).returning_void();
 }
