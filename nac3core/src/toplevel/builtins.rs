@@ -2078,10 +2078,12 @@ impl<'a> BuiltinBuilder<'a> {
                 Box::new(move |ctx, _, fun, args, generator| {
                     let x1_ty = fun.0.args[0].ty;
                     let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+
                     let x2_ty = fun.0.args[1].ty;
                     let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
 
-                    Ok(Some(ndarray_dot(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
+                    let result = ndarray_dot(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?;
+                    Ok(Some(result))
                 }),
             ),
 
