@@ -2195,7 +2195,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 gen_list_cmpop(generator, ctx)?
             } else if [left_ty, right_ty].iter().any(|ty| matches!(&*ctx.unifier.get_ty_immutable(*ty), TypeEnum::TVar { .. })) {
-                if ctx.registry.llvm_options.opt_level != OptimizationLevel::None {
+                if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
                     ctx.make_assert(
                         generator,
                         ctx.ctx.bool_type().const_all_ones(),
