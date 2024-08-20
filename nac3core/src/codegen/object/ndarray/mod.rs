@@ -1,4 +1,9 @@
-use inkwell::{context::Context, types::BasicType, values::PointerValue, AddressSpace};
+use inkwell::{
+    context::Context,
+    types::BasicType,
+    values::{BasicValueEnum, PointerValue},
+    AddressSpace,
+};
 
 use super::any::AnyObject;
 use crate::{
@@ -16,7 +21,9 @@ use crate::{
     typecheck::typedef::Type,
 };
 
+pub mod factory;
 pub mod nditer;
+pub mod shape_util;
 
 /// Fields of [`NDArray`]
 pub struct NDArrayFields<'ctx, F: FieldTraversal<'ctx>> {
@@ -343,5 +350,22 @@ impl<'ctx> NDArrayObject<'ctx> {
     ) {
         assert!(ctx.unifier.unioned(self.dtype, src.dtype), "self and src dtype should match");
         call_nac3_ndarray_copy_data(generator, ctx, src.instance, self.instance);
+    }
+
+    /// Fill the ndarray with a scalar.
+    ///
+    /// `fill_value` must have the same LLVM type as the `dtype` of this ndarray.
+    pub fn fill<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        value: BasicValueEnum<'ctx>,
+    ) {
+        self.foreach(generator, ctx, |generator, ctx, _hooks, nditer| {
+            let p = nditer.get_pointer(generator, ctx);
+            ctx.builder.build_store(p, value).unwrap();
+            Ok(())
+        })
+        .unwrap();
     }
 }
