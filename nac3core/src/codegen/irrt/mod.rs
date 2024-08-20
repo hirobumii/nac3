@@ -7,7 +7,7 @@ use super::{
     },
     llvm_intrinsics,
     model::*,
-    object::ndarray::NDArray,
+    object::ndarray::{nditer::NDIter, NDArray},
     CodeGenContext, CodeGenerator,
 };
 use crate::codegen::classes::TypedArrayLikeAccessor;
@@ -1089,4 +1089,33 @@ pub fn call_nac3_ndarray_copy_data<'ctx, G: CodeGenerator + ?Sized>(
 ) {
     let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_copy_data");
     CallFunction::begin(generator, ctx, &name).arg(src_ndarray).arg(dst_ndarray).returning_void();
+}
+
+pub fn call_nac3_nditer_initialize<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    iter: Instance<'ctx, Ptr<Struct<NDIter>>>,
+    ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+    indices: Instance<'ctx, Ptr<Int<SizeT>>>,
+) {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_nditer_initialize");
+    CallFunction::begin(generator, ctx, &name).arg(iter).arg(ndarray).arg(indices).returning_void();
+}
+
+pub fn call_nac3_nditer_has_next<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    iter: Instance<'ctx, Ptr<Struct<NDIter>>>,
+) -> Instance<'ctx, Int<Bool>> {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_nditer_has_next");
+    CallFunction::begin(generator, ctx, &name).arg(iter).returning_auto("has_next")
+}
+
+pub fn call_nac3_nditer_next<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    iter: Instance<'ctx, Ptr<Struct<NDIter>>>,
+) {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_nditer_next");
+    CallFunction::begin(generator, ctx, &name).arg(iter).returning_void();
 }

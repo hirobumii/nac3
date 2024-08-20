@@ -3,4 +3,5 @@
 #include <irrt/math_util.hpp>
 #include <irrt/ndarray/basic.hpp>
 #include <irrt/ndarray/def.hpp>
+#include <irrt/ndarray/iter.hpp>
 #include <irrt/original.hpp>

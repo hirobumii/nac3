@@ -1,3 +1,5 @@
+pub mod nditer;
+
 use inkwell::{context::Context, types::BasicType, values::PointerValue, AddressSpace};
 
 use crate::{
