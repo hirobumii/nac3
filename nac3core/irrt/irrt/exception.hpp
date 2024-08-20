@@ -55,11 +55,14 @@ void _raise_exception_helper(ExceptionId id,
                              int64_t param2) {
     Exception<SizeT> e = {
         .id = id,
-        .filename = {.base = reinterpret_cast<const uint8_t*>(filename), .len = __builtin_strlen(filename)},
+        .filename = {.base = reinterpret_cast<uint8_t*>(const_cast<char*>(filename)),
+                     .len = static_cast<int32_t>(__builtin_strlen(filename))},
         .line = line,
         .column = 0,
-        .function = {.base = reinterpret_cast<const uint8_t*>(function), .len = __builtin_strlen(function)},
-        .msg = {.base = reinterpret_cast<const uint8_t*>(msg), .len = __builtin_strlen(msg)},
+        .function = {.base = reinterpret_cast<uint8_t*>(const_cast<char*>(function)),
+                     .len = static_cast<int32_t>(__builtin_strlen(function))},
+        .msg = {.base = reinterpret_cast<uint8_t*>(const_cast<char*>(msg)),
+                .len = static_cast<int32_t>(__builtin_strlen(msg))},
     };
     e.params[0] = param0;
     e.params[1] = param1;
