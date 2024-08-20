@@ -1481,18 +1481,26 @@ impl<'a> BuiltinBuilder<'a> {
         );
 
         match prim {
-            PrimDef::FunNpTranspose => create_fn_by_codegen(
-                self.unifier,
-                &into_var_map([in_ndarray_ty]),
-                prim.name(),
-                in_ndarray_ty.ty,
-                &[(in_ndarray_ty.ty, "x")],
-                Box::new(move |ctx, _, fun, args, generator| {
-                    let arg_ty = fun.0.args[0].ty;
-                    let arg_val = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    Ok(Some(ndarray_transpose(generator, ctx, (arg_ty, arg_val))?))
-                }),
-            ),
+            PrimDef::FunNpTranspose => {
+                create_fn_by_codegen(
+                    self.unifier,
+                    &into_var_map([in_ndarray_ty]),
+                    prim.name(),
+                    in_ndarray_ty.ty,
+                    &[(in_ndarray_ty.ty, "x")],
+                    Box::new(move |ctx, _, fun, args, generator| {
+                        let arg_ty = fun.0.args[0].ty;
+                        let arg_val =
+                            args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+
+                        let arg = AnyObject { ty: arg_ty, value: arg_val };
+                        let ndarray = NDArrayObject::from_object(generator, ctx, arg);
+
+                        let ndarray = ndarray.transpose(generator, ctx, None); // TODO: Add axes argument
+                        Ok(Some(ndarray.instance.value.as_basic_value_enum()))
+                    }),
+                )
+            }
 
             // NOTE: on `ndarray_factory_fn_shape_arg_tvar` and
             // the `param_ty` for `create_fn_by_codegen`.

@@ -9,6 +9,7 @@
 #include <irrt/ndarray/indexing.hpp>
 #include <irrt/ndarray/iter.hpp>
 #include <irrt/ndarray/reshape.hpp>
+#include <irrt/ndarray/transpose.hpp>
 #include <irrt/original.hpp>
 #include <irrt/range.hpp>
 #include <irrt/slice.hpp>

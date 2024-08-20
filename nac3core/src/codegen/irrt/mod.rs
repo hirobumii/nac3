@@ -1214,3 +1214,20 @@ pub fn call_nac3_ndarray_broadcast_shapes<'ctx, G: CodeGenerator + ?Sized>(
         .arg(dst_shape)
         .returning_void();
 }
+
+pub fn call_nac3_ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    src_ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+    dst_ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+    num_axes: Instance<'ctx, Int<SizeT>>,
+    axes: Instance<'ctx, Ptr<Int<SizeT>>>,
+) {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_transpose");
+    CallFunction::begin(generator, ctx, &name)
+        .arg(src_ndarray)
+        .arg(dst_ndarray)
+        .arg(num_axes)
+        .arg(axes)
+        .returning_void();
+}
