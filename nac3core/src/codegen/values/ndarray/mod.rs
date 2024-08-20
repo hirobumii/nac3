@@ -173,7 +173,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 
     /// Stores the array of data elements `data` into this instance.
-    fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
+    pub fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
         let data = ctx
             .builder
             .build_bit_cast(data, ctx.ctx.i8_type().ptr_type(AddressSpace::default()), "")

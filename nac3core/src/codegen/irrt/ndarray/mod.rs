@@ -16,10 +16,12 @@ use crate::codegen::{
     },
     CodeGenContext, CodeGenerator,
 };
+pub use array::*;
 pub use basic::*;
 pub use indexing::*;
 pub use iter::*;
 
+mod array;
 mod basic;
 mod indexing;
 mod iter;

@@ -2,6 +2,21 @@
 
 #include "irrt/int_types.hpp"
 #include "irrt/math_util.hpp"
+#include "irrt/slice.hpp"
+
+namespace {
+/**
+ * @brief A list in NAC3.
+ *
+ * The `items` field is opaque. You must rely on external contexts to
+ * know how to interpret it.
+ */
+template<typename SizeT>
+struct List {
+    uint8_t* items;
+    SizeT len;
+};
+}  // namespace
 
 extern "C" {
 // Handle list assignment and dropping part of the list when
