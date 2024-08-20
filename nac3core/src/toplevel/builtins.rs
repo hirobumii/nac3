@@ -517,6 +517,10 @@ impl<'a> BuiltinBuilder<'a> {
                 self.build_ndarray_property_getter_function(prim)
             }
 
+            PrimDef::FunNpTranspose | PrimDef::FunNpReshape => {
+                self.build_ndarray_view_function(prim)
+            }
+
             PrimDef::FunStr => self.build_str_function(),
 
             PrimDef::FunFloor | PrimDef::FunFloor64 | PrimDef::FunCeil | PrimDef::FunCeil64 => {
@@ -581,10 +585,6 @@ impl<'a> BuiltinBuilder<'a> {
             | PrimDef::FunNpLdExp
             | PrimDef::FunNpHypot
             | PrimDef::FunNpNextAfter => self.build_np_2ary_function(prim),
-
-            PrimDef::FunNpTranspose | PrimDef::FunNpReshape => {
-                self.build_np_sp_ndarray_function(prim)
-            }
 
             PrimDef::FunNpDot
             | PrimDef::FunNpLinalgCholesky
@@ -1463,6 +1463,57 @@ impl<'a> BuiltinBuilder<'a> {
         }
     }
 
+    /// Build np/sp functions that take as input `NDArray` only
+    fn build_ndarray_view_function(&mut self, prim: PrimDef) -> TopLevelDef {
+        debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpTranspose, PrimDef::FunNpReshape]);
+
+        match prim {
+            PrimDef::FunNpTranspose => {
+                let ndarray_ty = self.unifier.get_fresh_var_with_range(
+                    &[self.ndarray_num_ty],
+                    Some("T".into()),
+                    None,
+                );
+                create_fn_by_codegen(
+                    self.unifier,
+                    &into_var_map([ndarray_ty]),
+                    prim.name(),
+                    self.ndarray_num_ty,
+                    &[(self.ndarray_num_ty, "x")],
+                    Box::new(move |ctx, _, fun, args, generator| {
+                        let arg_ty = fun.0.args[0].ty;
+                        let arg_val =
+                            args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+                        Ok(Some(ndarray_transpose(generator, ctx, (arg_ty, arg_val))?))
+                    }),
+                )
+            }
+
+            // NOTE: on `ndarray_factory_fn_shape_arg_tvar` and
+            // the `param_ty` for `create_fn_by_codegen`.
+            //
+            // Similar to `build_ndarray_from_shape_factory_function` we delegate the responsibility of typechecking
+            // to [`typecheck::type_inferencer::Inferencer::fold_numpy_function_call_shape_argument`],
+            // and use a dummy [`TypeVar`] `ndarray_factory_fn_shape_arg_tvar` as a placeholder for `param_ty`.
+            PrimDef::FunNpReshape => create_fn_by_codegen(
+                self.unifier,
+                &VarMap::new(),
+                prim.name(),
+                self.ndarray_num_ty,
+                &[(self.ndarray_num_ty, "x"), (self.ndarray_factory_fn_shape_arg_tvar.ty, "shape")],
+                Box::new(move |ctx, _, fun, args, generator| {
+                    let x1_ty = fun.0.args[0].ty;
+                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x2_ty = fun.0.args[1].ty;
+                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
+                    Ok(Some(ndarray_reshape(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
+                }),
+            ),
+
+            _ => unreachable!(),
+        }
+    }
+
     /// Build the `str()` function.
     fn build_str_function(&mut self) -> TopLevelDef {
         let prim = PrimDef::FunStr;
@@ -1947,57 +1998,6 @@ impl<'a> BuiltinBuilder<'a> {
                 },
             )))),
             loc: None,
-        }
-    }
-
-    /// Build np/sp functions that take as input `NDArray` only
-    fn build_np_sp_ndarray_function(&mut self, prim: PrimDef) -> TopLevelDef {
-        debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpTranspose, PrimDef::FunNpReshape]);
-
-        match prim {
-            PrimDef::FunNpTranspose => {
-                let ndarray_ty = self.unifier.get_fresh_var_with_range(
-                    &[self.ndarray_num_ty],
-                    Some("T".into()),
-                    None,
-                );
-                create_fn_by_codegen(
-                    self.unifier,
-                    &into_var_map([ndarray_ty]),
-                    prim.name(),
-                    self.ndarray_num_ty,
-                    &[(self.ndarray_num_ty, "x")],
-                    Box::new(move |ctx, _, fun, args, generator| {
-                        let arg_ty = fun.0.args[0].ty;
-                        let arg_val =
-                            args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                        Ok(Some(ndarray_transpose(generator, ctx, (arg_ty, arg_val))?))
-                    }),
-                )
-            }
-
-            // NOTE: on `ndarray_factory_fn_shape_arg_tvar` and
-            // the `param_ty` for `create_fn_by_codegen`.
-            //
-            // Similar to `build_ndarray_from_shape_factory_function` we delegate the responsibility of typechecking
-            // to [`typecheck::type_inferencer::Inferencer::fold_numpy_function_call_shape_argument`],
-            // and use a dummy [`TypeVar`] `ndarray_factory_fn_shape_arg_tvar` as a placeholder for `param_ty`.
-            PrimDef::FunNpReshape => create_fn_by_codegen(
-                self.unifier,
-                &VarMap::new(),
-                prim.name(),
-                self.ndarray_num_ty,
-                &[(self.ndarray_num_ty, "x"), (self.ndarray_factory_fn_shape_arg_tvar.ty, "shape")],
-                Box::new(move |ctx, _, fun, args, generator| {
-                    let x1_ty = fun.0.args[0].ty;
-                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
-                    let x2_ty = fun.0.args[1].ty;
-                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
-                    Ok(Some(ndarray_reshape(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
-                }),
-            ),
-
-            _ => unreachable!(),
         }
     }
 
