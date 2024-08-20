@@ -337,6 +337,24 @@ impl<'ctx> NDArrayObject<'ctx> {
         call_nac3_ndarray_set_strides_by_shape(generator, ctx, self.instance);
     }
 
+    /// Clone/Copy this ndarray - Allocate a new ndarray with the same shape as this ndarray and copy the contents over.
+    ///
+    /// The new ndarray will own its data and will be C-contiguous.
+    #[must_use]
+    pub fn make_copy<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> Self {
+        let clone = NDArrayObject::alloca(generator, ctx, self.dtype, self.ndims);
+
+        let shape = self.instance.gep(ctx, |f| f.shape).load(generator, ctx);
+        clone.copy_shape_from_array(generator, ctx, shape);
+        clone.create_data(generator, ctx);
+        clone.copy_data_from(generator, ctx, *self);
+        clone
+    }
+
     /// Copy data from another ndarray.
     ///
     /// This ndarray and `src` is that their `np.size()` should be the same. Their shapes
