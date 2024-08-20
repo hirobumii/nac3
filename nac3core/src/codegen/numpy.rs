@@ -1905,15 +1905,23 @@ pub fn gen_ndarray_eye<'ctx>(
         ))
     }?;
 
-    call_ndarray_eye_impl(
-        generator,
-        context,
-        context.primitives.float,
-        nrows_arg.into_int_value(),
-        ncols_arg.into_int_value(),
-        offset_arg.into_int_value(),
-    )
-    .map(NDArrayValue::into)
+    let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+
+    let nrows = Int(Int32)
+        .check_value(generator, context.ctx, nrows_arg)
+        .unwrap()
+        .s_extend_or_bit_cast(generator, context, SizeT);
+    let ncols = Int(Int32)
+        .check_value(generator, context.ctx, ncols_arg)
+        .unwrap()
+        .s_extend_or_bit_cast(generator, context, SizeT);
+    let offset = Int(Int32)
+        .check_value(generator, context.ctx, offset_arg)
+        .unwrap()
+        .s_extend_or_bit_cast(generator, context, SizeT);
+
+    let ndarray = NDArrayObject::make_np_eye(generator, context, dtype, nrows, ncols, offset);
+    Ok(ndarray.instance.value)
 }
 
 /// Generates LLVM IR for `ndarray.identity`.
@@ -1927,20 +1935,15 @@ pub fn gen_ndarray_identity<'ctx>(
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
-    let llvm_usize = generator.get_size_type(context.ctx);
+    let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
 
     let n_ty = fun.0.args[0].ty;
     let n_arg = args[0].1.clone().to_basic_value_enum(context, generator, n_ty)?;
 
-    call_ndarray_eye_impl(
-        generator,
-        context,
-        context.primitives.float,
-        n_arg.into_int_value(),
-        n_arg.into_int_value(),
-        llvm_usize.const_zero(),
-    )
-    .map(NDArrayValue::into)
+    let n = Int(Int32).check_value(generator, context.ctx, n_arg).unwrap();
+    let n = n.s_extend_or_bit_cast(generator, context, SizeT);
+    let ndarray = NDArrayObject::make_np_identity(generator, context, dtype, n);
+    Ok(ndarray.instance.value)
 }
 
 /// Generates LLVM IR for `ndarray.copy`.
