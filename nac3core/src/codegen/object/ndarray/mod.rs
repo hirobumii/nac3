@@ -1,5 +1,6 @@
 pub mod array;
 pub mod broadcast;
+pub mod contiguous;
 pub mod factory;
 pub mod indexing;
 pub mod map;
