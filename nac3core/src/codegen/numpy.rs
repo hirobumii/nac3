@@ -12,12 +12,16 @@ use crate::{
             call_ndarray_calc_size,
         },
         llvm_intrinsics::{self, call_memcpy_generic},
+        object::{
+            any::AnyObject,
+            ndarray::{shape_util::parse_numpy_int_sequence, NDArrayObject},
+        },
         stmt::{gen_for_callback_incrementing, gen_for_range_callback, gen_if_else_expr_callback},
         CodeGenContext, CodeGenerator,
     },
     symbol_resolver::ValueEnum,
     toplevel::{
-        helper::PrimDef,
+        helper::{extract_ndims, PrimDef},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         DefinitionId,
     },
@@ -1742,8 +1746,13 @@ pub fn gen_ndarray_empty<'ctx>(
     let shape_ty = fun.0.args[0].ty;
     let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
 
-    call_ndarray_empty_impl(generator, context, context.primitives.float, shape_arg)
-        .map(NDArrayValue::into)
+    let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+    let ndims = extract_ndims(&context.unifier, ndims);
+
+    let shape = AnyObject { value: shape_arg, ty: shape_ty };
+    let (_, shape) = parse_numpy_int_sequence(generator, context, shape);
+    let ndarray = NDArrayObject::make_np_empty(generator, context, dtype, ndims, shape);
+    Ok(ndarray.instance.value)
 }
 
 /// Generates LLVM IR for `ndarray.zeros`.
@@ -1760,8 +1769,13 @@ pub fn gen_ndarray_zeros<'ctx>(
     let shape_ty = fun.0.args[0].ty;
     let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
 
-    call_ndarray_zeros_impl(generator, context, context.primitives.float, shape_arg)
-        .map(NDArrayValue::into)
+    let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+    let ndims = extract_ndims(&context.unifier, ndims);
+
+    let shape = AnyObject { value: shape_arg, ty: shape_ty };
+    let (_, shape) = parse_numpy_int_sequence(generator, context, shape);
+    let ndarray = NDArrayObject::make_np_zeros(generator, context, dtype, ndims, shape);
+    Ok(ndarray.instance.value)
 }
 
 /// Generates LLVM IR for `ndarray.ones`.
@@ -1778,8 +1792,13 @@ pub fn gen_ndarray_ones<'ctx>(
     let shape_ty = fun.0.args[0].ty;
     let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
 
-    call_ndarray_ones_impl(generator, context, context.primitives.float, shape_arg)
-        .map(NDArrayValue::into)
+    let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+    let ndims = extract_ndims(&context.unifier, ndims);
+
+    let shape = AnyObject { value: shape_arg, ty: shape_ty };
+    let (_, shape) = parse_numpy_int_sequence(generator, context, shape);
+    let ndarray = NDArrayObject::make_np_ones(generator, context, dtype, ndims, shape);
+    Ok(ndarray.instance.value)
 }
 
 /// Generates LLVM IR for `ndarray.full`.
@@ -1799,8 +1818,14 @@ pub fn gen_ndarray_full<'ctx>(
     let fill_value_arg =
         args[1].1.clone().to_basic_value_enum(context, generator, fill_value_ty)?;
 
-    call_ndarray_full_impl(generator, context, fill_value_ty, shape_arg, fill_value_arg)
-        .map(NDArrayValue::into)
+    let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+    let ndims = extract_ndims(&context.unifier, ndims);
+
+    let shape = AnyObject { value: shape_arg, ty: shape_ty };
+    let (_, shape) = parse_numpy_int_sequence(generator, context, shape);
+    let ndarray =
+        NDArrayObject::make_np_full(generator, context, dtype, ndims, shape, fill_value_arg);
+    Ok(ndarray.instance.value)
 }
 
 pub fn gen_ndarray_array<'ctx>(
