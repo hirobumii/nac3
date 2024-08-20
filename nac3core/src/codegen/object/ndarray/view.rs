@@ -1,7 +1,8 @@
 use super::{indexing::RustNDIndex, NDArrayObject};
 use crate::codegen::{
-    irrt::call_nac3_ndarray_reshape_resolve_and_check_new_shape, model::*, CodeGenContext,
-    CodeGenerator,
+    irrt::{call_nac3_ndarray_reshape_resolve_and_check_new_shape, call_nac3_ndarray_transpose},
+    model::*,
+    CodeGenContext, CodeGenerator,
 };
 
 impl<'ctx> NDArrayObject<'ctx> {
@@ -84,5 +85,34 @@ impl<'ctx> NDArrayObject<'ctx> {
         ctx.builder.position_at_end(end_bb);
 
         dst_ndarray
+    }
+
+    /// Create a transposed view on this ndarray like `np.transpose(<ndarray>, <axes> = None)`.
+    /// * `axes` - If specified, should be an array of the permutation (negative indices are **allowed**).
+    #[must_use]
+    pub fn transpose<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        axes: Option<Instance<'ctx, Ptr<Int<SizeT>>>>,
+    ) -> Self {
+        // Define models
+        let transposed_ndarray = NDArrayObject::alloca(generator, ctx, self.dtype, self.ndims);
+
+        let num_axes = self.ndims_llvm(generator, ctx.ctx);
+
+        // `axes = nullptr` if `axes` is unspecified.
+        let axes = axes.unwrap_or_else(|| Ptr(Int(SizeT)).nullptr(generator, ctx.ctx));
+
+        call_nac3_ndarray_transpose(
+            generator,
+            ctx,
+            self.instance,
+            transposed_ndarray.instance,
+            num_axes,
+            axes,
+        );
+
+        transposed_ndarray
     }
 }
