@@ -21,6 +21,7 @@ use crate::{
     typecheck::typedef::Type,
 };
 
+pub mod array;
 pub mod factory;
 pub mod indexing;
 pub mod nditer;
@@ -73,8 +74,19 @@ impl<'ctx> NDArrayObject<'ctx> {
     ) -> NDArrayObject<'ctx> {
         let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, object.ty);
         let ndims = extract_ndims(&ctx.unifier, ndims);
+        Self::from_value_and_unpacked_types(generator, ctx, object.value, dtype, ndims)
+    }
 
-        let value = Ptr(Struct(NDArray)).check_value(generator, ctx.ctx, object.value).unwrap();
+    /// Like [`NDArrayObject::from_object`] but you directly supply the ndarray's
+    /// `dtype` and `ndims`.
+    pub fn from_value_and_unpacked_types<V: BasicValue<'ctx>, G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        value: V,
+        dtype: Type,
+        ndims: u64,
+    ) -> Self {
+        let value = Ptr(Struct(NDArray)).check_value(generator, ctx.ctx, value).unwrap();
         NDArrayObject { dtype, ndims, instance: value }
     }
 

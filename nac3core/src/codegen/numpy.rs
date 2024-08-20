@@ -19,6 +19,7 @@ use super::{
     },
     llvm_intrinsics::{self, call_memcpy_generic},
     macros::codegen_unreachable,
+    model::*,
     object::{
         any::AnyObject,
         ndarray::{shape_util::parse_numpy_int_sequence, NDArrayObject},
@@ -29,13 +30,13 @@ use super::{
 use crate::{
     symbol_resolver::ValueEnum,
     toplevel::{
-        helper::{extract_ndims, PrimDef},
+        helper::extract_ndims,
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         DefinitionId,
     },
     typecheck::{
         magic_methods::Binop,
-        typedef::{FunSignature, Type, TypeEnum},
+        typedef::{FunSignature, Type},
     },
 };
 
@@ -1839,26 +1840,6 @@ pub fn gen_ndarray_array<'ctx>(
     assert!(matches!(args.len(), 1..=3));
 
     let obj_ty = fun.0.args[0].ty;
-    let obj_elem_ty = match &*context.unifier.get_ty(obj_ty) {
-        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-            unpack_ndarray_var_tys(&mut context.unifier, obj_ty).0
-        }
-
-        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
-            let mut ty = *params.iter().next().unwrap().1;
-            while let TypeEnum::TObj { obj_id, params, .. } = &*context.unifier.get_ty_immutable(ty)
-            {
-                if *obj_id != PrimDef::List.id() {
-                    break;
-                }
-
-                ty = *params.iter().next().unwrap().1;
-            }
-            ty
-        }
-
-        _ => obj_ty,
-    };
     let obj_arg = args[0].1.clone().to_basic_value_enum(context, generator, obj_ty)?;
 
     let copy_arg = if let Some(arg) =
@@ -1874,28 +1855,18 @@ pub fn gen_ndarray_array<'ctx>(
         )
     };
 
-    let ndmin_arg = if let Some(arg) =
-        args.iter().find(|arg| arg.0.is_some_and(|name| name == fun.0.args[2].name))
-    {
-        let ndmin_ty = fun.0.args[2].ty;
-        arg.1.clone().to_basic_value_enum(context, generator, ndmin_ty)?
-    } else {
-        context.gen_symbol_val(
-            generator,
-            fun.0.args[2].default_value.as_ref().unwrap(),
-            fun.0.args[2].ty,
-        )
-    };
+    // The ndmin argument is ignored. We can simply force the ndarray's number of dimensions to be
+    // the `ndims` of the function return type.
+    let (_, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+    let ndims = extract_ndims(&context.unifier, ndims);
 
-    call_ndarray_array_impl(
-        generator,
-        context,
-        obj_elem_ty,
-        obj_arg,
-        copy_arg.into_int_value(),
-        ndmin_arg.into_int_value(),
-    )
-    .map(NDArrayValue::into)
+    let object = AnyObject { value: obj_arg, ty: obj_ty };
+    // NAC3 booleans are i8.
+    let copy = Int(Bool).truncate(generator, context, copy_arg.into_int_value());
+    let ndarray = NDArrayObject::make_np_array(generator, context, object, copy)
+        .atleast_nd(generator, context, ndims);
+
+    Ok(ndarray.instance.value)
 }
 
 /// Generates LLVM IR for `ndarray.eye`.

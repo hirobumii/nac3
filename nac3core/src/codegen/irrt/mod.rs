@@ -19,7 +19,10 @@ use super::{
     llvm_intrinsics,
     macros::codegen_unreachable,
     model::{function::FnCall, *},
-    object::ndarray::{indexing::NDIndex, nditer::NDIter, NDArray},
+    object::{
+        list::List,
+        ndarray::{indexing::NDIndex, nditer::NDIter, NDArray},
+    },
     stmt::gen_for_callback_incrementing,
     CodeGenContext, CodeGenerator,
 };
@@ -1128,4 +1131,33 @@ pub fn call_nac3_ndarray_index<'ctx, G: CodeGenerator + ?Sized>(
         .arg(src_ndarray)
         .arg(dst_ndarray)
         .returning_void();
+}
+
+pub fn call_nac3_ndarray_array_set_and_validate_list_shape<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    list: Instance<'ctx, Ptr<Struct<List<Int<Byte>>>>>,
+    ndims: Instance<'ctx, Int<SizeT>>,
+    shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+) {
+    let name = get_sizet_dependent_function_name(
+        generator,
+        ctx,
+        "__nac3_ndarray_array_set_and_validate_list_shape",
+    );
+    FnCall::builder(generator, ctx, &name).arg(list).arg(ndims).arg(shape).returning_void();
+}
+
+pub fn call_nac3_ndarray_array_write_list_to_array<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    list: Instance<'ctx, Ptr<Struct<List<Int<Byte>>>>>,
+    ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+) {
+    let name = get_sizet_dependent_function_name(
+        generator,
+        ctx,
+        "__nac3_ndarray_array_write_list_to_array",
+    );
+    FnCall::builder(generator, ctx, &name).arg(list).arg(ndarray).returning_void();
 }
