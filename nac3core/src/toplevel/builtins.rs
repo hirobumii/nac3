@@ -11,8 +11,10 @@ use itertools::Either;
 use strum::IntoEnumIterator;
 
 use super::{
-    helper::{debug_assert_prim_is_allowed, make_exception_fields, PrimDef, PrimDefDetails},
-    numpy::make_ndarray_ty,
+    helper::{
+        debug_assert_prim_is_allowed, extract_ndims, make_exception_fields, PrimDef, PrimDefDetails,
+    },
+    numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
     *,
 };
 use crate::{
@@ -21,7 +23,10 @@ use crate::{
         classes::{ProxyValue, RangeValue},
         model::*,
         numpy::*,
-        object::{any::AnyObject, ndarray::NDArrayObject},
+        object::{
+            any::AnyObject,
+            ndarray::{shape_util::parse_numpy_int_sequence, NDArrayObject},
+        },
         stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
@@ -1468,27 +1473,25 @@ impl<'a> BuiltinBuilder<'a> {
     fn build_ndarray_view_function(&mut self, prim: PrimDef) -> TopLevelDef {
         debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpTranspose, PrimDef::FunNpReshape]);
 
+        let in_ndarray_ty = self.unifier.get_fresh_var_with_range(
+            &[self.primitives.ndarray],
+            Some("T".into()),
+            None,
+        );
+
         match prim {
-            PrimDef::FunNpTranspose => {
-                let ndarray_ty = self.unifier.get_fresh_var_with_range(
-                    &[self.ndarray_num_ty],
-                    Some("T".into()),
-                    None,
-                );
-                create_fn_by_codegen(
-                    self.unifier,
-                    &into_var_map([ndarray_ty]),
-                    prim.name(),
-                    self.ndarray_num_ty,
-                    &[(self.ndarray_num_ty, "x")],
-                    Box::new(move |ctx, _, fun, args, generator| {
-                        let arg_ty = fun.0.args[0].ty;
-                        let arg_val =
-                            args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                        Ok(Some(ndarray_transpose(generator, ctx, (arg_ty, arg_val))?))
-                    }),
-                )
-            }
+            PrimDef::FunNpTranspose => create_fn_by_codegen(
+                self.unifier,
+                &into_var_map([in_ndarray_ty]),
+                prim.name(),
+                in_ndarray_ty.ty,
+                &[(in_ndarray_ty.ty, "x")],
+                Box::new(move |ctx, _, fun, args, generator| {
+                    let arg_ty = fun.0.args[0].ty;
+                    let arg_val = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+                    Ok(Some(ndarray_transpose(generator, ctx, (arg_ty, arg_val))?))
+                }),
+            ),
 
             // NOTE: on `ndarray_factory_fn_shape_arg_tvar` and
             // the `param_ty` for `create_fn_by_codegen`.
@@ -1496,20 +1499,42 @@ impl<'a> BuiltinBuilder<'a> {
             // Similar to `build_ndarray_from_shape_factory_function` we delegate the responsibility of typechecking
             // to [`typecheck::type_inferencer::Inferencer::fold_numpy_function_call_shape_argument`],
             // and use a dummy [`TypeVar`] `ndarray_factory_fn_shape_arg_tvar` as a placeholder for `param_ty`.
-            PrimDef::FunNpReshape => create_fn_by_codegen(
-                self.unifier,
-                &VarMap::new(),
-                prim.name(),
-                self.ndarray_num_ty,
-                &[(self.ndarray_num_ty, "x"), (self.ndarray_factory_fn_shape_arg_tvar.ty, "shape")],
-                Box::new(move |ctx, _, fun, args, generator| {
-                    let x1_ty = fun.0.args[0].ty;
-                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
-                    let x2_ty = fun.0.args[1].ty;
-                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
-                    Ok(Some(ndarray_reshape(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
-                }),
-            ),
+            PrimDef::FunNpReshape => {
+                let ret_ty = self.unifier.get_dummy_var().ty; // Handled by special holding
+
+                create_fn_by_codegen(
+                    self.unifier,
+                    &VarMap::new(),
+                    prim.name(),
+                    ret_ty,
+                    &[
+                        (in_ndarray_ty.ty, "x"),
+                        (self.ndarray_factory_fn_shape_arg_tvar.ty, "shape"), // Handled by special folding
+                    ],
+                    Box::new(move |ctx, _, fun, args, generator| {
+                        let ndarray_ty = fun.0.args[0].ty;
+                        let ndarray_val =
+                            args[0].1.clone().to_basic_value_enum(ctx, generator, ndarray_ty)?;
+
+                        let shape_ty = fun.0.args[1].ty;
+                        let shape_val =
+                            args[1].1.clone().to_basic_value_enum(ctx, generator, shape_ty)?;
+
+                        let ndarray = AnyObject { value: ndarray_val, ty: ndarray_ty };
+                        let ndarray = NDArrayObject::from_object(generator, ctx, ndarray);
+
+                        let shape = AnyObject { value: shape_val, ty: shape_ty };
+                        let (_, shape) = parse_numpy_int_sequence(generator, ctx, shape);
+
+                        // The ndims after reshaping is gotten from the return type of the call.
+                        let (_, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, fun.0.ret);
+                        let ndims = extract_ndims(&ctx.unifier, ndims);
+
+                        let new_ndarray = ndarray.reshape_or_copy(generator, ctx, ndims, shape);
+                        Ok(Some(new_ndarray.instance.value.as_basic_value_enum()))
+                    }),
+                )
+            }
 
             _ => unreachable!(),
         }

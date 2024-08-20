@@ -1161,3 +1161,18 @@ pub fn call_nac3_ndarray_array_write_list_to_array<'ctx, G: CodeGenerator + ?Siz
     );
     FnCall::builder(generator, ctx, &name).arg(list).arg(ndarray).returning_void();
 }
+
+pub fn call_nac3_ndarray_reshape_resolve_and_check_new_shape<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    size: Instance<'ctx, Int<SizeT>>,
+    new_ndims: Instance<'ctx, Int<SizeT>>,
+    new_shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+) {
+    let name = get_sizet_dependent_function_name(
+        generator,
+        ctx,
+        "__nac3_ndarray_reshape_resolve_and_check_new_shape",
+    );
+    FnCall::builder(generator, ctx, &name).arg(size).arg(new_ndims).arg(new_shape).returning_void();
+}
