@@ -25,6 +25,7 @@ pub mod factory;
 pub mod indexing;
 pub mod nditer;
 pub mod shape_util;
+pub mod view;
 
 /// Fields of [`NDArray`]
 pub struct NDArrayFields<'ctx, F: FieldTraversal<'ctx>> {
