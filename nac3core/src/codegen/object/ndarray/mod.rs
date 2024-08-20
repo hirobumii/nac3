@@ -2,6 +2,7 @@ pub mod array;
 pub mod broadcast;
 pub mod factory;
 pub mod indexing;
+pub mod map;
 pub mod nditer;
 pub mod shape_util;
 pub mod view;
@@ -20,6 +21,7 @@ use crate::{
             call_nac3_ndarray_get_pelement_by_indices, call_nac3_ndarray_is_c_contiguous,
             call_nac3_ndarray_len, call_nac3_ndarray_nbytes,
             call_nac3_ndarray_set_strides_by_shape, call_nac3_ndarray_size,
+            call_nac3_ndarray_util_assert_output_shape_same,
         },
         model::*,
         CodeGenContext, CodeGenerator,
@@ -498,6 +500,31 @@ impl<'ctx> NDArrayObject<'ctx> {
         ndarray.instance.set(ctx, |f| f.data, data);
         ndarray
     }
+    /// Check if this `NDArray` can be used as an `out` ndarray for an operation.
+    ///
+    /// Raise an exception if the shapes do not match.
+    pub fn assert_can_be_written_by_out<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        out_ndims: u64,
+        out_shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+    ) {
+        let ndarray_ndims = self.ndims_llvm(generator, ctx.ctx);
+        let ndarray_shape = self.instance.get(generator, ctx, |f| f.shape);
+
+        let output_ndims = Int(SizeT).const_int(generator, ctx.ctx, out_ndims);
+        let output_shape = out_shape;
+
+        call_nac3_ndarray_util_assert_output_shape_same(
+            generator,
+            ctx,
+            ndarray_ndims,
+            ndarray_shape,
+            output_ndims,
+            output_shape,
+        );
+    }
 }
 
 /// A convenience enum for implementing functions that acts on scalars or ndarrays or both.
@@ -580,6 +607,30 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
         match self {
             ScalarOrNDArray::NDArray(ndarray) => ndarray.dtype,
             ScalarOrNDArray::Scalar(scalar) => scalar.ty,
+        }
+    }
+}
+
+/// An helper enum specifying how a function should produce its output.
+///
+/// Many functions in NumPy has an optional `out` parameter (e.g., `matmul`). If `out` is specified
+/// with an ndarray, the result of a function will be written to `out`. If `out` is not specified, a function will
+/// create a new ndarray and store the result in it.
+#[derive(Debug, Clone, Copy)]
+pub enum NDArrayOut<'ctx> {
+    /// Tell a function should create a new ndarray with the expected element type `dtype`.
+    NewNDArray { dtype: Type },
+    /// Tell a function to write the result to `ndarray`.
+    WriteToNDArray { ndarray: NDArrayObject<'ctx> },
+}
+
+impl<'ctx> NDArrayOut<'ctx> {
+    /// Get the dtype of this output.
+    #[must_use]
+    pub fn get_dtype(&self) -> Type {
+        match self {
+            NDArrayOut::NewNDArray { dtype } => *dtype,
+            NDArrayOut::WriteToNDArray { ndarray } => ndarray.dtype,
         }
     }
 }
