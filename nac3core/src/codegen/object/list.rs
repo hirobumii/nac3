@@ -31,6 +31,17 @@ impl<'ctx, Item: Model<'ctx>> StructKind<'ctx> for List<Item> {
     }
 }
 
+impl<'ctx, Item: Model<'ctx>> Instance<'ctx, Ptr<Struct<List<Item>>>> {
+    /// Cast the items pointer to `uint8_t*`.
+    pub fn with_pi8_items<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> Instance<'ctx, Ptr<Struct<List<Int<Byte>>>>> {
+        self.pointer_cast(generator, ctx, Struct(List { item: Int(Byte) }))
+    }
+}
+
 /// A NAC3 Python List object.
 #[derive(Debug, Clone, Copy)]
 pub struct ListObject<'ctx> {

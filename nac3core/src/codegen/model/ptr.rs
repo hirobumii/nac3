@@ -178,6 +178,15 @@ impl<'ctx, Item: Model<'ctx>> Instance<'ctx, Ptr<Item>> {
         Ptr(new_item).pointer_cast(generator, ctx, self.value)
     }
 
+    /// Cast this pointer to `uint8_t*`
+    pub fn cast_to_pi8<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+    ) -> Instance<'ctx, Ptr<Int<Byte>>> {
+        Ptr(Int(Byte)).pointer_cast(generator, ctx, self.value)
+    }
+
     /// Check if the pointer is null with [`inkwell::builder::Builder::build_is_null`].
     pub fn is_null(&self, ctx: &CodeGenContext<'ctx, '_>) -> Instance<'ctx, Int<Bool>> {
         let value = ctx.builder.build_is_null(self.value, "").unwrap();
