@@ -50,6 +50,7 @@ pub mod irrt;
 pub mod llvm_intrinsics;
 pub mod model;
 pub mod numpy;
+pub mod object;
 pub mod stmt;
 
 #[cfg(test)]
