@@ -6,6 +6,7 @@ pub mod function;
 mod int;
 mod ptr;
 mod structure;
+pub mod util;
 
 pub use any::*;
 pub use array::*;
