@@ -9,7 +9,7 @@ use crate::{
         irrt::*,
         llvm_intrinsics::{
             call_expect, call_float_floor, call_float_pow, call_float_powi, call_int_smax,
-            call_memcpy_generic,
+            call_int_umin, call_memcpy_generic,
         },
         need_sret, numpy,
         stmt::{
@@ -2024,6 +2024,115 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     _ => unreachable!(),
                 };
                 ctx.builder.build_float_compare(op, lhs, rhs, "cmp").unwrap()
+            } else if left_ty == ctx.primitives.str {
+                assert!(ctx.unifier.unioned(left_ty, right_ty));
+
+                let llvm_i1 = ctx.ctx.bool_type();
+                let llvm_i32 = ctx.ctx.i32_type();
+                let llvm_usize = generator.get_size_type(ctx.ctx);
+
+                let lhs = lhs.into_struct_value();
+                let rhs = rhs.into_struct_value();
+
+                let plhs = generator.gen_var_alloc(ctx, lhs.get_type().into(), None).unwrap();
+                ctx.builder.build_store(plhs, lhs).unwrap();
+                let prhs = generator.gen_var_alloc(ctx, lhs.get_type().into(), None).unwrap();
+                ctx.builder.build_store(prhs, rhs).unwrap();
+
+                let lhs_len = ctx.build_in_bounds_gep_and_load(
+                    plhs,
+                    &[llvm_i32.const_zero(), llvm_i32.const_int(1, false)],
+                    None,
+                ).into_int_value();
+                let rhs_len = ctx.build_in_bounds_gep_and_load(
+                    prhs,
+                    &[llvm_i32.const_zero(), llvm_i32.const_int(1, false)],
+                    None,
+                ).into_int_value();
+
+                let len = call_int_umin(ctx, lhs_len, rhs_len, None);
+
+                let current_bb = ctx.builder.get_insert_block().unwrap();
+                let post_foreach_cmp = ctx.ctx.insert_basic_block_after(current_bb, "foreach.cmp.end");
+
+                ctx.builder.position_at_end(post_foreach_cmp);
+                let cmp_phi = ctx.builder.build_phi(llvm_i1, "").unwrap();
+                ctx.builder.position_at_end(current_bb);
+
+                gen_for_callback_incrementing(
+                    generator,
+                    ctx,
+                    None,
+                    llvm_usize.const_zero(),
+                    (len, false),
+                    |generator, ctx, _, i| {
+                        let lhs_char = {
+                            let plhs_data = ctx.build_in_bounds_gep_and_load(
+                                plhs,
+                                &[llvm_i32.const_zero(), llvm_i32.const_zero()],
+                                None,
+                            ).into_pointer_value();
+
+                            ctx.build_in_bounds_gep_and_load(
+                                plhs_data,
+                                &[i],
+                                None
+                            ).into_int_value()
+                        };
+                        let rhs_char = {
+                            let prhs_data = ctx.build_in_bounds_gep_and_load(
+                                prhs,
+                                &[llvm_i32.const_zero(), llvm_i32.const_zero()],
+                                None,
+                            ).into_pointer_value();
+
+                            ctx.build_in_bounds_gep_and_load(
+                                prhs_data,
+                                &[i],
+                                None
+                            ).into_int_value()
+                        };
+
+                        gen_if_callback(
+                            generator,
+                            ctx,
+                            |_, ctx| {
+                                Ok(ctx.builder.build_int_compare(IntPredicate::NE, lhs_char, rhs_char, "").unwrap())
+                            },
+                            |_, ctx| {
+                                let bb = ctx.builder.get_insert_block().unwrap();
+                                cmp_phi.add_incoming(&[(&llvm_i1.const_zero(), bb)]);
+                                ctx.builder.build_unconditional_branch(post_foreach_cmp).unwrap();
+
+                                Ok(())
+                            },
+                            |_, _| Ok(()),
+                        )?;
+
+                        Ok(())
+                    },
+                    llvm_usize.const_int(1, false),
+                )?;
+
+                let bb = ctx.builder.get_insert_block().unwrap();
+                let is_len_eq = ctx.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    lhs_len,
+                    rhs_len,
+                    "",
+                ).unwrap();
+                cmp_phi.add_incoming(&[(&is_len_eq, bb)]);
+                ctx.builder.build_unconditional_branch(post_foreach_cmp).unwrap();
+
+                ctx.builder.position_at_end(post_foreach_cmp);
+                let cmp_phi = cmp_phi.as_basic_value().into_int_value();
+
+                // Invert the final value if __ne__
+                if *op == Cmpop::NotEq {
+                    ctx.builder.build_not(cmp_phi, "").unwrap()
+                } else {
+                    cmp_phi
+                }
             } else if [left_ty, right_ty]
                 .iter()
                 .any(|ty| ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id()))
