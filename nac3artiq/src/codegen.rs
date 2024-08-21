@@ -486,8 +486,7 @@ fn format_rpc_arg<'ctx>(
             let buffer = ctx.builder.build_array_alloca(llvm_i8, buffer_size, "rpc.arg").unwrap();
             let buffer = ArraySliceValue::from_ptr_val(buffer, buffer_size, Some("rpc.arg"));
 
-            let ppdata =
-                generator.gen_var_alloc(ctx, llvm_arg_ty.element_type(), None).unwrap();
+            let ppdata = generator.gen_var_alloc(ctx, llvm_arg_ty.element_type(), None).unwrap();
             ctx.builder.build_store(ppdata, llvm_arg.data().base_ptr(ctx, generator)).unwrap();
 
             call_memcpy_generic(
