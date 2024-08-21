@@ -1669,6 +1669,7 @@ def run() -> int32:
 
     test_ndarray_round()
     test_ndarray_floor()
+    test_ndarray_ceil()
     test_ndarray_min()
     test_ndarray_minimum()
     test_ndarray_minimum_broadcast()
