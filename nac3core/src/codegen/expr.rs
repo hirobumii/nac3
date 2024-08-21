@@ -21,7 +21,7 @@ use nac3parser::ast::{
 use super::{
     classes::{
         ArrayLikeIndexer, ArrayLikeValue, ListType, ListValue, NDArrayValue, ProxyType, ProxyValue,
-        RangeValue, TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
+        RangeValue, UntypedArrayLikeAccessor,
     },
     concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
     gen_in_range_check, get_llvm_abi_type, get_llvm_type, get_va_count_arg_name,
@@ -32,6 +32,10 @@ use super::{
     },
     macros::codegen_unreachable,
     need_sret, numpy,
+    object::{
+        any::AnyObject,
+        ndarray::{indexing::util::gen_ndarray_subscript_ndindices, NDArrayObject},
+    },
     stmt::{
         gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         gen_var,
@@ -40,11 +44,7 @@ use super::{
 };
 use crate::{
     symbol_resolver::{SymbolValue, ValueEnum},
-    toplevel::{
-        helper::PrimDef,
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
-        DefinitionId, TopLevelDef,
-    },
+    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, DefinitionId, TopLevelDef},
     typecheck::{
         magic_methods::{Binop, BinopVariant, HasOpInfo},
         typedef::{FunSignature, FuncArg, Type, TypeEnum, TypeVarId, Unifier, VarMap},
@@ -2505,338 +2505,6 @@ pub fn gen_cmpop_expr<'ctx, G: CodeGenerator>(
     )
 }
 
-/// Generates code for a subscript expression on an `ndarray`.
-///
-/// * `ty` - The `Type` of the `NDArray` elements.
-/// * `ndims` - The `Type` of the `NDArray` number-of-dimensions `Literal`.
-/// * `v` - The `NDArray` value.
-/// * `slice` - The slice expression used to subscript into the `ndarray`.
-fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    ty: Type,
-    ndims: Type,
-    v: NDArrayValue<'ctx>,
-    slice: &Expr<Option<Type>>,
-) -> Result<Option<ValueEnum<'ctx>>, String> {
-    let llvm_i1 = ctx.ctx.bool_type();
-    let llvm_i32 = ctx.ctx.i32_type();
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let TypeEnum::TLiteral { values, .. } = &*ctx.unifier.get_ty_immutable(ndims) else {
-        codegen_unreachable!(ctx)
-    };
-
-    let ndims = values
-        .iter()
-        .map(|ndim| u64::try_from(ndim.clone()).map_err(|()| ndim.clone()))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|val| {
-            format!(
-                "Expected non-negative literal for ndarray.ndims, got {}",
-                i128::try_from(val).unwrap()
-            )
-        })?;
-
-    assert!(!ndims.is_empty());
-
-    // The number of dimensions subscripted by the index expression.
-    // Slicing a ndarray will yield the same number of dimensions, whereas indexing into a
-    // dimension will remove a dimension.
-    let subscripted_dims = match &slice.node {
-        ExprKind::Tuple { elts, .. } => elts.iter().fold(0, |acc, value_subexpr| {
-            if let ExprKind::Slice { .. } = &value_subexpr.node {
-                acc
-            } else {
-                acc + 1
-            }
-        }),
-
-        ExprKind::Slice { .. } => 0,
-        _ => 1,
-    };
-
-    let ndarray_ndims_ty = ctx.unifier.get_fresh_literal(
-        ndims.iter().map(|v| SymbolValue::U64(v - subscripted_dims)).collect(),
-        None,
-    );
-    let ndarray_ty =
-        make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(ty), Some(ndarray_ndims_ty));
-    let llvm_pndarray_t = ctx.get_llvm_type(generator, ndarray_ty).into_pointer_type();
-    let llvm_ndarray_t = llvm_pndarray_t.get_element_type().into_struct_type();
-    let llvm_ndarray_data_t = ctx.get_llvm_type(generator, ty).as_basic_type_enum();
-    let sizeof_elem = llvm_ndarray_data_t.size_of().unwrap();
-
-    // Check that len is non-zero
-    let len = v.load_ndims(ctx);
-    ctx.make_assert(
-        generator,
-        ctx.builder.build_int_compare(IntPredicate::SGT, len, llvm_usize.const_zero(), "").unwrap(),
-        "0:IndexError",
-        "too many indices for array: array is {0}-dimensional but 1 were indexed",
-        [Some(len), None, None],
-        slice.location,
-    );
-
-    // Normalizes a possibly-negative index to its corresponding positive index
-    let normalize_index = |generator: &mut G,
-                           ctx: &mut CodeGenContext<'ctx, '_>,
-                           index: IntValue<'ctx>,
-                           dim: u64| {
-        gen_if_else_expr_callback(
-            generator,
-            ctx,
-            |_, ctx| {
-                Ok(ctx
-                    .builder
-                    .build_int_compare(IntPredicate::SGE, index, index.get_type().const_zero(), "")
-                    .unwrap())
-            },
-            |_, _| Ok(Some(index)),
-            |generator, ctx| {
-                let llvm_i32 = ctx.ctx.i32_type();
-
-                let len = unsafe {
-                    v.dim_sizes().get_typed_unchecked(
-                        ctx,
-                        generator,
-                        &llvm_usize.const_int(dim, true),
-                        None,
-                    )
-                };
-
-                let index = ctx
-                    .builder
-                    .build_int_add(
-                        len,
-                        ctx.builder.build_int_s_extend(index, llvm_usize, "").unwrap(),
-                        "",
-                    )
-                    .unwrap();
-
-                Ok(Some(ctx.builder.build_int_truncate(index, llvm_i32, "").unwrap()))
-            },
-        )
-        .map(|v| v.map(BasicValueEnum::into_int_value))
-    };
-
-    // Converts a slice expression into a slice-range tuple
-    let expr_to_slice = |generator: &mut G,
-                         ctx: &mut CodeGenContext<'ctx, '_>,
-                         node: &ExprKind<Option<Type>>,
-                         dim: u64| {
-        match node {
-            ExprKind::Constant { value: Constant::Int(v), .. } => {
-                let Some(index) =
-                    normalize_index(generator, ctx, llvm_i32.const_int(*v as u64, true), dim)?
-                else {
-                    return Ok(None);
-                };
-
-                Ok(Some((index, index, llvm_i32.const_int(1, true))))
-            }
-
-            ExprKind::Slice { lower, upper, step } => {
-                let dim_sz = unsafe {
-                    v.dim_sizes().get_typed_unchecked(
-                        ctx,
-                        generator,
-                        &llvm_usize.const_int(dim, false),
-                        None,
-                    )
-                };
-
-                handle_slice_indices(lower, upper, step, ctx, generator, dim_sz)
-            }
-
-            _ => {
-                let Some(index) = generator.gen_expr(ctx, slice)? else { return Ok(None) };
-                let index = index
-                    .to_basic_value_enum(ctx, generator, slice.custom.unwrap())?
-                    .into_int_value();
-                let Some(index) = normalize_index(generator, ctx, index, dim)? else {
-                    return Ok(None);
-                };
-
-                Ok(Some((index, index, llvm_i32.const_int(1, true))))
-            }
-        }
-    };
-
-    let make_indices_arr = |generator: &mut G,
-                            ctx: &mut CodeGenContext<'ctx, '_>|
-     -> Result<_, String> {
-        Ok(if let ExprKind::Tuple { elts, .. } = &slice.node {
-            let llvm_int_ty = ctx.get_llvm_type(generator, elts[0].custom.unwrap());
-            let index_addr = generator.gen_array_var_alloc(
-                ctx,
-                llvm_int_ty,
-                llvm_usize.const_int(elts.len() as u64, false),
-                None,
-            )?;
-
-            for (i, elt) in elts.iter().enumerate() {
-                let Some(index) = generator.gen_expr(ctx, elt)? else {
-                    return Ok(None);
-                };
-
-                let index = index
-                    .to_basic_value_enum(ctx, generator, elt.custom.unwrap())?
-                    .into_int_value();
-                let Some(index) = normalize_index(generator, ctx, index, 0)? else {
-                    return Ok(None);
-                };
-
-                let store_ptr = unsafe {
-                    index_addr.ptr_offset_unchecked(
-                        ctx,
-                        generator,
-                        &llvm_usize.const_int(i as u64, false),
-                        None,
-                    )
-                };
-                ctx.builder.build_store(store_ptr, index).unwrap();
-            }
-
-            Some(index_addr)
-        } else if let Some(index) = generator.gen_expr(ctx, slice)? {
-            let llvm_int_ty = ctx.get_llvm_type(generator, slice.custom.unwrap());
-            let index_addr = generator.gen_array_var_alloc(
-                ctx,
-                llvm_int_ty,
-                llvm_usize.const_int(1u64, false),
-                None,
-            )?;
-
-            let index =
-                index.to_basic_value_enum(ctx, generator, slice.custom.unwrap())?.into_int_value();
-            let Some(index) = normalize_index(generator, ctx, index, 0)? else { return Ok(None) };
-
-            let store_ptr = unsafe {
-                index_addr.ptr_offset_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
-            };
-            ctx.builder.build_store(store_ptr, index).unwrap();
-
-            Some(index_addr)
-        } else {
-            None
-        })
-    };
-
-    Ok(Some(if ndims.len() == 1 && ndims[0] - subscripted_dims == 0 {
-        let Some(index_addr) = make_indices_arr(generator, ctx)? else { return Ok(None) };
-
-        v.data().get(ctx, generator, &index_addr, None).into()
-    } else {
-        match &slice.node {
-            ExprKind::Tuple { elts, .. } => {
-                let slices = elts
-                    .iter()
-                    .enumerate()
-                    .map(|(dim, elt)| expr_to_slice(generator, ctx, &elt.node, dim as u64))
-                    .take_while_inclusive(|slice| slice.as_ref().is_ok_and(Option::is_some))
-                    .collect::<Result<Vec<_>, _>>()?;
-                if slices.len() < elts.len() {
-                    return Ok(None);
-                }
-
-                let slices = slices.into_iter().map(Option::unwrap).collect_vec();
-
-                numpy::ndarray_sliced_copy(generator, ctx, ty, v, &slices)?.as_base_value().into()
-            }
-
-            ExprKind::Slice { .. } => {
-                let Some(slice) = expr_to_slice(generator, ctx, &slice.node, 0)? else {
-                    return Ok(None);
-                };
-
-                numpy::ndarray_sliced_copy(generator, ctx, ty, v, &[slice])?.as_base_value().into()
-            }
-
-            _ => {
-                // Accessing an element from a multi-dimensional `ndarray`
-
-                let Some(index_addr) = make_indices_arr(generator, ctx)? else { return Ok(None) };
-
-                // Create a new array, remove the top dimension from the dimension-size-list, and copy the
-                // elements over
-                let subscripted_ndarray =
-                    generator.gen_var_alloc(ctx, llvm_ndarray_t.into(), None)?;
-                let ndarray = NDArrayValue::from_ptr_val(subscripted_ndarray, llvm_usize, None);
-
-                let num_dims = v.load_ndims(ctx);
-                ndarray.store_ndims(
-                    ctx,
-                    generator,
-                    ctx.builder
-                        .build_int_sub(num_dims, llvm_usize.const_int(1, false), "")
-                        .unwrap(),
-                );
-
-                let ndarray_num_dims = ndarray.load_ndims(ctx);
-                ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
-
-                let ndarray_num_dims = ctx
-                    .builder
-                    .build_int_z_extend_or_bit_cast(
-                        ndarray.load_ndims(ctx),
-                        llvm_usize.size_of().get_type(),
-                        "",
-                    )
-                    .unwrap();
-                let v_dims_src_ptr = unsafe {
-                    v.dim_sizes().ptr_offset_unchecked(
-                        ctx,
-                        generator,
-                        &llvm_usize.const_int(1, false),
-                        None,
-                    )
-                };
-                call_memcpy_generic(
-                    ctx,
-                    ndarray.dim_sizes().base_ptr(ctx, generator),
-                    v_dims_src_ptr,
-                    ctx.builder
-                        .build_int_mul(ndarray_num_dims, llvm_usize.size_of(), "")
-                        .map(Into::into)
-                        .unwrap(),
-                    llvm_i1.const_zero(),
-                );
-
-                let ndarray_num_elems = call_ndarray_calc_size(
-                    generator,
-                    ctx,
-                    &ndarray.dim_sizes().as_slice_value(ctx, generator),
-                    (None, None),
-                );
-                let ndarray_num_elems = ctx
-                    .builder
-                    .build_int_z_extend_or_bit_cast(ndarray_num_elems, sizeof_elem.get_type(), "")
-                    .unwrap();
-                ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
-
-                let v_data_src_ptr = v.data().ptr_offset(ctx, generator, &index_addr, None);
-                call_memcpy_generic(
-                    ctx,
-                    ndarray.data().base_ptr(ctx, generator),
-                    v_data_src_ptr,
-                    ctx.builder
-                        .build_int_mul(
-                            ndarray_num_elems,
-                            llvm_ndarray_data_t.size_of().unwrap(),
-                            "",
-                        )
-                        .map(Into::into)
-                        .unwrap(),
-                    llvm_i1.const_zero(),
-                );
-
-                ndarray.as_base_value().into()
-            }
-        }
-    }))
-}
-
 /// See [`CodeGenerator::gen_expr`].
 pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
@@ -3493,18 +3161,26 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         v.data().get(ctx, generator, &index, None).into()
                     }
                 }
-                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::NDArray.id() => {
-                    let (ty, ndims) = params.iter().map(|(_, ty)| ty).collect_tuple().unwrap();
-
-                    let v = if let Some(v) = generator.gen_expr(ctx, value)? {
-                        v.to_basic_value_enum(ctx, generator, value.custom.unwrap())?
-                            .into_pointer_value()
-                    } else {
+                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
+                    let Some(ndarray) = generator.gen_expr(ctx, value)? else {
                         return Ok(None);
                     };
-                    let v = NDArrayValue::from_ptr_val(v, usize, None);
 
-                    return gen_ndarray_subscript_expr(generator, ctx, *ty, *ndims, v, slice);
+                    let ndarray_ty = value.custom.unwrap();
+                    let ndarray = ndarray.to_basic_value_enum(ctx, generator, ndarray_ty)?;
+
+                    let ndarray = NDArrayObject::from_object(
+                        generator,
+                        ctx,
+                        AnyObject { ty: ndarray_ty, value: ndarray },
+                    );
+
+                    let indices = gen_ndarray_subscript_ndindices(generator, ctx, slice)?;
+                    let result = ndarray
+                        .index(generator, ctx, &indices)
+                        .split_unsized(generator, ctx)
+                        .to_basic_value_enum();
+                    return Ok(Some(ValueEnum::Dynamic(result)));
                 }
                 TypeEnum::TTuple { .. } => {
                     let index: u32 =

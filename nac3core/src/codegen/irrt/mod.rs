@@ -19,7 +19,7 @@ use super::{
     llvm_intrinsics,
     macros::codegen_unreachable,
     model::{function::FnCall, *},
-    object::ndarray::{nditer::NDIter, NDArray},
+    object::ndarray::{indexing::NDIndex, nditer::NDIter, NDArray},
     stmt::gen_for_callback_incrementing,
     CodeGenContext, CodeGenerator,
 };
@@ -1111,4 +1111,21 @@ pub fn call_nac3_nditer_next<'ctx, G: CodeGenerator + ?Sized>(
 ) {
     let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_nditer_next");
     FnCall::builder(generator, ctx, &name).arg(iter).returning_void();
+}
+
+pub fn call_nac3_ndarray_index<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    num_indices: Instance<'ctx, Int<SizeT>>,
+    indices: Instance<'ctx, Ptr<Struct<NDIndex>>>,
+    src_ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+    dst_ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+) {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_index");
+    FnCall::builder(generator, ctx, &name)
+        .arg(num_indices)
+        .arg(indices)
+        .arg(src_ndarray)
+        .arg(dst_ndarray)
+        .returning_void();
 }
