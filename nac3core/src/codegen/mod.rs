@@ -580,11 +580,11 @@ fn get_llvm_abi_type<'ctx, G: CodeGenerator + ?Sized>(
 ) -> BasicTypeEnum<'ctx> {
     // If the type is used in the definition of a function, return `i1` instead of `i8` for ABI
     // consistency.
-    return if unifier.unioned(ty, primitives.bool) {
+    if unifier.unioned(ty, primitives.bool) {
         ctx.bool_type().into()
     } else {
         get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, ty)
-    };
+    }
 }
 
 /// Whether `sret` is needed for a return value with type `ty`.
