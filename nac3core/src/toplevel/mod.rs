@@ -130,14 +130,14 @@ pub enum TopLevelDef {
         /// Function instance to symbol mapping
         ///
         /// * Key: String representation of type variable values, sorted by variable ID in ascending
-        /// order, including type variables associated with the class.
+        ///   order, including type variables associated with the class.
         /// * Value: Function symbol name.
         instance_to_symbol: HashMap<String, String>,
         /// Function instances to annotated AST mapping
         ///
         /// * Key: String representation of type variable values, sorted by variable ID in ascending
-        /// order, including type variables associated with the class. Excluding rigid type
-        /// variables.
+        ///   order, including type variables associated with the class. Excluding rigid type
+        ///   variables.
         ///
         /// Rigid type variables that would be substituted when the function is instantiated.
         instance_to_stmt: HashMap<String, FunInstance>,

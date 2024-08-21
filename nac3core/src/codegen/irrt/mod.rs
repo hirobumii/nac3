@@ -568,7 +568,7 @@ pub fn call_j0<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> Flo
 ///
 /// * `dims` - An [`ArrayLikeIndexer`] containing the size of each dimension.
 /// * `range` - The dimension index to begin and end (exclusively) calculating the dimensions for,
-/// or [`None`] if starting from the first dimension and ending at the last dimension respectively.
+///   or [`None`] if starting from the first dimension and ending at the last dimension respectively.
 pub fn call_ndarray_calc_size<'ctx, G, Dims>(
     generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,
@@ -620,7 +620,7 @@ where
 ///
 /// * `index` - The index to compute the multidimensional index for.
 /// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
-/// `NDArray`.
+///   `NDArray`.
 pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     generator: &G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -744,7 +744,7 @@ where
 /// multidimensional index.
 ///
 /// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
-/// `NDArray`.
+///   `NDArray`.
 /// * `indices` - The multidimensional index to compute the flattened index for.
 pub fn call_ndarray_flatten_index<'ctx, G, Index>(
     generator: &mut G,

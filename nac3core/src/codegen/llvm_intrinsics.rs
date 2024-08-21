@@ -205,8 +205,8 @@ pub fn call_memcpy_generic<'ctx>(
 /// * `$ctx:ident`: Reference to the current Code Generation Context
 /// * `$name:ident`: Optional name to be assigned to the llvm build call (Option<&str>)
 /// * `$llvm_name:literal`: Name of underlying llvm intrinsic function
-/// * `$map_fn:ident`: Mapping function to be applied on `BasicValue` (`BasicValue` -> Function Return Type)
-/// Use `BasicValueEnum::into_int_value` for Integer return type and `BasicValueEnum::into_float_value` for Float return type
+/// * `$map_fn:ident`: Mapping function to be applied on `BasicValue` (`BasicValue` -> Function Return Type).
+///   Use `BasicValueEnum::into_int_value` for Integer return type and `BasicValueEnum::into_float_value` for Float return type
 /// * `$llvm_ty:ident`: Type of first operand
 /// * `,($val:ident)*`: Comma separated list of operands
 macro_rules! generate_llvm_intrinsic_fn_body {
@@ -222,8 +222,8 @@ macro_rules! generate_llvm_intrinsic_fn_body {
 /// Arguments:
 /// * `float/int`: Indicates the return and argument type of the function
 /// * `$fn_name:ident`: The identifier of the rust function to be generated
-/// * `$llvm_name:literal`: Name of underlying llvm intrinsic function
-/// Omit "llvm." prefix from the function name i.e. use "ceil" instead of "llvm.ceil"
+/// * `$llvm_name:literal`: Name of underlying llvm intrinsic function.
+///   Omit "llvm." prefix from the function name i.e. use "ceil" instead of "llvm.ceil"
 /// * `$val:ident`: The operand for unary operations
 /// * `$val1:ident`, `$val2:ident`: The operands for binary operations
 macro_rules! generate_llvm_intrinsic_fn {

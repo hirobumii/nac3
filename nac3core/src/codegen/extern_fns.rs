@@ -13,11 +13,11 @@ use crate::codegen::CodeGenContext;
 /// * `$extern_fn:literal`: Name of underlying extern function
 ///
 /// Optional Arguments:
-/// * `$(,$attributes:literal)*)`: Attributes linked with the extern function
-/// The default attributes are "mustprogress", "nofree", "nounwind", "willreturn", and "writeonly"
-/// These will be used unless other attributes are specified
+/// * `$(,$attributes:literal)*)`: Attributes linked with the extern function.
+///   The default attributes are "mustprogress", "nofree", "nounwind", "willreturn", and "writeonly".
+///   These will be used unless other attributes are specified
 /// * `$(,$args:ident)*`: Operands of the extern function
-/// The data type of these operands will be set to `FloatValue`
+///   The data type of these operands will be set to `FloatValue`
 ///  
 macro_rules! generate_extern_fn {
     ("unary", $fn_name:ident, $extern_fn:literal) => {

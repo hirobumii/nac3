@@ -64,9 +64,9 @@ impl TypeAnnotation {
 /// Parses an AST expression `expr` into a [`TypeAnnotation`].
 ///
 /// * `locked` - A [`HashMap`] containing the IDs of known definitions, mapped to a [`Vec`] of all
-/// generic variables associated with the definition.
+///   generic variables associated with the definition.
 /// * `type_var` - The type variable associated with the type argument currently being parsed. Pass
-/// [`None`] when this function is invoked externally.
+///   [`None`] when this function is invoked externally.
 pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],

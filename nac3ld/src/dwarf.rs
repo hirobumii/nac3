@@ -238,7 +238,7 @@ impl<'a> EH_Frame<'a> {
 /// From the [specification](https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html):
 ///
 /// > Each CFI record contains a Common Information Entry (CIE) record followed by 1 or more Frame
-/// Description Entry (FDE) records.
+/// > Description Entry (FDE) records.
 pub struct CFI_Record<'a> {
     // It refers to the augmentation data that corresponds to 'R' in the augmentation string
     fde_pointer_encoding: u8,

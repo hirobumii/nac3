@@ -10,9 +10,9 @@ use itertools::Itertools;
 /// Creates a `ndarray` [`Type`] with the given type arguments.
 ///
 /// * `dtype` - The element type of the `ndarray`, or [`None`] if the type variable is not
-/// specialized.
+///   specialized.
 /// * `ndims` - The number of dimensions of the `ndarray`, or [`None`] if the type variable is not
-/// specialized.
+///   specialized.
 pub fn make_ndarray_ty(
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
@@ -25,9 +25,9 @@ pub fn make_ndarray_ty(
 /// Substitutes type variables in `ndarray`.
 ///
 /// * `dtype` - The element type of the `ndarray`, or [`None`] if the type variable is not
-/// specialized.
+///   specialized.
 /// * `ndims` - The number of dimensions of the `ndarray`, or [`None`] if the type variable is not
-/// specialized.
+///   specialized.
 pub fn subst_ndarray_tvars(
     unifier: &mut Unifier,
     ndarray: Type,

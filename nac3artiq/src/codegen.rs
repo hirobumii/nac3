@@ -130,7 +130,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
     /// (possibly indirect) `parallel` block.
     ///
     /// * `store_name` - The LLVM value name for the pointer to `end`. `.addr` will be appended to
-    /// the end of the provided value name.
+    ///   the end of the provided value name.
     fn timeline_update_end_max(
         &mut self,
         ctx: &mut CodeGenContext<'_, '_>,

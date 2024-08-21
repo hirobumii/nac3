@@ -1076,9 +1076,9 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
 /// * `(arg_ty, arg_val)`: The [`Type`] and llvm value of the input argument.
 /// * `fn_name`: The name of the function, only used when throwing an error with [`unsupported_type`]
 /// * `get_ret_elem_type`: A function that takes in the input scalar [`Type`], and returns the function's return scalar [`Type`].
-/// Return a constant [`Type`] here if the return type does not depend on the input type.
+///   Return a constant [`Type`] here if the return type does not depend on the input type.
 /// * `on_scalar`: The function that acts on the scalars of the input. Returns [`Option::None`]
-/// if the scalar type & value are faulty and should panic with [`unsupported_type`].
+///   if the scalar type & value are faulty and should panic with [`unsupported_type`].
 fn helper_call_numpy_unary_elementwise<'ctx, OnScalarFn, RetElemFn, G>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -1189,9 +1189,9 @@ pub fn call_abs<'ctx, G: CodeGenerator + ?Sized>(
 /// * `$name:ident`: The identifier of the rust function to be generated.
 /// * `$fn_name:literal`: To be passed to the `fn_name` parameter of [`helper_call_numpy_unary_elementwise`]
 /// * `$get_ret_elem_type:expr`: To be passed to the `get_ret_elem_type` parameter of [`helper_call_numpy_unary_elementwise`].
-/// But there is no need to make it a reference.
+///   But there is no need to make it a reference.
 /// * `$on_scalar:expr`: To be passed to the `on_scalar` parameter of [`helper_call_numpy_unary_elementwise`].
-/// But there is no need to make it a reference.
+///   But there is no need to make it a reference.
 macro_rules! create_helper_call_numpy_unary_elementwise {
     ($name:ident, $fn_name:literal, $get_ret_elem_type:expr, $on_scalar:expr) => {
         #[allow(clippy::redundant_closure_call)]
@@ -1218,7 +1218,7 @@ macro_rules! create_helper_call_numpy_unary_elementwise {
 /// * `$name:ident`: The identifier of the rust function to be generated.
 /// * `$fn_name:literal`: To be passed to the `fn_name` parameter of [`helper_call_numpy_unary_elementwise`].
 /// * `$on_scalar:expr`: The closure (see below for its type) that acts on float scalar values and returns
-/// the boolean results of LLVM type `i1`. The returned `i1` value will be converted into an `i8`.
+///   the boolean results of LLVM type `i1`. The returned `i1` value will be converted into an `i8`.
 ///
 /// ```ignore
 /// // Type of `$on_scalar:expr`

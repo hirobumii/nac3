@@ -112,7 +112,7 @@ pub fn get_exn_constructor(
 /// * `name`: The name of the implemented NumPy function.
 /// * `ret_ty`: The return type of this function.
 /// * `param_ty`: The parameters accepted by this function, represented by a tuple of the
-/// [parameter type][Type] and the parameter symbol name.
+///   [parameter type][Type] and the parameter symbol name.
 /// * `codegen_callback`: A lambda generating LLVM IR for the implementation of this function.
 fn create_fn_by_codegen(
     unifier: &mut Unifier,
@@ -152,7 +152,7 @@ fn create_fn_by_codegen(
 /// * `name`: The name of the implemented NumPy function.
 /// * `ret_ty`: The return type of this function.
 /// * `param_ty`: The parameters accepted by this function, represented by a tuple of the
-/// [parameter type][Type] and the parameter symbol name.
+///   [parameter type][Type] and the parameter symbol name.
 /// * `intrinsic_fn`: The fully-qualified name of the LLVM intrinsic function.
 fn create_fn_by_intrinsic(
     unifier: &mut Unifier,
@@ -214,10 +214,10 @@ fn create_fn_by_intrinsic(
 /// * `name`: The name of the implemented NumPy function.
 /// * `ret_ty`: The return type of this function.
 /// * `param_ty`: The parameters accepted by this function, represented by a tuple of the
-/// [parameter type][Type] and the parameter symbol name.
+///   [parameter type][Type] and the parameter symbol name.
 /// * `extern_fn`: The fully-qualified name of the extern function used as the implementation.
 /// * `attrs`: The list of attributes to apply to this function declaration. Note that `nounwind` is
-/// already implied by the C ABI.
+///   already implied by the C ABI.
 fn create_fn_by_extern(
     unifier: &mut Unifier,
     var_map: &VarMap,

@@ -1071,15 +1071,15 @@ fn call_ndarray_eye_impl<'ctx, G: CodeGenerator + ?Sized>(
 /// Copies a slice of an [`NDArrayValue`] to another.
 ///
 /// - `dst_arr`: The [`NDArrayValue`] instance of the destination array. The `ndims` and `dim_sz`
-/// fields should be populated before calling this function.
+///   fields should be populated before calling this function.
 /// - `dst_slice_ptr`: The [`PointerValue`] to the first element of the currently processing
-/// dimensional slice in the destination array.
+///   dimensional slice in the destination array.
 /// - `src_arr`: The [`NDArrayValue`] instance of the source array.
 /// - `src_slice_ptr`: The [`PointerValue`] to the first element of the currently processing
-/// dimensional slice in the source array.
+///   dimensional slice in the source array.
 /// - `dim`: The index of the currently processing dimension.
 /// - `slices`: List of all slices, with the first element corresponding to the slice applicable to
-/// this dimension. The `start`/`stop` values of each slice must be non-negative indices.
+///   this dimension. The `start`/`stop` values of each slice must be non-negative indices.
 fn ndarray_sliced_copyto_impl<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -1184,7 +1184,7 @@ fn ndarray_sliced_copyto_impl<'ctx, G: CodeGenerator + ?Sized>(
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
 /// - `slices`: List of all slices, with the first element corresponding to the slice applicable to
-/// this dimension. The `start`/`stop` values of each slice must be positive indices.
+///   this dimension. The `start`/`stop` values of each slice must be positive indices.
 pub fn ndarray_sliced_copy<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -1349,7 +1349,7 @@ where
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
 /// * `res` - The `ndarray` instance to write results into, or [`None`] if the result should be
-/// written to a new `ndarray`.
+///   written to a new `ndarray`.
 /// * `value_fn` - Function mapping the two input elements into the result.
 ///
 /// # Panic
@@ -1436,7 +1436,7 @@ where
 ///
 /// * `elem_ty` - The element type of the `NDArray`.
 /// * `res` - The `ndarray` instance to write results into, or [`None`] if the result should be
-/// written to a new `ndarray`.
+///   written to a new `ndarray`.
 pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -2140,11 +2140,11 @@ pub fn ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
 ///
 /// * `x1` - `NDArray` to reshape.
 /// * `shape` - The `shape` parameter used to construct the new `NDArray`.
-/// Just like numpy, the `shape` argument can be:
+///   Just like numpy, the `shape` argument can be:
 ///   1. A list of `int32`;   e.g., `np.reshape(arr, [600, -1, 3])`
 ///   2. A tuple of `int32`;  e.g., `np.reshape(arr, (-1, 800, 3))`
 ///   3. A scalar `int32`;     e.g., `np.reshape(arr, 3)`
-/// Note that unlike other generating functions, one of the dimesions in the shape can be negative
+///      Note that unlike other generating functions, one of the dimesions in the shape can be negative
 pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,

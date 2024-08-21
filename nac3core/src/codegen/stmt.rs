@@ -619,9 +619,9 @@ pub struct BreakContinueHooks<'ctx> {
 /// ```
 ///
 /// * `init` - A lambda containing IR statements declaring and initializing loop variables. The
-/// return value is a [Clone] value which will be passed to the other lambdas.
+///   return value is a [Clone] value which will be passed to the other lambdas.
 /// * `cond` - A lambda containing IR statements checking whether the loop should continue
-/// executing. The result value must be an `i1` indicating if the loop should continue.
+///   executing. The result value must be an `i1` indicating if the loop should continue.
 /// * `body` - A lambda containing IR statements within the loop body.
 /// * `update` - A lambda containing IR statements updating loop variables.
 pub fn gen_for_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn>(
@@ -704,9 +704,9 @@ where
 /// ```
 ///
 /// * `init_val` - The initial value of the loop variable. The type of this value will also be used
-/// as the type of the loop variable.
+///   as the type of the loop variable.
 /// * `max_val` - A tuple containing the maximum value of the loop variable, and whether the maximum
-/// value should be treated as inclusive (as opposed to exclusive).
+///   value should be treated as inclusive (as opposed to exclusive).
 /// * `body` - A lambda containing IR statements within the loop body.
 /// * `incr_val` - The value to increment the loop variable on each iteration.
 pub fn gen_for_callback_incrementing<'ctx, 'a, G, BodyFn>(
@@ -777,12 +777,12 @@ where
 ///
 /// - `is_unsigned`: Whether to treat the values of the `range` as unsigned.
 /// - `start_fn`: A lambda of IR statements that retrieves the `start` value of the `range`-like
-/// iterable.
+///   iterable.
 /// - `stop_fn`: A lambda of IR statements that retrieves the `stop` value of the `range`-like
-/// iterable. This value will be extended to the size of `start`.
+///   iterable. This value will be extended to the size of `start`.
 /// - `stop_inclusive`: Whether the stop value should be treated as inclusive.
 /// - `step_fn`: A lambda of IR statements that retrieves the `step` value of the  `range`-like
-/// iterable. This value will be extended to the size of `start`.
+///   iterable. This value will be extended to the size of `start`.
 /// - `body_fn`: A lambda of IR statements within the loop body.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_for_range_callback<'ctx, 'a, G, StartFn, StopFn, StepFn, BodyFn>(
