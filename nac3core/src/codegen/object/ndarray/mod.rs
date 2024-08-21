@@ -1,11 +1,12 @@
 pub mod factory;
+pub mod indexing;
 pub mod nditer;
 pub mod shape_util;
 
 use inkwell::{
     context::Context,
     types::BasicType,
-    values::{BasicValueEnum, PointerValue},
+    values::{BasicValue, BasicValueEnum, PointerValue},
     AddressSpace,
 };
 
@@ -353,6 +354,30 @@ impl<'ctx> NDArrayObject<'ctx> {
         call_nac3_ndarray_copy_data(generator, ctx, src.instance, self.instance);
     }
 
+    /// Returns true if this ndarray is unsized - `ndims == 0` and only contains a scalar.
+    #[must_use]
+    pub fn is_unsized(&self) -> bool {
+        self.ndims == 0
+    }
+
+    /// If this ndarray is unsized, return its sole value as an [`AnyObject`].
+    /// Otherwise, do nothing and return the ndarray itself.
+    pub fn split_unsized<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> ScalarOrNDArray<'ctx> {
+        if self.is_unsized() {
+            // NOTE: `np.size(self) == 0` here is never possible.
+            let zero = Int(SizeT).const_0(generator, ctx.ctx);
+            let value = self.get_nth_scalar(generator, ctx, zero).value;
+
+            ScalarOrNDArray::Scalar(AnyObject { ty: self.dtype, value })
+        } else {
+            ScalarOrNDArray::NDArray(*self)
+        }
+    }
+
     /// Fill the ndarray with a scalar.
     ///
     /// `fill_value` must have the same LLVM type as the `dtype` of this ndarray.
@@ -368,5 +393,23 @@ impl<'ctx> NDArrayObject<'ctx> {
             Ok(())
         })
         .unwrap();
+    }
+}
+
+/// A convenience enum for implementing functions that acts on scalars or ndarrays or both.
+#[derive(Debug, Clone, Copy)]
+pub enum ScalarOrNDArray<'ctx> {
+    Scalar(AnyObject<'ctx>),
+    NDArray(NDArrayObject<'ctx>),
+}
+
+impl<'ctx> ScalarOrNDArray<'ctx> {
+    /// Get the underlying [`BasicValueEnum<'ctx>`] of this [`ScalarOrNDArray`].
+    #[must_use]
+    pub fn to_basic_value_enum(self) -> BasicValueEnum<'ctx> {
+        match self {
+            ScalarOrNDArray::Scalar(scalar) => scalar.value,
+            ScalarOrNDArray::NDArray(ndarray) => ndarray.instance.value.as_basic_value_enum(),
+        }
     }
 }
