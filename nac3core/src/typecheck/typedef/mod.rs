@@ -1,3 +1,11 @@
+use super::magic_methods::{Binop, HasOpInfo};
+use super::type_error::{TypeError, TypeErrorKind};
+use super::unification_table::{UnificationKey, UnificationTable};
+use crate::symbol_resolver::SymbolValue;
+use crate::toplevel::helper::PrimDef;
+use crate::toplevel::{DefinitionId, TopLevelContext, TopLevelDef};
+use crate::typecheck::magic_methods::OpInfo;
+use crate::typecheck::type_inferencer::PrimitiveStore;
 use indexmap::IndexMap;
 use itertools::{repeat_n, Itertools};
 use nac3parser::ast::{Cmpop, Location, StrRef, Unaryop};
@@ -8,15 +16,6 @@ use std::iter::{repeat, zip};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::{borrow::Cow, collections::HashSet};
-
-use super::magic_methods::Binop;
-use super::type_error::{TypeError, TypeErrorKind};
-use super::unification_table::{UnificationKey, UnificationTable};
-use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::helper::PrimDef;
-use crate::toplevel::{DefinitionId, TopLevelContext, TopLevelDef};
-use crate::typecheck::magic_methods::OpInfo;
-use crate::typecheck::type_inferencer::PrimitiveStore;
 
 #[cfg(test)]
 mod test;
@@ -1008,8 +1007,18 @@ impl Unifier {
                             self.unify_impl(v.ty, ty[ind as usize], false)
                                 .map_err(|e| e.at(v.loc))?;
                         }
-                        RecordKey::Str(_) => {
-                            return Err(TypeError::new(TypeErrorKind::NoSuchField(*k, b), v.loc))
+                        RecordKey::Str(s) => {
+                            let tuple_fns = [
+                                Cmpop::Eq.op_info().method_name,
+                                Cmpop::NotEq.op_info().method_name,
+                            ];
+
+                            if !tuple_fns.into_iter().any(|op| s.to_string() == op) {
+                                return Err(TypeError::new(
+                                    TypeErrorKind::NoSuchField(*k, b),
+                                    v.loc,
+                                ));
+                            }
                         }
                     }
                 }
