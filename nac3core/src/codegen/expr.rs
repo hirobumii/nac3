@@ -1777,14 +1777,12 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             _ => val.into(),
         }
     } else if ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
-        let llvm_usize = generator.get_size_type(ctx.ctx);
-        let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
-
-        let val = NDArrayValue::from_ptr_val(val.into_pointer_value(), llvm_usize, None);
+        let ndarray = AnyObject { value: val, ty };
+        let ndarray = NDArrayObject::from_object(generator, ctx, ndarray);
 
         // ndarray uses `~` rather than `not` to perform elementwise inversion, convert it before
         // passing it to the elementwise codegen function
-        let op = if ndarray_dtype.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::Bool.id()) {
+        let op = if ndarray.dtype.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::Bool.id()) {
             if op == ast::Unaryop::Invert {
                 ast::Unaryop::Not
             } else {
@@ -1798,20 +1796,18 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             op
         };
 
-        let res = numpy::ndarray_elementwise_unaryop_impl(
+        let mapped_ndarray = ndarray.map(
             generator,
             ctx,
-            ndarray_dtype,
-            None,
-            val,
-            |generator, ctx, val| {
-                gen_unaryop_expr_with_values(generator, ctx, op, (&Some(ndarray_dtype), val))?
+            NDArrayOut::NewNDArray { dtype: ndarray.dtype },
+            |generator, ctx, scalar| {
+                gen_unaryop_expr_with_values(generator, ctx, op, (&Some(ndarray.dtype), scalar))?
                     .unwrap()
-                    .to_basic_value_enum(ctx, generator, ndarray_dtype)
+                    .to_basic_value_enum(ctx, generator, ndarray.dtype)
             },
         )?;
 
-        res.as_base_value().into()
+        ValueEnum::Dynamic(mapped_ndarray.instance.value.as_basic_value_enum())
     } else {
         unimplemented!()
     }))
