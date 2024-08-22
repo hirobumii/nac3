@@ -14,9 +14,8 @@ use pyo3::{
 
 use nac3core::{
     codegen::{
-        classes::{ListValue, NDArrayValue, RangeValue, UntypedArrayLikeAccessor},
+        classes::{ListValue, RangeValue, UntypedArrayLikeAccessor},
         expr::{destructure_range, gen_call},
-        irrt::call_ndarray_calc_size,
         llvm_intrinsics::{call_int_smax, call_stackrestore, call_stacksave},
         model::*,
         object::{any::AnyObject, ndarray::NDArrayObject},
@@ -1311,56 +1310,46 @@ fn polymorphic_print<'ctx>(
             }
 
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
-
                 fmt.push_str("array([");
                 flush(ctx, generator, &mut fmt, &mut args);
 
-                let val = NDArrayValue::from_ptr_val(value.into_pointer_value(), llvm_usize, None);
-                let len = call_ndarray_calc_size(generator, ctx, &val.dim_sizes(), (None, None));
-                let last =
-                    ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "").unwrap();
+                let ndarray = AnyObject { ty, value };
+                let ndarray = NDArrayObject::from_object(generator, ctx, ndarray);
 
-                gen_for_callback_incrementing(
-                    generator,
-                    ctx,
-                    None,
-                    llvm_usize.const_zero(),
-                    (len, false),
-                    |generator, ctx, _, i| {
-                        let elem = unsafe { val.data().get_unchecked(ctx, generator, &i, None) };
+                let num_0 = Int(SizeT).const_0(generator, ctx.ctx);
 
-                        polymorphic_print(
-                            ctx,
-                            generator,
-                            &[(elem_ty, elem.into())],
-                            "",
-                            None,
-                            true,
-                            as_rtio,
-                        )?;
+                // Print `ndarray` as a flat list delimited by interspersed with ", \0"
+                ndarray.foreach(generator, ctx, |generator, ctx, _, hdl| {
+                    let i = hdl.get_index(generator, ctx);
+                    let scalar = hdl.get_scalar(generator, ctx);
 
-                        gen_if_callback(
-                            generator,
-                            ctx,
-                            |_, ctx| {
-                                Ok(ctx
-                                    .builder
-                                    .build_int_compare(IntPredicate::ULT, i, last, "")
-                                    .unwrap())
-                            },
-                            |generator, ctx| {
-                                printf(ctx, generator, ", \0".into(), Vec::default());
+                    // if (i != 0) { puts(", "); }
+                    gen_if_callback(
+                        generator,
+                        ctx,
+                        |_, ctx| {
+                            let not_first = i.compare(ctx, IntPredicate::NE, num_0);
+                            Ok(not_first.value)
+                        },
+                        |generator, ctx| {
+                            printf(ctx, generator, ", \0".into(), Vec::default());
+                            Ok(())
+                        },
+                        |_, _| Ok(()),
+                    )?;
 
-                                Ok(())
-                            },
-                            |_, _| Ok(()),
-                        )?;
-
-                        Ok(())
-                    },
-                    llvm_usize.const_int(1, false),
-                )?;
+                    // Print element
+                    polymorphic_print(
+                        ctx,
+                        generator,
+                        &[(scalar.ty, scalar.value.into())],
+                        "",
+                        None,
+                        true,
+                        as_rtio,
+                    )?;
+                    Ok(())
+                })?;
 
                 fmt.push_str(")]");
                 flush(ctx, generator, &mut fmt, &mut args);
