@@ -652,3 +652,18 @@ impl<'ctx> NDArrayOut<'ctx> {
         }
     }
 }
+
+/// A version of [`call_nac3_ndarray_set_strides_by_shape`] in Rust.
+///
+/// This function is used generating strides for globally defined contiguous ndarrays.
+#[must_use]
+pub fn make_contiguous_strides(itemsize: u64, ndims: u64, shape: &[u64]) -> Vec<u64> {
+    let mut strides = Vec::with_capacity(ndims as usize);
+    let mut stride_product = 1u64;
+    for i in 0..ndims {
+        let axis = ndims - i - 1;
+        strides[axis as usize] = stride_product * itemsize;
+        stride_product *= shape[axis as usize];
+    }
+    strides
+}
