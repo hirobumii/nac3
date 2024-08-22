@@ -1748,7 +1748,7 @@ impl<'a> Inferencer<'a> {
                 Ok(Some(new_func))
             }
             None => report_error(
-                format!("Method {class_name}.{method_name} not found in ancestor list").as_str(),
+                format!("Ancestor method [{class_name}.{method_name}] should be defined with same decorator as its overridden version").as_str(),
                 *location,
             ),
         }
