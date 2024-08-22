@@ -1595,7 +1595,7 @@ impl<'a> Inferencer<'a> {
             }));
         }
         // 2-argument ndarray n-dimensional factory functions
-        if id == &"np_reshape".into() && args.len() == 2 {
+        if ["np_reshape".into(), "np_broadcast_to".into()].contains(id) && args.len() == 2 {
             let arg0 = self.fold_expr(args.remove(0))?;
 
             let shape_expr = args.remove(0);

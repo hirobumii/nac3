@@ -11,3 +11,4 @@
 #include "irrt/ndarray/indexing.hpp"
 #include "irrt/ndarray/array.hpp"
 #include "irrt/ndarray/reshape.hpp"
+#include "irrt/ndarray/broadcast.hpp"

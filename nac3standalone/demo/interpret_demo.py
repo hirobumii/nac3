@@ -180,6 +180,7 @@ def patch(module):
     module.np_array = np.array
 
     # NumPy NDArray view functions
+    module.np_broadcast_to = np.broadcast_to
     module.np_transpose = np.transpose
     module.np_reshape = np.reshape
 
