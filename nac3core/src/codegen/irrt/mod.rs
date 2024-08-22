@@ -9,7 +9,7 @@ use super::{
     model::*,
     object::{
         list::List,
-        ndarray::{indexing::NDIndex, nditer::NDIter, NDArray},
+        ndarray::{broadcast::ShapeEntry, indexing::NDIndex, nditer::NDIter, NDArray},
     },
     CodeGenContext, CodeGenerator,
 };
@@ -1185,5 +1185,32 @@ pub fn call_nac3_ndarray_reshape_resolve_and_check_new_shape<'ctx, G: CodeGenera
         .arg(size)
         .arg(new_ndims)
         .arg(new_shape)
+        .returning_void();
+}
+
+pub fn call_nac3_ndarray_broadcast_to<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    src_ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+    dst_ndarray: Instance<'ctx, Ptr<Struct<NDArray>>>,
+) {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_broadcast_to");
+    CallFunction::begin(generator, ctx, &name).arg(src_ndarray).arg(dst_ndarray).returning_void();
+}
+
+pub fn call_nac3_ndarray_broadcast_shapes<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    num_shape_entries: Instance<'ctx, Int<SizeT>>,
+    shape_entries: Instance<'ctx, Ptr<Struct<ShapeEntry>>>,
+    dst_ndims: Instance<'ctx, Int<SizeT>>,
+    dst_shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+) {
+    let name = get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_broadcast_shapes");
+    CallFunction::begin(generator, ctx, &name)
+        .arg(num_shape_entries)
+        .arg(shape_entries)
+        .arg(dst_ndims)
+        .arg(dst_shape)
         .returning_void();
 }

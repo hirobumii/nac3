@@ -521,7 +521,7 @@ impl<'a> BuiltinBuilder<'a> {
                 self.build_ndarray_property_getter_function(prim)
             }
 
-            PrimDef::FunNpTranspose | PrimDef::FunNpReshape => {
+            PrimDef::FunNpBroadcastTo | PrimDef::FunNpTranspose | PrimDef::FunNpReshape => {
                 self.build_ndarray_view_function(prim)
             }
 
@@ -1469,7 +1469,10 @@ impl<'a> BuiltinBuilder<'a> {
 
     /// Build np/sp functions that take as input `NDArray` only
     fn build_ndarray_view_function(&mut self, prim: PrimDef) -> TopLevelDef {
-        debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpTranspose, PrimDef::FunNpReshape]);
+        debug_assert_prim_is_allowed(
+            prim,
+            &[PrimDef::FunNpBroadcastTo, PrimDef::FunNpTranspose, PrimDef::FunNpReshape],
+        );
 
         let in_ndarray_ty = self.unifier.get_fresh_var_with_range(
             &[self.primitives.ndarray],
@@ -1497,7 +1500,10 @@ impl<'a> BuiltinBuilder<'a> {
             // Similar to `build_ndarray_from_shape_factory_function` we delegate the responsibility of typechecking
             // to [`typecheck::type_inferencer::Inferencer::fold_numpy_function_call_shape_argument`],
             // and use a dummy [`TypeVar`] `ndarray_factory_fn_shape_arg_tvar` as a placeholder for `param_ty`.
-            PrimDef::FunNpReshape => {
+            PrimDef::FunNpBroadcastTo | PrimDef::FunNpReshape => {
+                // These two functions have the same function signature.
+                // Mixed together for convenience.
+
                 let ret_ty = self.unifier.get_dummy_var().ty; // Handled by special holding
 
                 create_fn_by_codegen(
@@ -1528,7 +1534,15 @@ impl<'a> BuiltinBuilder<'a> {
                         let (_, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, fun.0.ret);
                         let ndims = extract_ndims(&ctx.unifier, ndims);
 
-                        let new_ndarray = ndarray.reshape_or_copy(generator, ctx, ndims, shape);
+                        let new_ndarray = match prim {
+                            PrimDef::FunNpBroadcastTo => {
+                                ndarray.broadcast_to(generator, ctx, ndims, shape)
+                            }
+                            PrimDef::FunNpReshape => {
+                                ndarray.reshape_or_copy(generator, ctx, ndims, shape)
+                            }
+                            _ => unreachable!(),
+                        };
                         Ok(Some(new_ndarray.instance.value.as_basic_value_enum()))
                     }),
                 )

@@ -1,4 +1,5 @@
 pub mod array;
+pub mod broadcast;
 pub mod factory;
 pub mod indexing;
 pub mod nditer;
