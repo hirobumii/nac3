@@ -50,6 +50,22 @@ mod test;
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
 
+mod macros {
+    /// Codegen-variant of [`std::unreachable`] which accepts an instance of [`CodeGenContext`] as
+    /// its first argument to provide Python source information to indicate the codegen location
+    /// causing the assertion.
+    macro_rules! codegen_unreachable {
+        ($ctx:expr $(,)?) => {
+            std::unreachable!("unreachable code while processing {}", &$ctx.current_loc)
+        };
+        ($ctx:expr, $($arg:tt)*) => {
+            std::unreachable!("unreachable code while processing {}: {}", &$ctx.current_loc, std::format!("{}", std::format_args!($($arg)+)))
+        };
+    }
+
+    pub(crate) use codegen_unreachable;
+}
+
 #[derive(Default)]
 pub struct StaticValueStore {
     pub lookup: HashMap<Vec<(usize, u64)>, usize>,

@@ -3,12 +3,13 @@ use crate::typecheck::typedef::Type;
 use super::{
     classes::{
         ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, NDArrayValue,
-        TypedArrayLikeAdapter, UntypedArrayLikeAccessor,
+        TypedArrayLikeAccessor, TypedArrayLikeAdapter, UntypedArrayLikeAccessor,
     },
-    llvm_intrinsics, CodeGenContext, CodeGenerator,
+    llvm_intrinsics,
+    macros::codegen_unreachable,
+    stmt::gen_for_callback_incrementing,
+    CodeGenContext, CodeGenerator,
 };
-use crate::codegen::classes::TypedArrayLikeAccessor;
-use crate::codegen::stmt::gen_for_callback_incrementing;
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     context::Context,
@@ -55,7 +56,7 @@ pub fn integer_power<'ctx, G: CodeGenerator + ?Sized>(
         (64, 64, true) => "__nac3_int_exp_int64_t",
         (32, 32, false) => "__nac3_int_exp_uint32_t",
         (64, 64, false) => "__nac3_int_exp_uint64_t",
-        _ => unreachable!(),
+        _ => codegen_unreachable!(ctx),
     };
     let base_type = base.get_type();
     let pow_fun = ctx.module.get_function(symbol).unwrap_or_else(|| {
@@ -441,7 +442,7 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
                     BasicTypeEnum::IntType(t) => t.size_of(),
                     BasicTypeEnum::PointerType(t) => t.size_of(),
                     BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
-                    _ => unreachable!(),
+                    _ => codegen_unreachable!(ctx),
                 };
                 ctx.builder.build_int_truncate_or_bit_cast(s, int32, "size").unwrap()
             }
@@ -586,7 +587,7 @@ where
     let ndarray_calc_size_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_calc_size",
         64 => "__nac3_ndarray_calc_size64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw),
+        bw => codegen_unreachable!(ctx, "Unsupported size type bit width: {}", bw),
     };
     let ndarray_calc_size_fn_t = llvm_usize.fn_type(
         &[llvm_pusize.into(), llvm_usize.into(), llvm_usize.into(), llvm_usize.into()],
@@ -637,7 +638,7 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     let ndarray_calc_nd_indices_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_calc_nd_indices",
         64 => "__nac3_ndarray_calc_nd_indices64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw),
+        bw => codegen_unreachable!(ctx, "Unsupported size type bit width: {}", bw),
     };
     let ndarray_calc_nd_indices_fn =
         ctx.module.get_function(ndarray_calc_nd_indices_fn_name).unwrap_or_else(|| {
@@ -706,7 +707,7 @@ where
     let ndarray_flatten_index_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_flatten_index",
         64 => "__nac3_ndarray_flatten_index64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw),
+        bw => codegen_unreachable!(ctx, "Unsupported size type bit width: {}", bw),
     };
     let ndarray_flatten_index_fn =
         ctx.module.get_function(ndarray_flatten_index_fn_name).unwrap_or_else(|| {
@@ -774,7 +775,7 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
     let ndarray_calc_broadcast_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_calc_broadcast",
         64 => "__nac3_ndarray_calc_broadcast64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw),
+        bw => codegen_unreachable!(ctx, "Unsupported size type bit width: {}", bw),
     };
     let ndarray_calc_broadcast_fn =
         ctx.module.get_function(ndarray_calc_broadcast_fn_name).unwrap_or_else(|| {
@@ -894,7 +895,7 @@ pub fn call_ndarray_calc_broadcast_index<
     let ndarray_calc_broadcast_fn_name = match llvm_usize.get_bit_width() {
         32 => "__nac3_ndarray_calc_broadcast_idx",
         64 => "__nac3_ndarray_calc_broadcast_idx64",
-        bw => unreachable!("Unsupported size type bit width: {}", bw),
+        bw => codegen_unreachable!(ctx, "Unsupported size type bit width: {}", bw),
     };
     let ndarray_calc_broadcast_fn =
         ctx.module.get_function(ndarray_calc_broadcast_fn_name).unwrap_or_else(|| {

@@ -12,6 +12,7 @@ use crate::{
             call_ndarray_calc_size,
         },
         llvm_intrinsics::{self, call_memcpy_generic},
+        macros::codegen_unreachable,
         stmt::{gen_for_callback_incrementing, gen_for_range_callback, gen_if_else_expr_callback},
         CodeGenContext, CodeGenerator,
     },
@@ -259,7 +260,7 @@ fn ndarray_zero_value<'ctx, G: CodeGenerator + ?Sized>(
     } else if ctx.unifier.unioned(elem_ty, ctx.primitives.str) {
         ctx.gen_string(generator, "").into()
     } else {
-        unreachable!()
+        codegen_unreachable!(ctx)
     }
 }
 
@@ -287,7 +288,7 @@ fn ndarray_one_value<'ctx, G: CodeGenerator + ?Sized>(
     } else if ctx.unifier.unioned(elem_ty, ctx.primitives.str) {
         ctx.gen_string(generator, "1").into()
     } else {
-        unreachable!()
+        codegen_unreachable!(ctx)
     }
 }
 
@@ -355,7 +356,7 @@ fn call_ndarray_empty_impl<'ctx, G: CodeGenerator + ?Sized>(
 
             create_ndarray_const_shape(generator, ctx, elem_ty, &[shape_int])
         }
-        _ => unreachable!(),
+        _ => codegen_unreachable!(ctx),
     }
 }
 
@@ -626,7 +627,7 @@ fn call_ndarray_full_impl<'ctx, G: CodeGenerator + ?Sized>(
         } else if fill_value.is_int_value() || fill_value.is_float_value() {
             fill_value
         } else {
-            unreachable!()
+            codegen_unreachable!(ctx)
         };
 
         Ok(value)
@@ -2020,7 +2021,7 @@ pub fn gen_ndarray_fill<'ctx>(
             } else if value_arg.is_int_value() || value_arg.is_float_value() {
                 value_arg
             } else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
 
             Ok(value)
@@ -2129,7 +2130,8 @@ pub fn ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
 
         Ok(out.as_base_value().into())
     } else {
-        unreachable!(
+        codegen_unreachable!(
+            ctx,
             "{FN_NAME}() not supported for '{}'",
             format!("'{}'", ctx.unifier.stringify(x1_ty))
         )
@@ -2371,7 +2373,7 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
                 .into_int_value();
                 create_ndarray_const_shape(generator, ctx, elem_ty, &[shape_int])
             }
-            _ => unreachable!(),
+            _ => codegen_unreachable!(ctx),
         }
         .unwrap();
 
@@ -2415,7 +2417,8 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
 
         Ok(out.as_base_value().into())
     } else {
-        unreachable!(
+        codegen_unreachable!(
+            ctx,
             "{FN_NAME}() not supported for '{}'",
             format!("'{}'", ctx.unifier.stringify(x1_ty))
         )
@@ -2483,7 +2486,7 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
                             .build_float_mul(e1, elem2.into_float_value(), "")
                             .unwrap()
                             .as_basic_value_enum(),
-                        _ => unreachable!(),
+                        _ => codegen_unreachable!(ctx),
                     };
                     let acc_val = ctx.builder.build_load(acc, "").unwrap();
                     let acc_val = match acc_val {
@@ -2497,7 +2500,7 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
                             .build_float_add(e1, product.into_float_value(), "")
                             .unwrap()
                             .as_basic_value_enum(),
-                        _ => unreachable!(),
+                        _ => codegen_unreachable!(ctx),
                     };
                     ctx.builder.build_store(acc, acc_val).unwrap();
 
@@ -2514,7 +2517,8 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
         (BasicValueEnum::FloatValue(e1), BasicValueEnum::FloatValue(e2)) => {
             Ok(ctx.builder.build_float_mul(e1, e2, "").unwrap().as_basic_value_enum())
         }
-        _ => unreachable!(
+        _ => codegen_unreachable!(
+            ctx,
             "{FN_NAME}() not supported for '{}'",
             format!("'{}'", ctx.unifier.stringify(x1_ty))
         ),

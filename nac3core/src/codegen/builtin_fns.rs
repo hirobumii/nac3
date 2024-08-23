@@ -9,6 +9,7 @@ use crate::codegen::classes::{
 };
 use crate::codegen::expr::destructure_range;
 use crate::codegen::irrt::calculate_len_for_slice_range;
+use crate::codegen::macros::codegen_unreachable;
 use crate::codegen::numpy::ndarray_elementwise_unaryop_impl;
 use crate::codegen::stmt::gen_for_callback_incrementing;
 use crate::codegen::{extern_fns, irrt, llvm_intrinsics, numpy, CodeGenContext, CodeGenerator};
@@ -20,7 +21,8 @@ use crate::typecheck::typedef::{Type, TypeEnum};
 ///
 /// The generated message will contain the function name and the name of the unsupported type.
 fn unsupported_type(ctx: &CodeGenContext<'_, '_>, fn_name: &str, tys: &[Type]) -> ! {
-    unreachable!(
+    codegen_unreachable!(
+        ctx,
         "{fn_name}() not supported for '{}'",
         tys.iter().map(|ty| format!("'{}'", ctx.unifier.stringify(*ty))).join(", "),
     )
@@ -82,7 +84,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
 
                 ctx.builder.build_int_truncate_or_bit_cast(len, llvm_i32, "len").unwrap()
             }
-            _ => unreachable!(),
+            _ => codegen_unreachable!(ctx),
         }
     })
 }
@@ -784,7 +786,7 @@ pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
             } else if is_ndarray2 {
                 unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
             } else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
 
             let x1_scalar_ty = if is_ndarray1 { dtype } else { x1_ty };
@@ -888,7 +890,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             match fn_name {
                 "np_argmin" | "np_argmax" => llvm_int64.const_zero().into(),
                 "np_max" | "np_min" => a,
-                _ => unreachable!(),
+                _ => codegen_unreachable!(ctx),
             }
         }
         BasicValueEnum::PointerValue(n)
@@ -943,7 +945,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
                         "np_argmax" | "np_max" => {
                             call_max(ctx, (elem_ty, accumulator), (elem_ty, elem))
                         }
-                        _ => unreachable!(),
+                        _ => codegen_unreachable!(ctx),
                     };
 
                     let updated_idx = match (accumulator, result) {
@@ -980,7 +982,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             match fn_name {
                 "np_argmin" | "np_argmax" => ctx.builder.build_load(res_idx, "").unwrap(),
                 "np_max" | "np_min" => ctx.builder.build_load(accumulator_addr, "").unwrap(),
-                _ => unreachable!(),
+                _ => codegen_unreachable!(ctx),
             }
         }
 
@@ -1046,7 +1048,7 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
             } else if is_ndarray2 {
                 unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
             } else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
 
             let x1_scalar_ty = if is_ndarray1 { dtype } else { x1_ty };
@@ -1486,7 +1488,7 @@ pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
             } else if is_ndarray2 {
                 unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
             } else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
 
             let x1_scalar_ty = if is_ndarray1 { dtype } else { x1_ty };
@@ -1553,7 +1555,7 @@ pub fn call_numpy_copysign<'ctx, G: CodeGenerator + ?Sized>(
             } else if is_ndarray2 {
                 unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
             } else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
 
             let x1_scalar_ty = if is_ndarray1 { dtype } else { x1_ty };
@@ -1620,7 +1622,7 @@ pub fn call_numpy_fmax<'ctx, G: CodeGenerator + ?Sized>(
             } else if is_ndarray2 {
                 unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
             } else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
 
             let x1_scalar_ty = if is_ndarray1 { dtype } else { x1_ty };
@@ -1687,7 +1689,7 @@ pub fn call_numpy_fmin<'ctx, G: CodeGenerator + ?Sized>(
             } else if is_ndarray2 {
                 unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
             } else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
 
             let x1_scalar_ty = if is_ndarray1 { dtype } else { x1_ty };
@@ -1810,7 +1812,7 @@ pub fn call_numpy_hypot<'ctx, G: CodeGenerator + ?Sized>(
             } else if is_ndarray2 {
                 unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
             } else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
 
             let x1_scalar_ty = if is_ndarray1 { dtype } else { x1_ty };
@@ -1877,7 +1879,7 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
             } else if is_ndarray2 {
                 unpack_ndarray_var_tys(&mut ctx.unifier, x2_ty).0
             } else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
 
             let x1_scalar_ty = if is_ndarray1 { dtype } else { x1_ty };

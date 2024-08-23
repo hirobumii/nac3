@@ -1,15 +1,13 @@
 use super::{
-    super::symbol_resolver::ValueEnum,
-    expr::destructure_range,
+    classes::{ArrayLikeIndexer, ArraySliceValue, ListValue, RangeValue},
+    expr::{destructure_range, gen_binop_expr},
+    gen_in_range_check,
     irrt::{handle_slice_indices, list_slice_assignment},
+    macros::codegen_unreachable,
     CodeGenContext, CodeGenerator,
 };
 use crate::{
-    codegen::{
-        classes::{ArrayLikeIndexer, ArraySliceValue, ListValue, RangeValue},
-        expr::gen_binop_expr,
-        gen_in_range_check,
-    },
+    symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::{
         magic_methods::Binop,
@@ -121,7 +119,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                 return Ok(None);
             };
             let BasicValueEnum::PointerValue(ptr) = val else {
-                unreachable!();
+                codegen_unreachable!(ctx);
             };
             unsafe {
                 ctx.builder.build_in_bounds_gep(
@@ -135,7 +133,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             }
             .unwrap()
         }
-        _ => unreachable!(),
+        _ => codegen_unreachable!(ctx),
     }))
 }
 
@@ -193,12 +191,12 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     // Deconstruct the tuple `value`
     let BasicValueEnum::StructValue(tuple) = value.to_basic_value_enum(ctx, generator, value_ty)?
     else {
-        unreachable!()
+        codegen_unreachable!(ctx)
     };
 
     // NOTE: Currently, RHS's type is forced to be a Tuple by the type inferencer.
     let TypeEnum::TTuple { ty: tuple_tys, .. } = &*ctx.unifier.get_ty(value_ty) else {
-        unreachable!();
+        codegen_unreachable!(ctx);
     };
 
     assert_eq!(tuple.get_type().count_fields() as usize, tuple_tys.len());
@@ -258,7 +256,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             // Now assign with that sub-tuple to the starred target.
             generator.gen_assign(ctx, target, ValueEnum::Dynamic(sub_tuple_val), sub_tuple_ty)?;
         } else {
-            unreachable!() // The typechecker ensures this
+            codegen_unreachable!(ctx) // The typechecker ensures this
         }
 
         // Handle assignment after the starred target
@@ -306,7 +304,9 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
             if let ExprKind::Slice { .. } = &key.node {
                 // Handle assigning to a slice
-                let ExprKind::Slice { lower, upper, step } = &key.node else { unreachable!() };
+                let ExprKind::Slice { lower, upper, step } = &key.node else {
+                    codegen_unreachable!(ctx)
+                };
                 let Some((start, end, step)) = handle_slice_indices(
                     lower,
                     upper,
@@ -416,7 +416,9 @@ pub fn gen_for<G: CodeGenerator>(
     ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
 ) -> Result<(), String> {
-    let StmtKind::For { iter, target, body, orelse, .. } = &stmt.node else { unreachable!() };
+    let StmtKind::For { iter, target, body, orelse, .. } = &stmt.node else {
+        codegen_unreachable!(ctx)
+    };
 
     // var_assignment static values may be changed in another branch
     // if so, remove the static value as it may not be correct in this branch
@@ -458,7 +460,7 @@ pub fn gen_for<G: CodeGenerator>(
             let Some(target_i) =
                 generator.gen_store_target(ctx, target, Some("for.target.addr"))?
             else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
             let (start, stop, step) = destructure_range(ctx, iter_val);
 
@@ -901,7 +903,7 @@ pub fn gen_while<G: CodeGenerator>(
     ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
 ) -> Result<(), String> {
-    let StmtKind::While { test, body, orelse, .. } = &stmt.node else { unreachable!() };
+    let StmtKind::While { test, body, orelse, .. } = &stmt.node else { codegen_unreachable!(ctx) };
 
     // var_assignment static values may be changed in another branch
     // if so, remove the static value as it may not be correct in this branch
@@ -931,7 +933,7 @@ pub fn gen_while<G: CodeGenerator>(
 
         return Ok(());
     };
-    let BasicValueEnum::IntValue(test) = test else { unreachable!() };
+    let BasicValueEnum::IntValue(test) = test else { codegen_unreachable!(ctx) };
 
     ctx.builder
         .build_conditional_branch(generator.bool_to_i1(ctx, test), body_bb, orelse_bb)
@@ -1079,7 +1081,7 @@ pub fn gen_if<G: CodeGenerator>(
     ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
 ) -> Result<(), String> {
-    let StmtKind::If { test, body, orelse, .. } = &stmt.node else { unreachable!() };
+    let StmtKind::If { test, body, orelse, .. } = &stmt.node else { codegen_unreachable!(ctx) };
 
     // var_assignment static values may be changed in another branch
     // if so, remove the static value as it may not be correct in this branch
@@ -1202,11 +1204,11 @@ pub fn exn_constructor<'ctx>(
     let zelf_id = if let TypeEnum::TObj { obj_id, .. } = &*ctx.unifier.get_ty(zelf_ty) {
         obj_id.0
     } else {
-        unreachable!()
+        codegen_unreachable!(ctx)
     };
     let defs = ctx.top_level.definitions.read();
     let def = defs[zelf_id].read();
-    let TopLevelDef::Class { name: zelf_name, .. } = &*def else { unreachable!() };
+    let TopLevelDef::Class { name: zelf_name, .. } = &*def else { codegen_unreachable!(ctx) };
     let exception_name = format!("{}:{}", ctx.resolver.get_exception_id(zelf_id), zelf_name);
     unsafe {
         let id_ptr = ctx.builder.build_in_bounds_gep(zelf, &[zero, zero], "exn.id").unwrap();
@@ -1314,7 +1316,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     target: &Stmt<Option<Type>>,
 ) -> Result<(), String> {
     let StmtKind::Try { body, handlers, orelse, finalbody, .. } = &target.node else {
-        unreachable!()
+        codegen_unreachable!(ctx)
     };
 
     // if we need to generate anything related to exception, we must have personality defined
@@ -1391,7 +1393,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             if let TypeEnum::TObj { obj_id, .. } = &*ctx.unifier.get_ty(type_.custom.unwrap()) {
                 *obj_id
             } else {
-                unreachable!()
+                codegen_unreachable!(ctx)
             };
         let exception_name = format!("{}:{}", ctx.resolver.get_exception_id(obj_id.0), exn_name);
         let exn_id = ctx.resolver.get_string_id(&exception_name);

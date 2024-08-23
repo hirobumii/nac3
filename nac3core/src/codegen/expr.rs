@@ -11,6 +11,7 @@ use crate::{
             call_expect, call_float_floor, call_float_pow, call_float_powi, call_int_smax,
             call_int_umin, call_memcpy_generic,
         },
+        macros::codegen_unreachable,
         need_sret, numpy,
         stmt::{
             gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
@@ -112,7 +113,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         let obj_id = match &*self.unifier.get_ty(ty) {
             TypeEnum::TObj { obj_id, .. } => *obj_id,
             // we cannot have other types, virtual type should be handled by function calls
-            _ => unreachable!(),
+            _ => codegen_unreachable!(self),
         };
         let def = &self.top_level.definitions.read()[obj_id.0];
         let (index, value) = if let TopLevelDef::Class { fields, attributes, .. } = &*def.read() {
@@ -123,7 +124,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 (attribute_index.0, Some(attribute_index.1 .2.clone()))
             }
         } else {
-            unreachable!()
+            codegen_unreachable!(self)
         };
         (index, value)
     }
@@ -133,7 +134,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             TypeEnum::TObj { fields, .. } => {
                 fields.iter().find_position(|x| *x.0 == attr).unwrap().0
             }
-            _ => unreachable!(),
+            _ => codegen_unreachable!(self),
         }
     }
 
@@ -188,7 +189,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                     {
                         *params.iter().next().unwrap().1
                     }
-                    _ => unreachable!("must be option type"),
+                    _ => codegen_unreachable!(self, "must be option type"),
                 };
                 let val = self.gen_symbol_val(generator, v, ty);
                 let ptr = generator
@@ -204,7 +205,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                     {
                         *params.iter().next().unwrap().1
                     }
-                    _ => unreachable!("must be option type"),
+                    _ => codegen_unreachable!(self, "must be option type"),
                 };
                 let actual_ptr_type =
                     self.get_llvm_type(generator, ty).ptr_type(AddressSpace::default());
@@ -271,7 +272,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 {
                     self.ctx.i64_type()
                 } else {
-                    unreachable!()
+                    codegen_unreachable!(self)
                 };
                 Some(ty.const_int(*val as u64, false).into())
             }
@@ -285,7 +286,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                 let (types, is_vararg_ctx) = if let TypeEnum::TTuple { ty, is_vararg_ctx } = &*ty {
                     (ty.clone(), *is_vararg_ctx)
                 } else {
-                    unreachable!()
+                    codegen_unreachable!(self)
                 };
                 let values = zip(types, v.iter())
                     .map_while(|(ty, v)| self.gen_const(generator, v, ty))
@@ -330,7 +331,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
 
                 None
             }
-            _ => unreachable!(),
+            _ => codegen_unreachable!(self),
         }
     }
 
@@ -344,7 +345,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         signed: bool,
     ) -> BasicValueEnum<'ctx> {
         let (BasicValueEnum::IntValue(lhs), BasicValueEnum::IntValue(rhs)) = (lhs, rhs) else {
-            unreachable!()
+            codegen_unreachable!(self)
         };
         let float = self.ctx.f64_type();
         match (op, signed) {
@@ -419,7 +420,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
                         .build_right_shift(lhs, rhs, signed, "rshift")
                         .map(Into::into)
                         .unwrap(),
-                    _ => unreachable!(),
+                    _ => codegen_unreachable!(self),
                 }
             }
 
@@ -431,7 +432,7 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
             }
             (Operator::Pow, s) => integer_power(generator, self, lhs, rhs, s).into(),
             // special implementation?
-            (Operator::MatMult, _) => unreachable!(),
+            (Operator::MatMult, _) => codegen_unreachable!(self),
         }
     }
 
@@ -443,7 +444,8 @@ impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
         rhs: BasicValueEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let (BasicValueEnum::FloatValue(lhs), BasicValueEnum::FloatValue(rhs)) = (lhs, rhs) else {
-            unreachable!(
+            codegen_unreachable!(
+                self,
                 "Expected (FloatValue, FloatValue), got ({}, {})",
                 lhs.get_type(),
                 rhs.get_type()
@@ -687,7 +689,7 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     def: &TopLevelDef,
     params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
 ) -> Result<BasicValueEnum<'ctx>, String> {
-    let TopLevelDef::Class { methods, .. } = def else { unreachable!() };
+    let TopLevelDef::Class { methods, .. } = def else { codegen_unreachable!(ctx) };
 
     // TODO: what about other fields that require alloca?
     let fun_id = methods.iter().find(|method| method.0 == "__init__".into()).map(|method| method.2);
@@ -719,7 +721,7 @@ pub fn gen_func_instance<'ctx>(
         key,
     ) = fun
     else {
-        unreachable!()
+        codegen_unreachable!(ctx)
     };
 
     if let Some(sym) = instance_to_symbol.get(&key) {
@@ -751,7 +753,7 @@ pub fn gen_func_instance<'ctx>(
         .collect();
 
     let mut signature = store.from_signature(&mut ctx.unifier, &ctx.primitives, sign, &mut cache);
-    let ConcreteTypeEnum::TFunc { args, .. } = &mut signature else { unreachable!() };
+    let ConcreteTypeEnum::TFunc { args, .. } = &mut signature else { codegen_unreachable!(ctx) };
 
     if let Some(obj) = &obj {
         let zelf = store.from_unifier_type(&mut ctx.unifier, &ctx.primitives, obj.0, &mut cache);
@@ -1117,7 +1119,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     expr: &Expr<Option<Type>>,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-    let ExprKind::ListComp { elt, generators } = &expr.node else { unreachable!() };
+    let ExprKind::ListComp { elt, generators } = &expr.node else { codegen_unreachable!(ctx) };
 
     let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
 
@@ -1376,13 +1378,13 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                     if let TypeEnum::TObj { params, .. } = &*ctx.unifier.get_ty_immutable(ty1) {
                         ctx.unifier.get_representative(*params.iter().next().unwrap().1)
                     } else {
-                        unreachable!()
+                        codegen_unreachable!(ctx)
                     };
                 let elem_ty2 =
                     if let TypeEnum::TObj { params, .. } = &*ctx.unifier.get_ty_immutable(ty2) {
                         ctx.unifier.get_representative(*params.iter().next().unwrap().1)
                     } else {
-                        unreachable!()
+                        codegen_unreachable!(ctx)
                     };
                 debug_assert!(ctx.unifier.unioned(elem_ty1, elem_ty2));
 
@@ -1455,7 +1457,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                         {
                             *params.iter().next().unwrap().1
                         } else {
-                            unreachable!()
+                            codegen_unreachable!(ctx)
                         };
 
                         (elem_ty, left_val, right_val)
@@ -1465,12 +1467,12 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                         {
                             *params.iter().next().unwrap().1
                         } else {
-                            unreachable!()
+                            codegen_unreachable!(ctx)
                         };
 
                         (elem_ty, right_val, left_val)
                     } else {
-                        unreachable!()
+                        codegen_unreachable!(ctx)
                     };
                 let list_val =
                     ListValue::from_ptr_val(list_val.into_pointer_value(), llvm_usize, None);
@@ -1637,7 +1639,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
     } else {
         let left_ty_enum = ctx.unifier.get_ty_immutable(left_ty.unwrap());
         let TypeEnum::TObj { fields, obj_id, .. } = left_ty_enum.as_ref() else {
-            unreachable!("must be tobj")
+            codegen_unreachable!(ctx, "must be tobj")
         };
         let (op_name, id) = {
             let normal_method_name = Binop::normal(op.base).op_info().method_name;
@@ -1658,19 +1660,19 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
         } else {
             let left_enum_ty = ctx.unifier.get_ty_immutable(left_ty.unwrap());
             let TypeEnum::TObj { fields, .. } = left_enum_ty.as_ref() else {
-                unreachable!("must be tobj")
+                codegen_unreachable!(ctx, "must be tobj")
             };
 
             let fn_ty = fields.get(&op_name).unwrap().0;
             let fn_ty_enum = ctx.unifier.get_ty_immutable(fn_ty);
-            let TypeEnum::TFunc(sig) = fn_ty_enum.as_ref() else { unreachable!() };
+            let TypeEnum::TFunc(sig) = fn_ty_enum.as_ref() else { codegen_unreachable!(ctx) };
 
             sig.clone()
         };
         let fun_id = {
             let defs = ctx.top_level.definitions.read();
             let obj_def = defs.get(id.0).unwrap().read();
-            let TopLevelDef::Class { methods, .. } = &*obj_def else { unreachable!() };
+            let TopLevelDef::Class { methods, .. } = &*obj_def else { codegen_unreachable!(ctx) };
 
             methods.iter().find(|method| method.0 == op_name).unwrap().2
         };
@@ -1801,7 +1803,8 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             if op == ast::Unaryop::Invert {
                 ast::Unaryop::Not
             } else {
-                unreachable!(
+                codegen_unreachable!(
+                    ctx,
                     "ufunc {} not supported for ndarray[bool, N]",
                     op.op_info().method_name,
                 )
@@ -1868,8 +1871,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
         {
             let llvm_usize = generator.get_size_type(ctx.ctx);
 
-            let (Some(left_ty), lhs) = left else { unreachable!() };
-            let (Some(right_ty), rhs) = comparators[0] else { unreachable!() };
+            let (Some(left_ty), lhs) = left else { codegen_unreachable!(ctx) };
+            let (Some(right_ty), rhs) = comparators[0] else { codegen_unreachable!(ctx) };
             let op = ops[0];
 
             let is_ndarray1 =
@@ -1976,7 +1979,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 let op = match op {
                     ast::Cmpop::Eq | ast::Cmpop::Is => IntPredicate::EQ,
                     ast::Cmpop::NotEq => IntPredicate::NE,
-                    _ if left_ty == ctx.primitives.bool => unreachable!(),
+                    _ if left_ty == ctx.primitives.bool => codegen_unreachable!(ctx),
                     ast::Cmpop::Lt => {
                         if use_unsigned_ops {
                             IntPredicate::ULT
@@ -2005,7 +2008,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                             IntPredicate::SGE
                         }
                     }
-                    _ => unreachable!(),
+                    _ => codegen_unreachable!(ctx),
                 };
 
                 ctx.builder.build_int_compare(op, lhs, rhs, "cmp").unwrap()
@@ -2022,7 +2025,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     ast::Cmpop::LtE => inkwell::FloatPredicate::OLE,
                     ast::Cmpop::Gt => inkwell::FloatPredicate::OGT,
                     ast::Cmpop::GtE => inkwell::FloatPredicate::OGE,
-                    _ => unreachable!(),
+                    _ => codegen_unreachable!(ctx),
                 };
                 ctx.builder.build_float_compare(op, lhs, rhs, "cmp").unwrap()
             } else if left_ty == ctx.primitives.str {
@@ -2154,7 +2157,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         match (op, val) {
                             (Cmpop::Eq, true) | (Cmpop::NotEq, false) => llvm_i1.const_all_ones(),
                             (Cmpop::Eq, false) | (Cmpop::NotEq, true) => llvm_i1.const_zero(),
-                            (_, _) => unreachable!(),
+                            (_, _) => codegen_unreachable!(ctx),
                         }
                     };
 
@@ -2167,14 +2170,14 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     {
                         *params.iter().next().unwrap().1
                     } else {
-                        unreachable!()
+                        codegen_unreachable!(ctx)
                     };
                     let right_elem_ty = if let TypeEnum::TObj { params, .. } =
                         &*ctx.unifier.get_ty_immutable(right_ty)
                     {
                         *params.iter().next().unwrap().1
                     } else {
-                        unreachable!()
+                        codegen_unreachable!(ctx)
                     };
 
                     if !ctx.unifier.unioned(left_elem_ty, right_elem_ty) {
@@ -2511,7 +2514,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
     let TypeEnum::TLiteral { values, .. } = &*ctx.unifier.get_ty_immutable(ndims) else {
-        unreachable!()
+        codegen_unreachable!(ctx)
     };
 
     let ndims = values
@@ -2863,7 +2866,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         .const_null()
                         .into()
                 }
-                _ => unreachable!("must be option type"),
+                _ => codegen_unreachable!(ctx, "must be option type"),
             }
         }
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
@@ -2924,7 +2927,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
 
                     *params.iter().next().unwrap().1
                 } else {
-                    unreachable!()
+                    codegen_unreachable!(ctx)
                 };
 
                 if let TypeEnum::TVar { .. } = &*ctx.unifier.get_ty_immutable(ty) {
@@ -3018,7 +3021,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
 
                             return generator.gen_expr(ctx, &modified_expr);
                         }
-                        None => unreachable!("Function Type should not have attributes"),
+                        None => {
+                            codegen_unreachable!(ctx, "Function Type should not have attributes")
+                        }
                     }
                 } else if let TypeEnum::TObj { obj_id, fields, params } = &*ctx.unifier.get_ty(c) {
                     if fields.is_empty() && params.is_empty() {
@@ -3040,7 +3045,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
 
                                 return generator.gen_expr(ctx, &modified_expr);
                             }
-                            None => unreachable!(),
+                            None => codegen_unreachable!(ctx),
                         }
                     }
                 }
@@ -3142,7 +3147,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 }
                 (Some(a), None) => a.into(),
                 (None, Some(b)) => b.into(),
-                (None, None) => unreachable!(),
+                (None, None) => codegen_unreachable!(ctx),
             }
         }
         ExprKind::BinOp { op, left, right } => {
@@ -3232,7 +3237,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 ctx.unifier.get_call_signature(*call).unwrap()
             } else {
                 let ty = func.custom.unwrap();
-                let TypeEnum::TFunc(sign) = &*ctx.unifier.get_ty(ty) else { unreachable!() };
+                let TypeEnum::TFunc(sign) = &*ctx.unifier.get_ty(ty) else {
+                    codegen_unreachable!(ctx)
+                };
 
                 sign.clone()
             };
@@ -3256,12 +3263,14 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     {
                         *obj_id
                     } else {
-                        unreachable!()
+                        codegen_unreachable!(ctx)
                     };
                     let fun_id = {
                         let defs = ctx.top_level.definitions.read();
                         let obj_def = defs.get(id.0).unwrap().read();
-                        let TopLevelDef::Class { methods, .. } = &*obj_def else { unreachable!() };
+                        let TopLevelDef::Class { methods, .. } = &*obj_def else {
+                            codegen_unreachable!(ctx)
+                        };
 
                         methods.iter().find(|method| method.0 == *attr).unwrap().2
                     };
@@ -3332,7 +3341,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                         .unwrap(),
                                 ));
                             }
-                            ValueEnum::Dynamic(_) => unreachable!("option must be static or ptr"),
+                            ValueEnum::Dynamic(_) => {
+                                codegen_unreachable!(ctx, "option must be static or ptr")
+                            }
                         }
                     }
 
@@ -3481,7 +3492,10 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         if let ExprKind::Constant { value: Constant::Int(v), .. } = &slice.node {
                             (*v).try_into().unwrap()
                         } else {
-                            unreachable!("tuple subscript must be const int after type check");
+                            codegen_unreachable!(
+                                ctx,
+                                "tuple subscript must be const int after type check"
+                            );
                         };
                     match generator.gen_expr(ctx, value)? {
                         Some(ValueEnum::Dynamic(v)) => {
@@ -3504,7 +3518,10 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         None => return Ok(None),
                     }
                 }
-                _ => unreachable!("should not be other subscriptable types after type check"),
+                _ => codegen_unreachable!(
+                    ctx,
+                    "should not be other subscriptable types after type check"
+                ),
             }
         }
         ExprKind::ListComp { .. } => {
