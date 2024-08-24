@@ -1220,3 +1220,30 @@ pub fn call_nac3_ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
         .arg(axes)
         .returning_void();
 }
+
+#[allow(clippy::too_many_arguments)]
+pub fn call_nac3_ndarray_matmul_calculate_shapes<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    a_ndims: Instance<'ctx, Int<SizeT>>,
+    a_shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+    b_ndims: Instance<'ctx, Int<SizeT>>,
+    b_shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+    final_ndims: Instance<'ctx, Int<SizeT>>,
+    new_a_shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+    new_b_shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+    dst_shape: Instance<'ctx, Ptr<Int<SizeT>>>,
+) {
+    let name =
+        get_sizet_dependent_function_name(generator, ctx, "__nac3_ndarray_matmul_calculate_shapes");
+    FnCall::builder(generator, ctx, &name)
+        .arg(a_ndims)
+        .arg(a_shape)
+        .arg(b_ndims)
+        .arg(b_shape)
+        .arg(final_ndims)
+        .arg(new_a_shape)
+        .arg(new_b_shape)
+        .arg(dst_shape)
+        .returning_void();
+}

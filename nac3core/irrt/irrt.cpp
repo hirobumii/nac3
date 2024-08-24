@@ -13,3 +13,4 @@
 #include "irrt/ndarray/reshape.hpp"
 #include "irrt/ndarray/broadcast.hpp"
 #include "irrt/ndarray/transpose.hpp"
+#include "irrt/ndarray/matmul.hpp"
