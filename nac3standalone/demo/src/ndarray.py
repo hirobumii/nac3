@@ -204,8 +204,17 @@ def test_ndarray_transpose():
     y = np_transpose(x)
     z = np_transpose(y)
 
+    output_int32(np_shape(x)[0])
+    output_int32(np_shape(x)[1])
     output_ndarray_float_2(x)
+
+    output_int32(np_shape(y)[0])
+    output_int32(np_shape(y)[1])
     output_ndarray_float_2(y)
+
+    output_int32(np_shape(z)[0])
+    output_int32(np_shape(z)[1])
+    output_ndarray_float_2(z)
 
 def test_ndarray_reshape():
     w: ndarray[float, 1] = np_array([1., 2., 3., 4., 5., 6., 7., 8., 9., 10.])
@@ -213,20 +222,47 @@ def test_ndarray_reshape():
     y = np_reshape(x, [2, -1])
     z = np_reshape(y, 10)
 
+    output_int32(np_shape(w)[0])
+    output_ndarray_float_1(w)
+
+    output_int32(np_shape(x)[0])
+    output_int32(np_shape(x)[1])
+    output_int32(np_shape(x)[2])
+    output_int32(np_shape(x)[3])
+    output_ndarray_float_4(x)
+
+    output_int32(np_shape(y)[0])
+    output_int32(np_shape(y)[1])
+    output_ndarray_float_2(y)
+
+    output_int32(np_shape(z)[0])
+    output_ndarray_float_1(z)
+
     x1: ndarray[int32, 1] = np_array([1, 2, 3, 4])
     x2: ndarray[int32, 2] = np_reshape(x1, (2, 2))
 
-    output_ndarray_float_1(w)
-    output_ndarray_float_2(y)
-    output_ndarray_float_1(z)
+    output_int32(np_shape(x1)[0])
+    output_ndarray_int32_1(x1)
+
+    output_int32(np_shape(x2)[0])
+    output_int32(np_shape(x2)[1])
+    output_ndarray_int32_2(x2)
 
 def test_ndarray_broadcast_to():
     xs = np_array([1.0, 2.0, 3.0])
     ys = np_broadcast_to(xs, (1, 3))
     zs = np_broadcast_to(ys, (2, 4, 3))
 
+    output_int32(np_shape(xs)[0])
     output_ndarray_float_1(xs)
+
+    output_int32(np_shape(ys)[0])
+    output_int32(np_shape(ys)[1])
     output_ndarray_float_2(ys)
+
+    output_int32(np_shape(zs)[0])
+    output_int32(np_shape(zs)[1])
+    output_int32(np_shape(zs)[2])
     output_ndarray_float_3(zs)
 
 def test_ndarray_subscript_assignment():
