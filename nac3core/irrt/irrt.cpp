@@ -8,6 +8,7 @@
 #include <irrt/ndarray/def.hpp>
 #include <irrt/ndarray/indexing.hpp>
 #include <irrt/ndarray/iter.hpp>
+#include <irrt/ndarray/matmul.hpp>
 #include <irrt/ndarray/reshape.hpp>
 #include <irrt/ndarray/transpose.hpp>
 #include <irrt/original.hpp>

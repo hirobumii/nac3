@@ -3,6 +3,7 @@ pub mod broadcast;
 pub mod factory;
 pub mod indexing;
 pub mod map;
+pub mod matmul;
 pub mod nditer;
 pub mod shape_util;
 pub mod view;

@@ -1573,7 +1573,11 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
 
         if op.base == Operator::MatMult {
             // Handle matrix multiplication.
-            todo!()
+            let left = left.to_ndarray(generator, ctx);
+            let right = right.to_ndarray(generator, ctx);
+            let result = NDArrayObject::matmul(generator, ctx, left, right, out)
+                .split_unsized(generator, ctx);
+            Ok(Some(ValueEnum::Dynamic(result.to_basic_value_enum())))
         } else {
             // For other operations, they are all elementwise operations.
 
