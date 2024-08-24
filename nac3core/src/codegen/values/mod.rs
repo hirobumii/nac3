@@ -10,6 +10,7 @@ mod array;
 mod list;
 pub mod ndarray;
 mod range;
+pub mod utils;
 
 /// A LLVM type that is used to represent a non-primitive value in NAC3.
 pub trait ProxyValue<'ctx>: Into<Self::Base> {

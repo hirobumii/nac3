@@ -13,11 +13,13 @@ use super::{CodeGenContext, CodeGenerator};
 use crate::{symbol_resolver::SymbolResolver, typecheck::typedef::Type};
 pub use list::*;
 pub use math::*;
+pub use range::*;
 pub use slice::*;
 
 mod list;
 mod math;
 pub mod ndarray;
+mod range;
 mod slice;
 
 #[must_use]

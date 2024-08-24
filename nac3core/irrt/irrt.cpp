@@ -2,6 +2,7 @@
 #include "irrt/list.hpp"
 #include "irrt/math.hpp"
 #include "irrt/ndarray.hpp"
+#include "irrt/range.hpp"
 #include "irrt/slice.hpp"
 #include "irrt/ndarray/basic.hpp"
 #include "irrt/ndarray/def.hpp"
