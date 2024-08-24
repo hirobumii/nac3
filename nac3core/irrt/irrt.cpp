@@ -5,3 +5,5 @@
 #include <irrt/ndarray/def.hpp>
 #include <irrt/ndarray/iter.hpp>
 #include <irrt/original.hpp>
+#include <irrt/range.hpp>
+#include <irrt/slice.hpp>
