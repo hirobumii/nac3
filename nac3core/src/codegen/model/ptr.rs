@@ -12,14 +12,27 @@ use super::*;
 /// A model for [`PointerType`].
 ///
 /// `Item` is the element type this pointer is pointing to, and should be of a [`Model`].
+///
+// TODO: LLVM 15: `Item` is a Rust type-hint for the LLVM type of value the `.store()/.load()` family
+// of functions return. If a truly opaque pointer is needed, tell the programmer to use `OpaquePtr`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Ptr<Item>(pub Item);
 
+/// An opaque pointer. Like [`Ptr`] but without any Rust type-hints about its element type.
+///
+/// `.load()/.store()` is not available for [`Instance`]s of opaque pointers.
+pub type OpaquePtr = Ptr<()>;
+
+// TODO: LLVM 15: `Item: Model<'ctx>` don't even need to be a model anymore. It will only be
+// a type-hint for the `.load()/.store()` functions for the `pointee_ty`.
+//
+// See https://thedan64.github.io/inkwell/inkwell/builder/struct.Builder.html#method.build_load.
 impl<'ctx, Item: Model<'ctx>> Model<'ctx> for Ptr<Item> {
     type Value = PointerValue<'ctx>;
     type Type = PointerType<'ctx>;
 
     fn get_type<G: CodeGenerator + ?Sized>(&self, generator: &G, ctx: &'ctx Context) -> Self::Type {
+        // TODO: LLVM 15: ctx.ptr_type(AddressSpace::default())
         self.0.get_type(generator, ctx).ptr_type(AddressSpace::default())
     }
 
@@ -51,13 +64,13 @@ impl<'ctx, Item: Model<'ctx>> Model<'ctx> for Ptr<Item> {
     }
 }
 
-impl<'ctx, Element: Model<'ctx>> Ptr<Element> {
+impl<'ctx, Item: Model<'ctx>> Ptr<Item> {
     /// Return a ***constant*** nullptr.
     pub fn nullptr<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &'ctx Context,
-    ) -> Instance<'ctx, Ptr<Element>> {
+    ) -> Instance<'ctx, Ptr<Item>> {
         let ptr = self.get_type(generator, ctx).const_null();
         self.believe_value(ptr)
     }
@@ -68,7 +81,12 @@ impl<'ctx, Element: Model<'ctx>> Ptr<Element> {
         generator: &mut G,
         ctx: &CodeGenContext<'ctx, '_>,
         ptr: PointerValue<'ctx>,
-    ) -> Instance<'ctx, Ptr<Element>> {
+    ) -> Instance<'ctx, Ptr<Item>> {
+        // TODO: LLVM 15: Write in an impl where `Item` does not have to be `Model<'ctx>`.
+        // TODO: LLVM 15: This function will only have to be:
+        // ```
+        // return self.believe_value(ptr);
+        // ```
         let t = self.get_type(generator, ctx.ctx);
         let ptr = ctx.builder.build_pointer_cast(ptr, t, "").unwrap();
         self.believe_value(ptr)
@@ -156,6 +174,7 @@ impl<'ctx, Item: Model<'ctx>> Instance<'ctx, Ptr<Item>> {
         ctx: &CodeGenContext<'ctx, '_>,
         new_item: NewItem,
     ) -> Instance<'ctx, Ptr<NewItem>> {
+        // TODO: LLVM 15: Write in an impl where `Item` does not have to be `Model<'ctx>`.
         Ptr(new_item).pointer_cast(generator, ctx, self.value)
     }
 
