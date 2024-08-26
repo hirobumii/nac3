@@ -22,6 +22,7 @@ fn main() {
         "--target=wasm32",
         "-x",
         "c++",
+        "-std=c++20",
         "-fno-discard-value-names",
         "-fno-exceptions",
         "-fno-rtti",
