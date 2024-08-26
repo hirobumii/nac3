@@ -1760,7 +1760,30 @@ pub fn gen_stmt<G: CodeGenerator>(
         StmtKind::Try { .. } => gen_try(generator, ctx, stmt)?,
         StmtKind::Raise { exc, .. } => {
             if let Some(exc) = exc {
-                let exc = if let Some(v) = generator.gen_expr(ctx, exc)? {
+                let exn = if let ExprKind::Name { id, .. } = &exc.node {
+                    // Handle "raise Exception" short form
+                    let def_id = ctx.resolver.get_identifier_def(*id).map_err(|e| {
+                        format!("{} (at {})", e.iter().next().unwrap(), exc.location)
+                    })?;
+                    let def = ctx.top_level.definitions.read();
+                    let TopLevelDef::Class { constructor, .. } = *def[def_id.0].read() else {
+                        return Err(format!("Failed to resolve symbol {id} (at {})", exc.location));
+                    };
+
+                    let TypeEnum::TFunc(signature) =
+                        ctx.unifier.get_ty(constructor.unwrap()).as_ref().clone()
+                    else {
+                        return Err(format!("Failed to resolve symbol {id} (at {})", exc.location));
+                    };
+
+                    generator
+                        .gen_call(ctx, None, (&signature, def_id), Vec::default())?
+                        .map(Into::into)
+                } else {
+                    generator.gen_expr(ctx, exc)?
+                };
+
+                let exc = if let Some(v) = exn {
                     v.to_basic_value_enum(ctx, generator, exc.custom.unwrap())?
                 } else {
                     return Ok(());
