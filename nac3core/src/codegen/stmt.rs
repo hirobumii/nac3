@@ -174,6 +174,14 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 }
             }
             let val = value.to_basic_value_enum(ctx, generator, target.custom.unwrap())?;
+
+            // Perform i1 <-> i8 conversion as needed
+            let val = if ctx.unifier.unioned(target.custom.unwrap(), ctx.primitives.bool) {
+                generator.bool_to_i8(ctx, val.into_int_value()).into()
+            } else {
+                val
+            };
+
             ctx.builder.build_store(ptr, val).unwrap();
         }
     };
@@ -1665,6 +1673,18 @@ pub fn gen_return<G: CodeGenerator>(
     } else {
         None
     };
+
+    // Remap boolean return type into i1
+    let value = value.map(|ret_val| {
+        let expected_ty = func.get_type().get_return_type().unwrap();
+
+        if matches!(expected_ty, BasicTypeEnum::IntType(ty) if ty.get_bit_width() == 1) {
+            generator.bool_to_i1(ctx, ret_val.into_int_value()).into()
+        } else {
+            ret_val
+        }
+    });
+
     if let Some(return_target) = ctx.return_target {
         if let Some(value) = value {
             ctx.builder.build_store(ctx.return_buffer.unwrap(), value).unwrap();
@@ -1675,25 +1695,6 @@ pub fn gen_return<G: CodeGenerator>(
         ctx.builder.build_store(ctx.return_buffer.unwrap(), value.unwrap()).unwrap();
         ctx.builder.build_return(None).unwrap();
     } else {
-        // Remap boolean return type into i1
-        let value = value.map(|v| {
-            let expected_ty = func.get_type().get_return_type().unwrap();
-            let ret_val = v.as_basic_value_enum();
-
-            if expected_ty.is_int_type() && ret_val.is_int_value() {
-                let ret_type = expected_ty.into_int_type();
-                let ret_val = ret_val.into_int_value();
-
-                if ret_type.get_bit_width() == 1 && ret_val.get_type().get_bit_width() != 1 {
-                    generator.bool_to_i1(ctx, ret_val)
-                } else {
-                    ret_val
-                }
-                .into()
-            } else {
-                ret_val
-            }
-        });
         let value = value.as_ref().map(|v| v as &dyn BasicValue);
         ctx.builder.build_return(value).unwrap();
     }
