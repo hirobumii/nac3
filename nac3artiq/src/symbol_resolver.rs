@@ -23,7 +23,7 @@ use nac3core::{
     },
 };
 use nac3parser::ast::{self, StrRef};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use pyo3::{
     types::{PyDict, PyTuple},
     PyAny, PyObject, PyResult, Python,
@@ -79,7 +79,6 @@ pub struct InnerResolver {
     pub id_to_primitive: RwLock<HashMap<u64, PrimitiveValue>>,
     pub field_to_val: RwLock<HashMap<ResolverField, Option<PyFieldHandle>>>,
     pub global_value_ids: Arc<RwLock<HashMap<u64, PyObject>>>,
-    pub class_names: Mutex<HashMap<StrRef, Type>>,
     pub pyid_to_def: Arc<RwLock<HashMap<u64, DefinitionId>>>,
     pub pyid_to_type: Arc<RwLock<HashMap<u64, Type>>>,
     pub primitive_ids: PrimitivePythonId,

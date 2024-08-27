@@ -306,7 +306,6 @@ fn main() {
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
         id_to_type: builtins_ty.into(),
         id_to_def: builtins_def.into(),
-        class_names: Mutex::default(),
         module_globals: Mutex::default(),
         str_store: Mutex::default(),
     }

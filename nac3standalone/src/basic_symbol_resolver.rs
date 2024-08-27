@@ -15,7 +15,6 @@ use std::{collections::HashMap, sync::Arc};
 pub struct ResolverInternal {
     pub id_to_type: Mutex<HashMap<StrRef, Type>>,
     pub id_to_def: Mutex<HashMap<StrRef, DefinitionId>>,
-    pub class_names: Mutex<HashMap<StrRef, Type>>,
     pub module_globals: Mutex<HashMap<StrRef, SymbolValue>>,
     pub str_store: Mutex<HashMap<String, i32>>,
 }
