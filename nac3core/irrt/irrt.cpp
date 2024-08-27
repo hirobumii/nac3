@@ -11,19 +11,19 @@ using NDIndex = uint32_t;
 using SliceIndex = int32_t;
 
 namespace {
-template <typename T>
+template<typename T>
 const T& max(const T& a, const T& b) {
     return a > b ? a : b;
 }
 
-template <typename T>
+template<typename T>
 const T& min(const T& a, const T& b) {
     return a > b ? b : a;
 }
 
 // adapted from GNU Scientific Library: https://git.savannah.gnu.org/cgit/gsl.git/tree/sys/pow_int.c
 // need to make sure `exp >= 0` before calling this function
-template <typename T>
+template<typename T>
 T __nac3_int_exp_impl(T base, T exp) {
     T res = 1;
     /* repeated squaring method */
@@ -37,13 +37,8 @@ T __nac3_int_exp_impl(T base, T exp) {
     return res;
 }
 
-template <typename SizeT>
-SizeT __nac3_ndarray_calc_size_impl(
-    const SizeT* list_data,
-    SizeT list_len,
-    SizeT begin_idx,
-    SizeT end_idx
-) {
+template<typename SizeT>
+SizeT __nac3_ndarray_calc_size_impl(const SizeT* list_data, SizeT list_len, SizeT begin_idx, SizeT end_idx) {
     __builtin_assume(end_idx <= list_len);
 
     SizeT num_elems = 1;
@@ -55,13 +50,8 @@ SizeT __nac3_ndarray_calc_size_impl(
     return num_elems;
 }
 
-template <typename SizeT>
-void __nac3_ndarray_calc_nd_indices_impl(
-    SizeT index,
-    const SizeT* dims,
-    SizeT num_dims,
-    NDIndex* idxs
-) {
+template<typename SizeT>
+void __nac3_ndarray_calc_nd_indices_impl(SizeT index, const SizeT* dims, SizeT num_dims, NDIndex* idxs) {
     SizeT stride = 1;
     for (SizeT dim = 0; dim < num_dims; dim++) {
         SizeT i = num_dims - dim - 1;
@@ -71,13 +61,8 @@ void __nac3_ndarray_calc_nd_indices_impl(
     }
 }
 
-template <typename SizeT>
-SizeT __nac3_ndarray_flatten_index_impl(
-    const SizeT* dims,
-    SizeT num_dims,
-    const NDIndex* indices,
-    SizeT num_indices
-) {
+template<typename SizeT>
+SizeT __nac3_ndarray_flatten_index_impl(const SizeT* dims, SizeT num_dims, const NDIndex* indices, SizeT num_indices) {
     SizeT idx = 0;
     SizeT stride = 1;
     for (SizeT i = 0; i < num_dims; ++i) {
@@ -92,14 +77,12 @@ SizeT __nac3_ndarray_flatten_index_impl(
     return idx;
 }
 
-template <typename SizeT>
-void __nac3_ndarray_calc_broadcast_impl(
-    const SizeT* lhs_dims,
-    SizeT lhs_ndims,
-    const SizeT* rhs_dims,
-    SizeT rhs_ndims,
-    SizeT* out_dims
-) {
+template<typename SizeT>
+void __nac3_ndarray_calc_broadcast_impl(const SizeT* lhs_dims,
+                                        SizeT lhs_ndims,
+                                        const SizeT* rhs_dims,
+                                        SizeT rhs_ndims,
+                                        SizeT* out_dims) {
     SizeT max_ndims = lhs_ndims > rhs_ndims ? lhs_ndims : rhs_ndims;
 
     for (SizeT i = 0; i < max_ndims; ++i) {
@@ -123,13 +106,11 @@ void __nac3_ndarray_calc_broadcast_impl(
     }
 }
 
-template <typename SizeT>
-void __nac3_ndarray_calc_broadcast_idx_impl(
-    const SizeT* src_dims,
-    SizeT src_ndims,
-    const NDIndex* in_idx,
-    NDIndex* out_idx
-) {
+template<typename SizeT>
+void __nac3_ndarray_calc_broadcast_idx_impl(const SizeT* src_dims,
+                                            SizeT src_ndims,
+                                            const NDIndex* in_idx,
+                                            NDIndex* out_idx) {
     for (SizeT i = 0; i < src_ndims; ++i) {
         SizeT src_i = src_ndims - i - 1;
         out_idx[src_i] = src_dims[src_i] == 1 ? 0 : in_idx[src_i];
@@ -138,17 +119,14 @@ void __nac3_ndarray_calc_broadcast_idx_impl(
 }  // namespace
 
 extern "C" {
-#define DEF_nac3_int_exp_(T) \
-    T __nac3_int_exp_##T(T base, T exp) {\
-        return __nac3_int_exp_impl(base, exp);\
+#define DEF_nac3_int_exp_(T)                   \
+    T __nac3_int_exp_##T(T base, T exp) {      \
+        return __nac3_int_exp_impl(base, exp); \
     }
 
-DEF_nac3_int_exp_(int32_t)
-DEF_nac3_int_exp_(int64_t)
-DEF_nac3_int_exp_(uint32_t)
-DEF_nac3_int_exp_(uint64_t)
+DEF_nac3_int_exp_(int32_t) DEF_nac3_int_exp_(int64_t) DEF_nac3_int_exp_(uint32_t) DEF_nac3_int_exp_(uint64_t)
 
-SliceIndex __nac3_slice_index_bound(SliceIndex i, const SliceIndex len) {
+    SliceIndex __nac3_slice_index_bound(SliceIndex i, const SliceIndex len) {
     if (i < 0) {
         i = len + i;
     }
@@ -160,11 +138,7 @@ SliceIndex __nac3_slice_index_bound(SliceIndex i, const SliceIndex len) {
     return i;
 }
 
-SliceIndex __nac3_range_slice_len(
-    const SliceIndex start,
-    const SliceIndex end,
-    const SliceIndex step
-) {
+SliceIndex __nac3_range_slice_len(const SliceIndex start, const SliceIndex end, const SliceIndex step) {
     SliceIndex diff = end - start;
     if (diff > 0 && step > 0) {
         return ((diff - 1) / step) + 1;
@@ -181,61 +155,47 @@ SliceIndex __nac3_range_slice_len(
 // - The end index is *inclusive*,
 // - The length of src and dest slice size should already
 // be checked: if dest.step == 1 then len(src) <= len(dest) else len(src) == len(dest)
-SliceIndex __nac3_list_slice_assign_var_size(
-    SliceIndex dest_start,
-    SliceIndex dest_end,
-    SliceIndex dest_step,
-    uint8_t* dest_arr,
-    SliceIndex dest_arr_len,
-    SliceIndex src_start,
-    SliceIndex src_end,
-    SliceIndex src_step,
-    uint8_t* src_arr,
-    SliceIndex src_arr_len,
-    const SliceIndex size
-) {
+SliceIndex __nac3_list_slice_assign_var_size(SliceIndex dest_start,
+                                             SliceIndex dest_end,
+                                             SliceIndex dest_step,
+                                             uint8_t* dest_arr,
+                                             SliceIndex dest_arr_len,
+                                             SliceIndex src_start,
+                                             SliceIndex src_end,
+                                             SliceIndex src_step,
+                                             uint8_t* src_arr,
+                                             SliceIndex src_arr_len,
+                                             const SliceIndex size) {
     /* if dest_arr_len == 0, do nothing since we do not support extending list */
-    if (dest_arr_len == 0) return dest_arr_len;
+    if (dest_arr_len == 0)
+        return dest_arr_len;
     /* if both step is 1, memmove directly, handle the dropping of the list, and shrink size */
     if (src_step == dest_step && dest_step == 1) {
         const SliceIndex src_len = (src_end >= src_start) ? (src_end - src_start + 1) : 0;
         const SliceIndex dest_len = (dest_end >= dest_start) ? (dest_end - dest_start + 1) : 0;
         if (src_len > 0) {
-            __builtin_memmove(
-                dest_arr + dest_start * size,
-                src_arr + src_start * size,
-                src_len * size
-            );
+            __builtin_memmove(dest_arr + dest_start * size, src_arr + src_start * size, src_len * size);
         }
         if (dest_len > 0) {
             /* dropping */
-            __builtin_memmove(
-                dest_arr + (dest_start + src_len) * size,
-                dest_arr + (dest_end + 1) * size,
-                (dest_arr_len - dest_end - 1) * size
-            );
+            __builtin_memmove(dest_arr + (dest_start + src_len) * size, dest_arr + (dest_end + 1) * size,
+                              (dest_arr_len - dest_end - 1) * size);
         }
         /* shrink size */
         return dest_arr_len - (dest_len - src_len);
     }
     /* if two range overlaps, need alloca */
-    uint8_t need_alloca =
-        (dest_arr == src_arr)
-        && !(
-            max(dest_start, dest_end) < min(src_start, src_end)
-            || max(src_start, src_end) < min(dest_start, dest_end)
-        );
+    uint8_t need_alloca = (dest_arr == src_arr)
+                          && !(max(dest_start, dest_end) < min(src_start, src_end)
+                               || max(src_start, src_end) < min(dest_start, dest_end));
     if (need_alloca) {
-        uint8_t* tmp = reinterpret_cast<uint8_t *>(__builtin_alloca(src_arr_len * size));
+        uint8_t* tmp = reinterpret_cast<uint8_t*>(__builtin_alloca(src_arr_len * size));
         __builtin_memcpy(tmp, src_arr, src_arr_len * size);
         src_arr = tmp;
     }
     SliceIndex src_ind = src_start;
     SliceIndex dest_ind = dest_start;
-    for (;
-        (src_step > 0) ? (src_ind <= src_end) : (src_ind >= src_end);
-        src_ind += src_step, dest_ind += dest_step
-    ) {
+    for (; (src_step > 0) ? (src_ind <= src_end) : (src_ind >= src_end); src_ind += src_step, dest_ind += dest_step) {
         /* for constant optimization */
         if (size == 1) {
             __builtin_memcpy(dest_arr + dest_ind, src_arr + src_ind, 1);
@@ -251,11 +211,8 @@ SliceIndex __nac3_list_slice_assign_var_size(
     /* only dest_step == 1 can we shrink the dest list. */
     /* size should be ensured prior to calling this function */
     if (dest_step == 1 && dest_end >= dest_start) {
-        __builtin_memmove(
-            dest_arr + dest_ind * size,
-            dest_arr + (dest_end + 1) * size,
-            (dest_arr_len - dest_end - 1) * size
-        );
+        __builtin_memmove(dest_arr + dest_ind * size, dest_arr + (dest_end + 1) * size,
+                          (dest_arr_len - dest_end - 1) * size);
         return dest_arr_len - (dest_end - dest_ind) - 1;
     }
     return dest_arr_len;
@@ -320,95 +277,60 @@ double __nac3_j0(double x) {
     return j0(x);
 }
 
-uint32_t __nac3_ndarray_calc_size(
-    const uint32_t* list_data,
-    uint32_t list_len,
-    uint32_t begin_idx,
-    uint32_t end_idx
-) {
+uint32_t __nac3_ndarray_calc_size(const uint32_t* list_data, uint32_t list_len, uint32_t begin_idx, uint32_t end_idx) {
     return __nac3_ndarray_calc_size_impl(list_data, list_len, begin_idx, end_idx);
 }
 
-uint64_t __nac3_ndarray_calc_size64(
-    const uint64_t* list_data,
-    uint64_t list_len,
-    uint64_t begin_idx,
-    uint64_t end_idx
-) {
+uint64_t
+__nac3_ndarray_calc_size64(const uint64_t* list_data, uint64_t list_len, uint64_t begin_idx, uint64_t end_idx) {
     return __nac3_ndarray_calc_size_impl(list_data, list_len, begin_idx, end_idx);
 }
 
-void __nac3_ndarray_calc_nd_indices(
-    uint32_t index,
-    const uint32_t* dims,
-    uint32_t num_dims,
-    NDIndex* idxs
-) {
+void __nac3_ndarray_calc_nd_indices(uint32_t index, const uint32_t* dims, uint32_t num_dims, NDIndex* idxs) {
     __nac3_ndarray_calc_nd_indices_impl(index, dims, num_dims, idxs);
 }
 
-void __nac3_ndarray_calc_nd_indices64(
-    uint64_t index,
-    const uint64_t* dims,
-    uint64_t num_dims,
-    NDIndex* idxs
-) {
+void __nac3_ndarray_calc_nd_indices64(uint64_t index, const uint64_t* dims, uint64_t num_dims, NDIndex* idxs) {
     __nac3_ndarray_calc_nd_indices_impl(index, dims, num_dims, idxs);
 }
 
-uint32_t __nac3_ndarray_flatten_index(
-    const uint32_t* dims,
-    uint32_t num_dims,
-    const NDIndex* indices,
-    uint32_t num_indices
-) {
+uint32_t
+__nac3_ndarray_flatten_index(const uint32_t* dims, uint32_t num_dims, const NDIndex* indices, uint32_t num_indices) {
     return __nac3_ndarray_flatten_index_impl(dims, num_dims, indices, num_indices);
 }
 
-uint64_t __nac3_ndarray_flatten_index64(
-    const uint64_t* dims,
-    uint64_t num_dims,
-    const NDIndex* indices,
-    uint64_t num_indices
-) {
+uint64_t
+__nac3_ndarray_flatten_index64(const uint64_t* dims, uint64_t num_dims, const NDIndex* indices, uint64_t num_indices) {
     return __nac3_ndarray_flatten_index_impl(dims, num_dims, indices, num_indices);
 }
 
-void __nac3_ndarray_calc_broadcast(
-    const uint32_t* lhs_dims,
-    uint32_t lhs_ndims,
-    const uint32_t* rhs_dims,
-    uint32_t rhs_ndims,
-    uint32_t* out_dims
-) {
+void __nac3_ndarray_calc_broadcast(const uint32_t* lhs_dims,
+                                   uint32_t lhs_ndims,
+                                   const uint32_t* rhs_dims,
+                                   uint32_t rhs_ndims,
+                                   uint32_t* out_dims) {
     return __nac3_ndarray_calc_broadcast_impl(lhs_dims, lhs_ndims, rhs_dims, rhs_ndims, out_dims);
 }
 
-void __nac3_ndarray_calc_broadcast64(
-    const uint64_t* lhs_dims,
-    uint64_t lhs_ndims,
-    const uint64_t* rhs_dims,
-    uint64_t rhs_ndims,
-    uint64_t* out_dims
-) {
+void __nac3_ndarray_calc_broadcast64(const uint64_t* lhs_dims,
+                                     uint64_t lhs_ndims,
+                                     const uint64_t* rhs_dims,
+                                     uint64_t rhs_ndims,
+                                     uint64_t* out_dims) {
     return __nac3_ndarray_calc_broadcast_impl(lhs_dims, lhs_ndims, rhs_dims, rhs_ndims, out_dims);
 }
 
-void __nac3_ndarray_calc_broadcast_idx(
-    const uint32_t* src_dims,
-    uint32_t src_ndims,
-    const NDIndex* in_idx,
-    NDIndex* out_idx
-) {
+void __nac3_ndarray_calc_broadcast_idx(const uint32_t* src_dims,
+                                       uint32_t src_ndims,
+                                       const NDIndex* in_idx,
+                                       NDIndex* out_idx) {
     __nac3_ndarray_calc_broadcast_idx_impl(src_dims, src_ndims, in_idx, out_idx);
 }
 
-void __nac3_ndarray_calc_broadcast_idx64(
-    const uint64_t* src_dims,
-    uint64_t src_ndims,
-    const NDIndex* in_idx,
-    NDIndex* out_idx
-) {
+void __nac3_ndarray_calc_broadcast_idx64(const uint64_t* src_dims,
+                                         uint64_t src_ndims,
+                                         const NDIndex* in_idx,
+                                         NDIndex* out_idx) {
     __nac3_ndarray_calc_broadcast_idx_impl(src_dims, src_ndims, in_idx, out_idx);
 }
 }  // extern "C"
