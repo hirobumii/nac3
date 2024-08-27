@@ -2385,7 +2385,10 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                 })
                                 .map(BasicValueEnum::into_int_value)?;
 
-                            Ok(ctx.builder.build_not(cmp, "").unwrap())
+                            Ok(ctx.builder.build_not(
+                                generator.bool_to_i1(ctx, cmp),
+                                "",
+                            ).unwrap())
                         },
                         |_, ctx| {
                             let bb = ctx.builder.get_insert_block().unwrap();
