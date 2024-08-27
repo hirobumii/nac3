@@ -1,4 +1,4 @@
-use crate::typecheck::typedef::Type;
+use crate::{symbol_resolver::SymbolResolver, typecheck::typedef::Type};
 
 use super::{
     classes::{
@@ -16,14 +16,14 @@ use inkwell::{
     memory_buffer::MemoryBuffer,
     module::Module,
     types::{BasicTypeEnum, IntType},
-    values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue},
+    values::{BasicValue, BasicValueEnum, CallSiteValue, FloatValue, IntValue},
     AddressSpace, IntPredicate,
 };
 use itertools::Either;
 use nac3parser::ast::Expr;
 
 #[must_use]
-pub fn load_irrt(ctx: &Context) -> Module {
+pub fn load_irrt<'ctx>(ctx: &'ctx Context, symbol_resolver: &dyn SymbolResolver) -> Module<'ctx> {
     let bitcode_buf = MemoryBuffer::create_from_memory_range(
         include_bytes!(concat!(env!("OUT_DIR"), "/irrt.bc")),
         "irrt_bitcode_buffer",
@@ -39,6 +39,25 @@ pub fn load_irrt(ctx: &Context) -> Module {
         let function = irrt_mod.get_function(symbol).unwrap();
         function.add_attribute(AttributeLoc::Function, ctx.create_enum_attribute(inline_attr, 0));
     }
+
+    // Initialize all global `EXN_*` exception IDs in IRRT with the [`SymbolResolver`].
+    let exn_id_type = ctx.i32_type();
+    let errors = &[
+        ("EXN_INDEX_ERROR", "0:IndexError"),
+        ("EXN_VALUE_ERROR", "0:ValueError"),
+        ("EXN_ASSERTION_ERROR", "0:AssertionError"),
+        ("EXN_TYPE_ERROR", "0:TypeError"),
+    ];
+    for (irrt_name, symbol_name) in errors {
+        let exn_id = symbol_resolver.get_string_id(symbol_name);
+        let exn_id = exn_id_type.const_int(exn_id as u64, false).as_basic_value_enum();
+
+        let global = irrt_mod.get_global(irrt_name).unwrap_or_else(|| {
+            panic!("Exception symbol name '{irrt_name}' should exist in the IRRT LLVM module")
+        });
+        global.set_initializer(&exn_id);
+    }
+
     irrt_mod
 }
 
