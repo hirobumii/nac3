@@ -557,6 +557,10 @@ impl Nac3 {
             .register_top_level(synthesized.pop().unwrap(), Some(resolver.clone()), "", false)
             .unwrap();
 
+        // Process IRRT
+        let context = inkwell::context::Context::create();
+        let irrt = load_irrt(&context, resolver.as_ref());
+
         let fun_signature =
             FunSignature { args: vec![], ret: self.primitive.none, vars: VarMap::new() };
         let mut store = ConcreteTypeStore::new();
@@ -727,7 +731,7 @@ impl Nac3 {
             membuffer.lock().push(buffer);
         });
 
-        let context = inkwell::context::Context::create();
+        // Link all modules into `main`.
         let buffers = membuffers.lock();
         let main = context
             .create_module_from_ir(MemoryBuffer::create_from_memory_range(&buffers[0], "main"))
@@ -756,8 +760,7 @@ impl Nac3 {
             )
             .unwrap();
 
-        main.link_in_module(load_irrt(&context))
-            .map_err(|err| CompileError::new_err(err.to_string()))?;
+        main.link_in_module(irrt).map_err(|err| CompileError::new_err(err.to_string()))?;
 
         let mut function_iter = main.get_first_function();
         while let Some(func) = function_iter {
