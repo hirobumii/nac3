@@ -1,9 +1,16 @@
-use inkwell::{
-    attributes::{Attribute, AttributeLoc},
-    values::{BasicValueEnum, FloatValue},
-};
+use std::iter::once;
 
-use super::{CodeGenContext, expr::infer_and_call_function};
+use inkwell::{
+    AddressSpace,
+    attributes::{Attribute, AttributeLoc},
+    values::{BasicValue, BasicValueEnum, FloatValue, IntValue},
+};
+use itertools::Itertools;
+
+use super::{
+    CodeGenContext,
+    expr::{create_fn_and_call, infer_and_call_function},
+};
 
 /// Macro to generate extern function
 /// Both function return type and function parameter type are `FloatValue`
@@ -19,7 +26,7 @@ use super::{CodeGenContext, expr::infer_and_call_function};
 ///   These will be used unless other attributes are specified
 /// * `$(,$args:ident)*`: Operands of the extern function
 ///   The data type of these operands will be set to `FloatValue`
-///  
+///
 macro_rules! generate_extern_fn {
     ("unary", $fn_name:ident, $extern_fn:literal) => {
         generate_extern_fn!($fn_name, $extern_fn, arg, "mustprogress", "nofree", "nounwind", "willreturn", "writeonly");
@@ -129,3 +136,45 @@ generate_linalg_extern_fn!(call_np_linalg_det, np_linalg_det, 2);
 generate_linalg_extern_fn!(call_sp_linalg_lu, sp_linalg_lu, 3);
 generate_linalg_extern_fn!(call_sp_linalg_schur, sp_linalg_schur, 3);
 generate_linalg_extern_fn!(call_sp_linalg_hessenberg, sp_linalg_hessenberg, 3);
+
+/// Invokes the `printf` function.
+pub fn call_printf<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    format: &str,
+    args: &[BasicValueEnum<'ctx>],
+) -> IntValue<'ctx> {
+    const FN_NAME: &str = "printf";
+
+    let llvm_i8 = ctx.ctx.i8_type();
+    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
+
+    let pformat = ctx
+        .builder
+        .build_global_string_ptr(&format!("{format}\0"), "")
+        .map(|v| v.as_basic_value_enum())
+        .map(BasicValueEnum::into_pointer_value)
+        .unwrap();
+
+    let fn_args = once(&pformat.as_basic_value_enum()).chain(args).copied().collect_vec();
+
+    create_fn_and_call(
+        ctx,
+        FN_NAME,
+        Some(llvm_i32.into()),
+        &[llvm_pi8.into()],
+        fn_args.as_slice(),
+        true,
+        None,
+        Some(&|func| {
+            for attr in ["nofree", "nounwind"] {
+                func.add_attribute(
+                    AttributeLoc::Function,
+                    ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
+                );
+            }
+        }),
+    )
+    .map(BasicValueEnum::into_int_value)
+    .unwrap()
+}

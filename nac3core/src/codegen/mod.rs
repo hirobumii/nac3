@@ -43,6 +43,7 @@ use crate::{
 };
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
+use tracert::{TraceRuntimeConfig, TraceRuntimeState};
 use types::{
     ExceptionType, ListType, OptionType, ProxyType, RangeType, StringType, TupleType,
     ndarray::NDArrayType,
@@ -57,6 +58,7 @@ pub mod irrt;
 pub mod llvm_intrinsics;
 pub mod numpy;
 pub mod stmt;
+pub mod tracert;
 pub mod types;
 pub mod values;
 
@@ -228,6 +230,8 @@ pub struct CodeGenContext<'ctx, 'a> {
     /// See [`need_sret`].
     pub need_sret: bool,
 
+    pub tracert_state: Option<TraceRuntimeState>,
+
     /// The current source location.
     pub current_loc: Location,
 
@@ -294,6 +298,8 @@ pub struct WorkerRegistry {
 
     /// LLVM-related options for code generation.
     pub llvm_options: CodeGenLLVMOptions,
+
+    tracert_config: TraceRuntimeConfig,
 }
 
 impl WorkerRegistry {
@@ -303,6 +309,7 @@ impl WorkerRegistry {
         generators: Vec<Box<G>>,
         top_level_ctx: Arc<TopLevelContext>,
         llvm_options: &CodeGenLLVMOptions,
+        tracert_config: &TraceRuntimeConfig,
         f: &Arc<WithCall>,
     ) -> (Arc<WorkerRegistry>, Vec<thread::JoinHandle<()>>) {
         let (sender, receiver) = unbounded();
@@ -324,6 +331,7 @@ impl WorkerRegistry {
             wait_condvar,
             top_level_ctx,
             llvm_options: llvm_options.clone(),
+            tracert_config: tracert_config.clone(),
         });
 
         let mut handles = Vec::new();
@@ -986,6 +994,13 @@ pub fn gen_func_impl<
         unifier,
         static_value_store,
         need_sret: has_sret,
+        tracert_state: if cfg!(feature = "tracing")
+            || registry.tracert_config.enabled_tags.is_empty()
+        {
+            None
+        } else {
+            Some(TraceRuntimeState::create(registry.tracert_config.clone()))
+        },
         current_loc: Location::default(),
         debug_info: (dibuilder, compile_unit, func_scope.as_debug_info_scope()),
         llvm_usize: OnceCell::default(),

@@ -65,7 +65,7 @@ struct cslice {
     size_t len;
 };
 
-void output_int32_list(struct cslice* slice) {
+void output_int32_list(const struct cslice* slice) {
     const int32_t* data = (int32_t*)slice->data;
 
     putchar('[');
@@ -80,7 +80,7 @@ void output_int32_list(struct cslice* slice) {
     putchar('\n');
 }
 
-void output_str(struct cslice slice) {
+void output_str(const struct cslice slice) {
     const char* data = (const char*)slice.data;
 
     for (size_t i = 0; i < slice.len; ++i) {
@@ -88,12 +88,12 @@ void output_str(struct cslice slice) {
     }
 }
 
-void output_strln(struct cslice slice) {
+void output_strln(const struct cslice slice) {
     output_str(slice);
     putchar('\n');
 }
 
-uint64_t dbg_stack_address(__attribute__((unused)) struct cslice slice) {
+uint64_t dbg_stack_address(__attribute__((unused)) const struct cslice slice) {
     int i;
     void* ptr = (void*)&i;
     return (uintptr_t)ptr;

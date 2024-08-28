@@ -16,7 +16,10 @@ use parking_lot::{Mutex, RwLock};
 use nac3core::{
     codegen::{
         CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, DefaultCodeGenerator,
-        WithCall, WorkerRegistry, concrete_type::ConcreteTypeStore, irrt::load_irrt,
+        WithCall, WorkerRegistry,
+        concrete_type::ConcreteTypeStore,
+        irrt::load_irrt,
+        tracert::{TraceRuntimeConfig, load_tracert},
     },
     inkwell::{
         OptimizationLevel,
@@ -84,6 +87,9 @@ struct CommandLineArgs {
     /// Additional target features to enable/disable, specified using the `+`/`-` prefixes.
     #[arg(long)]
     target_features: Option<String>,
+
+    #[arg(long)]
+    trace: Vec<String>,
 }
 
 fn handle_typevar_definition(
@@ -293,6 +299,7 @@ fn main() {
         triple,
         mcpu,
         target_features,
+        trace,
     } = cli;
 
     Target::initialize_all(&InitializationConfig::default());
@@ -324,6 +331,7 @@ fn main() {
         // The default behavior for -O<n> where n>3 defaults to O3 for both Clang and GCC
         _ => OptimizationLevel::Aggressive,
     };
+    let tracert_config = TraceRuntimeConfig { enabled_tags: trace };
 
     let target_machine_options = CodeGenTargetMachineOptions {
         triple,
@@ -374,6 +382,12 @@ fn main() {
     // Process IRRT
     let irrt = load_irrt(&context, resolver.as_ref());
     emit_llvm(&irrt, "irrt");
+
+    // Process tracert
+    let tracert = load_tracert(&context, &tracert_config);
+    if let Some(tracert) = &tracert {
+        emit_llvm(&tracert, "tracert")
+    }
 
     // Process the Python script
     let parser_result = parser::parse_program(&program, file_name.into()).unwrap();
@@ -489,7 +503,8 @@ fn main() {
             ))
         })
         .collect();
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
+    let (registry, handles) =
+        WorkerRegistry::create_workers(threads, top_level, &llvm_options, &tracert_config, &f);
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 
@@ -510,6 +525,9 @@ fn main() {
     emit_llvm(&main, "main.merged");
 
     main.link_in_module(irrt).unwrap();
+    if let Some(tracert) = tracert {
+        main.link_in_module(tracert).unwrap();
+    }
     emit_llvm(&main, "main.fat");
 
     // Private all functions except "run"

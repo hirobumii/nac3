@@ -21,6 +21,7 @@ use super::{
     CodeGenContext, CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator,
     DefaultCodeGenerator, WithCall, WorkerRegistry,
     concrete_type::ConcreteTypeStore,
+    tracert::TraceRuntimeConfig,
     types::{ListType, ProxyType, RangeType, ndarray::NDArrayType},
 };
 use crate::{
@@ -196,7 +197,13 @@ fn test_primitives() {
         opt_level: OptimizationLevel::Default,
         target: CodeGenTargetMachineOptions::from_host_triple(),
     };
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
+    let (registry, handles) = WorkerRegistry::create_workers(
+        threads,
+        top_level,
+        &llvm_options,
+        &TraceRuntimeConfig::default(),
+        &f,
+    );
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 }
@@ -349,7 +356,13 @@ fn test_simple_call() {
         opt_level: OptimizationLevel::Default,
         target: CodeGenTargetMachineOptions::from_host_triple(),
     };
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
+    let (registry, handles) = WorkerRegistry::create_workers(
+        threads,
+        top_level,
+        &llvm_options,
+        &TraceRuntimeConfig::default(),
+        &f,
+    );
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 }

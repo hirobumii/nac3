@@ -6,6 +6,7 @@ edition = "2024"
 
 [features]
 no-escape-analysis = ["nac3core/no-escape-analysis"]
+tracing = ["nac3core/tracing"]
 
 [dependencies]
 parking_lot = "0.12"

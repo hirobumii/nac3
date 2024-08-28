@@ -34,6 +34,7 @@ use nac3core::{
     codegen::{
         CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator, WithCall,
         WorkerRegistry, concrete_type::ConcreteTypeStore, gen_func_impl, irrt::load_irrt,
+        tracert::TraceRuntimeConfig,
     },
     inkwell::{
         OptimizationLevel,
@@ -929,8 +930,13 @@ impl Nac3 {
         let membuffer = membuffers.clone();
         let mut has_return = false;
         py.allow_threads(|| {
-            let (registry, handles) =
-                WorkerRegistry::create_workers(threads, top_level.clone(), &self.llvm_options, &f);
+            let (registry, handles) = WorkerRegistry::create_workers(
+                threads,
+                top_level.clone(),
+                &self.llvm_options,
+                &TraceRuntimeConfig::default(),
+                &f,
+            );
 
             let context = Context::create();
             let mut generator = ArtiqCodeGenerator::with_target_machine(

@@ -8,6 +8,7 @@ edition = "2024"
 default = ["derive"]
 derive = ["dep:nac3core_derive"]
 no-escape-analysis = []
+tracing = []
 
 [dependencies]
 itertools = "0.14"
@@ -31,4 +32,5 @@ insta = "1.43"
 function_name = "0.3"
 
 [build-dependencies]
+itertools = "0.14"
 regex = "1.11"
