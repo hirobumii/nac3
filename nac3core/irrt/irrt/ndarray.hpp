@@ -1,6 +1,6 @@
 #pragma once
 
-#include <irrt/int_types.hpp>
+#include "irrt/int_types.hpp"
 
 namespace {
 template<typename SizeT>

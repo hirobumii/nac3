@@ -1,7 +1,7 @@
 #pragma once
 
-#include <irrt/cslice.hpp>
-#include <irrt/int_types.hpp>
+#include "irrt/cslice.hpp"
+#include "irrt/int_types.hpp"
 
 /**
  * @brief The int type of ARTIQ exception IDs.

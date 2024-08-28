@@ -1,6 +1,6 @@
 #pragma once
 
-#include <irrt/int_types.hpp>
+#include "irrt/int_types.hpp"
 
 template<typename SizeT>
 struct CSlice {

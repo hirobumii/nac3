@@ -1,6 +1,6 @@
 #pragma once
 
-#include <irrt/int_types.hpp>
+#include "irrt/int_types.hpp"
 
 extern "C" {
 SliceIndex __nac3_slice_index_bound(SliceIndex i, const SliceIndex len) {

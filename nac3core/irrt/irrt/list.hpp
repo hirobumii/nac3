@@ -1,7 +1,7 @@
 #pragma once
 
-#include <irrt/int_types.hpp>
-#include <irrt/math_util.hpp>
+#include "irrt/int_types.hpp"
+#include "irrt/math_util.hpp"
 
 extern "C" {
 // Handle list assignment and dropping part of the list when
