@@ -1,7 +1,7 @@
 use inkwell::{
-    types::{AnyTypeEnum, BasicTypeEnum, IntType},
+    types::{AnyType, AnyTypeEnum, BasicType, BasicTypeEnum, IntType},
     values::{BasicValueEnum, IntValue, PointerValue},
-    IntPredicate,
+    AddressSpace, IntPredicate,
 };
 
 use super::{
@@ -20,6 +20,7 @@ use crate::codegen::{
 #[derive(Copy, Clone)]
 pub struct NDArrayValue<'ctx> {
     value: PointerValue<'ctx>,
+    dtype: BasicTypeEnum<'ctx>,
     llvm_usize: IntType<'ctx>,
     name: Option<&'ctx str>,
 }
@@ -38,12 +39,13 @@ impl<'ctx> NDArrayValue<'ctx> {
     #[must_use]
     pub fn from_pointer_value(
         ptr: PointerValue<'ctx>,
+        dtype: BasicTypeEnum<'ctx>,
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
         debug_assert!(Self::is_representable(ptr, llvm_usize).is_ok());
 
-        NDArrayValue { value: ptr, llvm_usize, name }
+        NDArrayValue { value: ptr, dtype, llvm_usize, name }
     }
 
     /// Returns the pointer to the field storing the number of dimensions of this `NDArray`.
@@ -138,6 +140,10 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Stores the array of data elements `data` into this instance.
     fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
+        let data = ctx
+            .builder
+            .build_bit_cast(data, ctx.ctx.i8_type().ptr_type(AddressSpace::default()), "")
+            .unwrap();
         ctx.builder.build_store(self.ptr_to_data(ctx), data).unwrap();
     }
 
@@ -149,7 +155,15 @@ impl<'ctx> NDArrayValue<'ctx> {
         elem_ty: BasicTypeEnum<'ctx>,
         size: IntValue<'ctx>,
     ) {
-        self.store_data(ctx, ctx.builder.build_array_alloca(elem_ty, size, "").unwrap());
+        let itemsize =
+            ctx.builder.build_int_cast(elem_ty.size_of().unwrap(), size.get_type(), "").unwrap();
+        let nbytes = ctx.builder.build_int_mul(size, itemsize, "").unwrap();
+
+        // TODO: What about alignment?
+        self.store_data(
+            ctx,
+            ctx.builder.build_array_alloca(ctx.ctx.i8_type(), nbytes, "").unwrap(),
+        );
     }
 
     /// Returns a proxy object to the field storing the data of this `NDArray`.
@@ -164,7 +178,7 @@ impl<'ctx> ProxyValue<'ctx> for NDArrayValue<'ctx> {
     type Type = NDArrayType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        NDArrayType::from_type(self.as_base_value().get_type(), self.llvm_usize)
+        NDArrayType::from_type(self.as_base_value().get_type(), self.dtype, self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
@@ -282,10 +296,10 @@ pub struct NDArrayDataProxy<'ctx, 'a>(&'a NDArrayValue<'ctx>);
 impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDataProxy<'ctx, '_> {
     fn element_type<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        generator: &G,
+        _: &CodeGenContext<'ctx, '_>,
+        _: &G,
     ) -> AnyTypeEnum<'ctx> {
-        self.0.data().base_ptr(ctx, generator).get_type().get_element_type()
+        self.0.dtype.as_any_type_enum()
     }
 
     fn base_ptr<G: CodeGenerator + ?Sized>(
@@ -318,15 +332,37 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        unsafe {
+        let sizeof_elem = ctx
+            .builder
+            .build_int_truncate_or_bit_cast(
+                self.element_type(ctx, generator).size_of().unwrap(),
+                idx.get_type(),
+                "",
+            )
+            .unwrap();
+        let idx = ctx.builder.build_int_mul(*idx, sizeof_elem, "").unwrap();
+        let ptr = unsafe {
             ctx.builder
                 .build_in_bounds_gep(
                     self.base_ptr(ctx, generator),
-                    &[*idx],
+                    &[idx],
                     name.unwrap_or_default(),
                 )
                 .unwrap()
-        }
+        };
+
+        // Current implementation is transparent - The returned pointer type is
+        // already cast into the expected type, allowing for immediately
+        // load/store.
+        ctx.builder
+            .build_pointer_cast(
+                ptr,
+                BasicTypeEnum::try_from(self.element_type(ctx, generator))
+                    .unwrap()
+                    .ptr_type(AddressSpace::default()),
+                "",
+            )
+            .unwrap()
     }
 
     fn ptr_offset<G: CodeGenerator + ?Sized>(
@@ -347,7 +383,20 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
             ctx.current_loc,
         );
 
-        unsafe { self.ptr_offset_unchecked(ctx, generator, idx, name) }
+        let ptr = unsafe { self.ptr_offset_unchecked(ctx, generator, idx, name) };
+
+        // Current implementation is transparent - The returned pointer type is
+        // already cast into the expected type, allowing for immediately
+        // load/store.
+        ctx.builder
+            .build_pointer_cast(
+                ptr,
+                BasicTypeEnum::try_from(self.element_type(ctx, generator))
+                    .unwrap()
+                    .ptr_type(AddressSpace::default()),
+                "",
+            )
+            .unwrap()
     }
 }
 
@@ -381,8 +430,17 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
         );
 
         let index = call_ndarray_flatten_index(generator, ctx, *self.0, indices);
+        let sizeof_elem = ctx
+            .builder
+            .build_int_truncate_or_bit_cast(
+                self.element_type(ctx, generator).size_of().unwrap(),
+                index.get_type(),
+                "",
+            )
+            .unwrap();
+        let index = ctx.builder.build_int_mul(index, sizeof_elem, "").unwrap();
 
-        unsafe {
+        let ptr = unsafe {
             ctx.builder
                 .build_in_bounds_gep(
                     self.base_ptr(ctx, generator),
@@ -390,7 +448,17 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
                     name.unwrap_or_default(),
                 )
                 .unwrap()
-        }
+        };
+        // TODO: Current implementation is transparent
+        ctx.builder
+            .build_pointer_cast(
+                ptr,
+                BasicTypeEnum::try_from(self.element_type(ctx, generator))
+                    .unwrap()
+                    .ptr_type(AddressSpace::default()),
+                "",
+            )
+            .unwrap()
     }
 
     fn ptr_offset<G: CodeGenerator + ?Sized>(
@@ -455,7 +523,17 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
         )
         .unwrap();
 
-        unsafe { self.ptr_offset_unchecked(ctx, generator, indices, name) }
+        let ptr = unsafe { self.ptr_offset_unchecked(ctx, generator, indices, name) };
+        // TODO: Current implementation is transparent
+        ctx.builder
+            .build_pointer_cast(
+                ptr,
+                BasicTypeEnum::try_from(self.element_type(ctx, generator))
+                    .unwrap()
+                    .ptr_type(AddressSpace::default()),
+                "",
+            )
+            .unwrap()
     }
 }
 

@@ -67,21 +67,29 @@ impl<'ctx> NDArrayType<'ctx> {
         }
 
         let ndarray_data_ty = llvm_ndarray_ty.get_field_type_at_index(2).unwrap();
-        let Ok(_) = PointerType::try_from(ndarray_data_ty) else {
+        let Ok(ndarray_pdata) = PointerType::try_from(ndarray_data_ty) else {
             return Err(format!("Expected pointer type for `ndarray.2`, got {ndarray_data_ty}"));
         };
+        let ndarray_data = ndarray_pdata.get_element_type();
+        let Ok(ndarray_data) = IntType::try_from(ndarray_data) else {
+            return Err(format!(
+                "Expected pointer-to-int type for `ndarray.2`, got pointer-to-{ndarray_data}"
+            ));
+        };
+        if ndarray_data.get_bit_width() != 8 {
+            return Err(format!(
+                "Expected pointer-to-8-bit int type for `ndarray.1`, got pointer-to-{}-bit int",
+                ndarray_data.get_bit_width()
+            ));
+        }
 
         Ok(())
     }
 
     /// Creates an LLVM type corresponding to the expected structure of an `NDArray`.
     #[must_use]
-    fn llvm_type(
-        ctx: &'ctx Context,
-        dtype: BasicTypeEnum<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> PointerType<'ctx> {
-        // struct NDArray { num_dims: size_t, dims: size_t*, data: T* }
+    fn llvm_type(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
+        // struct NDArray { num_dims: size_t, dims: size_t*, data: i8* }
         //
         // * num_dims: Number of dimensions in the array
         // * dims: Pointer to an array containing the size of each dimension
@@ -89,13 +97,13 @@ impl<'ctx> NDArrayType<'ctx> {
         let field_tys = [
             llvm_usize.into(),
             llvm_usize.ptr_type(AddressSpace::default()).into(),
-            dtype.ptr_type(AddressSpace::default()).into(),
+            ctx.i8_type().ptr_type(AddressSpace::default()).into(),
         ];
 
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
-    /// Creates an instance of [`ListType`].
+    /// Creates an instance of [`NDArrayType`].
     #[must_use]
     pub fn new<G: CodeGenerator + ?Sized>(
         generator: &G,
@@ -103,24 +111,21 @@ impl<'ctx> NDArrayType<'ctx> {
         dtype: BasicTypeEnum<'ctx>,
     ) -> Self {
         let llvm_usize = generator.get_size_type(ctx);
-        let llvm_ndarray = Self::llvm_type(ctx, dtype, llvm_usize);
+        let llvm_ndarray = Self::llvm_type(ctx, llvm_usize);
 
-        NDArrayType::from_type(llvm_ndarray, llvm_usize)
+        NDArrayType { ty: llvm_ndarray, dtype, llvm_usize }
     }
 
-    /// Creates an [`NDArrayType`] from a [`PointerType`].
+    /// Creates an [`NDArrayType`] from a [`PointerType`] representing an `NDArray`.
     #[must_use]
-    pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+    pub fn from_type(
+        ptr_ty: PointerType<'ctx>,
+        dtype: BasicTypeEnum<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Self {
         debug_assert!(Self::is_representable(ptr_ty, llvm_usize).is_ok());
 
-        NDArrayType {
-            ty: ptr_ty,
-            dtype: ptr_ty
-                .get_element_type()
-                .try_into()
-                .expect("Expected BasicTypeEnum for dtype of NDArray"),
-            llvm_usize,
-        }
+        NDArrayType { ty: ptr_ty, dtype, llvm_usize }
     }
 
     /// Returns the type of the `size` field of this `ndarray` type.
@@ -207,7 +212,7 @@ impl<'ctx> ProxyType<'ctx> for NDArrayType<'ctx> {
     ) -> Self::Value {
         debug_assert_eq!(value.get_type(), self.as_base_type());
 
-        NDArrayValue::from_pointer_value(value, self.llvm_usize, name)
+        NDArrayValue::from_pointer_value(value, self.dtype, self.llvm_usize, name)
     }
 
     fn as_base_type(&self) -> Self::Base {

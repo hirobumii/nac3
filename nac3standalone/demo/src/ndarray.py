@@ -144,6 +144,7 @@ def test_ndarray_array():
 
     # Copy
     n2_cpy: ndarray[float, 2] = np_array(n2, copy=False)
+    output_ndarray_float_2(n2_cpy)
     n2_cpy.fill(0.0)
     output_ndarray_float_2(n2_cpy)
 
@@ -1756,7 +1757,7 @@ def run() -> int32:
     test_ndarray_nextafter_broadcast_rhs_scalar()
     test_ndarray_transpose()
     test_ndarray_reshape()
-    
+
     test_ndarray_dot()
     test_ndarray_cholesky()
     test_ndarray_qr()

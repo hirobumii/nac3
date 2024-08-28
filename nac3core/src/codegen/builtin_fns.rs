@@ -21,7 +21,10 @@ use super::{
     CodeGenContext, CodeGenerator,
 };
 use crate::{
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys},
+    toplevel::{
+        helper::{arraylike_flatten_element_type, PrimDef},
+        numpy::unpack_ndarray_var_tys,
+    },
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -65,10 +68,15 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
                 ctx.builder.build_int_truncate_or_bit_cast(len, llvm_i32, "len").unwrap()
             }
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
+                let elem_ty = arraylike_flatten_element_type(&mut ctx.unifier, arg_ty);
                 let llvm_usize = generator.get_size_type(ctx.ctx);
 
-                let arg =
-                    NDArrayValue::from_pointer_value(arg.into_pointer_value(), llvm_usize, None);
+                let arg = NDArrayValue::from_pointer_value(
+                    arg.into_pointer_value(),
+                    ctx.get_llvm_type(generator, elem_ty),
+                    llvm_usize,
+                    None,
+                );
 
                 let ndims = arg.dim_sizes().size(ctx, generator);
                 ctx.make_assert(
@@ -143,13 +151,14 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
                 generator,
                 ctx,
                 ctx.primitives.int32,
                 None,
-                NDArrayValue::from_pointer_value(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None),
                 |generator, ctx, val| call_int32(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -205,13 +214,14 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
                 generator,
                 ctx,
                 ctx.primitives.int64,
                 None,
-                NDArrayValue::from_pointer_value(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None),
                 |generator, ctx, val| call_int64(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -283,13 +293,14 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
                 generator,
                 ctx,
                 ctx.primitives.uint32,
                 None,
-                NDArrayValue::from_pointer_value(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None),
                 |generator, ctx, val| call_uint32(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -350,13 +361,14 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
                 generator,
                 ctx,
                 ctx.primitives.uint64,
                 None,
-                NDArrayValue::from_pointer_value(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None),
                 |generator, ctx, val| call_uint64(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -416,13 +428,14 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
                 generator,
                 ctx,
                 ctx.primitives.float,
                 None,
-                NDArrayValue::from_pointer_value(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None),
                 |generator, ctx, val| call_float(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -462,13 +475,14 @@ pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
                 generator,
                 ctx,
                 ret_elem_ty,
                 None,
-                NDArrayValue::from_pointer_value(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None),
                 |generator, ctx, val| call_round(generator, ctx, (elem_ty, val), ret_elem_ty),
             )?;
 
@@ -502,13 +516,14 @@ pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
                 generator,
                 ctx,
                 ctx.primitives.float,
                 None,
-                NDArrayValue::from_pointer_value(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None),
                 |generator, ctx, val| call_numpy_round(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -567,13 +582,14 @@ pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
                 generator,
                 ctx,
                 ctx.primitives.bool,
                 None,
-                NDArrayValue::from_pointer_value(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None),
                 |generator, ctx, val| {
                     let elem = call_bool(generator, ctx, (elem_ty, val))?;
 
@@ -621,13 +637,14 @@ pub fn call_floor<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
                 generator,
                 ctx,
                 ret_elem_ty,
                 None,
-                NDArrayValue::from_pointer_value(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None),
                 |generator, ctx, val| call_floor(generator, ctx, (elem_ty, val), ret_elem_ty),
             )?;
 
@@ -671,13 +688,14 @@ pub fn call_ceil<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
                 generator,
                 ctx,
                 ret_elem_ty,
                 None,
-                NDArrayValue::from_pointer_value(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None),
                 |generator, ctx, val| call_ceil(generator, ctx, (elem_ty, val), ret_elem_ty),
             )?;
 
@@ -806,8 +824,8 @@ pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 dtype,
                 None,
-                (x1, !is_ndarray1),
-                (x2, !is_ndarray2),
+                (x1_ty, x1, !is_ndarray1),
+                (x2_ty, x2, !is_ndarray2),
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_minimum(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
@@ -906,9 +924,9 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             if a_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, a_ty);
-            let llvm_ndarray_ty = ctx.get_llvm_type(generator, elem_ty);
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
-            let n = NDArrayValue::from_pointer_value(n, llvm_usize, None);
+            let n = NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None);
             let n_sz = irrt::call_ndarray_calc_size(generator, ctx, &n.dim_sizes(), (None, None));
             if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
                 let n_sz_eqz = ctx
@@ -926,7 +944,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
                 );
             }
 
-            let accumulator_addr = generator.gen_var_alloc(ctx, llvm_ndarray_ty, None)?;
+            let accumulator_addr = generator.gen_var_alloc(ctx, llvm_elem_ty, None)?;
             let res_idx = generator.gen_var_alloc(ctx, llvm_int64.into(), None)?;
 
             unsafe {
@@ -1068,8 +1086,8 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 dtype,
                 None,
-                (x1, !is_ndarray1),
-                (x2, !is_ndarray2),
+                (x1_ty, x1, !is_ndarray1),
+                (x2_ty, x2, !is_ndarray2),
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_maximum(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
@@ -1114,6 +1132,7 @@ where
         {
             let llvm_usize = generator.get_size_type(ctx.ctx);
             let (arg_elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
+            let llvm_arg_elem_ty = ctx.get_llvm_type(generator, arg_elem_ty);
             let ret_elem_ty = get_ret_elem_type(ctx, arg_elem_ty);
 
             let ndarray = ndarray_elementwise_unaryop_impl(
@@ -1121,7 +1140,7 @@ where
                 ctx,
                 ret_elem_ty,
                 None,
-                NDArrayValue::from_pointer_value(x, llvm_usize, None),
+                NDArrayValue::from_pointer_value(x, llvm_arg_elem_ty, llvm_usize, None),
                 |generator, ctx, elem_val| {
                     helper_call_numpy_unary_elementwise(
                         generator,
@@ -1508,8 +1527,8 @@ pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 dtype,
                 None,
-                (x1, !is_ndarray1),
-                (x2, !is_ndarray2),
+                (x1_ty, x1, !is_ndarray1),
+                (x2_ty, x2, !is_ndarray2),
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_arctan2(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
@@ -1575,8 +1594,8 @@ pub fn call_numpy_copysign<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 dtype,
                 None,
-                (x1, !is_ndarray1),
-                (x2, !is_ndarray2),
+                (x1_ty, x1, !is_ndarray1),
+                (x2_ty, x2, !is_ndarray2),
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_copysign(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
@@ -1642,8 +1661,8 @@ pub fn call_numpy_fmax<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 dtype,
                 None,
-                (x1, !is_ndarray1),
-                (x2, !is_ndarray2),
+                (x1_ty, x1, !is_ndarray1),
+                (x2_ty, x2, !is_ndarray2),
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_fmax(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
@@ -1709,8 +1728,8 @@ pub fn call_numpy_fmin<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 dtype,
                 None,
-                (x1, !is_ndarray1),
-                (x2, !is_ndarray2),
+                (x1_ty, x1, !is_ndarray1),
+                (x2_ty, x2, !is_ndarray2),
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_fmin(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
@@ -1765,8 +1784,8 @@ pub fn call_numpy_ldexp<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 dtype,
                 None,
-                (x1, !is_ndarray1),
-                (x2, !is_ndarray2),
+                (x1_ty, x1, !is_ndarray1),
+                (x2_ty, x2, !is_ndarray2),
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_ldexp(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
@@ -1832,8 +1851,8 @@ pub fn call_numpy_hypot<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 dtype,
                 None,
-                (x1, !is_ndarray1),
-                (x2, !is_ndarray2),
+                (x1_ty, x1, !is_ndarray1),
+                (x2_ty, x2, !is_ndarray2),
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_hypot(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
@@ -1899,8 +1918,8 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 dtype,
                 None,
-                (x1, !is_ndarray1),
-                (x2, !is_ndarray2),
+                (x1_ty, x1, !is_ndarray1),
+                (x2_ty, x2, !is_ndarray2),
                 |generator, ctx, (lhs, rhs)| {
                     call_numpy_nextafter(generator, ctx, (x1_scalar_ty, lhs), (x2_scalar_ty, rhs))
                 },
@@ -1960,7 +1979,7 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
         let dim0 = unsafe {
             n1.dim_sizes()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
@@ -2002,7 +2021,7 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
             unimplemented!("{FN_NAME} operates on float type NdArrays only");
         };
 
-        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
         let dim0 = unsafe {
             n1.dim_sizes()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
@@ -2052,7 +2071,7 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
 
         let dim0 = unsafe {
             n1.dim_sizes()
@@ -2107,7 +2126,7 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
         let dim0 = unsafe {
             n1.dim_sizes()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
@@ -2149,7 +2168,7 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
 
         let dim0 = unsafe {
             n1.dim_sizes()
@@ -2192,7 +2211,7 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
 
         let dim0 = unsafe {
             n1.dim_sizes()
@@ -2245,7 +2264,7 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]);
         };
 
-        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
         // Changing second parameter to a `NDArray` for uniformity in function call
         let n2_array = numpy::create_ndarray_const_shape(
             generator,
@@ -2340,7 +2359,7 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
 
         let dim0 = unsafe {
             n1.dim_sizes()
@@ -2383,7 +2402,7 @@ pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
 
         let dim0 = unsafe {
             n1.dim_sizes()
