@@ -7,11 +7,11 @@
 #include <string.h>
 
 double dbl_nan(void) {
-  return NAN;
+    return NAN;
 }
 
 double dbl_inf(void) {
-  return INFINITY;
+    return INFINITY;
 }
 
 void output_bool(bool x) {
@@ -19,19 +19,19 @@ void output_bool(bool x) {
 }
 
 void output_int32(int32_t x) {
-    printf("%"PRId32"\n", x);
+    printf("%" PRId32 "\n", x);
 }
 
 void output_int64(int64_t x) {
-    printf("%"PRId64"\n", x);
+    printf("%" PRId64 "\n", x);
 }
 
 void output_uint32(uint32_t x) {
-    printf("%"PRIu32"\n", x);
+    printf("%" PRIu32 "\n", x);
 }
 
 void output_uint64(uint64_t x) {
-    printf("%"PRIu64"\n", x);
+    printf("%" PRIu64 "\n", x);
 }
 
 void output_float64(double x) {
@@ -52,7 +52,7 @@ void output_range(int32_t range[3]) {
 }
 
 void output_asciiart(int32_t x) {
-    static const char *chars = " .,-:;i+hHM$*#@    ";
+    static const char* chars = " .,-:;i+hHM$*#@    ";
     if (x < 0) {
         putchar('\n');
     } else {
@@ -61,12 +61,12 @@ void output_asciiart(int32_t x) {
 }
 
 struct cslice {
-    void *data;
+    void* data;
     size_t len;
 };
 
-void output_int32_list(struct cslice *slice) {
-    const int32_t *data = (int32_t *) slice->data;
+void output_int32_list(struct cslice* slice) {
+    const int32_t* data = (int32_t*)slice->data;
 
     putchar('[');
     for (size_t i = 0; i < slice->len; ++i) {
@@ -80,23 +80,23 @@ void output_int32_list(struct cslice *slice) {
     putchar('\n');
 }
 
-void output_str(struct cslice *slice) {
-    const char *data = (const char *) slice->data;
+void output_str(struct cslice* slice) {
+    const char* data = (const char*)slice->data;
 
     for (size_t i = 0; i < slice->len; ++i) {
         putchar(data[i]);
     }
 }
 
-void output_strln(struct cslice *slice) {
+void output_strln(struct cslice* slice) {
     output_str(slice);
     putchar('\n');
 }
 
-uint64_t dbg_stack_address(__attribute__((unused)) struct cslice *slice) {
+uint64_t dbg_stack_address(__attribute__((unused)) struct cslice* slice) {
     int i;
-    void *ptr = (void *) &i;
-    return (uintptr_t) ptr;
+    void* ptr = (void*)&i;
+    return (uintptr_t)ptr;
 }
 
 uint32_t __nac3_personality(uint32_t state, uint32_t exception_object, uint32_t context) {
@@ -119,11 +119,12 @@ struct Exception {
 
 uint32_t __nac3_raise(struct Exception* e) {
     printf("__nac3_raise called. Exception details:\n");
-    printf("          ID: %"PRIu32"\n", e->id);
-    printf("    Location: %*s:%"PRIu32":%"PRIu32"\n" , (int) e->file.len, (const char*) e->file.data, e->line, e->column);
-    printf("    Function: %*s\n" , (int) e->function.len, (const char*) e->function.data);
-    printf("     Message: \"%*s\"\n" , (int) e->message.len, (const char*) e->message.data);
-    printf("      Params: {0}=%"PRId64", {1}=%"PRId64", {2}=%"PRId64"\n", e->param[0], e->param[1], e->param[2]);
+    printf("          ID: %" PRIu32 "\n", e->id);
+    printf("    Location: %*s:%" PRIu32 ":%" PRIu32 "\n", (int)e->file.len, (const char*)e->file.data, e->line,
+           e->column);
+    printf("    Function: %*s\n", (int)e->function.len, (const char*)e->function.data);
+    printf("     Message: \"%*s\"\n", (int)e->message.len, (const char*)e->message.data);
+    printf("      Params: {0}=%" PRId64 ", {1}=%" PRId64 ", {2}=%" PRId64 "\n", e->param[0], e->param[1], e->param[2]);
     exit(101);
     __builtin_unreachable();
 }
