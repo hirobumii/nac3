@@ -1676,7 +1676,12 @@ pub fn gen_return<G: CodeGenerator>(
 
     // Remap boolean return type into i1
     let value = value.map(|ret_val| {
-        let expected_ty = func.get_type().get_return_type().unwrap();
+        // The "return type" of a sret function is in the first parameter
+        let expected_ty = if ctx.need_sret {
+            func.get_type().get_param_types()[0]
+        } else {
+            func.get_type().get_return_type().unwrap()
+        };
 
         if matches!(expected_ty, BasicTypeEnum::IntType(ty) if ty.get_bit_width() == 1) {
             generator.bool_to_i1(ctx, ret_val.into_int_value()).into()
