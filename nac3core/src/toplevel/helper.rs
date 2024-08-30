@@ -624,64 +624,6 @@ impl TopLevelComposer {
         Err(HashSet::from([format!("no method {method_name} in the current class")]))
     }
 
-    /// get all base class def id of a class, excluding itself. \
-    /// this function should called only after the direct parent is set
-    /// and before all the ancestors are set
-    /// and when we allow single inheritance \
-    /// the order of the returned list is from the child to the deepest ancestor
-    pub fn get_all_ancestors_helper(
-        child: &TypeAnnotation,
-        temp_def_list: &[Arc<RwLock<TopLevelDef>>],
-    ) -> Result<Vec<TypeAnnotation>, HashSet<String>> {
-        let mut result: Vec<TypeAnnotation> = Vec::new();
-        let mut parent = Self::get_parent(child, temp_def_list);
-        while let Some(p) = parent {
-            parent = Self::get_parent(&p, temp_def_list);
-            let p_id = if let TypeAnnotation::CustomClass { id, .. } = &p {
-                *id
-            } else {
-                unreachable!("must be class kind annotation")
-            };
-            // check cycle
-            let no_cycle = result.iter().all(|x| {
-                let TypeAnnotation::CustomClass { id, .. } = x else {
-                    unreachable!("must be class kind annotation")
-                };
-
-                id.0 != p_id.0
-            });
-            if no_cycle {
-                result.push(p);
-            } else {
-                return Err(HashSet::from(["cyclic inheritance detected".into()]));
-            }
-        }
-        Ok(result)
-    }
-
-    /// should only be called when finding all ancestors, so panic when wrong
-    fn get_parent(
-        child: &TypeAnnotation,
-        temp_def_list: &[Arc<RwLock<TopLevelDef>>],
-    ) -> Option<TypeAnnotation> {
-        let child_id = if let TypeAnnotation::CustomClass { id, .. } = child {
-            *id
-        } else {
-            unreachable!("should be class type annotation")
-        };
-        let child_def = temp_def_list.get(child_id.0).unwrap();
-        let child_def = child_def.read();
-        let TopLevelDef::Class { ancestors, .. } = &*child_def else {
-            unreachable!("child must be top level class def")
-        };
-
-        if ancestors.is_empty() {
-            None
-        } else {
-            Some(ancestors[0].clone())
-        }
-    }
-
     /// get the `var_id` of a given `TVar` type
     pub fn get_var_id(var_ty: Type, unifier: &mut Unifier) -> Result<TypeVarId, HashSet<String>> {
         if let TypeEnum::TVar { id, .. } = unifier.get_ty(var_ty).as_ref() {
@@ -990,6 +932,139 @@ impl TopLevelComposer {
                 found.stringify(unifier),
             ))
         }
+    }
+
+    /// Parses the class type variables and direct parents
+    /// we only allow single inheritance
+    pub fn analyze_class_bases(
+        class_def: &Arc<RwLock<TopLevelDef>>,
+        class_ast: &Option<Stmt>,
+        temp_def_list: &[Arc<RwLock<TopLevelDef>>],
+        unifier: &mut Unifier,
+        primitives_store: &PrimitiveStore,
+    ) -> Result<(), HashSet<String>> {
+        let mut class_def = class_def.write();
+        let (class_def_id, class_ancestors, class_bases_ast, class_type_vars, class_resolver) = {
+            let TopLevelDef::Class { object_id, ancestors, type_vars, resolver, .. } =
+                &mut *class_def
+            else {
+                unreachable!()
+            };
+            let Some(ast::Located { node: ast::StmtKind::ClassDef { bases, .. }, .. }) = class_ast
+            else {
+                unreachable!()
+            };
+            (object_id, ancestors, bases, type_vars, resolver.as_ref().unwrap().as_ref())
+        };
+
+        let mut is_generic = false;
+        let mut has_base = false;
+        // Check class bases for typevars
+        for b in class_bases_ast {
+            match &b.node {
+                // analyze typevars bounded to the class,
+                // only support things like `class A(Generic[T, V])`,
+                // things like `class A(Generic[T, V, ImportedModule.T])` is not supported
+                // i.e. only simple names are allowed in the subscript
+                // should update the TopLevelDef::Class.typevars and the TypeEnum::TObj.params
+                ast::ExprKind::Subscript { value, slice, .. } if matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"Generic".into()) =>
+                {
+                    if is_generic {
+                        return Err(HashSet::from([format!(
+                            "only single Generic[...] is allowed (at {})",
+                            b.location
+                        )]));
+                    }
+                    is_generic = true;
+
+                    let type_var_list: Vec<&ast::Expr<()>>;
+                    // if `class A(Generic[T, V, G])`
+                    if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
+                        type_var_list = elts.iter().collect_vec();
+                    // `class A(Generic[T])`
+                    } else {
+                        type_var_list = vec![&**slice];
+                    }
+
+                    let type_vars = type_var_list
+                        .into_iter()
+                        .map(|e| {
+                            class_resolver.parse_type_annotation(
+                                temp_def_list,
+                                unifier,
+                                primitives_store,
+                                e,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    class_type_vars.extend(type_vars);
+                }
+                ast::ExprKind::Name { .. } | ast::ExprKind::Subscript { .. } => {
+                    if has_base {
+                        return Err(HashSet::from([format!("a class definition can only have at most one base class declaration and one generic declaration (at {})", b.location )]));
+                    }
+                    has_base = true;
+                    // the function parse_ast_to make sure that no type var occurred in
+                    // bast_ty if it is a CustomClassKind
+                    let base_ty = parse_ast_to_type_annotation_kinds(
+                        class_resolver,
+                        temp_def_list,
+                        unifier,
+                        primitives_store,
+                        b,
+                        vec![(*class_def_id, class_type_vars.clone())]
+                            .into_iter()
+                            .collect::<HashMap<_, _>>(),
+                    )?;
+                    if let TypeAnnotation::CustomClass { .. } = &base_ty {
+                        class_ancestors.push(base_ty);
+                    } else {
+                        return Err(HashSet::from([format!(
+                            "class base declaration can only be custom class (at {})",
+                            b.location
+                        )]));
+                    }
+                }
+                _ => {
+                    return Err(HashSet::from([format!(
+                        "unsupported statement in class defintion (at {})",
+                        b.location
+                    )]));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// gets all ancestors of a class
+    pub fn analyze_class_ancestors(
+        class_def: &Arc<RwLock<TopLevelDef>>,
+        temp_def_list: &[Arc<RwLock<TopLevelDef>>],
+    ) {
+        // Check if class has a direct parent
+        let mut class_def = class_def.write();
+        let TopLevelDef::Class { ancestors, type_vars, object_id, .. } = &mut *class_def else {
+            unreachable!()
+        };
+        let mut anc_set = HashMap::new();
+
+        if let Some(ancestor) = ancestors.first() {
+            let TypeAnnotation::CustomClass { id, .. } = ancestor else { unreachable!() };
+            let TopLevelDef::Class { ancestors: parent_ancestors, .. } =
+                &*temp_def_list[id.0].read()
+            else {
+                unreachable!()
+            };
+            for anc in parent_ancestors.iter().skip(1) {
+                let TypeAnnotation::CustomClass { id, .. } = anc else { unreachable!() };
+                anc_set.insert(id, anc.clone());
+            }
+            ancestors.extend(anc_set.into_values());
+        }
+        // push `self` as first ancestor of class
+        ancestors.insert(0, make_self_type_annotation(type_vars.as_slice(), *object_id));
     }
 }
 
