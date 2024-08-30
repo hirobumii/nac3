@@ -230,16 +230,16 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "},
         indoc! {"
-            class B(C):
-                def __init__(self):
-                    pass
-        "},
-        indoc! {"
             class C(A):
                 def __init__(self):
                     pass
                 def fun(self, b: B):
                     a = 1
+                    pass
+        "},
+        indoc! {"
+            class B(C):
+                def __init__(self):
                     pass
         "},
         indoc! {"
@@ -257,19 +257,19 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
 #[test_case(
     &[
         indoc! {"
+        class B:
+            aa: bool
+            def __init__(self):
+                self.aa = False
+            def foo(self, b: T):
+                pass
+        "},
+        indoc! {"
             class Generic_A(Generic[V], B):
                 a: int64
                 def __init__(self):
                     self.a = 123123123123
                 def fun(self, a: int32) -> V:
-                    pass
-        "},
-        indoc! {"
-            class B:
-                aa: bool
-                def __init__(self):
-                    self.aa = False
-                def foo(self, b: T):
                     pass
         "}
     ],
@@ -390,18 +390,18 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &["cyclic inheritance detected"];
+    &["NameError: name 'B' is not defined (at unknown:1:9)"];
     "cyclic1"
 )]
 #[test_case(
     &[
         indoc! {"
-            class A(B[bool, int64]):
-                def __init__(self):
-                    pass
+        class B(Generic[V, T], C[int32]):
+            def __init__(self):
+                pass
         "},
         indoc! {"
-            class B(Generic[V, T], C[int32]):
+            class A(B[bool, int64]):
                 def __init__(self):
                     pass
         "},
@@ -411,7 +411,7 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "},
     ],
-    &["cyclic inheritance detected"];
+    &["NameError: name 'C' is not defined (at unknown:1:25)"];
     "cyclic2"
 )]
 #[test_case(
@@ -436,11 +436,6 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
 #[test_case(
     &[
         indoc! {"
-            class A(B, Generic[T], C):
-                def __init__(self):
-                    pass
-        "},
-        indoc! {"
             class B:
                 def __init__(self):
                     pass
@@ -449,6 +444,11 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
             class C:
                 def __init__(self):
                     pass
+        "},
+        indoc! {"
+        class A(B, Generic[T], C):
+            def __init__(self):
+                pass
         "}
 
     ],
