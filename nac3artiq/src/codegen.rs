@@ -461,8 +461,8 @@ fn format_rpc_arg<'ctx>(
             let llvm_usize = generator.get_size_type(ctx.ctx);
 
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
-            let llvm_arg_ty =
-                NDArrayType::new(generator, ctx.ctx, ctx.get_llvm_type(generator, elem_ty));
+            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+            let llvm_arg_ty = NDArrayType::new(generator, ctx.ctx, llvm_elem_ty);
             let llvm_arg = NDArrayValue::from_ptr_val(arg.into_pointer_value(), llvm_usize, None);
 
             let llvm_usize_sizeof = ctx
@@ -472,7 +472,7 @@ fn format_rpc_arg<'ctx>(
             let llvm_pdata_sizeof = ctx
                 .builder
                 .build_int_truncate_or_bit_cast(
-                    llvm_arg_ty.element_type().ptr_type(AddressSpace::default()).size_of(),
+                    llvm_elem_ty.ptr_type(AddressSpace::default()).size_of(),
                     llvm_usize,
                     "",
                 )
@@ -630,7 +630,7 @@ fn format_rpc_ret<'ctx>(
             let llvm_pdata_sizeof = ctx
                 .builder
                 .build_int_truncate_or_bit_cast(
-                    llvm_ret_ty.element_type().size_of().unwrap(),
+                    llvm_elem_ty.ptr_type(AddressSpace::default()).size_of(),
                     llvm_usize,
                     "",
                 )
