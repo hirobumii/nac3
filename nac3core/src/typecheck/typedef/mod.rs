@@ -670,8 +670,8 @@ impl Unifier {
         let num_args = posargs.len() + kwargs.len();
 
         // Now we check the arguments against the parameters,
-        // and depending on what `call_info` is, we might change how the behavior `unify_call()`
-        // in hopes to improve user error messages when type checking fails.
+        // and depending on what `call_info` is, we might change how `unify_call()` behaves
+        // to improve user error messages when type checking fails.
         match operator_info {
             Some(OperatorInfo::IsBinaryOp { self_type, operator }) => {
                 // The call is written in the form of (say) `a + b`.
