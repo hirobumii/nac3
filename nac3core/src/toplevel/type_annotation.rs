@@ -100,7 +100,13 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
             Ok(TypeAnnotation::CustomClass { id: PrimDef::Exception.id(), params: Vec::default() })
         } else if let Ok(obj_id) = resolver.get_identifier_def(*id) {
             let type_vars = {
-                let def_read = top_level_defs[obj_id.0].try_read();
+                let Some(top_level_def) = top_level_defs.get(obj_id.0) else {
+                    return Err(HashSet::from([format!(
+                        "NameError: name '{id}' is not defined (at {})",
+                        expr.location
+                    )]));
+                };
+                let def_read = top_level_def.try_read();
                 if let Some(def_read) = def_read {
                     if let TopLevelDef::Class { type_vars, .. } = &*def_read {
                         type_vars.clone()
@@ -155,12 +161,17 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
             }
             let obj_id = resolver.get_identifier_def(*id)?;
             let type_vars = {
-                let def_read = top_level_defs[obj_id.0].try_read();
+                let Some(top_level_def) = top_level_defs.get(obj_id.0) else {
+                    return Err(HashSet::from([format!(
+                        "NameError: name '{id}' is not defined (at {})",
+                        expr.location
+                    )]));
+                };
+                let def_read = top_level_def.try_read();
                 if let Some(def_read) = def_read {
                     let TopLevelDef::Class { type_vars, .. } = &*def_read else {
                         unreachable!("must be class here")
                     };
-
                     type_vars.clone()
                 } else {
                     locked.get(&obj_id).unwrap().clone()
