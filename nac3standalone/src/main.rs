@@ -9,8 +9,8 @@
 #![allow(clippy::too_many_lines, clippy::wildcard_imports)]
 
 use clap::Parser;
-use inkwell::context::Context;
-use inkwell::{
+use nac3core::inkwell::context::Context;
+use nac3core::inkwell::{
     memory_buffer::MemoryBuffer, passes::PassBuilderOptions, support::is_multithreaded, targets::*,
     OptimizationLevel,
 };
@@ -31,7 +31,7 @@ use nac3core::{
         typedef::{FunSignature, Type, Unifier, VarMap},
     },
 };
-use nac3parser::{
+use nac3core::nac3parser::{
     ast::{Constant, Expr, ExprKind, StmtKind, StrRef},
     parser,
 };

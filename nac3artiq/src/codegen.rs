@@ -15,9 +15,9 @@ use nac3core::{
     typecheck::typedef::{iter_type_vars, FunSignature, FuncArg, Type, TypeEnum, VarMap},
 };
 
-use nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef};
+use nac3core::nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef};
 
-use inkwell::{
+use nac3core::inkwell::{
     context::Context,
     module::Linkage,
     types::{BasicType, IntType},
@@ -32,7 +32,7 @@ use pyo3::{
 
 use crate::{symbol_resolver::InnerResolver, timeline::TimeFns};
 
-use inkwell::values::IntValue;
+use nac3core::inkwell::values::IntValue;
 use itertools::Itertools;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},

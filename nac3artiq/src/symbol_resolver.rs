@@ -1,5 +1,5 @@
 use crate::PrimitivePythonId;
-use inkwell::{
+use nac3core::inkwell::{
     module::Linkage,
     types::{BasicType, BasicTypeEnum},
     values::BasicValueEnum,
@@ -22,7 +22,7 @@ use nac3core::{
         typedef::{into_var_map, iter_type_vars, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
-use nac3parser::ast::{self, StrRef};
+use nac3core::nac3parser::ast::{self, StrRef};
 use parking_lot::RwLock;
 use pyo3::{
     types::{PyDict, PyTuple},

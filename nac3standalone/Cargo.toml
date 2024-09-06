@@ -9,14 +9,8 @@ no-escape-analysis = ["nac3core/no-escape-analysis"]
 
 [dependencies]
 parking_lot = "0.12"
-nac3parser = { path = "../nac3parser" }
 nac3core = { path = "../nac3core" }
 
 [dependencies.clap]
 version = "4.5"
 features = ["derive"]
-
-[dependencies.inkwell]
-version = "0.4"
-default-features = false
-features = ["llvm14-0", "target-x86", "target-arm", "target-riscv", "no-libffi-linking"]

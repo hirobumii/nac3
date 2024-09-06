@@ -23,7 +23,7 @@ use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use inkwell::{
+use nac3core::inkwell::{
     context::Context,
     memory_buffer::MemoryBuffer,
     module::{Linkage, Module},
@@ -36,7 +36,7 @@ use itertools::Itertools;
 use nac3core::codegen::{gen_func_impl, CodeGenLLVMOptions, CodeGenTargetMachineOptions};
 use nac3core::toplevel::builtins::get_exn_constructor;
 use nac3core::typecheck::typedef::{into_var_map, TypeEnum, Unifier, VarMap};
-use nac3parser::{
+use nac3core::nac3parser::{
     ast::{ExprKind, Stmt, StmtKind, StrRef},
     parser::parse_program,
 };

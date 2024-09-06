@@ -13,14 +13,8 @@ itertools = "0.13"
 pyo3 = { version = "0.21", features = ["extension-module", "gil-refs"] }
 parking_lot = "0.12"
 tempfile = "3.10"
-nac3parser = { path = "../nac3parser" }
 nac3core = { path = "../nac3core" }
 nac3ld = { path = "../nac3ld" }
-
-[dependencies.inkwell]
-version = "0.4"
-default-features = false
-features = ["llvm14-0", "target-x86", "target-arm", "target-riscv", "no-libffi-linking"]
 
 [features]
 init-llvm-profile = []

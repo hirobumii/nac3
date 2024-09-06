@@ -594,11 +594,9 @@ dependencies = [
 name = "nac3artiq"
 version = "0.1.0"
 dependencies = [
- "inkwell",
  "itertools 0.13.0",
  "nac3core",
  "nac3ld",
- "nac3parser",
  "parking_lot",
  "pyo3",
  "tempfile",
@@ -661,9 +659,7 @@ name = "nac3standalone"
 version = "0.1.0"
 dependencies = [
  "clap",
- "inkwell",
  "nac3core",
- "nac3parser",
  "parking_lot",
 ]
 
