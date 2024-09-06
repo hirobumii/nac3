@@ -34,8 +34,12 @@ use nac3core::inkwell::{
     targets::*,
     OptimizationLevel,
 };
-use nac3core::nac3parser::{
-    ast::{ExprKind, Stmt, StmtKind, StrRef},
+use itertools::Itertools;
+use nac3core::codegen::{gen_func_impl, CodeGenLLVMOptions, CodeGenTargetMachineOptions};
+use nac3core::toplevel::builtins::get_exn_constructor;
+use nac3core::typecheck::typedef::{into_var_map, TypeEnum, Unifier, VarMap};
+use nac3parser::{
+    ast::{Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
     parser::parse_program,
 };
 use nac3core::toplevel::builtins::get_exn_constructor;
@@ -135,7 +139,7 @@ struct Nac3 {
     string_store: Arc<RwLock<HashMap<String, i32>>>,
     exception_ids: Arc<RwLock<HashMap<usize, usize>>>,
     deferred_eval_store: DeferredEvaluationStore,
-    /// LLVM-related options for code generation.
+    /// LLVM-related options for code generzation.
     llvm_options: CodeGenLLVMOptions,
 }
 
@@ -194,10 +198,8 @@ impl Nac3 {
                     body.retain(|stmt| {
                         if let StmtKind::FunctionDef { ref decorator_list, .. } = stmt.node {
                             decorator_list.iter().any(|decorator| {
-                                if let ExprKind::Name { id, .. } = decorator.node {
-                                    id.to_string() == "kernel"
-                                        || id.to_string() == "portable"
-                                        || id.to_string() == "rpc"
+                                if let Some(id) = decorator_id_string(decorator) {
+                                    id == "kernel" || id == "portable" || id == "rpc"
                                 } else {
                                     false
                                 }
@@ -210,9 +212,8 @@ impl Nac3 {
                 }
                 StmtKind::FunctionDef { ref decorator_list, .. } => {
                     decorator_list.iter().any(|decorator| {
-                        if let ExprKind::Name { id, .. } = decorator.node {
-                            let id = id.to_string();
-                            id == "extern" || id == "portable" || id == "kernel" || id == "rpc"
+                        if let Some(id) = decorator_id_string(decorator) {
+                            id == "extern" || id == "kernel" || id == "portable" || id == "rpc"
                         } else {
                             false
                         }
@@ -478,9 +479,13 @@ impl Nac3 {
 
             match &stmt.node {
                 StmtKind::FunctionDef { decorator_list, .. } => {
-                    if decorator_list.iter().any(|decorator| matches!(decorator.node, ExprKind::Name { id, .. } if id == "rpc".into())) {
+                    if decorator_list.iter().any(|decorator| decorator_id_string(decorator) == Some("rpc".to_string())) {
                         store_fun.call1(py, (def_id.0.into_py(py), module.getattr(py, name.to_string().as_str()).unwrap())).unwrap();
-                        rpc_ids.push((None, def_id));
+                        let is_async = decorator_list.iter().any(
+                            |decorator| decorator_get_flags(decorator).iter().any(
+                                |constant| *constant == Constant::Str("async".into())
+                            ));
+                        rpc_ids.push((None, def_id, is_async));
                     }
                 }
                 StmtKind::ClassDef { name, body, .. } => {
@@ -488,14 +493,18 @@ impl Nac3 {
                     let class_obj = module.getattr(py, class_name.as_str()).unwrap();
                     for stmt in body {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
-                            if decorator_list.iter().any(|decorator| matches!(decorator.node, ExprKind::Name { id, .. } if id == "rpc".into())) {
+                            if decorator_list.iter().any(|decorator| decorator_id_string(decorator) == Some("rpc".to_string())) {
+                                let is_async = decorator_list.iter().any(
+                                    |decorator| decorator_get_flags(decorator).iter().any(
+                                        |constant| *constant == Constant::Str("async".into())
+                                    ));
                                 if name == &"__init__".into() {
                                     return Err(CompileError::new_err(format!(
                                         "compilation failed\n----------\nThe constructor of class {} should not be decorated with rpc decorator (at {})",
                                         class_name, stmt.location
                                     )));
                                 }
-                                rpc_ids.push((Some((class_obj.clone(), *name)), def_id));
+                                rpc_ids.push((Some((class_obj.clone(), *name)), def_id, is_async));
                             }
                         }
                     }
@@ -596,13 +605,12 @@ impl Nac3 {
         let top_level = Arc::new(composer.make_top_level_context());
 
         {
-            let rpc_codegen = rpc_codegen_callback();
             let defs = top_level.definitions.read();
-            for (class_data, id) in &rpc_ids {
+            for (class_data, id, is_async) in &rpc_ids {
                 let mut def = defs[id.0].write();
                 match &mut *def {
                     TopLevelDef::Function { codegen_callback, .. } => {
-                        *codegen_callback = Some(rpc_codegen.clone());
+                        *codegen_callback = Some(rpc_codegen_callback(*is_async));
                     }
                     TopLevelDef::Class { methods, .. } => {
                         let (class_def, method_name) = class_data.as_ref().unwrap();
@@ -613,7 +621,7 @@ impl Nac3 {
                             if let TopLevelDef::Function { codegen_callback, .. } =
                                 &mut *defs[id.0].write()
                             {
-                                *codegen_callback = Some(rpc_codegen.clone());
+                                *codegen_callback = Some(rpc_codegen_callback(*is_async));
                                 store_fun
                                     .call1(
                                         py,
@@ -842,6 +850,41 @@ impl Nac3 {
             .create_target_machine(self.llvm_options.opt_level)
             .expect("couldn't create target machine")
     }
+}
+
+fn decorator_id_string(decorator: &Located<ExprKind>) -> Option<String> {
+    /// Retrieves the Name.id from a decorator, supports decorators with arguments.
+    if let ExprKind::Name { id, .. } = decorator.node {
+        // Bare decorator
+        return Some(id.to_string());
+    } else if let ExprKind::Call { func, .. } = &decorator.node {
+        // Decorators that are calls (e.g. "@rpc()") have Call for the node,
+        // need to extract the id from within.
+        if let ExprKind::Name { id, .. } = func.node {
+            return Some(id.to_string());
+        }
+    }
+    None
+}
+
+fn decorator_get_flags(decorator: &Located<ExprKind>) -> Vec<Constant> {
+    /// Retrieves flags from a decorator, if any.
+    let mut flags = vec![];
+    if let ExprKind::Call { keywords, .. } = &decorator.node {
+        for keyword in keywords.iter() {
+            if keyword.node.arg != Some("flags".into()) {
+                continue;
+            }
+            if let ExprKind::Set { elts } = &keyword.node.value.node {
+                for elt in elts {
+                    if let ExprKind::Constant { value, .. } = &elt.node {
+                        flags.push(value.clone());
+                    }
+                }
+            }
+        }
+    }
+    flags
 }
 
 fn link_with_lld(elf_filename: String, obj_filename: String) -> PyResult<()> {
