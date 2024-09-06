@@ -21,6 +21,6 @@ build() {
 }
 
 package() {
-  mkdir -p $pkgdir/clang64/lib/python3.11/site-packages
-  cp ${srcdir}/nac3artiq.pyd $pkgdir/clang64/lib/python3.11/site-packages
+  mkdir -p $pkgdir/clang64/lib/python3.12/site-packages
+  cp ${srcdir}/nac3artiq.pyd $pkgdir/clang64/lib/python3.12/site-packages
 }

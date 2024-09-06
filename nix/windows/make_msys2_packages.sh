@@ -6,11 +6,11 @@ cd $(dirname $0)
 MSYS2DIR=`pwd`/msys2
 mkdir -p $MSYS2DIR/var/lib/pacman $MSYS2DIR/msys/etc
 
-curl -L https://mirror.msys2.org/msys/x86_64/pacman-mirrors-20220205-1-any.pkg.tar.zst | tar xvf - -C $MSYS2DIR --zstd
+curl -L https://repo.msys2.org/msys/x86_64/pacman-mirrors-20240523-1-any.pkg.tar.zst | tar xvf - -C $MSYS2DIR --zstd
 curl -L https://raw.githubusercontent.com/msys2/MSYS2-packages/master/pacman/pacman.conf | sed "s|SigLevel    = Required|SigLevel    = Never|g" | sed "s|/etc/pacman.d|$MSYS2DIR/etc/pacman.d|g" > $MSYS2DIR/etc/pacman.conf
 
 fakeroot pacman --root $MSYS2DIR --config $MSYS2DIR/etc/pacman.conf -Syy
-pacman --root $MSYS2DIR --config $MSYS2DIR/etc/pacman.conf --cachedir $MSYS2DIR/msys/cache -Sp mingw-w64-clang-x86_64-rust mingw-w64-clang-x86_64-cmake mingw-w64-clang-x86_64-ninja mingw-w64-clang-x86_64-python3.11 mingw-w64-clang-x86_64-python-numpy mingw-w64-clang-x86_64-python-setuptools > $MSYS2DIR/packages.txt
+pacman --root $MSYS2DIR --config $MSYS2DIR/etc/pacman.conf --cachedir $MSYS2DIR/msys/cache -Sp mingw-w64-clang-x86_64-rust mingw-w64-clang-x86_64-cmake mingw-w64-clang-x86_64-ninja mingw-w64-clang-x86_64-python3.12 mingw-w64-clang-x86_64-python-numpy mingw-w64-clang-x86_64-python-setuptools > $MSYS2DIR/packages.txt
 
 echo "{ pkgs } : [" > msys2_packages.nix
 while read package; do
