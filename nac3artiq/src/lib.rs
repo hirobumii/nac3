@@ -556,7 +556,7 @@ impl Nac3 {
             .unwrap();
 
         // Process IRRT
-        let context = inkwell::context::Context::create();
+        let context = Context::create();
         let irrt = load_irrt(&context, resolver.as_ref());
 
         let fun_signature =
@@ -687,7 +687,7 @@ impl Nac3 {
             let buffer = buffer.as_slice().into();
             membuffer.lock().push(buffer);
         })));
-        let size_t = Context::create()
+        let size_t = context
             .ptr_sized_int_type(&self.get_llvm_target_machine().get_target_data(), None)
             .get_bit_width();
         let num_threads = if is_multithreaded() { 4 } else { 1 };
@@ -706,7 +706,7 @@ impl Nac3 {
 
             let mut generator =
                 ArtiqCodeGenerator::new("attributes_writeback".to_string(), size_t, self.time_fns);
-            let context = inkwell::context::Context::create();
+            let context = Context::create();
             let module = context.create_module("attributes_writeback");
             let target_machine = self.llvm_options.create_target_machine().unwrap();
             module.set_data_layout(&target_machine.get_target_data().get_data_layout());

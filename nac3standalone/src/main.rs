@@ -9,10 +9,9 @@
 #![allow(clippy::too_many_lines, clippy::wildcard_imports)]
 
 use clap::Parser;
-use nac3core::inkwell::context::Context;
 use nac3core::inkwell::{
     memory_buffer::MemoryBuffer, passes::PassBuilderOptions, support::is_multithreaded, targets::*,
-    OptimizationLevel,
+    OptimizationLevel, module::Linkage
 };
 use nac3core::{
     codegen::{
@@ -281,7 +280,9 @@ fn main() {
         ..host_target_machine
     };
 
-    let size_t = Context::create()
+    let context = nac3core::inkwell::context::Context::create();
+
+    let size_t = context
         .ptr_sized_int_type(
             &target_machine_options
                 .create_target_machine(opt_level)
@@ -312,8 +313,6 @@ fn main() {
     .into();
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
-
-    let context = inkwell::context::Context::create();
 
     // Process IRRT
     let irrt = load_irrt(&context, resolver.as_ref());
@@ -453,7 +452,7 @@ fn main() {
     let mut function_iter = main.get_first_function();
     while let Some(func) = function_iter {
         if func.count_basic_blocks() > 0 && func.get_name().to_str().unwrap() != "run" {
-            func.set_linkage(inkwell::module::Linkage::Private);
+            func.set_linkage(Linkage::Private);
         }
         function_iter = func.get_next_function();
     }
