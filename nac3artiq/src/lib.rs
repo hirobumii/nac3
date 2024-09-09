@@ -23,6 +23,8 @@ use std::process::Command;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use itertools::Itertools;
+use nac3core::codegen::{gen_func_impl, CodeGenLLVMOptions, CodeGenTargetMachineOptions};
 use nac3core::inkwell::{
     context::Context,
     memory_buffer::MemoryBuffer,
@@ -32,14 +34,12 @@ use nac3core::inkwell::{
     targets::*,
     OptimizationLevel,
 };
-use itertools::Itertools;
-use nac3core::codegen::{gen_func_impl, CodeGenLLVMOptions, CodeGenTargetMachineOptions};
-use nac3core::toplevel::builtins::get_exn_constructor;
-use nac3core::typecheck::typedef::{into_var_map, TypeEnum, Unifier, VarMap};
 use nac3core::nac3parser::{
     ast::{ExprKind, Stmt, StmtKind, StrRef},
     parser::parse_program,
 };
+use nac3core::toplevel::builtins::get_exn_constructor;
+use nac3core::typecheck::typedef::{into_var_map, TypeEnum, Unifier, VarMap};
 use pyo3::create_exception;
 use pyo3::prelude::*;
 use pyo3::{exceptions, types::PyBytes, types::PyDict, types::PySet};

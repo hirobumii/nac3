@@ -10,8 +10,12 @@
 
 use clap::Parser;
 use nac3core::inkwell::{
-    memory_buffer::MemoryBuffer, passes::PassBuilderOptions, support::is_multithreaded, targets::*,
-    OptimizationLevel, module::Linkage
+    memory_buffer::MemoryBuffer, module::Linkage, passes::PassBuilderOptions,
+    support::is_multithreaded, targets::*, OptimizationLevel,
+};
+use nac3core::nac3parser::{
+    ast::{Constant, Expr, ExprKind, StmtKind, StrRef},
+    parser,
 };
 use nac3core::{
     codegen::{
@@ -29,10 +33,6 @@ use nac3core::{
         type_inferencer::PrimitiveStore,
         typedef::{FunSignature, Type, Unifier, VarMap},
     },
-};
-use nac3core::nac3parser::{
-    ast::{Constant, Expr, ExprKind, StmtKind, StrRef},
-    parser,
 };
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashSet;

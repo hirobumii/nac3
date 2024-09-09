@@ -1,3 +1,4 @@
+use nac3core::nac3parser::ast::{self, StrRef};
 use nac3core::{
     codegen::CodeGenContext,
     symbol_resolver::{SymbolResolver, SymbolValue, ValueEnum},
@@ -7,7 +8,6 @@ use nac3core::{
         typedef::{Type, Unifier},
     },
 };
-use nac3core::nac3parser::ast::{self, StrRef};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashSet;
 use std::{collections::HashMap, sync::Arc};

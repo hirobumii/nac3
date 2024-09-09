@@ -1,11 +1,12 @@
 use crate::PrimitivePythonId;
+use itertools::Itertools;
 use nac3core::inkwell::{
     module::Linkage,
     types::{BasicType, BasicTypeEnum},
     values::BasicValueEnum,
     AddressSpace,
 };
-use itertools::Itertools;
+use nac3core::nac3parser::ast::{self, StrRef};
 use nac3core::{
     codegen::{
         classes::{NDArrayType, ProxyType},
@@ -22,7 +23,6 @@ use nac3core::{
         typedef::{into_var_map, iter_type_vars, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
-use nac3core::nac3parser::ast::{self, StrRef};
 use parking_lot::RwLock;
 use pyo3::{
     types::{PyDict, PyTuple},

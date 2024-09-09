@@ -32,8 +32,8 @@ use pyo3::{
 
 use crate::{symbol_resolver::InnerResolver, timeline::TimeFns};
 
-use nac3core::inkwell::values::IntValue;
 use itertools::Itertools;
+use nac3core::inkwell::values::IntValue;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
