@@ -279,18 +279,14 @@ fn main() {
         reloc_mode: RelocMode::PIC,
         ..host_target_machine
     };
+    let target_machine = target_machine_options
+        .create_target_machine(opt_level)
+        .expect("couldn't create target machine");
 
     let context = nac3core::inkwell::context::Context::create();
 
-    let size_t = context
-        .ptr_sized_int_type(
-            &target_machine_options
-                .create_target_machine(opt_level)
-                .map(|tm| tm.get_target_data())
-                .unwrap(),
-            None,
-        )
-        .get_bit_width();
+    let size_t =
+        context.ptr_sized_int_type(&target_machine.get_target_data(), None).get_bit_width();
 
     let program = match fs::read_to_string(file_name.clone()) {
         Ok(program) => program,
@@ -458,11 +454,6 @@ fn main() {
     }
 
     // Optimize `main`
-    let target_machine = llvm_options
-        .target
-        .create_target_machine(llvm_options.opt_level)
-        .expect("couldn't create target machine");
-
     let pass_options = PassBuilderOptions::create();
     pass_options.set_merge_functions(true);
     let passes = format!("default<O{}>", opt_level as u32);
