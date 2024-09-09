@@ -8,17 +8,17 @@ repos:
     hooks:
       - id: nac3-cargo-fmt
         name: nac3 cargo format
-        entry: cargo
+        entry: nix
         language: system
         types: [file, rust]
         pass_filenames: false
         description: Runs cargo fmt on the codebase.
-        args: [fmt]
+        args: [develop, -c, cargo, fmt, --all]
       - id: nac3-cargo-clippy
         name: nac3 cargo clippy
-        entry: cargo
+        entry: nix
         language: system
         types: [file, rust]
         pass_filenames: false
         description: Runs cargo clippy on the codebase.
-        args: [clippy, --tests]
+        args: [develop, -c, cargo, clippy, --tests]
