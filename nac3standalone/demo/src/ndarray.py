@@ -114,11 +114,21 @@ def test_ndarray_ones():
     n: ndarray[float, 1] = np_ones([1])
     output_ndarray_float_1(n)
 
+    dim = (1,)
+    n_tup: ndarray[float, 1] = np_ones(dim)
+    output_ndarray_float_1(n_tup)
+
 def test_ndarray_full():
     n_float: ndarray[float, 1] = np_full([1], 2.0)
     output_ndarray_float_1(n_float)
     n_i32: ndarray[int32, 1] = np_full([1], 2)
     output_ndarray_int32_1(n_i32)
+
+    dim = (1,)
+    n_float_tup: ndarray[float, 1] = np_full(dim, 2.0)
+    output_ndarray_float_1(n_float_tup)
+    n_i32_tup: ndarray[int32, 1] = np_full(dim, 2)
+    output_ndarray_int32_1(n_i32_tup)
 
 def test_ndarray_eye():
     n: ndarray[float, 2] = np_eye(2)
