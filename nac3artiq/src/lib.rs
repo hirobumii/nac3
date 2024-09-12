@@ -34,16 +34,12 @@ use nac3core::inkwell::{
     targets::*,
     OptimizationLevel,
 };
-use itertools::Itertools;
-use nac3core::codegen::{gen_func_impl, CodeGenLLVMOptions, CodeGenTargetMachineOptions};
 use nac3core::toplevel::builtins::get_exn_constructor;
 use nac3core::typecheck::typedef::{into_var_map, TypeEnum, Unifier, VarMap};
-use nac3parser::{
+use nac3core::nac3parser::{
     ast::{Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
     parser::parse_program,
 };
-use nac3core::toplevel::builtins::get_exn_constructor;
-use nac3core::typecheck::typedef::{into_var_map, TypeEnum, Unifier, VarMap};
 use pyo3::create_exception;
 use pyo3::prelude::*;
 use pyo3::{exceptions, types::PyBytes, types::PyDict, types::PySet};
@@ -139,7 +135,7 @@ struct Nac3 {
     string_store: Arc<RwLock<HashMap<String, i32>>>,
     exception_ids: Arc<RwLock<HashMap<usize, usize>>>,
     deferred_eval_store: DeferredEvaluationStore,
-    /// LLVM-related options for code generzation.
+    /// LLVM-related options for code generation.
     llvm_options: CodeGenLLVMOptions,
 }
 
@@ -479,12 +475,24 @@ impl Nac3 {
 
             match &stmt.node {
                 StmtKind::FunctionDef { decorator_list, .. } => {
-                    if decorator_list.iter().any(|decorator| decorator_id_string(decorator) == Some("rpc".to_string())) {
-                        store_fun.call1(py, (def_id.0.into_py(py), module.getattr(py, name.to_string().as_str()).unwrap())).unwrap();
-                        let is_async = decorator_list.iter().any(
-                            |decorator| decorator_get_flags(decorator).iter().any(
-                                |constant| *constant == Constant::Str("async".into())
-                            ));
+                    if decorator_list
+                        .iter()
+                        .any(|decorator| decorator_id_string(decorator) == Some("rpc".to_string()))
+                    {
+                        store_fun
+                            .call1(
+                                py,
+                                (
+                                    def_id.0.into_py(py),
+                                    module.getattr(py, name.to_string().as_str()).unwrap(),
+                                ),
+                            )
+                            .unwrap();
+                        let is_async = decorator_list.iter().any(|decorator| {
+                            decorator_get_flags(decorator)
+                                .iter()
+                                .any(|constant| *constant == Constant::Str("async".into()))
+                        });
                         rpc_ids.push((None, def_id, is_async));
                     }
                 }
@@ -493,11 +501,14 @@ impl Nac3 {
                     let class_obj = module.getattr(py, class_name.as_str()).unwrap();
                     for stmt in body {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
-                            if decorator_list.iter().any(|decorator| decorator_id_string(decorator) == Some("rpc".to_string())) {
-                                let is_async = decorator_list.iter().any(
-                                    |decorator| decorator_get_flags(decorator).iter().any(
-                                        |constant| *constant == Constant::Str("async".into())
-                                    ));
+                            if decorator_list.iter().any(|decorator| {
+                                decorator_id_string(decorator) == Some("rpc".to_string())
+                            }) {
+                                let is_async = decorator_list.iter().any(|decorator| {
+                                    decorator_get_flags(decorator)
+                                        .iter()
+                                        .any(|constant| *constant == Constant::Str("async".into()))
+                                });
                                 if name == &"__init__".into() {
                                     return Err(CompileError::new_err(format!(
                                         "compilation failed\n----------\nThe constructor of class {} should not be decorated with rpc decorator (at {})",
@@ -509,7 +520,7 @@ impl Nac3 {
                         }
                     }
                 }
-                _ => ()
+                _ => (),
             }
 
             let id = *name_to_pyid.get(&name).unwrap();
@@ -852,8 +863,8 @@ impl Nac3 {
     }
 }
 
+/// Retrieves the Name.id from a decorator, supports decorators with arguments.
 fn decorator_id_string(decorator: &Located<ExprKind>) -> Option<String> {
-    /// Retrieves the Name.id from a decorator, supports decorators with arguments.
     if let ExprKind::Name { id, .. } = decorator.node {
         // Bare decorator
         return Some(id.to_string());
@@ -867,11 +878,11 @@ fn decorator_id_string(decorator: &Located<ExprKind>) -> Option<String> {
     None
 }
 
+/// Retrieves flags from a decorator, if any.
 fn decorator_get_flags(decorator: &Located<ExprKind>) -> Vec<Constant> {
-    /// Retrieves flags from a decorator, if any.
     let mut flags = vec![];
     if let ExprKind::Call { keywords, .. } = &decorator.node {
-        for keyword in keywords.iter() {
+        for keyword in keywords {
             if keyword.node.arg != Some("flags".into()) {
                 continue;
             }

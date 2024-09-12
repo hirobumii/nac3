@@ -832,7 +832,6 @@ fn rpc_codegen_callback_fn<'ctx>(
     let ptr_type = int8.ptr_type(AddressSpace::default());
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
-
     let service_id = int32.const_int(fun.1 .0 as u64, false);
     // -- setup rpc tags
     let mut tag = Vec::new();
@@ -950,7 +949,11 @@ fn rpc_codegen_callback_fn<'ctx>(
             )
         });
         ctx.builder
-            .build_call(rpc_send_async, &[service_id.into(), tag_ptr.into(), args_ptr.into()], "rpc.send")
+            .build_call(
+                rpc_send_async,
+                &[service_id.into(), tag_ptr.into(), args_ptr.into()],
+                "rpc.send",
+            )
             .unwrap();
     } else {
         let rpc_send = ctx.module.get_function("rpc_send").unwrap_or_else(|| {
@@ -980,12 +983,12 @@ fn rpc_codegen_callback_fn<'ctx>(
         Ok(None)
     } else {
         let result = format_rpc_ret(generator, ctx, fun.0.ret);
-    
+
         if !result.is_some_and(|res| res.get_type().is_pointer_type()) {
             // An RPC returning an NDArray would not touch here.
             call_stackrestore(ctx, stackptr);
         }
-    
+
         Ok(result)
     }
 }
