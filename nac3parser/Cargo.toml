@@ -8,11 +8,11 @@ license = "MIT"
 edition = "2021"
 
 [build-dependencies]
-lalrpop = "0.20"
+lalrpop = "0.21"
 
 [dependencies]
 nac3ast = { path = "../nac3ast" }
-lalrpop-util = "0.20"
+lalrpop-util = "0.21"
 log = "0.4"
 unic-emoji-char = "0.9"
 unic-ucd-ident  = "0.9"
