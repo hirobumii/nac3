@@ -824,6 +824,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     fun: (&FunSignature, DefinitionId),
     args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
     generator: &mut dyn CodeGenerator,
+    is_async: bool,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
     let int8 = ctx.ctx.i8_type();
     let int32 = ctx.ctx.i32_type();
@@ -932,35 +933,64 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
 
     // call
-    let rpc_send = ctx.module.get_function("rpc_send").unwrap_or_else(|| {
-        ctx.module.add_function(
-            "rpc_send",
-            ctx.ctx.void_type().fn_type(
-                &[
-                    int32.into(),
-                    tag_ptr_type.ptr_type(AddressSpace::default()).into(),
-                    ptr_type.ptr_type(AddressSpace::default()).into(),
-                ],
-                false,
-            ),
-            None,
-        )
-    });
-    ctx.builder
-        .build_call(rpc_send, &[service_id.into(), tag_ptr.into(), args_ptr.into()], "rpc.send")
-        .unwrap();
+    if is_async {
+        let rpc_send_async = ctx.module.get_function("rpc_send_async").unwrap_or_else(|| {
+            ctx.module.add_function(
+                "rpc_send_async",
+                ctx.ctx.void_type().fn_type(
+                    &[
+                        int32.into(),
+                        tag_ptr_type.ptr_type(AddressSpace::default()).into(),
+                        ptr_type.ptr_type(AddressSpace::default()).into(),
+                    ],
+                    false,
+                ),
+                None,
+            )
+        });
+        ctx.builder
+            .build_call(
+                rpc_send_async,
+                &[service_id.into(), tag_ptr.into(), args_ptr.into()],
+                "rpc.send",
+            )
+            .unwrap();
+    } else {
+        let rpc_send = ctx.module.get_function("rpc_send").unwrap_or_else(|| {
+            ctx.module.add_function(
+                "rpc_send",
+                ctx.ctx.void_type().fn_type(
+                    &[
+                        int32.into(),
+                        tag_ptr_type.ptr_type(AddressSpace::default()).into(),
+                        ptr_type.ptr_type(AddressSpace::default()).into(),
+                    ],
+                    false,
+                ),
+                None,
+            )
+        });
+        ctx.builder
+            .build_call(rpc_send, &[service_id.into(), tag_ptr.into(), args_ptr.into()], "rpc.send")
+            .unwrap();
+    }
 
     // reclaim stack space used by arguments
     call_stackrestore(ctx, stackptr);
 
-    let result = format_rpc_ret(generator, ctx, fun.0.ret);
+    if is_async {
+        // async RPCs do not return any values
+        Ok(None)
+    } else {
+        let result = format_rpc_ret(generator, ctx, fun.0.ret);
 
-    if !result.is_some_and(|res| res.get_type().is_pointer_type()) {
-        // An RPC returning an NDArray would not touch here.
-        call_stackrestore(ctx, stackptr);
+        if !result.is_some_and(|res| res.get_type().is_pointer_type()) {
+            // An RPC returning an NDArray would not touch here.
+            call_stackrestore(ctx, stackptr);
+        }
+
+        Ok(result)
     }
-
-    Ok(result)
 }
 
 pub fn attributes_writeback(
@@ -1055,7 +1085,7 @@ pub fn attributes_writeback(
         let args: Vec<_> =
             values.into_iter().map(|(_, val)| (None, ValueEnum::Dynamic(val))).collect();
         if let Err(e) =
-            rpc_codegen_callback_fn(ctx, None, (&fun, PrimDef::Int32.id()), args, generator)
+            rpc_codegen_callback_fn(ctx, None, (&fun, PrimDef::Int32.id()), args, generator, false)
         {
             return Ok(Err(e));
         }
@@ -1065,9 +1095,9 @@ pub fn attributes_writeback(
     Ok(())
 }
 
-pub fn rpc_codegen_callback() -> Arc<GenCall> {
-    Arc::new(GenCall::new(Box::new(|ctx, obj, fun, args, generator| {
-        rpc_codegen_callback_fn(ctx, obj, fun, args, generator)
+pub fn rpc_codegen_callback(is_async: bool) -> Arc<GenCall> {
+    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
+        rpc_codegen_callback_fn(ctx, obj, fun, args, generator, is_async)
     })))
 }
 

@@ -1894,7 +1894,8 @@ impl TopLevelComposer {
             } = &mut *function_def
             {
                 let signature_ty_enum = unifier.get_ty(*signature);
-                let TypeEnum::TFunc(FunSignature { args, ret, vars }) = signature_ty_enum.as_ref()
+                let TypeEnum::TFunc(FunSignature { args, ret, vars, .. }) =
+                    signature_ty_enum.as_ref()
                 else {
                     unreachable!("must be typeenum::tfunc")
                 };
@@ -2056,6 +2057,16 @@ impl TopLevelComposer {
                     {
                         instance_to_symbol.insert(String::new(), simple_name.to_string());
                         continue;
+                    }
+                    if !decorator_list.is_empty() {
+                        if let ast::ExprKind::Call { func, .. } = &decorator_list[0].node {
+                            if matches!(&func.node,
+                                ast::ExprKind::Name{ id, .. } if id == &"rpc".into())
+                            {
+                                instance_to_symbol.insert(String::new(), simple_name.to_string());
+                                continue;
+                            }
+                        }
                     }
 
                     let fun_body = body

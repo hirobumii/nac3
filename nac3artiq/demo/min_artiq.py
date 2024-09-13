@@ -112,10 +112,15 @@ def extern(function):
     register_function(function)
     return function
 
-def rpc(function):
-    """Decorates a function declaration defined by the core device runtime."""
-    register_function(function)
-    return function
+
+def rpc(arg=None, flags={}):
+    """Decorates a function or method to be executed on the host interpreter."""
+    if arg is None:
+        def inner_decorator(function):
+            return rpc(function, flags)
+        return inner_decorator
+    register_function(arg)
+    return arg
 
 def kernel(function_or_method):
     """Decorates a function or method to be executed on the core device."""
