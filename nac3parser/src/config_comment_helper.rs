@@ -1,8 +1,10 @@
-use crate::ast::Ident;
-use crate::ast::Location;
-use crate::error::*;
-use crate::token::Tok;
+use crate::{
+    ast::{Ident, Location},
+    error::*,
+    token::Tok,
+};
 use lalrpop_util::ParseError;
+
 use nac3ast::*;
 
 pub fn make_config_comment(

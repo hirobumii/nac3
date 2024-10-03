@@ -1,3 +1,11 @@
+use inkwell::{
+    types::{AnyTypeEnum, BasicType, BasicTypeEnum, PointerType},
+    values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
+    AddressSpace, IntPredicate, OptimizationLevel,
+};
+
+use nac3parser::ast::{Operator, StrRef};
+
 use crate::{
     codegen::{
         classes::{
@@ -27,16 +35,6 @@ use crate::{
         typedef::{FunSignature, Type, TypeEnum},
     },
 };
-use inkwell::{
-    types::BasicType,
-    values::{BasicValueEnum, IntValue, PointerValue},
-    AddressSpace, IntPredicate, OptimizationLevel,
-};
-use inkwell::{
-    types::{AnyTypeEnum, BasicTypeEnum, PointerType},
-    values::BasicValue,
-};
-use nac3parser::ast::{Operator, StrRef};
 
 /// Creates an uninitialized `NDArray` instance.
 fn create_ndarray_uninitialized<'ctx, G: CodeGenerator + ?Sized>(

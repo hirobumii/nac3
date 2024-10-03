@@ -1,14 +1,14 @@
-use std::collections::HashMap;
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
-use crate::typecheck::{magic_methods::HasOpInfo, typedef::TypeEnum};
+use itertools::Itertools;
+
+use nac3parser::ast::{Cmpop, Location, StrRef};
 
 use super::{
     magic_methods::Binop,
     typedef::{RecordKey, Type, Unifier},
 };
-use itertools::Itertools;
-use nac3parser::ast::{Cmpop, Location, StrRef};
+use crate::typecheck::{magic_methods::HasOpInfo, typedef::TypeEnum};
 
 #[derive(Debug, Clone)]
 pub enum TypeErrorKind {

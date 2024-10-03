@@ -1,6 +1,5 @@
 use std::iter::once;
 
-use helper::{debug_assert_prim_is_allowed, make_exception_fields, PrimDefDetails};
 use indexmap::IndexMap;
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
@@ -11,6 +10,10 @@ use inkwell::{
 use itertools::Either;
 use strum::IntoEnumIterator;
 
+use super::{
+    helper::{debug_assert_prim_is_allowed, make_exception_fields, PrimDefDetails},
+    *,
+};
 use crate::{
     codegen::{
         builtin_fns,
@@ -22,8 +25,6 @@ use crate::{
     toplevel::{helper::PrimDef, numpy::make_ndarray_ty},
     typecheck::typedef::{into_var_map, iter_type_vars, TypeVar, VarMap},
 };
-
-use super::*;
 
 type BuiltinInfo = Vec<(Arc<RwLock<TopLevelDef>>, Option<Stmt>)>;
 

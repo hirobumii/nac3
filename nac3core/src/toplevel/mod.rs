@@ -6,23 +6,23 @@ use std::{
     sync::Arc,
 };
 
-use super::codegen::CodeGenContext;
-use super::typecheck::type_inferencer::PrimitiveStore;
-use super::typecheck::typedef::{
-    FunSignature, FuncArg, SharedUnifier, Type, TypeEnum, Unifier, VarMap,
-};
-use crate::{
-    codegen::CodeGenerator,
-    symbol_resolver::{SymbolResolver, ValueEnum},
-    typecheck::{
-        type_inferencer::CodeLocation,
-        typedef::{CallId, TypeVarId},
-    },
-};
 use inkwell::values::BasicValueEnum;
 use itertools::Itertools;
-use nac3parser::ast::{self, Location, Stmt, StrRef};
 use parking_lot::RwLock;
+
+use nac3parser::ast::{self, Location, Stmt, StrRef};
+
+use crate::{
+    codegen::{CodeGenContext, CodeGenerator},
+    symbol_resolver::{SymbolResolver, ValueEnum},
+    typecheck::{
+        type_inferencer::{CodeLocation, PrimitiveStore},
+        typedef::{
+            CallId, FunSignature, FuncArg, SharedUnifier, Type, TypeEnum, TypeVarId, Unifier,
+            VarMap,
+        },
+    },
+};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Debug)]
 pub struct DefinitionId(pub usize);

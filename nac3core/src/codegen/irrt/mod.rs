@@ -1,4 +1,15 @@
-use crate::{symbol_resolver::SymbolResolver, typecheck::typedef::Type};
+use inkwell::{
+    attributes::{Attribute, AttributeLoc},
+    context::Context,
+    memory_buffer::MemoryBuffer,
+    module::Module,
+    types::{BasicTypeEnum, IntType},
+    values::{BasicValue, BasicValueEnum, CallSiteValue, FloatValue, IntValue},
+    AddressSpace, IntPredicate,
+};
+use itertools::Either;
+
+use nac3parser::ast::Expr;
 
 use super::{
     classes::{
@@ -10,17 +21,7 @@ use super::{
     stmt::gen_for_callback_incrementing,
     CodeGenContext, CodeGenerator,
 };
-use inkwell::{
-    attributes::{Attribute, AttributeLoc},
-    context::Context,
-    memory_buffer::MemoryBuffer,
-    module::Module,
-    types::{BasicTypeEnum, IntType},
-    values::{BasicValue, BasicValueEnum, CallSiteValue, FloatValue, IntValue},
-    AddressSpace, IntPredicate,
-};
-use itertools::Either;
-use nac3parser::ast::Expr;
+use crate::{symbol_resolver::SymbolResolver, typecheck::typedef::Type};
 
 #[must_use]
 pub fn load_irrt<'ctx>(ctx: &'ctx Context, symbol_resolver: &dyn SymbolResolver) -> Module<'ctx> {

@@ -1,12 +1,11 @@
 //! Define internal parse error types
 //! The goal is to provide a matching and a safe error API, maksing errors from LALR
-use lalrpop_util::ParseError as LalrpopError;
-
-use crate::ast::Location;
-use crate::token::Tok;
-
 use std::error::Error;
 use std::fmt;
+
+use lalrpop_util::ParseError as LalrpopError;
+
+use crate::{ast::Location, token::Tok};
 
 /// Represents an error during lexical scanning.
 #[derive(Debug, PartialEq)]

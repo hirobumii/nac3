@@ -1,32 +1,36 @@
-use std::cmp::max;
-use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryInto};
-use std::iter::once;
-use std::{cell::RefCell, sync::Arc};
+use std::{
+    cell::RefCell,
+    cmp::max,
+    collections::{HashMap, HashSet},
+    convert::{From, TryInto},
+    iter::once,
+    sync::Arc,
+};
+
+use itertools::{izip, Itertools};
+
+use nac3parser::ast::{
+    self,
+    fold::{self, Fold},
+    Arguments, Comprehension, ExprContext, ExprKind, Located, Location, StrRef,
+};
 
 use super::{
     magic_methods::*,
     type_error::{TypeError, TypeErrorKind},
     typedef::{
-        into_var_map, iter_type_vars, Call, CallId, FunSignature, FuncArg, OperatorInfo,
+        into_var_map, iter_type_vars, Call, CallId, FunSignature, FuncArg, Mapping, OperatorInfo,
         RecordField, RecordKey, Type, TypeEnum, TypeVar, Unifier, VarMap,
     },
 };
-use crate::toplevel::type_annotation::TypeAnnotation;
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         helper::{arraylike_flatten_element_type, arraylike_get_ndims, PrimDef},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+        type_annotation::TypeAnnotation,
         TopLevelContext, TopLevelDef,
     },
-    typecheck::typedef::Mapping,
-};
-use itertools::{izip, Itertools};
-use nac3parser::ast::{
-    self,
-    fold::{self, Fold},
-    Arguments, Comprehension, ExprContext, ExprKind, Located, Location, StrRef,
 };
 
 #[cfg(test)]

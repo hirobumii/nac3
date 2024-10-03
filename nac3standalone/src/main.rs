@@ -8,19 +8,29 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::too_many_lines, clippy::wildcard_imports)]
 
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    num::NonZeroUsize,
+    path::Path,
+    sync::Arc,
+};
+
 use clap::Parser;
-use nac3core::inkwell::{
-    memory_buffer::MemoryBuffer, module::Linkage, passes::PassBuilderOptions,
-    support::is_multithreaded, targets::*, OptimizationLevel,
-};
-use nac3core::nac3parser::{
-    ast::{Constant, Expr, ExprKind, StmtKind, StrRef},
-    parser,
-};
+use parking_lot::{Mutex, RwLock};
+
 use nac3core::{
     codegen::{
         concrete_type::ConcreteTypeStore, irrt::load_irrt, CodeGenLLVMOptions,
         CodeGenTargetMachineOptions, CodeGenTask, DefaultCodeGenerator, WithCall, WorkerRegistry,
+    },
+    inkwell::{
+        memory_buffer::MemoryBuffer, module::Linkage, passes::PassBuilderOptions,
+        support::is_multithreaded, targets::*, OptimizationLevel,
+    },
+    nac3parser::{
+        ast::{Constant, Expr, ExprKind, StmtKind, StrRef},
+        parser,
     },
     symbol_resolver::SymbolResolver,
     toplevel::{
@@ -34,10 +44,6 @@ use nac3core::{
         typedef::{FunSignature, Type, Unifier, VarMap},
     },
 };
-use parking_lot::{Mutex, RwLock};
-use std::collections::HashSet;
-use std::num::NonZeroUsize;
-use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
 mod basic_symbol_resolver;
 use basic_symbol_resolver::*;

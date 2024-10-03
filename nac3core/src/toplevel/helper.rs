@@ -1,14 +1,17 @@
 use std::convert::TryInto;
 
-use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::numpy::unpack_ndarray_var_tys;
-use crate::typecheck::typedef::{into_var_map, iter_type_vars, Mapping, TypeVarId, VarMap};
-use ast::ExprKind;
-use nac3parser::ast::{Constant, Location};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+use ast::ExprKind;
+use nac3parser::ast::{Constant, Location};
+
 use super::*;
+use crate::{
+    symbol_resolver::SymbolValue,
+    toplevel::numpy::unpack_ndarray_var_tys,
+    typecheck::typedef::{into_var_map, iter_type_vars, Mapping, TypeVarId, VarMap},
+};
 
 /// All primitive types and functions in nac3core.
 #[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq)]

@@ -1,17 +1,19 @@
-use super::super::{magic_methods::with_fields, typedef::*};
+use std::iter::zip;
+
+use indexmap::IndexMap;
+use indoc::indoc;
+use parking_lot::RwLock;
+use test_case::test_case;
+
+use nac3parser::{ast::FileName, parser::parse_program};
+
 use super::*;
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::ValueEnum,
     toplevel::{helper::PrimDef, DefinitionId, TopLevelDef},
+    typecheck::{magic_methods::with_fields, typedef::*},
 };
-use indexmap::IndexMap;
-use indoc::indoc;
-use nac3parser::ast::FileName;
-use nac3parser::parser::parse_program;
-use parking_lot::RwLock;
-use std::iter::zip;
-use test_case::test_case;
 
 struct Resolver {
     id_to_type: HashMap<StrRef, Type>,

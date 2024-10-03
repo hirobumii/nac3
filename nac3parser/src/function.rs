@@ -1,8 +1,11 @@
-use ahash::RandomState;
 use std::collections::HashSet;
 
-use crate::ast;
-use crate::error::{LexicalError, LexicalErrorType};
+use ahash::RandomState;
+
+use crate::{
+    ast,
+    error::{LexicalError, LexicalErrorType},
+};
 
 pub struct ArgumentList {
     pub args: Vec<ast::Expr>,

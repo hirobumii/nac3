@@ -1,7 +1,8 @@
 //! Different token definitions.
 //! Loosely based on token.h from CPython source:
-use crate::ast;
 use std::fmt::{self, Write};
+
+use crate::ast;
 
 /// Python source code can be tokenized in a sequence of these tokens.
 #[derive(Clone, Debug, PartialEq)]

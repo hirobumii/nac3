@@ -1,17 +1,30 @@
-use crate::PrimitivePythonId;
-use itertools::Itertools;
-use nac3core::inkwell::{
-    module::Linkage,
-    types::{BasicType, BasicTypeEnum},
-    values::BasicValueEnum,
-    AddressSpace,
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        atomic::{AtomicBool, Ordering::Relaxed},
+        Arc,
+    },
 };
-use nac3core::nac3parser::ast::{self, StrRef};
+
+use itertools::Itertools;
+use parking_lot::RwLock;
+use pyo3::{
+    types::{PyDict, PyTuple},
+    PyAny, PyObject, PyResult, Python,
+};
+
 use nac3core::{
     codegen::{
         classes::{NDArrayType, ProxyType},
         CodeGenContext, CodeGenerator,
     },
+    inkwell::{
+        module::Linkage,
+        types::{BasicType, BasicTypeEnum},
+        values::BasicValueEnum,
+        AddressSpace,
+    },
+    nac3parser::ast::{self, StrRef},
     symbol_resolver::{StaticValue, SymbolResolver, SymbolValue, ValueEnum},
     toplevel::{
         helper::PrimDef,
@@ -23,18 +36,8 @@ use nac3core::{
         typedef::{into_var_map, iter_type_vars, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
-use parking_lot::RwLock;
-use pyo3::{
-    types::{PyDict, PyTuple},
-    PyAny, PyObject, PyResult, Python,
-};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{
-        atomic::{AtomicBool, Ordering::Relaxed},
-        Arc,
-    },
-};
+
+use crate::PrimitivePythonId;
 
 pub enum PrimitiveValue {
     I32(i32),

@@ -1,17 +1,21 @@
-use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::helper::PrimDef;
-use crate::toplevel::numpy::{make_ndarray_ty, unpack_ndarray_var_tys};
-use crate::typecheck::{
-    type_inferencer::*,
-    typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
-};
+use std::{cmp::max, collections::HashMap, rc::Rc};
+
 use itertools::{iproduct, Itertools};
-use nac3parser::ast::StrRef;
-use nac3parser::ast::{Cmpop, Operator, Unaryop};
-use std::cmp::max;
-use std::collections::HashMap;
-use std::rc::Rc;
 use strum::IntoEnumIterator;
+
+use nac3parser::ast::{Cmpop, Operator, StrRef, Unaryop};
+
+use crate::{
+    symbol_resolver::SymbolValue,
+    toplevel::{
+        helper::PrimDef,
+        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+    },
+    typecheck::{
+        type_inferencer::*,
+        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
+    },
+};
 
 /// The variant of a binary operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

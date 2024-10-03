@@ -1,8 +1,11 @@
 use itertools::Either;
-use nac3core::codegen::CodeGenContext;
-use nac3core::inkwell::{
-    values::{BasicValueEnum, CallSiteValue},
-    AddressSpace, AtomicOrdering,
+
+use nac3core::{
+    codegen::CodeGenContext,
+    inkwell::{
+        values::{BasicValueEnum, CallSiteValue},
+        AddressSpace, AtomicOrdering,
+    },
 };
 
 /// Functions for manipulating the timeline.

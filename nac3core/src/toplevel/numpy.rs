@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::{
     toplevel::helper::PrimDef,
     typecheck::{
@@ -5,7 +7,6 @@ use crate::{
         typedef::{Type, TypeEnum, TypeVarId, Unifier, VarMap},
     },
 };
-use itertools::Itertools;
 
 /// Creates a `ndarray` [`Type`] with the given type arguments.
 ///

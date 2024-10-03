@@ -1,7 +1,15 @@
-use std::fmt::Debug;
-use std::rc::Rc;
-use std::sync::Arc;
-use std::{collections::HashMap, collections::HashSet, fmt::Display};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::{Debug, Display},
+    rc::Rc,
+    sync::Arc,
+};
+
+use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue};
+use itertools::{chain, izip, Itertools};
+use parking_lot::RwLock;
+
+use nac3parser::ast::{Constant, Expr, Location, StrRef};
 
 use crate::{
     codegen::{CodeGenContext, CodeGenerator},
@@ -11,10 +19,6 @@ use crate::{
         typedef::{Type, TypeEnum, Unifier, VarMap},
     },
 };
-use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue};
-use itertools::{chain, izip, Itertools};
-use nac3parser::ast::{Constant, Expr, Location, StrRef};
-use parking_lot::RwLock;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum SymbolValue {

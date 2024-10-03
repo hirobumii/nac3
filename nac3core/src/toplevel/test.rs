@@ -1,21 +1,24 @@
+use std::{collections::HashMap, sync::Arc};
+
+use indoc::indoc;
+use parking_lot::Mutex;
+use test_case::test_case;
+
+use nac3parser::{
+    ast::{fold::Fold, FileName},
+    parser::parse_program,
+};
+
 use super::*;
-use crate::toplevel::helper::PrimDef;
-use crate::typecheck::typedef::into_var_map;
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::{SymbolResolver, ValueEnum},
-    toplevel::DefinitionId,
+    toplevel::{helper::PrimDef, DefinitionId},
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, Unifier},
+        typedef::{into_var_map, Type, Unifier},
     },
 };
-use indoc::indoc;
-use nac3parser::ast::FileName;
-use nac3parser::{ast::fold::Fold, parser::parse_program};
-use parking_lot::Mutex;
-use std::{collections::HashMap, sync::Arc};
-use test_case::test_case;
 
 struct ResolverInternal {
     id_to_type: Mutex<HashMap<StrRef, Type>>,

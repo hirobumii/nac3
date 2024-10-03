@@ -1,3 +1,9 @@
+use std::collections::HashMap;
+
+use indexmap::IndexMap;
+
+use nac3parser::ast::StrRef;
+
 use crate::{
     symbol_resolver::SymbolValue,
     toplevel::DefinitionId,
@@ -8,10 +14,6 @@ use crate::{
         },
     },
 };
-
-use indexmap::IndexMap;
-use nac3parser::ast::StrRef;
-use std::collections::HashMap;
 
 pub struct ConcreteTypeStore {
     store: Vec<ConcreteTypeEnum>,

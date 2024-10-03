@@ -1,11 +1,13 @@
-use crate::codegen::CodeGenContext;
-use inkwell::context::Context;
-use inkwell::intrinsics::Intrinsic;
-use inkwell::types::AnyTypeEnum::IntType;
-use inkwell::types::FloatType;
-use inkwell::values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue, PointerValue};
-use inkwell::AddressSpace;
+use inkwell::{
+    context::Context,
+    intrinsics::Intrinsic,
+    types::{AnyTypeEnum::IntType, FloatType},
+    values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue, PointerValue},
+    AddressSpace,
+};
 use itertools::Either;
+
+use crate::codegen::CodeGenContext;
 
 /// Returns the string representation for the floating-point type `ft` when used in intrinsic
 /// functions.

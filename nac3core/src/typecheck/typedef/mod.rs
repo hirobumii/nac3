@@ -1,21 +1,28 @@
-use super::magic_methods::{Binop, HasOpInfo};
-use super::type_error::{TypeError, TypeErrorKind};
-use super::unification_table::{UnificationKey, UnificationTable};
-use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::helper::PrimDef;
-use crate::toplevel::{DefinitionId, TopLevelContext, TopLevelDef};
-use crate::typecheck::magic_methods::OpInfo;
-use crate::typecheck::type_inferencer::PrimitiveStore;
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    fmt::{self, Display},
+    iter::{repeat, zip},
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
+
 use indexmap::IndexMap;
 use itertools::{repeat_n, Itertools};
+
 use nac3parser::ast::{Cmpop, Location, StrRef, Unaryop};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::fmt::{self, Display};
-use std::iter::{repeat, zip};
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
-use std::{borrow::Cow, collections::HashSet};
+
+use super::{
+    magic_methods::{Binop, HasOpInfo},
+    type_error::{TypeError, TypeErrorKind},
+    unification_table::{UnificationKey, UnificationTable},
+};
+use crate::{
+    symbol_resolver::SymbolValue,
+    toplevel::{helper::PrimDef, DefinitionId, TopLevelContext, TopLevelDef},
+    typecheck::{magic_methods::OpInfo, type_inferencer::PrimitiveStore},
+};
 
 #[cfg(test)]
 mod test;

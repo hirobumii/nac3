@@ -1,3 +1,23 @@
+use std::{
+    cmp::min,
+    collections::HashMap,
+    convert::TryInto,
+    iter::{once, repeat, repeat_with, zip},
+};
+
+use inkwell::{
+    attributes::{Attribute, AttributeLoc},
+    types::{AnyType, BasicType, BasicTypeEnum},
+    values::{BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue, StructValue},
+    AddressSpace, IntPredicate, OptimizationLevel,
+};
+use itertools::{chain, izip, Either, Itertools};
+
+use nac3parser::ast::{
+    self, Boolop, Cmpop, Comprehension, Constant, Expr, ExprKind, Location, Operator, StrRef,
+    Unaryop,
+};
+
 use crate::{
     codegen::{
         classes::{
@@ -30,20 +50,6 @@ use crate::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, TypeVarId, Unifier, VarMap},
     },
 };
-use inkwell::{
-    attributes::{Attribute, AttributeLoc},
-    types::{AnyType, BasicType, BasicTypeEnum},
-    values::{BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue, StructValue},
-    AddressSpace, IntPredicate, OptimizationLevel,
-};
-use itertools::{chain, izip, Either, Itertools};
-use nac3parser::ast::{
-    self, Boolop, Cmpop, Comprehension, Constant, Expr, ExprKind, Location, Operator, StrRef,
-    Unaryop,
-};
-use std::cmp::min;
-use std::iter::{repeat, repeat_with};
-use std::{collections::HashMap, convert::TryInto, iter::once, iter::zip};
 
 pub fn get_subst_key(
     unifier: &mut Unifier,

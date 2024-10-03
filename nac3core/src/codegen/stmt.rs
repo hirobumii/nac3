@@ -1,3 +1,16 @@
+use inkwell::{
+    attributes::{Attribute, AttributeLoc},
+    basic_block::BasicBlock,
+    types::{BasicType, BasicTypeEnum},
+    values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
+    IntPredicate,
+};
+use itertools::{izip, Itertools};
+
+use nac3parser::ast::{
+    Constant, ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKind, StrRef,
+};
+
 use super::{
     classes::{ArrayLikeIndexer, ArraySliceValue, ListValue, RangeValue},
     expr::{destructure_range, gen_binop_expr},
@@ -13,17 +26,6 @@ use crate::{
         magic_methods::Binop,
         typedef::{iter_type_vars, FunSignature, Type, TypeEnum},
     },
-};
-use inkwell::{
-    attributes::{Attribute, AttributeLoc},
-    basic_block::BasicBlock,
-    types::{BasicType, BasicTypeEnum},
-    values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
-    IntPredicate,
-};
-use itertools::{izip, Itertools};
-use nac3parser::ast::{
-    Constant, ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKind, StrRef,
 };
 
 /// See [`CodeGenerator::gen_var_alloc`].

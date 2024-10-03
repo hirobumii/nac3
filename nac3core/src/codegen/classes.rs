@@ -1,16 +1,15 @@
+use inkwell::{
+    context::Context,
+    types::{AnyTypeEnum, ArrayType, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
+    values::{ArrayValue, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
+    AddressSpace, IntPredicate,
+};
+
 use crate::codegen::{
     irrt::{call_ndarray_calc_size, call_ndarray_flatten_index},
     llvm_intrinsics::call_int_umin,
     stmt::gen_for_callback_incrementing,
     CodeGenContext, CodeGenerator,
-};
-use inkwell::context::Context;
-use inkwell::types::{ArrayType, BasicType, StructType};
-use inkwell::values::{ArrayValue, BasicValue, StructValue};
-use inkwell::{
-    types::{AnyTypeEnum, BasicTypeEnum, IntType, PointerType},
-    values::{BasicValueEnum, IntValue, PointerValue},
-    AddressSpace, IntPredicate,
 };
 
 /// A LLVM type that is used to represent a non-primitive type in NAC3.

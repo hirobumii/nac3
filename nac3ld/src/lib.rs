@@ -21,13 +21,12 @@
     clippy::wildcard_imports
 )]
 
+use std::{collections::HashMap, mem, ptr, slice, str};
+
+use byteorder::{ByteOrder, LittleEndian};
+
 use dwarf::*;
 use elf::*;
-use std::collections::HashMap;
-use std::{mem, ptr, slice, str};
-
-extern crate byteorder;
-use byteorder::{ByteOrder, LittleEndian};
 
 mod dwarf;
 mod elf;

@@ -16,48 +16,53 @@
     clippy::wildcard_imports
 )]
 
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::io::Write;
-use std::process::Command;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    io::Write,
+    process::Command,
+    rc::Rc,
+    sync::Arc,
+};
 
 use itertools::Itertools;
-use nac3core::codegen::{gen_func_impl, CodeGenLLVMOptions, CodeGenTargetMachineOptions};
-use nac3core::inkwell::{
-    context::Context,
-    memory_buffer::MemoryBuffer,
-    module::{Linkage, Module},
-    passes::PassBuilderOptions,
-    support::is_multithreaded,
-    targets::*,
-    OptimizationLevel,
-};
-use nac3core::toplevel::builtins::get_exn_constructor;
-use nac3core::typecheck::typedef::{into_var_map, TypeEnum, Unifier, VarMap};
-use nac3core::nac3parser::{
-    ast::{Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
-    parser::parse_program,
-};
-use pyo3::create_exception;
-use pyo3::prelude::*;
-use pyo3::{exceptions, types::PyBytes, types::PyDict, types::PySet};
-
 use parking_lot::{Mutex, RwLock};
+use pyo3::{
+    create_exception, exceptions,
+    prelude::*,
+    types::{PyBytes, PyDict, PySet},
+};
+use tempfile::{self, TempDir};
 
 use nac3core::{
-    codegen::irrt::load_irrt,
-    codegen::{concrete_type::ConcreteTypeStore, CodeGenTask, WithCall, WorkerRegistry},
+    codegen::{
+        concrete_type::ConcreteTypeStore, gen_func_impl, irrt::load_irrt, CodeGenLLVMOptions,
+        CodeGenTargetMachineOptions, CodeGenTask, WithCall, WorkerRegistry,
+    },
+    inkwell::{
+        context::Context,
+        memory_buffer::MemoryBuffer,
+        module::{Linkage, Module},
+        passes::PassBuilderOptions,
+        support::is_multithreaded,
+        targets::*,
+        OptimizationLevel,
+    },
+    nac3parser::{
+        ast::{Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
+        parser::parse_program,
+    },
     symbol_resolver::SymbolResolver,
     toplevel::{
+        builtins::get_exn_constructor,
         composer::{BuiltinFuncCreator, BuiltinFuncSpec, ComposerConfig, TopLevelComposer},
         DefinitionId, GenCall, TopLevelDef,
     },
-    typecheck::typedef::{FunSignature, FuncArg},
-    typecheck::{type_inferencer::PrimitiveStore, typedef::Type},
+    typecheck::{
+        type_inferencer::PrimitiveStore,
+        typedef::{into_var_map, FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
+    },
 };
-
 use nac3ld::Linker;
 
 use crate::{
@@ -65,14 +70,12 @@ use crate::{
         attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback, ArtiqCodeGenerator,
     },
     symbol_resolver::{DeferredEvaluationStore, InnerResolver, PythonHelper, Resolver},
+    timeline::TimeFns,
 };
-use tempfile::{self, TempDir};
 
 mod codegen;
 mod symbol_resolver;
 mod timeline;
-
-use timeline::TimeFns;
 
 #[derive(PartialEq, Clone, Copy)]
 enum Isa {

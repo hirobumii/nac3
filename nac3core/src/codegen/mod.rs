@@ -1,12 +1,12 @@
-use crate::{
-    codegen::classes::{ListType, NDArrayType, ProxyType, RangeType},
-    symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, TopLevelContext, TopLevelDef},
-    typecheck::{
-        type_inferencer::{CodeLocation, PrimitiveStore},
-        typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
     },
+    thread,
 };
+
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
@@ -24,14 +24,19 @@ use inkwell::{
     AddressSpace, IntPredicate, OptimizationLevel,
 };
 use itertools::Itertools;
-use nac3parser::ast::{Location, Stmt, StrRef};
 use parking_lot::{Condvar, Mutex};
-use std::collections::{HashMap, HashSet};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+
+use nac3parser::ast::{Location, Stmt, StrRef};
+
+use crate::{
+    codegen::classes::{ListType, NDArrayType, ProxyType, RangeType},
+    symbol_resolver::{StaticValue, SymbolResolver},
+    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, TopLevelContext, TopLevelDef},
+    typecheck::{
+        type_inferencer::{CodeLocation, PrimitiveStore},
+        typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
+    },
 };
-use std::thread;
 
 pub mod builtin_fns;
 pub mod classes;

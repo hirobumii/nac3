@@ -1,3 +1,20 @@
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
+use indexmap::IndexMap;
+use indoc::indoc;
+use inkwell::{
+    targets::{InitializationConfig, Target},
+    OptimizationLevel,
+};
+use nac3parser::{
+    ast::{fold::Fold, FileName, StrRef},
+    parser::parse_program,
+};
+use parking_lot::RwLock;
+
 use crate::{
     codegen::{
         classes::{ListType, NDArrayType, ProxyType, RangeType},
@@ -15,20 +32,6 @@ use crate::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
     },
 };
-use indexmap::IndexMap;
-use indoc::indoc;
-use inkwell::{
-    targets::{InitializationConfig, Target},
-    OptimizationLevel,
-};
-use nac3parser::ast::FileName;
-use nac3parser::{
-    ast::{fold::Fold, StrRef},
-    parser::parse_program,
-};
-use parking_lot::RwLock;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 struct Resolver {
     id_to_type: HashMap<StrRef, Type>,

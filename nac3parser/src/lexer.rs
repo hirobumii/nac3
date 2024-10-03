@@ -1,16 +1,16 @@
 //! This module takes care of lexing python source text.
 //!
 //! This means source code is translated into separate tokens.
+use std::{char, cmp::Ordering, num::IntErrorKind, str::FromStr};
 
-pub use super::token::Tok;
-use crate::ast::{FileName, Location};
-use crate::error::{LexicalError, LexicalErrorType};
-use std::char;
-use std::cmp::Ordering;
-use std::num::IntErrorKind;
-use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
+
+pub use super::token::Tok;
+use crate::{
+    ast::{FileName, Location},
+    error::{LexicalError, LexicalErrorType},
+};
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 struct IndentationLevel {

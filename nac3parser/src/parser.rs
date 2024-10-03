@@ -5,14 +5,16 @@
 //! parse a whole program, a single statement, or a single
 //! expression.
 
-use nac3ast::Location;
 use std::iter;
 
-use crate::ast::{self, FileName};
-use crate::error::ParseError;
-use crate::lexer;
+use nac3ast::Location;
+
 pub use crate::mode::Mode;
-use crate::python;
+use crate::{
+    ast::{self, FileName},
+    error::ParseError,
+    lexer, python,
+};
 
 /*
  * Parse python code.

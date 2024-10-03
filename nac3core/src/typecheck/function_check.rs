@@ -1,13 +1,16 @@
-use crate::toplevel::helper::PrimDef;
+use std::{collections::HashSet, iter::once};
 
-use super::type_inferencer::Inferencer;
-use super::typedef::{Type, TypeEnum};
 use nac3parser::ast::{
     self, Constant, Expr, ExprKind,
     Operator::{LShift, RShift},
     Stmt, StmtKind, StrRef,
 };
-use std::{collections::HashSet, iter::once};
+
+use super::{
+    type_inferencer::Inferencer,
+    typedef::{Type, TypeEnum},
+};
+use crate::toplevel::helper::PrimDef;
 
 impl<'a> Inferencer<'a> {
     fn should_have_value(&mut self, expr: &Expr<Option<Type>>) -> Result<(), HashSet<String>> {

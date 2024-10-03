@@ -1,3 +1,17 @@
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    iter::once,
+    mem,
+    sync::Arc,
+};
+
+use itertools::Itertools;
+use pyo3::{
+    types::{PyDict, PyList},
+    PyObject, PyResult, Python,
+};
+
 use nac3core::{
     codegen::{
         classes::{
@@ -10,37 +24,20 @@ use nac3core::{
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         CodeGenContext, CodeGenerator,
     },
+    inkwell::{
+        context::Context,
+        module::Linkage,
+        types::{BasicType, IntType},
+        values::{BasicValueEnum, IntValue, PointerValue, StructValue},
+        AddressSpace, IntPredicate, OptimizationLevel,
+    },
+    nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef},
     symbol_resolver::ValueEnum,
     toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, DefinitionId, GenCall},
     typecheck::typedef::{iter_type_vars, FunSignature, FuncArg, Type, TypeEnum, VarMap},
 };
 
-use nac3core::nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef};
-
-use nac3core::inkwell::{
-    context::Context,
-    module::Linkage,
-    types::{BasicType, IntType},
-    values::{BasicValueEnum, PointerValue, StructValue},
-    AddressSpace, IntPredicate, OptimizationLevel,
-};
-
-use pyo3::{
-    types::{PyDict, PyList},
-    PyObject, PyResult, Python,
-};
-
 use crate::{symbol_resolver::InnerResolver, timeline::TimeFns};
-
-use itertools::Itertools;
-use nac3core::inkwell::values::IntValue;
-use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
-    iter::once,
-    mem,
-    sync::Arc,
-};
 
 /// The parallelism mode within a block.
 #[derive(Copy, Clone, Eq, PartialEq)]

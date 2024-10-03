@@ -1,21 +1,30 @@
-use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicValue, BasicValueEnum, IntValue, PointerValue};
-use inkwell::{FloatPredicate, IntPredicate, OptimizationLevel};
+use inkwell::{
+    types::BasicTypeEnum,
+    values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
+    FloatPredicate, IntPredicate, OptimizationLevel,
+};
 use itertools::Itertools;
 
-use crate::codegen::classes::{
-    ArrayLikeValue, NDArrayValue, ProxyValue, RangeValue, TypedArrayLikeAccessor,
-    UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
+use crate::{
+    codegen::{
+        classes::{
+            ArrayLikeValue, NDArrayValue, ProxyValue, RangeValue, TypedArrayLikeAccessor,
+            UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
+        },
+        expr::destructure_range,
+        extern_fns, irrt,
+        irrt::calculate_len_for_slice_range,
+        llvm_intrinsics,
+        macros::codegen_unreachable,
+        numpy,
+        numpy::ndarray_elementwise_unaryop_impl,
+        stmt::gen_for_callback_incrementing,
+        CodeGenContext, CodeGenerator,
+    },
+    toplevel::helper::PrimDef,
+    toplevel::numpy::unpack_ndarray_var_tys,
+    typecheck::typedef::{Type, TypeEnum},
 };
-use crate::codegen::expr::destructure_range;
-use crate::codegen::irrt::calculate_len_for_slice_range;
-use crate::codegen::macros::codegen_unreachable;
-use crate::codegen::numpy::ndarray_elementwise_unaryop_impl;
-use crate::codegen::stmt::gen_for_callback_incrementing;
-use crate::codegen::{extern_fns, irrt, llvm_intrinsics, numpy, CodeGenContext, CodeGenerator};
-use crate::toplevel::helper::PrimDef;
-use crate::toplevel::numpy::unpack_ndarray_var_tys;
-use crate::typecheck::typedef::{Type, TypeEnum};
 
 /// Shorthand for [`unreachable!()`] when a type of argument is not supported.
 ///

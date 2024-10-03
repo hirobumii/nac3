@@ -1,5 +1,7 @@
-use inkwell::attributes::{Attribute, AttributeLoc};
-use inkwell::values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue};
+use inkwell::{
+    attributes::{Attribute, AttributeLoc},
+    values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue},
+};
 use itertools::Either;
 
 use crate::codegen::CodeGenContext;

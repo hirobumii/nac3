@@ -1,6 +1,13 @@
-use nac3core::nac3parser::ast::{self, StrRef};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
+use parking_lot::{Mutex, RwLock};
+
 use nac3core::{
     codegen::CodeGenContext,
+    nac3parser::ast::{self, StrRef},
     symbol_resolver::{SymbolResolver, SymbolValue, ValueEnum},
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::{
@@ -8,9 +15,6 @@ use nac3core::{
         typedef::{Type, Unifier},
     },
 };
-use parking_lot::{Mutex, RwLock};
-use std::collections::HashSet;
-use std::{collections::HashMap, sync::Arc};
 
 pub struct ResolverInternal {
     pub id_to_type: Mutex<HashMap<StrRef, Type>>,

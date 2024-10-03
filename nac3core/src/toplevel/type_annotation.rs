@@ -1,9 +1,13 @@
-use super::*;
-use crate::symbol_resolver::SymbolValue;
-use crate::toplevel::helper::{PrimDef, PrimDefDetails};
-use crate::typecheck::typedef::VarMap;
-use nac3parser::ast::Constant;
 use strum::IntoEnumIterator;
+
+use nac3parser::ast::Constant;
+
+use super::*;
+use crate::{
+    symbol_resolver::SymbolValue,
+    toplevel::helper::{PrimDef, PrimDefDetails},
+    typecheck::typedef::VarMap,
+};
 
 #[derive(Clone, Debug)]
 pub enum TypeAnnotation {

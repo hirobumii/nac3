@@ -1,15 +1,17 @@
+use inkwell::{
+    context::Context,
+    types::{BasicTypeEnum, IntType},
+    values::{BasicValueEnum, IntValue, PointerValue},
+};
+
+use nac3parser::ast::{Expr, Stmt, StrRef};
+
 use crate::{
     codegen::{bool_to_i1, bool_to_i8, classes::ArraySliceValue, expr::*, stmt::*, CodeGenContext},
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::typedef::{FunSignature, Type},
 };
-use inkwell::{
-    context::Context,
-    types::{BasicTypeEnum, IntType},
-    values::{BasicValueEnum, IntValue, PointerValue},
-};
-use nac3parser::ast::{Expr, Stmt, StrRef};
 
 pub trait CodeGenerator {
     /// Return the module name for the code generator.

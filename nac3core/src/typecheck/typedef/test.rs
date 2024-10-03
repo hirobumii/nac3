@@ -1,9 +1,11 @@
-use super::super::magic_methods::with_fields;
-use super::*;
+use std::collections::HashMap;
+
 use indoc::indoc;
 use itertools::Itertools;
-use std::collections::HashMap;
 use test_case::test_case;
+
+use super::*;
+use crate::typecheck::magic_methods::with_fields;
 
 impl Unifier {
     /// Check whether two types are equal.

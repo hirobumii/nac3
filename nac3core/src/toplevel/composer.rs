@@ -1,6 +1,8 @@
-use nac3parser::ast::fold::Fold;
 use std::rc::Rc;
 
+use nac3parser::ast::fold::Fold;
+
+use super::*;
 use crate::{
     codegen::{expr::get_subst_key, stmt::exn_constructor},
     symbol_resolver::SymbolValue,
@@ -9,8 +11,6 @@ use crate::{
         typedef::{TypeVar, VarMap},
     },
 };
-
-use super::*;
 
 pub struct ComposerConfig {
     pub kernel_ann: Option<&'static str>,

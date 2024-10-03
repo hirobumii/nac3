@@ -1,4 +1,3 @@
-use regex::Regex;
 use std::{
     env,
     fs::File,
@@ -6,6 +5,8 @@ use std::{
     path::Path,
     process::{Command, Stdio},
 };
+
+use regex::Regex;
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
