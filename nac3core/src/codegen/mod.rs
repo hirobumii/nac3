@@ -853,10 +853,9 @@ pub fn gen_func_impl<
     builder.position_at_end(init_bb);
     let body_bb = context.append_basic_block(fn_val, "body");
 
+    // Store non-vararg argument values into local variables
     let mut var_assignment = HashMap::new();
     let offset = u32::from(has_sret);
-
-    // Store non-vararg argument values into local variables
     for (n, arg) in args.iter().enumerate().filter(|(_, arg)| !arg.is_vararg) {
         let param = fn_val.get_nth_param((n as u32) + offset).unwrap();
         let local_type = get_llvm_type(

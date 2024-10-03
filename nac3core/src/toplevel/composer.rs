@@ -500,6 +500,7 @@ impl TopLevelComposer {
             }
             Ok(())
         };
+
         let mut errors = HashSet::new();
         for (class_def, class_ast) in def_list.iter().skip(self.builtin_num) {
             if class_ast.is_none() {
@@ -853,7 +854,6 @@ impl TopLevelComposer {
         let unifier = self.unifier.borrow_mut();
         let primitives_store = &self.primitives_ty;
 
-        let mut errors = HashSet::new();
         let mut analyze = |function_def: &Arc<RwLock<TopLevelDef>>, function_ast: &Option<Stmt>| {
             let mut function_def = function_def.write();
             let function_def = &mut *function_def;
@@ -1128,6 +1128,8 @@ impl TopLevelComposer {
             })?;
             Ok(())
         };
+
+        let mut errors = HashSet::new();
         for (function_def, function_ast) in def_list.iter().skip(self.builtin_num) {
             if function_ast.is_none() {
                 continue;
@@ -1702,7 +1704,6 @@ impl TopLevelComposer {
             }
         }
 
-        let mut errors = HashSet::new();
         let mut analyze = |i, def: &Arc<RwLock<TopLevelDef>>, ast: &Option<Stmt>| {
             let class_def = def.read();
             if let TopLevelDef::Class {
@@ -1845,6 +1846,8 @@ impl TopLevelComposer {
             }
             Ok(())
         };
+
+        let mut errors = HashSet::new();
         for (i, (def, ast)) in definition_ast_list.iter().enumerate().skip(self.builtin_num) {
             if ast.is_none() {
                 continue;
