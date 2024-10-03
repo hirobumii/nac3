@@ -297,8 +297,7 @@ fn main() {
     let program = match fs::read_to_string(file_name.clone()) {
         Ok(program) => program,
         Err(err) => {
-            println!("Cannot open input file: {err}");
-            return;
+            panic!("Cannot open input file: {err}");
         }
     };
 
@@ -340,8 +339,7 @@ fn main() {
                     unifier,
                     primitives,
                 ) {
-                    eprintln!("{err}");
-                    return;
+                    panic!("{err}");
                 }
             }
             // allow (and ignore) "from __future__ import annotations"
