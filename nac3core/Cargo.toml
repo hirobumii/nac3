@@ -10,9 +10,9 @@ no-escape-analysis = []
 [dependencies]
 itertools = "0.13"
 crossbeam = "0.8"
-indexmap = "2.2"
+indexmap = "2.6"
 parking_lot = "0.12"
-rayon = "1.8"
+rayon = "1.10"
 nac3parser = { path = "../nac3parser" }
 strum = "0.26"
 strum_macros = "0.26"

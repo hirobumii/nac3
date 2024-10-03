@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 itertools = "0.13"
 pyo3 = { version = "0.21", features = ["extension-module", "gil-refs"] }
 parking_lot = "0.12"
-tempfile = "3.10"
+tempfile = "3.13"
 nac3core = { path = "../nac3core" }
 nac3ld = { path = "../nac3ld" }
 
