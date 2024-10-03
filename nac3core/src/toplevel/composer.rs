@@ -101,7 +101,8 @@ impl TopLevelComposer {
             .iter()
             .map(|def_ast| match *def_ast.0.read() {
                 TopLevelDef::Class { name, .. } => name.to_string(),
-                TopLevelDef::Function { simple_name, .. } => simple_name.to_string(),
+                TopLevelDef::Function { simple_name, .. }
+                | TopLevelDef::Variable { simple_name, .. } => simple_name.to_string(),
             })
             .collect_vec();
 

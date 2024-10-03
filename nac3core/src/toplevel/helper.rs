@@ -391,6 +391,9 @@ impl TopLevelDef {
                     r
                 }
             ),
+            TopLevelDef::Variable { name, ty, .. } => {
+                format!("Variable {{ name: {name:?}, ty: {:?} }}", unifier.stringify(*ty),)
+            }
         }
     }
 }
@@ -590,6 +593,18 @@ impl TopLevelComposer {
             codegen_callback: None,
             loc,
         }
+    }
+
+    #[must_use]
+    pub fn make_top_level_variable_def(
+        name: String,
+        simple_name: StrRef,
+        ty: Type,
+        ty_decl: Expr,
+        resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
+        loc: Option<Location>,
+    ) -> TopLevelDef {
+        TopLevelDef::Variable { name, simple_name, ty, ty_decl, resolver, loc }
     }
 
     #[must_use]
