@@ -394,6 +394,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
             | ast::StmtKind::Continue { .. }
             | ast::StmtKind::Expr { .. }
             | ast::StmtKind::For { .. }
+            | ast::StmtKind::Global { .. }
             | ast::StmtKind::Pass { .. }
             | ast::StmtKind::Try { .. } => {}
             ast::StmtKind::If { test, .. } | ast::StmtKind::While { test, .. } => {

@@ -365,6 +365,40 @@ impl<'a> Inferencer<'a> {
                 }
                 Ok(true)
             }
+            StmtKind::Global { names, .. } => {
+                for id in names {
+                    if let Some(id_info) = defined_identifiers.get(id) {
+                        if !id_info.is_global {
+                            return Err(HashSet::from([format!(
+                                "name '{id}' is assigned to before global declaration at {}",
+                                stmt.location,
+                            )]));
+                        }
+
+                        continue;
+                    }
+
+                    match self.function_data.resolver.get_symbol_type(
+                        self.unifier,
+                        &self.top_level.definitions.read(),
+                        self.primitives,
+                        *id,
+                    ) {
+                        Ok(_) => {
+                            self.defined_identifiers
+                                .insert(*id, IdentifierInfo { is_global: true });
+                        }
+                        Err(e) => {
+                            return Err(HashSet::from([format!(
+                                "type error at identifier `{}` ({}) at {}",
+                                id, e, stmt.location
+                            )]))
+                        }
+                    }
+                }
+
+                Ok(false)
+            }
             // break, raise, etc.
             _ => Ok(false),
         }

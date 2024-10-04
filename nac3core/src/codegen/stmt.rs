@@ -1828,6 +1828,37 @@ pub fn gen_stmt<G: CodeGenerator>(
                 stmt.location,
             );
         }
+        StmtKind::Global { names, .. } => {
+            let registered_globals = ctx
+                .top_level
+                .definitions
+                .read()
+                .iter()
+                .filter_map(|def| {
+                    if let TopLevelDef::Variable { simple_name, ty, .. } = &*def.read() {
+                        Some((*simple_name, *ty))
+                    } else {
+                        None
+                    }
+                })
+                .collect_vec();
+
+            for id in names {
+                let Some((_, ty)) = registered_globals.iter().find(|(name, _)| name == id) else {
+                    return Err(format!("{id} is not a global at {}", stmt.location));
+                };
+
+                let resolver = ctx.resolver.clone();
+                let ptr = resolver
+                    .get_symbol_value(*id, ctx, generator)
+                    .map(|val| val.to_basic_value_enum(ctx, generator, *ty))
+                    .transpose()?
+                    .map(BasicValueEnum::into_pointer_value)
+                    .unwrap();
+
+                ctx.var_assignment.insert(*id, (ptr, None, 0));
+            }
+        }
         _ => unimplemented!(),
     };
     Ok(())
