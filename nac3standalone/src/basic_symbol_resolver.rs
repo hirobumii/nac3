@@ -7,6 +7,7 @@ use parking_lot::{Mutex, RwLock};
 
 use nac3core::{
     codegen::{CodeGenContext, CodeGenerator},
+    inkwell::{module::Linkage, values::BasicValue},
     nac3parser::ast::{self, StrRef},
     symbol_resolver::{SymbolResolver, SymbolValue, ValueEnum},
     toplevel::{DefinitionId, TopLevelDef},
@@ -49,21 +50,51 @@ impl SymbolResolver for Resolver {
 
     fn get_symbol_type(
         &self,
-        _: &mut Unifier,
+        unifier: &mut Unifier,
         _: &[Arc<RwLock<TopLevelDef>>],
-        _: &PrimitiveStore,
+        primitives: &PrimitiveStore,
         str: StrRef,
     ) -> Result<Type, String> {
-        self.0.id_to_type.lock().get(&str).copied().ok_or(format!("cannot get type of {str}"))
+        self.0
+            .id_to_type
+            .lock()
+            .get(&str)
+            .copied()
+            .or_else(|| {
+                self.0
+                    .module_globals
+                    .lock()
+                    .get(&str)
+                    .cloned()
+                    .map(|v| v.get_type(primitives, unifier))
+            })
+            .ok_or(format!("cannot get type of {str}"))
     }
 
     fn get_symbol_value<'ctx>(
         &self,
-        _: StrRef,
-        _: &mut CodeGenContext<'ctx, '_>,
-        _: &mut dyn CodeGenerator,
+        str: StrRef,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        generator: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
-        unimplemented!()
+        self.0.module_globals.lock().get(&str).cloned().map(|v| {
+            ctx.module
+                .get_global(&str.to_string())
+                .unwrap_or_else(|| {
+                    let ty = v.get_type(&ctx.primitives, &mut ctx.unifier);
+
+                    let init_val = ctx.gen_symbol_val(generator, &v, ty);
+                    let llvm_ty = init_val.get_type();
+
+                    let global = ctx.module.add_global(llvm_ty, None, &str.to_string());
+                    global.set_linkage(Linkage::LinkOnceAny);
+                    global.set_initializer(&init_val);
+
+                    global
+                })
+                .as_basic_value_enum()
+                .into()
+        })
     }
 
     fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
