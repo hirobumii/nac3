@@ -245,6 +245,34 @@ fn handle_assignment_pattern(
     }
 }
 
+fn handle_global_var(
+    target: &Expr,
+    value: Option<&Expr>,
+    resolver: &(dyn SymbolResolver + Send + Sync),
+    internal_resolver: &ResolverInternal,
+) -> Result<(), String> {
+    let ExprKind::Name { id, .. } = target.node else {
+        return Err(format!(
+            "global variable declaration must be an identifier (at {})",
+            target.location,
+        ));
+    };
+
+    let Some(value) = value else {
+        return Err(format!("global variable `{id}` must be initialized in its definition"));
+    };
+
+    if let Ok(val) = parse_parameter_default_value(value, resolver) {
+        internal_resolver.add_module_global(id, val);
+        Ok(())
+    } else {
+        Err(format!(
+            "failed to evaluate this expression `{:?}` as a constant at {}",
+            target.node, target.location,
+        ))
+    }
+}
+
 fn main() {
     let cli = CommandLineArgs::parse();
     let CommandLineArgs { file_name, threads, opt_level, emit_llvm, triple, mcpu, target_features } =
@@ -342,6 +370,23 @@ fn main() {
                     panic!("{err}");
                 }
             }
+
+            StmtKind::AnnAssign { target, value, .. } => {
+                if let Err(err) = handle_global_var(
+                    target,
+                    value.as_ref().map(Box::as_ref),
+                    resolver.as_ref(),
+                    internal_resolver.as_ref(),
+                ) {
+                    panic!("{err}");
+                }
+
+                let (name, def_id, _) = composer
+                    .register_top_level(stmt, Some(resolver.clone()), "__main__", true)
+                    .unwrap();
+                internal_resolver.add_id_def(name, def_id);
+            }
+
             // allow (and ignore) "from __future__ import annotations"
             StmtKind::ImportFrom { module, names, .. }
                 if module == &Some("__future__".into())

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use nac3parser::ast::fold::Fold;
+use nac3parser::ast::{fold::Fold, ExprKind};
 
 use super::*;
 use crate::{
@@ -382,8 +382,58 @@ impl TopLevelComposer {
                 ))
             }
 
+            ast::StmtKind::AnnAssign { target, annotation, .. } => {
+                let ExprKind::Name { id: name, .. } = target.node else {
+                    return Err(format!(
+                        "global variable declaration must be an identifier (at {})",
+                        ast.location
+                    ));
+                };
+
+                if self.keyword_list.contains(&name) {
+                    return Err(format!(
+                        "cannot use keyword `{}` as a class name (at {})",
+                        name,
+                        ast.location
+                    ));
+                }
+
+                let global_var_name = if mod_path.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{mod_path}.{name}")
+                };
+                if !defined_names.insert(global_var_name.clone()) {
+                    return Err(format!(
+                        "global variable `{}` defined twice (at {})",
+                        global_var_name,
+                        ast.location
+                    ));
+                }
+
+                let ty_to_be_unified = self.unifier.get_dummy_var().ty;
+                self.definition_ast_list.push((
+                    RwLock::new(Self::make_top_level_variable_def(
+                        global_var_name,
+                        name,
+                        // dummy here, unify with correct type later,
+                        ty_to_be_unified,
+                        *(annotation.clone()),
+                        resolver,
+                        Some(ast.location),
+                    )).into(),
+                    None,
+                ));
+
+                Ok((
+                    name,
+                    DefinitionId(self.definition_ast_list.len() - 1),
+                    Some(ty_to_be_unified),
+                ))
+            }
+
             _ => Err(format!(
-                "registrations of constructs other than top level classes/functions are not supported (at {})",
+                "registrations of constructs other than top level classes/functions/variables are not supported (at {})",
                 ast.location
             )),
         }
