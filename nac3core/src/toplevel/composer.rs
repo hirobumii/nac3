@@ -7,7 +7,7 @@ use crate::{
     codegen::{expr::get_subst_key, stmt::exn_constructor},
     symbol_resolver::SymbolValue,
     typecheck::{
-        type_inferencer::{FunctionData, Inferencer},
+        type_inferencer::{FunctionData, IdentifierInfo, Inferencer},
         typedef::{TypeVar, VarMap},
     },
 };
@@ -2057,11 +2057,12 @@ impl TopLevelComposer {
                         })
                     };
                     let mut identifiers = {
-                        let mut result: HashSet<_> = HashSet::new();
+                        let mut result = HashMap::new();
                         if self_type.is_some() {
-                            result.insert("self".into());
+                            result.insert("self".into(), IdentifierInfo::default());
                         }
-                        result.extend(inst_args.iter().map(|x| x.name));
+                        result
+                            .extend(inst_args.iter().map(|x| (x.name, IdentifierInfo::default())));
                         result
                     };
                     let mut calls: HashMap<CodeLocation, CallId> = HashMap::new();

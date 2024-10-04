@@ -1,4 +1,7 @@
-use std::{collections::HashSet, iter::once};
+use std::{
+    collections::{HashMap, HashSet},
+    iter::once,
+};
 
 use nac3parser::ast::{
     self, Constant, Expr, ExprKind,
@@ -7,7 +10,7 @@ use nac3parser::ast::{
 };
 
 use super::{
-    type_inferencer::Inferencer,
+    type_inferencer::{IdentifierInfo, Inferencer},
     typedef::{Type, TypeEnum},
 };
 use crate::toplevel::helper::PrimDef;
@@ -24,15 +27,15 @@ impl<'a> Inferencer<'a> {
     fn check_pattern(
         &mut self,
         pattern: &Expr<Option<Type>>,
-        defined_identifiers: &mut HashSet<StrRef>,
+        defined_identifiers: &mut HashMap<StrRef, IdentifierInfo>,
     ) -> Result<(), HashSet<String>> {
         match &pattern.node {
             ExprKind::Name { id, .. } if id == &"none".into() => {
                 Err(HashSet::from([format!("cannot assign to a `none` (at {})", pattern.location)]))
             }
             ExprKind::Name { id, .. } => {
-                if !defined_identifiers.contains(id) {
-                    defined_identifiers.insert(*id);
+                if !defined_identifiers.contains_key(id) {
+                    defined_identifiers.insert(*id, IdentifierInfo::default());
                 }
                 self.should_have_value(pattern)?;
                 Ok(())
@@ -72,7 +75,7 @@ impl<'a> Inferencer<'a> {
     fn check_expr(
         &mut self,
         expr: &Expr<Option<Type>>,
-        defined_identifiers: &mut HashSet<StrRef>,
+        defined_identifiers: &mut HashMap<StrRef, IdentifierInfo>,
     ) -> Result<(), HashSet<String>> {
         // there are some cases where the custom field is None
         if let Some(ty) = &expr.custom {
@@ -93,7 +96,7 @@ impl<'a> Inferencer<'a> {
                     return Ok(());
                 }
                 self.should_have_value(expr)?;
-                if !defined_identifiers.contains(id) {
+                if !defined_identifiers.contains_key(id) {
                     match self.function_data.resolver.get_symbol_type(
                         self.unifier,
                         &self.top_level.definitions.read(),
@@ -101,7 +104,7 @@ impl<'a> Inferencer<'a> {
                         *id,
                     ) {
                         Ok(_) => {
-                            self.defined_identifiers.insert(*id);
+                            self.defined_identifiers.insert(*id, IdentifierInfo::default());
                         }
                         Err(e) => {
                             return Err(HashSet::from([format!(
@@ -174,9 +177,7 @@ impl<'a> Inferencer<'a> {
                 let mut defined_identifiers = defined_identifiers.clone();
                 for arg in &args.args {
                     // TODO: should we check the types here?
-                    if !defined_identifiers.contains(&arg.node.arg) {
-                        defined_identifiers.insert(arg.node.arg);
-                    }
+                    defined_identifiers.entry(arg.node.arg).or_default();
                 }
                 self.check_expr(body, &mut defined_identifiers)?;
             }
@@ -239,7 +240,7 @@ impl<'a> Inferencer<'a> {
     fn check_stmt(
         &mut self,
         stmt: &Stmt<Option<Type>>,
-        defined_identifiers: &mut HashSet<StrRef>,
+        defined_identifiers: &mut HashMap<StrRef, IdentifierInfo>,
     ) -> Result<bool, HashSet<String>> {
         match &stmt.node {
             StmtKind::For { target, iter, body, orelse, .. } => {
@@ -265,9 +266,11 @@ impl<'a> Inferencer<'a> {
                 let body_returned = self.check_block(body, &mut body_identifiers)?;
                 let orelse_returned = self.check_block(orelse, &mut orelse_identifiers)?;
 
-                for ident in &body_identifiers {
-                    if !defined_identifiers.contains(ident) && orelse_identifiers.contains(ident) {
-                        defined_identifiers.insert(*ident);
+                for ident in body_identifiers.keys() {
+                    if !defined_identifiers.contains_key(ident)
+                        && orelse_identifiers.contains_key(ident)
+                    {
+                        defined_identifiers.insert(*ident, IdentifierInfo::default());
                     }
                 }
                 Ok(body_returned && orelse_returned)
@@ -298,7 +301,7 @@ impl<'a> Inferencer<'a> {
                     let mut defined_identifiers = defined_identifiers.clone();
                     let ast::ExcepthandlerKind::ExceptHandler { name, body, .. } = &handler.node;
                     if let Some(name) = name {
-                        defined_identifiers.insert(*name);
+                        defined_identifiers.insert(*name, IdentifierInfo::default());
                     }
                     self.check_block(body, &mut defined_identifiers)?;
                 }
@@ -370,7 +373,7 @@ impl<'a> Inferencer<'a> {
     pub fn check_block(
         &mut self,
         block: &[Stmt<Option<Type>>],
-        defined_identifiers: &mut HashSet<StrRef>,
+        defined_identifiers: &mut HashMap<StrRef, IdentifierInfo>,
     ) -> Result<bool, HashSet<String>> {
         let mut ret = false;
         for stmt in block {

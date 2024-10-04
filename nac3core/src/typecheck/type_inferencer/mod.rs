@@ -88,6 +88,20 @@ impl PrimitiveStore {
     }
 }
 
+/// Information regarding a defined identifier.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct IdentifierInfo {
+    /// Whether this identifier refers to a global variable.
+    pub is_global: bool,
+}
+
+impl IdentifierInfo {
+    #[must_use]
+    pub fn new() -> IdentifierInfo {
+        IdentifierInfo::default()
+    }
+}
+
 pub struct FunctionData {
     pub resolver: Arc<dyn SymbolResolver + Send + Sync>,
     pub return_type: Option<Type>,
@@ -96,7 +110,7 @@ pub struct FunctionData {
 
 pub struct Inferencer<'a> {
     pub top_level: &'a TopLevelContext,
-    pub defined_identifiers: HashSet<StrRef>,
+    pub defined_identifiers: HashMap<StrRef, IdentifierInfo>,
     pub function_data: &'a mut FunctionData,
     pub unifier: &'a mut Unifier,
     pub primitives: &'a PrimitiveStore,
@@ -228,9 +242,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                                 handler.location,
                             ));
                             if let Some(name) = name {
-                                if !self.defined_identifiers.contains(&name) {
-                                    self.defined_identifiers.insert(name);
-                                }
+                                self.defined_identifiers.entry(name).or_default();
                                 if let Some(old_typ) = self.variable_mapping.insert(name, typ) {
                                     let loc = handler.location;
                                     self.unifier.unify(old_typ, typ).map_err(|e| {
@@ -553,7 +565,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                         unreachable!("must be tobj")
                     }
                 } else {
-                    if !self.defined_identifiers.contains(id) {
+                    if !self.defined_identifiers.contains_key(id) {
                         match self.function_data.resolver.get_symbol_type(
                             self.unifier,
                             &self.top_level.definitions.read(),
@@ -561,7 +573,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
                             *id,
                         ) {
                             Ok(_) => {
-                                self.defined_identifiers.insert(*id);
+                                self.defined_identifiers.insert(*id, IdentifierInfo::default());
                             }
                             Err(e) => {
                                 return report_error(
@@ -626,8 +638,8 @@ impl<'a> Inferencer<'a> {
     fn infer_pattern<T>(&mut self, pattern: &ast::Expr<T>) -> Result<(), InferenceError> {
         match &pattern.node {
             ExprKind::Name { id, .. } => {
-                if !self.defined_identifiers.contains(id) {
-                    self.defined_identifiers.insert(*id);
+                if !self.defined_identifiers.contains_key(id) {
+                    self.defined_identifiers.insert(*id, IdentifierInfo::default());
                 }
                 Ok(())
             }
@@ -736,8 +748,8 @@ impl<'a> Inferencer<'a> {
         let mut defined_identifiers = self.defined_identifiers.clone();
         for arg in &args.args {
             let name = &arg.node.arg;
-            if !defined_identifiers.contains(name) {
-                defined_identifiers.insert(*name);
+            if !defined_identifiers.contains_key(name) {
+                defined_identifiers.insert(*name, IdentifierInfo::default());
             }
         }
         let fn_args: Vec<_> = args
