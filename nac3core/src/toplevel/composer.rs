@@ -447,6 +447,7 @@ impl TopLevelComposer {
         if inference {
             self.analyze_function_instance()?;
         }
+        self.analyze_top_level_variables()?;
         Ok(())
     }
 
@@ -2225,6 +2226,59 @@ impl TopLevelComposer {
         if !errors.is_empty() {
             return Err(errors);
         }
+        Ok(())
+    }
+
+    /// Step 6. Analyze and populate the types of global variables.
+    fn analyze_top_level_variables(&mut self) -> Result<(), HashSet<String>> {
+        let def_list = &self.definition_ast_list;
+        let temp_def_list = self.extract_def_list();
+        let unifier = &mut self.unifier;
+        let primitives_store = &self.primitives_ty;
+
+        let mut analyze = |variable_def: &Arc<RwLock<TopLevelDef>>| -> Result<_, HashSet<String>> {
+            let variable_def = &mut *variable_def.write();
+
+            let TopLevelDef::Variable { ty: dummy_ty, ty_decl, resolver, loc, .. } = variable_def
+            else {
+                // not top level variable def, skip
+                return Ok(());
+            };
+
+            let resolver = &**resolver.as_ref().unwrap();
+
+            let ty_annotation = parse_ast_to_type_annotation_kinds(
+                resolver,
+                &temp_def_list,
+                unifier,
+                primitives_store,
+                ty_decl,
+                HashMap::new(),
+            )?;
+            let ty_from_ty_annotation = get_type_from_type_annotation_kinds(
+                &temp_def_list,
+                unifier,
+                primitives_store,
+                &ty_annotation,
+                &mut None,
+            )?;
+
+            unifier.unify(*dummy_ty, ty_from_ty_annotation).map_err(|e| {
+                HashSet::from([e.at(Some(loc.unwrap())).to_display(unifier).to_string()])
+            })?;
+            Ok(())
+        };
+
+        let mut errors = HashSet::new();
+        for (variable_def, _) in def_list.iter().skip(self.builtin_num) {
+            if let Err(e) = analyze(variable_def) {
+                errors.extend(e);
+            }
+        }
+        if !errors.is_empty() {
+            return Err(errors);
+        }
+
         Ok(())
     }
 }
