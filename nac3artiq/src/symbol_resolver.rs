@@ -1470,6 +1470,7 @@ impl SymbolResolver for Resolver {
         &self,
         id: StrRef,
         _: &mut CodeGenContext<'ctx, '_>,
+        _: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
         let sym_value = {
             let id_to_val = self.0.id_to_pyval.read();

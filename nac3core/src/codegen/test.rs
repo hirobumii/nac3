@@ -67,6 +67,7 @@ impl SymbolResolver for Resolver {
         &self,
         _: StrRef,
         _: &mut CodeGenContext<'ctx, '_>,
+        _: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
         unimplemented!()
     }

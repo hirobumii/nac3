@@ -6,7 +6,7 @@ use std::{
 use parking_lot::{Mutex, RwLock};
 
 use nac3core::{
-    codegen::CodeGenContext,
+    codegen::{CodeGenContext, CodeGenerator},
     nac3parser::ast::{self, StrRef},
     symbol_resolver::{SymbolResolver, SymbolValue, ValueEnum},
     toplevel::{DefinitionId, TopLevelDef},
@@ -61,6 +61,7 @@ impl SymbolResolver for Resolver {
         &self,
         _: StrRef,
         _: &mut CodeGenContext<'ctx, '_>,
+        _: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
         unimplemented!()
     }

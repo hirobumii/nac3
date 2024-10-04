@@ -2886,7 +2886,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             Some((_, Some(static_value), _)) => ValueEnum::Static(static_value.clone()),
             None => {
                 let resolver = ctx.resolver.clone();
-                resolver.get_symbol_value(*id, ctx).unwrap()
+                resolver.get_symbol_value(*id, ctx, generator).unwrap()
             }
         },
         ExprKind::List { elts, .. } => {

@@ -369,6 +369,7 @@ pub trait SymbolResolver {
         &self,
         str: StrRef,
         ctx: &mut CodeGenContext<'ctx, '_>,
+        generator: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>>;
 
     fn get_default_param_value(&self, expr: &Expr) -> Option<SymbolValue>;
