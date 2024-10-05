@@ -88,11 +88,31 @@ impl PrimitiveStore {
     }
 }
 
+/// The location where an identifier declaration refers to.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeclarationSource {
+    /// Local scope.
+    Local,
+
+    /// Global scope.
+    Global {
+        /// Whether the identifier is declared by the use of `global` statement. This field is
+        /// [`None`] if the identifier does not refer to a variable.
+        is_explicit: Option<bool>,
+    },
+}
+
 /// Information regarding a defined identifier.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct IdentifierInfo {
     /// Whether this identifier refers to a global variable.
-    pub is_global: bool,
+    pub source: DeclarationSource,
+}
+
+impl Default for IdentifierInfo {
+    fn default() -> Self {
+        IdentifierInfo { source: DeclarationSource::Local }
+    }
 }
 
 impl IdentifierInfo {

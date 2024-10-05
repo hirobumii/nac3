@@ -10,7 +10,7 @@ use nac3parser::ast::{
 };
 
 use super::{
-    type_inferencer::{IdentifierInfo, Inferencer},
+    type_inferencer::{DeclarationSource, IdentifierInfo, Inferencer},
     typedef::{Type, TypeEnum},
 };
 use crate::toplevel::helper::PrimDef;
@@ -368,7 +368,7 @@ impl<'a> Inferencer<'a> {
             StmtKind::Global { names, .. } => {
                 for id in names {
                     if let Some(id_info) = defined_identifiers.get(id) {
-                        if !id_info.is_global {
+                        if id_info.source == DeclarationSource::Local {
                             return Err(HashSet::from([format!(
                                 "name '{id}' is assigned to before global declaration at {}",
                                 stmt.location,
@@ -385,8 +385,12 @@ impl<'a> Inferencer<'a> {
                         *id,
                     ) {
                         Ok(_) => {
-                            self.defined_identifiers
-                                .insert(*id, IdentifierInfo { is_global: true });
+                            self.defined_identifiers.insert(
+                                *id,
+                                IdentifierInfo {
+                                    source: DeclarationSource::Global { is_explicit: Some(true) },
+                                },
+                            );
                         }
                         Err(e) => {
                             return Err(HashSet::from([format!(
