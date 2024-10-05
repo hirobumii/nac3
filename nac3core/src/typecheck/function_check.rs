@@ -104,7 +104,22 @@ impl<'a> Inferencer<'a> {
                         *id,
                     ) {
                         Ok(_) => {
-                            self.defined_identifiers.insert(*id, IdentifierInfo::default());
+                            let is_global = self.is_id_global(*id);
+
+                            defined_identifiers.insert(
+                                *id,
+                                IdentifierInfo {
+                                    source: match is_global {
+                                        Some(true) => {
+                                            DeclarationSource::Global { is_explicit: Some(false) }
+                                        }
+                                        Some(false) => {
+                                            DeclarationSource::Global { is_explicit: None }
+                                        }
+                                        None => DeclarationSource::Local,
+                                    },
+                                },
+                            );
                         }
                         Err(e) => {
                             return Err(HashSet::from([format!(
@@ -370,7 +385,7 @@ impl<'a> Inferencer<'a> {
                     if let Some(id_info) = defined_identifiers.get(id) {
                         if id_info.source == DeclarationSource::Local {
                             return Err(HashSet::from([format!(
-                                "name '{id}' is assigned to before global declaration at {}",
+                                "name '{id}' is referenced prior to global declaration at {}",
                                 stmt.location,
                             )]));
                         }
@@ -385,7 +400,7 @@ impl<'a> Inferencer<'a> {
                         *id,
                     ) {
                         Ok(_) => {
-                            self.defined_identifiers.insert(
+                            defined_identifiers.insert(
                                 *id,
                                 IdentifierInfo {
                                     source: DeclarationSource::Global { is_explicit: Some(true) },

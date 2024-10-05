@@ -12,7 +12,7 @@ use itertools::{izip, Itertools};
 use nac3parser::ast::{
     self,
     fold::{self, Fold},
-    Arguments, Comprehension, ExprContext, ExprKind, Located, Location, StrRef,
+    Arguments, Comprehension, ExprContext, ExprKind, Ident, Located, Location, StrRef,
 };
 
 use super::{
@@ -594,7 +594,22 @@ impl<'a> Fold<()> for Inferencer<'a> {
                             *id,
                         ) {
                             Ok(_) => {
-                                self.defined_identifiers.insert(*id, IdentifierInfo::default());
+                                let is_global = self.is_id_global(*id);
+
+                                self.defined_identifiers.insert(
+                                    *id,
+                                    IdentifierInfo {
+                                        source: match is_global {
+                                            Some(true) => DeclarationSource::Global {
+                                                is_explicit: Some(false),
+                                            },
+                                            Some(false) => {
+                                                DeclarationSource::Global { is_explicit: None }
+                                            }
+                                            None => DeclarationSource::Local,
+                                        },
+                                    },
+                                );
                             }
                             Err(e) => {
                                 return report_error(
@@ -2669,5 +2684,23 @@ impl<'a> Inferencer<'a> {
         self.constrain(test.custom.unwrap(), self.primitives.bool, &test.location)?;
         self.constrain(body.custom.unwrap(), orelse.custom.unwrap(), &body.location)?;
         Ok(body.custom.unwrap())
+    }
+
+    /// Determines whether the given `id` refers to a global symbol.
+    ///
+    /// Returns `Some(true)` if `id` refers to a global variable, `Some(false)` if `id` refers to a
+    /// class/function, and `None` if `id` refers to a local symbol.
+    pub(super) fn is_id_global(&self, id: Ident) -> Option<bool> {
+        self.top_level
+            .definitions
+            .read()
+            .iter()
+            .map(|def| match *def.read() {
+                TopLevelDef::Class { name, .. } => (name, false),
+                TopLevelDef::Function { simple_name, .. } => (simple_name, false),
+                TopLevelDef::Variable { simple_name, .. } => (simple_name, true),
+            })
+            .find(|(global, _)| global == &id)
+            .map(|(_, has_explicit_prop)| has_explicit_prop)
     }
 }
