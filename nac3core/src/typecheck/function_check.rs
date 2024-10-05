@@ -34,6 +34,20 @@ impl<'a> Inferencer<'a> {
                 Err(HashSet::from([format!("cannot assign to a `none` (at {})", pattern.location)]))
             }
             ExprKind::Name { id, .. } => {
+                // If `id` refers to a declared symbol, reject this assignment if it is used in the
+                // context of an (implicit) global variable
+                if let Some(id_info) = self.defined_identifiers.get(id) {
+                    if matches!(
+                        id_info.source,
+                        DeclarationSource::Global { is_explicit: Some(false) }
+                    ) {
+                        return Err(HashSet::from([format!(
+                            "cannot access local variable '{id}' before it is declared (at {})",
+                            pattern.location
+                        )]));
+                    }
+                }
+
                 if !defined_identifiers.contains_key(id) {
                     defined_identifiers.insert(*id, IdentifierInfo::default());
                 }
