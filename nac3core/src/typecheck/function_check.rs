@@ -36,7 +36,7 @@ impl<'a> Inferencer<'a> {
             ExprKind::Name { id, .. } => {
                 // If `id` refers to a declared symbol, reject this assignment if it is used in the
                 // context of an (implicit) global variable
-                if let Some(id_info) = self.defined_identifiers.get(id) {
+                if let Some(id_info) = defined_identifiers.get(id) {
                     if matches!(
                         id_info.source,
                         DeclarationSource::Global { is_explicit: Some(false) }
