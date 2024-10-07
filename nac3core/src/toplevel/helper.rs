@@ -600,7 +600,7 @@ impl TopLevelComposer {
         name: String,
         simple_name: StrRef,
         ty: Type,
-        ty_decl: Expr,
+        ty_decl: Option<Expr>,
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
         loc: Option<Location>,
     ) -> TopLevelDef {

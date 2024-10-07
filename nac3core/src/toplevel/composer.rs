@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use nac3parser::ast::{fold::Fold, ExprKind};
+use nac3parser::ast::{fold::Fold, ExprKind, Ident};
 
 use super::*;
 use crate::{
@@ -386,50 +386,17 @@ impl TopLevelComposer {
                 let ExprKind::Name { id: name, .. } = target.node else {
                     return Err(format!(
                         "global variable declaration must be an identifier (at {})",
-                        ast.location
+                        target.location
                     ));
                 };
 
-                if self.keyword_list.contains(&name) {
-                    return Err(format!(
-                        "cannot use keyword `{}` as a class name (at {})",
-                        name,
-                        ast.location
-                    ));
-                }
-
-                let global_var_name = if mod_path.is_empty() {
-                    name.to_string()
-                } else {
-                    format!("{mod_path}.{name}")
-                };
-                if !defined_names.insert(global_var_name.clone()) {
-                    return Err(format!(
-                        "global variable `{}` defined twice (at {})",
-                        global_var_name,
-                        ast.location
-                    ));
-                }
-
-                let ty_to_be_unified = self.unifier.get_dummy_var().ty;
-                self.definition_ast_list.push((
-                    RwLock::new(Self::make_top_level_variable_def(
-                        global_var_name,
-                        name,
-                        // dummy here, unify with correct type later,
-                        ty_to_be_unified,
-                        *(annotation.clone()),
-                        resolver,
-                        Some(ast.location),
-                    )).into(),
-                    None,
-                ));
-
-                Ok((
+                self.register_top_level_var(
                     name,
-                    DefinitionId(self.definition_ast_list.len() - 1),
-                    Some(ty_to_be_unified),
-                ))
+                    Some(annotation.as_ref().clone()),
+                    resolver,
+                    mod_path,
+                    target.location,
+                )
             }
 
             _ => Err(format!(
@@ -437,6 +404,50 @@ impl TopLevelComposer {
                 ast.location
             )),
         }
+    }
+
+    /// Registers a top-level variable with the given `name` into the composer.
+    ///
+    /// `annotation` - The type annotation of the top-level variable, or [`None`] if no type
+    /// annotation is provided.
+    /// `location` - The location of the top-level variable.
+    pub fn register_top_level_var(
+        &mut self,
+        name: Ident,
+        annotation: Option<Expr>,
+        resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
+        mod_path: &str,
+        location: Location,
+    ) -> Result<(StrRef, DefinitionId, Option<Type>), String> {
+        if self.keyword_list.contains(&name) {
+            return Err(format!("cannot use keyword `{name}` as a class name (at {location})"));
+        }
+
+        let global_var_name =
+            if mod_path.is_empty() { name.to_string() } else { format!("{mod_path}.{name}") };
+
+        if !self.defined_names.insert(global_var_name.clone()) {
+            return Err(format!(
+                "global variable `{global_var_name}` defined twice (at {location})"
+            ));
+        }
+
+        let ty_to_be_unified = self.unifier.get_dummy_var().ty;
+        self.definition_ast_list.push((
+            RwLock::new(Self::make_top_level_variable_def(
+                global_var_name,
+                name,
+                // dummy here, unify with correct type later,
+                ty_to_be_unified,
+                annotation,
+                resolver,
+                Some(location),
+            ))
+            .into(),
+            None,
+        ));
+
+        Ok((name, DefinitionId(self.definition_ast_list.len() - 1), Some(ty_to_be_unified)))
     }
 
     pub fn start_analysis(&mut self, inference: bool) -> Result<(), HashSet<String>> {
@@ -2249,9 +2260,8 @@ impl TopLevelComposer {
         let primitives_store = &self.primitives_ty;
 
         let mut analyze = |variable_def: &Arc<RwLock<TopLevelDef>>| -> Result<_, HashSet<String>> {
-            let variable_def = &mut *variable_def.write();
-
-            let TopLevelDef::Variable { ty: dummy_ty, ty_decl, resolver, loc, .. } = variable_def
+            let TopLevelDef::Variable { ty: dummy_ty, ty_decl, resolver, loc, .. } =
+                &*variable_def.read()
             else {
                 // not top level variable def, skip
                 return Ok(());
@@ -2259,25 +2269,28 @@ impl TopLevelComposer {
 
             let resolver = &**resolver.as_ref().unwrap();
 
-            let ty_annotation = parse_ast_to_type_annotation_kinds(
-                resolver,
-                &temp_def_list,
-                unifier,
-                primitives_store,
-                ty_decl,
-                HashMap::new(),
-            )?;
-            let ty_from_ty_annotation = get_type_from_type_annotation_kinds(
-                &temp_def_list,
-                unifier,
-                primitives_store,
-                &ty_annotation,
-                &mut None,
-            )?;
+            if let Some(ty_decl) = ty_decl {
+                let ty_annotation = parse_ast_to_type_annotation_kinds(
+                    resolver,
+                    &temp_def_list,
+                    unifier,
+                    primitives_store,
+                    ty_decl,
+                    HashMap::new(),
+                )?;
+                let ty_from_ty_annotation = get_type_from_type_annotation_kinds(
+                    &temp_def_list,
+                    unifier,
+                    primitives_store,
+                    &ty_annotation,
+                    &mut None,
+                )?;
 
-            unifier.unify(*dummy_ty, ty_from_ty_annotation).map_err(|e| {
-                HashSet::from([e.at(Some(loc.unwrap())).to_display(unifier).to_string()])
-            })?;
+                unifier.unify(*dummy_ty, ty_from_ty_annotation).map_err(|e| {
+                    HashSet::from([e.at(Some(loc.unwrap())).to_display(unifier).to_string()])
+                })?;
+            }
+
             Ok(())
         };
 

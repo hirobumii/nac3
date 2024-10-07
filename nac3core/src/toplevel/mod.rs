@@ -158,8 +158,8 @@ pub enum TopLevelDef {
         /// Type of the global variable.
         ty: Type,
 
-        /// The declared type of the global variable.
-        ty_decl: Expr,
+        /// The declared type of the global variable, or [`None`] if no type annotation is provided.
+        ty_decl: Option<Expr>,
 
         /// Symbol resolver of the module defined the class.
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,

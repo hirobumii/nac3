@@ -248,8 +248,9 @@ fn handle_assignment_pattern(
 fn handle_global_var(
     target: &Expr,
     value: Option<&Expr>,
-    resolver: &(dyn SymbolResolver + Send + Sync),
+    resolver: &Arc<dyn SymbolResolver + Send + Sync>,
     internal_resolver: &ResolverInternal,
+    composer: &mut TopLevelComposer,
 ) -> Result<(), String> {
     let ExprKind::Name { id, .. } = target.node else {
         return Err(format!(
@@ -262,8 +263,12 @@ fn handle_global_var(
         return Err(format!("global variable `{id}` must be initialized in its definition"));
     };
 
-    if let Ok(val) = parse_parameter_default_value(value, resolver) {
+    if let Ok(val) = parse_parameter_default_value(value, &**resolver) {
         internal_resolver.add_module_global(id, val);
+        let (name, def_id, _) = composer
+            .register_top_level_var(id, None, Some(resolver.clone()), "__main__", target.location)
+            .unwrap();
+        internal_resolver.add_id_def(name, def_id);
         Ok(())
     } else {
         Err(format!(
@@ -375,16 +380,12 @@ fn main() {
                 if let Err(err) = handle_global_var(
                     target,
                     value.as_ref().map(Box::as_ref),
-                    resolver.as_ref(),
+                    &resolver,
                     internal_resolver.as_ref(),
+                    &mut composer,
                 ) {
                     panic!("{err}");
                 }
-
-                let (name, def_id, _) = composer
-                    .register_top_level(stmt, Some(resolver.clone()), "__main__", true)
-                    .unwrap();
-                internal_resolver.add_id_def(name, def_id);
             }
 
             // allow (and ignore) "from __future__ import annotations"
