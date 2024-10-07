@@ -174,46 +174,49 @@ fn handle_typevar_definition(
 fn handle_assignment_pattern(
     targets: &[Expr],
     value: &Expr,
-    resolver: &(dyn SymbolResolver + Send + Sync),
+    resolver: Arc<dyn SymbolResolver + Send + Sync>,
     internal_resolver: &ResolverInternal,
-    def_list: &[Arc<RwLock<TopLevelDef>>],
-    unifier: &mut Unifier,
-    primitives: &PrimitiveStore,
+    composer: &mut TopLevelComposer,
 ) -> Result<(), String> {
     if targets.len() == 1 {
-        match &targets[0].node {
+        let target = &targets[0];
+
+        match &target.node {
             ExprKind::Name { id, .. } => {
+                let def_list = composer.extract_def_list();
+                let unifier = &mut composer.unifier;
+                let primitives = &composer.primitives_ty;
+
                 if let Ok(var) =
-                    handle_typevar_definition(value, resolver, def_list, unifier, primitives)
+                    handle_typevar_definition(value, &*resolver, &def_list, unifier, primitives)
                 {
                     internal_resolver.add_id_type(*id, var);
                     Ok(())
-                } else if let Ok(val) = parse_parameter_default_value(value, resolver) {
+                } else if let Ok(val) = parse_parameter_default_value(value, &*resolver) {
                     internal_resolver.add_module_global(*id, val);
+                    let (name, def_id, _) = composer
+                        .register_top_level_var(
+                            *id,
+                            None,
+                            Some(resolver.clone()),
+                            "__main__",
+                            target.location,
+                        )
+                        .unwrap();
+                    internal_resolver.add_id_def(name, def_id);
                     Ok(())
                 } else {
                     Err(format!("fails to evaluate this expression `{:?}` as a constant or generic parameter at {}",
-                        targets[0].node,
-                        targets[0].location,
+                        target.node,
+                        target.location,
                     ))
                 }
             }
             ExprKind::List { elts, .. } | ExprKind::Tuple { elts, .. } => {
-                handle_assignment_pattern(
-                    elts,
-                    value,
-                    resolver,
-                    internal_resolver,
-                    def_list,
-                    unifier,
-                    primitives,
-                )?;
+                handle_assignment_pattern(elts, value, resolver, internal_resolver, composer)?;
                 Ok(())
             }
-            _ => Err(format!(
-                "assignment to {:?} is not supported at {}",
-                targets[0], targets[0].location
-            )),
+            _ => Err(format!("assignment to {target:?} is not supported at {}", target.location)),
         }
     } else {
         match &value.node {
@@ -223,11 +226,9 @@ fn handle_assignment_pattern(
                         handle_assignment_pattern(
                             std::slice::from_ref(tar),
                             val,
-                            resolver,
+                            resolver.clone(),
                             internal_resolver,
-                            def_list,
-                            unifier,
-                            primitives,
+                            composer,
                         )?;
                     }
                     Ok(())
@@ -360,17 +361,12 @@ fn main() {
     for stmt in parser_result {
         match &stmt.node {
             StmtKind::Assign { targets, value, .. } => {
-                let def_list = composer.extract_def_list();
-                let unifier = &mut composer.unifier;
-                let primitives = &composer.primitives_ty;
                 if let Err(err) = handle_assignment_pattern(
                     targets,
                     value,
-                    resolver.as_ref(),
+                    resolver.clone(),
                     internal_resolver.as_ref(),
-                    &def_list,
-                    unifier,
-                    primitives,
+                    &mut composer,
                 ) {
                     panic!("{err}");
                 }

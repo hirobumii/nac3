@@ -382,6 +382,19 @@ impl TopLevelComposer {
                 ))
             }
 
+            ast::StmtKind::Assign { .. } => {
+                // Assignment statements can assign to (and therefore create) more than one 
+                // variable, but this function only allows returning one set of symbol information.
+                // We want to avoid changing this to return a `Vec` of symbol info, as this would 
+                // require `iter().next().unwrap()` on every variable created from a non-Assign 
+                // statement.
+                //
+                // Make callers use `register_top_level_var` instead, as it provides more
+                // fine-grained control over which symbols to register, while also simplifying the
+                // usage of this function.
+                panic!("Registration of top-level Assign statements must use TopLevelComposer::register_top_level_var (at {})", ast.location);
+            }
+
             ast::StmtKind::AnnAssign { target, annotation, .. } => {
                 let ExprKind::Name { id: name, .. } = target.node else {
                     return Err(format!(
