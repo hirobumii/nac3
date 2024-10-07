@@ -7,7 +7,7 @@ def output_int64(x: int64):
     ...
 
 X: int32 = 0
-Y: int64 = int64(1)
+Y = int64(1)
 
 def f():
     global X, Y
