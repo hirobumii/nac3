@@ -65,13 +65,9 @@ use nac3core::{
 };
 use nac3ld::Linker;
 
-use crate::{
-    codegen::{
-        attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback, ArtiqCodeGenerator,
-    },
-    symbol_resolver::{DeferredEvaluationStore, InnerResolver, PythonHelper, Resolver},
-    timeline::TimeFns,
-};
+use codegen::{attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback, ArtiqCodeGenerator};
+use symbol_resolver::{DeferredEvaluationStore, InnerResolver, PythonHelper, Resolver};
+use timeline::TimeFns;
 
 mod codegen;
 mod symbol_resolver;

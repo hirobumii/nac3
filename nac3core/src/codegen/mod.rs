@@ -29,7 +29,6 @@ use parking_lot::{Condvar, Mutex};
 use nac3parser::ast::{Location, Stmt, StrRef};
 
 use crate::{
-    codegen::classes::{ListType, NDArrayType, ProxyType, RangeType},
     symbol_resolver::{StaticValue, SymbolResolver},
     toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, TopLevelContext, TopLevelDef},
     typecheck::{
@@ -37,6 +36,7 @@ use crate::{
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
     },
 };
+use classes::{ListType, NDArrayType, ProxyType, RangeType};
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
 
