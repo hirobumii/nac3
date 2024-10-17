@@ -7,7 +7,7 @@ use inkwell::{
 };
 use itertools::Either;
 
-use crate::codegen::CodeGenContext;
+use super::CodeGenContext;
 
 /// Returns the string representation for the floating-point type `ft` when used in intrinsic
 /// functions.

@@ -37,7 +37,7 @@ use nac3core::{
     },
 };
 
-use crate::PrimitivePythonId;
+use super::PrimitivePythonId;
 
 pub enum PrimitiveValue {
     I32(i32),

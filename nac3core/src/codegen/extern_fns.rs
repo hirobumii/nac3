@@ -4,7 +4,7 @@ use inkwell::{
 };
 use itertools::Either;
 
-use crate::codegen::CodeGenContext;
+use super::CodeGenContext;
 
 /// Macro to generate extern function
 /// Both function return type and function parameter type are `FloatValue`

@@ -14,14 +14,14 @@ use itertools::{repeat_n, Itertools};
 use nac3parser::ast::{Cmpop, Location, StrRef, Unaryop};
 
 use super::{
-    magic_methods::{Binop, HasOpInfo},
+    magic_methods::{Binop, HasOpInfo, OpInfo},
     type_error::{TypeError, TypeErrorKind},
+    type_inferencer::PrimitiveStore,
     unification_table::{UnificationKey, UnificationTable},
 };
 use crate::{
     symbol_resolver::SymbolValue,
     toplevel::{helper::PrimDef, DefinitionId, TopLevelContext, TopLevelDef},
-    typecheck::{magic_methods::OpInfo, type_inferencer::PrimitiveStore},
 };
 
 #[cfg(test)]

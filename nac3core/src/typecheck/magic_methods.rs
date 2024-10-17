@@ -5,15 +5,15 @@ use strum::IntoEnumIterator;
 
 use nac3parser::ast::{Cmpop, Operator, StrRef, Unaryop};
 
+use super::{
+    type_inferencer::*,
+    typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
+};
 use crate::{
     symbol_resolver::SymbolValue,
     toplevel::{
         helper::PrimDef,
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
-    },
-    typecheck::{
-        type_inferencer::*,
-        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
     },
 };
 

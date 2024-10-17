@@ -5,10 +5,9 @@ use itertools::Itertools;
 use nac3parser::ast::{Cmpop, Location, StrRef};
 
 use super::{
-    magic_methods::Binop,
-    typedef::{RecordKey, Type, Unifier},
+    magic_methods::{Binop, HasOpInfo},
+    typedef::{RecordKey, Type, TypeEnum, Unifier},
 };
-use crate::typecheck::{magic_methods::HasOpInfo, typedef::TypeEnum};
 
 #[derive(Debug, Clone)]
 pub enum TypeErrorKind {

@@ -45,8 +45,9 @@ use nac3core::{
     },
 };
 
-mod basic_symbol_resolver;
 use basic_symbol_resolver::*;
+
+mod basic_symbol_resolver;
 
 /// Command-line argument parser definition.
 #[derive(Parser)]

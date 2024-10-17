@@ -5,7 +5,7 @@ use inkwell::{
     AddressSpace, IntPredicate,
 };
 
-use crate::codegen::{
+use super::{
     irrt::{call_ndarray_calc_size, call_ndarray_flatten_index},
     llvm_intrinsics::call_int_umin,
     stmt::gen_for_callback_incrementing,

@@ -11,7 +11,8 @@ use itertools::Either;
 use strum::IntoEnumIterator;
 
 use super::{
-    helper::{debug_assert_prim_is_allowed, make_exception_fields, PrimDefDetails},
+    helper::{debug_assert_prim_is_allowed, make_exception_fields, PrimDef, PrimDefDetails},
+    numpy::make_ndarray_ty,
     *,
 };
 use crate::{
@@ -22,7 +23,6 @@ use crate::{
         stmt::exn_constructor,
     },
     symbol_resolver::SymbolValue,
-    toplevel::{helper::PrimDef, numpy::make_ndarray_ty},
     typecheck::typedef::{into_var_map, iter_type_vars, TypeVar, VarMap},
 };
 

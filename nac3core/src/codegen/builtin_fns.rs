@@ -5,24 +5,23 @@ use inkwell::{
 };
 use itertools::Itertools;
 
-use crate::{
-    codegen::{
-        classes::{
-            ArrayLikeValue, NDArrayValue, ProxyValue, RangeValue, TypedArrayLikeAccessor,
-            UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
-        },
-        expr::destructure_range,
-        extern_fns, irrt,
-        irrt::calculate_len_for_slice_range,
-        llvm_intrinsics,
-        macros::codegen_unreachable,
-        numpy,
-        numpy::ndarray_elementwise_unaryop_impl,
-        stmt::gen_for_callback_incrementing,
-        CodeGenContext, CodeGenerator,
+use super::{
+    classes::{
+        ArrayLikeValue, NDArrayValue, ProxyValue, RangeValue, TypedArrayLikeAccessor,
+        UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
     },
-    toplevel::helper::PrimDef,
-    toplevel::numpy::unpack_ndarray_var_tys,
+    expr::destructure_range,
+    extern_fns, irrt,
+    irrt::calculate_len_for_slice_range,
+    llvm_intrinsics,
+    macros::codegen_unreachable,
+    numpy,
+    numpy::ndarray_elementwise_unaryop_impl,
+    stmt::gen_for_callback_incrementing,
+    CodeGenContext, CodeGenerator,
+};
+use crate::{
+    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys},
     typecheck::typedef::{Type, TypeEnum},
 };
 

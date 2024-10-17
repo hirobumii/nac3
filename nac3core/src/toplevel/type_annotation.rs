@@ -2,12 +2,11 @@ use strum::IntoEnumIterator;
 
 use nac3parser::ast::Constant;
 
-use super::*;
-use crate::{
-    symbol_resolver::SymbolValue,
-    toplevel::helper::{PrimDef, PrimDefDetails},
-    typecheck::typedef::VarMap,
+use super::{
+    helper::{PrimDef, PrimDefDetails},
+    *,
 };
+use crate::{symbol_resolver::SymbolValue, typecheck::typedef::VarMap};
 
 #[derive(Clone, Debug)]
 pub enum TypeAnnotation {

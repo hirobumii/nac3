@@ -1,11 +1,9 @@
 use itertools::Itertools;
 
-use crate::{
-    toplevel::helper::PrimDef,
-    typecheck::{
-        type_inferencer::PrimitiveStore,
-        typedef::{Type, TypeEnum, TypeVarId, Unifier, VarMap},
-    },
+use super::helper::PrimDef;
+use crate::typecheck::{
+    type_inferencer::PrimitiveStore,
+    typedef::{Type, TypeEnum, TypeVarId, Unifier, VarMap},
 };
 
 /// Creates a `ndarray` [`Type`] with the given type arguments.

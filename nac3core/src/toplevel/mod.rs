@@ -23,19 +23,19 @@ use crate::{
         },
     },
 };
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Debug)]
-pub struct DefinitionId(pub usize);
+use composer::*;
+use type_annotation::*;
 
 pub mod builtins;
 pub mod composer;
 pub mod helper;
 pub mod numpy;
-pub mod type_annotation;
-use composer::*;
-use type_annotation::*;
 #[cfg(test)]
 mod test;
+pub mod type_annotation;
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Debug)]
+pub struct DefinitionId(pub usize);
 
 type GenCallCallback = dyn for<'ctx, 'a> Fn(
         &mut CodeGenContext<'ctx, 'a>,

@@ -37,6 +37,8 @@ use crate::{
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
     },
 };
+use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
+pub use generator::{CodeGenerator, DefaultCodeGenerator};
 
 pub mod builtin_fns;
 pub mod classes;
@@ -51,9 +53,6 @@ pub mod stmt;
 
 #[cfg(test)]
 mod test;
-
-use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
-pub use generator::{CodeGenerator, DefaultCodeGenerator};
 
 mod macros {
     /// Codegen-variant of [`std::unreachable`] which accepts an instance of [`CodeGenContext`] as

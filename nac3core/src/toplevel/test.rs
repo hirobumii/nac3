@@ -9,11 +9,10 @@ use nac3parser::{
     parser::parse_program,
 };
 
-use super::*;
+use super::{helper::PrimDef, DefinitionId, *};
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::{SymbolResolver, ValueEnum},
-    toplevel::{helper::PrimDef, DefinitionId},
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{into_var_map, Type, Unifier},

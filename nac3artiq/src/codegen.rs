@@ -37,7 +37,7 @@ use nac3core::{
     typecheck::typedef::{iter_type_vars, FunSignature, FuncArg, Type, TypeEnum, VarMap},
 };
 
-use crate::{symbol_resolver::InnerResolver, timeline::TimeFns};
+use super::{symbol_resolver::InnerResolver, timeline::TimeFns};
 
 /// The parallelism mode within a block.
 #[derive(Copy, Clone, Eq, PartialEq)]

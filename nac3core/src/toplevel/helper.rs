@@ -3,13 +3,11 @@ use std::convert::TryInto;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use ast::ExprKind;
-use nac3parser::ast::{Constant, Location};
+use nac3parser::ast::{Constant, ExprKind, Location};
 
-use super::*;
+use super::{numpy::unpack_ndarray_var_tys, *};
 use crate::{
     symbol_resolver::SymbolValue,
-    toplevel::numpy::unpack_ndarray_var_tys,
     typecheck::typedef::{into_var_map, iter_type_vars, Mapping, TypeVarId, VarMap},
 };
 

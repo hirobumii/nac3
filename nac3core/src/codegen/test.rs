@@ -15,13 +15,13 @@ use nac3parser::{
 };
 use parking_lot::RwLock;
 
+use super::{
+    classes::{ListType, NDArrayType, ProxyType, RangeType},
+    concrete_type::ConcreteTypeStore,
+    CodeGenContext, CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator,
+    DefaultCodeGenerator, WithCall, WorkerRegistry,
+};
 use crate::{
-    codegen::{
-        classes::{ListType, NDArrayType, ProxyType, RangeType},
-        concrete_type::ConcreteTypeStore,
-        CodeGenContext, CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask,
-        CodeGenerator, DefaultCodeGenerator, WithCall, WorkerRegistry,
-    },
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
         composer::{ComposerConfig, TopLevelComposer},
