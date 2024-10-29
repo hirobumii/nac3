@@ -14,10 +14,7 @@ use pyo3::{
 };
 
 use nac3core::{
-    codegen::{
-        classes::{NDArrayType, ProxyType},
-        CodeGenContext, CodeGenerator,
-    },
+    codegen::{classes::NDArrayType, CodeGenContext, CodeGenerator},
     inkwell::{
         module::Linkage,
         types::{BasicType, BasicTypeEnum},
@@ -1096,7 +1093,7 @@ impl InnerResolver {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
                         ctx.module.add_global(
-                            ndarray_llvm_ty.as_underlying_type(),
+                            ndarray_llvm_ty.element_type().into_struct_type(),
                             Some(AddressSpace::default()),
                             &id_str,
                         )
@@ -1190,7 +1187,7 @@ impl InnerResolver {
             data_global.set_initializer(&data);
 
             // create a global for the ndarray object and initialize it
-            let value = ndarray_llvm_ty.as_underlying_type().const_named_struct(&[
+            let value = ndarray_llvm_ty.element_type().into_struct_type().const_named_struct(&[
                 llvm_usize.const_int(ndarray_ndims, false).into(),
                 shape_global
                     .as_pointer_value()
@@ -1203,7 +1200,7 @@ impl InnerResolver {
             ]);
 
             let ndarray = ctx.module.add_global(
-                ndarray_llvm_ty.as_underlying_type(),
+                ndarray_llvm_ty.element_type().into_struct_type(),
                 Some(AddressSpace::default()),
                 &id_str,
             );
