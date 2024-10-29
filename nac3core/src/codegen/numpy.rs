@@ -7,11 +7,6 @@ use inkwell::{
 use nac3parser::ast::{Operator, StrRef};
 
 use super::{
-    classes::{
-        ArrayLikeIndexer, ArrayLikeValue, ListType, ListValue, NDArrayType, NDArrayValue,
-        ProxyType, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
-        TypedArrayLikeMutator, UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
-    },
     expr::gen_binop_expr_with_values,
     irrt::{
         calculate_len_for_slice_range, call_ndarray_calc_broadcast,
@@ -20,6 +15,12 @@ use super::{
     llvm_intrinsics::{self, call_memcpy_generic},
     macros::codegen_unreachable,
     stmt::{gen_for_callback_incrementing, gen_for_range_callback, gen_if_else_expr_callback},
+    types::{ListType, NDArrayType, ProxyType},
+    values::{
+        ArrayLikeIndexer, ArrayLikeValue, ListValue, NDArrayValue, ProxyValue,
+        TypedArrayLikeAccessor, TypedArrayLikeAdapter, TypedArrayLikeMutator,
+        UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
+    },
     CodeGenContext, CodeGenerator,
 };
 use crate::{

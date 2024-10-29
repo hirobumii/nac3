@@ -12,13 +12,13 @@ use itertools::Either;
 use nac3parser::ast::Expr;
 
 use super::{
-    classes::{
-        ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, NDArrayValue,
-        TypedArrayLikeAccessor, TypedArrayLikeAdapter, UntypedArrayLikeAccessor,
-    },
     llvm_intrinsics,
     macros::codegen_unreachable,
     stmt::gen_for_callback_incrementing,
+    values::{
+        ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, NDArrayValue,
+        TypedArrayLikeAccessor, TypedArrayLikeAdapter, UntypedArrayLikeAccessor,
+    },
     CodeGenContext, CodeGenerator,
 };
 use crate::{symbol_resolver::SymbolResolver, typecheck::typedef::Type};

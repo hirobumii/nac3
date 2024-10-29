@@ -1,0 +1,238 @@
+use inkwell::{
+    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType},
+    values::{BasicValueEnum, IntValue, PointerValue},
+    AddressSpace, IntPredicate,
+};
+
+use super::{
+    ArrayLikeIndexer, ArrayLikeValue, ProxyValue, UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
+};
+use crate::codegen::{
+    types::ListType,
+    {CodeGenContext, CodeGenerator},
+};
+
+/// Proxy type for accessing a `list` value in LLVM.
+#[derive(Copy, Clone)]
+pub struct ListValue<'ctx> {
+    value: PointerValue<'ctx>,
+    llvm_usize: IntType<'ctx>,
+    name: Option<&'ctx str>,
+}
+
+impl<'ctx> ListValue<'ctx> {
+    /// Checks whether `value` is an instance of `list`, returning [Err] if `value` is not an
+    /// instance.
+    pub fn is_instance(value: PointerValue<'ctx>, llvm_usize: IntType<'ctx>) -> Result<(), String> {
+        ListType::is_type(value.get_type(), llvm_usize)
+    }
+
+    /// Creates an [`ListValue`] from a [`PointerValue`].
+    #[must_use]
+    pub fn from_ptr_val(
+        ptr: PointerValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        debug_assert!(Self::is_instance(ptr, llvm_usize).is_ok());
+
+        ListValue { value: ptr, llvm_usize, name }
+    }
+
+    /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
+    /// on the field.
+    fn pptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+        let llvm_i32 = ctx.ctx.i32_type();
+        let var_name = self.name.map(|v| format!("{v}.data.addr")).unwrap_or_default();
+
+        unsafe {
+            ctx.builder
+                .build_in_bounds_gep(
+                    self.as_base_value(),
+                    &[llvm_i32.const_zero(), llvm_i32.const_zero()],
+                    var_name.as_str(),
+                )
+                .unwrap()
+        }
+    }
+
+    /// Returns the pointer to the field storing the size of this `list`.
+    fn ptr_to_size(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+        let llvm_i32 = ctx.ctx.i32_type();
+        let var_name = self.name.map(|v| format!("{v}.size.addr")).unwrap_or_default();
+
+        unsafe {
+            ctx.builder
+                .build_in_bounds_gep(
+                    self.as_base_value(),
+                    &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
+                    var_name.as_str(),
+                )
+                .unwrap()
+        }
+    }
+
+    /// Stores the array of data elements `data` into this instance.
+    fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
+        ctx.builder.build_store(self.pptr_to_data(ctx), data).unwrap();
+    }
+
+    /// Convenience method for creating a new array storing data elements with the given element
+    /// type `elem_ty` and `size`.
+    ///
+    /// If `size` is [None], the size stored in the field of this instance is used instead.
+    pub fn create_data(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        elem_ty: BasicTypeEnum<'ctx>,
+        size: Option<IntValue<'ctx>>,
+    ) {
+        let size = size.unwrap_or_else(|| self.load_size(ctx, None));
+
+        let data = ctx
+            .builder
+            .build_select(
+                ctx.builder
+                    .build_int_compare(IntPredicate::NE, size, self.llvm_usize.const_zero(), "")
+                    .unwrap(),
+                ctx.builder.build_array_alloca(elem_ty, size, "").unwrap(),
+                elem_ty.ptr_type(AddressSpace::default()).const_zero(),
+                "",
+            )
+            .map(BasicValueEnum::into_pointer_value)
+            .unwrap();
+        self.store_data(ctx, data);
+    }
+
+    /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
+    /// on the field.
+    #[must_use]
+    pub fn data(&self) -> ListDataProxy<'ctx, '_> {
+        ListDataProxy(self)
+    }
+
+    /// Stores the `size` of this `list` into this instance.
+    pub fn store_size<G: CodeGenerator + ?Sized>(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
+        size: IntValue<'ctx>,
+    ) {
+        debug_assert_eq!(size.get_type(), generator.get_size_type(ctx.ctx));
+
+        let psize = self.ptr_to_size(ctx);
+        ctx.builder.build_store(psize, size).unwrap();
+    }
+
+    /// Returns the size of this `list` as a value.
+    pub fn load_size(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
+        let psize = self.ptr_to_size(ctx);
+        let var_name = name
+            .map(ToString::to_string)
+            .or_else(|| self.name.map(|v| format!("{v}.size")))
+            .unwrap_or_default();
+
+        ctx.builder
+            .build_load(psize, var_name.as_str())
+            .map(BasicValueEnum::into_int_value)
+            .unwrap()
+    }
+}
+
+impl<'ctx> ProxyValue<'ctx> for ListValue<'ctx> {
+    type Base = PointerValue<'ctx>;
+    type Type = ListType<'ctx>;
+
+    fn get_type(&self) -> Self::Type {
+        ListType::from_type(self.as_base_value().get_type(), self.llvm_usize)
+    }
+
+    fn as_base_value(&self) -> Self::Base {
+        self.value
+    }
+}
+
+impl<'ctx> From<ListValue<'ctx>> for PointerValue<'ctx> {
+    fn from(value: ListValue<'ctx>) -> Self {
+        value.as_base_value()
+    }
+}
+
+/// Proxy type for accessing the `data` array of an `list` instance in LLVM.
+#[derive(Copy, Clone)]
+pub struct ListDataProxy<'ctx, 'a>(&'a ListValue<'ctx>);
+
+impl<'ctx> ArrayLikeValue<'ctx> for ListDataProxy<'ctx, '_> {
+    fn element_type<G: CodeGenerator + ?Sized>(
+        &self,
+        _: &CodeGenContext<'ctx, '_>,
+        _: &G,
+    ) -> AnyTypeEnum<'ctx> {
+        self.0.value.get_type().get_element_type()
+    }
+
+    fn base_ptr<G: CodeGenerator + ?Sized>(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        _: &G,
+    ) -> PointerValue<'ctx> {
+        let var_name = self.0.name.map(|v| format!("{v}.data")).unwrap_or_default();
+
+        ctx.builder
+            .build_load(self.0.pptr_to_data(ctx), var_name.as_str())
+            .map(BasicValueEnum::into_pointer_value)
+            .unwrap()
+    }
+
+    fn size<G: CodeGenerator + ?Sized>(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        _: &G,
+    ) -> IntValue<'ctx> {
+        self.0.load_size(ctx, None)
+    }
+}
+
+impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
+    unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        generator: &mut G,
+        idx: &IntValue<'ctx>,
+        name: Option<&str>,
+    ) -> PointerValue<'ctx> {
+        let var_name = name.map(|v| format!("{v}.addr")).unwrap_or_default();
+
+        unsafe {
+            ctx.builder
+                .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], var_name.as_str())
+                .unwrap()
+        }
+    }
+
+    fn ptr_offset<G: CodeGenerator + ?Sized>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        generator: &mut G,
+        idx: &IntValue<'ctx>,
+        name: Option<&str>,
+    ) -> PointerValue<'ctx> {
+        debug_assert_eq!(idx.get_type(), generator.get_size_type(ctx.ctx));
+
+        let size = self.size(ctx, generator);
+        let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "").unwrap();
+        ctx.make_assert(
+            generator,
+            in_range,
+            "0:IndexError",
+            "list index out of range",
+            [None, None, None],
+            ctx.current_loc,
+        );
+
+        unsafe { self.ptr_offset_unchecked(ctx, generator, idx, name) }
+    }
+}
+
+impl<'ctx> UntypedArrayLikeAccessor<'ctx> for ListDataProxy<'ctx, '_> {}
+impl<'ctx> UntypedArrayLikeMutator<'ctx> for ListDataProxy<'ctx, '_> {}

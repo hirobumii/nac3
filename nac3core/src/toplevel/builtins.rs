@@ -18,9 +18,9 @@ use super::{
 use crate::{
     codegen::{
         builtin_fns,
-        classes::{ProxyValue, RangeValue},
         numpy::*,
         stmt::exn_constructor,
+        values::{ProxyValue, RangeValue},
     },
     symbol_resolver::SymbolValue,
     typecheck::typedef::{into_var_map, iter_type_vars, TypeVar, VarMap},

@@ -14,7 +14,7 @@ use pyo3::{
 };
 
 use nac3core::{
-    codegen::{classes::NDArrayType, CodeGenContext, CodeGenerator},
+    codegen::{types::NDArrayType, CodeGenContext, CodeGenerator},
     inkwell::{
         module::Linkage,
         types::{BasicType, BasicTypeEnum},

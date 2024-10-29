@@ -19,10 +19,6 @@ use nac3parser::ast::{
 };
 
 use super::{
-    classes::{
-        ArrayLikeIndexer, ArrayLikeValue, ListType, ListValue, NDArrayValue, ProxyType, ProxyValue,
-        RangeValue, TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
-    },
     concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
     gen_in_range_check, get_llvm_abi_type, get_llvm_type, get_va_count_arg_name,
     irrt::*,
@@ -35,6 +31,11 @@ use super::{
     stmt::{
         gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         gen_var,
+    },
+    types::{ListType, ProxyType},
+    values::{
+        ArrayLikeIndexer, ArrayLikeValue, ListValue, NDArrayValue, ProxyValue, RangeValue,
+        TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
     },
     CodeGenContext, CodeGenTask, CodeGenerator,
 };

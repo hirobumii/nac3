@@ -36,12 +36,11 @@ use crate::{
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
     },
 };
-use classes::{ListType, NDArrayType, ProxyType, RangeType};
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
+use types::{ListType, NDArrayType, ProxyType, RangeType};
 
 pub mod builtin_fns;
-pub mod classes;
 pub mod concrete_type;
 pub mod expr;
 pub mod extern_fns;
@@ -50,6 +49,8 @@ pub mod irrt;
 pub mod llvm_intrinsics;
 pub mod numpy;
 pub mod stmt;
+pub mod types;
+pub mod values;
 
 #[cfg(test)]
 mod test;

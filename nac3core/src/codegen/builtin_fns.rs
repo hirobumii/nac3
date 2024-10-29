@@ -6,10 +6,6 @@ use inkwell::{
 use itertools::Itertools;
 
 use super::{
-    classes::{
-        ArrayLikeValue, NDArrayValue, ProxyValue, RangeValue, TypedArrayLikeAccessor,
-        UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
-    },
     expr::destructure_range,
     extern_fns, irrt,
     irrt::calculate_len_for_slice_range,
@@ -18,6 +14,10 @@ use super::{
     numpy,
     numpy::ndarray_elementwise_unaryop_impl,
     stmt::gen_for_callback_incrementing,
+    values::{
+        ArrayLikeValue, NDArrayValue, ProxyValue, RangeValue, TypedArrayLikeAccessor,
+        UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
+    },
     CodeGenContext, CodeGenerator,
 };
 use crate::{

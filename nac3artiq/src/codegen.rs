@@ -14,14 +14,15 @@ use pyo3::{
 
 use nac3core::{
     codegen::{
-        classes::{
-            ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, NDArrayType,
-            NDArrayValue, ProxyType, ProxyValue, RangeValue, UntypedArrayLikeAccessor,
-        },
         expr::{destructure_range, gen_call},
         irrt::call_ndarray_calc_size,
         llvm_intrinsics::{call_int_smax, call_memcpy_generic, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
+        types::{NDArrayType, ProxyType},
+        values::{
+            ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, NDArrayValue, ProxyValue,
+            RangeValue, UntypedArrayLikeAccessor,
+        },
         CodeGenContext, CodeGenerator,
     },
     inkwell::{
