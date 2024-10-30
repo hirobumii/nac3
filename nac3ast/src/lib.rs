@@ -14,9 +14,6 @@
     clippy::wildcard_imports
 )]
 
-#[macro_use]
-extern crate lazy_static;
-
 mod ast_gen;
 mod constant;
 #[cfg(feature = "fold")]

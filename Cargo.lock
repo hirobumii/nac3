@@ -634,7 +634,6 @@ name = "nac3ast"
 version = "0.1.0"
 dependencies = [
  "fxhash",
- "lazy_static",
  "parking_lot",
  "string-interner",
 ]

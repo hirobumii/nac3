@@ -5,14 +5,12 @@ pub use crate::location::Location;
 
 use fxhash::FxBuildHasher;
 use parking_lot::{Mutex, MutexGuard};
-use std::{cell::RefCell, collections::HashMap, fmt};
+use std::{cell::RefCell, collections::HashMap, fmt, sync::LazyLock};
 use string_interner::{symbol::SymbolU32, DefaultBackend, StringInterner};
 
 pub type Interner = StringInterner<DefaultBackend, FxBuildHasher>;
-lazy_static! {
-    static ref INTERNER: Mutex<Interner> =
-        Mutex::new(StringInterner::with_hasher(FxBuildHasher::default()));
-}
+static INTERNER: LazyLock<Mutex<Interner>> =
+    LazyLock::new(|| Mutex::new(StringInterner::with_hasher(FxBuildHasher::default())));
 
 thread_local! {
     static LOCAL_INTERNER: RefCell<HashMap<String, StrRef>> = RefCell::default();
