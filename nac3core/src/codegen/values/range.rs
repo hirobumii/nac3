@@ -12,14 +12,14 @@ pub struct RangeValue<'ctx> {
 
 impl<'ctx> RangeValue<'ctx> {
     /// Checks whether `value` is an instance of `range`, returning [Err] if `value` is not an instance.
-    pub fn is_instance(value: PointerValue<'ctx>) -> Result<(), String> {
-        RangeType::is_type(value.get_type())
+    pub fn is_representable(value: PointerValue<'ctx>) -> Result<(), String> {
+        RangeType::is_representable(value.get_type())
     }
 
     /// Creates an [`RangeValue`] from a [`PointerValue`].
     #[must_use]
-    pub fn from_ptr_val(ptr: PointerValue<'ctx>, name: Option<&'ctx str>) -> Self {
-        debug_assert!(Self::is_instance(ptr).is_ok());
+    pub fn from_pointer_value(ptr: PointerValue<'ctx>, name: Option<&'ctx str>) -> Self {
+        debug_assert!(Self::is_representable(ptr).is_ok());
 
         RangeValue { value: ptr, name }
     }

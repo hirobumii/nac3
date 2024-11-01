@@ -1,4 +1,4 @@
-use inkwell::{types::BasicType, values::IntValue};
+use inkwell::{context::Context, types::BasicType, values::IntValue};
 
 use super::{
     values::{ArraySliceValue, ProxyValue},
@@ -19,7 +19,20 @@ pub trait ProxyType<'ctx>: Into<Self::Base> {
     type Base: BasicType<'ctx>;
 
     /// The type of values represented by this type.
-    type Value: ProxyValue<'ctx>;
+    type Value: ProxyValue<'ctx, Type = Self>;
+
+    fn is_type<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        llvm_ty: impl BasicType<'ctx>,
+    ) -> Result<(), String>;
+
+    /// Checks whether `llvm_ty` can be represented by this [`ProxyType`].
+    fn is_representable<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        llvm_ty: Self::Base,
+    ) -> Result<(), String>;
 
     /// Creates a new value of this type.
     fn new_value<G: CodeGenerator + ?Sized>(

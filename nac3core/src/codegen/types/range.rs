@@ -1,6 +1,6 @@
 use inkwell::{
     context::Context,
-    types::{AnyTypeEnum, IntType, PointerType},
+    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
     values::IntValue,
     AddressSpace,
 };
@@ -19,7 +19,7 @@ pub struct RangeType<'ctx> {
 
 impl<'ctx> RangeType<'ctx> {
     /// Checks whether `llvm_ty` represents a `range` type, returning [Err] if it does not.
-    pub fn is_type(llvm_ty: PointerType<'ctx>) -> Result<(), String> {
+    pub fn is_representable(llvm_ty: PointerType<'ctx>) -> Result<(), String> {
         let llvm_range_ty = llvm_ty.get_element_type();
         let AnyTypeEnum::ArrayType(llvm_range_ty) = llvm_range_ty else {
             return Err(format!("Expected array type for `range` type, got {llvm_range_ty}"));
@@ -59,7 +59,7 @@ impl<'ctx> RangeType<'ctx> {
     /// Creates an [`RangeType`] from a [`PointerType`].
     #[must_use]
     pub fn from_type(ptr_ty: PointerType<'ctx>) -> Self {
-        debug_assert!(Self::is_type(ptr_ty).is_ok());
+        debug_assert!(Self::is_representable(ptr_ty).is_ok());
 
         RangeType { ty: ptr_ty }
     }
@@ -74,6 +74,26 @@ impl<'ctx> RangeType<'ctx> {
 impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
     type Base = PointerType<'ctx>;
     type Value = RangeValue<'ctx>;
+
+    fn is_type<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        llvm_ty: impl BasicType<'ctx>,
+    ) -> Result<(), String> {
+        if let BasicTypeEnum::PointerType(ty) = llvm_ty.as_basic_type_enum() {
+            <Self as ProxyType<'ctx>>::is_representable(generator, ctx, ty)
+        } else {
+            Err(format!("Expected pointer type, got {llvm_ty:?}"))
+        }
+    }
+
+    fn is_representable<G: CodeGenerator + ?Sized>(
+        _: &G,
+        _: &'ctx Context,
+        llvm_ty: Self::Base,
+    ) -> Result<(), String> {
+        Self::is_representable(llvm_ty)
+    }
 
     fn new_value<G: CodeGenerator + ?Sized>(
         &self,
@@ -117,7 +137,7 @@ impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
     ) -> Self::Value {
         debug_assert_eq!(value.get_type(), self.as_base_type());
 
-        RangeValue::from_ptr_val(value, name)
+        RangeValue::from_pointer_value(value, name)
     }
 
     fn as_base_type(&self) -> Self::Base {

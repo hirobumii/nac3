@@ -47,7 +47,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
     let (arg_ty, arg) = n;
 
     Ok(if ctx.unifier.unioned(arg_ty, range_ty) {
-        let arg = RangeValue::from_ptr_val(arg.into_pointer_value(), Some("range"));
+        let arg = RangeValue::from_pointer_value(arg.into_pointer_value(), Some("range"));
         let (start, end, step) = destructure_range(ctx, arg);
         calculate_len_for_slice_range(generator, ctx, start, end, step)
     } else {
@@ -67,7 +67,8 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                 let llvm_usize = generator.get_size_type(ctx.ctx);
 
-                let arg = NDArrayValue::from_ptr_val(arg.into_pointer_value(), llvm_usize, None);
+                let arg =
+                    NDArrayValue::from_pointer_value(arg.into_pointer_value(), llvm_usize, None);
 
                 let ndims = arg.dim_sizes().size(ctx, generator);
                 ctx.make_assert(
@@ -148,7 +149,7 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 ctx.primitives.int32,
                 None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_usize, None),
                 |generator, ctx, val| call_int32(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -210,7 +211,7 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 ctx.primitives.int64,
                 None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_usize, None),
                 |generator, ctx, val| call_int64(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -288,7 +289,7 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 ctx.primitives.uint32,
                 None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_usize, None),
                 |generator, ctx, val| call_uint32(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -355,7 +356,7 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 ctx.primitives.uint64,
                 None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_usize, None),
                 |generator, ctx, val| call_uint64(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -421,7 +422,7 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 ctx.primitives.float,
                 None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_usize, None),
                 |generator, ctx, val| call_float(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -467,7 +468,7 @@ pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 ret_elem_ty,
                 None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_usize, None),
                 |generator, ctx, val| call_round(generator, ctx, (elem_ty, val), ret_elem_ty),
             )?;
 
@@ -507,7 +508,7 @@ pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 ctx.primitives.float,
                 None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_usize, None),
                 |generator, ctx, val| call_numpy_round(generator, ctx, (elem_ty, val)),
             )?;
 
@@ -572,7 +573,7 @@ pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 ctx.primitives.bool,
                 None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_usize, None),
                 |generator, ctx, val| {
                     let elem = call_bool(generator, ctx, (elem_ty, val))?;
 
@@ -626,7 +627,7 @@ pub fn call_floor<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 ret_elem_ty,
                 None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_usize, None),
                 |generator, ctx, val| call_floor(generator, ctx, (elem_ty, val), ret_elem_ty),
             )?;
 
@@ -676,7 +677,7 @@ pub fn call_ceil<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 ret_elem_ty,
                 None,
-                NDArrayValue::from_ptr_val(n, llvm_usize, None),
+                NDArrayValue::from_pointer_value(n, llvm_usize, None),
                 |generator, ctx, val| call_ceil(generator, ctx, (elem_ty, val), ret_elem_ty),
             )?;
 
@@ -907,7 +908,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, a_ty);
             let llvm_ndarray_ty = ctx.get_llvm_type(generator, elem_ty);
 
-            let n = NDArrayValue::from_ptr_val(n, llvm_usize, None);
+            let n = NDArrayValue::from_pointer_value(n, llvm_usize, None);
             let n_sz = irrt::call_ndarray_calc_size(generator, ctx, &n.dim_sizes(), (None, None));
             if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
                 let n_sz_eqz = ctx
@@ -1120,7 +1121,7 @@ where
                 ctx,
                 ret_elem_ty,
                 None,
-                NDArrayValue::from_ptr_val(x, llvm_usize, None),
+                NDArrayValue::from_pointer_value(x, llvm_usize, None),
                 |generator, ctx, elem_val| {
                     helper_call_numpy_unary_elementwise(
                         generator,
@@ -1959,7 +1960,7 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
         let dim0 = unsafe {
             n1.dim_sizes()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
@@ -2001,7 +2002,7 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
             unimplemented!("{FN_NAME} operates on float type NdArrays only");
         };
 
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
         let dim0 = unsafe {
             n1.dim_sizes()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
@@ -2051,7 +2052,7 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
 
         let dim0 = unsafe {
             n1.dim_sizes()
@@ -2106,7 +2107,7 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
         let dim0 = unsafe {
             n1.dim_sizes()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
@@ -2148,7 +2149,7 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
 
         let dim0 = unsafe {
             n1.dim_sizes()
@@ -2191,7 +2192,7 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
 
         let dim0 = unsafe {
             n1.dim_sizes()
@@ -2244,7 +2245,7 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]);
         };
 
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
         // Changing second parameter to a `NDArray` for uniformity in function call
         let n2_array = numpy::create_ndarray_const_shape(
             generator,
@@ -2339,7 +2340,7 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
 
         let dim0 = unsafe {
             n1.dim_sizes()
@@ -2382,7 +2383,7 @@ pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
             unsupported_type(ctx, FN_NAME, &[x1_ty]);
         };
 
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
 
         let dim0 = unsafe {
             n1.dim_sizes()

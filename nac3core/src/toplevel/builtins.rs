@@ -710,7 +710,7 @@ impl<'a> BuiltinBuilder<'a> {
                         let (zelf_ty, zelf) = obj.unwrap();
                         let zelf =
                             zelf.to_basic_value_enum(ctx, generator, zelf_ty)?.into_pointer_value();
-                        let zelf = RangeValue::from_ptr_val(zelf, Some("range"));
+                        let zelf = RangeValue::from_pointer_value(zelf, Some("range"));
 
                         let mut start = None;
                         let mut stop = None;

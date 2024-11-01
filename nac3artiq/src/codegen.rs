@@ -461,7 +461,8 @@ fn format_rpc_arg<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
             let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
             let llvm_arg_ty = NDArrayType::new(generator, ctx.ctx, llvm_elem_ty);
-            let llvm_arg = NDArrayValue::from_ptr_val(arg.into_pointer_value(), llvm_usize, None);
+            let llvm_arg =
+                NDArrayValue::from_pointer_value(arg.into_pointer_value(), llvm_usize, None);
 
             let llvm_usize_sizeof = ctx
                 .builder
@@ -1315,7 +1316,8 @@ fn polymorphic_print<'ctx>(
                 fmt.push('[');
                 flush(ctx, generator, &mut fmt, &mut args);
 
-                let val = ListValue::from_ptr_val(value.into_pointer_value(), llvm_usize, None);
+                let val =
+                    ListValue::from_pointer_value(value.into_pointer_value(), llvm_usize, None);
                 let len = val.load_size(ctx, None);
                 let last =
                     ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "").unwrap();
@@ -1371,7 +1373,8 @@ fn polymorphic_print<'ctx>(
                 fmt.push_str("array([");
                 flush(ctx, generator, &mut fmt, &mut args);
 
-                let val = NDArrayValue::from_ptr_val(value.into_pointer_value(), llvm_usize, None);
+                let val =
+                    NDArrayValue::from_pointer_value(value.into_pointer_value(), llvm_usize, None);
                 let len = call_ndarray_calc_size(generator, ctx, &val.dim_sizes(), (None, None));
                 let last =
                     ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "").unwrap();
@@ -1425,7 +1428,7 @@ fn polymorphic_print<'ctx>(
                 fmt.push_str("range(");
                 flush(ctx, generator, &mut fmt, &mut args);
 
-                let val = RangeValue::from_ptr_val(value.into_pointer_value(), None);
+                let val = RangeValue::from_pointer_value(value.into_pointer_value(), None);
 
                 let (start, stop, step) = destructure_range(ctx, val);
 

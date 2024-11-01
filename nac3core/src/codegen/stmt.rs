@@ -310,7 +310,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 .unwrap()
                 .to_basic_value_enum(ctx, generator, target_ty)?
                 .into_pointer_value();
-            let target = ListValue::from_ptr_val(target, llvm_usize, None);
+            let target = ListValue::from_pointer_value(target, llvm_usize, None);
 
             if let ExprKind::Slice { .. } = &key.node {
                 // Handle assigning to a slice
@@ -331,7 +331,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 let value =
                     value.to_basic_value_enum(ctx, generator, value_ty)?.into_pointer_value();
-                let value = ListValue::from_ptr_val(value, llvm_usize, None);
+                let value = ListValue::from_pointer_value(value, llvm_usize, None);
 
                 let target_item_ty = ctx.get_llvm_type(generator, target_item_ty);
                 let Some(src_ind) = handle_slice_indices(
@@ -463,7 +463,8 @@ pub fn gen_for<G: CodeGenerator>(
         TypeEnum::TObj { obj_id, .. }
             if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
         {
-            let iter_val = RangeValue::from_ptr_val(iter_val.into_pointer_value(), Some("range"));
+            let iter_val =
+                RangeValue::from_pointer_value(iter_val.into_pointer_value(), Some("range"));
             // Internal variable for loop; Cannot be assigned
             let i = generator.gen_var_alloc(ctx, int32.into(), Some("for.i.addr"))?;
             // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed

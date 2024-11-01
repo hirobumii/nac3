@@ -20,7 +20,10 @@ pub struct NDArrayType<'ctx> {
 
 impl<'ctx> NDArrayType<'ctx> {
     /// Checks whether `llvm_ty` represents a `ndarray` type, returning [Err] if it does not.
-    pub fn is_type(llvm_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Result<(), String> {
+    pub fn is_representable(
+        llvm_ty: PointerType<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Result<(), String> {
         let llvm_ndarray_ty = llvm_ty.get_element_type();
         let AnyTypeEnum::StructType(llvm_ndarray_ty) = llvm_ndarray_ty else {
             return Err(format!("Expected struct type for `NDArray` type, got {llvm_ndarray_ty}"));
@@ -101,7 +104,7 @@ impl<'ctx> NDArrayType<'ctx> {
     /// Creates an [`NDArrayType`] from a [`PointerType`].
     #[must_use]
     pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        debug_assert!(Self::is_type(ptr_ty, llvm_usize).is_ok());
+        debug_assert!(Self::is_representable(ptr_ty, llvm_usize).is_ok());
 
         NDArrayType { ty: ptr_ty, llvm_usize }
     }
@@ -133,6 +136,26 @@ impl<'ctx> NDArrayType<'ctx> {
 impl<'ctx> ProxyType<'ctx> for NDArrayType<'ctx> {
     type Base = PointerType<'ctx>;
     type Value = NDArrayValue<'ctx>;
+
+    fn is_type<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        llvm_ty: impl BasicType<'ctx>,
+    ) -> Result<(), String> {
+        if let BasicTypeEnum::PointerType(ty) = llvm_ty.as_basic_type_enum() {
+            <Self as ProxyType<'ctx>>::is_representable(generator, ctx, ty)
+        } else {
+            Err(format!("Expected pointer type, got {llvm_ty:?}"))
+        }
+    }
+
+    fn is_representable<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        llvm_ty: Self::Base,
+    ) -> Result<(), String> {
+        Self::is_representable(llvm_ty, generator.get_size_type(ctx))
+    }
 
     fn new_value<G: CodeGenerator + ?Sized>(
         &self,
@@ -176,7 +199,7 @@ impl<'ctx> ProxyType<'ctx> for NDArrayType<'ctx> {
     ) -> Self::Value {
         debug_assert_eq!(value.get_type(), self.as_base_type());
 
-        NDArrayValue::from_ptr_val(value, self.llvm_usize, name)
+        NDArrayValue::from_pointer_value(value, self.llvm_usize, name)
     }
 
     fn as_base_type(&self) -> Self::Base {

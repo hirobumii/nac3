@@ -54,7 +54,7 @@ fn create_ndarray_uninitialized<'ctx, G: CodeGenerator + ?Sized>(
 
     let ndarray = generator.gen_var_alloc(ctx, llvm_ndarray_t.into(), None)?;
 
-    Ok(NDArrayValue::from_ptr_val(ndarray, llvm_usize, None))
+    Ok(NDArrayValue::from_pointer_value(ndarray, llvm_usize, None))
 }
 
 /// Creates an `NDArray` instance from a dynamic shape.
@@ -314,11 +314,11 @@ fn call_ndarray_empty_impl<'ctx, G: CodeGenerator + ?Sized>(
 
     match shape {
         BasicValueEnum::PointerValue(shape_list_ptr)
-            if ListValue::is_instance(shape_list_ptr, llvm_usize).is_ok() =>
+            if ListValue::is_representable(shape_list_ptr, llvm_usize).is_ok() =>
         {
             // 1. A list of ints; e.g., `np.empty([600, 800, 3])`
 
-            let shape_list = ListValue::from_ptr_val(shape_list_ptr, llvm_usize, None);
+            let shape_list = ListValue::from_pointer_value(shape_list_ptr, llvm_usize, None);
             create_ndarray_dyn_shape(
                 generator,
                 ctx,
@@ -499,12 +499,14 @@ where
 
     // Assert that all ndarray operands are broadcastable to the target size
     if !lhs_scalar {
-        let lhs_val = NDArrayValue::from_ptr_val(lhs_val.into_pointer_value(), llvm_usize, None);
+        let lhs_val =
+            NDArrayValue::from_pointer_value(lhs_val.into_pointer_value(), llvm_usize, None);
         ndarray_assert_is_broadcastable(generator, ctx, res, lhs_val);
     }
 
     if !rhs_scalar {
-        let rhs_val = NDArrayValue::from_ptr_val(rhs_val.into_pointer_value(), llvm_usize, None);
+        let rhs_val =
+            NDArrayValue::from_pointer_value(rhs_val.into_pointer_value(), llvm_usize, None);
         ndarray_assert_is_broadcastable(generator, ctx, res, rhs_val);
     }
 
@@ -512,7 +514,8 @@ where
         let lhs_elem = if lhs_scalar {
             lhs_val
         } else {
-            let lhs = NDArrayValue::from_ptr_val(lhs_val.into_pointer_value(), llvm_usize, None);
+            let lhs =
+                NDArrayValue::from_pointer_value(lhs_val.into_pointer_value(), llvm_usize, None);
             let lhs_idx = call_ndarray_calc_broadcast_index(generator, ctx, lhs, idx);
 
             unsafe { lhs.data().get_unchecked(ctx, generator, &lhs_idx, None) }
@@ -521,7 +524,8 @@ where
         let rhs_elem = if rhs_scalar {
             rhs_val
         } else {
-            let rhs = NDArrayValue::from_ptr_val(rhs_val.into_pointer_value(), llvm_usize, None);
+            let rhs =
+                NDArrayValue::from_pointer_value(rhs_val.into_pointer_value(), llvm_usize, None);
             let rhs_idx = call_ndarray_calc_broadcast_index(generator, ctx, rhs, idx);
 
             unsafe { rhs.data().get_unchecked(ctx, generator, &rhs_idx, None) }
@@ -647,11 +651,15 @@ fn llvm_ndlist_get_ndims<'ctx, G: CodeGenerator + ?Sized>(
 
     let ndims = llvm_usize.const_int(1, false);
     match list_elem_ty {
-        AnyTypeEnum::PointerType(ptr_ty) if ListType::is_type(ptr_ty, llvm_usize).is_ok() => {
+        AnyTypeEnum::PointerType(ptr_ty)
+            if ListType::is_representable(ptr_ty, llvm_usize).is_ok() =>
+        {
             ndims.const_add(llvm_ndlist_get_ndims(generator, ctx, ptr_ty))
         }
 
-        AnyTypeEnum::PointerType(ptr_ty) if NDArrayType::is_type(ptr_ty, llvm_usize).is_ok() => {
+        AnyTypeEnum::PointerType(ptr_ty)
+            if NDArrayType::is_representable(ptr_ty, llvm_usize).is_ok() =>
+        {
             todo!("Getting ndims for list[ndarray] not supported")
         }
 
@@ -668,11 +676,13 @@ fn llvm_arraylike_get_ndims<'ctx, G: CodeGenerator + ?Sized>(
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
     match value {
-        BasicValueEnum::PointerValue(v) if NDArrayValue::is_instance(v, llvm_usize).is_ok() => {
-            NDArrayValue::from_ptr_val(v, llvm_usize, None).load_ndims(ctx)
+        BasicValueEnum::PointerValue(v)
+            if NDArrayValue::is_representable(v, llvm_usize).is_ok() =>
+        {
+            NDArrayValue::from_pointer_value(v, llvm_usize, None).load_ndims(ctx)
         }
 
-        BasicValueEnum::PointerValue(v) if ListValue::is_instance(v, llvm_usize).is_ok() => {
+        BasicValueEnum::PointerValue(v) if ListValue::is_representable(v, llvm_usize).is_ok() => {
             llvm_ndlist_get_ndims(generator, ctx, v.get_type())
         }
 
@@ -695,7 +705,9 @@ fn ndarray_from_ndlist_impl<'ctx, G: CodeGenerator + ?Sized>(
     let list_elem_ty = src_lst.get_type().element_type();
 
     match list_elem_ty {
-        AnyTypeEnum::PointerType(ptr_ty) if ListType::is_type(ptr_ty, llvm_usize).is_ok() => {
+        AnyTypeEnum::PointerType(ptr_ty)
+            if ListType::is_representable(ptr_ty, llvm_usize).is_ok() =>
+        {
             // The stride of elements in this dimension, i.e. the number of elements between arr[i]
             // and arr[i + 1] in this dimension
             let stride = call_ndarray_calc_size(
@@ -719,7 +731,7 @@ fn ndarray_from_ndlist_impl<'ctx, G: CodeGenerator + ?Sized>(
                     let dst_ptr =
                         unsafe { ctx.builder.build_gep(dst_slice_ptr, &[offset], "").unwrap() };
 
-                    let nested_lst_elem = ListValue::from_ptr_val(
+                    let nested_lst_elem = ListValue::from_pointer_value(
                         unsafe { src_lst.data().get_unchecked(ctx, generator, &i, None) }
                             .into_pointer_value(),
                         llvm_usize,
@@ -740,7 +752,9 @@ fn ndarray_from_ndlist_impl<'ctx, G: CodeGenerator + ?Sized>(
             )?;
         }
 
-        AnyTypeEnum::PointerType(ptr_ty) if NDArrayType::is_type(ptr_ty, llvm_usize).is_ok() => {
+        AnyTypeEnum::PointerType(ptr_ty)
+            if NDArrayType::is_representable(ptr_ty, llvm_usize).is_ok() =>
+        {
             todo!("Not implemented for list[ndarray]")
         }
 
@@ -801,8 +815,8 @@ fn call_ndarray_array_impl<'ctx, G: CodeGenerator + ?Sized>(
     let object = object.into_pointer_value();
 
     // object is an NDArray instance - copy object unless copy=0 && ndmin < object.ndims
-    if NDArrayValue::is_instance(object, llvm_usize).is_ok() {
-        let object = NDArrayValue::from_ptr_val(object, llvm_usize, None);
+    if NDArrayValue::is_representable(object, llvm_usize).is_ok() {
+        let object = NDArrayValue::from_pointer_value(object, llvm_usize, None);
 
         let ndarray = gen_if_else_expr_callback(
             generator,
@@ -876,7 +890,7 @@ fn call_ndarray_array_impl<'ctx, G: CodeGenerator + ?Sized>(
             |_, _| Ok(Some(object.as_base_value())),
         )?;
 
-        return Ok(NDArrayValue::from_ptr_val(
+        return Ok(NDArrayValue::from_pointer_value(
             ndarray.map(BasicValueEnum::into_pointer_value).unwrap(),
             llvm_usize,
             None,
@@ -884,8 +898,8 @@ fn call_ndarray_array_impl<'ctx, G: CodeGenerator + ?Sized>(
     }
 
     // Remaining case: TList
-    assert!(ListValue::is_instance(object, llvm_usize).is_ok());
-    let object = ListValue::from_ptr_val(object, llvm_usize, None);
+    assert!(ListValue::is_representable(object, llvm_usize).is_ok());
+    let object = ListValue::from_pointer_value(object, llvm_usize, None);
 
     // The number of dimensions to prepend 1's to
     let ndims = llvm_ndlist_get_ndims(generator, ctx, object.as_base_value().get_type());
@@ -965,7 +979,8 @@ fn call_ndarray_array_impl<'ctx, G: CodeGenerator + ?Sized>(
                                 .map(|v| ctx.builder.build_bit_cast(v, plist_plist_i8, "").unwrap())
                                 .map(BasicValueEnum::into_pointer_value)
                                 .unwrap();
-                            let this_dim = ListValue::from_ptr_val(this_dim, llvm_usize, None);
+                            let this_dim =
+                                ListValue::from_pointer_value(this_dim, llvm_usize, None);
 
                             // TODO: Assert this_dim.sz != 0
 
@@ -991,7 +1006,7 @@ fn call_ndarray_array_impl<'ctx, G: CodeGenerator + ?Sized>(
                         },
                     )?;
 
-                    let lst = ListValue::from_ptr_val(
+                    let lst = ListValue::from_pointer_value(
                         ctx.builder
                             .build_load(lst, "")
                             .map(BasicValueEnum::into_pointer_value)
@@ -1388,9 +1403,9 @@ where
     let ndarray = res.unwrap_or_else(|| {
         if lhs_scalar && rhs_scalar {
             let lhs_val =
-                NDArrayValue::from_ptr_val(lhs_val.into_pointer_value(), llvm_usize, None);
+                NDArrayValue::from_pointer_value(lhs_val.into_pointer_value(), llvm_usize, None);
             let rhs_val =
-                NDArrayValue::from_ptr_val(rhs_val.into_pointer_value(), llvm_usize, None);
+                NDArrayValue::from_pointer_value(rhs_val.into_pointer_value(), llvm_usize, None);
 
             let ndarray_dims = call_ndarray_calc_broadcast(generator, ctx, lhs_val, rhs_val);
 
@@ -1406,7 +1421,7 @@ where
             )
             .unwrap()
         } else {
-            let ndarray = NDArrayValue::from_ptr_val(
+            let ndarray = NDArrayValue::from_pointer_value(
                 if lhs_scalar { rhs_val } else { lhs_val }.into_pointer_value(),
                 llvm_usize,
                 None,
@@ -1970,7 +1985,7 @@ pub fn gen_ndarray_copy<'ctx>(
         generator,
         context,
         this_elem_ty,
-        NDArrayValue::from_ptr_val(this_arg.into_pointer_value(), llvm_usize, None),
+        NDArrayValue::from_pointer_value(this_arg.into_pointer_value(), llvm_usize, None),
     )
     .map(NDArrayValue::into)
 }
@@ -2002,7 +2017,7 @@ pub fn gen_ndarray_fill<'ctx>(
     ndarray_fill_flattened(
         generator,
         context,
-        NDArrayValue::from_ptr_val(this_arg, llvm_usize, None),
+        NDArrayValue::from_pointer_value(this_arg, llvm_usize, None),
         |generator, ctx, _| {
             let value = if value_arg.is_pointer_value() {
                 let llvm_i1 = ctx.ctx.bool_type();
@@ -2043,7 +2058,7 @@ pub fn ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
 
     if let BasicValueEnum::PointerValue(n1) = x1 {
         let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
         let n_sz = call_ndarray_calc_size(generator, ctx, &n1.dim_sizes(), (None, None));
 
         // Dimensions are reversed in the transposed array
@@ -2162,7 +2177,7 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
 
     if let BasicValueEnum::PointerValue(n1) = x1 {
         let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
-        let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
+        let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
         let n_sz = call_ndarray_calc_size(generator, ctx, &n1.dim_sizes(), (None, None));
 
         let acc = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
@@ -2172,11 +2187,11 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
 
         let out = match shape {
             BasicValueEnum::PointerValue(shape_list_ptr)
-                if ListValue::is_instance(shape_list_ptr, llvm_usize).is_ok() =>
+                if ListValue::is_representable(shape_list_ptr, llvm_usize).is_ok() =>
             {
                 // 1. A list of ints; e.g., `np.reshape(arr, [int64(600), int64(800, -1])`
 
-                let shape_list = ListValue::from_ptr_val(shape_list_ptr, llvm_usize, None);
+                let shape_list = ListValue::from_pointer_value(shape_list_ptr, llvm_usize, None);
                 // Check for -1 in dimensions
                 gen_for_callback_incrementing(
                     generator,
@@ -2445,8 +2460,8 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
 
     match (x1, x2) {
         (BasicValueEnum::PointerValue(n1), BasicValueEnum::PointerValue(n2)) => {
-            let n1 = NDArrayValue::from_ptr_val(n1, llvm_usize, None);
-            let n2 = NDArrayValue::from_ptr_val(n2, llvm_usize, None);
+            let n1 = NDArrayValue::from_pointer_value(n1, llvm_usize, None);
+            let n2 = NDArrayValue::from_pointer_value(n2, llvm_usize, None);
 
             let n1_sz = call_ndarray_calc_size(generator, ctx, &n1.dim_sizes(), (None, None));
             let n2_sz = call_ndarray_calc_size(generator, ctx, &n1.dim_sizes(), (None, None));

@@ -20,7 +20,10 @@ pub struct ListType<'ctx> {
 
 impl<'ctx> ListType<'ctx> {
     /// Checks whether `llvm_ty` represents a `list` type, returning [Err] if it does not.
-    pub fn is_type(llvm_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Result<(), String> {
+    pub fn is_representable(
+        llvm_ty: PointerType<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Result<(), String> {
         let llvm_list_ty = llvm_ty.get_element_type();
         let AnyTypeEnum::StructType(llvm_list_ty) = llvm_list_ty else {
             return Err(format!("Expected struct type for `list` type, got {llvm_list_ty}"));
@@ -73,7 +76,7 @@ impl<'ctx> ListType<'ctx> {
     /// Creates an [`ListType`] from a [`PointerType`].
     #[must_use]
     pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        debug_assert!(Self::is_type(ptr_ty, llvm_usize).is_ok());
+        debug_assert!(Self::is_representable(ptr_ty, llvm_usize).is_ok());
 
         ListType { ty: ptr_ty, llvm_usize }
     }
@@ -105,6 +108,26 @@ impl<'ctx> ListType<'ctx> {
 impl<'ctx> ProxyType<'ctx> for ListType<'ctx> {
     type Base = PointerType<'ctx>;
     type Value = ListValue<'ctx>;
+
+    fn is_type<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        llvm_ty: impl BasicType<'ctx>,
+    ) -> Result<(), String> {
+        if let BasicTypeEnum::PointerType(ty) = llvm_ty.as_basic_type_enum() {
+            <Self as ProxyType<'ctx>>::is_representable(generator, ctx, ty)
+        } else {
+            Err(format!("Expected pointer type, got {llvm_ty:?}"))
+        }
+    }
+
+    fn is_representable<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        llvm_ty: Self::Base,
+    ) -> Result<(), String> {
+        Self::is_representable(llvm_ty, generator.get_size_type(ctx))
+    }
 
     fn new_value<G: CodeGenerator + ?Sized>(
         &self,
@@ -146,9 +169,7 @@ impl<'ctx> ProxyType<'ctx> for ListType<'ctx> {
         value: <Self::Value as ProxyValue<'ctx>>::Base,
         name: Option<&'ctx str>,
     ) -> Self::Value {
-        debug_assert_eq!(value.get_type(), self.as_base_type());
-
-        ListValue::from_ptr_val(value, self.llvm_usize, name)
+        Self::Value::from_pointer_value(value, self.llvm_usize, name)
     }
 
     fn as_base_type(&self) -> Self::Base {

@@ -1168,7 +1168,8 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         TypeEnum::TObj { obj_id, .. }
             if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
         {
-            let iter_val = RangeValue::from_ptr_val(iter_val.into_pointer_value(), Some("range"));
+            let iter_val =
+                RangeValue::from_pointer_value(iter_val.into_pointer_value(), Some("range"));
             let (start, stop, step) = destructure_range(ctx, iter_val);
             let diff = ctx.builder.build_int_sub(stop, start, "diff").unwrap();
             // add 1 to the length as the value is rounded to zero
@@ -1399,8 +1400,10 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty1);
                 let sizeof_elem = llvm_elem_ty.size_of().unwrap();
 
-                let lhs = ListValue::from_ptr_val(left_val.into_pointer_value(), llvm_usize, None);
-                let rhs = ListValue::from_ptr_val(right_val.into_pointer_value(), llvm_usize, None);
+                let lhs =
+                    ListValue::from_pointer_value(left_val.into_pointer_value(), llvm_usize, None);
+                let rhs =
+                    ListValue::from_pointer_value(right_val.into_pointer_value(), llvm_usize, None);
 
                 let size = ctx
                     .builder
@@ -1483,7 +1486,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                         codegen_unreachable!(ctx)
                     };
                 let list_val =
-                    ListValue::from_ptr_val(list_val.into_pointer_value(), llvm_usize, None);
+                    ListValue::from_pointer_value(list_val.into_pointer_value(), llvm_usize, None);
                 let int_val = ctx
                     .builder
                     .build_int_s_extend(int_val.into_int_value(), llvm_usize, "")
@@ -1562,9 +1565,9 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
 
             let left_val =
-                NDArrayValue::from_ptr_val(left_val.into_pointer_value(), llvm_usize, None);
+                NDArrayValue::from_pointer_value(left_val.into_pointer_value(), llvm_usize, None);
             let right_val =
-                NDArrayValue::from_ptr_val(right_val.into_pointer_value(), llvm_usize, None);
+                NDArrayValue::from_pointer_value(right_val.into_pointer_value(), llvm_usize, None);
 
             let res = if op.base == Operator::MatMult {
                 // MatMult is the only binop which is not an elementwise op
@@ -1613,7 +1616,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
         } else {
             let (ndarray_dtype, _) =
                 unpack_ndarray_var_tys(&mut ctx.unifier, if is_ndarray1 { ty1 } else { ty2 });
-            let ndarray_val = NDArrayValue::from_ptr_val(
+            let ndarray_val = NDArrayValue::from_pointer_value(
                 if is_ndarray1 { left_val } else { right_val }.into_pointer_value(),
                 llvm_usize,
                 None,
@@ -1808,7 +1811,7 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
         let llvm_usize = generator.get_size_type(ctx.ctx);
         let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
-        let val = NDArrayValue::from_ptr_val(val.into_pointer_value(), llvm_usize, None);
+        let val = NDArrayValue::from_pointer_value(val.into_pointer_value(), llvm_usize, None);
 
         // ndarray uses `~` rather than `not` to perform elementwise inversion, convert it before
         // passing it to the elementwise codegen function
@@ -1900,7 +1903,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
 
                 let left_val =
-                    NDArrayValue::from_ptr_val(lhs.into_pointer_value(), llvm_usize, None);
+                    NDArrayValue::from_pointer_value(lhs.into_pointer_value(), llvm_usize, None);
                 let res = numpy::ndarray_elementwise_binop_impl(
                     generator,
                     ctx,
@@ -2202,9 +2205,9 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     }
 
                     let left_val =
-                        ListValue::from_ptr_val(lhs.into_pointer_value(), llvm_usize, None);
+                        ListValue::from_pointer_value(lhs.into_pointer_value(), llvm_usize, None);
                     let right_val =
-                        ListValue::from_ptr_val(rhs.into_pointer_value(), llvm_usize, None);
+                        ListValue::from_pointer_value(rhs.into_pointer_value(), llvm_usize, None);
 
                     Ok(gen_if_else_expr_callback(
                         generator,
@@ -2768,7 +2771,8 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                 // elements over
                 let subscripted_ndarray =
                     generator.gen_var_alloc(ctx, llvm_ndarray_t.into(), None)?;
-                let ndarray = NDArrayValue::from_ptr_val(subscripted_ndarray, llvm_usize, None);
+                let ndarray =
+                    NDArrayValue::from_pointer_value(subscripted_ndarray, llvm_usize, None);
 
                 let num_dims = v.load_ndims(ctx);
                 ndarray.store_ndims(
@@ -3403,7 +3407,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     } else {
                         return Ok(None);
                     };
-                    let v = ListValue::from_ptr_val(v, usize, Some("arr"));
+                    let v = ListValue::from_pointer_value(v, usize, Some("arr"));
                     let ty = ctx.get_llvm_type(generator, *ty);
                     if let ExprKind::Slice { lower, upper, step } = &slice.node {
                         let one = int32.const_int(1, false);
@@ -3513,7 +3517,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     } else {
                         return Ok(None);
                     };
-                    let v = NDArrayValue::from_ptr_val(v, usize, None);
+                    let v = NDArrayValue::from_pointer_value(v, usize, None);
 
                     return gen_ndarray_subscript_expr(generator, ctx, *ty, *ndims, v, slice);
                 }

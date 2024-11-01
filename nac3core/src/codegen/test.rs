@@ -452,7 +452,7 @@ fn test_classes_list_type_new() {
     let llvm_usize = generator.get_size_type(&ctx);
 
     let llvm_list = ListType::new(&generator, &ctx, llvm_i32.into());
-    assert!(ListType::is_type(llvm_list.as_base_type(), llvm_usize).is_ok());
+    assert!(ListType::is_representable(llvm_list.as_base_type(), llvm_usize).is_ok());
 }
 
 #[test]
@@ -460,7 +460,7 @@ fn test_classes_range_type_new() {
     let ctx = inkwell::context::Context::create();
 
     let llvm_range = RangeType::new(&ctx);
-    assert!(RangeType::is_type(llvm_range.as_base_type()).is_ok());
+    assert!(RangeType::is_representable(llvm_range.as_base_type()).is_ok());
 }
 
 #[test]
@@ -472,5 +472,5 @@ fn test_classes_ndarray_type_new() {
     let llvm_usize = generator.get_size_type(&ctx);
 
     let llvm_ndarray = NDArrayType::new(&generator, &ctx, llvm_i32.into());
-    assert!(NDArrayType::is_type(llvm_ndarray.as_base_type(), llvm_usize).is_ok());
+    assert!(NDArrayType::is_representable(llvm_ndarray.as_base_type(), llvm_usize).is_ok());
 }
