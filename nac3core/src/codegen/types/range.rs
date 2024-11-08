@@ -47,11 +47,18 @@ impl<'ctx> RangeType<'ctx> {
         Ok(())
     }
 
+    /// Creates an LLVM type corresponding to the expected structure of a `Range`.
+    #[must_use]
+    fn llvm_type(ctx: &'ctx Context) -> PointerType<'ctx> {
+        // typedef int32_t Range[3];
+        let llvm_i32 = ctx.i32_type();
+        llvm_i32.array_type(3).ptr_type(AddressSpace::default())
+    }
+
     /// Creates an instance of [`RangeType`].
     #[must_use]
     pub fn new(ctx: &'ctx Context) -> Self {
-        let llvm_i32 = ctx.i32_type();
-        let llvm_range = llvm_i32.array_type(3).ptr_type(AddressSpace::default());
+        let llvm_range = Self::llvm_type(ctx);
 
         RangeType::from_type(llvm_range)
     }

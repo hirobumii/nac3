@@ -73,6 +73,27 @@ impl<'ctx> NDArrayType<'ctx> {
         Ok(())
     }
 
+    /// Creates an LLVM type corresponding to the expected structure of an `NDArray`.
+    #[must_use]
+    fn llvm_type(
+        ctx: &'ctx Context,
+        dtype: BasicTypeEnum<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> PointerType<'ctx> {
+        // struct NDArray { num_dims: size_t, dims: size_t*, data: T* }
+        //
+        // * num_dims: Number of dimensions in the array
+        // * dims: Pointer to an array containing the size of each dimension
+        // * data: Pointer to an array containing the array data
+        let field_tys = [
+            llvm_usize.into(),
+            llvm_usize.ptr_type(AddressSpace::default()).into(),
+            dtype.ptr_type(AddressSpace::default()).into(),
+        ];
+
+        ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
+    }
+
     /// Creates an instance of [`ListType`].
     #[must_use]
     pub fn new<G: CodeGenerator + ?Sized>(
@@ -81,22 +102,7 @@ impl<'ctx> NDArrayType<'ctx> {
         dtype: BasicTypeEnum<'ctx>,
     ) -> Self {
         let llvm_usize = generator.get_size_type(ctx);
-
-        // struct NDArray { num_dims: size_t, dims: size_t*, data: T* }
-        //
-        // * num_dims: Number of dimensions in the array
-        // * dims: Pointer to an array containing the size of each dimension
-        // * data: Pointer to an array containing the array data
-        let llvm_ndarray = ctx
-            .struct_type(
-                &[
-                    llvm_usize.into(),
-                    llvm_usize.ptr_type(AddressSpace::default()).into(),
-                    dtype.ptr_type(AddressSpace::default()).into(),
-                ],
-                false,
-            )
-            .ptr_type(AddressSpace::default());
+        let llvm_ndarray = Self::llvm_type(ctx, dtype, llvm_usize);
 
         NDArrayType::from_type(llvm_ndarray, llvm_usize)
     }

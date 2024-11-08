@@ -55,6 +55,19 @@ impl<'ctx> ListType<'ctx> {
         Ok(())
     }
 
+    /// Creates an LLVM type corresponding to the expected structure of a `List`.
+    #[must_use]
+    fn llvm_type(
+        ctx: &'ctx Context,
+        element_type: BasicTypeEnum<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> PointerType<'ctx> {
+        // struct List { data: T*, size: size_t }
+        let field_tys = [element_type.ptr_type(AddressSpace::default()).into(), llvm_usize.into()];
+
+        ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
+    }
+
     /// Creates an instance of [`ListType`].
     #[must_use]
     pub fn new<G: CodeGenerator + ?Sized>(
@@ -63,12 +76,7 @@ impl<'ctx> ListType<'ctx> {
         element_type: BasicTypeEnum<'ctx>,
     ) -> Self {
         let llvm_usize = generator.get_size_type(ctx);
-        let llvm_list = ctx
-            .struct_type(
-                &[element_type.ptr_type(AddressSpace::default()).into(), llvm_usize.into()],
-                false,
-            )
-            .ptr_type(AddressSpace::default());
+        let llvm_list = Self::llvm_type(ctx, element_type, llvm_usize);
 
         ListType::from_type(llvm_list, llvm_usize)
     }
