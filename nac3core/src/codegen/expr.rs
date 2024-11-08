@@ -1777,7 +1777,12 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             ast::Unaryop::Invert => ctx.builder.build_not(val, "not").map(Into::into).unwrap(),
             ast::Unaryop::Not => ctx
                 .builder
-                .build_xor(val, val.get_type().const_all_ones(), "not")
+                .build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    val,
+                    val.get_type().const_zero(),
+                    "not",
+                )
                 .map(Into::into)
                 .unwrap(),
             ast::Unaryop::UAdd => val.into(),
