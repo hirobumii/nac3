@@ -4,6 +4,6 @@
 
 template<typename SizeT>
 struct CSlice {
-    uint8_t* base;
+    void* base;
     SizeT len;
 };

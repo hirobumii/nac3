@@ -90,4 +90,4 @@ double __nac3_j0(double x) {
 
     return j0(x);
 }
-}
+}  // namespace

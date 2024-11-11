@@ -25,4 +25,4 @@ SliceIndex __nac3_range_slice_len(const SliceIndex start, const SliceIndex end, 
         return 0;
     }
 }
-}
+}  // namespace

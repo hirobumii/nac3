@@ -6,7 +6,7 @@
 /**
  * @brief The int type of ARTIQ exception IDs.
  */
-typedef int32_t ExceptionId;
+using ExceptionId = int32_t;
 
 /*
  * Set of exceptions C++ IRRT can use.
@@ -55,14 +55,14 @@ void _raise_exception_helper(ExceptionId id,
                              int64_t param2) {
     Exception<SizeT> e = {
         .id = id,
-        .filename = {.base = reinterpret_cast<uint8_t*>(const_cast<char*>(filename)),
-                     .len = static_cast<int32_t>(__builtin_strlen(filename))},
+        .filename = {.base = reinterpret_cast<void*>(const_cast<char*>(filename)),
+                     .len = static_cast<SizeT>(__builtin_strlen(filename))},
         .line = line,
         .column = 0,
-        .function = {.base = reinterpret_cast<uint8_t*>(const_cast<char*>(function)),
-                     .len = static_cast<int32_t>(__builtin_strlen(function))},
-        .msg = {.base = reinterpret_cast<uint8_t*>(const_cast<char*>(msg)),
-                .len = static_cast<int32_t>(__builtin_strlen(msg))},
+        .function = {.base = reinterpret_cast<void*>(const_cast<char*>(function)),
+                     .len = static_cast<SizeT>(__builtin_strlen(function))},
+        .msg = {.base = reinterpret_cast<void*>(const_cast<char*>(msg)),
+                .len = static_cast<SizeT>(__builtin_strlen(msg))},
     };
     e.params[0] = param0;
     e.params[1] = param1;
@@ -70,6 +70,7 @@ void _raise_exception_helper(ExceptionId id,
     __nac3_raise(reinterpret_cast<void*>(&e));
     __builtin_unreachable();
 }
+}  // namespace
 
 /**
  * @brief Raise an exception with location details (location in the IRRT source files).
@@ -82,4 +83,3 @@ void _raise_exception_helper(ExceptionId id,
  */
 #define raise_exception(SizeT, id, msg, param0, param1, param2) \
     _raise_exception_helper<SizeT>(id, __FILE__, __LINE__, __FUNCTION__, msg, param0, param1, param2)
-}  // namespace
