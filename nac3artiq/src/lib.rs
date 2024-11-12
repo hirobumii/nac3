@@ -764,9 +764,12 @@ impl Nac3 {
         // Link all modules into `main`.
         let buffers = membuffers.lock();
         let main = context
-            .create_module_from_ir(MemoryBuffer::create_from_memory_range(&buffers[0], "main"))
+            .create_module_from_ir(MemoryBuffer::create_from_memory_range(
+                &buffers.last().unwrap(),
+                "main",
+            ))
             .unwrap();
-        for buffer in buffers.iter().skip(1) {
+        for buffer in buffers.iter().rev().skip(1) {
             let other = context
                 .create_module_from_ir(MemoryBuffer::create_from_memory_range(buffer, "main"))
                 .unwrap();
