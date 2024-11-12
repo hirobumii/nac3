@@ -42,7 +42,7 @@ use nac3core::{
     inkwell::{
         context::Context,
         memory_buffer::MemoryBuffer,
-        module::{Linkage, Module},
+        module::{FlagBehavior, Linkage, Module},
         passes::PassBuilderOptions,
         support::is_multithreaded,
         targets::*,
@@ -713,6 +713,16 @@ impl Nac3 {
             let target_machine = self.llvm_options.create_target_machine().unwrap();
             module.set_data_layout(&target_machine.get_target_data().get_data_layout());
             module.set_triple(&target_machine.get_triple());
+            module.add_basic_value_flag(
+                "Debug Info Version",
+                FlagBehavior::Warning,
+                context.i32_type().const_int(3, false),
+            );
+            module.add_basic_value_flag(
+                "Dwarf Version",
+                FlagBehavior::Warning,
+                context.i32_type().const_int(4, false),
+            );
             let builder = context.create_builder();
             let (_, module, _) = gen_func_impl(
                 &context,
