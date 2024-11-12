@@ -1088,7 +1088,7 @@ pub fn attributes_writeback<'ctx>(
         let args: Vec<_> =
             values.into_iter().map(|(_, val)| (None, ValueEnum::Dynamic(val))).collect();
         if let Err(e) =
-            rpc_codegen_callback_fn(ctx, None, (&fun, PrimDef::Int32.id()), args, generator, false)
+            rpc_codegen_callback_fn(ctx, None, (&fun, PrimDef::Int32.id()), args, generator, true)
         {
             return Ok(Err(e));
         }
