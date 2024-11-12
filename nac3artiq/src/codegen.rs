@@ -990,11 +990,12 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
 }
 
-pub fn attributes_writeback(
-    ctx: &mut CodeGenContext<'_, '_>,
+pub fn attributes_writeback<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
     generator: &mut dyn CodeGenerator,
     inner_resolver: &InnerResolver,
     host_attributes: &PyObject,
+    return_obj: Option<(Type, ValueEnum<'ctx>)>,
 ) -> Result<(), String> {
     Python::with_gil(|py| -> PyResult<Result<(), String>> {
         let host_attributes: &PyList = host_attributes.downcast(py)?;
@@ -1004,6 +1005,11 @@ pub fn attributes_writeback(
         let zero = int32.const_zero();
         let mut values = Vec::new();
         let mut scratch_buffer = Vec::new();
+
+        if let Some((ty, obj)) = return_obj {
+            values.push((ty, obj.to_basic_value_enum(ctx, generator, ty).unwrap()));
+        }
+
         for val in (*globals).values() {
             let val = val.as_ref(py);
             let ty = inner_resolver.get_obj_type(
