@@ -11,6 +11,7 @@ pub use range::*;
 mod list;
 mod ndarray;
 mod range;
+pub mod structure;
 
 /// A LLVM type that is used to represent a corresponding type in NAC3.
 pub trait ProxyType<'ctx>: Into<Self::Base> {
