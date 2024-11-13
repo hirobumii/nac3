@@ -1,11 +1,17 @@
 use inkwell::{
     context::Context,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
-    values::IntValue,
+    values::{IntValue, PointerValue},
     AddressSpace,
 };
+use itertools::Itertools;
 
-use super::ProxyType;
+use nac3core_derive::StructFields;
+
+use super::{
+    structure::{StructField, StructFields},
+    ProxyType,
+};
 use crate::codegen::{
     values::{ArraySliceValue, NDArrayValue, ProxyValue},
     {CodeGenContext, CodeGenerator},
@@ -17,6 +23,16 @@ pub struct NDArrayType<'ctx> {
     ty: PointerType<'ctx>,
     dtype: BasicTypeEnum<'ctx>,
     llvm_usize: IntType<'ctx>,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, StructFields)]
+pub struct NDArrayStructFields<'ctx> {
+    #[value_type(usize)]
+    pub ndims: StructField<'ctx, IntValue<'ctx>>,
+    #[value_type(usize.ptr_type(AddressSpace::default()))]
+    pub shape: StructField<'ctx, PointerValue<'ctx>>,
+    #[value_type(i8_type().ptr_type(AddressSpace::default()))]
+    pub data: StructField<'ctx, PointerValue<'ctx>>,
 }
 
 impl<'ctx> NDArrayType<'ctx> {
@@ -86,19 +102,34 @@ impl<'ctx> NDArrayType<'ctx> {
         Ok(())
     }
 
+    // TODO: Move this into e.g. StructProxyType
+    #[must_use]
+    fn fields(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> NDArrayStructFields<'ctx> {
+        NDArrayStructFields::new(ctx, llvm_usize)
+    }
+
+    // TODO: Move this into e.g. StructProxyType
+    #[must_use]
+    pub fn get_fields(
+        &self,
+        ctx: &'ctx Context,
+        llvm_usize: IntType<'ctx>,
+    ) -> NDArrayStructFields<'ctx> {
+        Self::fields(ctx, llvm_usize)
+    }
+
     /// Creates an LLVM type corresponding to the expected structure of an `NDArray`.
     #[must_use]
     fn llvm_type(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
         // struct NDArray { num_dims: size_t, dims: size_t*, data: i8* }
         //
-        // * num_dims: Number of dimensions in the array
-        // * dims: Pointer to an array containing the size of each dimension
-        // * data: Pointer to an array containing the array data
-        let field_tys = [
-            llvm_usize.into(),
-            llvm_usize.ptr_type(AddressSpace::default()).into(),
-            ctx.i8_type().ptr_type(AddressSpace::default()).into(),
-        ];
+        // * data    : Pointer to an array containing the array data
+        // * itemsize: The size of each NDArray elements in bytes
+        // * ndims   : Number of dimensions in the array
+        // * shape   : Pointer to an array containing the shape of the NDArray
+        // * strides : Pointer to an array indicating the number of bytes between each element at a dimension
+        let field_tys =
+            Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
 
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }

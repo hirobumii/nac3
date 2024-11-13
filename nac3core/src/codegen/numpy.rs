@@ -128,7 +128,7 @@ where
     ndarray.store_ndims(ctx, generator, num_dims);
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
-    ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
+    ndarray.create_shape(ctx, llvm_usize, ndarray_num_dims);
 
     // Copy the dimension sizes from shape to ndarray.dims
     let shape_len = shape_len_fn(generator, ctx, shape)?;
@@ -144,7 +144,7 @@ where
             let shape_dim = ctx.builder.build_int_z_extend(shape_dim, llvm_usize, "").unwrap();
 
             let ndarray_pdim =
-                unsafe { ndarray.dim_sizes().ptr_offset_unchecked(ctx, generator, &i, None) };
+                unsafe { ndarray.shape().ptr_offset_unchecked(ctx, generator, &i, None) };
 
             ctx.builder.build_store(ndarray_pdim, shape_dim).unwrap();
 
@@ -195,12 +195,12 @@ pub fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
     ndarray.store_ndims(ctx, generator, num_dims);
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
-    ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
+    ndarray.create_shape(ctx, llvm_usize, ndarray_num_dims);
 
     for (i, &shape_dim) in shape.iter().enumerate() {
         let shape_dim = ctx.builder.build_int_z_extend(shape_dim, llvm_usize, "").unwrap();
         let ndarray_dim = unsafe {
-            ndarray.dim_sizes().ptr_offset_unchecked(
+            ndarray.shape().ptr_offset_unchecked(
                 ctx,
                 generator,
                 &llvm_usize.const_int(i as u64, true),
@@ -229,7 +229,7 @@ fn ndarray_init_data<'ctx, G: CodeGenerator + ?Sized>(
     let ndarray_num_elems = call_ndarray_calc_size(
         generator,
         ctx,
-        &ndarray.dim_sizes().as_slice_value(ctx, generator),
+        &ndarray.shape().as_slice_value(ctx, generator),
         (None, None),
     );
     ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
@@ -380,7 +380,7 @@ where
     let ndarray_num_elems = call_ndarray_calc_size(
         generator,
         ctx,
-        &ndarray.dim_sizes().as_slice_value(ctx, generator),
+        &ndarray.shape().as_slice_value(ctx, generator),
         (None, None),
     );
 
@@ -739,7 +739,7 @@ fn ndarray_from_ndlist_impl<'ctx, G: CodeGenerator + ?Sized>(
             let stride = call_ndarray_calc_size(
                 generator,
                 ctx,
-                &dst_arr.dim_sizes(),
+                &dst_arr.shape(),
                 (Some(llvm_usize.const_int(dim + 1, false)), None),
             );
 
@@ -1155,7 +1155,7 @@ fn ndarray_sliced_copyto_impl<'ctx, G: CodeGenerator + ?Sized>(
         let stride = call_ndarray_calc_size(
             generator,
             ctx,
-            &src_arr.dim_sizes(),
+            &src_arr.shape(),
             (Some(llvm_usize.const_int(dim, false)), None),
         );
         let stride =
@@ -1173,13 +1173,13 @@ fn ndarray_sliced_copyto_impl<'ctx, G: CodeGenerator + ?Sized>(
     let src_stride = call_ndarray_calc_size(
         generator,
         ctx,
-        &src_arr.dim_sizes(),
+        &src_arr.shape(),
         (Some(llvm_usize.const_int(dim + 1, false)), None),
     );
     let dst_stride = call_ndarray_calc_size(
         generator,
         ctx,
-        &dst_arr.dim_sizes(),
+        &dst_arr.shape(),
         (Some(llvm_usize.const_int(dim + 1, false)), None),
     );
 
@@ -1278,7 +1278,7 @@ pub fn ndarray_sliced_copy<'ctx, G: CodeGenerator + ?Sized>(
             &this,
             |_, ctx, shape| Ok(shape.load_ndims(ctx)),
             |generator, ctx, shape, idx| unsafe {
-                Ok(shape.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None))
+                Ok(shape.shape().get_typed_unchecked(ctx, generator, &idx, None))
             },
         )?
     } else {
@@ -1286,7 +1286,7 @@ pub fn ndarray_sliced_copy<'ctx, G: CodeGenerator + ?Sized>(
         ndarray.store_ndims(ctx, generator, this.load_ndims(ctx));
 
         let ndims = this.load_ndims(ctx);
-        ndarray.create_dim_sizes(ctx, llvm_usize, ndims);
+        ndarray.create_shape(ctx, llvm_usize, ndims);
 
         // Populate the first slices.len() dimensions by computing the size of each dim slice
         for (i, (start, stop, step)) in slices.iter().enumerate() {
@@ -1318,7 +1318,7 @@ pub fn ndarray_sliced_copy<'ctx, G: CodeGenerator + ?Sized>(
                 ctx.builder.build_int_z_extend_or_bit_cast(slice_len, llvm_usize, "").unwrap();
 
             unsafe {
-                ndarray.dim_sizes().set_typed_unchecked(
+                ndarray.shape().set_typed_unchecked(
                     ctx,
                     generator,
                     &llvm_usize.const_int(i as u64, false),
@@ -1336,8 +1336,8 @@ pub fn ndarray_sliced_copy<'ctx, G: CodeGenerator + ?Sized>(
             (this.load_ndims(ctx), false),
             |generator, ctx, _, idx| {
                 unsafe {
-                    let dim_sz = this.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None);
-                    ndarray.dim_sizes().set_typed_unchecked(ctx, generator, &idx, dim_sz);
+                    let dim_sz = this.shape().get_typed_unchecked(ctx, generator, &idx, None);
+                    ndarray.shape().set_typed_unchecked(ctx, generator, &idx, dim_sz);
                 }
 
                 Ok(())
@@ -1397,7 +1397,7 @@ where
             &operand,
             |_, ctx, v| Ok(v.load_ndims(ctx)),
             |generator, ctx, v, idx| unsafe {
-                Ok(v.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None))
+                Ok(v.shape().get_typed_unchecked(ctx, generator, &idx, None))
             },
         )
         .unwrap()
@@ -1510,7 +1510,7 @@ where
                 &ndarray,
                 |_, ctx, v| Ok(v.load_ndims(ctx)),
                 |generator, ctx, v, idx| unsafe {
-                    Ok(v.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None))
+                    Ok(v.shape().get_typed_unchecked(ctx, generator, &idx, None))
                 },
             )
             .unwrap()
@@ -1571,10 +1571,10 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
         if let Some(res) = res {
             let res_ndims = res.load_ndims(ctx);
             let res_dim0 = unsafe {
-                res.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                res.shape().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
             };
             let res_dim1 = unsafe {
-                res.dim_sizes().get_typed_unchecked(
+                res.shape().get_typed_unchecked(
                     ctx,
                     generator,
                     &llvm_usize.const_int(1, false),
@@ -1582,10 +1582,10 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
                 )
             };
             let lhs_dim0 = unsafe {
-                lhs.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                lhs.shape().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
             };
             let rhs_dim1 = unsafe {
-                rhs.dim_sizes().get_typed_unchecked(
+                rhs.shape().get_typed_unchecked(
                     ctx,
                     generator,
                     &llvm_usize.const_int(1, false),
@@ -1634,15 +1634,10 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
 
     if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
         let lhs_dim1 = unsafe {
-            lhs.dim_sizes().get_typed_unchecked(
-                ctx,
-                generator,
-                &llvm_usize.const_int(1, false),
-                None,
-            )
+            lhs.shape().get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
         };
         let rhs_dim0 = unsafe {
-            rhs.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+            rhs.shape().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
         };
 
         // lhs.dims[1] == rhs.dims[0]
@@ -1681,7 +1676,7 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
                     },
                     |generator, ctx| {
                         Ok(Some(unsafe {
-                            lhs.dim_sizes().get_typed_unchecked(
+                            lhs.shape().get_typed_unchecked(
                                 ctx,
                                 generator,
                                 &llvm_usize.const_zero(),
@@ -1691,7 +1686,7 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
                     },
                     |generator, ctx| {
                         Ok(Some(unsafe {
-                            rhs.dim_sizes().get_typed_unchecked(
+                            rhs.shape().get_typed_unchecked(
                                 ctx,
                                 generator,
                                 &llvm_usize.const_int(1, false),
@@ -1718,7 +1713,7 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
 
         let common_dim = {
             let lhs_idx1 = unsafe {
-                lhs.dim_sizes().get_typed_unchecked(
+                lhs.shape().get_typed_unchecked(
                     ctx,
                     generator,
                     &llvm_usize.const_int(1, false),
@@ -1726,7 +1721,7 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
                 )
             };
             let rhs_idx0 = unsafe {
-                rhs.dim_sizes().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                rhs.shape().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
             };
 
             let idx = llvm_intrinsics::call_expect(ctx, rhs_idx0, lhs_idx1, None);
@@ -2146,7 +2141,7 @@ pub fn ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
         let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
         let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
         let n1 = NDArrayValue::from_pointer_value(n1, llvm_elem_ty, llvm_usize, None);
-        let n_sz = call_ndarray_calc_size(generator, ctx, &n1.dim_sizes(), (None, None));
+        let n_sz = call_ndarray_calc_size(generator, ctx, &n1.shape(), (None, None));
 
         // Dimensions are reversed in the transposed array
         let out = create_ndarray_dyn_shape(
@@ -2161,7 +2156,7 @@ pub fn ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
                     .builder
                     .build_int_sub(new_idx, new_idx.get_type().const_int(1, false), "")
                     .unwrap();
-                unsafe { Ok(n.dim_sizes().get_typed_unchecked(ctx, generator, &new_idx, None)) }
+                unsafe { Ok(n.shape().get_typed_unchecked(ctx, generator, &new_idx, None)) }
             },
         )
         .unwrap();
@@ -2198,7 +2193,7 @@ pub fn ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
                             .build_int_sub(ndim_rev, llvm_usize.const_int(1, false), "")
                             .unwrap();
                         let dim = unsafe {
-                            n1.dim_sizes().get_typed_unchecked(ctx, generator, &ndim_rev, None)
+                            n1.shape().get_typed_unchecked(ctx, generator, &ndim_rev, None)
                         };
 
                         let rem_idx_val =
@@ -2266,7 +2261,7 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
         let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
         let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
         let n1 = NDArrayValue::from_pointer_value(n1, llvm_elem_ty, llvm_usize, None);
-        let n_sz = call_ndarray_calc_size(generator, ctx, &n1.dim_sizes(), (None, None));
+        let n_sz = call_ndarray_calc_size(generator, ctx, &n1.shape(), (None, None));
 
         let acc = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
         let num_neg = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
@@ -2494,7 +2489,7 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
         );
 
         // The new shape must be compatible with the old shape
-        let out_sz = call_ndarray_calc_size(generator, ctx, &out.dim_sizes(), (None, None));
+        let out_sz = call_ndarray_calc_size(generator, ctx, &out.shape(), (None, None));
         ctx.make_assert(
             generator,
             ctx.builder.build_int_compare(IntPredicate::EQ, out_sz, n_sz, "").unwrap(),
@@ -2556,8 +2551,8 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
             let n1 = NDArrayValue::from_pointer_value(n1, llvm_n1_data_ty, llvm_usize, None);
             let n2 = NDArrayValue::from_pointer_value(n2, llvm_n2_data_ty, llvm_usize, None);
 
-            let n1_sz = call_ndarray_calc_size(generator, ctx, &n1.dim_sizes(), (None, None));
-            let n2_sz = call_ndarray_calc_size(generator, ctx, &n1.dim_sizes(), (None, None));
+            let n1_sz = call_ndarray_calc_size(generator, ctx, &n1.shape(), (None, None));
+            let n2_sz = call_ndarray_calc_size(generator, ctx, &n1.shape(), (None, None));
 
             ctx.make_assert(
                 generator,

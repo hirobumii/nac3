@@ -2631,7 +2631,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                 let llvm_i32 = ctx.ctx.i32_type();
 
                 let len = unsafe {
-                    v.dim_sizes().get_typed_unchecked(
+                    v.shape().get_typed_unchecked(
                         ctx,
                         generator,
                         &llvm_usize.const_int(dim, true),
@@ -2672,7 +2672,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
 
             ExprKind::Slice { lower, upper, step } => {
                 let dim_sz = unsafe {
-                    v.dim_sizes().get_typed_unchecked(
+                    v.shape().get_typed_unchecked(
                         ctx,
                         generator,
                         &llvm_usize.const_int(dim, false),
@@ -2813,7 +2813,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                 );
 
                 let ndarray_num_dims = ndarray.load_ndims(ctx);
-                ndarray.create_dim_sizes(ctx, llvm_usize, ndarray_num_dims);
+                ndarray.create_shape(ctx, llvm_usize, ndarray_num_dims);
 
                 let ndarray_num_dims = ctx
                     .builder
@@ -2824,7 +2824,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                     )
                     .unwrap();
                 let v_dims_src_ptr = unsafe {
-                    v.dim_sizes().ptr_offset_unchecked(
+                    v.shape().ptr_offset_unchecked(
                         ctx,
                         generator,
                         &llvm_usize.const_int(1, false),
@@ -2833,7 +2833,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                 };
                 call_memcpy_generic(
                     ctx,
-                    ndarray.dim_sizes().base_ptr(ctx, generator),
+                    ndarray.shape().base_ptr(ctx, generator),
                     v_dims_src_ptr,
                     ctx.builder
                         .build_int_mul(ndarray_num_dims, llvm_usize.size_of(), "")
@@ -2845,7 +2845,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                 let ndarray_num_elems = call_ndarray_calc_size(
                     generator,
                     ctx,
-                    &ndarray.dim_sizes().as_slice_value(ctx, generator),
+                    &ndarray.shape().as_slice_value(ctx, generator),
                     (None, None),
                 );
                 let ndarray_num_elems = ctx

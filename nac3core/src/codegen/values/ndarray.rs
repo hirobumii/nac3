@@ -50,18 +50,10 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Returns the pointer to the field storing the number of dimensions of this `NDArray`.
     fn ptr_to_ndims(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.name.map(|v| format!("{v}.ndims.addr")).unwrap_or_default();
-
-        unsafe {
-            ctx.builder
-                .build_in_bounds_gep(
-                    self.as_base_value(),
-                    &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-                    var_name.as_str(),
-                )
-                .unwrap()
-        }
+        self.get_type()
+            .get_fields(ctx.ctx, self.llvm_usize)
+            .ndims
+            .ptr_by_gep(ctx, self.value, self.name)
     }
 
     /// Stores the number of dimensions `ndims` into this instance.
@@ -83,59 +75,43 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx.builder.build_load(pndims, "").map(BasicValueEnum::into_int_value).unwrap()
     }
 
-    /// Returns the double-indirection pointer to the `dims` array, as if by calling `getelementptr`
-    /// on the field.
-    fn ptr_to_dims(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.name.map(|v| format!("{v}.dims.addr")).unwrap_or_default();
-
-        unsafe {
-            ctx.builder
-                .build_in_bounds_gep(
-                    self.as_base_value(),
-                    &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-                    var_name.as_str(),
-                )
-                .unwrap()
-        }
+    /// Returns the double-indirection pointer to the `shape` array, as if by calling
+    /// `getelementptr` on the field.
+    fn ptr_to_shape(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+        self.get_type()
+            .get_fields(ctx.ctx, self.llvm_usize)
+            .shape
+            .ptr_by_gep(ctx, self.value, self.name)
     }
 
     /// Stores the array of dimension sizes `dims` into this instance.
-    fn store_dim_sizes(&self, ctx: &CodeGenContext<'ctx, '_>, dims: PointerValue<'ctx>) {
-        ctx.builder.build_store(self.ptr_to_dims(ctx), dims).unwrap();
+    fn store_shape(&self, ctx: &CodeGenContext<'ctx, '_>, dims: PointerValue<'ctx>) {
+        ctx.builder.build_store(self.ptr_to_shape(ctx), dims).unwrap();
     }
 
     /// Convenience method for creating a new array storing dimension sizes with the given `size`.
-    pub fn create_dim_sizes(
+    pub fn create_shape(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
         llvm_usize: IntType<'ctx>,
         size: IntValue<'ctx>,
     ) {
-        self.store_dim_sizes(ctx, ctx.builder.build_array_alloca(llvm_usize, size, "").unwrap());
+        self.store_shape(ctx, ctx.builder.build_array_alloca(llvm_usize, size, "").unwrap());
     }
 
     /// Returns a proxy object to the field storing the size of each dimension of this `NDArray`.
     #[must_use]
-    pub fn dim_sizes(&self) -> NDArrayDimsProxy<'ctx, '_> {
-        NDArrayDimsProxy(self)
+    pub fn shape(&self) -> NDArrayShapeProxy<'ctx, '_> {
+        NDArrayShapeProxy(self)
     }
 
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
     /// on the field.
     pub fn ptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.name.map(|v| format!("{v}.data.addr")).unwrap_or_default();
-
-        unsafe {
-            ctx.builder
-                .build_in_bounds_gep(
-                    self.as_base_value(),
-                    &[llvm_i32.const_zero(), llvm_i32.const_int(2, true)],
-                    var_name.as_str(),
-                )
-                .unwrap()
-        }
+        self.get_type()
+            .get_fields(ctx.ctx, self.llvm_usize)
+            .data
+            .ptr_by_gep(ctx, self.value, self.name)
     }
 
     /// Stores the array of data elements `data` into this instance.
@@ -194,15 +170,15 @@ impl<'ctx> From<NDArrayValue<'ctx>> for PointerValue<'ctx> {
 
 /// Proxy type for accessing the `dims` array of an `NDArray` instance in LLVM.
 #[derive(Copy, Clone)]
-pub struct NDArrayDimsProxy<'ctx, 'a>(&'a NDArrayValue<'ctx>);
+pub struct NDArrayShapeProxy<'ctx, 'a>(&'a NDArrayValue<'ctx>);
 
-impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDimsProxy<'ctx, '_> {
+impl<'ctx> ArrayLikeValue<'ctx> for NDArrayShapeProxy<'ctx, '_> {
     fn element_type<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
         generator: &G,
     ) -> AnyTypeEnum<'ctx> {
-        self.0.dim_sizes().base_ptr(ctx, generator).get_type().get_element_type()
+        self.0.shape().base_ptr(ctx, generator).get_type().get_element_type()
     }
 
     fn base_ptr<G: CodeGenerator + ?Sized>(
@@ -213,7 +189,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDimsProxy<'ctx, '_> {
         let var_name = self.0.name.map(|v| format!("{v}.data")).unwrap_or_default();
 
         ctx.builder
-            .build_load(self.0.ptr_to_dims(ctx), var_name.as_str())
+            .build_load(self.0.ptr_to_shape(ctx), var_name.as_str())
             .map(BasicValueEnum::into_pointer_value)
             .unwrap()
     }
@@ -227,7 +203,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDimsProxy<'ctx, '_> {
     }
 }
 
-impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_> {
+impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -266,10 +242,10 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_>
     }
 }
 
-impl<'ctx> UntypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_> {}
-impl<'ctx> UntypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_> {}
+impl<'ctx> UntypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {}
+impl<'ctx> UntypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {}
 
-impl<'ctx> TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_> {
+impl<'ctx> TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {
     fn downcast_to_type(
         &self,
         _: &mut CodeGenContext<'ctx, '_>,
@@ -279,7 +255,7 @@ impl<'ctx> TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ct
     }
 }
 
-impl<'ctx> TypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayDimsProxy<'ctx, '_> {
+impl<'ctx> TypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {
     fn upcast_from_type(
         &self,
         _: &mut CodeGenContext<'ctx, '_>,
@@ -497,7 +473,7 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
                 let (dim_idx, dim_sz) = unsafe {
                     (
                         indices.get_unchecked(ctx, generator, &i, None).into_int_value(),
-                        self.0.dim_sizes().get_typed_unchecked(ctx, generator, &i, None),
+                        self.0.shape().get_typed_unchecked(ctx, generator, &i, None),
                     )
                 };
                 let dim_idx = ctx

@@ -498,7 +498,7 @@ fn format_rpc_arg<'ctx>(
             call_memcpy_generic(
                 ctx,
                 pbuffer_dims_begin,
-                llvm_arg.dim_sizes().base_ptr(ctx, generator),
+                llvm_arg.shape().base_ptr(ctx, generator),
                 dims_buf_sz,
                 llvm_i1.const_zero(),
             );
@@ -612,7 +612,7 @@ fn format_rpc_ret<'ctx>(
             // Set `ndarray.ndims`
             ndarray.store_ndims(ctx, generator, llvm_usize.const_int(ndims, false));
             // Allocate `ndarray.shape` [size_t; ndims]
-            ndarray.create_dim_sizes(ctx, llvm_usize, ndarray.load_ndims(ctx));
+            ndarray.create_shape(ctx, llvm_usize, ndarray.load_ndims(ctx));
 
             /*
                 ndarray now:
@@ -702,7 +702,7 @@ fn format_rpc_ret<'ctx>(
 
             call_memcpy_generic(
                 ctx,
-                ndarray.dim_sizes().base_ptr(ctx, generator),
+                ndarray.shape().base_ptr(ctx, generator),
                 pbuffer_dims,
                 sizeof_dims,
                 llvm_i1.const_zero(),
@@ -714,7 +714,7 @@ fn format_rpc_ret<'ctx>(
             // `ndarray.shape` must be initialized beforehand in this implementation
             //   (for ndarray.create_data() to know how many elements to allocate)
             let num_elements =
-                call_ndarray_calc_size(generator, ctx, &ndarray.dim_sizes(), (None, None));
+                call_ndarray_calc_size(generator, ctx, &ndarray.shape(), (None, None));
 
             // debug_assert(nelems * sizeof(T) >= ndarray_nbytes)
             if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
@@ -1379,7 +1379,7 @@ fn polymorphic_print<'ctx>(
                     llvm_usize,
                     None,
                 );
-                let len = call_ndarray_calc_size(generator, ctx, &val.dim_sizes(), (None, None));
+                let len = call_ndarray_calc_size(generator, ctx, &val.shape(), (None, None));
                 let last =
                     ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "").unwrap();
 

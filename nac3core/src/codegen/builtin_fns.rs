@@ -78,7 +78,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
                     None,
                 );
 
-                let ndims = arg.dim_sizes().size(ctx, generator);
+                let ndims = arg.shape().size(ctx, generator);
                 ctx.make_assert(
                     generator,
                     ctx.builder
@@ -91,12 +91,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
                 );
 
                 let len = unsafe {
-                    arg.dim_sizes().get_typed_unchecked(
-                        ctx,
-                        generator,
-                        &llvm_usize.const_zero(),
-                        None,
-                    )
+                    arg.shape().get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
                 };
 
                 ctx.builder.build_int_truncate_or_bit_cast(len, llvm_i32, "len").unwrap()
@@ -927,7 +922,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let n = NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None);
-            let n_sz = irrt::call_ndarray_calc_size(generator, ctx, &n.dim_sizes(), (None, None));
+            let n_sz = irrt::call_ndarray_calc_size(generator, ctx, &n.shape(), (None, None));
             if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
                 let n_sz_eqz = ctx
                     .builder
@@ -1981,12 +1976,12 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
 
         let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
         let dim0 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
                 .into_int_value()
         };
         let dim1 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
                 .into_int_value()
         };
@@ -2023,12 +2018,12 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
 
         let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
         let dim0 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
                 .into_int_value()
         };
         let dim1 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
                 .into_int_value()
         };
@@ -2074,12 +2069,12 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
         let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
 
         let dim0 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
                 .into_int_value()
         };
         let dim1 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
                 .into_int_value()
         };
@@ -2128,12 +2123,12 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
 
         let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
         let dim0 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
                 .into_int_value()
         };
         let dim1 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
                 .into_int_value()
         };
@@ -2171,12 +2166,12 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
         let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
 
         let dim0 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
                 .into_int_value()
         };
         let dim1 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
                 .into_int_value()
         };
@@ -2214,12 +2209,12 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
         let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
 
         let dim0 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
                 .into_int_value()
         };
         let dim1 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
                 .into_int_value()
         };
@@ -2284,12 +2279,12 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
         let n2_array = n2_array.as_base_value().as_basic_value_enum();
 
         let outdim0 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
                 .into_int_value()
         };
         let outdim1 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
                 .into_int_value()
         };
@@ -2362,7 +2357,7 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
         let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
 
         let dim0 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
                 .into_int_value()
         };
@@ -2405,7 +2400,7 @@ pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
         let n1 = NDArrayValue::from_pointer_value(n1, n1_elem_ty, llvm_usize, None);
 
         let dim0 = unsafe {
-            n1.dim_sizes()
+            n1.shape()
                 .get_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
                 .into_int_value()
         };

@@ -103,7 +103,7 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
         });
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
-    let ndarray_dims = ndarray.dim_sizes();
+    let ndarray_dims = ndarray.shape();
 
     let indices = ctx.builder.build_array_alloca(llvm_i32, ndarray_num_dims, "").unwrap();
 
@@ -172,7 +172,7 @@ where
         });
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
-    let ndarray_dims = ndarray.dim_sizes();
+    let ndarray_dims = ndarray.shape();
 
     let index = ctx
         .builder
@@ -259,8 +259,8 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
             let idx = ctx.builder.build_int_sub(min_ndims, idx, "").unwrap();
             let (lhs_dim_sz, rhs_dim_sz) = unsafe {
                 (
-                    lhs.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None),
-                    rhs.dim_sizes().get_typed_unchecked(ctx, generator, &idx, None),
+                    lhs.shape().get_typed_unchecked(ctx, generator, &idx, None),
+                    rhs.shape().get_typed_unchecked(ctx, generator, &idx, None),
                 )
             };
 
@@ -298,9 +298,9 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
     .unwrap();
 
     let max_ndims = llvm_intrinsics::call_int_umax(ctx, lhs_ndims, rhs_ndims, None);
-    let lhs_dims = lhs.dim_sizes().base_ptr(ctx, generator);
+    let lhs_dims = lhs.shape().base_ptr(ctx, generator);
     let lhs_ndims = lhs.load_ndims(ctx);
-    let rhs_dims = rhs.dim_sizes().base_ptr(ctx, generator);
+    let rhs_dims = rhs.shape().base_ptr(ctx, generator);
     let rhs_ndims = rhs.load_ndims(ctx);
     let out_dims = ctx.builder.build_array_alloca(llvm_usize, max_ndims, "").unwrap();
     let out_dims = ArraySliceValue::from_ptr_val(out_dims, max_ndims, None);
@@ -362,7 +362,7 @@ pub fn call_ndarray_calc_broadcast_index<
     let broadcast_size = broadcast_idx.size(ctx, generator);
     let out_idx = ctx.builder.build_array_alloca(llvm_i32, broadcast_size, "").unwrap();
 
-    let array_dims = array.dim_sizes().base_ptr(ctx, generator);
+    let array_dims = array.shape().base_ptr(ctx, generator);
     let array_ndims = array.load_ndims(ctx);
     let broadcast_idx_ptr = unsafe {
         broadcast_idx.ptr_offset_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
