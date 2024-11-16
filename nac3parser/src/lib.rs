@@ -19,9 +19,9 @@
     future_incompatible,
     let_underscore,
     nonstandard_style,
-    rust_2024_compatibility,
     clippy::all
 )]
+#![warn(rust_2024_compatibility)]
 #![warn(clippy::pedantic)]
 #![allow(
     clippy::enum_glob_use,
@@ -49,11 +49,11 @@ lalrpop_mod!(
         future_incompatible,
         let_underscore,
         nonstandard_style,
-        rust_2024_compatibility,
         unused,
         clippy::all,
         clippy::pedantic
     )]
+    #[warn(rust_2024_compatibility)]
     python
 );
 pub mod config_comment_helper;

@@ -2,9 +2,9 @@
     future_incompatible,
     let_underscore,
     nonstandard_style,
-    rust_2024_compatibility,
     clippy::all
 )]
+#![warn(rust_2024_compatibility)]
 #![warn(clippy::pedantic)]
 #![allow(
     unsafe_op_in_unsafe_fn,
