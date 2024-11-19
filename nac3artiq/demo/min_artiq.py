@@ -206,7 +206,7 @@ class Core:
         embedding = EmbeddingMap()
 
         if allow_registration:
-            compiler.analyze(registered_functions, registered_classes)
+            compiler.analyze(registered_functions, registered_classes, set())
             allow_registration = False
 
         if hasattr(method, "__self__"):
