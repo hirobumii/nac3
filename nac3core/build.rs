@@ -56,9 +56,8 @@ fn main() {
     let output = Command::new("clang-irrt")
         .args(flags)
         .output()
-        .map(|o| {
+        .inspect(|o| {
             assert!(o.status.success(), "{}", std::str::from_utf8(&o.stderr).unwrap());
-            o
         })
         .unwrap();
 

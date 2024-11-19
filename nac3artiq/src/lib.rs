@@ -1,10 +1,4 @@
-#![deny(
-    future_incompatible,
-    let_underscore,
-    nonstandard_style,
-    clippy::all
-)]
-#![warn(rust_2024_compatibility)]
+#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(
     unsafe_op_in_unsafe_fn,
@@ -741,7 +735,7 @@ impl Nac3 {
                     };
 
                     let return_obj =
-                        generator.gen_expr(ctx, &expr)?.map(|value| (expr.custom.unwrap(), value));
+                        generator.gen_expr(ctx, expr)?.map(|value| (expr.custom.unwrap(), value));
                     has_return = return_obj.is_some();
                     registry.wait_tasks_complete(handles);
                     attributes_writeback(
@@ -765,7 +759,7 @@ impl Nac3 {
         let buffers = membuffers.lock();
         let main = context
             .create_module_from_ir(MemoryBuffer::create_from_memory_range(
-                &buffers.last().unwrap(),
+                buffers.last().unwrap(),
                 "main",
             ))
             .unwrap();

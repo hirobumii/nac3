@@ -15,13 +15,7 @@
 //!
 //! ```
 
-#![deny(
-    future_incompatible,
-    let_underscore,
-    nonstandard_style,
-    clippy::all
-)]
-#![warn(rust_2024_compatibility)]
+#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(
     clippy::enum_glob_use,

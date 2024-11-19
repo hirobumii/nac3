@@ -536,9 +536,8 @@ impl<'a> Fold<()> for Inferencer<'a> {
             }
             ast::StmtKind::Assert { test, msg, .. } => {
                 self.unify(test.custom.unwrap(), self.primitives.bool, &test.location)?;
-                match msg {
-                    Some(m) => self.unify(m.custom.unwrap(), self.primitives.str, &m.location)?,
-                    None => (),
+                if let Some(m) = msg {
+                    self.unify(m.custom.unwrap(), self.primitives.str, &m.location)?;
                 }
             }
             _ => return report_error("Unsupported statement type", stmt.location),

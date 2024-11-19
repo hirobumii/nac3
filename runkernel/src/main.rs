@@ -1,10 +1,4 @@
-#![deny(
-    future_incompatible,
-    let_underscore,
-    nonstandard_style,
-    clippy::all
-)]
-#![warn(rust_2024_compatibility)]
+#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(clippy::semicolon_if_nothing_returned, clippy::uninlined_format_args)]
 
@@ -12,47 +6,47 @@ use std::env;
 
 static mut NOW: i64 = 0;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn now_mu() -> i64 {
     unsafe { NOW }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn at_mu(t: i64) {
     unsafe { NOW = t }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn delay_mu(dt: i64) {
     unsafe { NOW += dt }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn rtio_init() {
     println!("rtio_init");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn rtio_get_counter() -> i64 {
     0
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn rtio_output(target: i32, data: i32) {
     println!("rtio_output @{} target={target:04x} data={data}", unsafe { NOW });
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn print_int32(x: i32) {
     println!("print_int32: {x}");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn print_int64(x: i64) {
     println!("print_int64: {x}");
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn __nac3_personality(_state: u32, _exception_object: u32, _context: u32) -> u32 {
     unimplemented!();
 }
