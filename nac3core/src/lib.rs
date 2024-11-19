@@ -21,3 +21,5 @@ pub mod codegen;
 pub mod symbol_resolver;
 pub mod toplevel;
 pub mod typecheck;
+
+extern crate self as nac3core;
