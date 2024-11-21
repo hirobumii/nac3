@@ -191,7 +191,7 @@ fn normalize_value_expr(expr: &Expr) -> proc_macro2::TokenStream {
 ///
 /// The following is an example of an LLVM slice implemented using `#[derive(StructFields)]`.
 ///
-/// ```
+/// ```rust,ignore
 /// use nac3core::{
 ///     codegen::types::structure::StructField,
 ///     inkwell::{
