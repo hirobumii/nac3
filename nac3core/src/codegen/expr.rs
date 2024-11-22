@@ -2852,7 +2852,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                     .builder
                     .build_int_z_extend_or_bit_cast(ndarray_num_elems, sizeof_elem.get_type(), "")
                     .unwrap();
-                ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
+                ndarray.create_data(generator, ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
                 let v_data_src_ptr = v.data().ptr_offset(ctx, generator, &index_addr, None);
                 call_memcpy_generic(

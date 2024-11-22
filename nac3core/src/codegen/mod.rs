@@ -1119,3 +1119,106 @@ fn gen_in_range_check<'ctx>(
 fn get_va_count_arg_name(arg_name: StrRef) -> StrRef {
     format!("__{}_va_count", &arg_name).into()
 }
+
+/// Returns the alignment of the type.
+///
+/// This is necessary as `get_alignment` is not implemented as part of [`BasicType`].
+pub fn get_type_alignment<'ctx>(ty: impl Into<BasicTypeEnum<'ctx>>) -> IntValue<'ctx> {
+    match ty.into() {
+        BasicTypeEnum::ArrayType(ty) => ty.get_alignment(),
+        BasicTypeEnum::FloatType(ty) => ty.get_alignment(),
+        BasicTypeEnum::IntType(ty) => ty.get_alignment(),
+        BasicTypeEnum::PointerType(ty) => ty.get_alignment(),
+        BasicTypeEnum::StructType(ty) => ty.get_alignment(),
+        BasicTypeEnum::VectorType(ty) => ty.get_alignment(),
+    }
+}
+
+/// Inserts an `alloca` instruction with allocation `size` given in bytes and the alignment of the
+/// given type.
+///
+/// The returned [`PointerValue`] will have a type of `i8*`, a size of at least `size`, and will be
+/// aligned with the alignment of `align_ty`.
+pub fn type_aligned_alloca<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    align_ty: impl Into<BasicTypeEnum<'ctx>>,
+    size: IntValue<'ctx>,
+    name: Option<&str>,
+) -> PointerValue<'ctx> {
+    /// Round `val` up to its modulo `power_of_two`.
+    fn round_up<'ctx>(
+        ctx: &CodeGenContext<'ctx, '_>,
+        val: IntValue<'ctx>,
+        power_of_two: IntValue<'ctx>,
+    ) -> IntValue<'ctx> {
+        debug_assert_eq!(
+            val.get_type().get_bit_width(),
+            power_of_two.get_type().get_bit_width(),
+            "`val` ({}) and `power_of_two` ({}) must be the same type",
+            val.get_type(),
+            power_of_two.get_type(),
+        );
+
+        let llvm_val_t = val.get_type();
+
+        let max_rem =
+            ctx.builder.build_int_sub(power_of_two, llvm_val_t.const_int(1, false), "").unwrap();
+        ctx.builder
+            .build_and(
+                ctx.builder.build_int_add(val, max_rem, "").unwrap(),
+                ctx.builder.build_not(max_rem, "").unwrap(),
+                "",
+            )
+            .unwrap()
+    }
+
+    let llvm_i8 = ctx.ctx.i8_type();
+    let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let align_ty = align_ty.into();
+
+    let size = ctx.builder.build_int_truncate_or_bit_cast(size, llvm_usize, "").unwrap();
+
+    debug_assert_eq!(
+        size.get_type().get_bit_width(),
+        llvm_usize.get_bit_width(),
+        "Expected size_t ({}) for parameter `size` of `aligned_alloca`, got {}",
+        llvm_usize,
+        size.get_type(),
+    );
+
+    let alignment = get_type_alignment(align_ty);
+    let alignment = ctx.builder.build_int_truncate_or_bit_cast(alignment, llvm_usize, "").unwrap();
+
+    if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+        let alignment_bitcount = llvm_intrinsics::call_int_ctpop(ctx, alignment, None);
+
+        ctx.make_assert(
+            generator,
+            ctx.builder
+                .build_int_compare(
+                    IntPredicate::EQ,
+                    alignment_bitcount,
+                    alignment_bitcount.get_type().const_int(1, false),
+                    "",
+                )
+                .unwrap(),
+            "0:AssertionError",
+            "Expected power-of-two alignment for aligned_alloca, got {0}",
+            [Some(alignment), None, None],
+            ctx.current_loc,
+        );
+    }
+
+    let buffer_size = round_up(ctx, size, alignment);
+    let aligned_slices = ctx.builder.build_int_unsigned_div(buffer_size, alignment, "").unwrap();
+
+    // Just to be absolutely sure, alloca in [i8 x alignment] slices
+    let buffer = ctx.builder.build_array_alloca(align_ty, aligned_slices, "").unwrap();
+
+    ctx.builder
+        .build_bit_cast(buffer, llvm_pi8, name.unwrap_or_default())
+        .map(BasicValueEnum::into_pointer_value)
+        .unwrap()
+}

@@ -18,6 +18,7 @@ use nac3core::{
         irrt::ndarray::call_ndarray_calc_size,
         llvm_intrinsics::{call_int_smax, call_memcpy_generic, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
+        type_aligned_alloca,
         types::ndarray::NDArrayType,
         values::{
             ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue,
@@ -650,27 +651,12 @@ fn format_rpc_ret<'ctx>(
             // (4 + 4 * ndims) bytes with 8-byte alignment
             let sizeof_dims =
                 ctx.builder.build_int_mul(ndarray.load_ndims(ctx), llvm_usize_sizeof, "").unwrap();
-            let unaligned_buffer_size =
+            let buffer_size =
                 ctx.builder.build_int_add(sizeof_dims, llvm_pdata_sizeof, "").unwrap();
-            let buffer_size = round_up(ctx, unaligned_buffer_size, llvm_usize.const_int(8, false));
 
             let stackptr = call_stacksave(ctx, None);
-            // Just to be absolutely sure, alloca in [i8 x 8] slices to force 8-byte alignment
-            let buffer = ctx
-                .builder
-                .build_array_alloca(
-                    llvm_i8_8,
-                    ctx.builder
-                        .build_int_unsigned_div(buffer_size, llvm_usize.const_int(8, false), "")
-                        .unwrap(),
-                    "rpc.buffer",
-                )
-                .unwrap();
-            let buffer = ctx
-                .builder
-                .build_bit_cast(buffer, llvm_pi8, "")
-                .map(BasicValueEnum::into_pointer_value)
-                .unwrap();
+            let buffer =
+                type_aligned_alloca(generator, ctx, llvm_i8_8, buffer_size, Some("rpc.buffer"));
             let buffer = ArraySliceValue::from_ptr_val(buffer, buffer_size, None);
 
             // The first call to `rpc_recv` reads the top-level ndarray object: [pdata, shape]
@@ -743,7 +729,7 @@ fn format_rpc_ret<'ctx>(
                 );
             }
 
-            ndarray.create_data(ctx, llvm_elem_ty, num_elements);
+            ndarray.create_data(generator, ctx, llvm_elem_ty, num_elements);
 
             let ndarray_data = ndarray.data().base_ptr(ctx, generator);
             let ndarray_data_i8 =

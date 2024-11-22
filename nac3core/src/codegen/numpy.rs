@@ -235,7 +235,7 @@ fn ndarray_init_data<'ctx, G: CodeGenerator + ?Sized>(
         &ndarray.shape().as_slice_value(ctx, generator),
         (None, None),
     );
-    ndarray.create_data(ctx, llvm_ndarray_data_t, ndarray_num_elems);
+    ndarray.create_data(generator, ctx, llvm_ndarray_data_t, ndarray_num_elems);
 
     ndarray
 }

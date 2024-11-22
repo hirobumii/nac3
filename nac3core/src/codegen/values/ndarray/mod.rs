@@ -12,6 +12,7 @@ use crate::codegen::{
     irrt,
     llvm_intrinsics::call_int_umin,
     stmt::gen_for_callback_incrementing,
+    type_aligned_alloca,
     types::{ndarray::NDArrayType, structure::StructField},
     CodeGenContext, CodeGenerator,
 };
@@ -128,9 +129,10 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Convenience method for creating a new array storing data elements with the given element
     /// type `elem_ty` and `size`.
-    pub fn create_data(
+    pub fn create_data<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         elem_ty: BasicTypeEnum<'ctx>,
         size: IntValue<'ctx>,
     ) {
@@ -140,11 +142,8 @@ impl<'ctx> NDArrayValue<'ctx> {
             .unwrap();
         let nbytes = ctx.builder.build_int_mul(size, itemsize, "").unwrap();
 
-        // TODO: What about alignment?
-        self.store_data(
-            ctx,
-            ctx.builder.build_array_alloca(ctx.ctx.i8_type(), nbytes, "").unwrap(),
-        );
+        let data = type_aligned_alloca(generator, ctx, elem_ty, nbytes, None);
+        self.store_data(ctx, data);
     }
 
     /// Returns a proxy object to the field storing the data of this `NDArray`.

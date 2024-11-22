@@ -343,3 +343,25 @@ pub fn call_float_powi<'ctx>(
         .map(Either::unwrap_left)
         .unwrap()
 }
+
+/// Invokes the [`llvm.ctpop`](https://llvm.org/docs/LangRef.html#llvm-ctpop-intrinsic) intrinsic.
+pub fn call_int_ctpop<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    src: IntValue<'ctx>,
+    name: Option<&str>,
+) -> IntValue<'ctx> {
+    const FN_NAME: &str = "llvm.ctpop";
+
+    let llvm_src_t = src.get_type();
+
+    let intrinsic_fn = Intrinsic::find(FN_NAME)
+        .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, &[llvm_src_t.into()]))
+        .unwrap();
+
+    ctx.builder
+        .build_call(intrinsic_fn, &[src.into()], name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(|v| v.map_left(BasicValueEnum::into_int_value))
+        .map(Either::unwrap_left)
+        .unwrap()
+}
