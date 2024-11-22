@@ -118,7 +118,7 @@
             })
           ];
           buildInputs = [
-            (python3-mimalloc.withPackages(ps: [ ps.numpy ps.scipy ps.jsonschema ps.lmdb nac3artiq-instrumented ]))
+            (python3-mimalloc.withPackages(ps: [ ps.numpy ps.scipy ps.jsonschema ps.lmdb ps.platformdirs nac3artiq-instrumented ]))
             pkgs.llvmPackages_14.llvm.out
           ];
           phases = [ "buildPhase" "installPhase" ];
