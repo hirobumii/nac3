@@ -107,14 +107,14 @@
             (pkgs.fetchFromGitHub {
               owner = "m-labs";
               repo = "sipyco";
-              rev = "939f84f9b5eef7efbf7423c735d1834783b6140e";
-              sha256 = "sha256-15Nun4EY35j+6SPZkjzZtyH/ncxLS60KuGJjFh5kSTc=";
+              rev = "094a6cd63ffa980ef63698920170e50dc9ba77fd";
+              sha256 = "sha256-PPnAyDedUQ7Og/Cby9x5OT9wMkNGTP8GS53V6N/dk4w=";
             })
             (pkgs.fetchFromGitHub {
               owner = "m-labs";
               repo = "artiq";
-              rev = "923ca3377d42c815f979983134ec549dc39d3ca0";
-              sha256 = "sha256-oJoEeNEeNFSUyh6jXG8Tzp6qHVikeHS0CzfE+mODPgw=";
+              rev = "28c9de3e251daa89a8c9fd79d5ab64a3ec03bac6";
+              sha256 = "sha256-vAvpbHc5B+1wtG8zqN7j9dQE1ON+i22v+uqA+tw6Gak=";
             })
           ];
           buildInputs = [
