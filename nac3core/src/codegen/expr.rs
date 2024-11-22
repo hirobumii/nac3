@@ -2842,7 +2842,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                     llvm_i1.const_zero(),
                 );
 
-                let ndarray_num_elems = call_ndarray_calc_size(
+                let ndarray_num_elems = ndarray::call_ndarray_calc_size(
                     generator,
                     ctx,
                     &ndarray.shape().as_slice_value(ctx, generator),

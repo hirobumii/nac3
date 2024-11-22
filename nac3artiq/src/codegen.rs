@@ -15,7 +15,7 @@ use pyo3::{
 use nac3core::{
     codegen::{
         expr::{destructure_range, gen_call},
-        irrt::call_ndarray_calc_size,
+        irrt::ndarray::call_ndarray_calc_size,
         llvm_intrinsics::{call_int_smax, call_memcpy_generic, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         types::NDArrayType,

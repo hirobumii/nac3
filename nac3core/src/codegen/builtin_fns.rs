@@ -892,7 +892,8 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
             let n = NDArrayValue::from_pointer_value(n, llvm_elem_ty, llvm_usize, None);
-            let n_sz = irrt::call_ndarray_calc_size(generator, ctx, &n.shape(), (None, None));
+            let n_sz =
+                irrt::ndarray::call_ndarray_calc_size(generator, ctx, &n.shape(), (None, None));
             if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
                 let n_sz_eqz = ctx
                     .builder

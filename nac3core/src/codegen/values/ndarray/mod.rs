@@ -9,7 +9,7 @@ use super::{
     UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
 };
 use crate::codegen::{
-    irrt::{call_ndarray_calc_size, call_ndarray_flatten_index},
+    irrt,
     llvm_intrinsics::call_int_umin,
     stmt::gen_for_callback_incrementing,
     types::{structure::StructField, NDArrayType},
@@ -291,7 +291,12 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDataProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         generator: &G,
     ) -> IntValue<'ctx> {
-        call_ndarray_calc_size(generator, ctx, &self.as_slice_value(ctx, generator), (None, None))
+        irrt::ndarray::call_ndarray_calc_size(
+            generator,
+            ctx,
+            &self.as_slice_value(ctx, generator),
+            (None, None),
+        )
     }
 }
 
@@ -400,7 +405,7 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
             indices_elem_ty.get_bit_width()
         );
 
-        let index = call_ndarray_flatten_index(generator, ctx, *self.0, indices);
+        let index = irrt::ndarray::call_ndarray_flatten_index(generator, ctx, *self.0, indices);
         let sizeof_elem = ctx
             .builder
             .build_int_truncate_or_bit_cast(

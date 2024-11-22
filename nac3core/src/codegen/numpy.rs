@@ -9,8 +9,11 @@ use nac3parser::ast::{Operator, StrRef};
 use super::{
     expr::gen_binop_expr_with_values,
     irrt::{
-        calculate_len_for_slice_range, call_ndarray_calc_broadcast,
-        call_ndarray_calc_broadcast_index, call_ndarray_calc_nd_indices, call_ndarray_calc_size,
+        calculate_len_for_slice_range,
+        ndarray::{
+            call_ndarray_calc_broadcast, call_ndarray_calc_broadcast_index,
+            call_ndarray_calc_nd_indices, call_ndarray_calc_size,
+        },
     },
     llvm_intrinsics::{self, call_memcpy_generic},
     macros::codegen_unreachable,
