@@ -14,7 +14,10 @@ use pyo3::{
 };
 
 use nac3core::{
-    codegen::{types::NDArrayType, CodeGenContext, CodeGenerator},
+    codegen::{
+        types::{NDArrayType, ProxyType},
+        CodeGenContext, CodeGenerator,
+    },
     inkwell::{
         module::Linkage,
         types::{BasicType, BasicTypeEnum},
@@ -1093,7 +1096,7 @@ impl InnerResolver {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
                         ctx.module.add_global(
-                            ndarray_llvm_ty.element_type().into_struct_type(),
+                            ndarray_llvm_ty.as_base_type().get_element_type().into_struct_type(),
                             Some(AddressSpace::default()),
                             &id_str,
                         )
@@ -1187,20 +1190,24 @@ impl InnerResolver {
             data_global.set_initializer(&data);
 
             // create a global for the ndarray object and initialize it
-            let value = ndarray_llvm_ty.element_type().into_struct_type().const_named_struct(&[
-                llvm_usize.const_int(ndarray_ndims, false).into(),
-                shape_global
-                    .as_pointer_value()
-                    .const_cast(llvm_usize.ptr_type(AddressSpace::default()))
-                    .into(),
-                data_global
-                    .as_pointer_value()
-                    .const_cast(ndarray_dtype_llvm_ty.ptr_type(AddressSpace::default()))
-                    .into(),
-            ]);
+            let value = ndarray_llvm_ty
+                .as_base_type()
+                .get_element_type()
+                .into_struct_type()
+                .const_named_struct(&[
+                    llvm_usize.const_int(ndarray_ndims, false).into(),
+                    shape_global
+                        .as_pointer_value()
+                        .const_cast(llvm_usize.ptr_type(AddressSpace::default()))
+                        .into(),
+                    data_global
+                        .as_pointer_value()
+                        .const_cast(ndarray_dtype_llvm_ty.ptr_type(AddressSpace::default()))
+                        .into(),
+                ]);
 
             let ndarray = ctx.module.add_global(
-                ndarray_llvm_ty.element_type().into_struct_type(),
+                ndarray_llvm_ty.as_base_type().get_element_type().into_struct_type(),
                 Some(AddressSpace::default()),
                 &id_str,
             );
