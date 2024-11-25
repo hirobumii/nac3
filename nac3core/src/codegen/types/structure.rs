@@ -145,7 +145,7 @@ where
     }
 
     /// Sets the value of this field for a given `obj`.
-    pub fn set_from_value(&self, obj: StructValue<'ctx>, value: Value) {
+    pub fn set_for_value(&self, obj: StructValue<'ctx>, value: Value) {
         obj.set_field_at_index(self.index, value);
     }
 
