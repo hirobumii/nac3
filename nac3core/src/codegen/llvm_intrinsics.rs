@@ -201,6 +201,49 @@ pub fn call_memcpy_generic<'ctx>(
     call_memcpy(ctx, dest, src, len, is_volatile);
 }
 
+/// Invokes the `llvm.memcpy` intrinsic.
+///
+/// Unlike [`call_memcpy`], this function accepts any type of pointer value. If `dest` or `src` is
+/// not a pointer to an integer, the pointer(s) will be cast to `i8*` before invoking `memcpy`.
+/// Moreover, `len` now refers to the number of elements to copy (rather than number of bytes to
+/// copy).
+pub fn call_memcpy_generic_array<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    dest: PointerValue<'ctx>,
+    src: PointerValue<'ctx>,
+    len: IntValue<'ctx>,
+    is_volatile: IntValue<'ctx>,
+) {
+    let llvm_i8 = ctx.ctx.i8_type();
+    let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
+    let llvm_sizeof_expr_t = llvm_i8.size_of().get_type();
+
+    let dest_elem_t = dest.get_type().get_element_type();
+    let src_elem_t = src.get_type().get_element_type();
+
+    let dest = if matches!(dest_elem_t, IntType(t) if t.get_bit_width() == 8) {
+        dest
+    } else {
+        ctx.builder
+            .build_bit_cast(dest, llvm_p0i8, "")
+            .map(BasicValueEnum::into_pointer_value)
+            .unwrap()
+    };
+    let src = if matches!(src_elem_t, IntType(t) if t.get_bit_width() == 8) {
+        src
+    } else {
+        ctx.builder
+            .build_bit_cast(src, llvm_p0i8, "")
+            .map(BasicValueEnum::into_pointer_value)
+            .unwrap()
+    };
+
+    let len = ctx.builder.build_int_z_extend_or_bit_cast(len, llvm_sizeof_expr_t, "").unwrap();
+    let len = ctx.builder.build_int_mul(len, src_elem_t.size_of().unwrap(), "").unwrap();
+
+    call_memcpy(ctx, dest, src, len, is_volatile);
+}
+
 /// Macro to find and generate build call for llvm intrinsic (body of llvm intrinsic function)
 ///
 /// Arguments:
