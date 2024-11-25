@@ -3598,3 +3598,97 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
         _ => unimplemented!(),
     }))
 }
+
+/// Creates a function in the current module and inserts a `call` instruction into the LLVM IR.
+#[allow(clippy::too_many_arguments)]
+pub fn create_fn_and_call<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    fn_name: &str,
+    ret_type: Option<BasicTypeEnum<'ctx>>,
+    params: &[BasicTypeEnum<'ctx>],
+    args: &[BasicValueEnum<'ctx>],
+    is_var_args: bool,
+    call_value_name: Option<&str>,
+    configure: Option<&dyn Fn(&FunctionValue<'ctx>)>,
+) -> Option<BasicValueEnum<'ctx>> {
+    let intrinsic_fn = ctx.module.get_function(fn_name).unwrap_or_else(|| {
+        let params = params.iter().copied().map(BasicTypeEnum::into).collect_vec();
+        let fn_type = if let Some(ret_type) = ret_type {
+            ret_type.fn_type(params.as_slice(), is_var_args)
+        } else {
+            ctx.ctx.void_type().fn_type(params.as_slice(), is_var_args)
+        };
+
+        ctx.module.add_function(fn_name, fn_type, None)
+    });
+
+    if let Some(configure) = configure {
+        configure(&intrinsic_fn);
+    }
+
+    let args = args.iter().copied().map(BasicValueEnum::into).collect_vec();
+    ctx.builder
+        .build_call(intrinsic_fn, args.as_slice(), call_value_name.unwrap_or_default())
+        .map(CallSiteValue::try_as_basic_value)
+        .map(Either::left)
+        .unwrap()
+}
+
+/// Creates a function in the current module and inserts a `call` instruction into the LLVM IR.
+///
+/// This is a wrapper around [`create_fn_and_call`] for non-vararg function. This function allows
+/// parameters and arguments to be specified as tuples to better indicate the expected type and
+/// actual value of each parameter-argument pair of the call.
+pub fn create_and_call_function<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    fn_name: &str,
+    ret_type: Option<BasicTypeEnum<'ctx>>,
+    params: &[(BasicTypeEnum<'ctx>, BasicValueEnum<'ctx>)],
+    value_name: Option<&str>,
+    configure: Option<&dyn Fn(&FunctionValue<'ctx>)>,
+) -> Option<BasicValueEnum<'ctx>> {
+    let param_tys = params.iter().map(|(ty, _)| ty).copied().map(BasicTypeEnum::into).collect_vec();
+    let arg_values =
+        params.iter().map(|(_, value)| value).copied().map(BasicValueEnum::into).collect_vec();
+
+    create_fn_and_call(
+        ctx,
+        fn_name,
+        ret_type,
+        param_tys.as_slice(),
+        arg_values.as_slice(),
+        false,
+        value_name,
+        configure,
+    )
+}
+
+/// Creates a function in the current module and inserts a `call` instruction into the LLVM IR.
+///
+/// This is a wrapper around [`create_fn_and_call`] for non-vararg function. This function allows
+/// only arguments to be specified and performs inference for the parameter types of the function
+/// using [`BasicValueEnum::get_type`] on the arguments.
+///
+/// This function is recommended if it is known that all function arguments match the parameter
+/// types of the invoked function.
+pub fn infer_and_call_function<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    fn_name: &str,
+    ret_type: Option<BasicTypeEnum<'ctx>>,
+    args: &[BasicValueEnum<'ctx>],
+    value_name: Option<&str>,
+    configure: Option<&dyn Fn(&FunctionValue<'ctx>)>,
+) -> Option<BasicValueEnum<'ctx>> {
+    let param_tys = args.iter().map(BasicValueEnum::get_type).collect_vec();
+
+    create_fn_and_call(
+        ctx,
+        fn_name,
+        ret_type,
+        param_tys.as_slice(),
+        args,
+        false,
+        value_name,
+        configure,
+    )
+}
