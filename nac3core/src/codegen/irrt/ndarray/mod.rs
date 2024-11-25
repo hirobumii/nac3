@@ -15,6 +15,9 @@ use crate::codegen::{
     },
     CodeGenContext, CodeGenerator,
 };
+pub use basic::*;
+
+mod basic;
 
 /// Generates a call to `__nac3_ndarray_calc_size`. Returns an [`IntValue`] representing the
 /// calculated total size.
@@ -77,7 +80,7 @@ where
 ///   `NDArray`.
 pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     generator: &G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
+    ctx: &CodeGenContext<'ctx, '_>,
     index: IntValue<'ctx>,
     ndarray: NDArrayValue<'ctx>,
 ) -> TypedArrayLikeAdapter<'ctx, IntValue<'ctx>> {
@@ -201,8 +204,8 @@ where
 ///   `NDArray`.
 /// * `indices` - The multidimensional index to compute the flattened index for.
 pub fn call_ndarray_flatten_index<'ctx, G, Index>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
+    generator: &G,
+    ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
     indices: &Index,
 ) -> IntValue<'ctx>

@@ -2,6 +2,8 @@
 
 #include "irrt/int_types.hpp"
 
+// TODO: To be deleted since NDArray with strides is done.
+
 namespace {
 template<typename SizeT>
 SizeT __nac3_ndarray_calc_size_impl(const SizeT* list_data, SizeT list_len, SizeT begin_idx, SizeT end_idx) {

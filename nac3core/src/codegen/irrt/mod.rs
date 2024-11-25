@@ -59,6 +59,27 @@ pub fn load_irrt<'ctx>(ctx: &'ctx Context, symbol_resolver: &dyn SymbolResolver)
     irrt_mod
 }
 
+/// Returns the name of a function which contains variants for 32-bit and 64-bit `size_t`.
+///
+/// - When [`TypeContext::size_type`] is 32-bits, the function name is `fn_name}`.
+/// - When [`TypeContext::size_type`] is 64-bits, the function name is `{fn_name}64`.
+#[must_use]
+pub fn get_usize_dependent_function_name<G: CodeGenerator + ?Sized>(
+    generator: &G,
+    ctx: &CodeGenContext<'_, '_>,
+    name: &str,
+) -> String {
+    let mut name = name.to_owned();
+    match generator.get_size_type(ctx.ctx).get_bit_width() {
+        32 => {}
+        64 => name.push_str("64"),
+        bit_width => {
+            panic!("Unsupported int type bit width {bit_width}, must be either 32-bits or 64-bits")
+        }
+    }
+    name
+}
+
 /// NOTE: the output value of the end index of this function should be compared ***inclusively***,
 /// because python allows `a[2::-1]`, whose semantic is `[a[2], a[1], a[0]]`, which is equivalent to
 /// NO numeric slice in python.
