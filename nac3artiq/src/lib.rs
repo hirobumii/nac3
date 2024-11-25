@@ -150,7 +150,7 @@ impl Nac3 {
                     let source_file = source_file.extract()?;
                     (
                         source_file,
-                        fs::read_to_string(&source_file).map_err(|e| {
+                        fs::read_to_string(source_file).map_err(|e| {
                             exceptions::PyIOError::new_err(format!(
                                 "failed to read input file: {e}"
                             ))
@@ -1119,7 +1119,7 @@ impl Nac3 {
                 }
                 for module in content_modules {
                     let module: PyObject = module.extract()?;
-                    modules.insert(id_fn.call1((&module,))?.extract()?, module.into());
+                    modules.insert(id_fn.call1((&module,))?.extract()?, module);
                 }
                 Ok((modules, class_ids))
             })?;
