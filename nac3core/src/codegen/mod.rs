@@ -30,7 +30,11 @@ use nac3parser::ast::{Location, Stmt, StrRef};
 
 use crate::{
     symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, TopLevelContext, TopLevelDef},
+    toplevel::{
+        helper::{extract_ndims, PrimDef},
+        numpy::unpack_ndarray_var_tys,
+        TopLevelContext, TopLevelDef,
+    },
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
@@ -510,12 +514,13 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         }
 
                         TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                            let (dtype, _) = unpack_ndarray_var_tys(unifier, ty);
+                            let (dtype, ndims) = unpack_ndarray_var_tys(unifier, ty);
+                            let ndims = extract_ndims(unifier, ndims);
                             let element_type = get_llvm_type(
                                 ctx, module, generator, unifier, top_level, type_cache, dtype,
                             );
 
-                            NDArrayType::new(generator, ctx, element_type).as_base_type().into()
+                            NDArrayType::new(generator, ctx, element_type, Some(ndims)).as_base_type().into()
                         }
 
                         _ => unreachable!(

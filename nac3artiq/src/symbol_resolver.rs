@@ -13,6 +13,7 @@ use pyo3::{
     PyAny, PyObject, PyResult, Python,
 };
 
+use super::PrimitivePythonId;
 use nac3core::{
     codegen::{
         types::{ndarray::NDArrayType, ProxyType},
@@ -36,8 +37,6 @@ use nac3core::{
         typedef::{into_var_map, iter_type_vars, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
-
-use super::PrimitivePythonId;
 
 pub enum PrimitiveValue {
     I32(i32),
@@ -1085,12 +1084,11 @@ impl InnerResolver {
             } else {
                 unreachable!("must be ndarray")
             };
-            let (ndarray_dtype, ndarray_ndims) =
-                unpack_ndarray_var_tys(&mut ctx.unifier, ndarray_ty);
+            let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ndarray_ty);
 
             let llvm_usize = generator.get_size_type(ctx.ctx);
-            let ndarray_dtype_llvm_ty = ctx.get_llvm_type(generator, ndarray_dtype);
-            let ndarray_llvm_ty = NDArrayType::new(generator, ctx.ctx, ndarray_dtype_llvm_ty);
+            let ndarray_llvm_ty = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty);
+            let ndarray_dtype_llvm_ty = ndarray_llvm_ty.element_type();
 
             {
                 if self.global_value_ids.read().contains_key(&id) {
@@ -1106,19 +1104,7 @@ impl InnerResolver {
                 self.global_value_ids.write().insert(id, obj.into());
             }
 
-            let TypeEnum::TLiteral { values, .. } = &*ctx.unifier.get_ty_immutable(ndarray_ndims)
-            else {
-                unreachable!("Expected Literal for ndarray_ndims")
-            };
-
-            let ndarray_ndims = if values.len() == 1 {
-                values[0].clone()
-            } else {
-                todo!("Unpacking literal of more than one element unimplemented")
-            };
-            let Ok(ndarray_ndims) = u64::try_from(ndarray_ndims) else {
-                unreachable!("Expected u64 value for ndarray_ndims")
-            };
+            let ndarray_ndims = ndarray_llvm_ty.ndims().unwrap();
 
             // Obtain the shape of the ndarray
             let shape_tuple: &PyTuple = obj.getattr("shape")?.downcast()?;

@@ -471,6 +471,6 @@ fn test_classes_ndarray_type_new() {
     let llvm_i32 = ctx.i32_type();
     let llvm_usize = generator.get_size_type(&ctx);
 
-    let llvm_ndarray = NDArrayType::new(&generator, &ctx, llvm_i32.into());
+    let llvm_ndarray = NDArrayType::new(&generator, &ctx, llvm_i32.into(), None);
     assert!(NDArrayType::is_representable(llvm_ndarray.as_base_type(), llvm_usize).is_ok());
 }

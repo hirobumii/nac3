@@ -21,8 +21,8 @@ use nac3core::{
         type_aligned_alloca,
         types::ndarray::NDArrayType,
         values::{
-            ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue,
-            ProxyValue, RangeValue, UntypedArrayLikeAccessor,
+            ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, ProxyValue, RangeValue,
+            UntypedArrayLikeAccessor,
         },
         CodeGenContext, CodeGenerator,
     },
@@ -35,7 +35,11 @@ use nac3core::{
     },
     nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef},
     symbol_resolver::ValueEnum,
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, DefinitionId, GenCall},
+    toplevel::{
+        helper::{extract_ndims, PrimDef},
+        numpy::unpack_ndarray_var_tys,
+        DefinitionId, GenCall,
+    },
     typecheck::typedef::{iter_type_vars, FunSignature, FuncArg, Type, TypeEnum, VarMap},
 };
 
@@ -459,14 +463,11 @@ fn format_rpc_arg<'ctx>(
             let llvm_i1 = ctx.ctx.bool_type();
             let llvm_usize = generator.get_size_type(ctx.ctx);
 
-            let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
+            let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
+            let ndims = extract_ndims(&ctx.unifier, ndims);
             let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
-            let llvm_arg = NDArrayValue::from_pointer_value(
-                arg.into_pointer_value(),
-                llvm_elem_ty,
-                llvm_usize,
-                None,
-            );
+            let llvm_arg_ty = NDArrayType::new(generator, ctx.ctx, llvm_elem_ty, Some(ndims));
+            let llvm_arg = llvm_arg_ty.map_value(arg.into_pointer_value(), None);
 
             let llvm_usize_sizeof = ctx
                 .builder
@@ -601,23 +602,15 @@ fn format_rpc_ret<'ctx>(
             };
 
             // Setup types
-            let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ret_ty);
-            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
-            let llvm_ret_ty = NDArrayType::new(generator, ctx.ctx, llvm_elem_ty);
+            let llvm_ret_ty = NDArrayType::from_unifier_type(generator, ctx, ret_ty);
+            let llvm_elem_ty = llvm_ret_ty.element_type();
 
             // Allocate the resulting ndarray
             // A condition after format_rpc_ret ensures this will not be popped this off.
             let ndarray = llvm_ret_ty.alloca(generator, ctx, Some("rpc.result"));
 
             // Setup ndims
-            let ndims =
-                if let TypeEnum::TLiteral { values, .. } = &*ctx.unifier.get_ty_immutable(ndims) {
-                    assert_eq!(values.len(), 1);
-
-                    u64::try_from(values[0].clone()).unwrap()
-                } else {
-                    unreachable!();
-                };
+            let ndims = llvm_ret_ty.ndims().unwrap();
             // Set `ndarray.ndims`
             ndarray.store_ndims(ctx, generator, llvm_usize.const_int(ndims, false));
             // Allocate `ndarray.shape` [size_t; ndims]
@@ -1362,17 +1355,12 @@ fn polymorphic_print<'ctx>(
 
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                 let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
-                let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
                 fmt.push_str("array([");
                 flush(ctx, generator, &mut fmt, &mut args);
 
-                let val = NDArrayValue::from_pointer_value(
-                    value.into_pointer_value(),
-                    llvm_elem_ty,
-                    llvm_usize,
-                    None,
-                );
+                let val = NDArrayType::from_unifier_type(generator, ctx, ty)
+                    .map_value(value.into_pointer_value(), None);
                 let len = call_ndarray_calc_size(generator, ctx, &val.shape(), (None, None));
                 let last =
                     ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "").unwrap();

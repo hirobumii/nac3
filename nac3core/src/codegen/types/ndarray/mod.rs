@@ -1,5 +1,5 @@
 use inkwell::{
-    context::Context,
+    context::{AsContextRef, Context},
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
     values::{IntValue, PointerValue},
     AddressSpace,
@@ -9,12 +9,16 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use super::{
-    structure::{StructField, StructFields},
+    structure::{check_struct_type_matches_fields, StructField, StructFields},
     ProxyType,
 };
-use crate::codegen::{
-    values::{ndarray::NDArrayValue, ArraySliceValue, ProxyValue},
-    {CodeGenContext, CodeGenerator},
+use crate::{
+    codegen::{
+        values::{ndarray::NDArrayValue, ArraySliceValue, ProxyValue, TypedArrayLikeMutator},
+        {CodeGenContext, CodeGenerator},
+    },
+    toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},
+    typecheck::typedef::Type,
 };
 
 /// Proxy type for a `ndarray` type in LLVM.
@@ -22,15 +26,25 @@ use crate::codegen::{
 pub struct NDArrayType<'ctx> {
     ty: PointerType<'ctx>,
     dtype: BasicTypeEnum<'ctx>,
+    ndims: Option<u64>,
     llvm_usize: IntType<'ctx>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, StructFields)]
 pub struct NDArrayStructFields<'ctx> {
+    /// The size of each `NDArray` element in bytes.
+    #[value_type(usize)]
+    pub itemsize: StructField<'ctx, IntValue<'ctx>>,
+    /// Number of dimensions in the array.
     #[value_type(usize)]
     pub ndims: StructField<'ctx, IntValue<'ctx>>,
+    /// Pointer to an array containing the shape of the `NDArray`.
     #[value_type(usize.ptr_type(AddressSpace::default()))]
     pub shape: StructField<'ctx, PointerValue<'ctx>>,
+    /// Pointer to an array indicating the number of bytes between each element at a dimension
+    #[value_type(usize.ptr_type(AddressSpace::default()))]
+    pub strides: StructField<'ctx, PointerValue<'ctx>>,
+    /// Pointer to an array containing the array data
     #[value_type(i8_type().ptr_type(AddressSpace::default()))]
     pub data: StructField<'ctx, PointerValue<'ctx>>,
 }
@@ -41,90 +55,40 @@ impl<'ctx> NDArrayType<'ctx> {
         llvm_ty: PointerType<'ctx>,
         llvm_usize: IntType<'ctx>,
     ) -> Result<(), String> {
+        let ctx = llvm_ty.get_context();
+
         let llvm_ndarray_ty = llvm_ty.get_element_type();
         let AnyTypeEnum::StructType(llvm_ndarray_ty) = llvm_ndarray_ty else {
             return Err(format!("Expected struct type for `NDArray` type, got {llvm_ndarray_ty}"));
         };
-        if llvm_ndarray_ty.count_fields() != 3 {
-            return Err(format!(
-                "Expected 3 fields in `NDArray`, got {}",
-                llvm_ndarray_ty.count_fields()
-            ));
-        }
 
-        let ndarray_ndims_ty = llvm_ndarray_ty.get_field_type_at_index(0).unwrap();
-        let Ok(ndarray_ndims_ty) = IntType::try_from(ndarray_ndims_ty) else {
-            return Err(format!("Expected int type for `ndarray.0`, got {ndarray_ndims_ty}"));
-        };
-        if ndarray_ndims_ty.get_bit_width() != llvm_usize.get_bit_width() {
-            return Err(format!(
-                "Expected {}-bit int type for `ndarray.0`, got {}-bit int",
-                llvm_usize.get_bit_width(),
-                ndarray_ndims_ty.get_bit_width()
-            ));
-        }
-
-        let ndarray_dims_ty = llvm_ndarray_ty.get_field_type_at_index(1).unwrap();
-        let Ok(ndarray_pdims) = PointerType::try_from(ndarray_dims_ty) else {
-            return Err(format!("Expected pointer type for `ndarray.1`, got {ndarray_dims_ty}"));
-        };
-        let ndarray_dims = ndarray_pdims.get_element_type();
-        let Ok(ndarray_dims) = IntType::try_from(ndarray_dims) else {
-            return Err(format!(
-                "Expected pointer-to-int type for `ndarray.1`, got pointer-to-{ndarray_dims}"
-            ));
-        };
-        if ndarray_dims.get_bit_width() != llvm_usize.get_bit_width() {
-            return Err(format!(
-                "Expected pointer-to-{}-bit int type for `ndarray.1`, got pointer-to-{}-bit int",
-                llvm_usize.get_bit_width(),
-                ndarray_dims.get_bit_width()
-            ));
-        }
-
-        let ndarray_data_ty = llvm_ndarray_ty.get_field_type_at_index(2).unwrap();
-        let Ok(ndarray_pdata) = PointerType::try_from(ndarray_data_ty) else {
-            return Err(format!("Expected pointer type for `ndarray.2`, got {ndarray_data_ty}"));
-        };
-        let ndarray_data = ndarray_pdata.get_element_type();
-        let Ok(ndarray_data) = IntType::try_from(ndarray_data) else {
-            return Err(format!(
-                "Expected pointer-to-int type for `ndarray.2`, got pointer-to-{ndarray_data}"
-            ));
-        };
-        if ndarray_data.get_bit_width() != 8 {
-            return Err(format!(
-                "Expected pointer-to-8-bit int type for `ndarray.1`, got pointer-to-{}-bit int",
-                ndarray_data.get_bit_width()
-            ));
-        }
-
-        Ok(())
+        check_struct_type_matches_fields(
+            Self::fields(ctx, llvm_usize),
+            llvm_ndarray_ty,
+            "NDArray",
+            &[],
+        )
     }
 
     /// Returns an instance of [`StructFields`] containing all field accessors for this type.
     #[must_use]
-    fn fields(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> NDArrayStructFields<'ctx> {
+    fn fields(
+        ctx: impl AsContextRef<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> NDArrayStructFields<'ctx> {
         NDArrayStructFields::new(ctx, llvm_usize)
     }
 
     /// See [`NDArrayType::fields`].
     // TODO: Move this into e.g. StructProxyType
     #[must_use]
-    pub fn get_fields(&self, ctx: &'ctx Context) -> NDArrayStructFields<'ctx> {
+    pub fn get_fields(&self, ctx: impl AsContextRef<'ctx>) -> NDArrayStructFields<'ctx> {
         Self::fields(ctx, self.llvm_usize)
     }
 
     /// Creates an LLVM type corresponding to the expected structure of an `NDArray`.
     #[must_use]
     fn llvm_type(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
-        // struct NDArray { num_dims: size_t, dims: size_t*, data: i8* }
-        //
-        // * data    : Pointer to an array containing the array data
-        // * itemsize: The size of each NDArray elements in bytes
-        // * ndims   : Number of dimensions in the array
-        // * shape   : Pointer to an array containing the shape of the NDArray
-        // * strides : Pointer to an array indicating the number of bytes between each element at a dimension
         let field_tys =
             Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
 
@@ -137,11 +101,33 @@ impl<'ctx> NDArrayType<'ctx> {
         generator: &G,
         ctx: &'ctx Context,
         dtype: BasicTypeEnum<'ctx>,
+        ndims: Option<u64>,
     ) -> Self {
         let llvm_usize = generator.get_size_type(ctx);
         let llvm_ndarray = Self::llvm_type(ctx, llvm_usize);
 
-        NDArrayType { ty: llvm_ndarray, dtype, llvm_usize }
+        NDArrayType { ty: llvm_ndarray, dtype, ndims, llvm_usize }
+    }
+
+    /// Creates an [`NDArrayType`] from a [unifier type][Type].
+    #[must_use]
+    pub fn from_unifier_type<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        ty: Type,
+    ) -> Self {
+        let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+
+        let llvm_dtype = ctx.get_llvm_type(generator, dtype);
+        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let ndims = extract_ndims(&ctx.unifier, ndims);
+
+        NDArrayType {
+            ty: Self::llvm_type(ctx.ctx, llvm_usize),
+            dtype: llvm_dtype,
+            ndims: Some(ndims),
+            llvm_usize,
+        }
     }
 
     /// Creates an [`NDArrayType`] from a [`PointerType`] representing an `NDArray`.
@@ -149,28 +135,30 @@ impl<'ctx> NDArrayType<'ctx> {
     pub fn from_type(
         ptr_ty: PointerType<'ctx>,
         dtype: BasicTypeEnum<'ctx>,
+        ndims: Option<u64>,
         llvm_usize: IntType<'ctx>,
     ) -> Self {
         debug_assert!(Self::is_representable(ptr_ty, llvm_usize).is_ok());
 
-        NDArrayType { ty: ptr_ty, dtype, llvm_usize }
+        NDArrayType { ty: ptr_ty, dtype, ndims, llvm_usize }
     }
 
     /// Returns the type of the `size` field of this `ndarray` type.
     #[must_use]
     pub fn size_type(&self) -> IntType<'ctx> {
-        self.as_base_type()
-            .get_element_type()
-            .into_struct_type()
-            .get_field_type_at_index(0)
-            .map(BasicTypeEnum::into_int_type)
-            .unwrap()
+        self.llvm_usize
     }
 
     /// Returns the element type of this `ndarray` type.
     #[must_use]
     pub fn element_type(&self) -> BasicTypeEnum<'ctx> {
         self.dtype
+    }
+
+    /// Returns the number of dimensions of this `ndarray` type.
+    #[must_use]
+    pub fn ndims(&self) -> Option<u64> {
+        self.ndims
     }
 
     /// Allocates an instance of [`NDArrayValue`] as if by calling `alloca` on the base type.
@@ -184,9 +172,168 @@ impl<'ctx> NDArrayType<'ctx> {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
             self.raw_alloca(generator, ctx, name),
             self.dtype,
+            self.ndims,
             self.llvm_usize,
             name,
         )
+    }
+
+    /// Allocates an [`NDArrayValue`] on the stack and initializes all fields as follows:
+    ///
+    /// - `data`: uninitialized.
+    /// - `itemsize`: set to the size of `self.dtype`.
+    /// - `ndims`: set to the value of  `ndims`.
+    /// - `shape`: allocated on the stack with an array of length `ndims` with uninitialized values.
+    /// - `strides`: allocated on the stack with an array of length `ndims` with uninitialized
+    ///   values.
+    #[must_use]
+    fn construct_impl<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        ndims: IntValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        let ndarray = self.alloca(generator, ctx, name);
+
+        let itemsize = ctx
+            .builder
+            .build_int_z_extend_or_bit_cast(self.dtype.size_of().unwrap(), self.llvm_usize, "")
+            .unwrap();
+        ndarray.store_itemsize(ctx, generator, itemsize);
+
+        ndarray.store_ndims(ctx, generator, ndims);
+
+        ndarray.create_shape(ctx, self.llvm_usize, ndims);
+        ndarray.create_strides(ctx, self.llvm_usize, ndims);
+
+        ndarray
+    }
+
+    /// Allocate an [`NDArrayValue`] on the stack using `dtype` and `ndims` of this [`NDArrayType`]
+    /// instance.
+    ///
+    /// The returned ndarray's content will be:
+    /// - `data`: uninitialized.
+    /// - `itemsize`: set to the size of `dtype`.
+    /// - `ndims`: set to the value of `self.ndims`.
+    /// - `shape`: allocated on the stack with an array of length `ndims` with uninitialized values.
+    /// - `strides`: allocated on the stack with an array of length `ndims` with uninitialized
+    ///   values.
+    #[must_use]
+    pub fn construct_uninitialized<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        assert!(self.ndims.is_some(), "NDArrayType::construct can only be called on an instance with compile-time known ndims (self.ndims = Some(ndims))");
+
+        let Some(ndims) = self.ndims.map(|ndims| self.llvm_usize.const_int(ndims, false)) else {
+            unreachable!()
+        };
+
+        self.construct_impl(generator, ctx, ndims, name)
+    }
+
+    /// Allocate an [`NDArrayValue`] on the stack given its `ndims` and `dtype`.
+    ///
+    /// `shape` and `strides` will be automatically allocated onto the stack.
+    ///
+    /// The returned ndarray's content will be:
+    /// - `data`: uninitialized.
+    /// - `itemsize`: set to the size of `dtype`.
+    /// - `ndims`: set to the value of `ndims`.
+    /// - `shape`: allocated with an array of length `ndims` with uninitialized values.
+    /// - `strides`: allocated with an array of length `ndims` with uninitialized values.
+    #[deprecated = "Prefer construct_uninitialized or construct_*_shape."]
+    #[must_use]
+    pub fn construct_dyn_ndims<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        ndims: IntValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        assert!(self.ndims.is_none(), "NDArrayType::construct_dyn_ndims can only be called on an instance with compile-time unknown ndims (self.ndims = None)");
+
+        self.construct_impl(generator, ctx, ndims, name)
+    }
+
+    /// Convenience function. Allocate an [`NDArrayValue`] with a statically known shape.
+    ///
+    /// The returned [`NDArrayValue`]'s `data` and `strides` are uninitialized.
+    #[must_use]
+    pub fn construct_const_shape<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        shape: &[u64],
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        assert!(self.ndims.is_none_or(|ndims| shape.len() as u64 == ndims));
+
+        let ndarray = Self::new(generator, ctx.ctx, self.dtype, Some(shape.len() as u64))
+            .construct_uninitialized(generator, ctx, name);
+
+        let llvm_usize = generator.get_size_type(ctx.ctx);
+
+        // Write shape
+        let ndarray_shape = ndarray.shape();
+        for (i, dim) in shape.iter().enumerate() {
+            let dim = llvm_usize.const_int(*dim, false);
+            unsafe {
+                ndarray_shape.set_typed_unchecked(
+                    ctx,
+                    generator,
+                    &llvm_usize.const_int(i as u64, false),
+                    dim,
+                );
+            }
+        }
+
+        ndarray
+    }
+
+    /// Convenience function. Allocate an [`NDArrayValue`] with a dynamically known shape.
+    ///
+    /// The returned [`NDArrayValue`]'s `data` and `strides` are uninitialized.
+    #[must_use]
+    pub fn construct_dyn_shape<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        shape: &[IntValue<'ctx>],
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        assert!(self.ndims.is_none_or(|ndims| shape.len() as u64 == ndims));
+
+        let ndarray = Self::new(generator, ctx.ctx, self.dtype, Some(shape.len() as u64))
+            .construct_uninitialized(generator, ctx, name);
+
+        let llvm_usize = generator.get_size_type(ctx.ctx);
+
+        // Write shape
+        let ndarray_shape = ndarray.shape();
+        for (i, dim) in shape.iter().enumerate() {
+            assert_eq!(
+                dim.get_type(),
+                llvm_usize,
+                "Expected {} but got {}",
+                llvm_usize.print_to_string(),
+                dim.get_type().print_to_string()
+            );
+            unsafe {
+                ndarray_shape.set_typed_unchecked(
+                    ctx,
+                    generator,
+                    &llvm_usize.const_int(i as u64, false),
+                    *dim,
+                );
+            }
+        }
+
+        ndarray
     }
 
     /// Converts an existing value into a [`NDArrayValue`].
@@ -199,6 +346,7 @@ impl<'ctx> NDArrayType<'ctx> {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
             value,
             self.dtype,
+            self.ndims,
             self.llvm_usize,
             name,
         )

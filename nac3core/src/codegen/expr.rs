@@ -32,7 +32,7 @@ use super::{
         gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         gen_var,
     },
-    types::ListType,
+    types::{ndarray::NDArrayType, ListType},
     values::{
         ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, RangeValue,
         TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
@@ -42,8 +42,8 @@ use super::{
 use crate::{
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
-        helper::PrimDef,
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+        helper::{extract_ndims, PrimDef},
+        numpy::unpack_ndarray_var_tys,
         DefinitionId, TopLevelDef,
     },
     typecheck::{
@@ -1553,8 +1553,6 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
     } else if ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
         || ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
     {
-        let llvm_usize = generator.get_size_type(ctx.ctx);
-
         let is_ndarray1 = ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
         let is_ndarray2 = ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
 
@@ -1564,21 +1562,10 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
 
             assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
 
-            let llvm_ndarray_dtype1 = ctx.get_llvm_type(generator, ndarray_dtype1);
-            let llvm_ndarray_dtype2 = ctx.get_llvm_type(generator, ndarray_dtype2);
-
-            let left_val = NDArrayValue::from_pointer_value(
-                left_val.into_pointer_value(),
-                llvm_ndarray_dtype1,
-                llvm_usize,
-                None,
-            );
-            let right_val = NDArrayValue::from_pointer_value(
-                right_val.into_pointer_value(),
-                llvm_ndarray_dtype2,
-                llvm_usize,
-                None,
-            );
+            let left_val = NDArrayType::from_unifier_type(generator, ctx, ty1)
+                .map_value(left_val.into_pointer_value(), None);
+            let right_val = NDArrayType::from_unifier_type(generator, ctx, ty2)
+                .map_value(right_val.into_pointer_value(), None);
 
             let res = if op.base == Operator::MatMult {
                 // MatMult is the only binop which is not an elementwise op
@@ -1627,13 +1614,12 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
         } else {
             let (ndarray_dtype, _) =
                 unpack_ndarray_var_tys(&mut ctx.unifier, if is_ndarray1 { ty1 } else { ty2 });
-            let llvm_ndarray_dtype = ctx.get_llvm_type(generator, ndarray_dtype);
-            let ndarray_val = NDArrayValue::from_pointer_value(
-                if is_ndarray1 { left_val } else { right_val }.into_pointer_value(),
-                llvm_ndarray_dtype,
-                llvm_usize,
-                None,
-            );
+            let ndarray_val =
+                NDArrayType::from_unifier_type(generator, ctx, if is_ndarray1 { ty1 } else { ty2 })
+                    .map_value(
+                        if is_ndarray1 { left_val } else { right_val }.into_pointer_value(),
+                        None,
+                    );
             let res = numpy::ndarray_elementwise_binop_impl(
                 generator,
                 ctx,
@@ -1821,16 +1807,10 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             _ => val.into(),
         }
     } else if ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_ndarray_ty = NDArrayType::from_unifier_type(generator, ctx, ty);
         let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
-        let llvm_ndarray_dtype = ctx.get_llvm_type(generator, ndarray_dtype);
 
-        let val = NDArrayValue::from_pointer_value(
-            val.into_pointer_value(),
-            llvm_ndarray_dtype,
-            llvm_usize,
-            None,
-        );
+        let val = llvm_ndarray_ty.map_value(val.into_pointer_value(), None);
 
         // ndarray uses `~` rather than `not` to perform elementwise inversion, convert it before
         // passing it to the elementwise codegen function
@@ -1904,8 +1884,6 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
         if left_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             || right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
         {
-            let llvm_usize = generator.get_size_type(ctx.ctx);
-
             let (Some(left_ty), lhs) = left else { codegen_unreachable!(ctx) };
             let (Some(right_ty), rhs) = comparators[0] else { codegen_unreachable!(ctx) };
             let op = ops[0];
@@ -1921,14 +1899,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
 
-                let llvm_ndarray_dtype1 = ctx.get_llvm_type(generator, ndarray_dtype1);
-
-                let left_val = NDArrayValue::from_pointer_value(
-                    lhs.into_pointer_value(),
-                    llvm_ndarray_dtype1,
-                    llvm_usize,
-                    None,
-                );
+                let left_val = NDArrayType::from_unifier_type(generator, ctx, left_ty)
+                    .map_value(lhs.into_pointer_value(), None);
                 let res = numpy::ndarray_elementwise_binop_impl(
                     generator,
                     ctx,
@@ -2594,10 +2566,6 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         ndims.iter().map(|v| SymbolValue::U64(v - subscripted_dims)).collect(),
         None,
     );
-    let ndarray_ty =
-        make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(ty), Some(ndarray_ndims_ty));
-    let llvm_pndarray_t = ctx.get_llvm_type(generator, ndarray_ty).into_pointer_type();
-    let llvm_ndarray_t = llvm_pndarray_t.get_element_type().into_struct_type();
     let llvm_ndarray_data_t = ctx.get_llvm_type(generator, ty).as_basic_type_enum();
     let sizeof_elem = llvm_ndarray_data_t.size_of().unwrap();
 
@@ -2789,19 +2757,17 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
 
             _ => {
                 // Accessing an element from a multi-dimensional `ndarray`
-
                 let Some(index_addr) = make_indices_arr(generator, ctx)? else { return Ok(None) };
 
                 // Create a new array, remove the top dimension from the dimension-size-list, and copy the
                 // elements over
-                let subscripted_ndarray =
-                    generator.gen_var_alloc(ctx, llvm_ndarray_t.into(), None)?;
-                let ndarray = NDArrayValue::from_pointer_value(
-                    subscripted_ndarray,
+                let ndarray = NDArrayType::new(
+                    generator,
+                    ctx.ctx,
                     llvm_ndarray_data_t,
-                    llvm_usize,
-                    None,
-                );
+                    Some(extract_ndims(&ctx.unifier, ndarray_ndims_ty)),
+                )
+                .alloca(generator, ctx, None);
 
                 let num_dims = v.load_ndims(ctx);
                 ndarray.store_ndims(
@@ -3537,9 +3503,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         v.data().get(ctx, generator, &index, None).into()
                     }
                 }
-                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::NDArray.id() => {
-                    let (ty, ndims) = params.iter().map(|(_, ty)| ty).collect_tuple().unwrap();
-                    let llvm_ty = ctx.get_llvm_type(generator, *ty);
+                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
+                    let (ty, ndims) =
+                        unpack_ndarray_var_tys(&mut ctx.unifier, value.custom.unwrap());
 
                     let v = if let Some(v) = generator.gen_expr(ctx, value)? {
                         v.to_basic_value_enum(ctx, generator, value.custom.unwrap())?
@@ -3547,9 +3513,10 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     } else {
                         return Ok(None);
                     };
-                    let v = NDArrayValue::from_pointer_value(v, llvm_ty, usize, None);
+                    let v = NDArrayType::from_unifier_type(generator, ctx, value.custom.unwrap())
+                        .map_value(v, None);
 
-                    return gen_ndarray_subscript_expr(generator, ctx, *ty, *ndims, v, slice);
+                    return gen_ndarray_subscript_expr(generator, ctx, ty, ndims, v, slice);
                 }
                 TypeEnum::TTuple { .. } => {
                     let index: u32 =
