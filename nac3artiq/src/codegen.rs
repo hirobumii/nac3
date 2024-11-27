@@ -18,7 +18,7 @@ use nac3core::{
         irrt::call_ndarray_calc_size,
         llvm_intrinsics::{call_int_smax, call_memcpy_generic, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
-        types::{NDArrayType, ProxyType},
+        types::NDArrayType,
         values::{
             ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, NDArrayValue, ProxyValue,
             RangeValue, UntypedArrayLikeAccessor,
@@ -460,12 +460,20 @@ fn format_rpc_arg<'ctx>(
 
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
             let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
-            let llvm_arg_ty = NDArrayType::new(generator, ctx.ctx, llvm_elem_ty);
-            let llvm_arg = llvm_arg_ty.map_value(arg.into_pointer_value(), None);
+            let llvm_arg = NDArrayValue::from_pointer_value(
+                arg.into_pointer_value(),
+                llvm_elem_ty,
+                llvm_usize,
+                None,
+            );
 
             let llvm_usize_sizeof = ctx
                 .builder
-                .build_int_truncate_or_bit_cast(llvm_arg_ty.size_type().size_of(), llvm_usize, "")
+                .build_int_truncate_or_bit_cast(
+                    llvm_arg.get_type().size_type().size_of(),
+                    llvm_usize,
+                    "",
+                )
                 .unwrap();
             let llvm_pdata_sizeof = ctx
                 .builder
@@ -598,7 +606,7 @@ fn format_rpc_ret<'ctx>(
 
             // Allocate the resulting ndarray
             // A condition after format_rpc_ret ensures this will not be popped this off.
-            let ndarray = llvm_ret_ty.new_value(generator, ctx, Some("rpc.result"));
+            let ndarray = llvm_ret_ty.alloca(generator, ctx, Some("rpc.result"));
 
             // Setup ndims
             let ndims =

@@ -1,3 +1,21 @@
+//! This module contains abstraction over all intrinsic composite types of NAC3.
+//!
+//! # `raw_alloca` vs `alloca` vs `construct`
+//!
+//! There are three ways of creating a new object instance using the abstractions provided by this
+//! module.
+//!
+//! - `raw_alloca`: Allocates the object on the stack, returning an instance of
+//!   [`impl BasicValue`][inkwell::values::BasicValue]. This is similar to a `malloc` expression in
+//!   C++ but the object is allocated on the stack.
+//! - `alloca`: Similar to `raw_alloca`, but also wraps the allocated object with
+//!   [`<Self as ProxyType<'ctx>>::Value`][ProxyValue], and returns the wrapped object. The returned
+//!   object will not initialize any value or fields. This is similar to a type-safe `malloc`
+//!   expression in C++ but the object is allocated on the stack.
+//! - `construct`: Similar to `alloca`, but performs some initialization on the value or fields of
+//!   the returned object. This is similar to a `new` expression in C++ but the object is allocated
+//!   on the stack.
+
 use inkwell::{context::Context, types::BasicType, values::IntValue};
 
 use super::{
@@ -35,29 +53,23 @@ pub trait ProxyType<'ctx>: Into<Self::Base> {
         llvm_ty: Self::Base,
     ) -> Result<(), String>;
 
-    /// Creates a new value of this type.
-    fn new_value<G: CodeGenerator + ?Sized>(
+    /// Creates a new value of this type, returning the LLVM instance of this value.
+    fn raw_alloca<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
-    ) -> Self::Value;
+    ) -> <Self::Value as ProxyValue<'ctx>>::Base;
 
-    /// Creates a new array value of this type.
-    fn new_array_value<G: CodeGenerator + ?Sized>(
+    /// Creates a new array value of this type, returning an [`ArraySliceValue`] encapsulating the
+    /// resulting array.
+    fn array_alloca<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         size: IntValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> ArraySliceValue<'ctx>;
-
-    /// Converts an existing value into a [`ProxyValue`] of this type.
-    fn map_value(
-        &self,
-        value: <Self::Value as ProxyValue<'ctx>>::Base,
-        name: Option<&'ctx str>,
-    ) -> Self::Value;
 
     /// Returns the [base type][Self::Base] of this proxy.
     fn as_base_type(&self) -> Self::Base;

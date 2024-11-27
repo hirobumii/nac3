@@ -76,6 +76,30 @@ impl<'ctx> RangeType<'ctx> {
     pub fn value_type(&self) -> IntType<'ctx> {
         self.as_base_type().get_element_type().into_array_type().get_element_type().into_int_type()
     }
+
+    /// Allocates an instance of [`RangeValue`] as if by calling `alloca` on the base type.
+    #[must_use]
+    pub fn alloca<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_pointer_value(
+            self.raw_alloca(generator, ctx, name),
+            name,
+        )
+    }
+
+    /// Converts an existing value into a [`RangeValue`].
+    #[must_use]
+    pub fn map_value(
+        &self,
+        value: <<Self as ProxyType<'ctx>>::Value as ProxyValue<'ctx>>::Base,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_pointer_value(value, name)
+    }
 }
 
 impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
@@ -102,25 +126,22 @@ impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
         Self::is_representable(llvm_ty)
     }
 
-    fn new_value<G: CodeGenerator + ?Sized>(
+    fn raw_alloca<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
-    ) -> Self::Value {
-        self.map_value(
-            generator
-                .gen_var_alloc(
-                    ctx,
-                    self.as_base_type().get_element_type().into_struct_type().into(),
-                    name,
-                )
-                .unwrap(),
-            name,
-        )
+    ) -> <Self::Value as ProxyValue<'ctx>>::Base {
+        generator
+            .gen_var_alloc(
+                ctx,
+                self.as_base_type().get_element_type().into_struct_type().into(),
+                name,
+            )
+            .unwrap()
     }
 
-    fn new_array_value<G: CodeGenerator + ?Sized>(
+    fn array_alloca<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -135,16 +156,6 @@ impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
                 name,
             )
             .unwrap()
-    }
-
-    fn map_value(
-        &self,
-        value: <Self::Value as ProxyValue<'ctx>>::Base,
-        name: Option<&'ctx str>,
-    ) -> Self::Value {
-        debug_assert_eq!(value.get_type(), self.as_base_type());
-
-        RangeValue::from_pointer_value(value, name)
     }
 
     fn as_base_type(&self) -> Self::Base {

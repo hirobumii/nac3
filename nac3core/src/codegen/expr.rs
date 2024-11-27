@@ -32,7 +32,7 @@ use super::{
         gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         gen_var,
     },
-    types::{ListType, ProxyType},
+    types::ListType,
     values::{
         ArrayLikeIndexer, ArrayLikeValue, ListValue, NDArrayValue, ProxyValue, RangeValue,
         TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
@@ -1112,7 +1112,7 @@ pub fn allocate_list<'ctx, G: CodeGenerator + ?Sized>(
 
     // List structure; type { ty*, size_t }
     let arr_ty = ListType::new(generator, ctx.ctx, llvm_elem_ty);
-    let list = arr_ty.new_value(generator, ctx, name);
+    let list = arr_ty.alloca(generator, ctx, name);
 
     let length = ctx.builder.build_int_z_extend(length, llvm_usize, "").unwrap();
     list.store_size(ctx, generator, length);
