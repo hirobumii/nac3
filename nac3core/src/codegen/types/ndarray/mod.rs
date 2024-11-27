@@ -198,7 +198,7 @@ impl<'ctx> NDArrayType<'ctx> {
 
         let itemsize = ctx
             .builder
-            .build_int_z_extend_or_bit_cast(self.dtype.size_of().unwrap(), self.llvm_usize, "")
+            .build_int_truncate_or_bit_cast(self.dtype.size_of().unwrap(), self.llvm_usize, "")
             .unwrap();
         ndarray.store_itemsize(ctx, generator, itemsize);
 

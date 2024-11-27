@@ -722,7 +722,7 @@ fn format_rpc_ret<'ctx>(
                 );
             }
 
-            ndarray.create_data(generator, ctx, llvm_elem_ty, num_elements);
+            unsafe { ndarray.create_data(generator, ctx) };
 
             let ndarray_data = ndarray.data().base_ptr(ctx, generator);
             let ndarray_data_i8 =

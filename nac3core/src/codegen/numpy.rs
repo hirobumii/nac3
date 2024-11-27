@@ -61,6 +61,7 @@ where
     ) -> Result<IntValue<'ctx>, String>,
 {
     let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
     // Assert that all dimensions are non-negative
     let shape_len = shape_len_fn(generator, ctx, shape)?;
@@ -100,15 +101,10 @@ where
         llvm_usize.const_int(1, false),
     )?;
 
-    let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
-    let ndarray =
-        NDArrayType::new(generator, ctx.ctx, llvm_elem_ty, None).alloca(generator, ctx, None);
-
     let num_dims = shape_len_fn(generator, ctx, shape)?;
-    ndarray.store_ndims(ctx, generator, num_dims);
 
-    let ndarray_num_dims = ndarray.load_ndims(ctx);
-    ndarray.create_shape(ctx, llvm_usize, ndarray_num_dims);
+    let ndarray = NDArrayType::new(generator, ctx.ctx, llvm_elem_ty, None)
+        .construct_dyn_ndims(generator, ctx, num_dims, None);
 
     // Copy the dimension sizes from shape to ndarray.dims
     let shape_len = shape_len_fn(generator, ctx, shape)?;
@@ -133,7 +129,7 @@ where
         llvm_usize.const_int(1, false),
     )?;
 
-    let ndarray = ndarray_init_data(generator, ctx, elem_ty, ndarray);
+    unsafe { ndarray.create_data(generator, ctx) };
 
     Ok(ndarray)
 }
@@ -173,30 +169,9 @@ pub fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
 
     let ndarray = NDArrayType::new(generator, ctx.ctx, llvm_dtype, Some(shape.len() as u64))
         .construct_dyn_shape(generator, ctx, shape, None);
-    let ndarray = ndarray_init_data(generator, ctx, elem_ty, ndarray);
+    unsafe { ndarray.create_data(generator, ctx) };
 
     Ok(ndarray)
-}
-
-/// Initializes the `data` field of [`NDArrayValue`] based on the `ndims` and `shape` fields.
-fn ndarray_init_data<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    elem_ty: Type,
-    ndarray: NDArrayValue<'ctx>,
-) -> NDArrayValue<'ctx> {
-    let llvm_ndarray_data_t = ctx.get_llvm_type(generator, elem_ty).as_basic_type_enum();
-    assert!(llvm_ndarray_data_t.is_sized());
-
-    let ndarray_num_elems = call_ndarray_calc_size(
-        generator,
-        ctx,
-        &ndarray.shape().as_slice_value(ctx, generator),
-        (None, None),
-    );
-    ndarray.create_data(generator, ctx, llvm_ndarray_data_t, ndarray_num_elems);
-
-    ndarray
 }
 
 fn ndarray_zero_value<'ctx, G: CodeGenerator + ?Sized>(
@@ -1206,6 +1181,7 @@ pub fn ndarray_sliced_copy<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<NDArrayValue<'ctx>, String> {
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
 
     let ndarray =
         if slices.is_empty() {
@@ -1220,7 +1196,6 @@ pub fn ndarray_sliced_copy<'ctx, G: CodeGenerator + ?Sized>(
                 },
             )?
         } else {
-            let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty);
             let ndarray = NDArrayType::new(generator, ctx.ctx, llvm_elem_ty, None)
                 .construct_dyn_ndims(generator, ctx, this.load_ndims(ctx), None);
 
@@ -1282,7 +1257,9 @@ pub fn ndarray_sliced_copy<'ctx, G: CodeGenerator + ?Sized>(
             )
             .unwrap();
 
-            ndarray_init_data(generator, ctx, elem_ty, ndarray)
+            unsafe { ndarray.create_data(generator, ctx) };
+
+            ndarray
         };
 
     ndarray_sliced_copyto_impl(

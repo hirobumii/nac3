@@ -2521,7 +2521,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     ty: Type,
-    ndims: Type,
+    ndims_ty: Type,
     v: NDArrayValue<'ctx>,
     slice: &Expr<Option<Type>>,
 ) -> Result<Option<ValueEnum<'ctx>>, String> {
@@ -2529,7 +2529,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
-    let TypeEnum::TLiteral { values, .. } = &*ctx.unifier.get_ty_immutable(ndims) else {
+    let TypeEnum::TLiteral { values, .. } = &*ctx.unifier.get_ty_immutable(ndims_ty) else {
         codegen_unreachable!(ctx)
     };
 
@@ -2562,10 +2562,6 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
         _ => 1,
     };
 
-    let ndarray_ndims_ty = ctx.unifier.get_fresh_literal(
-        ndims.iter().map(|v| SymbolValue::U64(v - subscripted_dims)).collect(),
-        None,
-    );
     let llvm_ndarray_data_t = ctx.get_llvm_type(generator, ty).as_basic_type_enum();
     let sizeof_elem = llvm_ndarray_data_t.size_of().unwrap();
 
@@ -2759,27 +2755,13 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                 // Accessing an element from a multi-dimensional `ndarray`
                 let Some(index_addr) = make_indices_arr(generator, ctx)? else { return Ok(None) };
 
+                let num_dims = extract_ndims(&ctx.unifier, ndims_ty) - 1;
+
                 // Create a new array, remove the top dimension from the dimension-size-list, and copy the
                 // elements over
-                let ndarray = NDArrayType::new(
-                    generator,
-                    ctx.ctx,
-                    llvm_ndarray_data_t,
-                    Some(extract_ndims(&ctx.unifier, ndarray_ndims_ty)),
-                )
-                .alloca(generator, ctx, None);
-
-                let num_dims = v.load_ndims(ctx);
-                ndarray.store_ndims(
-                    ctx,
-                    generator,
-                    ctx.builder
-                        .build_int_sub(num_dims, llvm_usize.const_int(1, false), "")
-                        .unwrap(),
-                );
-
-                let ndarray_num_dims = ndarray.load_ndims(ctx);
-                ndarray.create_shape(ctx, llvm_usize, ndarray_num_dims);
+                let ndarray =
+                    NDArrayType::new(generator, ctx.ctx, llvm_ndarray_data_t, Some(num_dims))
+                        .construct_uninitialized(generator, ctx, None);
 
                 let ndarray_num_dims = ctx
                     .builder
@@ -2818,7 +2800,7 @@ fn gen_ndarray_subscript_expr<'ctx, G: CodeGenerator>(
                     .builder
                     .build_int_z_extend_or_bit_cast(ndarray_num_elems, sizeof_elem.get_type(), "")
                     .unwrap();
-                ndarray.create_data(generator, ctx, llvm_ndarray_data_t, ndarray_num_elems);
+                unsafe { ndarray.create_data(generator, ctx) };
 
                 let v_data_src_ptr = v.data().ptr_offset(ctx, generator, &index_addr, None);
                 call_memcpy_generic(

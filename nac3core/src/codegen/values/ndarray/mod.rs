@@ -10,7 +10,7 @@ use super::{
 };
 use crate::codegen::{
     irrt,
-    llvm_intrinsics::call_int_umin,
+    llvm_intrinsics::{call_int_umin, call_memcpy_generic_array},
     stmt::gen_for_callback_incrementing,
     type_aligned_alloca,
     types::{ndarray::NDArrayType, structure::StructField},
@@ -186,27 +186,196 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Convenience method for creating a new array storing data elements with the given element
     /// type `elem_ty` and `size`.
-    pub fn create_data<G: CodeGenerator + ?Sized>(
+    ///
+    /// The data buffer will be allocated on the stack, and is considered to be owned by this ndarray instance.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `shape` and `itemsize` of this ndarray instance is initialized.
+    pub unsafe fn create_data<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        elem_ty: BasicTypeEnum<'ctx>,
-        size: IntValue<'ctx>,
     ) {
-        let itemsize = ctx
-            .builder
-            .build_int_z_extend_or_bit_cast(elem_ty.size_of().unwrap(), size.get_type(), "")
-            .unwrap();
-        let nbytes = ctx.builder.build_int_mul(size, itemsize, "").unwrap();
+        let nbytes = self.nbytes(generator, ctx);
 
-        let data = type_aligned_alloca(generator, ctx, elem_ty, nbytes, None);
+        let data = type_aligned_alloca(generator, ctx, self.dtype, nbytes, None);
         self.store_data(ctx, data);
+
+        self.set_strides_contiguous(generator, ctx);
     }
 
     /// Returns a proxy object to the field storing the data of this `NDArray`.
     #[must_use]
     pub fn data(&self) -> NDArrayDataProxy<'ctx, '_> {
         NDArrayDataProxy(self)
+    }
+
+    /// Copy shape dimensions from an array.
+    pub fn copy_shape_from_array<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        shape: PointerValue<'ctx>,
+    ) {
+        let num_items = self.load_ndims(ctx);
+
+        call_memcpy_generic_array(
+            ctx,
+            self.shape().base_ptr(ctx, generator),
+            shape,
+            num_items,
+            ctx.ctx.bool_type().const_zero(),
+        );
+    }
+
+    /// Copy shape dimensions from an ndarray.
+    /// Panics if `ndims` mismatches.
+    pub fn copy_shape_from_ndarray<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        src_ndarray: NDArrayValue<'ctx>,
+    ) {
+        if self.ndims.is_some() && src_ndarray.ndims.is_some() {
+            assert_eq!(self.ndims, src_ndarray.ndims);
+        } else {
+            let self_ndims = self.load_ndims(ctx);
+            let src_ndims = src_ndarray.load_ndims(ctx);
+
+            ctx.make_assert(
+                generator,
+                ctx.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    self_ndims,
+                    src_ndims,
+                    ""
+                ).unwrap(),
+                "0:AssertionError",
+                "NDArrayValue::copy_shape_from_ndarray: Expected self.ndims ({0}) == src_ndarray.ndims ({1})",
+                [Some(self_ndims), Some(src_ndims), None],
+                ctx.current_loc
+            );
+        }
+
+        let src_shape = src_ndarray.shape().base_ptr(ctx, generator);
+        self.copy_shape_from_array(generator, ctx, src_shape);
+    }
+
+    /// Copy strides dimensions from an array.
+    pub fn copy_strides_from_array<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        strides: PointerValue<'ctx>,
+    ) {
+        let num_items = self.load_ndims(ctx);
+
+        call_memcpy_generic_array(
+            ctx,
+            self.strides().base_ptr(ctx, generator),
+            strides,
+            num_items,
+            ctx.ctx.bool_type().const_zero(),
+        );
+    }
+
+    /// Copy strides dimensions from an ndarray.
+    /// Panics if `ndims` mismatches.
+    pub fn copy_strides_from_ndarray<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        src_ndarray: NDArrayValue<'ctx>,
+    ) {
+        if self.ndims.is_some() && src_ndarray.ndims.is_some() {
+            assert_eq!(self.ndims, src_ndarray.ndims);
+        } else {
+            let self_ndims = self.load_ndims(ctx);
+            let src_ndims = src_ndarray.load_ndims(ctx);
+
+            ctx.make_assert(
+                generator,
+                ctx.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    self_ndims,
+                    src_ndims,
+                    ""
+                ).unwrap(),
+                "0:AssertionError",
+                "NDArrayValue::copy_shape_from_ndarray: Expected self.ndims ({0}) == src_ndarray.ndims ({1})",
+                [Some(self_ndims), Some(src_ndims), None],
+                ctx.current_loc
+            );
+        }
+
+        let src_strides = src_ndarray.strides().base_ptr(ctx, generator);
+        self.copy_strides_from_array(generator, ctx, src_strides);
+    }
+
+    /// Get the `np.size()` of this ndarray.
+    pub fn size<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &G,
+        ctx: &CodeGenContext<'ctx, '_>,
+    ) -> IntValue<'ctx> {
+        irrt::ndarray::call_nac3_ndarray_size(generator, ctx, *self)
+    }
+
+    /// Get the `ndarray.nbytes` of this ndarray.
+    pub fn nbytes<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &G,
+        ctx: &CodeGenContext<'ctx, '_>,
+    ) -> IntValue<'ctx> {
+        irrt::ndarray::call_nac3_ndarray_nbytes(generator, ctx, *self)
+    }
+
+    /// Get the `len()` of this ndarray.
+    pub fn len<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &G,
+        ctx: &CodeGenContext<'ctx, '_>,
+    ) -> IntValue<'ctx> {
+        irrt::ndarray::call_nac3_ndarray_len(generator, ctx, *self)
+    }
+
+    /// Check if this ndarray is C-contiguous.
+    ///
+    /// See NumPy's `flags["C_CONTIGUOUS"]`: <https://numpy.org/doc/stable/reference/generated/numpy.ndarray.flags.html#numpy.ndarray.flags>
+    pub fn is_c_contiguous<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &G,
+        ctx: &CodeGenContext<'ctx, '_>,
+    ) -> IntValue<'ctx> {
+        irrt::ndarray::call_nac3_ndarray_is_c_contiguous(generator, ctx, *self)
+    }
+
+    /// Call [`call_nac3_ndarray_set_strides_by_shape`] on this ndarray to update `strides`.
+    ///
+    /// Update the ndarray's strides to make the ndarray contiguous.
+    pub fn set_strides_contiguous<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &G,
+        ctx: &CodeGenContext<'ctx, '_>,
+    ) {
+        irrt::ndarray::call_nac3_ndarray_set_strides_by_shape(generator, ctx, *self);
+    }
+
+    /// Copy data from another ndarray.
+    ///
+    /// This ndarray and `src` is that their `np.size()` should be the same. Their shapes
+    /// do not matter. The copying order is determined by how their flattened views look.
+    ///
+    /// Panics if the `dtype`s of ndarrays are different.
+    pub fn copy_data_from<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        src: NDArrayValue<'ctx>,
+    ) {
+        assert_eq!(self.dtype, src.dtype, "self and src dtype should match");
+        irrt::ndarray::call_nac3_ndarray_copy_data(generator, ctx, src, *self);
     }
 }
 
