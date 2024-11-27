@@ -21,8 +21,10 @@ use crate::{
     typecheck::typedef::Type,
 };
 pub use contiguous::*;
+pub use nditer::*;
 
 mod contiguous;
+mod nditer;
 
 /// Proxy type for a `ndarray` type in LLVM.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

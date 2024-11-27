@@ -17,8 +17,10 @@ use crate::codegen::{
     CodeGenContext, CodeGenerator,
 };
 pub use contiguous::*;
+pub use nditer::*;
 
 mod contiguous;
+mod nditer;
 
 /// Proxy type for accessing an `NDArray` value in LLVM.
 #[derive(Copy, Clone)]

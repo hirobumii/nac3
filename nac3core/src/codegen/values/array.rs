@@ -207,7 +207,7 @@ pub trait TypedArrayLikeMutator<'ctx, T, Index = IntValue<'ctx>>:
 
 /// Type alias for a function that casts a [`BasicValueEnum`] into a `T`.
 type ValueDowncastFn<'ctx, T> =
-    Box<dyn Fn(&mut CodeGenContext<'ctx, '_>, BasicValueEnum<'ctx>) -> T>;
+    Box<dyn Fn(&mut CodeGenContext<'ctx, '_>, BasicValueEnum<'ctx>) -> T + 'ctx>;
 /// Type alias for a function that casts a `T` into a [`BasicValueEnum`].
 type ValueUpcastFn<'ctx, T> = Box<dyn Fn(&mut CodeGenContext<'ctx, '_>, T) -> BasicValueEnum<'ctx>>;
 
