@@ -102,20 +102,17 @@ impl<'ctx> NDArrayType<'ctx> {
         Ok(())
     }
 
-    // TODO: Move this into e.g. StructProxyType
+    /// Returns an instance of [`StructFields`] containing all field accessors for this type.
     #[must_use]
     fn fields(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> NDArrayStructFields<'ctx> {
         NDArrayStructFields::new(ctx, llvm_usize)
     }
 
+    /// See [`NDArrayType::fields`].
     // TODO: Move this into e.g. StructProxyType
     #[must_use]
-    pub fn get_fields(
-        &self,
-        ctx: &'ctx Context,
-        llvm_usize: IntType<'ctx>,
-    ) -> NDArrayStructFields<'ctx> {
-        Self::fields(ctx, llvm_usize)
+    pub fn get_fields(&self, ctx: &'ctx Context) -> NDArrayStructFields<'ctx> {
+        Self::fields(ctx, self.llvm_usize)
     }
 
     /// Creates an LLVM type corresponding to the expected structure of an `NDArray`.
