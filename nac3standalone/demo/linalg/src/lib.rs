@@ -92,7 +92,7 @@ pub unsafe extern "C" fn np_linalg_qr(
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
-        report_error("ValueError", "np_linalg_cholesky", file!(), line!(), column!(), &err_msg);
+        report_error("ValueError", "np_linalg_qr", file!(), line!(), column!(), &err_msg);
     }
 
     let dim1 = (*mat1).get_dims();
