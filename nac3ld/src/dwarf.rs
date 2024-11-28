@@ -90,6 +90,7 @@ impl<'a> DwarfReader<'a> {
     pub fn read_u8(&mut self) -> u8 {
         let val = self.slice[0];
         self.slice = &self.slice[1..];
+        self.virt_addr += 1;
         val
     }
 }
@@ -101,6 +102,7 @@ macro_rules! impl_read_fn {
                 pub fn $byteorder_fn(&mut self) -> $type {
                     let val = LittleEndian::$byteorder_fn(self.slice);
                     self.slice = &self.slice[mem::size_of::<$type>()..];
+                    self.virt_addr += mem::size_of::<$type>() as u32;
                     val
                 }
             )*
@@ -319,7 +321,7 @@ impl<'a> CFI_Record<'a> {
     /// Returns a [DwarfReader] initialized to the first Frame Description Entry (FDE) of this CFI
     /// record.
     pub fn get_fde_reader(&self) -> DwarfReader<'a> {
-        DwarfReader::from_reader(&self.fde_reader, true)
+        DwarfReader::from_reader(&self.fde_reader, false)
     }
 
     /// Returns an [Iterator] over all Frame Description Entries (FDEs).
@@ -396,6 +398,8 @@ impl<'a> Iterator for FDE_Records<'a> {
             return None;
         }
 
+        let fde_addr = self.reader.virt_addr;
+
         // Remove the length of the header and the content from the counter
         let length = match self.reader.read_u32() {
             // eh_frame with 0-length means the CIE is terminated
@@ -413,7 +417,7 @@ impl<'a> Iterator for FDE_Records<'a> {
         let next_val = if cie_ptr != 0 {
             let pc_begin = read_encoded_pointer_with_pc(&mut self.reader, self.pointer_encoding)
                 .expect("Failed to read PC Begin");
-            Some((pc_begin as u32, self.reader.virt_addr))
+            Some((pc_begin as u32, fde_addr))
         } else {
             None
         };
@@ -447,8 +451,7 @@ impl<'a> EH_Frame_Hdr<'a> {
         writer.write_u8(0x3B); // table_enc - .eh_frame_hdr section-relative 4-byte signed value
 
         let eh_frame_offset = eh_frame_addr.wrapping_sub(
-            eh_frame_hdr_addr + writer.offset as u32 + ((mem::size_of::<u8>() as u32) * 4),
-        );
+            eh_frame_hdr_addr + writer.offset as u32);
         writer.write_u32(eh_frame_offset); // eh_frame_ptr
         writer.write_u32(0); // `fde_count`, will be written in finalize_fde
 
