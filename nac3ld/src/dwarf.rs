@@ -24,6 +24,7 @@ pub const DW_EH_PE_aligned: u8 = 0x50;
 
 pub const DW_EH_PE_indirect: u8 = 0x80;
 
+#[derive(Clone)]
 pub struct DwarfReader<'a> {
     pub slice: &'a [u8],
     pub virt_addr: u32,
@@ -32,11 +33,6 @@ pub struct DwarfReader<'a> {
 impl<'a> DwarfReader<'a> {
     pub fn new(slice: &[u8], virt_addr: u32) -> DwarfReader {
         DwarfReader { slice, virt_addr }
-    }
-
-    /// Creates a new instance from another instance of [DwarfReader].
-    pub fn from_reader(other: &DwarfReader<'a>) -> DwarfReader<'a> {
-        DwarfReader::new(other.slice, other.virt_addr)
     }
 
     pub fn offset(&mut self, offset: u32) {
@@ -221,7 +217,7 @@ impl<'a> EH_Frame<'a> {
 
     /// Returns an [Iterator] over all Call Frame Information (CFI) records.
     pub fn cfi_records(&self) -> CFI_Records<'a> {
-        let reader = DwarfReader::from_reader(&self.reader);
+        let reader = self.reader.clone();
         let len = reader.slice.len();
 
         CFI_Records { reader, available: len }
@@ -252,7 +248,7 @@ impl<'a> CFI_Record<'a> {
             0xFFFF_FFFF => unimplemented!(),
 
             _ => {
-                let mut fde_reader = DwarfReader::from_reader(cie_reader);
+                let mut fde_reader = cie_reader.clone();
                 fde_reader.offset(length);
                 fde_reader
             }
@@ -271,7 +267,7 @@ impl<'a> CFI_Record<'a> {
         // Skip code/data alignment factors & return address register along the way as well
         // We only tackle the case where 'z' and 'R' are part of the augmentation string, otherwise
         // we cannot get the addresses to make .eh_frame_hdr
-        let mut aug_data_reader = DwarfReader::from_reader(cie_reader);
+        let mut aug_data_reader = cie_reader.clone();
         let mut aug_str_len = 0;
         loop {
             if aug_data_reader.read_u8() == b'\0' {
@@ -314,7 +310,7 @@ impl<'a> CFI_Record<'a> {
     /// Returns a [DwarfReader] initialized to the first Frame Description Entry (FDE) of this CFI
     /// record.
     pub fn get_fde_reader(&self) -> DwarfReader<'a> {
-        DwarfReader::from_reader(&self.fde_reader)
+        self.fde_reader.clone()
     }
 
     /// Returns an [Iterator] over all Frame Description Entries (FDEs).
@@ -342,7 +338,7 @@ impl<'a> Iterator for CFI_Records<'a> {
                 return None;
             }
 
-            let mut this_reader = DwarfReader::from_reader(&self.reader);
+            let mut this_reader = self.reader.clone();
 
             // Remove the length of the header and the content from the counter
             let length = self.reader.read_u32();
@@ -355,7 +351,7 @@ impl<'a> Iterator for CFI_Records<'a> {
 
             // Remove the length of the header and the content from the counter
             self.available -= length + mem::size_of::<u32>();
-            let mut next_reader = DwarfReader::from_reader(&self.reader);
+            let mut next_reader = self.reader.clone();
             next_reader.offset(length as u32);
 
             let cie_ptr = self.reader.read_u32();
@@ -403,7 +399,7 @@ impl<'a> Iterator for FDE_Records<'a> {
 
         // Remove the length of the header and the content from the counter
         self.available -= length + mem::size_of::<u32>();
-        let mut next_fde_reader = DwarfReader::from_reader(&self.reader);
+        let mut next_fde_reader = self.reader.clone();
         next_fde_reader.offset(length as u32);
 
         let cie_ptr = self.reader.read_u32();
