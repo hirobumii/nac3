@@ -103,6 +103,12 @@ where
         StructField { index, name, ty: ty.into(), _value_ty: PhantomData }
     }
 
+    /// Returns the name of this field.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
     /// Creates a pointer to this field in an arbitrary structure by performing a `getelementptr i32
     /// {idx...}, i32 {self.index}`.
     pub fn ptr_by_array_gep(

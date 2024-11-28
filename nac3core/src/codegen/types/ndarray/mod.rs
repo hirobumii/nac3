@@ -20,6 +20,9 @@ use crate::{
     toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},
     typecheck::typedef::Type,
 };
+pub use contiguous::*;
+
+mod contiguous;
 
 /// Proxy type for a `ndarray` type in LLVM.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

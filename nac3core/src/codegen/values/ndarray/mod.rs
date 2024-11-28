@@ -16,6 +16,9 @@ use crate::codegen::{
     types::{ndarray::NDArrayType, structure::StructField},
     CodeGenContext, CodeGenerator,
 };
+pub use contiguous::*;
+
+mod contiguous;
 
 /// Proxy type for accessing an `NDArray` value in LLVM.
 #[derive(Copy, Clone)]
@@ -360,6 +363,25 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &CodeGenContext<'ctx, '_>,
     ) {
         irrt::ndarray::call_nac3_ndarray_set_strides_by_shape(generator, ctx, *self);
+    }
+
+    #[must_use]
+    pub fn make_copy<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> Self {
+        let clone = if self.ndims.is_some() {
+            self.get_type().construct_uninitialized(generator, ctx, None)
+        } else {
+            self.get_type().construct_dyn_ndims(generator, ctx, self.load_ndims(ctx), None)
+        };
+
+        let shape = self.shape();
+        clone.copy_shape_from_array(generator, ctx, shape.base_ptr(ctx, generator));
+        unsafe { clone.create_data(generator, ctx) };
+        clone.copy_data_from(generator, ctx, *self);
+        clone
     }
 
     /// Copy data from another ndarray.
