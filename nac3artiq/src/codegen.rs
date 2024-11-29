@@ -16,7 +16,6 @@ use super::{symbol_resolver::InnerResolver, timeline::TimeFns};
 use nac3core::{
     codegen::{
         expr::{destructure_range, gen_call},
-        irrt::ndarray::call_ndarray_calc_size,
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_alloca,
@@ -1339,57 +1338,50 @@ fn polymorphic_print<'ctx>(
             }
 
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
-
                 fmt.push_str("array([");
                 flush(ctx, generator, &mut fmt, &mut args);
 
-                let val = NDArrayType::from_unifier_type(generator, ctx, ty)
+                let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
+                let ndarray = NDArrayType::from_unifier_type(generator, ctx, ty)
                     .map_value(value.into_pointer_value(), None);
-                let len = call_ndarray_calc_size(generator, ctx, &val.shape(), (None, None));
-                let last =
-                    ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "").unwrap();
 
-                gen_for_callback_incrementing(
-                    generator,
-                    ctx,
-                    None,
-                    llvm_usize.const_zero(),
-                    (len, false),
-                    |generator, ctx, _, i| {
-                        let elem = unsafe { val.data().get_unchecked(ctx, generator, &i, None) };
+                let num_0 = llvm_usize.const_zero();
 
-                        polymorphic_print(
-                            ctx,
-                            generator,
-                            &[(elem_ty, elem.into())],
-                            "",
-                            None,
-                            true,
-                            as_rtio,
-                        )?;
+                // Print `ndarray` as a flat list delimited by interspersed with ", \0"
+                ndarray.foreach(generator, ctx, |generator, ctx, _, hdl| {
+                    let i = hdl.get_index(ctx);
+                    let scalar = hdl.get_scalar(ctx);
 
-                        gen_if_callback(
-                            generator,
-                            ctx,
-                            |_, ctx| {
-                                Ok(ctx
-                                    .builder
-                                    .build_int_compare(IntPredicate::ULT, i, last, "")
-                                    .unwrap())
-                            },
-                            |generator, ctx| {
-                                printf(ctx, generator, ", \0".into(), Vec::default());
+                    // if (i != 0) puts(", ");
+                    gen_if_callback(
+                        generator,
+                        ctx,
+                        |_, ctx| {
+                            let not_first = ctx
+                                .builder
+                                .build_int_compare(IntPredicate::NE, i, num_0, "")
+                                .unwrap();
+                            Ok(not_first)
+                        },
+                        |generator, ctx| {
+                            printf(ctx, generator, ", \0".into(), Vec::default());
+                            Ok(())
+                        },
+                        |_, _| Ok(()),
+                    )?;
 
-                                Ok(())
-                            },
-                            |_, _| Ok(()),
-                        )?;
-
-                        Ok(())
-                    },
-                    llvm_usize.const_int(1, false),
-                )?;
+                    // Print element
+                    polymorphic_print(
+                        ctx,
+                        generator,
+                        &[(dtype, scalar.into())],
+                        "",
+                        None,
+                        true,
+                        as_rtio,
+                    )?;
+                    Ok(())
+                })?;
 
                 fmt.push_str(")]");
                 flush(ctx, generator, &mut fmt, &mut args);
