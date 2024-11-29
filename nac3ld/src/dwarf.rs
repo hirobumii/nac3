@@ -439,8 +439,7 @@ impl<'a> EH_Frame_Hdr<'a> {
         writer.write_u8(0x03); // fde_count_enc - 4-byte unsigned value
         writer.write_u8(0x3B); // table_enc - .eh_frame_hdr section-relative 4-byte signed value
 
-        let eh_frame_offset = eh_frame_addr.wrapping_sub(
-            eh_frame_hdr_addr + writer.offset as u32);
+        let eh_frame_offset = eh_frame_addr.wrapping_sub(eh_frame_hdr_addr + writer.offset as u32);
         writer.write_u32(eh_frame_offset); // eh_frame_ptr
         writer.write_u32(0); // `fde_count`, will be written in finalize_fde
 
