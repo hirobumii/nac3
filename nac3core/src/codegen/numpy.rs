@@ -800,7 +800,8 @@ fn ndarray_from_ndlist_impl<'ctx, G: CodeGenerator + ?Sized>(
         _ => {
             let lst_len = src_lst.load_size(ctx, None);
             let sizeof_elem = dst_arr.get_type().element_type().size_of().unwrap();
-            let sizeof_elem = ctx.builder.build_int_cast(sizeof_elem, llvm_usize, "").unwrap();
+            let sizeof_elem =
+                ctx.builder.build_int_z_extend_or_bit_cast(sizeof_elem, llvm_usize, "").unwrap();
 
             let cpy_len = ctx
                 .builder
@@ -1207,7 +1208,7 @@ fn ndarray_sliced_copyto_impl<'ctx, G: CodeGenerator + ?Sized>(
                 .build_int_mul(
                     src_data_offset,
                     ctx.builder
-                        .build_int_cast(sizeof_elem, src_data_offset.get_type(), "")
+                        .build_int_z_extend_or_bit_cast(sizeof_elem, src_data_offset.get_type(), "")
                         .unwrap(),
                     "",
                 )
@@ -1220,7 +1221,7 @@ fn ndarray_sliced_copyto_impl<'ctx, G: CodeGenerator + ?Sized>(
                 .build_int_mul(
                     dst_data_offset,
                     ctx.builder
-                        .build_int_cast(sizeof_elem, dst_data_offset.get_type(), "")
+                        .build_int_z_extend_or_bit_cast(sizeof_elem, dst_data_offset.get_type(), "")
                         .unwrap(),
                     "",
                 )

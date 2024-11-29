@@ -131,8 +131,10 @@ impl<'ctx> NDArrayValue<'ctx> {
         elem_ty: BasicTypeEnum<'ctx>,
         size: IntValue<'ctx>,
     ) {
-        let itemsize =
-            ctx.builder.build_int_cast(elem_ty.size_of().unwrap(), size.get_type(), "").unwrap();
+        let itemsize = ctx
+            .builder
+            .build_int_z_extend_or_bit_cast(elem_ty.size_of().unwrap(), size.get_type(), "")
+            .unwrap();
         let nbytes = ctx.builder.build_int_mul(size, itemsize, "").unwrap();
 
         // TODO: What about alignment?
