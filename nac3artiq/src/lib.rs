@@ -577,7 +577,7 @@ impl Nac3 {
             field_to_val: RwLock::default(),
             name_to_pyid,
             module: module.to_object(py),
-            helper,
+            helper: helper.clone(),
             string_store: self.string_store.clone(),
             exception_ids: self.exception_ids.clone(),
             deferred_eval_store: self.deferred_eval_store.clone(),
@@ -821,6 +821,20 @@ impl Nac3 {
         if let Err(err) = result {
             panic!("Failed to run optimization for module `main`: {}", err.to_string());
         }
+
+        Python::with_gil(|py| {
+            let string_store = self.string_store.read();
+            let mut string_store_vec = string_store.iter().collect::<Vec<_>>();
+            string_store_vec.sort_by(|(_s1, key1), (_s2, key2)| key1.cmp(key2));
+            for (s, key) in string_store_vec {
+                let embed_key: i32 = helper.store_str.call1(py, (s,)).unwrap().extract(py).unwrap();
+                assert_eq!(
+                    embed_key, *key,
+                    "string {s} is out of sync between embedding map (key={embed_key}) and \
+                    the internal string store (key={key})"
+                );
+            }
+        });
 
         link_fn(&main)
     }

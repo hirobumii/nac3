@@ -1536,10 +1536,7 @@ impl SymbolResolver for Resolver {
         if let Some(id) = string_store.get(s) {
             *id
         } else {
-            let id = Python::with_gil(|py| -> PyResult<i32> {
-                self.0.helper.store_str.call1(py, (s,))?.extract(py)
-            })
-            .unwrap();
+            let id = string_store.len() as i32;
             string_store.insert(s.into(), id);
             id
         }
