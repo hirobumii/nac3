@@ -147,6 +147,21 @@ impl SymbolValue {
         }
     }
 
+    /// Evaluate binary operations
+    pub fn evaluate_binary_op(
+        &self,
+        other: &SymbolValue,
+        op: fn(i64, i64) -> i64,
+    ) -> Result<SymbolValue, String> {
+        match (self, other) {
+            (SymbolValue::I32(a), SymbolValue::I32(b)) => Ok(SymbolValue::I32(op(*a as i64, *b as i64) as i32)),
+            (SymbolValue::I64(a), SymbolValue::I64(b)) => Ok(SymbolValue::I64(op(*a, *b))),
+            (SymbolValue::U32(a), SymbolValue::U32(b)) => Ok(SymbolValue::U32(op(*a as i64, *b as i64) as u32)),
+            (SymbolValue::U64(a), SymbolValue::U64(b)) => Ok(SymbolValue::U64(op(*a as i64, *b as i64) as u64)),
+            _ => Err(format!("Unsupported binary operation for {self} and {other}")),
+        }
+    }
+
     /// Returns the [`Type`] representing the data type of this value.
     pub fn get_type(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> Type {
         match self {
