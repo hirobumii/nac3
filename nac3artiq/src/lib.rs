@@ -1071,6 +1071,47 @@ impl Nac3 {
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
         fs::write(working_directory.path().join("kernel.ld"), include_bytes!("kernel.ld")).unwrap();
 
+        let mut string_store: HashMap<String, i32> = Default::default();
+
+        // Keep this list of exceptions in sync with `EXCEPTION_ID_LOOKUP` in `artiq::firmware::ksupport::eh_artiq`
+        // The exceptions declared here must be defined in `artiq.coredevice.exceptions`
+        // Verify synchronization by running the test cases in `artiq.test.coredevice.test_exceptions`
+        let runtime_exception_names = [
+            "RTIOUnderflow",
+            "RTIOOverflow",
+            "RTIODestinationUnreachable",
+            "DMAError",
+            "I2CError",
+            "CacheError",
+            "SPIError",
+            "SubkernelError",
+            "0:AssertionError",
+            "0:AttributeError",
+            "0:IndexError",
+            "0:IOError",
+            "0:KeyError",
+            "0:NotImplementedError",
+            "0:OverflowError",
+            "0:RuntimeError",
+            "0:TimeoutError",
+            "0:TypeError",
+            "0:ValueError",
+            "0:ZeroDivisionError",
+            "0:LinAlgError",
+            "UnwrapNoneError",
+        ];
+
+        // Preallocate runtime exception names
+        for (i, name) in runtime_exception_names.iter().enumerate() {
+            let exn_name = if name.find(':').is_none() {
+                format!("0:artiq.coredevice.exceptions.{name}")
+            } else {
+                name.to_string()
+            };
+
+            string_store.insert(exn_name, i as i32);
+        }
+
         Ok(Nac3 {
             isa,
             time_fns,
@@ -1080,7 +1121,7 @@ impl Nac3 {
             top_levels: Vec::default(),
             pyid_to_def: Arc::default(),
             working_directory,
-            string_store: Arc::default(),
+            string_store: Arc::new(string_store.into()),
             exception_ids: Arc::default(),
             deferred_eval_store: DeferredEvaluationStore::new(),
             llvm_options: CodeGenLLVMOptions {

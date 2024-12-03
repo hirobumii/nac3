@@ -7,33 +7,6 @@ class EmbeddingMap:
         self.function_map = {}
         self.attributes_writeback = []
 
-        # preallocate exception names
-        self.preallocate_runtime_exception_names(["RuntimeError",
-                                          "RTIOUnderflow",
-                                          "RTIOOverflow",
-                                          "RTIODestinationUnreachable",
-                                          "DMAError",
-                                          "I2CError",
-                                          "CacheError",
-                                          "SPIError",
-                                          "0:ZeroDivisionError",
-                                          "0:IndexError",
-                                          "0:ValueError",
-                                          "0:RuntimeError",
-                                          "0:AssertionError",
-                                          "0:KeyError",
-                                          "0:NotImplementedError",
-                                          "0:OverflowError",
-                                          "0:IOError",
-                                          "0:UnwrapNoneError"])
-
-    def preallocate_runtime_exception_names(self, names):
-        for i, name in enumerate(names):
-            if ":" not in name:
-                name = "0:artiq.coredevice.exceptions." + name
-            exn_id = self.store_str(name)
-            assert exn_id == i
-
     def store_function(self, key, fun):
         self.function_map[key] = fun
         return key
