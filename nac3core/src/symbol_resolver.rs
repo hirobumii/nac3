@@ -9,7 +9,7 @@ use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, Struct
 use itertools::{chain, izip, Itertools};
 use parking_lot::RwLock;
 
-use nac3parser::ast::{Constant, Expr, Location, StrRef};
+use nac3parser::ast::{Constant, Expr, Location, StrRef, Cmpop};
 
 use crate::{
     codegen::{CodeGenContext, CodeGenerator},
@@ -147,21 +147,26 @@ impl SymbolValue {
         }
     }
 
-    /// Evaluate binary operations
-    pub fn evaluate_binary_op(
+    pub fn evaluate_cmp_op(
         &self,
+        op: &Cmpop,
         other: &SymbolValue,
-        op: fn(i64, i64) -> i64,
     ) -> Result<SymbolValue, String> {
-        match (self, other) {
-            (SymbolValue::I32(a), SymbolValue::I32(b)) => Ok(SymbolValue::I32(op(*a as i64, *b as i64) as i32)),
-            (SymbolValue::I64(a), SymbolValue::I64(b)) => Ok(SymbolValue::I64(op(*a, *b))),
-            (SymbolValue::U32(a), SymbolValue::U32(b)) => Ok(SymbolValue::U32(op(*a as i64, *b as i64) as u32)),
-            (SymbolValue::U64(a), SymbolValue::U64(b)) => Ok(SymbolValue::U64(op(*a as i64, *b as i64) as u64)),
-            _ => Err(format!("Unsupported binary operation for {self} and {other}")),
+        match (self, other, op) {
+            // Integer comparisons
+            (SymbolValue::I32(a), SymbolValue::I32(b), Cmpop::Eq) => Ok(SymbolValue::Bool(a == b)),
+            (SymbolValue::I32(a), SymbolValue::I32(b), Cmpop::NotEq) => Ok(SymbolValue::Bool(a != b)),
+            // String comparisons
+            (SymbolValue::Str(a), SymbolValue::Str(b), Cmpop::Eq) => Ok(SymbolValue::Bool(a == b)),
+            (SymbolValue::Str(a), SymbolValue::Str(b), Cmpop::NotEq) => Ok(SymbolValue::Bool(a != b)),
+            // Add other types and comparison operators as needed
+            _ => Err(format!(
+                "Unsupported comparison operation for {:?} and {:?} with operator {:?}",
+                self, other, op
+            )),
         }
-    }
-
+    } 
+    
     /// Returns the [`Type`] representing the data type of this value.
     pub fn get_type(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> Type {
         match self {

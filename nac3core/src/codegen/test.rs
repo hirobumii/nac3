@@ -10,7 +10,7 @@ use inkwell::{
     OptimizationLevel,
 };
 use nac3parser::{
-    ast::{fold::Fold, FileName, StrRef},
+    ast::{fold::Fold, FileName, StrRef, Cmpop},
     parser::parse_program,
 };
 use parking_lot::RwLock;
@@ -476,32 +476,22 @@ fn test_classes_ndarray_type_new() {
 }
 
 #[test]
-fn test_string_equality(){
+fn test_string_equality() {
     use crate::symbol_resolver::SymbolValue;
-    use crate::typedef::{PrimitiveStore, Unifier};
-    use crate::magic_methods::{Binop, Operator};
-    use nac3parser::ast::Cmpop;
-    
-    let primitives = PrimitiveStore::default();
-    let mut unifier = Unifier::default();
 
     let str1 = SymbolValue::Str("hello".to_string());
     let str2 = SymbolValue::Str("hello".to_string());
     let str3 = SymbolValue::Str("world".to_string());
 
-    // Create binary operators for equality and inequality
-    let eq_op = Binop::normal(Operator::Eq);
-    let neq_op = Binop::normal(Operator::NotEq);
-
     // Test equality (==)
-    let result_eq = str1.evaluate_binary_op(&eq_op, &str2, &primitives, &mut unifier).unwrap();
+    let result_eq = str1.evaluate_cmp_op(&Cmpop::Eq, &str2).unwrap();
     assert_eq!(result_eq, SymbolValue::Bool(true));
 
     // Test inequality (!=) with different strings
-    let result_neq_true = str1.evaluate_binary_op(&neq_op, &str3, &primitives, &mut unifier).unwrap();
+    let result_neq_true = str1.evaluate_cmp_op(&Cmpop::NotEq, &str3).unwrap();
     assert_eq!(result_neq_true, SymbolValue::Bool(true));
 
     // Test inequality (!=) with identical strings
-    let result_neq_false = str1.evaluate_binary_op(&neq_op, &str2, &primitives, &mut unifier).unwrap();
+    let result_neq_false = str1.evaluate_cmp_op(&Cmpop::NotEq, &str2).unwrap();
     assert_eq!(result_neq_false, SymbolValue::Bool(false));
 }
