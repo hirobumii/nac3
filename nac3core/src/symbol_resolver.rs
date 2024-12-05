@@ -9,7 +9,7 @@ use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, Struct
 use itertools::{chain, izip, Itertools};
 use parking_lot::RwLock;
 
-use nac3parser::ast::{Constant, Expr, Location, StrRef, Cmpop};
+use nac3parser::ast::{Constant, Expr, Location, StrRef};
 
 use crate::{
     codegen::{CodeGenContext, CodeGenerator},
@@ -147,26 +147,26 @@ impl SymbolValue {
         }
     }
 
-    pub fn evaluate_cmp_op(
-        &self,
-        op: &Cmpop,
-        other: &SymbolValue,
-    ) -> Result<SymbolValue, String> {
-        match (self, other, op) {
-            // Integer comparisons
-            (SymbolValue::I32(a), SymbolValue::I32(b), Cmpop::Eq) => Ok(SymbolValue::Bool(a == b)),
-            (SymbolValue::I32(a), SymbolValue::I32(b), Cmpop::NotEq) => Ok(SymbolValue::Bool(a != b)),
-            // String comparisons
-            (SymbolValue::Str(a), SymbolValue::Str(b), Cmpop::Eq) => Ok(SymbolValue::Bool(a == b)),
-            (SymbolValue::Str(a), SymbolValue::Str(b), Cmpop::NotEq) => Ok(SymbolValue::Bool(a != b)),
-            // Add other types and comparison operators as needed
-            _ => Err(format!(
-                "Unsupported comparison operation for {:?} and {:?} with operator {:?}",
-                self, other, op
-            )),
-        }
-    } 
-    
+    // pub fn evaluate_cmp_op(
+    //     &self,
+    //     op: &Cmpop,
+    //     other: &SymbolValue,
+    // ) -> Result<SymbolValue, String> {
+    //     match (self, other, op) {
+    //         // // Integer comparisons
+    //         // (SymbolValue::I32(a), SymbolValue::I32(b), Cmpop::Eq) => Ok(SymbolValue::Bool(a == b)),
+    //         // (SymbolValue::I32(a), SymbolValue::I32(b), Cmpop::NotEq) => Ok(SymbolValue::Bool(a != b)),
+    //         // String comparisons
+    //         (SymbolValue::Str(a), SymbolValue::Str(b), Cmpop::Eq) => Ok(SymbolValue::Bool(a == b)),
+    //         (SymbolValue::Str(a), SymbolValue::Str(b), Cmpop::NotEq) => Ok(SymbolValue::Bool(a != b)),
+    //         // Add other types and comparison operators as needed
+    //         _ => Err(format!(
+    //             "Unsupported comparison operation for {:?} and {:?} with operator {:?}",
+    //             self, other, op
+    //         )),
+    //     }
+    // }
+
     /// Returns the [`Type`] representing the data type of this value.
     pub fn get_type(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> Type {
         match self {

@@ -105,6 +105,14 @@ uint32_t __nac3_personality(uint32_t state, uint32_t exception_object, uint32_t 
     __builtin_unreachable();
 }
 
+// Compare two strings by content and length.
+bool nac3_str_eq(const char* lhs, size_t lhs_len, const char* rhs, size_t rhs_len) {
+    if (lhs_len != rhs_len) {
+        return false;
+    }
+    return memcmp(lhs, rhs, lhs_len) == 0;
+}
+
 // See `struct Exception<'a>` in
 // https://github.com/m-labs/artiq/blob/master/artiq/firmware/libeh/eh_artiq.rs
 struct Exception {

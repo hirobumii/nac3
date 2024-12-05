@@ -10,7 +10,7 @@ use inkwell::{
     OptimizationLevel,
 };
 use nac3parser::{
-    ast::{fold::Fold, FileName, StrRef, Cmpop},
+    ast::{fold::Fold, FileName, StrRef},
     parser::parse_program,
 };
 use parking_lot::RwLock;
@@ -473,25 +473,4 @@ fn test_classes_ndarray_type_new() {
 
     let llvm_ndarray = NDArrayType::new(&generator, &ctx, llvm_i32.into());
     assert!(NDArrayType::is_representable(llvm_ndarray.as_base_type(), llvm_usize).is_ok());
-}
-
-#[test]
-fn test_string_equality() {
-    use crate::symbol_resolver::SymbolValue;
-
-    let str1 = SymbolValue::Str("hello".to_string());
-    let str2 = SymbolValue::Str("hello".to_string());
-    let str3 = SymbolValue::Str("world".to_string());
-
-    // Test equality (==)
-    let result_eq = str1.evaluate_cmp_op(&Cmpop::Eq, &str2).unwrap();
-    assert_eq!(result_eq, SymbolValue::Bool(true));
-
-    // Test inequality (!=) with different strings
-    let result_neq_true = str1.evaluate_cmp_op(&Cmpop::NotEq, &str3).unwrap();
-    assert_eq!(result_neq_true, SymbolValue::Bool(true));
-
-    // Test inequality (!=) with identical strings
-    let result_neq_false = str1.evaluate_cmp_op(&Cmpop::NotEq, &str2).unwrap();
-    assert_eq!(result_neq_false, SymbolValue::Bool(false));
 }

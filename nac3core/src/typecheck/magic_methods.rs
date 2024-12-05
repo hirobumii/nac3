@@ -748,7 +748,7 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     impl_eq(unifier, store, bool_t, &[bool_t, ndarray_bool_t], None);
 
     /* str ========= */
-    impl_cmpop(unifier, store, str_t, &[str_t], &[Cmpop::Eq, Cmpop::NotEq], Some(bool_t));
+    impl_eq(unifier, store, str_t, &[str_t], Some(bool_t));
 
     /* list ======== */
     impl_binop(unifier, store, list_t, &[list_t], Some(list_t), &[Operator::Add]);
