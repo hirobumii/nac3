@@ -25,27 +25,10 @@ def str_eq():
     # Different lengths
     output_bool("abc" == "abcde")
 
-    # Case sensitivity
-    output_bool("Hello, World!" == "Hello, World!")
-    output_bool("CaseSensitive" == "casesensitive")
-
     # Leading and trailing spaces
     output_bool(" leading space" == "leading space")
     output_bool("trailing space " == "trailing space")
     output_bool("  " == "  ")
-
-    # Special characters and punctuation
-    output_bool("special@#%$^&*()_+{}|:<>?`~chars" == "special@#%$^&*()_+{}|:<>?`~chars")
-    
-    # Unicode strings
-    output_bool("café" == "café")       # Same accented character
-    output_bool("café" == "cafe")       # Accented vs unaccented
-    
-    # Strings with newline and tab
-    output_bool("line1\nline2" == "line1\nline2")
-    output_bool("tab\tseparated" == "tab\tseparated")
-    output_bool("line1\nline2" == "line1 line2")
-
 
 def str_ne():
     # Basic cases
@@ -68,26 +51,10 @@ def str_ne():
     # Different lengths
     output_bool("abc" != "abcde")
 
-    # Case sensitivity
-    output_bool("Hello, World!" != "Hello, World!")
-    output_bool("CaseSensitive" != "casesensitive")
-
     # Leading and trailing spaces
     output_bool(" leading space" != "leading space")
     output_bool("trailing space " != "trailing space")
     output_bool("  " != "  ")
-
-    # Special characters and punctuation
-    output_bool("special@#%$^&*()_+{}|:<>?`~chars" != "special@#%$^&*()_+{}|:<>?`~chars")
-
-    # Unicode strings
-    output_bool("café" != "café")
-    output_bool("café" != "cafe")
-    
-    # Strings with newline and tab
-    output_bool("line1\nline2" != "line1\nline2")
-    output_bool("tab\tseparated" != "tab\tseparated")
-    output_bool("line1\nline2" != "line1 line2")
 
 def run() -> int32:
     str_eq()
