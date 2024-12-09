@@ -1536,7 +1536,7 @@ impl SymbolResolver for Resolver {
         if let Some(id) = string_store.get(s) {
             *id
         } else {
-            let id = string_store.len() as i32;
+            let id = i32::try_from(string_store.len()).unwrap();
             string_store.insert(s.into(), id);
             id
         }

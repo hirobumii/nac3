@@ -1085,7 +1085,7 @@ impl Nac3 {
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
         fs::write(working_directory.path().join("kernel.ld"), include_bytes!("kernel.ld")).unwrap();
 
-        let mut string_store: HashMap<String, i32> = Default::default();
+        let mut string_store: HashMap<String, i32> = HashMap::default();
 
         // Keep this list of exceptions in sync with `EXCEPTION_ID_LOOKUP` in `artiq::firmware::ksupport::eh_artiq`
         // The exceptions declared here must be defined in `artiq.coredevice.exceptions`
@@ -1120,10 +1120,11 @@ impl Nac3 {
             let exn_name = if name.find(':').is_none() {
                 format!("0:artiq.coredevice.exceptions.{name}")
             } else {
-                name.to_string()
+                (*name).to_string()
             };
 
-            string_store.insert(exn_name, i as i32);
+            let id = i32::try_from(i).unwrap();
+            string_store.insert(exn_name, id);
         }
 
         Ok(Nac3 {
