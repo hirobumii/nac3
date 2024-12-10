@@ -1898,33 +1898,16 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
     debug_assert_eq!(comparators.len(), ops.len());
 
     if comparators.len() == 1 {
-        let (Some(left_ty), _) = left else { codegen_unreachable!(ctx) };
-        let left_ty = ctx.unifier.get_representative(left_ty);
-
-        let (Some(right_ty), _) = comparators[0] else { codegen_unreachable!(ctx) };
-        let right_ty = ctx.unifier.get_representative(right_ty);
+        let left_ty = ctx.unifier.get_representative(left.0.unwrap());
+        let right_ty = ctx.unifier.get_representative(comparators[0].0.unwrap());
 
         if left_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             || right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
         {
             let llvm_usize = generator.get_size_type(ctx.ctx);
 
-            let (left_ty_opt, lhs) = left;
-            let left_ty = match left_ty_opt {
-                Some(ty) => ctx.unifier.get_representative(ty),
-                None => codegen_unreachable!(ctx),
-            };
-
-            let (right_ty_opt, rhs) = match comparators.first().copied() {
-                Some((Some(ty), val)) => (Some(ty), val),
-                Some((None, _)) | None => {
-                    codegen_unreachable!(ctx);
-                }
-            };
-            let right_ty = match right_ty_opt {
-                Some(ty) => ctx.unifier.get_representative(ty),
-                None => codegen_unreachable!(ctx),
-            };
+            let (Some(left_ty), lhs) = left else { codegen_unreachable!(ctx) };
+            let (Some(right_ty), rhs) = comparators[0] else { codegen_unreachable!(ctx) };
             let op = ops[0];
 
             let is_ndarray1 =
@@ -2007,77 +1990,6 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 Ok(Some(res.as_base_value().into()))
             };
         }
-    }
-
-    let (Some(left_ty), lhs_val) = left else { codegen_unreachable!(ctx) };
-    let left_ty = ctx.unifier.get_representative(left_ty);
-
-    let (Some(right_ty), rhs_val) = comparators.first().copied().unwrap() else {
-        codegen_unreachable!(ctx)
-    };
-    let right_ty = ctx.unifier.get_representative(right_ty);
-
-    if ctx.unifier.unioned(left_ty, ctx.primitives.str)
-        && ctx.unifier.unioned(right_ty, ctx.primitives.str)
-    {
-        if ops.len() == 1 && (ops[0] == ast::Cmpop::Eq || ops[0] == ast::Cmpop::NotEq) {
-            let lhs_struct = lhs_val.into_struct_value();
-            let lhs_ptr = ctx
-                .builder
-                .build_extract_value(lhs_struct, 0, "lhs_ptr")
-                .unwrap()
-                .into_pointer_value();
-            let lhs_len =
-                ctx.builder.build_extract_value(lhs_struct, 1, "lhs_len").unwrap().into_int_value();
-
-            let rhs_struct = rhs_val.into_struct_value();
-            let rhs_ptr = ctx
-                .builder
-                .build_extract_value(rhs_struct, 0, "rhs_ptr")
-                .unwrap()
-                .into_pointer_value();
-            let rhs_len =
-                ctx.builder.build_extract_value(rhs_struct, 1, "rhs_len").unwrap().into_int_value();
-
-            let str_eq_fn = if let Some(fun) = ctx.module.get_function("nac3_str_eq") {
-                fun
-            } else {
-                let bool_type = ctx.ctx.bool_type();
-                let i8_ptr_type = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
-                let usize_type = generator.get_size_type(ctx.ctx);
-                let fn_type = bool_type.fn_type(
-                    &[i8_ptr_type.into(), usize_type.into(), i8_ptr_type.into(), usize_type.into()],
-                    false,
-                );
-                ctx.module.add_function("nac3_str_eq", fn_type, None)
-            };
-
-            let call_site = ctx
-                .builder
-                .build_call(
-                    str_eq_fn,
-                    &[lhs_ptr.into(), lhs_len.into(), rhs_ptr.into(), rhs_len.into()],
-                    "str_eq_call",
-                )
-                .expect("Failed to build call to nac3_str_eq");
-
-            let eq_result = match call_site.try_as_basic_value() {
-                Either::Left(inkwell::values::BasicValueEnum::IntValue(val)) => val,
-                Either::Left(_) | Either::Right(_) => codegen_unreachable!(ctx),
-            };
-
-            let eq_i8 =
-                ctx.builder.build_int_z_extend(eq_result, ctx.ctx.i8_type(), "eq_i8").unwrap();
-
-            let final_result = if ops[0] == ast::Cmpop::NotEq {
-                ctx.builder.build_not(eq_i8, "neq").unwrap()
-            } else {
-                eq_i8
-            };
-
-            return Ok(Some(ValueEnum::Dynamic(final_result.into())));
-        }
-        codegen_unreachable!(ctx);
     }
 
     let cmp_val = izip!(chain(once(&left), comparators.iter()), comparators.iter(), ops.iter(),)
@@ -2314,7 +2226,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     }
 
                     if ![Cmpop::Eq, Cmpop::NotEq].contains(op) {
-                        codegen_unreachable!(ctx, "Only __eq__ and __ne__ supported for this type")
+                        todo!("Only __eq__ and __ne__ is implemented for lists")
                     }
 
                     let left_val =
@@ -2438,10 +2350,10 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 gen_list_cmpop(generator, ctx)?
             } else if [left_ty, right_ty].iter().any(|ty| matches!(&*ctx.unifier.get_ty_immutable(*ty), TypeEnum::TTuple { .. })) {
                 let TypeEnum::TTuple { ty: left_tys, .. } = &*ctx.unifier.get_ty_immutable(left_ty) else {
-                    codegen_unreachable!(ctx)
+                    return Err(format!("'{}' not supported between instances of '{}' and '{}'", op.op_info().symbol, ctx.unifier.stringify(left_ty), ctx.unifier.stringify(right_ty)))
                 };
                 let TypeEnum::TTuple { ty: right_tys, .. } = &*ctx.unifier.get_ty_immutable(right_ty) else {
-                    codegen_unreachable!(ctx)
+                    return Err(format!("'{}' not supported between instances of '{}' and '{}'", op.op_info().symbol, ctx.unifier.stringify(left_ty), ctx.unifier.stringify(right_ty)))
                 };
 
                 if ![Cmpop::Eq, Cmpop::NotEq].contains(op) {
@@ -2566,7 +2478,10 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 ctx.ctx.bool_type().get_poison()
             } else {
-                codegen_unreachable!(ctx)
+                return Err(format!("'{}' not supported between instances of '{}' and '{}'",
+                                   op.op_info().symbol,
+                                   ctx.unifier.stringify(left_ty),
+                                   ctx.unifier.stringify(right_ty)))
             };
 
             Ok(prev?.map(|v| ctx.builder.build_and(v, current, "cmp").unwrap()).or(Some(current)))
