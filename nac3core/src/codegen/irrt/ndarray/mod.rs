@@ -16,9 +16,11 @@ use crate::codegen::{
     CodeGenContext, CodeGenerator,
 };
 pub use basic::*;
+pub use indexing::*;
 pub use iter::*;
 
 mod basic;
+mod indexing;
 mod iter;
 
 /// Generates a call to `__nac3_ndarray_calc_size`. Returns an [`IntValue`] representing the
