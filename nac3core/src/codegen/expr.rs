@@ -34,7 +34,8 @@ use super::{
     },
     types::{ndarray::NDArrayType, ListType},
     values::{
-        ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, RangeValue,
+        ndarray::{NDArrayValue, RustNDIndex},
+        ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, RangeValue,
         TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
     },
     CodeGenContext, CodeGenTask, CodeGenerator,
@@ -3486,19 +3487,21 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     }
                 }
                 TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                    let (ty, ndims) =
-                        unpack_ndarray_var_tys(&mut ctx.unifier, value.custom.unwrap());
-
-                    let v = if let Some(v) = generator.gen_expr(ctx, value)? {
-                        v.to_basic_value_enum(ctx, generator, value.custom.unwrap())?
-                            .into_pointer_value()
-                    } else {
+                    let Some(ndarray) = generator.gen_expr(ctx, value)? else {
                         return Ok(None);
                     };
-                    let v = NDArrayType::from_unifier_type(generator, ctx, value.custom.unwrap())
-                        .map_value(v, None);
 
-                    return gen_ndarray_subscript_expr(generator, ctx, ty, ndims, v, slice);
+                    let ndarray_ty = value.custom.unwrap();
+                    let ndarray = ndarray.to_basic_value_enum(ctx, generator, ndarray_ty)?;
+                    let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
+                        .map_value(ndarray.into_pointer_value(), None);
+
+                    let indices = RustNDIndex::from_subscript_expr(generator, ctx, slice)?;
+                    let result = ndarray
+                        .index(generator, ctx, &indices)
+                        .split_unsized(generator, ctx)
+                        .to_basic_value_enum();
+                    return Ok(Some(ValueEnum::Dynamic(result)));
                 }
                 TypeEnum::TTuple { .. } => {
                     let index: u32 =

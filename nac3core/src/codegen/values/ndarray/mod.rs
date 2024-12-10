@@ -403,6 +403,33 @@ impl<'ctx> NDArrayValue<'ctx> {
         assert_eq!(self.dtype, src.dtype, "self and src dtype should match");
         irrt::ndarray::call_nac3_ndarray_copy_data(generator, ctx, src, *self);
     }
+
+    /// Returns true if this ndarray is unsized - `ndims == 0` and only contains a scalar.
+    #[must_use]
+    pub fn is_unsized(&self) -> Option<bool> {
+        self.ndims.map(|ndims| ndims == 0)
+    }
+
+    /// If this ndarray is unsized, return its sole value as an [`AnyObject`].
+    /// Otherwise, do nothing and return the ndarray itself.
+    // TODO: Rename to get_unsized_element
+    pub fn split_unsized<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> ScalarOrNDArray<'ctx> {
+        let Some(is_unsized) = self.is_unsized() else { todo!() };
+
+        if is_unsized {
+            // NOTE: `np.size(self) == 0` here is never possible.
+            let zero = generator.get_size_type(ctx.ctx).const_zero();
+            let value = unsafe { self.data().get_unchecked(ctx, generator, &zero, None) };
+
+            ScalarOrNDArray::Scalar(value)
+        } else {
+            ScalarOrNDArray::NDArray(*self)
+        }
+    }
 }
 
 impl<'ctx> ProxyValue<'ctx> for NDArrayValue<'ctx> {
@@ -883,4 +910,22 @@ pub fn make_contiguous_strides(itemsize: u64, ndims: u64, shape: &[u64]) -> Vec<
         stride_product *= shape[axis as usize];
     }
     strides
+}
+
+/// A convenience enum for implementing functions that acts on scalars or ndarrays or both.
+#[derive(Clone, Copy)]
+pub enum ScalarOrNDArray<'ctx> {
+    Scalar(BasicValueEnum<'ctx>),
+    NDArray(NDArrayValue<'ctx>),
+}
+
+impl<'ctx> ScalarOrNDArray<'ctx> {
+    /// Get the underlying [`BasicValueEnum<'ctx>`] of this [`ScalarOrNDArray`].
+    #[must_use]
+    pub fn to_basic_value_enum(self) -> BasicValueEnum<'ctx> {
+        match self {
+            ScalarOrNDArray::Scalar(scalar) => scalar,
+            ScalarOrNDArray::NDArray(ndarray) => ndarray.as_base_value().into(),
+        }
+    }
 }
