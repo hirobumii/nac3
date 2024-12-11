@@ -15,11 +15,13 @@ pub use list::*;
 pub use math::*;
 pub use ndarray::*;
 pub use slice::*;
+pub use string::*;
 
 mod list;
 mod math;
 mod ndarray;
 mod slice;
+mod string;
 
 #[must_use]
 pub fn load_irrt<'ctx>(ctx: &'ctx Context, symbol_resolver: &dyn SymbolResolver) -> Module<'ctx> {
