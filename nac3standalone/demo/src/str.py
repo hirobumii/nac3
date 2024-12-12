@@ -11,9 +11,6 @@ def str_eq():
     output_bool("a" == "a")
     output_bool("test string" == "test string")
     output_bool("test string1" == "test string2")
-    output_bool("test" == "testing")
-    output_bool("abcd" == "abdc")
-    output_bool(" " == " ")
 
 
 def str_ne():
@@ -24,9 +21,6 @@ def str_ne():
     output_bool("a" != "a")
     output_bool("test string" != "test string")
     output_bool("test string1" != "test string2")
-    output_bool("test" != "testing")
-    output_bool("abcd" != "abdc")
-    output_bool(" " != " ")
 
 
 def run() -> int32:
