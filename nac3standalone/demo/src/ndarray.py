@@ -1764,7 +1764,7 @@ def run() -> int32:
     test_ndarray_svd()
     test_ndarray_linalg_inv()
     test_ndarray_pinv()
-    # test_ndarray_matrix_power()
+    test_ndarray_matrix_power()
     test_ndarray_det()
     test_ndarray_lu()
     test_ndarray_schur()
