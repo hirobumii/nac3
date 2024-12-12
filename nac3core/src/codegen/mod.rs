@@ -38,7 +38,7 @@ use crate::{
 };
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
-use types::{ListType, NDArrayType, ProxyType, RangeType};
+use types::{ndarray::NDArrayType, ListType, ProxyType, RangeType};
 
 pub mod builtin_fns;
 pub mod concrete_type;

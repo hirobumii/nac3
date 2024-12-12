@@ -10,8 +10,8 @@ use crate::codegen::{
     macros::codegen_unreachable,
     stmt::gen_for_callback_incrementing,
     values::{
-        ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, NDArrayValue, TypedArrayLikeAccessor,
-        TypedArrayLikeAdapter, UntypedArrayLikeAccessor,
+        ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue,
+        TypedArrayLikeAccessor, TypedArrayLikeAdapter, UntypedArrayLikeAccessor,
     },
     CodeGenContext, CodeGenerator,
 };

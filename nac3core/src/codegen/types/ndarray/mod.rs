@@ -13,7 +13,7 @@ use super::{
     ProxyType,
 };
 use crate::codegen::{
-    values::{ArraySliceValue, NDArrayValue, ProxyValue},
+    values::{ndarray::NDArrayValue, ArraySliceValue, ProxyValue},
     {CodeGenContext, CodeGenerator},
 };
 

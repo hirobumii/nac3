@@ -4,12 +4,11 @@ use super::types::ProxyType;
 use crate::codegen::CodeGenerator;
 pub use array::*;
 pub use list::*;
-pub use ndarray::*;
 pub use range::*;
 
 mod array;
 mod list;
-mod ndarray;
+pub mod ndarray;
 mod range;
 
 /// A LLVM type that is used to represent a non-primitive value in NAC3.

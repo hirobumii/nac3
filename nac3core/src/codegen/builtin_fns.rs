@@ -15,7 +15,7 @@ use super::{
     numpy::ndarray_elementwise_unaryop_impl,
     stmt::gen_for_callback_incrementing,
     values::{
-        ArrayLikeValue, NDArrayValue, ProxyValue, RangeValue, TypedArrayLikeAccessor,
+        ndarray::NDArrayValue, ArrayLikeValue, ProxyValue, RangeValue, TypedArrayLikeAccessor,
         UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
     },
     CodeGenContext, CodeGenerator,

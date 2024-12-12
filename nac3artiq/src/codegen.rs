@@ -18,10 +18,10 @@ use nac3core::{
         irrt::ndarray::call_ndarray_calc_size,
         llvm_intrinsics::{call_int_smax, call_memcpy_generic, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
-        types::NDArrayType,
+        types::ndarray::NDArrayType,
         values::{
-            ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, NDArrayValue, ProxyValue,
-            RangeValue, UntypedArrayLikeAccessor,
+            ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue,
+            ProxyValue, RangeValue, UntypedArrayLikeAccessor,
         },
         CodeGenContext, CodeGenerator,
     },

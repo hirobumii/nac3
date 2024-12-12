@@ -18,9 +18,9 @@ use super::{
     llvm_intrinsics::{self, call_memcpy_generic},
     macros::codegen_unreachable,
     stmt::{gen_for_callback_incrementing, gen_for_range_callback, gen_if_else_expr_callback},
-    types::{ListType, NDArrayType, ProxyType},
+    types::{ndarray::NDArrayType, ListType, ProxyType},
     values::{
-        ArrayLikeIndexer, ArrayLikeValue, ListValue, NDArrayValue, ProxyValue,
+        ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue,
         TypedArrayLikeAccessor, TypedArrayLikeAdapter, TypedArrayLikeMutator,
         UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
     },

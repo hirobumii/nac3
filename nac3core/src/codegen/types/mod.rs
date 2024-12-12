@@ -23,11 +23,10 @@ use super::{
     {CodeGenContext, CodeGenerator},
 };
 pub use list::*;
-pub use ndarray::*;
 pub use range::*;
 
 mod list;
-mod ndarray;
+pub mod ndarray;
 mod range;
 pub mod structure;
 

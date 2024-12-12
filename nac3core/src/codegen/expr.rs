@@ -34,7 +34,7 @@ use super::{
     },
     types::ListType,
     values::{
-        ArrayLikeIndexer, ArrayLikeValue, ListValue, NDArrayValue, ProxyValue, RangeValue,
+        ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, RangeValue,
         TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
     },
     CodeGenContext, CodeGenTask, CodeGenerator,

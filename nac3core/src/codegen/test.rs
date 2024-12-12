@@ -17,7 +17,7 @@ use parking_lot::RwLock;
 
 use super::{
     concrete_type::ConcreteTypeStore,
-    types::{ListType, NDArrayType, ProxyType, RangeType},
+    types::{ndarray::NDArrayType, ListType, ProxyType, RangeType},
     CodeGenContext, CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator,
     DefaultCodeGenerator, WithCall, WorkerRegistry,
 };

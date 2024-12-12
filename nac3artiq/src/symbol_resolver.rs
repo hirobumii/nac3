@@ -15,7 +15,7 @@ use pyo3::{
 
 use nac3core::{
     codegen::{
-        types::{NDArrayType, ProxyType},
+        types::{ndarray::NDArrayType, ProxyType},
         CodeGenContext, CodeGenerator,
     },
     inkwell::{

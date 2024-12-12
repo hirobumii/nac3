@@ -12,7 +12,7 @@ use crate::codegen::{
     irrt,
     llvm_intrinsics::call_int_umin,
     stmt::gen_for_callback_incrementing,
-    types::{structure::StructField, NDArrayType},
+    types::{ndarray::NDArrayType, structure::StructField},
     CodeGenContext, CodeGenerator,
 };
 
