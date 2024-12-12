@@ -19,10 +19,12 @@ use crate::codegen::{
 pub use contiguous::*;
 pub use indexing::*;
 pub use nditer::*;
+pub use view::*;
 
 mod contiguous;
 mod indexing;
 mod nditer;
+mod view;
 
 /// Proxy type for accessing an `NDArray` value in LLVM.
 #[derive(Copy, Clone)]
