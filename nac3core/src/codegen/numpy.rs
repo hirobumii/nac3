@@ -1,5 +1,5 @@
 use inkwell::{
-    types::{AnyTypeEnum, BasicType, BasicTypeEnum, PointerType},
+    types::{BasicType, BasicTypeEnum, PointerType},
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
     AddressSpace, IntPredicate, OptimizationLevel,
 };
@@ -639,17 +639,17 @@ fn llvm_ndlist_get_ndims<'ctx, G: CodeGenerator + ?Sized>(
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
     let list_ty = ListType::from_type(ty, llvm_usize);
-    let list_elem_ty = list_ty.element_type();
+    let list_elem_ty = list_ty.element_type().unwrap();
 
     let ndims = llvm_usize.const_int(1, false);
     match list_elem_ty {
-        AnyTypeEnum::PointerType(ptr_ty)
+        BasicTypeEnum::PointerType(ptr_ty)
             if ListType::is_representable(ptr_ty, llvm_usize).is_ok() =>
         {
             ndims.const_add(llvm_ndlist_get_ndims(generator, ctx, ptr_ty))
         }
 
-        AnyTypeEnum::PointerType(ptr_ty)
+        BasicTypeEnum::PointerType(ptr_ty)
             if NDArrayType::is_representable(ptr_ty, llvm_usize).is_ok() =>
         {
             todo!("Getting ndims for list[ndarray] not supported")
@@ -670,10 +670,10 @@ fn ndarray_from_ndlist_impl<'ctx, G: CodeGenerator + ?Sized>(
     let llvm_i1 = ctx.ctx.bool_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
-    let list_elem_ty = src_lst.get_type().element_type();
+    let list_elem_ty = src_lst.get_type().element_type().unwrap();
 
     match list_elem_ty {
-        AnyTypeEnum::PointerType(ptr_ty)
+        BasicTypeEnum::PointerType(ptr_ty)
             if ListType::is_representable(ptr_ty, llvm_usize).is_ok() =>
         {
             // The stride of elements in this dimension, i.e. the number of elements between arr[i]
@@ -733,7 +733,7 @@ fn ndarray_from_ndlist_impl<'ctx, G: CodeGenerator + ?Sized>(
             )?;
         }
 
-        AnyTypeEnum::PointerType(ptr_ty)
+        BasicTypeEnum::PointerType(ptr_ty)
             if NDArrayType::is_representable(ptr_ty, llvm_usize).is_ok() =>
         {
             todo!("Not implemented for list[ndarray]")

@@ -1090,33 +1090,6 @@ pub fn destructure_range<'ctx>(
     (start, end, step)
 }
 
-/// Allocates a List structure with the given [type][ty] and [length]. The name of the resulting
-/// LLVM value is `{name}.addr`, or `list.addr` if [name] is not specified.
-///
-/// Setting `ty` to [`None`] implies that the list is empty **and** does not have a known element
-/// type, and will therefore set the `list.data` type as `size_t*`. It is undefined behavior to
-/// generate a sized list with an unknown element type.
-pub fn allocate_list<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    ty: Option<BasicTypeEnum<'ctx>>,
-    length: IntValue<'ctx>,
-    name: Option<&'ctx str>,
-) -> ListValue<'ctx> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-    let llvm_elem_ty = ty.unwrap_or(llvm_usize.into());
-
-    // List structure; type { ty*, size_t }
-    let arr_ty = ListType::new(generator, ctx.ctx, llvm_elem_ty);
-    let list = arr_ty.alloca_var(generator, ctx, name);
-
-    let length = ctx.builder.build_int_z_extend(length, llvm_usize, "").unwrap();
-    list.store_size(ctx, generator, length);
-    list.create_data(ctx, llvm_elem_ty, None);
-
-    list
-}
-
 /// Generates LLVM IR for a [list comprehension expression][expr].
 pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     generator: &mut G,
@@ -1189,12 +1162,11 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                     "listcomp.alloc_size",
                 )
                 .unwrap();
-            list = allocate_list(
+            list = ListType::new(generator, ctx.ctx, elem_ty).construct(
                 generator,
                 ctx,
-                Some(elem_ty),
                 list_alloc_size.into_int_value(),
-                Some("listcomp.addr"),
+                Some("listcomp"),
             );
 
             let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
@@ -1241,7 +1213,12 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                     Some("length"),
                 )
                 .into_int_value();
-            list = allocate_list(generator, ctx, Some(elem_ty), length, Some("listcomp"));
+            list = ListType::new(generator, ctx.ctx, elem_ty).construct(
+                generator,
+                ctx,
+                length,
+                Some("listcomp"),
+            );
 
             let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
             // counter = -1
@@ -1406,7 +1383,8 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                     .build_int_add(lhs.load_size(ctx, None), rhs.load_size(ctx, None), "")
                     .unwrap();
 
-                let new_list = allocate_list(generator, ctx, Some(llvm_elem_ty), size, None);
+                let new_list = ListType::new(generator, ctx.ctx, llvm_elem_ty)
+                    .construct(generator, ctx, size, None);
 
                 let lhs_size = ctx
                     .builder
@@ -1493,10 +1471,9 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 let elem_llvm_ty = ctx.get_llvm_type(generator, elem_ty);
                 let sizeof_elem = elem_llvm_ty.size_of().unwrap();
 
-                let new_list = allocate_list(
+                let new_list = ListType::new(generator, ctx.ctx, elem_llvm_ty).construct(
                     generator,
                     ctx,
-                    Some(elem_llvm_ty),
                     ctx.builder.build_int_mul(list_val.load_size(ctx, None), int_val, "").unwrap(),
                     None,
                 );
@@ -2553,7 +2530,20 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 Some(elements[0].get_type())
             };
             let length = generator.get_size_type(ctx.ctx).const_int(elements.len() as u64, false);
-            let arr_str_ptr = allocate_list(generator, ctx, ty, length, Some("list"));
+            let arr_str_ptr = if let Some(ty) = ty {
+                ListType::new(generator, ctx.ctx, ty).construct(
+                    generator,
+                    ctx,
+                    length,
+                    Some("list"),
+                )
+            } else {
+                ListType::new_untyped(generator, ctx.ctx).construct_empty(
+                    generator,
+                    ctx,
+                    Some("list"),
+                )
+            };
             let arr_ptr = arr_str_ptr.data();
             for (i, v) in elements.iter().enumerate() {
                 let elem_ptr = arr_ptr.ptr_offset(
@@ -3031,8 +3021,12 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                 .unwrap(),
                             step,
                         );
-                        let res_array_ret =
-                            allocate_list(generator, ctx, Some(ty), length, Some("ret"));
+                        let res_array_ret = ListType::new(generator, ctx.ctx, ty).construct(
+                            generator,
+                            ctx,
+                            length,
+                            Some("ret"),
+                        );
                         let Some(res_ind) = handle_slice_indices(
                             &None,
                             &None,
