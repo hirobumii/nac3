@@ -69,7 +69,10 @@ impl<'ctx> NDIterValue<'ctx> {
         irrt::ndarray::call_nac3_nditer_next(generator, ctx, *self);
     }
 
-    fn element(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, PointerValue<'ctx>> {
+    fn element_field(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+    ) -> StructField<'ctx, PointerValue<'ctx>> {
         self.get_type().get_fields(ctx.ctx).element
     }
 
@@ -78,7 +81,7 @@ impl<'ctx> NDIterValue<'ctx> {
     pub fn get_pointer(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let elem_ty = self.parent.dtype;
 
-        let p = self.element(ctx).get(ctx, self.as_base_value(), self.name);
+        let p = self.element_field(ctx).get(ctx, self.as_base_value(), self.name);
         ctx.builder
             .build_pointer_cast(p, elem_ty.ptr_type(AddressSpace::default()), "element")
             .unwrap()
@@ -91,14 +94,14 @@ impl<'ctx> NDIterValue<'ctx> {
         ctx.builder.build_load(p, "value").unwrap()
     }
 
-    fn nth(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, IntValue<'ctx>> {
+    fn nth_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, IntValue<'ctx>> {
         self.get_type().get_fields(ctx.ctx).nth
     }
 
     /// Get the index of the current element if this ndarray were a flat ndarray.
     #[must_use]
     pub fn get_index(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.nth(ctx).get(ctx, self.as_base_value(), self.name)
+        self.nth_field(ctx).get(ctx, self.as_base_value(), self.name)
     }
 
     /// Get the indices of the current element.

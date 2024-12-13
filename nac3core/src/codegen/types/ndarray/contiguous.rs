@@ -31,7 +31,7 @@ pub struct ContiguousNDArrayType<'ctx> {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, StructFields)]
-pub struct ContiguousNDArrayFields<'ctx> {
+pub struct ContiguousNDArrayStructFields<'ctx> {
     #[value_type(usize)]
     pub ndims: StructField<'ctx, IntValue<'ctx>>,
     #[value_type(usize.ptr_type(AddressSpace::default()))]
@@ -40,12 +40,12 @@ pub struct ContiguousNDArrayFields<'ctx> {
     pub data: StructField<'ctx, PointerValue<'ctx>>,
 }
 
-impl<'ctx> ContiguousNDArrayFields<'ctx> {
+impl<'ctx> ContiguousNDArrayStructFields<'ctx> {
     #[must_use]
     pub fn new_typed(item: BasicTypeEnum<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         let mut counter = FieldIndexCounter::default();
 
-        ContiguousNDArrayFields {
+        ContiguousNDArrayStructFields {
             ndims: StructField::create(&mut counter, "ndims", llvm_usize),
             shape: StructField::create(
                 &mut counter,
@@ -72,7 +72,7 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
             ));
         };
 
-        let fields = ContiguousNDArrayFields::new(ctx, llvm_usize);
+        let fields = ContiguousNDArrayStructFields::new(ctx, llvm_usize);
 
         check_struct_type_matches_fields(
             fields,
@@ -93,14 +93,14 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
     fn fields(
         item: BasicTypeEnum<'ctx>,
         llvm_usize: IntType<'ctx>,
-    ) -> ContiguousNDArrayFields<'ctx> {
-        ContiguousNDArrayFields::new_typed(item, llvm_usize)
+    ) -> ContiguousNDArrayStructFields<'ctx> {
+        ContiguousNDArrayStructFields::new_typed(item, llvm_usize)
     }
 
     /// See [`NDArrayType::fields`].
     // TODO: Move this into e.g. StructProxyType
     #[must_use]
-    pub fn get_fields(&self) -> ContiguousNDArrayFields<'ctx> {
+    pub fn get_fields(&self) -> ContiguousNDArrayStructFields<'ctx> {
         Self::fields(self.item, self.llvm_usize)
     }
 
