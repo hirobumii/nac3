@@ -1,7 +1,4 @@
-use inkwell::{
-    values::{BasicValueEnum, CallSiteValue, IntValue, PointerValue},
-    AddressSpace,
-};
+use inkwell::values::{BasicValueEnum, CallSiteValue, IntValue, PointerValue};
 use itertools::Either;
 
 use crate::codegen::{CodeGenContext, CodeGenerator};
@@ -15,27 +12,27 @@ pub fn call_string_eq<'ctx, G: CodeGenerator + ?Sized>(
     str2_ptr: PointerValue<'ctx>,
     str2_len: IntValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let string_eq_fn = ctx.module.get_function("nac3_str_eq").unwrap_or_else(|| {
-        let i8_ptr_type = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
-        let i64_type = ctx.ctx.i64_type();
-        let i32_type = ctx.ctx.i32_type();
-        let fn_type = i32_type.fn_type(
-            &[i8_ptr_type.into(), i64_type.into(), i8_ptr_type.into(), i64_type.into()],
-            false,
-        );
-        ctx.module.add_function("nac3_str_eq", fn_type, None)
+    let func = ctx.module.get_function("nac3_str_eq").unwrap_or_else(|| {
+        ctx.module.add_function(
+            "nac3_str_eq",
+            ctx.ctx.i32_type().fn_type(
+                &[
+                    str1_ptr.get_type().into(),
+                    str1_len.get_type().into(),
+                    str2_ptr.get_type().into(),
+                    str2_len.get_type().into(),
+                ],
+                false,
+            ),
+            None,
+        )
     });
     let result = ctx
         .builder
         .build_call(
-            string_eq_fn,
-            &[
-                str1_ptr.into(),
-                ctx.builder.build_int_z_extend(str1_len, ctx.ctx.i64_type(), "").unwrap().into(),
-                str2_ptr.into(),
-                ctx.builder.build_int_z_extend(str2_len, ctx.ctx.i64_type(), "").unwrap().into(),
-            ],
-            "string_eq",
+            func,
+            &[str1_ptr.into(), str1_len.into(), str2_ptr.into(), str2_len.into()],
+            "str_eq_call",
         )
         .map(CallSiteValue::try_as_basic_value)
         .map(|v| v.map_left(BasicValueEnum::into_int_value))

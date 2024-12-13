@@ -8,7 +8,7 @@ SizeT __nac3_str_eq_impl(const char* str1, SizeT len1, const char* str2, SizeT l
     if (len1 != len2){
         return 0;
     }
-    return (__builtin_strncmp(str1, str2, static_cast<SizeT>(len1)) == 0) ? 1 : 0;
+    return (__builtin_memcmp(str1, str2, static_cast<SizeT>(len1)) == 0) ? 1 : 0;
 }
 }  // namespace
 
