@@ -28,11 +28,13 @@ use super::{
 };
 pub use list::*;
 pub use range::*;
+pub use tuple::*;
 
 mod list;
 pub mod ndarray;
 mod range;
 pub mod structure;
+mod tuple;
 pub mod utils;
 
 /// A LLVM type that is used to represent a corresponding type in NAC3.

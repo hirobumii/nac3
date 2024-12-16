@@ -42,7 +42,7 @@ use crate::{
 };
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
-use types::{ndarray::NDArrayType, ListType, ProxyType, RangeType};
+use types::{ndarray::NDArrayType, ListType, ProxyType, RangeType, TupleType};
 
 pub mod builtin_fns;
 pub mod concrete_type;
@@ -574,7 +574,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, *ty)
                     })
                     .collect_vec();
-                ctx.struct_type(&fields, false).into()
+                TupleType::new(generator, ctx, &fields).as_base_type().into()
             }
             TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),

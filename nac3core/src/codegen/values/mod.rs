@@ -5,11 +5,13 @@ use crate::codegen::CodeGenerator;
 pub use array::*;
 pub use list::*;
 pub use range::*;
+pub use tuple::*;
 
 mod array;
 mod list;
 pub mod ndarray;
 mod range;
+mod tuple;
 pub mod utils;
 
 /// A LLVM type that is used to represent a non-primitive value in NAC3.

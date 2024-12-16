@@ -1,6 +1,6 @@
 use inkwell::{
     types::BasicTypeEnum,
-    values::{BasicValueEnum, IntValue, PointerValue},
+    values::{BasicValue, BasicValueEnum, IntValue},
     FloatPredicate, IntPredicate, OptimizationLevel,
 };
 use itertools::Itertools;
@@ -14,7 +14,7 @@ use super::{
     numpy,
     numpy::ndarray_elementwise_unaryop_impl,
     stmt::gen_for_callback_incrementing,
-    types::ndarray::NDArrayType,
+    types::{ndarray::NDArrayType, TupleType},
     values::{
         ndarray::NDArrayValue, ArrayLikeValue, ProxyValue, RangeValue, TypedArrayLikeAccessor,
         UntypedArrayLikeAccessor,
@@ -1868,34 +1868,6 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
     })
 }
 
-/// Allocates a struct with the fields specified by `out_matrices` and returns a pointer to it
-fn build_output_struct<'ctx>(
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    out_matrices: &[BasicValueEnum<'ctx>],
-) -> PointerValue<'ctx> {
-    let field_ty = out_matrices.iter().map(BasicValueEnum::get_type).collect_vec();
-    let out_ty = ctx.ctx.struct_type(&field_ty, false);
-    let out_ptr = ctx.builder.build_alloca(out_ty, "").unwrap();
-
-    for (i, v) in out_matrices.iter().enumerate() {
-        unsafe {
-            let ptr = ctx
-                .builder
-                .build_in_bounds_gep(
-                    out_ptr,
-                    &[
-                        ctx.ctx.i32_type().const_zero(),
-                        ctx.ctx.i32_type().const_int(i as u64, false),
-                    ],
-                    "",
-                )
-                .unwrap();
-            ctx.builder.build_store(ptr, *v).unwrap();
-        }
-    }
-    out_ptr
-}
-
 /// Invokes the `np_linalg_cholesky` linalg function
 pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
@@ -1973,10 +1945,11 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
         None,
     );
 
-    let q = q.as_base_value().into();
-    let r = r.as_base_value().into();
-    let out_ptr = build_output_struct(ctx, &[q, r]);
-    Ok(ctx.builder.build_load(out_ptr, "QR_Factorization_result").map(Into::into).unwrap())
+    let q = q.as_base_value().as_basic_value_enum();
+    let r = r.as_base_value().as_basic_value_enum();
+    let tuple = TupleType::new(generator, ctx.ctx, &[q.get_type(), r.get_type()])
+        .construct_from_objects(ctx, [q, r], None);
+    Ok(tuple.as_base_value().into())
 }
 
 /// Invokes the `np_linalg_svd` linalg function
@@ -2031,12 +2004,12 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
         None,
     );
 
-    let u = u.as_base_value().into();
-    let s = s.as_base_value().into();
-    let vh = vh.as_base_value().into();
-    let out_ptr = build_output_struct(ctx, &[u, s, vh]);
-
-    Ok(ctx.builder.build_load(out_ptr, "SVD_Factorization_result").map(Into::into).unwrap())
+    let u = u.as_base_value().as_basic_value_enum();
+    let s = s.as_base_value().as_basic_value_enum();
+    let vh = vh.as_base_value().as_basic_value_enum();
+    let tuple = TupleType::new(generator, ctx.ctx, &[u.get_type(), s.get_type(), vh.get_type()])
+        .construct_from_objects(ctx, [u, s, vh], None);
+    Ok(tuple.as_base_value().into())
 }
 
 /// Invokes the `np_linalg_inv` linalg function
@@ -2158,10 +2131,11 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
         None,
     );
 
-    let l = l.as_base_value().into();
-    let u = u.as_base_value().into();
-    let out_ptr = build_output_struct(ctx, &[l, u]);
-    Ok(ctx.builder.build_load(out_ptr, "LU_Factorization_result").map(Into::into).unwrap())
+    let l = l.as_base_value().as_basic_value_enum();
+    let u = u.as_base_value().as_basic_value_enum();
+    let tuple = TupleType::new(generator, ctx.ctx, &[l.get_type(), u.get_type()])
+        .construct_from_objects(ctx, [l, u], None);
+    Ok(tuple.as_base_value().into())
 }
 
 /// Invokes the `np_linalg_matrix_power` linalg function
@@ -2293,10 +2267,11 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
         None,
     );
 
-    let t = t.as_base_value().into();
-    let z = z.as_base_value().into();
-    let out_ptr = build_output_struct(ctx, &[t, z]);
-    Ok(ctx.builder.build_load(out_ptr, "Schur_Factorization_result").map(Into::into).unwrap())
+    let t = t.as_base_value().as_basic_value_enum();
+    let z = z.as_base_value().as_basic_value_enum();
+    let tuple = TupleType::new(generator, ctx.ctx, &[t.get_type(), z.get_type()])
+        .construct_from_objects(ctx, [t, z], None);
+    Ok(tuple.as_base_value().into())
 }
 
 /// Invokes the `sp_linalg_hessenberg` linalg function
@@ -2337,8 +2312,9 @@ pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
         None,
     );
 
-    let h = h.as_base_value().into();
-    let q = q.as_base_value().into();
-    let out_ptr = build_output_struct(ctx, &[h, q]);
-    Ok(ctx.builder.build_load(out_ptr, "Hessenberg_decomposition_result").map(Into::into).unwrap())
+    let h = h.as_base_value().as_basic_value_enum();
+    let q = q.as_base_value().as_basic_value_enum();
+    let tuple = TupleType::new(generator, ctx.ctx, &[h.get_type(), q.get_type()])
+        .construct_from_objects(ctx, [h, q], None);
+    Ok(tuple.as_base_value().into())
 }
