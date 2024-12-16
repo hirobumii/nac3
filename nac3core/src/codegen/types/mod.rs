@@ -16,7 +16,11 @@
 //!   the returned object. This is similar to a `new` expression in C++ but the object is allocated
 //!   on the stack.
 
-use inkwell::{context::Context, types::BasicType, values::IntValue};
+use inkwell::{
+    context::Context,
+    types::BasicType,
+    values::{IntValue, PointerValue},
+};
 
 use super::{
     values::{ArraySliceValue, ProxyValue},
@@ -53,13 +57,14 @@ pub trait ProxyType<'ctx>: Into<Self::Base> {
         llvm_ty: Self::Base,
     ) -> Result<(), String>;
 
-    /// Creates a new value of this type, returning the LLVM instance of this value.
+    /// Creates a new value of this type by invoking `alloca`, returning a [`PointerValue`] instance
+    /// representing the allocated value.
     fn raw_alloca<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
-    ) -> <Self::Value as ProxyValue<'ctx>>::Base;
+    ) -> PointerValue<'ctx>;
 
     /// Creates a new array value of this type, returning an [`ArraySliceValue`] encapsulating the
     /// resulting array.

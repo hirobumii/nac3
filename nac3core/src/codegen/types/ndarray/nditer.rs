@@ -203,7 +203,7 @@ impl<'ctx> ProxyType<'ctx> for NDIterType<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
-    ) -> <Self::Value as ProxyValue<'ctx>>::Base {
+    ) -> PointerValue<'ctx> {
         generator
             .gen_var_alloc(
                 ctx,

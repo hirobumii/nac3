@@ -1,7 +1,7 @@
 use inkwell::{
     context::Context,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
-    values::IntValue,
+    values::{IntValue, PointerValue},
     AddressSpace,
 };
 
@@ -167,7 +167,7 @@ impl<'ctx> ProxyType<'ctx> for ListType<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
-    ) -> <Self::Value as ProxyValue<'ctx>>::Base {
+    ) -> PointerValue<'ctx> {
         generator
             .gen_var_alloc(
                 ctx,
