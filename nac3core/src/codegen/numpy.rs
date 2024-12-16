@@ -3,7 +3,6 @@ use inkwell::{
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
     AddressSpace, IntPredicate, OptimizationLevel,
 };
-use itertools::Itertools;
 
 use nac3parser::ast::{Operator, StrRef};
 
@@ -19,17 +18,28 @@ use super::{
     llvm_intrinsics::{self, call_memcpy_generic},
     macros::codegen_unreachable,
     stmt::{gen_for_callback_incrementing, gen_for_range_callback, gen_if_else_expr_callback},
-    types::{ndarray::NDArrayType, ListType, ProxyType},
+    types::{
+        ndarray::{
+            factory::{ndarray_one_value, ndarray_zero_value},
+            NDArrayType,
+        },
+        ListType, ProxyType,
+    },
     values::{
-        ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue,
-        ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter, TypedArrayLikeMutator,
+        ndarray::{shape::parse_numpy_int_sequence, NDArrayValue},
+        ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, ProxyValue,
+        TypedArrayLikeAccessor, TypedArrayLikeAdapter, TypedArrayLikeMutator,
         UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
     },
     CodeGenContext, CodeGenerator,
 };
 use crate::{
     symbol_resolver::ValueEnum,
-    toplevel::{helper::PrimDef, numpy::unpack_ndarray_var_tys, DefinitionId},
+    toplevel::{
+        helper::{extract_ndims, PrimDef},
+        numpy::unpack_ndarray_var_tys,
+        DefinitionId,
+    },
     typecheck::{
         magic_methods::Binop,
         typedef::{FunSignature, Type, TypeEnum},
@@ -172,132 +182,6 @@ pub fn create_ndarray_const_shape<'ctx, G: CodeGenerator + ?Sized>(
     unsafe { ndarray.create_data(generator, ctx) };
 
     Ok(ndarray)
-}
-
-fn ndarray_zero_value<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    elem_ty: Type,
-) -> BasicValueEnum<'ctx> {
-    if [ctx.primitives.int32, ctx.primitives.uint32]
-        .iter()
-        .any(|ty| ctx.unifier.unioned(elem_ty, *ty))
-    {
-        ctx.ctx.i32_type().const_zero().into()
-    } else if [ctx.primitives.int64, ctx.primitives.uint64]
-        .iter()
-        .any(|ty| ctx.unifier.unioned(elem_ty, *ty))
-    {
-        ctx.ctx.i64_type().const_zero().into()
-    } else if ctx.unifier.unioned(elem_ty, ctx.primitives.float) {
-        ctx.ctx.f64_type().const_zero().into()
-    } else if ctx.unifier.unioned(elem_ty, ctx.primitives.bool) {
-        ctx.ctx.bool_type().const_zero().into()
-    } else if ctx.unifier.unioned(elem_ty, ctx.primitives.str) {
-        ctx.gen_string(generator, "").into()
-    } else {
-        codegen_unreachable!(ctx)
-    }
-}
-
-fn ndarray_one_value<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    elem_ty: Type,
-) -> BasicValueEnum<'ctx> {
-    if [ctx.primitives.int32, ctx.primitives.uint32]
-        .iter()
-        .any(|ty| ctx.unifier.unioned(elem_ty, *ty))
-    {
-        let is_signed = ctx.unifier.unioned(elem_ty, ctx.primitives.int32);
-        ctx.ctx.i32_type().const_int(1, is_signed).into()
-    } else if [ctx.primitives.int64, ctx.primitives.uint64]
-        .iter()
-        .any(|ty| ctx.unifier.unioned(elem_ty, *ty))
-    {
-        let is_signed = ctx.unifier.unioned(elem_ty, ctx.primitives.int64);
-        ctx.ctx.i64_type().const_int(1, is_signed).into()
-    } else if ctx.unifier.unioned(elem_ty, ctx.primitives.float) {
-        ctx.ctx.f64_type().const_float(1.0).into()
-    } else if ctx.unifier.unioned(elem_ty, ctx.primitives.bool) {
-        ctx.ctx.bool_type().const_int(1, false).into()
-    } else if ctx.unifier.unioned(elem_ty, ctx.primitives.str) {
-        ctx.gen_string(generator, "1").into()
-    } else {
-        codegen_unreachable!(ctx)
-    }
-}
-
-/// LLVM-typed implementation for generating the implementation for constructing an `NDArray`.
-///
-/// * `elem_ty` - The element type of the `NDArray`.
-/// * `shape` - The `shape` parameter used to construct the `NDArray`.
-///
-/// ### Notes on `shape`
-///
-/// Just like numpy, the `shape` argument can be:
-///   1. A list of `int32`;   e.g., `np.empty([600, 800, 3])`
-///   2. A tuple of `int32`;  e.g., `np.empty((600, 800, 3))`
-///   3. A scalar `int32`;     e.g., `np.empty(3)`, this is functionally equivalent to `np.empty([3])`
-///
-/// See also [`typecheck::type_inferencer::fold_numpy_function_call_shape_argument`] to
-/// learn how `shape` gets from being a Python user expression to here.
-fn call_ndarray_empty_impl<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    elem_ty: Type,
-    shape: BasicValueEnum<'ctx>,
-) -> Result<NDArrayValue<'ctx>, String> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    match shape {
-        BasicValueEnum::PointerValue(shape_list_ptr)
-            if ListValue::is_representable(shape_list_ptr, llvm_usize).is_ok() =>
-        {
-            // 1. A list of ints; e.g., `np.empty([600, 800, 3])`
-
-            let shape_list = ListValue::from_pointer_value(shape_list_ptr, llvm_usize, None);
-            create_ndarray_dyn_shape(
-                generator,
-                ctx,
-                elem_ty,
-                &shape_list,
-                |_, ctx, shape_list| Ok(shape_list.load_size(ctx, None)),
-                |generator, ctx, shape_list, idx| {
-                    Ok(shape_list.data().get(ctx, generator, &idx, None).into_int_value())
-                },
-            )
-        }
-        BasicValueEnum::StructValue(shape_tuple) => {
-            // 2. A tuple of ints; e.g., `np.empty((600, 800, 3))`
-            // Read [`codegen::expr::gen_expr`] to see how `nac3core` translates a Python tuple into LLVM.
-
-            // Get the length/size of the tuple, which also happens to be the value of `ndims`.
-            let ndims = shape_tuple.get_type().count_fields();
-
-            let shape = (0..ndims)
-                .map(|dim_i| {
-                    ctx.builder
-                        .build_extract_value(shape_tuple, dim_i, format!("dim{dim_i}").as_str())
-                        .map(BasicValueEnum::into_int_value)
-                        .map(|v| {
-                            ctx.builder.build_int_z_extend_or_bit_cast(v, llvm_usize, "").unwrap()
-                        })
-                        .unwrap()
-                })
-                .collect_vec();
-
-            create_ndarray_const_shape(generator, ctx, elem_ty, shape.as_slice())
-        }
-        BasicValueEnum::IntValue(shape_int) => {
-            // 3. A scalar int; e.g., `np.empty(3)`, this is functionally equivalent to `np.empty([3])`
-            let shape_int =
-                ctx.builder.build_int_z_extend_or_bit_cast(shape_int, llvm_usize, "").unwrap();
-
-            create_ndarray_const_shape(generator, ctx, elem_ty, &[shape_int])
-        }
-        _ => codegen_unreachable!(ctx),
-    }
 }
 
 /// Generates LLVM IR for populating the entire `NDArray` using a lambda with its flattened index as
@@ -527,107 +411,6 @@ where
     })?;
 
     Ok(res)
-}
-
-/// LLVM-typed implementation for generating the implementation for `ndarray.zeros`.
-///
-/// * `elem_ty` - The element type of the `NDArray`.
-/// * `shape` - The `shape` parameter used to construct the `NDArray`.
-fn call_ndarray_zeros_impl<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    elem_ty: Type,
-    shape: BasicValueEnum<'ctx>,
-) -> Result<NDArrayValue<'ctx>, String> {
-    let supported_types = [
-        ctx.primitives.int32,
-        ctx.primitives.int64,
-        ctx.primitives.uint32,
-        ctx.primitives.uint64,
-        ctx.primitives.float,
-        ctx.primitives.bool,
-        ctx.primitives.str,
-    ];
-    assert!(supported_types.iter().any(|supported_ty| ctx.unifier.unioned(*supported_ty, elem_ty)));
-
-    let ndarray = call_ndarray_empty_impl(generator, ctx, elem_ty, shape)?;
-    ndarray_fill_flattened(generator, ctx, ndarray, |generator, ctx, _| {
-        let value = ndarray_zero_value(generator, ctx, elem_ty);
-
-        Ok(value)
-    })?;
-
-    Ok(ndarray)
-}
-
-/// LLVM-typed implementation for generating the implementation for `ndarray.ones`.
-///
-/// * `elem_ty` - The element type of the `NDArray`.
-/// * `shape` - The `shape` parameter used to construct the `NDArray`.
-fn call_ndarray_ones_impl<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    elem_ty: Type,
-    shape: BasicValueEnum<'ctx>,
-) -> Result<NDArrayValue<'ctx>, String> {
-    let supported_types = [
-        ctx.primitives.int32,
-        ctx.primitives.int64,
-        ctx.primitives.uint32,
-        ctx.primitives.uint64,
-        ctx.primitives.float,
-        ctx.primitives.bool,
-        ctx.primitives.str,
-    ];
-    assert!(supported_types.iter().any(|supported_ty| ctx.unifier.unioned(*supported_ty, elem_ty)));
-
-    let ndarray = call_ndarray_empty_impl(generator, ctx, elem_ty, shape)?;
-    ndarray_fill_flattened(generator, ctx, ndarray, |generator, ctx, _| {
-        let value = ndarray_one_value(generator, ctx, elem_ty);
-
-        Ok(value)
-    })?;
-
-    Ok(ndarray)
-}
-
-/// LLVM-typed implementation for generating the implementation for `ndarray.full`.
-///
-/// * `elem_ty` - The element type of the `NDArray`.
-/// * `shape` - The `shape` parameter used to construct the `NDArray`.
-fn call_ndarray_full_impl<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    elem_ty: Type,
-    shape: BasicValueEnum<'ctx>,
-    fill_value: BasicValueEnum<'ctx>,
-) -> Result<NDArrayValue<'ctx>, String> {
-    let ndarray = call_ndarray_empty_impl(generator, ctx, elem_ty, shape)?;
-    ndarray_fill_flattened(generator, ctx, ndarray, |generator, ctx, _| {
-        let value = if fill_value.is_pointer_value() {
-            let llvm_i1 = ctx.ctx.bool_type();
-
-            let copy = generator.gen_var_alloc(ctx, fill_value.get_type(), None)?;
-
-            call_memcpy_generic(
-                ctx,
-                copy,
-                fill_value.into_pointer_value(),
-                fill_value.get_type().size_of().map(Into::into).unwrap(),
-                llvm_i1.const_zero(),
-            );
-
-            copy.into()
-        } else if fill_value.is_int_value() || fill_value.is_float_value() {
-            fill_value
-        } else {
-            codegen_unreachable!(ctx)
-        };
-
-        Ok(value)
-    })?;
-
-    Ok(ndarray)
 }
 
 /// Returns the number of dimensions for a multidimensional list as an [`IntValue`].
@@ -1752,8 +1535,15 @@ pub fn gen_ndarray_empty<'ctx>(
     let shape_ty = fun.0.args[0].ty;
     let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
 
-    call_ndarray_empty_impl(generator, context, context.primitives.float, shape_arg)
-        .map(NDArrayValue::into)
+    let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+    let llvm_dtype = context.get_llvm_type(generator, dtype);
+    let ndims = extract_ndims(&context.unifier, ndims);
+
+    let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
+
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(ndims))
+        .construct_numpy_empty(generator, context, &shape, None);
+    Ok(ndarray.as_base_value())
 }
 
 /// Generates LLVM IR for `ndarray.zeros`.
@@ -1770,8 +1560,15 @@ pub fn gen_ndarray_zeros<'ctx>(
     let shape_ty = fun.0.args[0].ty;
     let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
 
-    call_ndarray_zeros_impl(generator, context, context.primitives.float, shape_arg)
-        .map(NDArrayValue::into)
+    let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+    let llvm_dtype = context.get_llvm_type(generator, dtype);
+    let ndims = extract_ndims(&context.unifier, ndims);
+
+    let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
+
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(ndims))
+        .construct_numpy_zeros(generator, context, dtype, &shape, None);
+    Ok(ndarray.as_base_value())
 }
 
 /// Generates LLVM IR for `ndarray.ones`.
@@ -1788,8 +1585,15 @@ pub fn gen_ndarray_ones<'ctx>(
     let shape_ty = fun.0.args[0].ty;
     let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
 
-    call_ndarray_ones_impl(generator, context, context.primitives.float, shape_arg)
-        .map(NDArrayValue::into)
+    let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+    let llvm_dtype = context.get_llvm_type(generator, dtype);
+    let ndims = extract_ndims(&context.unifier, ndims);
+
+    let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
+
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(ndims))
+        .construct_numpy_ones(generator, context, dtype, &shape, None);
+    Ok(ndarray.as_base_value())
 }
 
 /// Generates LLVM IR for `ndarray.full`.
@@ -1809,8 +1613,15 @@ pub fn gen_ndarray_full<'ctx>(
     let fill_value_arg =
         args[1].1.clone().to_basic_value_enum(context, generator, fill_value_ty)?;
 
-    call_ndarray_full_impl(generator, context, fill_value_ty, shape_arg, fill_value_arg)
-        .map(NDArrayValue::into)
+    let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+    let llvm_dtype = context.get_llvm_type(generator, dtype);
+    let ndims = extract_ndims(&context.unifier, ndims);
+
+    let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
+
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(ndims))
+        .construct_numpy_full(generator, context, &shape, fill_value_arg, None);
+    Ok(ndarray.as_base_value())
 }
 
 pub fn gen_ndarray_array<'ctx>(

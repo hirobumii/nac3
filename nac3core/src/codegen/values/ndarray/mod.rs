@@ -23,6 +23,7 @@ pub use nditer::*;
 mod contiguous;
 mod indexing;
 mod nditer;
+pub mod shape;
 mod view;
 
 /// Proxy type for accessing an `NDArray` value in LLVM.
@@ -395,6 +396,23 @@ impl<'ctx> NDArrayValue<'ctx> {
     ) {
         assert_eq!(self.dtype, src.dtype, "self and src dtype should match");
         irrt::ndarray::call_nac3_ndarray_copy_data(generator, ctx, src, *self);
+    }
+
+    /// Fill the ndarray with a scalar.
+    ///
+    /// `fill_value` must have the same LLVM type as the `dtype` of this ndarray.
+    pub fn fill<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        value: BasicValueEnum<'ctx>,
+    ) {
+        self.foreach(generator, ctx, |_, ctx, _, nditer| {
+            let p = nditer.get_pointer(ctx);
+            ctx.builder.build_store(p, value).unwrap();
+            Ok(())
+        })
+        .unwrap();
     }
 
     /// Returns true if this ndarray is unsized - `ndims == 0` and only contains a scalar.

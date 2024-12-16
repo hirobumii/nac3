@@ -25,6 +25,7 @@ pub use indexing::*;
 pub use nditer::*;
 
 mod contiguous;
+pub mod factory;
 mod indexing;
 mod nditer;
 
