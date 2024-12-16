@@ -2076,6 +2076,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 let rhs = rhs.into_struct_value();
 
                 let llvm_i32 = ctx.ctx.i32_type();
+                let llvm_usize = generator.get_size_type(ctx.ctx);
 
                 let plhs = generator.gen_var_alloc(ctx, lhs.get_type().into(), None).unwrap();
                 ctx.builder.build_store(plhs, lhs).unwrap();
@@ -2084,23 +2085,23 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 let lhs_ptr = ctx.build_in_bounds_gep_and_load(
                     plhs,
-                    &[llvm_i32.const_zero(), llvm_i32.const_zero()],
+                    &[llvm_usize.const_zero(), llvm_i32.const_zero()],
                     None,
                 ).into_pointer_value();
                 let lhs_len = ctx.build_in_bounds_gep_and_load(
                     plhs,
-                    &[llvm_i32.const_zero(), llvm_i32.const_int(1, false)],
+                    &[llvm_usize.const_zero(), llvm_i32.const_int(1, false)],
                     None,
                 ).into_int_value();
 
                 let rhs_ptr = ctx.build_in_bounds_gep_and_load(
                     prhs,
-                    &[llvm_i32.const_zero(), llvm_i32.const_zero()],
+                    &[llvm_usize.const_zero(), llvm_i32.const_zero()],
                     None,
                 ).into_pointer_value();
                 let rhs_len = ctx.build_in_bounds_gep_and_load(
                     prhs,
-                    &[llvm_i32.const_zero(), llvm_i32.const_int(1, false)],
+                    &[llvm_usize.const_zero(), llvm_i32.const_int(1, false)],
                     None,
                 ).into_int_value();
                 let result = call_string_eq(generator, ctx, lhs_ptr, lhs_len, rhs_ptr, rhs_len);
