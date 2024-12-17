@@ -604,29 +604,6 @@ fn llvm_ndlist_get_ndims<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Returns the number of dimensions for an array-like object as an [`IntValue`].
-fn llvm_arraylike_get_ndims<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    (ty, value): (Type, BasicValueEnum<'ctx>),
-) -> IntValue<'ctx> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    match value {
-        BasicValueEnum::PointerValue(v)
-            if NDArrayValue::is_representable(v, llvm_usize).is_ok() =>
-        {
-            NDArrayType::from_unifier_type(generator, ctx, ty).map_value(v, None).load_ndims(ctx)
-        }
-
-        BasicValueEnum::PointerValue(v) if ListValue::is_representable(v, llvm_usize).is_ok() => {
-            llvm_ndlist_get_ndims(generator, ctx, v.get_type())
-        }
-
-        _ => llvm_usize.const_zero(),
-    }
-}
-
 /// Flattens and copies the values from a multidimensional list into an [`NDArrayValue`].
 fn ndarray_from_ndlist_impl<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,

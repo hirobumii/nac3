@@ -15,14 +15,13 @@ use crate::{
     symbol_resolver::{SymbolResolver, ValueEnum},
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{into_var_map, Type, Unifier},
+        typedef::{Type, Unifier},
     },
 };
 
 struct ResolverInternal {
     id_to_type: Mutex<HashMap<StrRef, Type>>,
     id_to_def: Mutex<HashMap<StrRef, DefinitionId>>,
-    class_names: Mutex<HashMap<StrRef, Type>>,
 }
 
 impl ResolverInternal {
@@ -179,11 +178,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
     let mut composer =
         TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
 
-    let internal_resolver = Arc::new(ResolverInternal {
-        id_to_def: Mutex::default(),
-        id_to_type: Mutex::default(),
-        class_names: Mutex::default(),
-    });
+    let internal_resolver =
+        Arc::new(ResolverInternal { id_to_def: Mutex::default(), id_to_type: Mutex::default() });
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
 
@@ -784,13 +780,6 @@ fn make_internal_resolver_with_tvar(
     unifier: &mut Unifier,
     print: bool,
 ) -> Arc<ResolverInternal> {
-    let list_elem_tvar = unifier.get_fresh_var(Some("list_elem".into()), None);
-    let list = unifier.add_ty(TypeEnum::TObj {
-        obj_id: PrimDef::List.id(),
-        fields: HashMap::new(),
-        params: into_var_map([list_elem_tvar]),
-    });
-
     let res: Arc<ResolverInternal> = ResolverInternal {
         id_to_def: Mutex::new(HashMap::from([("list".into(), PrimDef::List.id())])),
         id_to_type: tvars
@@ -806,7 +795,6 @@ fn make_internal_resolver_with_tvar(
             })
             .collect::<HashMap<_, _>>()
             .into(),
-        class_names: Mutex::new(HashMap::from([("list".into(), list)])),
     }
     .into();
     if print {

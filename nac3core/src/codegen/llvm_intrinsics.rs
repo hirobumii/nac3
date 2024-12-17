@@ -1,41 +1,12 @@
 use inkwell::{
-    context::Context,
     intrinsics::Intrinsic,
-    types::{AnyTypeEnum::IntType, FloatType},
+    types::AnyTypeEnum::IntType,
     values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue, PointerValue},
     AddressSpace,
 };
 use itertools::Either;
 
 use super::CodeGenContext;
-
-/// Returns the string representation for the floating-point type `ft` when used in intrinsic
-/// functions.
-fn get_float_intrinsic_repr(ctx: &Context, ft: FloatType) -> &'static str {
-    // Standard LLVM floating-point types
-    if ft == ctx.f16_type() {
-        return "f16";
-    }
-    if ft == ctx.f32_type() {
-        return "f32";
-    }
-    if ft == ctx.f64_type() {
-        return "f64";
-    }
-    if ft == ctx.f128_type() {
-        return "f128";
-    }
-
-    // Non-standard floating-point types
-    if ft == ctx.x86_f80_type() {
-        return "f80";
-    }
-    if ft == ctx.ppc_f128_type() {
-        return "ppcf128";
-    }
-
-    unreachable!()
-}
 
 /// Invokes the [`llvm.va_start`](https://llvm.org/docs/LangRef.html#llvm-va-start-intrinsic)
 /// intrinsic.
@@ -54,7 +25,7 @@ pub fn call_va_start<'ctx>(ctx: &CodeGenContext<'ctx, '_>, arglist: PointerValue
     ctx.builder.build_call(intrinsic_fn, &[arglist.into()], "").unwrap();
 }
 
-/// Invokes the [`llvm.va_start`](https://llvm.org/docs/LangRef.html#llvm-va-start-intrinsic)
+/// Invokes the [`llvm.va_end`](https://llvm.org/docs/LangRef.html#llvm-va-end-intrinsic)
 /// intrinsic.
 pub fn call_va_end<'ctx>(ctx: &CodeGenContext<'ctx, '_>, arglist: PointerValue<'ctx>) {
     const FN_NAME: &str = "llvm.va_end";

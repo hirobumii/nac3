@@ -389,7 +389,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        let var_name = name.map(|v| format!("{v}.addr")).unwrap_or_default();
+        let var_name = name.or(self.2).map(|v| format!("{v}.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder

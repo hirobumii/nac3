@@ -78,7 +78,7 @@ impl<'ctx> NDIterValue<'ctx> {
     pub fn get_pointer(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let elem_ty = self.parent.dtype;
 
-        let p = self.element(ctx).get(ctx, self.as_base_value(), None);
+        let p = self.element(ctx).get(ctx, self.as_base_value(), self.name);
         ctx.builder
             .build_pointer_cast(p, elem_ty.ptr_type(AddressSpace::default()), "element")
             .unwrap()
@@ -98,7 +98,7 @@ impl<'ctx> NDIterValue<'ctx> {
     /// Get the index of the current element if this ndarray were a flat ndarray.
     #[must_use]
     pub fn get_index(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.nth(ctx).get(ctx, self.as_base_value(), None)
+        self.nth(ctx).get(ctx, self.as_base_value(), self.name)
     }
 
     /// Get the indices of the current element.

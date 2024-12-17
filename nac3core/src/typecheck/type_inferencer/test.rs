@@ -18,7 +18,6 @@ use crate::{
 struct Resolver {
     id_to_type: HashMap<StrRef, Type>,
     id_to_def: HashMap<StrRef, DefinitionId>,
-    class_names: HashMap<StrRef, Type>,
 }
 
 impl SymbolResolver for Resolver {
@@ -198,7 +197,6 @@ impl TestEnvironment {
         let resolver = Arc::new(Resolver {
             id_to_type: identifier_mapping.clone(),
             id_to_def: HashMap::default(),
-            class_names: HashMap::default(),
         }) as Arc<dyn SymbolResolver + Send + Sync>;
 
         TestEnvironment {
@@ -454,7 +452,6 @@ impl TestEnvironment {
                 vars: IndexMap::default(),
             })),
         );
-        let class_names: HashMap<_, _> = [("Bar".into(), bar), ("Bar2".into(), bar2)].into();
 
         let id_to_name = [
             "int32".into(),
@@ -492,7 +489,6 @@ impl TestEnvironment {
                 ("Bar2".into(), DefinitionId(defs + 3)),
             ]
             .into(),
-            class_names,
         }) as Arc<dyn SymbolResolver + Send + Sync>;
 
         TestEnvironment {

@@ -19,7 +19,6 @@ use crate::codegen::{
 pub use contiguous::*;
 pub use indexing::*;
 pub use nditer::*;
-pub use view::*;
 
 mod contiguous;
 mod indexing;
@@ -113,12 +112,6 @@ impl<'ctx> NDArrayValue<'ctx> {
         self.get_type().get_fields(ctx.ctx).shape
     }
 
-    /// Returns the double-indirection pointer to the `shape` array, as if by calling
-    /// `getelementptr` on the field.
-    fn ptr_to_shape(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        self.shape_field(ctx).ptr_by_gep(ctx, self.value, self.name)
-    }
-
     /// Stores the array of dimension sizes `dims` into this instance.
     fn store_shape(&self, ctx: &CodeGenContext<'ctx, '_>, dims: PointerValue<'ctx>) {
         self.shape_field(ctx).set(ctx, self.as_base_value(), dims, self.name);
@@ -145,12 +138,6 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &CodeGenContext<'ctx, '_>,
     ) -> StructField<'ctx, PointerValue<'ctx>> {
         self.get_type().get_fields(ctx.ctx).strides
-    }
-
-    /// Returns the double-indirection pointer to the `strides` array, as if by calling
-    /// `getelementptr` on the field.
-    fn ptr_to_strides(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        self.strides_field(ctx).ptr_by_gep(ctx, self.value, self.name)
     }
 
     /// Stores the array of stride sizes `strides` into this instance.

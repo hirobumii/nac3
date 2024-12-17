@@ -36,7 +36,6 @@ use crate::{
 struct Resolver {
     id_to_type: HashMap<StrRef, Type>,
     id_to_def: RwLock<HashMap<StrRef, DefinitionId>>,
-    class_names: HashMap<StrRef, Type>,
 }
 
 impl Resolver {
@@ -104,11 +103,9 @@ fn test_primitives() {
     let top_level = Arc::new(composer.make_top_level_context());
     unifier.top_level = Some(top_level.clone());
 
-    let resolver = Arc::new(Resolver {
-        id_to_type: HashMap::new(),
-        id_to_def: RwLock::new(HashMap::new()),
-        class_names: HashMap::default(),
-    }) as Arc<dyn SymbolResolver + Send + Sync>;
+    let resolver =
+        Arc::new(Resolver { id_to_type: HashMap::new(), id_to_def: RwLock::new(HashMap::new()) })
+            as Arc<dyn SymbolResolver + Send + Sync>;
 
     let threads = vec![DefaultCodeGenerator::new("test".into(), 32).into()];
     let signature = FunSignature {
@@ -298,11 +295,7 @@ fn test_simple_call() {
         loc: None,
     })));
 
-    let resolver = Resolver {
-        id_to_type: HashMap::new(),
-        id_to_def: RwLock::new(HashMap::new()),
-        class_names: HashMap::default(),
-    };
+    let resolver = Resolver { id_to_type: HashMap::new(), id_to_def: RwLock::new(HashMap::new()) };
     resolver.add_id_def("foo".into(), DefinitionId(foo_id));
     let resolver = Arc::new(resolver) as Arc<dyn SymbolResolver + Send + Sync>;
 
