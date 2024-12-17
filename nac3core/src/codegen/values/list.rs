@@ -199,8 +199,8 @@ impl<'ctx> ArrayLikeValue<'ctx> for ListDataProxy<'ctx, '_> {
 impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {

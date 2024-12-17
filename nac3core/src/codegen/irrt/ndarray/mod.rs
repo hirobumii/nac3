@@ -87,7 +87,7 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &CodeGenContext<'ctx, '_>,
     index: IntValue<'ctx>,
     ndarray: NDArrayValue<'ctx>,
-) -> TypedArrayLikeAdapter<'ctx, IntValue<'ctx>> {
+) -> TypedArrayLikeAdapter<'ctx, G, IntValue<'ctx>> {
     let llvm_void = ctx.ctx.void_type();
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
@@ -129,8 +129,8 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
 
     TypedArrayLikeAdapter::from(
         ArraySliceValue::from_ptr_val(indices, ndarray_num_dims, None),
-        Box::new(|_, v| v.into_int_value()),
-        Box::new(|_, v| v.into()),
+        |_, _, v| v.into_int_value(),
+        |_, _, v| v.into(),
     )
 }
 
@@ -227,7 +227,7 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     lhs: NDArrayValue<'ctx>,
     rhs: NDArrayValue<'ctx>,
-) -> TypedArrayLikeAdapter<'ctx, IntValue<'ctx>> {
+) -> TypedArrayLikeAdapter<'ctx, G, IntValue<'ctx>> {
     let llvm_usize = generator.get_size_type(ctx.ctx);
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
@@ -326,11 +326,7 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
         )
         .unwrap();
 
-    TypedArrayLikeAdapter::from(
-        out_dims,
-        Box::new(|_, v| v.into_int_value()),
-        Box::new(|_, v| v.into()),
-    )
+    TypedArrayLikeAdapter::from(out_dims, |_, _, v| v.into_int_value(), |_, _, v| v.into())
 }
 
 /// Generates a call to `__nac3_ndarray_calc_broadcast_idx`. Returns an [`ArrayAllocaValue`]
@@ -345,7 +341,7 @@ pub fn call_ndarray_calc_broadcast_index<
     ctx: &mut CodeGenContext<'ctx, '_>,
     array: NDArrayValue<'ctx>,
     broadcast_idx: &BroadcastIdx,
-) -> TypedArrayLikeAdapter<'ctx, IntValue<'ctx>> {
+) -> TypedArrayLikeAdapter<'ctx, G, IntValue<'ctx>> {
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
     let llvm_pi32 = llvm_i32.ptr_type(AddressSpace::default());
@@ -385,7 +381,7 @@ pub fn call_ndarray_calc_broadcast_index<
 
     TypedArrayLikeAdapter::from(
         ArraySliceValue::from_ptr_val(out_idx, broadcast_size, None),
-        Box::new(|_, v| v.into_int_value()),
-        Box::new(|_, v| v.into()),
+        |_, _, v| v.into_int_value(),
+        |_, _, v| v.into(),
     )
 }

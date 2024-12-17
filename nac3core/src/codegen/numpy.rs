@@ -356,7 +356,7 @@ where
     ValueFn: Fn(
         &mut G,
         &mut CodeGenContext<'ctx, 'a>,
-        &TypedArrayLikeAdapter<'ctx, IntValue<'ctx>>,
+        &TypedArrayLikeAdapter<'ctx, G, IntValue<'ctx>>,
     ) -> Result<BasicValueEnum<'ctx>, String>,
 {
     ndarray_fill_flattened(generator, ctx, ndarray, |generator, ctx, idx| {

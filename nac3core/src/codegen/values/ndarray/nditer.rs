@@ -4,7 +4,7 @@ use inkwell::{
     AddressSpace,
 };
 
-use super::{NDArrayValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeMutator};
+use super::{NDArrayValue, ProxyValue};
 use crate::codegen::{
     irrt,
     stmt::{gen_for_callback, BreakContinueHooks},
@@ -106,18 +106,13 @@ impl<'ctx> NDIterValue<'ctx> {
 
     /// Get the indices of the current element.
     #[must_use]
-    pub fn get_indices(
-        &'ctx self,
-    ) -> impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> + TypedArrayLikeMutator<'ctx, IntValue<'ctx>>
-    {
+    pub fn get_indices<G: CodeGenerator + ?Sized>(
+        &self,
+    ) -> TypedArrayLikeAdapter<'ctx, G, IntValue<'ctx>> {
         TypedArrayLikeAdapter::from(
             self.indices,
-            Box::new(|ctx, val| {
-                ctx.builder
-                    .build_int_z_extend_or_bit_cast(val.into_int_value(), self.llvm_usize, "")
-                    .unwrap()
-            }),
-            Box::new(|_, val| val.into()),
+            |_, _, val| val.into_int_value(),
+            |_, _, val| val.into(),
         )
     }
 }

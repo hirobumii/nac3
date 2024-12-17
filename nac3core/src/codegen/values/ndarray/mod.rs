@@ -478,8 +478,8 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayShapeProxy<'ctx, '_> {
 impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -517,20 +517,26 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_
 impl<'ctx> UntypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {}
 impl<'ctx> UntypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {}
 
-impl<'ctx> TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {
+impl<'ctx, G: CodeGenerator + ?Sized> TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
+    for NDArrayShapeProxy<'ctx, '_>
+{
     fn downcast_to_type(
         &self,
-        _: &mut CodeGenContext<'ctx, '_>,
+        _: &CodeGenContext<'ctx, '_>,
+        _: &G,
         value: BasicValueEnum<'ctx>,
     ) -> IntValue<'ctx> {
         value.into_int_value()
     }
 }
 
-impl<'ctx> TypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {
+impl<'ctx, G: CodeGenerator + ?Sized> TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>
+    for NDArrayShapeProxy<'ctx, '_>
+{
     fn upcast_from_type(
         &self,
-        _: &mut CodeGenContext<'ctx, '_>,
+        _: &CodeGenContext<'ctx, '_>,
+        _: &G,
         value: IntValue<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         value.into()
@@ -570,8 +576,8 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayStridesProxy<'ctx, '_> {
 impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, '_> {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -609,20 +615,26 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, 
 impl<'ctx> UntypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, '_> {}
 impl<'ctx> UntypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, '_> {}
 
-impl<'ctx> TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, '_> {
+impl<'ctx, G: CodeGenerator + ?Sized> TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
+    for NDArrayStridesProxy<'ctx, '_>
+{
     fn downcast_to_type(
         &self,
-        _: &mut CodeGenContext<'ctx, '_>,
+        _: &CodeGenContext<'ctx, '_>,
+        _: &G,
         value: BasicValueEnum<'ctx>,
     ) -> IntValue<'ctx> {
         value.into_int_value()
     }
 }
 
-impl<'ctx> TypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, '_> {
+impl<'ctx, G: CodeGenerator + ?Sized> TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>
+    for NDArrayStridesProxy<'ctx, '_>
+{
     fn upcast_from_type(
         &self,
-        _: &mut CodeGenContext<'ctx, '_>,
+        _: &CodeGenContext<'ctx, '_>,
+        _: &G,
         value: IntValue<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         value.into()
@@ -667,8 +679,8 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDataProxy<'ctx, '_> {
 impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -748,17 +760,19 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
 {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         indices: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let llvm_usize = generator.get_size_type(ctx.ctx);
 
-        let indices_elem_ty = indices
-            .ptr_offset(ctx, generator, &llvm_usize.const_zero(), None)
-            .get_type()
-            .get_element_type();
+        let indices_elem_ty = unsafe {
+            indices
+                .ptr_offset_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
+                .get_type()
+                .get_element_type()
+        };
         let Ok(indices_elem_ty) = IntType::try_from(indices_elem_ty) else {
             panic!("Expected list[int32] but got {indices_elem_ty}")
         };
