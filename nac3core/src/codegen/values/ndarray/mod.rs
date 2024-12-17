@@ -358,6 +358,10 @@ impl<'ctx> NDArrayValue<'ctx> {
         irrt::ndarray::call_nac3_ndarray_set_strides_by_shape(generator, ctx, *self);
     }
 
+    /// Clone/Copy this ndarray - Allocate a new ndarray with the same shape as this ndarray and
+    /// copy the contents over.
+    ///
+    /// The new ndarray will own its data and will be C-contiguous.
     #[must_use]
     pub fn make_copy<G: CodeGenerator + ?Sized>(
         &self,

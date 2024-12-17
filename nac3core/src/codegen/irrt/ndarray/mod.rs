@@ -1,10 +1,11 @@
 use inkwell::{
-    types::IntType,
+    types::{BasicTypeEnum, IntType},
     values::{BasicValueEnum, CallSiteValue, IntValue},
     AddressSpace, IntPredicate,
 };
 use itertools::Either;
 
+use super::get_usize_dependent_function_name;
 use crate::codegen::{
     llvm_intrinsics,
     macros::codegen_unreachable,
@@ -23,8 +24,8 @@ mod basic;
 mod indexing;
 mod iter;
 
-/// Generates a call to `__nac3_ndarray_calc_size`. Returns an [`IntValue`] representing the
-/// calculated total size.
+/// Generates a call to `__nac3_ndarray_calc_size`. Returns a
+/// [`usize`][CodeGenerator::get_size_type] representing the calculated total size.
 ///
 /// * `dims` - An [`ArrayLikeIndexer`] containing the size of each dimension.
 /// * `range` - The dimension index to begin and end (exclusively) calculating the dimensions for,
@@ -43,18 +44,22 @@ where
     let llvm_usize = generator.get_size_type(ctx.ctx);
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
-    let ndarray_calc_size_fn_name = match llvm_usize.get_bit_width() {
-        32 => "__nac3_ndarray_calc_size",
-        64 => "__nac3_ndarray_calc_size64",
-        bw => codegen_unreachable!(ctx, "Unsupported size type bit width: {}", bw),
-    };
+    assert!(begin.is_none_or(|begin| begin.get_type() == llvm_usize));
+    assert!(end.is_none_or(|end| end.get_type() == llvm_usize));
+    assert_eq!(
+        BasicTypeEnum::try_from(dims.element_type(ctx, generator)).unwrap(),
+        llvm_usize.into()
+    );
+
+    let ndarray_calc_size_fn_name =
+        get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_calc_size");
     let ndarray_calc_size_fn_t = llvm_usize.fn_type(
         &[llvm_pusize.into(), llvm_usize.into(), llvm_usize.into(), llvm_usize.into()],
         false,
     );
     let ndarray_calc_size_fn =
-        ctx.module.get_function(ndarray_calc_size_fn_name).unwrap_or_else(|| {
-            ctx.module.add_function(ndarray_calc_size_fn_name, ndarray_calc_size_fn_t, None)
+        ctx.module.get_function(&ndarray_calc_size_fn_name).unwrap_or_else(|| {
+            ctx.module.add_function(&ndarray_calc_size_fn_name, ndarray_calc_size_fn_t, None)
         });
 
     let begin = begin.unwrap_or_else(|| llvm_usize.const_zero());
@@ -76,10 +81,10 @@ where
         .unwrap()
 }
 
-/// Generates a call to `__nac3_ndarray_calc_nd_indices`. Returns a [`TypeArrayLikeAdpater`]
+/// Generates a call to `__nac3_ndarray_calc_nd_indices`. Returns a [`TypedArrayLikeAdapter`]
 /// containing `i32` indices of the flattened index.
 ///
-/// * `index` - The index to compute the multidimensional index for.
+/// * `index` - The `llvm_usize` index to compute the multidimensional index for.
 /// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
 ///   `NDArray`.
 pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
@@ -94,19 +99,18 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     let llvm_pi32 = llvm_i32.ptr_type(AddressSpace::default());
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
-    let ndarray_calc_nd_indices_fn_name = match llvm_usize.get_bit_width() {
-        32 => "__nac3_ndarray_calc_nd_indices",
-        64 => "__nac3_ndarray_calc_nd_indices64",
-        bw => codegen_unreachable!(ctx, "Unsupported size type bit width: {}", bw),
-    };
+    assert_eq!(index.get_type(), llvm_usize);
+
+    let ndarray_calc_nd_indices_fn_name =
+        get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_calc_nd_indices");
     let ndarray_calc_nd_indices_fn =
-        ctx.module.get_function(ndarray_calc_nd_indices_fn_name).unwrap_or_else(|| {
+        ctx.module.get_function(&ndarray_calc_nd_indices_fn_name).unwrap_or_else(|| {
             let fn_type = llvm_void.fn_type(
                 &[llvm_usize.into(), llvm_pusize.into(), llvm_usize.into(), llvm_pi32.into()],
                 false,
             );
 
-            ctx.module.add_function(ndarray_calc_nd_indices_fn_name, fn_type, None)
+            ctx.module.add_function(&ndarray_calc_nd_indices_fn_name, fn_type, None)
         });
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
@@ -134,15 +138,21 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     )
 }
 
-fn call_ndarray_flatten_index_impl<'ctx, G, Indices>(
+/// Generates a call to `__nac3_ndarray_flatten_index`. Returns a `usize` of the flattened index for
+/// the multidimensional index.
+///
+/// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
+///   `NDArray`.
+/// * `indices` - The multidimensional index to compute the flattened index for.
+pub fn call_ndarray_flatten_index<'ctx, G, Index>(
     generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
-    indices: &Indices,
+    indices: &Index,
 ) -> IntValue<'ctx>
 where
     G: CodeGenerator + ?Sized,
-    Indices: ArrayLikeIndexer<'ctx>,
+    Index: ArrayLikeIndexer<'ctx>,
 {
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
@@ -163,19 +173,16 @@ where
         "Expected usize integer value for argument `indices_size` to `call_ndarray_flatten_index_impl`"
     );
 
-    let ndarray_flatten_index_fn_name = match llvm_usize.get_bit_width() {
-        32 => "__nac3_ndarray_flatten_index",
-        64 => "__nac3_ndarray_flatten_index64",
-        bw => codegen_unreachable!(ctx, "Unsupported size type bit width: {}", bw),
-    };
+    let ndarray_flatten_index_fn_name =
+        get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_flatten_index");
     let ndarray_flatten_index_fn =
-        ctx.module.get_function(ndarray_flatten_index_fn_name).unwrap_or_else(|| {
+        ctx.module.get_function(&ndarray_flatten_index_fn_name).unwrap_or_else(|| {
             let fn_type = llvm_usize.fn_type(
                 &[llvm_pusize.into(), llvm_usize.into(), llvm_pi32.into(), llvm_usize.into()],
                 false,
             );
 
-            ctx.module.add_function(ndarray_flatten_index_fn_name, fn_type, None)
+            ctx.module.add_function(&ndarray_flatten_index_fn_name, fn_type, None)
         });
 
     let ndarray_num_dims = ndarray.load_ndims(ctx);
@@ -201,27 +208,8 @@ where
     index
 }
 
-/// Generates a call to `__nac3_ndarray_flatten_index`. Returns the flattened index for the
-/// multidimensional index.
-///
-/// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
-///   `NDArray`.
-/// * `indices` - The multidimensional index to compute the flattened index for.
-pub fn call_ndarray_flatten_index<'ctx, G, Index>(
-    generator: &G,
-    ctx: &CodeGenContext<'ctx, '_>,
-    ndarray: NDArrayValue<'ctx>,
-    indices: &Index,
-) -> IntValue<'ctx>
-where
-    G: CodeGenerator + ?Sized,
-    Index: ArrayLikeIndexer<'ctx>,
-{
-    call_ndarray_flatten_index_impl(generator, ctx, ndarray, indices)
-}
-
-/// Generates a call to `__nac3_ndarray_calc_broadcast`. Returns a tuple containing the number of
-/// dimension and size of each dimension of the resultant `ndarray`.
+/// Generates a call to `__nac3_ndarray_calc_broadcast`. Returns a [`TypedArrayLikeAdapter`]
+/// containing the size of each dimension of the resultant `ndarray`.
 pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -231,13 +219,10 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
     let llvm_usize = generator.get_size_type(ctx.ctx);
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
-    let ndarray_calc_broadcast_fn_name = match llvm_usize.get_bit_width() {
-        32 => "__nac3_ndarray_calc_broadcast",
-        64 => "__nac3_ndarray_calc_broadcast64",
-        bw => codegen_unreachable!(ctx, "Unsupported size type bit width: {}", bw),
-    };
+    let ndarray_calc_broadcast_fn_name =
+        get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_calc_broadcast");
     let ndarray_calc_broadcast_fn =
-        ctx.module.get_function(ndarray_calc_broadcast_fn_name).unwrap_or_else(|| {
+        ctx.module.get_function(&ndarray_calc_broadcast_fn_name).unwrap_or_else(|| {
             let fn_type = llvm_usize.fn_type(
                 &[
                     llvm_pusize.into(),
@@ -249,7 +234,7 @@ pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
                 false,
             );
 
-            ctx.module.add_function(ndarray_calc_broadcast_fn_name, fn_type, None)
+            ctx.module.add_function(&ndarray_calc_broadcast_fn_name, fn_type, None)
         });
 
     let lhs_ndims = lhs.load_ndims(ctx);

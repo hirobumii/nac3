@@ -14,7 +14,7 @@ use crate::codegen::{
     types::structure::{check_struct_type_matches_fields, StructField, StructFields},
     values::{
         ndarray::{NDArrayValue, NDIterValue},
-        ArraySliceValue, ProxyValue,
+        ArrayLikeValue, ArraySliceValue, ProxyValue, TypedArrayLikeAdapter,
     },
     CodeGenContext, CodeGenerator,
 };
@@ -128,6 +128,11 @@ impl<'ctx> NDIterType<'ctx> {
     }
 
     /// Allocate an [`NDIter`] that iterates through the given `ndarray`.
+    ///
+    /// Note: This function allocates an array on the stack at the current builder location, which
+    /// may lead to stack explosion if called in a hot loop. Therefore, callers are recommended to
+    /// call `llvm.stacksave` before calling this function and call `llvm.stackrestore` after the
+    /// [`NDIter`] is no longer needed.
     #[must_use]
     pub fn construct<G: CodeGenerator + ?Sized>(
         &self,
@@ -141,16 +146,12 @@ impl<'ctx> NDIterType<'ctx> {
         // The caller has the responsibility to allocate 'indices' for `NDIter`.
         let indices =
             generator.gen_array_var_alloc(ctx, self.llvm_usize.into(), ndims, None).unwrap();
+        let indices =
+            TypedArrayLikeAdapter::from(indices, |_, _, v| v.into_int_value(), |_, _, v| v.into());
 
-        let nditer = <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            nditer,
-            ndarray,
-            indices,
-            self.llvm_usize,
-            None,
-        );
+        let nditer = self.map_value(nditer, ndarray, indices.as_slice_value(ctx, generator), None);
 
-        irrt::ndarray::call_nac3_nditer_initialize(generator, ctx, nditer, ndarray, indices);
+        irrt::ndarray::call_nac3_nditer_initialize(generator, ctx, nditer, ndarray, &indices);
 
         nditer
     }

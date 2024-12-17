@@ -265,6 +265,14 @@ where
     ) -> IntValue<'ctx> {
         self.adapted.size(ctx, generator)
     }
+
+    fn as_slice_value<CG: CodeGenerator + ?Sized>(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &CG,
+    ) -> ArraySliceValue<'ctx> {
+        self.adapted.as_slice_value(ctx, generator)
+    }
 }
 
 impl<'ctx, G: CodeGenerator + ?Sized, T, Index, Adapted> ArrayLikeIndexer<'ctx, Index>

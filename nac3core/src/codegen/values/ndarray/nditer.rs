@@ -141,6 +141,10 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///
     /// `body` has access to [`BreakContinueHooks`] to short-circuit and [`NDIterValue`] to
     /// get properties of the current iteration (e.g., the current element, indices, etc.)
+    ///
+    /// Note: The caller is recommended to call `llvm.stacksave` and `llvm.stackrestore` before and
+    /// after invoking this function respectively. See [`NDIterType::construct`] for an explanation
+    /// on why this is suggested.
     pub fn foreach<'a, G, F>(
         &self,
         generator: &mut G,

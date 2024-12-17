@@ -132,10 +132,11 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
     generator: &mut G,
     length: IntValue<'ctx>,
 ) -> Result<Option<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>)>, String> {
-    let int32 = ctx.ctx.i32_type();
-    let zero = int32.const_zero();
-    let one = int32.const_int(1, false);
-    let length = ctx.builder.build_int_truncate_or_bit_cast(length, int32, "leni32").unwrap();
+    let llvm_i32 = ctx.ctx.i32_type();
+
+    let zero = llvm_i32.const_zero();
+    let one = llvm_i32.const_int(1, false);
+    let length = ctx.builder.build_int_truncate_or_bit_cast(length, llvm_i32, "leni32").unwrap();
     Ok(Some(match (start, end, step) {
         (s, e, None) => (
             if let Some(s) = s.as_ref() {
@@ -144,7 +145,7 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                     None => return Ok(None),
                 }
             } else {
-                int32.const_zero()
+                llvm_i32.const_zero()
             },
             {
                 let e = if let Some(s) = e.as_ref() {
