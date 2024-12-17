@@ -18,10 +18,7 @@ use super::{
     llvm_intrinsics::{self, call_memcpy_generic},
     macros::codegen_unreachable,
     stmt::{gen_for_callback_incrementing, gen_for_range_callback, gen_if_else_expr_callback},
-    types::ndarray::{
-        factory::{ndarray_one_value, ndarray_zero_value},
-        NDArrayType,
-    },
+    types::ndarray::{factory::ndarray_zero_value, NDArrayType},
     values::{
         ndarray::{shape::parse_numpy_int_sequence, NDArrayValue},
         ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, ProxyValue,
@@ -404,55 +401,6 @@ where
     })?;
 
     Ok(res)
-}
-
-/// LLVM-typed implementation for generating the implementation for `ndarray.eye`.
-///
-/// * `elem_ty` - The element type of the `NDArray`.
-fn call_ndarray_eye_impl<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    elem_ty: Type,
-    nrows: IntValue<'ctx>,
-    ncols: IntValue<'ctx>,
-    offset: IntValue<'ctx>,
-) -> Result<NDArrayValue<'ctx>, String> {
-    let llvm_i32 = ctx.ctx.i32_type();
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let nrows = ctx.builder.build_int_z_extend_or_bit_cast(nrows, llvm_usize, "").unwrap();
-    let ncols = ctx.builder.build_int_z_extend_or_bit_cast(ncols, llvm_usize, "").unwrap();
-
-    let ndarray = create_ndarray_const_shape(generator, ctx, elem_ty, &[nrows, ncols])?;
-
-    ndarray_fill_indexed(generator, ctx, ndarray, |generator, ctx, indices| {
-        let (row, col) = unsafe {
-            (
-                indices.get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None),
-                indices.get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None),
-            )
-        };
-
-        let col_with_offset = ctx
-            .builder
-            .build_int_add(
-                col,
-                ctx.builder.build_int_s_extend_or_bit_cast(offset, llvm_i32, "").unwrap(),
-                "",
-            )
-            .unwrap();
-        let is_on_diag =
-            ctx.builder.build_int_compare(IntPredicate::EQ, row, col_with_offset, "").unwrap();
-
-        let zero = ndarray_zero_value(generator, ctx, elem_ty);
-        let one = ndarray_one_value(generator, ctx, elem_ty);
-
-        let value = ctx.builder.build_select(is_on_diag, one, zero, "").unwrap();
-
-        Ok(value)
-    })?;
-
-    Ok(ndarray)
 }
 
 /// Copies a slice of an [`NDArrayValue`] to another.
@@ -1304,15 +1252,27 @@ pub fn gen_ndarray_eye<'ctx>(
         ))
     }?;
 
-    call_ndarray_eye_impl(
-        generator,
-        context,
-        context.primitives.float,
-        nrows_arg.into_int_value(),
-        ncols_arg.into_int_value(),
-        offset_arg.into_int_value(),
-    )
-    .map(NDArrayValue::into)
+    let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+
+    let llvm_usize = generator.get_size_type(context.ctx);
+    let llvm_dtype = context.get_llvm_type(generator, dtype);
+
+    let nrows = context
+        .builder
+        .build_int_s_extend_or_bit_cast(nrows_arg.into_int_value(), llvm_usize, "")
+        .unwrap();
+    let ncols = context
+        .builder
+        .build_int_s_extend_or_bit_cast(ncols_arg.into_int_value(), llvm_usize, "")
+        .unwrap();
+    let offset = context
+        .builder
+        .build_int_s_extend_or_bit_cast(offset_arg.into_int_value(), llvm_usize, "")
+        .unwrap();
+
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(2))
+        .construct_numpy_eye(generator, context, dtype, nrows, ncols, offset, None);
+    Ok(ndarray.as_base_value())
 }
 
 /// Generates LLVM IR for `ndarray.identity`.
@@ -1326,20 +1286,21 @@ pub fn gen_ndarray_identity<'ctx>(
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
-    let llvm_usize = generator.get_size_type(context.ctx);
-
     let n_ty = fun.0.args[0].ty;
     let n_arg = args[0].1.clone().to_basic_value_enum(context, generator, n_ty)?;
 
-    call_ndarray_eye_impl(
-        generator,
-        context,
-        context.primitives.float,
-        n_arg.into_int_value(),
-        n_arg.into_int_value(),
-        llvm_usize.const_zero(),
-    )
-    .map(NDArrayValue::into)
+    let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
+
+    let llvm_usize = generator.get_size_type(context.ctx);
+    let llvm_dtype = context.get_llvm_type(generator, dtype);
+
+    let n = context
+        .builder
+        .build_int_s_extend_or_bit_cast(n_arg.into_int_value(), llvm_usize, "")
+        .unwrap();
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(2))
+        .construct_numpy_identity(generator, context, dtype, n, None);
+    Ok(ndarray.as_base_value())
 }
 
 /// Generates LLVM IR for `ndarray.copy`.
