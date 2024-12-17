@@ -16,7 +16,7 @@ use crate::{
             },
             ProxyType,
         },
-        values::{ndarray::ContiguousNDArrayValue, ArraySliceValue, ProxyValue},
+        values::{ndarray::ContiguousNDArrayValue, ProxyValue},
         CodeGenContext, CodeGenerator,
     },
     toplevel::numpy::unpack_ndarray_var_tys,
@@ -157,16 +157,37 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
         Self { ty: ptr_ty, item, llvm_usize }
     }
 
-    /// Allocates an instance of [`ContiguousNDArrayValue`] as if by calling `alloca` on the base type.
+    /// Allocates an instance of [`ContiguousNDArrayValue`] as if by calling `alloca` on the base
+    /// type.
+    ///
+    /// See [`ProxyType::raw_alloca`].
     #[must_use]
-    pub fn alloca<G: CodeGenerator + ?Sized>(
+    pub fn alloca(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_pointer_value(
+            self.raw_alloca(ctx, name),
+            self.item,
+            self.llvm_usize,
+            name,
+        )
+    }
+
+    /// Allocates an instance of [`ContiguousNDArrayValue`] as if by calling `alloca` on the base
+    /// type.
+    ///
+    /// See [`ProxyType::raw_alloca_var`].
+    #[must_use]
+    pub fn alloca_var<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca(generator, ctx, name),
+            self.raw_alloca_var(generator, ctx, name),
             self.item,
             self.llvm_usize,
             name,
@@ -213,36 +234,8 @@ impl<'ctx> ProxyType<'ctx> for ContiguousNDArrayType<'ctx> {
         Self::is_representable(llvm_ty, generator.get_size_type(ctx))
     }
 
-    fn raw_alloca<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> PointerValue<'ctx> {
-        generator
-            .gen_var_alloc(
-                ctx,
-                self.as_base_type().get_element_type().into_struct_type().into(),
-                name,
-            )
-            .unwrap()
-    }
-
-    fn array_alloca<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        size: IntValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> ArraySliceValue<'ctx> {
-        generator
-            .gen_array_var_alloc(
-                ctx,
-                self.as_base_type().get_element_type().into_struct_type().into(),
-                size,
-                name,
-            )
-            .unwrap()
+    fn alloca_type(&self) -> impl BasicType<'ctx> {
+        self.as_base_type().get_element_type().into_struct_type()
     }
 
     fn as_base_type(&self) -> Self::Base {

@@ -118,7 +118,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> ContiguousNDArrayValue<'ctx> {
         let result = ContiguousNDArrayType::new(generator, ctx.ctx, self.dtype)
-            .alloca(generator, ctx, self.name);
+            .alloca_var(generator, ctx, self.name);
 
         // Set ndims and shape.
         let ndims = self

@@ -1108,7 +1108,7 @@ pub fn allocate_list<'ctx, G: CodeGenerator + ?Sized>(
 
     // List structure; type { ty*, size_t }
     let arr_ty = ListType::new(generator, ctx.ctx, llvm_elem_ty);
-    let list = arr_ty.alloca(generator, ctx, name);
+    let list = arr_ty.alloca_var(generator, ctx, name);
 
     let length = ctx.builder.build_int_z_extend(length, llvm_usize, "").unwrap();
     list.store_size(ctx, generator, length);
