@@ -407,6 +407,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: BasicValueEnum<'ctx>,
     ) {
+        // TODO: It is possible to optimize this by exploiting contiguous strides with memset.
+        //       Probably best to implement in IRRT.
         self.foreach(generator, ctx, |_, ctx, _, nditer| {
             let p = nditer.get_pointer(ctx);
             ctx.builder.build_store(p, value).unwrap();
