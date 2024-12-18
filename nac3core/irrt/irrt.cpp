@@ -10,3 +10,4 @@
 #include "irrt/ndarray/iter.hpp"
 #include "irrt/ndarray/indexing.hpp"
 #include "irrt/ndarray/array.hpp"
+#include "irrt/ndarray/reshape.hpp"

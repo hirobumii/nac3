@@ -5,8 +5,10 @@ use inkwell::{values::BasicValue, IntPredicate};
 use strum::IntoEnumIterator;
 
 use super::{
-    helper::{debug_assert_prim_is_allowed, make_exception_fields, PrimDef, PrimDefDetails},
-    numpy::make_ndarray_ty,
+    helper::{
+        debug_assert_prim_is_allowed, extract_ndims, make_exception_fields, PrimDef, PrimDefDetails,
+    },
+    numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
     *,
 };
 use crate::{
@@ -15,7 +17,7 @@ use crate::{
         numpy::*,
         stmt::exn_constructor,
         types::ndarray::NDArrayType,
-        values::{ProxyValue, RangeValue},
+        values::{ndarray::shape::parse_numpy_int_sequence, ProxyValue, RangeValue},
     },
     symbol_resolver::SymbolValue,
     typecheck::typedef::{into_var_map, iter_type_vars, TypeVar, VarMap},
@@ -193,7 +195,6 @@ struct BuiltinBuilder<'a> {
 
     ndarray_float: Type,
     ndarray_float_2d: Type,
-    ndarray_num_ty: Type,
 
     float_or_ndarray_ty: TypeVar,
     float_or_ndarray_var_map: VarMap,
@@ -307,7 +308,6 @@ impl<'a> BuiltinBuilder<'a> {
 
             ndarray_float,
             ndarray_float_2d,
-            ndarray_num_ty,
 
             float_or_ndarray_ty,
             float_or_ndarray_var_map,
@@ -1356,20 +1356,41 @@ impl<'a> BuiltinBuilder<'a> {
             // Similar to `build_ndarray_from_shape_factory_function` we delegate the responsibility of typechecking
             // to [`typecheck::type_inferencer::Inferencer::fold_numpy_function_call_shape_argument`],
             // and use a dummy [`TypeVar`] `ndarray_factory_fn_shape_arg_tvar` as a placeholder for `param_ty`.
-            PrimDef::FunNpReshape => create_fn_by_codegen(
-                self.unifier,
-                &VarMap::new(),
-                prim.name(),
-                self.ndarray_num_ty,
-                &[(self.ndarray_num_ty, "x"), (self.ndarray_factory_fn_shape_arg_tvar.ty, "shape")],
-                Box::new(move |ctx, _, fun, args, generator| {
-                    let x1_ty = fun.0.args[0].ty;
-                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
-                    let x2_ty = fun.0.args[1].ty;
-                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
-                    Ok(Some(ndarray_reshape(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
-                }),
-            ),
+            PrimDef::FunNpReshape => {
+                let ret_ty = self.unifier.get_dummy_var().ty; // Handled by special holding
+
+                create_fn_by_codegen(
+                    self.unifier,
+                    &VarMap::new(),
+                    prim.name(),
+                    ret_ty,
+                    &[
+                        (in_ndarray_ty.ty, "x"),
+                        (self.ndarray_factory_fn_shape_arg_tvar.ty, "shape"), // Handled by special folding
+                    ],
+                    Box::new(move |ctx, _, fun, args, generator| {
+                        let ndarray_ty = fun.0.args[0].ty;
+                        let ndarray_val =
+                            args[0].1.clone().to_basic_value_enum(ctx, generator, ndarray_ty)?;
+
+                        let shape_ty = fun.0.args[1].ty;
+                        let shape_val =
+                            args[1].1.clone().to_basic_value_enum(ctx, generator, shape_ty)?;
+
+                        let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
+                            .map_value(ndarray_val.into_pointer_value(), None);
+
+                        let shape = parse_numpy_int_sequence(generator, ctx, (shape_ty, shape_val));
+
+                        // The ndims after reshaping is gotten from the return type of the call.
+                        let (_, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, fun.0.ret);
+                        let ndims = extract_ndims(&ctx.unifier, ndims);
+
+                        let new_ndarray = ndarray.reshape_or_copy(generator, ctx, ndims, &shape);
+                        Ok(Some(new_ndarray.as_base_value().as_basic_value_enum()))
+                    }),
+                )
+            }
 
             _ => unreachable!(),
         }

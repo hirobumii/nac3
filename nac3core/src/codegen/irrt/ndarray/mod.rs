@@ -20,11 +20,13 @@ pub use array::*;
 pub use basic::*;
 pub use indexing::*;
 pub use iter::*;
+pub use reshape::*;
 
 mod array;
 mod basic;
 mod indexing;
 mod iter;
+mod reshape;
 
 /// Generates a call to `__nac3_ndarray_calc_size`. Returns a
 /// [`usize`][CodeGenerator::get_size_type] representing the calculated total size.
