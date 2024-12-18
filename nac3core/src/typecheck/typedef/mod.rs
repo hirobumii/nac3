@@ -3,13 +3,13 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     fmt::{self, Display},
-    iter::{repeat, zip},
+    iter::{repeat, repeat_n, zip},
     rc::Rc,
     sync::{Arc, Mutex},
 };
 
 use indexmap::IndexMap;
-use itertools::{repeat_n, Itertools};
+use itertools::Itertools;
 
 use nac3parser::ast::{Cmpop, Location, StrRef, Unaryop};
 

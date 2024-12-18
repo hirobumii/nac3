@@ -11,7 +11,7 @@ use inkwell::{
     values::{BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue, StructValue},
     AddressSpace, IntPredicate, OptimizationLevel,
 };
-use itertools::{chain, izip, Either, Itertools};
+use itertools::{izip, Either, Itertools};
 
 use nac3parser::ast::{
     self, Boolop, Cmpop, Comprehension, Constant, Expr, ExprKind, Location, Operator, StrRef,
@@ -1965,7 +1965,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
         }
     }
 
-    let cmp_val = izip!(chain(once(&left), comparators.iter()), comparators.iter(), ops.iter(),)
+    let cmp_val = izip!(once(&left).chain(comparators.iter()), comparators.iter(), ops.iter(),)
         .fold(Ok(None), |prev: Result<Option<_>, String>, (lhs, rhs, op)| {
             let (left_ty, lhs) = lhs;
             let (right_ty, rhs) = rhs;

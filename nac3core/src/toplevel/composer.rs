@@ -1052,7 +1052,7 @@ impl TopLevelComposer {
                         }
                         let mut result = Vec::new();
                         let no_defaults = args.args.len() - args.defaults.len() - 1;
-                        for (idx, x) in itertools::enumerate(args.args.iter().skip(1)) {
+                        for (idx, x) in args.args.iter().skip(1).enumerate() {
                             let type_ann = {
                                 let Some(annotation_expr) = x.node.annotation.as_ref() else {return Err(HashSet::from([format!("type annotation needed for `{}` (at {})", x.node.arg, x.location)]));};
                                 parse_ast_to_type_annotation_kinds(

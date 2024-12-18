@@ -6,7 +6,7 @@ use std::{
 };
 
 use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue};
-use itertools::{chain, izip, Itertools};
+use itertools::{izip, Itertools};
 use parking_lot::RwLock;
 
 use nac3parser::ast::{Constant, Expr, Location, StrRef};
@@ -452,11 +452,11 @@ pub fn parse_type_annotation<T>(
                             type_vars.len()
                         )]));
                     }
-                    let fields = chain(
-                        fields.iter().map(|(k, v, m)| (*k, (*v, *m))),
-                        methods.iter().map(|(k, v, _)| (*k, (*v, false))),
-                    )
-                    .collect();
+                    let fields = fields
+                        .iter()
+                        .map(|(k, v, m)| (*k, (*v, *m)))
+                        .chain(methods.iter().map(|(k, v, _)| (*k, (*v, false))))
+                        .collect();
                     Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: VarMap::default() }))
                 } else {
                     Err(HashSet::from([format!("Cannot use function name as type at {loc}")]))
