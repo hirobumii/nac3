@@ -276,6 +276,38 @@ def test_ndarray_broadcast_to():
     output_int32(np_shape(zs)[2])
     output_ndarray_float_3(zs)
 
+def test_ndarray_subscript_assignment():
+    xs = np_array([[11.0, 22.0, 33.0, 44.0], [55.0, 66.0, 77.0, 88.0]])
+
+    xs[0, 0] = 99.0
+    output_ndarray_float_2(xs)
+
+    xs[0] = 100.0
+    output_ndarray_float_2(xs)
+
+    xs[:, ::2] = 101.0
+    output_ndarray_float_2(xs)
+
+    xs[1:, 0] = 102.0
+    output_ndarray_float_2(xs)
+
+    xs[0] = np_array([-1.0, -2.0, -3.0, -4.0])
+    output_ndarray_float_2(xs)
+
+    xs[:] = np_array([-5.0, -6.0, -7.0, -8.0])
+    output_ndarray_float_2(xs)
+
+    # Test assignment with memory sharing
+    ys1 = np_reshape(xs, (2, 4))
+    ys2 = np_transpose(ys1)
+    ys3 = ys2[::-1, 0]
+    ys3[0] = -999.0
+
+    output_ndarray_float_2(xs)
+    output_ndarray_float_2(ys1)
+    output_ndarray_float_2(ys2)
+    output_ndarray_float_1(ys3)
+
 def test_ndarray_add():
     x = np_identity(2)
     y = x + np_ones([2, 2])
@@ -1653,6 +1685,7 @@ def run() -> int32:
     test_ndarray_transpose()
     test_ndarray_reshape()
     test_ndarray_broadcast_to()
+    test_ndarray_subscript_assignment()
 
     test_ndarray_add()
     test_ndarray_add_broadcast()
