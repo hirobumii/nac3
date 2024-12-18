@@ -55,6 +55,7 @@ pub enum PrimDef {
     FunNpIdentity,
 
     // NumPy ndarray property getters
+    FunNpSize,
     FunNpShape,
     FunNpStrides,
 
@@ -245,6 +246,7 @@ impl PrimDef {
             PrimDef::FunNpIdentity => fun("np_identity", None),
 
             // NumPy NDArray property getters,
+            PrimDef::FunNpSize => fun("np_size", None),
             PrimDef::FunNpShape => fun("np_shape", None),
             PrimDef::FunNpStrides => fun("np_strides", None),
 

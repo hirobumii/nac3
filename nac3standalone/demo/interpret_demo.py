@@ -180,6 +180,7 @@ def patch(module):
     module.np_array = np.array
 
     # NumPy NDArray property getters
+    module.np_size = np.size
     module.np_shape = np.shape
     module.np_strides = lambda ndarray: ndarray.strides
 
