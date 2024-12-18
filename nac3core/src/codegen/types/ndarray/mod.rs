@@ -30,6 +30,7 @@ mod broadcast;
 mod contiguous;
 pub mod factory;
 mod indexing;
+mod map;
 mod nditer;
 
 /// Proxy type for a `ndarray` type in LLVM.

@@ -31,6 +31,7 @@ pub use nditer::*;
 mod broadcast;
 mod contiguous;
 mod indexing;
+mod map;
 mod nditer;
 pub mod shape;
 mod view;
@@ -539,6 +540,26 @@ impl<'ctx> NDArrayValue<'ctx> {
         } else {
             ScalarOrNDArray::NDArray(*self)
         }
+    }
+
+    /// Check if this `NDArray` can be used as an `out` ndarray for an operation.
+    ///
+    /// Raise an exception if the shapes do not match.
+    pub fn assert_can_be_written_by_out<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        out_shape: impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
+    ) {
+        let ndarray_shape = self.shape();
+        let output_shape = out_shape;
+
+        irrt::ndarray::call_nac3_ndarray_util_assert_output_shape_same(
+            generator,
+            ctx,
+            &ndarray_shape,
+            &output_shape,
+        );
     }
 }
 
@@ -1078,6 +1099,30 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
         match self {
             ScalarOrNDArray::NDArray(ndarray) => ndarray.dtype,
             ScalarOrNDArray::Scalar(scalar) => scalar.get_type(),
+        }
+    }
+}
+
+/// An helper enum specifying how a function should produce its output.
+///
+/// Many functions in NumPy has an optional `out` parameter (e.g., `matmul`). If `out` is specified
+/// with an ndarray, the result of a function will be written to `out`. If `out` is not specified, a
+/// function will create a new ndarray and store the result in it.
+#[derive(Clone, Copy)]
+pub enum NDArrayOut<'ctx> {
+    /// Tell a function should create a new ndarray with the expected element type `dtype`.
+    NewNDArray { dtype: BasicTypeEnum<'ctx> },
+    /// Tell a function to write the result to `ndarray`.
+    WriteToNDArray { ndarray: NDArrayValue<'ctx> },
+}
+
+impl<'ctx> NDArrayOut<'ctx> {
+    /// Get the dtype of this output.
+    #[must_use]
+    pub fn get_dtype(&self) -> BasicTypeEnum<'ctx> {
+        match self {
+            NDArrayOut::NewNDArray { dtype } => *dtype,
+            NDArrayOut::WriteToNDArray { ndarray } => ndarray.dtype,
         }
     }
 }
