@@ -1,6 +1,6 @@
 use std::iter::{once, repeat_n};
 
-use inkwell::values::IntValue;
+use inkwell::values::{IntValue, PointerValue};
 use itertools::Itertools;
 
 use crate::codegen::{
@@ -9,7 +9,7 @@ use crate::codegen::{
     types::ndarray::NDArrayType,
     values::{
         ndarray::{NDArrayValue, RustNDIndex},
-        ArrayLikeValue, ProxyValue, TypedArrayLikeAccessor,
+        ArrayLikeValue, ArraySliceValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
     },
     CodeGenContext, CodeGenerator,
 };
@@ -107,5 +107,51 @@ impl<'ctx> NDArrayValue<'ctx> {
         .unwrap();
 
         dst_ndarray
+    }
+
+    /// Create a transposed view on this ndarray like
+    /// [`np.transpose(<ndarray>, <axes> = None)`](https://numpy.org/doc/stable/reference/generated/numpy.transpose.html).
+    ///
+    /// * `axes` - If specified, should be an array of the permutation (negative indices are
+    ///   **allowed**).
+    #[must_use]
+    pub fn transpose<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        axes: Option<PointerValue<'ctx>>,
+    ) -> Self {
+        assert!(self.ndims.is_some(), "NDArrayValue::transpose is only supported for instances with compile-time known ndims (self.ndims = Some(...))");
+        assert!(
+            axes.is_none_or(|axes| axes.get_type().get_element_type() == self.llvm_usize.into())
+        );
+
+        // Define models
+        let transposed_ndarray = self.get_type().construct_uninitialized(generator, ctx, None);
+
+        let axes = if let Some(axes) = axes {
+            let num_axes = self.llvm_usize.const_int(self.ndims.unwrap(), false);
+
+            // `axes = nullptr` if `axes` is unspecified.
+            let axes = ArraySliceValue::from_ptr_val(axes, num_axes, None);
+
+            Some(TypedArrayLikeAdapter::from(
+                axes,
+                |_, _, val| val.into_int_value(),
+                |_, _, val| val.into(),
+            ))
+        } else {
+            None
+        };
+
+        irrt::ndarray::call_nac3_ndarray_transpose(
+            generator,
+            ctx,
+            *self,
+            transposed_ndarray,
+            axes.as_ref(),
+        );
+
+        transposed_ndarray
     }
 }

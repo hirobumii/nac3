@@ -22,6 +22,7 @@ pub use broadcast::*;
 pub use indexing::*;
 pub use iter::*;
 pub use reshape::*;
+pub use transpose::*;
 
 mod array;
 mod basic;
@@ -29,6 +30,7 @@ mod broadcast;
 mod indexing;
 mod iter;
 mod reshape;
+mod transpose;
 
 /// Generates a call to `__nac3_ndarray_calc_size`. Returns a
 /// [`usize`][CodeGenerator::get_size_type] representing the calculated total size.

@@ -12,3 +12,4 @@
 #include "irrt/ndarray/array.hpp"
 #include "irrt/ndarray/reshape.hpp"
 #include "irrt/ndarray/broadcast.hpp"
+#include "irrt/ndarray/transpose.hpp"

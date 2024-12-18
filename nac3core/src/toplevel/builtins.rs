@@ -1349,7 +1349,12 @@ impl<'a> BuiltinBuilder<'a> {
                 Box::new(move |ctx, _, fun, args, generator| {
                     let arg_ty = fun.0.args[0].ty;
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                    Ok(Some(ndarray_transpose(generator, ctx, (arg_ty, arg_val))?))
+
+                    let ndarray = NDArrayType::from_unifier_type(generator, ctx, arg_ty)
+                        .map_value(arg_val.into_pointer_value(), None);
+
+                    let ndarray = ndarray.transpose(generator, ctx, None); // TODO: Add axes argument
+                    Ok(Some(ndarray.as_base_value().into()))
                 }),
             ),
 
