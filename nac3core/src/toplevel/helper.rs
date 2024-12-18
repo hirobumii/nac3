@@ -59,6 +59,10 @@ pub enum PrimDef {
     FunNpShape,
     FunNpStrides,
 
+    // NumPy ndarray view functions
+    FunNpTranspose,
+    FunNpReshape,
+
     // Miscellaneous NumPy & SciPy functions
     FunNpRound,
     FunNpFloor,
@@ -106,8 +110,6 @@ pub enum PrimDef {
     FunNpLdExp,
     FunNpHypot,
     FunNpNextAfter,
-    FunNpTranspose,
-    FunNpReshape,
 
     // Linalg functions
     FunNpDot,
@@ -250,6 +252,10 @@ impl PrimDef {
             PrimDef::FunNpShape => fun("np_shape", None),
             PrimDef::FunNpStrides => fun("np_strides", None),
 
+            // NumPy NDArray view functions
+            PrimDef::FunNpTranspose => fun("np_transpose", None),
+            PrimDef::FunNpReshape => fun("np_reshape", None),
+
             // Miscellaneous NumPy & SciPy functions
             PrimDef::FunNpRound => fun("np_round", None),
             PrimDef::FunNpFloor => fun("np_floor", None),
@@ -297,8 +303,6 @@ impl PrimDef {
             PrimDef::FunNpLdExp => fun("np_ldexp", None),
             PrimDef::FunNpHypot => fun("np_hypot", None),
             PrimDef::FunNpNextAfter => fun("np_nextafter", None),
-            PrimDef::FunNpTranspose => fun("np_transpose", None),
-            PrimDef::FunNpReshape => fun("np_reshape", None),
 
             // Linalg functions
             PrimDef::FunNpDot => fun("np_dot", None),
