@@ -1,19 +1,23 @@
+use std::iter::repeat_n;
+
 use inkwell::{
     types::{AnyType, AnyTypeEnum, BasicType, BasicTypeEnum, IntType},
-    values::{BasicValueEnum, IntValue, PointerValue},
+    values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
     AddressSpace, IntPredicate,
 };
+use itertools::Itertools;
 
 use super::{
-    ArrayLikeIndexer, ArrayLikeValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
-    TypedArrayLikeMutator, UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
+    ArrayLikeIndexer, ArrayLikeValue, ProxyValue, TupleValue, TypedArrayLikeAccessor,
+    TypedArrayLikeAdapter, TypedArrayLikeMutator, UntypedArrayLikeAccessor,
+    UntypedArrayLikeMutator,
 };
 use crate::codegen::{
     irrt,
     llvm_intrinsics::{call_int_umin, call_memcpy_generic_array},
     stmt::gen_for_callback_incrementing,
     type_aligned_alloca,
-    types::{ndarray::NDArrayType, structure::StructField},
+    types::{ndarray::NDArrayType, structure::StructField, TupleType},
     CodeGenContext, CodeGenerator,
 };
 pub use contiguous::*;
@@ -417,13 +421,85 @@ impl<'ctx> NDArrayValue<'ctx> {
         .unwrap();
     }
 
+    /// Create the shape tuple of this ndarray like
+    /// [`np.shape(<ndarray>)`](https://numpy.org/doc/stable/reference/generated/numpy.shape.html).
+    ///
+    /// All elements in the tuple are `i32`.
+    pub fn make_shape_tuple<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> TupleValue<'ctx> {
+        assert!(self.ndims.is_some(), "NDArrayValue::make_shape_tuple can only be called on an instance with compile-time known ndims (self.ndims = Some(ndims))");
+
+        let llvm_i32 = ctx.ctx.i32_type();
+
+        let objects = (0..self.ndims.unwrap())
+            .map(|i| {
+                let dim = unsafe {
+                    self.shape().get_typed_unchecked(
+                        ctx,
+                        generator,
+                        &self.llvm_usize.const_int(i, false),
+                        None,
+                    )
+                };
+                ctx.builder.build_int_truncate_or_bit_cast(dim, llvm_i32, "").unwrap()
+            })
+            .map(|obj| obj.as_basic_value_enum())
+            .collect_vec();
+
+        TupleType::new(
+            generator,
+            ctx.ctx,
+            &repeat_n(llvm_i32.into(), self.ndims.unwrap() as usize).collect_vec(),
+        )
+        .construct_from_objects(ctx, objects, None)
+    }
+
+    /// Create the strides tuple of this ndarray like
+    /// [`<ndarray>.strides`](https://numpy.org/doc/stable/reference/generated/numpy.ndarray.strides.html).
+    ///
+    /// All elements in the tuple are `i32`.
+    pub fn make_strides_tuple<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> TupleValue<'ctx> {
+        assert!(self.ndims.is_some(), "NDArrayValue::make_strides_tuple can only be called on an instance with compile-time known ndims (self.ndims = Some(ndims))");
+
+        let llvm_i32 = ctx.ctx.i32_type();
+
+        let objects = (0..self.ndims.unwrap())
+            .map(|i| {
+                let dim = unsafe {
+                    self.strides().get_typed_unchecked(
+                        ctx,
+                        generator,
+                        &self.llvm_usize.const_int(i, false),
+                        None,
+                    )
+                };
+                ctx.builder.build_int_truncate_or_bit_cast(dim, llvm_i32, "").unwrap()
+            })
+            .map(|obj| obj.as_basic_value_enum())
+            .collect_vec();
+
+        TupleType::new(
+            generator,
+            ctx.ctx,
+            &repeat_n(llvm_i32.into(), self.ndims.unwrap() as usize).collect_vec(),
+        )
+        .construct_from_objects(ctx, objects, None)
+    }
+
     /// Returns true if this ndarray is unsized - `ndims == 0` and only contains a scalar.
     #[must_use]
     pub fn is_unsized(&self) -> Option<bool> {
         self.ndims.map(|ndims| ndims == 0)
     }
 
-    /// If this ndarray is unsized, return its sole value as an [`AnyObject`].
+    /// If this ndarray is unsized, return its sole value as an [`BasicValueEnum`].
     /// Otherwise, do nothing and return the ndarray itself.
     // TODO: Rename to get_unsized_element
     pub fn split_unsized<G: CodeGenerator + ?Sized>(

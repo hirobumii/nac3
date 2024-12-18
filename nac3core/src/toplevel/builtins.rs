@@ -14,6 +14,7 @@ use crate::{
         builtin_fns,
         numpy::*,
         stmt::exn_constructor,
+        types::ndarray::NDArrayType,
         values::{ProxyValue, RangeValue},
     },
     symbol_resolver::SymbolValue,
@@ -367,6 +368,10 @@ impl<'a> BuiltinBuilder<'a> {
             | PrimDef::FunNpFull
             | PrimDef::FunNpEye
             | PrimDef::FunNpIdentity => self.build_ndarray_other_factory_function(prim),
+
+            PrimDef::FunNpShape | PrimDef::FunNpStrides => {
+                self.build_ndarray_property_getter_function(prim)
+            }
 
             PrimDef::FunStr => self.build_str_function(),
 
@@ -1238,6 +1243,54 @@ impl<'a> BuiltinBuilder<'a> {
                         .map(|val| Some(val.as_basic_value_enum()))
                 }),
             ),
+            _ => unreachable!(),
+        }
+    }
+
+    fn build_ndarray_property_getter_function(&mut self, prim: PrimDef) -> TopLevelDef {
+        debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpShape, PrimDef::FunNpStrides]);
+
+        let in_ndarray_ty = self.unifier.get_fresh_var_with_range(
+            &[self.primitives.ndarray],
+            Some("T".into()),
+            None,
+        );
+
+        match prim {
+            PrimDef::FunNpShape | PrimDef::FunNpStrides => {
+                // The function signatures of `np_shape` an `np_size` are the same.
+                // Mixed together for convenience.
+
+                // The return type is a tuple of variable length depending on the ndims of the input ndarray.
+                let ret_ty = self.unifier.get_dummy_var().ty; // Handled by special folding
+
+                create_fn_by_codegen(
+                    self.unifier,
+                    &into_var_map([in_ndarray_ty]),
+                    prim.name(),
+                    ret_ty,
+                    &[(in_ndarray_ty.ty, "a")],
+                    Box::new(move |ctx, obj, fun, args, generator| {
+                        assert!(obj.is_none());
+                        assert_eq!(args.len(), 1);
+
+                        let ndarray_ty = fun.0.args[0].ty;
+                        let ndarray =
+                            args[0].1.clone().to_basic_value_enum(ctx, generator, ndarray_ty)?;
+
+                        let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
+                            .map_value(ndarray.into_pointer_value(), None);
+
+                        let result_tuple = match prim {
+                            PrimDef::FunNpShape => ndarray.make_shape_tuple(generator, ctx),
+                            PrimDef::FunNpStrides => ndarray.make_strides_tuple(generator, ctx),
+                            _ => unreachable!(),
+                        };
+
+                        Ok(Some(result_tuple.as_base_value().into()))
+                    }),
+                )
+            }
             _ => unreachable!(),
         }
     }
