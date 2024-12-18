@@ -60,6 +60,7 @@ pub enum PrimDef {
     FunNpStrides,
 
     // NumPy ndarray view functions
+    FunNpBroadcastTo,
     FunNpTranspose,
     FunNpReshape,
 
@@ -253,6 +254,7 @@ impl PrimDef {
             PrimDef::FunNpStrides => fun("np_strides", None),
 
             // NumPy NDArray view functions
+            PrimDef::FunNpBroadcastTo => fun("np_broadcast_to", None),
             PrimDef::FunNpTranspose => fun("np_transpose", None),
             PrimDef::FunNpReshape => fun("np_reshape", None),
 

@@ -20,11 +20,13 @@ use crate::{
     toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},
     typecheck::typedef::Type,
 };
+pub use broadcast::*;
 pub use contiguous::*;
 pub use indexing::*;
 pub use nditer::*;
 
 mod array;
+mod broadcast;
 mod contiguous;
 pub mod factory;
 mod indexing;
@@ -116,6 +118,20 @@ impl<'ctx> NDArrayType<'ctx> {
         let llvm_ndarray = Self::llvm_type(ctx, llvm_usize);
 
         NDArrayType { ty: llvm_ndarray, dtype, ndims, llvm_usize }
+    }
+
+    /// Creates an instance of [`NDArrayType`] as a result of a broadcast operation over one or more
+    /// `ndarray` operands.
+    #[must_use]
+    pub fn new_broadcast<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        dtype: BasicTypeEnum<'ctx>,
+        inputs: &[NDArrayType<'ctx>],
+    ) -> Self {
+        assert!(!inputs.is_empty());
+
+        Self::new(generator, ctx, dtype, inputs.iter().filter_map(NDArrayType::ndims).max())
     }
 
     /// Creates an instance of [`NDArrayType`] with `ndims` of 0.

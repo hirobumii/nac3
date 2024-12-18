@@ -68,6 +68,12 @@ def output_ndarray_float_2(n: ndarray[float, Literal[2]]):
         for c in range(len(n[r])):
             output_float64(n[r][c])
 
+def output_ndarray_float_3(n: ndarray[float, Literal[3]]):
+    for d in range(len(n)):
+        for r in range(len(n[d])):
+            for c in range(len(n[d][r])):
+                output_float64(n[d][r][c])
+
 def output_ndarray_float_4(n: ndarray[float, Literal[4]]):
     for x in range(len(n)):
         for y in range(len(n[x])):
@@ -235,6 +241,23 @@ def test_ndarray_reshape():
     output_int32(np_shape(x2)[0])
     output_int32(np_shape(x2)[1])
     output_ndarray_int32_2(x2)
+
+def test_ndarray_broadcast_to():
+    xs = np_array([1.0, 2.0, 3.0])
+    ys = np_broadcast_to(xs, (1, 3))
+    zs = np_broadcast_to(ys, (2, 4, 3))
+
+    output_int32(np_shape(xs)[0])
+    output_ndarray_float_1(xs)
+
+    output_int32(np_shape(ys)[0])
+    output_int32(np_shape(ys)[1])
+    output_ndarray_float_2(ys)
+
+    output_int32(np_shape(zs)[0])
+    output_int32(np_shape(zs)[1])
+    output_int32(np_shape(zs)[2])
+    output_ndarray_float_3(zs)
 
 def test_ndarray_add():
     x = np_identity(2)
@@ -1619,6 +1642,7 @@ def run() -> int32:
     test_ndarray_nd_idx()
 
     test_ndarray_reshape()
+    test_ndarray_broadcast_to()
 
     test_ndarray_add()
     test_ndarray_add_broadcast()

@@ -20,10 +20,12 @@ use crate::codegen::{
     types::{ndarray::NDArrayType, structure::StructField, TupleType},
     CodeGenContext, CodeGenerator,
 };
+pub use broadcast::*;
 pub use contiguous::*;
 pub use indexing::*;
 pub use nditer::*;
 
+mod broadcast;
 mod contiguous;
 mod indexing;
 mod nditer;

@@ -18,12 +18,14 @@ use crate::codegen::{
 };
 pub use array::*;
 pub use basic::*;
+pub use broadcast::*;
 pub use indexing::*;
 pub use iter::*;
 pub use reshape::*;
 
 mod array;
 mod basic;
+mod broadcast;
 mod indexing;
 mod iter;
 mod reshape;
