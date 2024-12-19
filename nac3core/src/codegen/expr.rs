@@ -1777,10 +1777,10 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             _ => val.into(),
         }
     } else if ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
-        let llvm_ndarray_ty = NDArrayType::from_unifier_type(generator, ctx, ty);
         let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
-        let val = llvm_ndarray_ty.map_value(val.into_pointer_value(), None);
+        let ndarray = NDArrayType::from_unifier_type(generator, ctx, ty)
+            .map_value(val.into_pointer_value(), None);
 
         // ndarray uses `~` rather than `not` to perform elementwise inversion, convert it before
         // passing it to the elementwise codegen function
@@ -1798,20 +1798,18 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             op
         };
 
-        let res = numpy::ndarray_elementwise_unaryop_impl(
+        let mapped_ndarray = ndarray.map(
             generator,
             ctx,
-            ndarray_dtype,
-            None,
-            val,
-            |generator, ctx, val| {
-                gen_unaryop_expr_with_values(generator, ctx, op, (&Some(ndarray_dtype), val))?
+            NDArrayOut::NewNDArray { dtype: ndarray.get_type().element_type() },
+            |generator, ctx, scalar| {
+                gen_unaryop_expr_with_values(generator, ctx, op, (&Some(ndarray_dtype), scalar))?
+                    .map(|val| val.to_basic_value_enum(ctx, generator, ndarray_dtype))
                     .unwrap()
-                    .to_basic_value_enum(ctx, generator, ndarray_dtype)
             },
         )?;
 
-        res.as_base_value().into()
+        mapped_ndarray.as_base_value().into()
     } else {
         unimplemented!()
     }))
