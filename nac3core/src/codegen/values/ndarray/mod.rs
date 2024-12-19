@@ -32,6 +32,7 @@ mod broadcast;
 mod contiguous;
 mod indexing;
 mod map;
+mod matmul;
 mod nditer;
 pub mod shape;
 mod view;

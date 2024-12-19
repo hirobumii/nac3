@@ -27,7 +27,7 @@ use super::{
         call_memcpy_generic,
     },
     macros::codegen_unreachable,
-    need_sret, numpy,
+    need_sret,
     stmt::{
         gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         gen_var,
@@ -1534,26 +1534,35 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
         let left = ScalarOrNDArray::from_value(generator, ctx, (ty1, left_val));
         let right = ScalarOrNDArray::from_value(generator, ctx, (ty2, right_val));
 
-        if op.base == Operator::MatMult {
-            let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty1);
+        let ty1_dtype = arraylike_flatten_element_type(&mut ctx.unifier, ty1);
+        let ty2_dtype = arraylike_flatten_element_type(&mut ctx.unifier, ty2);
 
+        // Inhomogeneous binary operations are not supported.
+        assert!(ctx.unifier.unioned(ty1_dtype, ty2_dtype));
+
+        let common_dtype = ty1_dtype;
+        let llvm_common_dtype = left.get_dtype();
+
+        let out = match op.variant {
+            BinopVariant::Normal => NDArrayOut::NewNDArray { dtype: llvm_common_dtype },
+            BinopVariant::AugAssign => {
+                // Augmented assignment - `left` has to be an ndarray. If it were a scalar then NAC3
+                // simply doesn't support it.
+                if let ScalarOrNDArray::NDArray(out_ndarray) = left {
+                    NDArrayOut::WriteToNDArray { ndarray: out_ndarray }
+                } else {
+                    panic!("left must be an ndarray")
+                }
+            }
+        };
+
+        if op.base == Operator::MatMult {
             let left = left.to_ndarray(generator, ctx);
             let right = right.to_ndarray(generator, ctx);
-
-            // MatMult is the only binop which is not an elementwise op
-            let result = numpy::ndarray_matmul_2d(
-                generator,
-                ctx,
-                ndarray_dtype1,
-                match op.variant {
-                    BinopVariant::Normal => None,
-                    BinopVariant::AugAssign => Some(left),
-                },
-                left,
-                right,
-            )?;
-
-            Ok(Some(result.as_base_value().into()))
+            let result = left
+                .matmul(generator, ctx, ty1, (ty2, right), (common_dtype, out))
+                .split_unsized(generator, ctx);
+            Ok(Some(result.to_basic_value_enum().into()))
         } else {
             // For other operations, they are all elementwise operations.
 
@@ -1564,28 +1573,6 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             //
             // For all cases, the scalar operand is promoted to an ndarray,
             // the two are then broadcasted, and starmapped through.
-
-            let ty1_dtype = arraylike_flatten_element_type(&mut ctx.unifier, ty1);
-            let ty2_dtype = arraylike_flatten_element_type(&mut ctx.unifier, ty2);
-
-            // Inhomogeneous binary operations are not supported.
-            assert!(ctx.unifier.unioned(ty1_dtype, ty2_dtype));
-
-            let common_dtype = ty1_dtype;
-            let llvm_common_dtype = left.get_dtype();
-
-            let out = match op.variant {
-                BinopVariant::Normal => NDArrayOut::NewNDArray { dtype: llvm_common_dtype },
-                BinopVariant::AugAssign => {
-                    // If this is an augmented assignment.
-                    // `left` has to be an ndarray. If it were a scalar then NAC3 simply doesn't support it.
-                    if let ScalarOrNDArray::NDArray(out_ndarray) = left {
-                        NDArrayOut::WriteToNDArray { ndarray: out_ndarray }
-                    } else {
-                        panic!("left must be an ndarray")
-                    }
-                }
-            };
 
             let left = left.to_ndarray(generator, ctx);
             let right = right.to_ndarray(generator, ctx);

@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Get the zero value in `np.zeros()` of a `dtype`.
-pub fn ndarray_zero_value<'ctx, G: CodeGenerator + ?Sized>(
+fn ndarray_zero_value<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     dtype: Type,

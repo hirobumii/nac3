@@ -7,12 +7,12 @@ use nac3parser::ast::{Cmpop, Operator, StrRef, Unaryop};
 
 use super::{
     type_inferencer::*,
-    typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
+    typedef::{into_var_map, FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
 };
 use crate::{
     symbol_resolver::SymbolValue,
     toplevel::{
-        helper::PrimDef,
+        helper::{extract_ndims, PrimDef},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
     },
 };
@@ -175,19 +175,8 @@ pub fn impl_binop(
     ops: &[Operator],
 ) {
     with_fields(unifier, ty, |unifier, fields| {
-        let (other_ty, other_var_id) = if other_ty.len() == 1 {
-            (other_ty[0], None)
-        } else {
-            let tvar = unifier.get_fresh_var_with_range(other_ty, Some("N".into()), None);
-            (tvar.ty, Some(tvar.id))
-        };
-
-        let function_vars = if let Some(var_id) = other_var_id {
-            vec![(var_id, other_ty)].into_iter().collect::<VarMap>()
-        } else {
-            VarMap::new()
-        };
-
+        let other_tvar = unifier.get_fresh_var_with_range(other_ty, Some("N".into()), None);
+        let function_vars = into_var_map([other_tvar]);
         let ret_ty = ret_ty.unwrap_or_else(|| unifier.get_fresh_var(None, None).ty);
 
         for (base_op, variant) in iproduct!(ops, [BinopVariant::Normal, BinopVariant::AugAssign]) {
@@ -198,7 +187,7 @@ pub fn impl_binop(
                         ret: ret_ty,
                         vars: function_vars.clone(),
                         args: vec![FuncArg {
-                            ty: other_ty,
+                            ty: other_tvar.ty,
                             default_value: None,
                             name: "other".into(),
                             is_vararg: false,
@@ -541,36 +530,43 @@ pub fn typeof_binop(
                 }
             }
 
-            let (_, lhs_ndims) = unpack_ndarray_var_tys(unifier, lhs);
-            let lhs_ndims = match &*unifier.get_ty_immutable(lhs_ndims) {
-                TypeEnum::TLiteral { values, .. } => {
-                    assert_eq!(values.len(), 1);
-                    u64::try_from(values[0].clone()).unwrap()
+            let (lhs_dtype, lhs_ndims) = unpack_ndarray_var_tys(unifier, lhs);
+            let lhs_ndims = extract_ndims(unifier, lhs_ndims);
+
+            let (rhs_dtype, rhs_ndims) = unpack_ndarray_var_tys(unifier, rhs);
+            let rhs_ndims = extract_ndims(unifier, rhs_ndims);
+
+            if !(unifier.unioned(lhs_dtype, primitives.float)
+                && unifier.unioned(rhs_dtype, primitives.float))
+            {
+                return Err(format!(
+                    "ndarray.__matmul__ only supports float64 operations, but LHS has type {} and RHS has type {}",
+                    unifier.stringify(lhs),
+                    unifier.stringify(rhs)
+                ));
+            }
+
+            // Deduce the ndims of the resulting ndarray.
+            // If this is 0 (an unsized ndarray), matmul returns a scalar just like NumPy.
+            let result_ndims = match (lhs_ndims, rhs_ndims) {
+                (0, _) | (_, 0) => {
+                    return Err(
+                        "ndarray.__matmul__ does not allow unsized ndarray input".to_string()
+                    )
                 }
-                _ => unreachable!(),
-            };
-            let (_, rhs_ndims) = unpack_ndarray_var_tys(unifier, rhs);
-            let rhs_ndims = match &*unifier.get_ty_immutable(rhs_ndims) {
-                TypeEnum::TLiteral { values, .. } => {
-                    assert_eq!(values.len(), 1);
-                    u64::try_from(values[0].clone()).unwrap()
-                }
-                _ => unreachable!(),
+                (1, 1) => 0,
+                (1, _) => rhs_ndims - 1,
+                (_, 1) => lhs_ndims - 1,
+                (m, n) => max(m, n),
             };
 
-            match (lhs_ndims, rhs_ndims) {
-                (2, 2) => typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?,
-                (lhs, rhs) if lhs == 0 || rhs == 0 => {
-                    return Err(format!(
-                    "Input operand {} does not have enough dimensions (has {lhs}, requires {rhs})",
-                    u8::from(rhs == 0)
-                ))
-                }
-                (lhs, rhs) => {
-                    return Err(format!(
-                        "ndarray.__matmul__ on {lhs}D and {rhs}D operands not supported"
-                    ))
-                }
+            if result_ndims == 0 {
+                // If the result is unsized, NumPy returns a scalar.
+                primitives.float
+            } else {
+                let result_ndims_ty =
+                    unifier.get_fresh_literal(vec![SymbolValue::U64(result_ndims)], None);
+                make_ndarray_ty(unifier, primitives, Some(primitives.float), Some(result_ndims_ty))
             }
         }
 
@@ -773,7 +769,7 @@ pub fn set_primitives_magic_methods(store: &PrimitiveStore, unifier: &mut Unifie
     impl_div(unifier, store, ndarray_t, &[ndarray_t, ndarray_dtype_t], None);
     impl_floordiv(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
     impl_mod(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
-    impl_matmul(unifier, store, ndarray_t, &[ndarray_t], Some(ndarray_t));
+    impl_matmul(unifier, store, ndarray_t, &[ndarray_unsized_t], None);
     impl_sign(unifier, store, ndarray_t, Some(ndarray_t));
     impl_invert(unifier, store, ndarray_t, Some(ndarray_t));
     impl_eq(unifier, store, ndarray_t, &[ndarray_unsized_t, ndarray_unsized_dtype_t], None);
