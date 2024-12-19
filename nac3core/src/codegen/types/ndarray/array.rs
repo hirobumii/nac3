@@ -41,7 +41,7 @@ impl<'ctx> NDArrayType<'ctx> {
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         let (dtype, ndims_int) = get_list_object_dtype_and_ndims(generator, ctx, list_ty);
-        assert!(self.ndims.is_none_or(|self_ndims| self_ndims >= ndims_int));
+        assert!(self.ndims >= ndims_int);
         assert_eq!(dtype, self.dtype);
 
         let list_value = list.as_i8_list(generator, ctx);
@@ -61,7 +61,7 @@ impl<'ctx> NDArrayType<'ctx> {
             generator, ctx, list_value, ndims, &shape,
         );
 
-        let ndarray = Self::new(generator, ctx.ctx, dtype, Some(ndims_int))
+        let ndarray = Self::new(generator, ctx.ctx, dtype, ndims_int)
             .construct_uninitialized(generator, ctx, name);
         ndarray.copy_shape_from_array(generator, ctx, shape.base_ptr(ctx, generator));
         unsafe { ndarray.create_data(generator, ctx) };
@@ -93,12 +93,12 @@ impl<'ctx> NDArrayType<'ctx> {
         if ndims == 1 {
             // `list` is not nested
             assert_eq!(ndims, 1);
-            assert!(self.ndims.is_none_or(|self_ndims| self_ndims >= ndims));
+            assert!(self.ndims >= ndims);
             assert_eq!(dtype, self.dtype);
 
             let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
 
-            let ndarray = Self::new(generator, ctx.ctx, dtype, Some(1))
+            let ndarray = Self::new(generator, ctx.ctx, dtype, 1)
                 .construct_uninitialized(generator, ctx, name);
 
             // Set data
@@ -170,7 +170,7 @@ impl<'ctx> NDArrayType<'ctx> {
         .map(BasicValueEnum::into_pointer_value)
         .unwrap();
 
-        NDArrayType::new(generator, ctx.ctx, dtype, Some(ndims)).map_value(ndarray, None)
+        NDArrayType::new(generator, ctx.ctx, dtype, ndims).map_value(ndarray, None)
     }
 
     /// Implementation of `np_array(<ndarray>, copy=copy)`.
@@ -183,9 +183,7 @@ impl<'ctx> NDArrayType<'ctx> {
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         assert_eq!(ndarray.get_type().dtype, self.dtype);
-        assert!(ndarray.get_type().ndims.is_none_or(|ndarray_ndims| self
-            .ndims
-            .is_none_or(|self_ndims| self_ndims >= ndarray_ndims)));
+        assert!(self.ndims >= ndarray.get_type().ndims);
         assert_eq!(copy.get_type(), ctx.ctx.bool_type());
 
         let ndarray_val = gen_if_else_expr_callback(

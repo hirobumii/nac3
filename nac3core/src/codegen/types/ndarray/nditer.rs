@@ -163,13 +163,8 @@ impl<'ctx> NDIterType<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         ndarray: NDArrayValue<'ctx>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        assert!(
-            ndarray.get_type().ndims().is_some(),
-            "NDIter requires ndims of NDArray to be known."
-        );
-
         let nditer = self.raw_alloca_var(generator, ctx, None);
-        let ndims = self.llvm_usize.const_int(ndarray.get_type().ndims().unwrap(), false);
+        let ndims = self.llvm_usize.const_int(ndarray.get_type().ndims(), false);
 
         // The caller has the responsibility to allocate 'indices' for `NDIter`.
         let indices =

@@ -47,7 +47,7 @@ impl<'ctx> NDArrayType<'ctx> {
             NDArrayOut::NewNDArray { dtype } => {
                 // Create a new ndarray based on the broadcast shape.
                 let result_ndarray =
-                    NDArrayType::new(generator, ctx.ctx, dtype, Some(broadcast_result.ndims))
+                    NDArrayType::new(generator, ctx.ctx, dtype, broadcast_result.ndims)
                         .construct_uninitialized(generator, ctx, None);
                 result_ndarray.copy_shape_from_array(
                     generator,

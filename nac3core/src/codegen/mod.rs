@@ -520,7 +520,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 ctx, module, generator, unifier, top_level, type_cache, dtype,
                             );
 
-                            NDArrayType::new(generator, ctx, element_type, Some(ndims)).as_base_type().into()
+                            NDArrayType::new(generator, ctx, element_type, ndims).as_base_type().into()
                         }
 
                         _ => unreachable!(

@@ -447,10 +447,8 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             let value = ScalarOrNDArray::from_value(generator, ctx, (value_ty, value))
                 .to_ndarray(generator, ctx);
 
-            let broadcast_ndims = [target.get_type().ndims(), value.get_type().ndims()]
-                .iter()
-                .filter_map(|ndims| *ndims)
-                .max();
+            let broadcast_ndims =
+                [target.get_type().ndims(), value.get_type().ndims()].into_iter().max().unwrap();
             let broadcast_result = NDArrayType::new(
                 generator,
                 ctx.ctx,

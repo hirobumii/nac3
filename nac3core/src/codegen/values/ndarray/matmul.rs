@@ -29,16 +29,8 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
     (in_a_ty, in_a): (Type, NDArrayValue<'ctx>),
     (in_b_ty, in_b): (Type, NDArrayValue<'ctx>),
 ) -> NDArrayValue<'ctx> {
-    assert!(
-        in_a.ndims.is_some_and(|ndims| ndims >= 2),
-        "in_a (which is {:?}) must be compile-time known and >= 2",
-        in_a.ndims
-    );
-    assert!(
-        in_b.ndims.is_some_and(|ndims| ndims >= 2),
-        "in_b (which is {:?}) must be compile-time known and >= 2",
-        in_b.ndims
-    );
+    assert!(in_a.ndims >= 2, "in_a (which is {}) must be >= 2", in_a.ndims);
+    assert!(in_b.ndims >= 2, "in_b (which is {}) must be >= 2", in_b.ndims);
 
     let lhs_dtype = arraylike_flatten_element_type(&mut ctx.unifier, in_a_ty);
     let rhs_dtype = arraylike_flatten_element_type(&mut ctx.unifier, in_b_ty);
@@ -47,13 +39,13 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
     let llvm_dst_dtype = ctx.get_llvm_type(generator, dst_dtype);
 
     // Deduce ndims of the result of matmul.
-    let ndims_int = max(in_a.ndims.unwrap(), in_b.ndims.unwrap());
+    let ndims_int = max(in_a.ndims, in_b.ndims);
     let ndims = llvm_usize.const_int(ndims_int, false);
 
     // Broadcasts `in_a.shape[:-2]` and `in_b.shape[:-2]` together and allocate the
     // destination ndarray to store the result of matmul.
     let (lhs, rhs, dst) = {
-        let in_lhs_ndims = llvm_usize.const_int(in_a.ndims.unwrap(), false);
+        let in_lhs_ndims = llvm_usize.const_int(in_a.ndims, false);
         let in_lhs_shape = TypedArrayLikeAdapter::from(
             ArraySliceValue::from_ptr_val(
                 in_a.shape().base_ptr(ctx, generator),
@@ -63,7 +55,7 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
             |_, _, val| val.into_int_value(),
             |_, _, val| val.into(),
         );
-        let in_rhs_ndims = llvm_usize.const_int(in_b.ndims.unwrap(), false);
+        let in_rhs_ndims = llvm_usize.const_int(in_b.ndims, false);
         let in_rhs_shape = TypedArrayLikeAdapter::from(
             ArraySliceValue::from_ptr_val(
                 in_b.shape().base_ptr(ctx, generator),
@@ -116,7 +108,7 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
         let lhs = in_a.broadcast_to(generator, ctx, ndims_int, &lhs_shape);
         let rhs = in_b.broadcast_to(generator, ctx, ndims_int, &rhs_shape);
 
-        let dst = NDArrayType::new(generator, ctx.ctx, llvm_dst_dtype, Some(ndims_int))
+        let dst = NDArrayType::new(generator, ctx.ctx, llvm_dst_dtype, ndims_int)
             .construct_uninitialized(generator, ctx, None);
         dst.copy_shape_from_array(generator, ctx, dst_shape.base_ptr(ctx, generator));
         unsafe {
@@ -266,10 +258,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         (out_dtype, out): (Type, NDArrayOut<'ctx>),
     ) -> Self {
         // Sanity check, but type inference should prevent this.
-        assert!(
-            self.ndims.is_some_and(|ndims| ndims > 0) && other.ndims.is_some_and(|ndims| ndims > 0),
-            "np.matmul disallows scalar input"
-        );
+        assert!(self.ndims > 0 && other.ndims > 0, "np.matmul disallows scalar input");
 
         // If both arguments are 2-D they are multiplied like conventional matrices.
         //
@@ -282,14 +271,14 @@ impl<'ctx> NDArrayValue<'ctx> {
         // If the second argument is 1-D, it is promoted to a matrix by appending a 1 to its
         // dimensions. After matrix multiplication the appended 1 is removed.
 
-        let new_a = if self.ndims.unwrap() == 1 {
+        let new_a = if self.ndims == 1 {
             // Prepend 1 to its dimensions
             self.index(generator, ctx, &[RustNDIndex::NewAxis, RustNDIndex::Ellipsis])
         } else {
             *self
         };
 
-        let new_b = if other.ndims.unwrap() == 1 {
+        let new_b = if other.ndims == 1 {
             // Append 1 to its dimensions
             other.index(generator, ctx, &[RustNDIndex::Ellipsis, RustNDIndex::NewAxis])
         } else {
@@ -305,12 +294,12 @@ impl<'ctx> NDArrayValue<'ctx> {
         let mut postindices = vec![];
         let zero = ctx.ctx.i32_type().const_zero();
 
-        if self.ndims.unwrap() == 1 {
+        if self.ndims == 1 {
             // Remove the prepended 1
             postindices.push(RustNDIndex::SingleElement(zero));
         }
 
-        if other.ndims.unwrap() == 1 {
+        if other.ndims == 1 {
             // Remove the appended 1
             postindices.push(RustNDIndex::Ellipsis);
             postindices.push(RustNDIndex::SingleElement(zero));

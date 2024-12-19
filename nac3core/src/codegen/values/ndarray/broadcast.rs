@@ -101,12 +101,11 @@ impl<'ctx> NDArrayValue<'ctx> {
         target_ndims: u64,
         target_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
     ) -> Self {
-        assert!(self.ndims.is_none_or(|ndims| ndims <= target_ndims));
+        assert!(self.ndims <= target_ndims);
         assert_eq!(target_shape.element_type(ctx, generator), self.llvm_usize.into());
 
-        let broadcast_ndarray =
-            NDArrayType::new(generator, ctx.ctx, self.dtype, Some(target_ndims))
-                .construct_uninitialized(generator, ctx, None);
+        let broadcast_ndarray = NDArrayType::new(generator, ctx.ctx, self.dtype, target_ndims)
+            .construct_uninitialized(generator, ctx, None);
         broadcast_ndarray.copy_shape_from_array(
             generator,
             ctx,
@@ -199,14 +198,13 @@ impl<'ctx> NDArrayType<'ctx> {
         ndarrays: &[NDArrayValue<'ctx>],
     ) -> BroadcastAllResult<'ctx, G> {
         assert!(!ndarrays.is_empty());
-        assert!(ndarrays.iter().all(|ndarray| ndarray.get_type().ndims().is_some()));
 
         let llvm_usize = generator.get_size_type(ctx.ctx);
 
         // Infer the broadcast output ndims.
         let broadcast_ndims_int =
-            ndarrays.iter().map(|ndarray| ndarray.get_type().ndims().unwrap()).max().unwrap();
-        assert!(self.ndims().is_none_or(|ndims| ndims >= broadcast_ndims_int));
+            ndarrays.iter().map(|ndarray| ndarray.get_type().ndims()).max().unwrap();
+        assert!(self.ndims() >= broadcast_ndims_int);
 
         let broadcast_ndims = llvm_usize.const_int(broadcast_ndims_int, false);
         let broadcast_shape = ArraySliceValue::from_ptr_val(
@@ -223,10 +221,7 @@ impl<'ctx> NDArrayType<'ctx> {
         let shape_entries = ndarrays
             .iter()
             .map(|ndarray| {
-                (
-                    ndarray.shape().as_slice_value(ctx, generator),
-                    ndarray.get_type().ndims().unwrap(),
-                )
+                (ndarray.shape().as_slice_value(ctx, generator), ndarray.get_type().ndims())
             })
             .collect_vec();
         broadcast_shapes(generator, ctx, &shape_entries, broadcast_ndims_int, &broadcast_shape);

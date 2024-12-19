@@ -42,7 +42,7 @@ mod view;
 pub struct NDArrayValue<'ctx> {
     value: PointerValue<'ctx>,
     dtype: BasicTypeEnum<'ctx>,
-    ndims: Option<u64>,
+    ndims: u64,
     llvm_usize: IntType<'ctx>,
     name: Option<&'ctx str>,
 }
@@ -62,7 +62,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     pub fn from_pointer_value(
         ptr: PointerValue<'ctx>,
         dtype: BasicTypeEnum<'ctx>,
-        ndims: Option<u64>,
+        ndims: u64,
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
@@ -245,26 +245,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         src_ndarray: NDArrayValue<'ctx>,
     ) {
-        if self.ndims.is_some() && src_ndarray.ndims.is_some() {
-            assert_eq!(self.ndims, src_ndarray.ndims);
-        } else {
-            let self_ndims = self.load_ndims(ctx);
-            let src_ndims = src_ndarray.load_ndims(ctx);
-
-            ctx.make_assert(
-                generator,
-                ctx.builder.build_int_compare(
-                    IntPredicate::EQ,
-                    self_ndims,
-                    src_ndims,
-                    ""
-                ).unwrap(),
-                "0:AssertionError",
-                "NDArrayValue::copy_shape_from_ndarray: Expected self.ndims ({0}) == src_ndarray.ndims ({1})",
-                [Some(self_ndims), Some(src_ndims), None],
-                ctx.current_loc
-            );
-        }
+        assert_eq!(self.ndims, src_ndarray.ndims);
 
         let src_shape = src_ndarray.shape().base_ptr(ctx, generator);
         self.copy_shape_from_array(generator, ctx, src_shape);
@@ -296,26 +277,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         src_ndarray: NDArrayValue<'ctx>,
     ) {
-        if self.ndims.is_some() && src_ndarray.ndims.is_some() {
-            assert_eq!(self.ndims, src_ndarray.ndims);
-        } else {
-            let self_ndims = self.load_ndims(ctx);
-            let src_ndims = src_ndarray.load_ndims(ctx);
-
-            ctx.make_assert(
-                generator,
-                ctx.builder.build_int_compare(
-                    IntPredicate::EQ,
-                    self_ndims,
-                    src_ndims,
-                    ""
-                ).unwrap(),
-                "0:AssertionError",
-                "NDArrayValue::copy_shape_from_ndarray: Expected self.ndims ({0}) == src_ndarray.ndims ({1})",
-                [Some(self_ndims), Some(src_ndims), None],
-                ctx.current_loc
-            );
-        }
+        assert_eq!(self.ndims, src_ndarray.ndims);
 
         let src_strides = src_ndarray.strides().base_ptr(ctx, generator);
         self.copy_strides_from_array(generator, ctx, src_strides);
@@ -380,11 +342,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> Self {
-        let clone = if self.ndims.is_some() {
-            self.get_type().construct_uninitialized(generator, ctx, None)
-        } else {
-            self.get_type().construct_dyn_ndims(generator, ctx, self.load_ndims(ctx), None)
-        };
+        let clone = self.get_type().construct_uninitialized(generator, ctx, None);
 
         let shape = self.shape();
         clone.copy_shape_from_array(generator, ctx, shape.base_ptr(ctx, generator));
@@ -437,11 +395,9 @@ impl<'ctx> NDArrayValue<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> TupleValue<'ctx> {
-        assert!(self.ndims.is_some(), "NDArrayValue::make_shape_tuple can only be called on an instance with compile-time known ndims (self.ndims = Some(ndims))");
-
         let llvm_i32 = ctx.ctx.i32_type();
 
-        let objects = (0..self.ndims.unwrap())
+        let objects = (0..self.ndims)
             .map(|i| {
                 let dim = unsafe {
                     self.shape().get_typed_unchecked(
@@ -459,7 +415,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         TupleType::new(
             generator,
             ctx.ctx,
-            &repeat_n(llvm_i32.into(), self.ndims.unwrap() as usize).collect_vec(),
+            &repeat_n(llvm_i32.into(), self.ndims as usize).collect_vec(),
         )
         .construct_from_objects(ctx, objects, None)
     }
@@ -473,11 +429,9 @@ impl<'ctx> NDArrayValue<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> TupleValue<'ctx> {
-        assert!(self.ndims.is_some(), "NDArrayValue::make_strides_tuple can only be called on an instance with compile-time known ndims (self.ndims = Some(ndims))");
-
         let llvm_i32 = ctx.ctx.i32_type();
 
-        let objects = (0..self.ndims.unwrap())
+        let objects = (0..self.ndims)
             .map(|i| {
                 let dim = unsafe {
                     self.strides().get_typed_unchecked(
@@ -495,15 +449,15 @@ impl<'ctx> NDArrayValue<'ctx> {
         TupleType::new(
             generator,
             ctx.ctx,
-            &repeat_n(llvm_i32.into(), self.ndims.unwrap() as usize).collect_vec(),
+            &repeat_n(llvm_i32.into(), self.ndims as usize).collect_vec(),
         )
         .construct_from_objects(ctx, objects, None)
     }
 
     /// Returns true if this ndarray is unsized - `ndims == 0` and only contains a scalar.
     #[must_use]
-    pub fn is_unsized(&self) -> Option<bool> {
-        self.ndims.map(|ndims| ndims == 0)
+    pub fn is_unsized(&self) -> bool {
+        self.ndims == 0
     }
 
     /// Returns the element present in this `ndarray` if this is unsized.
@@ -512,11 +466,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> Option<BasicValueEnum<'ctx>> {
-        let Some(is_unsized) = self.is_unsized() else {
-            panic!("NDArrayValue::get_unsized_element can only be called on an instance with compile-time known ndims (self.ndims = Some(ndims))");
-        };
-
-        if is_unsized {
+        if self.is_unsized() {
             // NOTE: `np.size(self) == 0` here is never possible.
             let zero = generator.get_size_type(ctx.ctx).const_zero();
             let value = unsafe { self.data().get_unchecked(ctx, generator, &zero, None) };
@@ -534,8 +484,6 @@ impl<'ctx> NDArrayValue<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> ScalarOrNDArray<'ctx> {
-        assert!(self.ndims.is_some(), "NDArrayValue::split_unsized can only be called on an instance with compile-time known ndims (self.ndims = Some(ndims))");
-
         if let Some(unsized_elem) = self.get_unsized_element(generator, ctx) {
             ScalarOrNDArray::Scalar(unsized_elem)
         } else {

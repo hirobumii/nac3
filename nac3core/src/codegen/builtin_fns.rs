@@ -1652,7 +1652,7 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(2))
+    let out = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 2)
         .construct_uninitialized(generator, ctx, None);
     out.copy_shape_from_ndarray(generator, ctx, x1);
     unsafe { out.create_data(generator, ctx) };
@@ -1694,7 +1694,7 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
     };
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
 
-    let out_ndarray_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(2));
+    let out_ndarray_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 2);
     let q = out_ndarray_ty.construct_dyn_shape(generator, ctx, &[d0, dk], None);
     unsafe { q.create_data(generator, ctx) };
 
@@ -1746,8 +1746,8 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
     };
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
 
-    let out_ndarray1_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(1));
-    let out_ndarray2_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(2));
+    let out_ndarray1_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 1);
+    let out_ndarray2_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 2);
 
     let u = out_ndarray2_ty.construct_dyn_shape(generator, ctx, &[d0, d0], None);
     unsafe { u.create_data(generator, ctx) };
@@ -1796,7 +1796,7 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(2))
+    let out = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 2)
         .construct_uninitialized(generator, ctx, None);
     out.copy_shape_from_ndarray(generator, ctx, x1);
     unsafe { out.create_data(generator, ctx) };
@@ -1838,7 +1838,7 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
         x1_shape.get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
     };
 
-    let out = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(2))
+    let out = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 2)
         .construct_dyn_shape(generator, ctx, &[d0, d1], None);
     unsafe { out.create_data(generator, ctx) };
 
@@ -1880,7 +1880,7 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
     };
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
 
-    let out_ndarray_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(2));
+    let out_ndarray_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 2);
 
     let l = out_ndarray_ty.construct_dyn_shape(generator, ctx, &[d0, dk], None);
     unsafe { l.create_data(generator, ctx) };
@@ -1924,7 +1924,7 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
     let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
     let ndims = extract_ndims(&ctx.unifier, ndims);
     let x1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
-    let x1 = NDArrayValue::from_pointer_value(x1, x1_elem_ty, Some(ndims), llvm_usize, None);
+    let x1 = NDArrayValue::from_pointer_value(x1, x1_elem_ty, ndims, llvm_usize, None);
 
     if !x1.get_type().element_type().is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
@@ -1940,7 +1940,7 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
         .construct_unsized(generator, ctx, &x2, None); // x2.shape == []
     let x2 = x2.atleast_nd(generator, ctx, 1); // x2.shape == [1]
 
-    let out = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(2))
+    let out = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 2)
         .construct_uninitialized(generator, ctx, None);
     out.copy_shape_from_ndarray(generator, ctx, x1);
     unsafe { out.create_data(generator, ctx) };
@@ -1979,7 +1979,7 @@ pub fn call_np_linalg_det<'ctx, G: CodeGenerator + ?Sized>(
     }
 
     // The output is a float64, but we are using an ndarray (shape == [1]) for uniformity in function call.
-    let det = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(1))
+    let det = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 1)
         .construct_const_shape(generator, ctx, &[1], None);
     unsafe { det.create_data(generator, ctx) };
 
@@ -2008,13 +2008,13 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
     let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_value(x1, None);
-    assert_eq!(x1.get_type().ndims(), Some(2));
+    assert_eq!(x1.get_type().ndims(), 2);
 
     if !x1.get_type().element_type().is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out_ndarray_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(2));
+    let out_ndarray_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 2);
 
     let t = out_ndarray_ty.construct_uninitialized(generator, ctx, None);
     t.copy_shape_from_ndarray(generator, ctx, x1);
@@ -2053,13 +2053,13 @@ pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
     let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_value(x1, None);
-    assert_eq!(x1.get_type().ndims(), Some(2));
+    assert_eq!(x1.get_type().ndims(), 2);
 
     if !x1.get_type().element_type().is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out_ndarray_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), Some(2));
+    let out_ndarray_ty = NDArrayType::new(generator, ctx.ctx, ctx.ctx.f64_type().into(), 2);
 
     let h = out_ndarray_ty.construct_uninitialized(generator, ctx, None);
     h.copy_shape_from_ndarray(generator, ctx, x1);

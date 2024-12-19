@@ -42,7 +42,7 @@ pub fn gen_ndarray_empty<'ctx>(
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
 
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(ndims))
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, ndims)
         .construct_numpy_empty(generator, context, &shape, None);
     Ok(ndarray.as_base_value())
 }
@@ -67,7 +67,7 @@ pub fn gen_ndarray_zeros<'ctx>(
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
 
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(ndims))
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, ndims)
         .construct_numpy_zeros(generator, context, dtype, &shape, None);
     Ok(ndarray.as_base_value())
 }
@@ -92,7 +92,7 @@ pub fn gen_ndarray_ones<'ctx>(
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
 
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(ndims))
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, ndims)
         .construct_numpy_ones(generator, context, dtype, &shape, None);
     Ok(ndarray.as_base_value())
 }
@@ -120,8 +120,13 @@ pub fn gen_ndarray_full<'ctx>(
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
 
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(ndims))
-        .construct_numpy_full(generator, context, &shape, fill_value_arg, None);
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, ndims).construct_numpy_full(
+        generator,
+        context,
+        &shape,
+        fill_value_arg,
+        None,
+    );
     Ok(ndarray.as_base_value())
 }
 
@@ -218,7 +223,7 @@ pub fn gen_ndarray_eye<'ctx>(
         .build_int_s_extend_or_bit_cast(offset_arg.into_int_value(), llvm_usize, "")
         .unwrap();
 
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(2))
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, 2)
         .construct_numpy_eye(generator, context, dtype, nrows, ncols, offset, None);
     Ok(ndarray.as_base_value())
 }
@@ -246,7 +251,7 @@ pub fn gen_ndarray_identity<'ctx>(
         .builder
         .build_int_s_extend_or_bit_cast(n_arg.into_int_value(), llvm_usize, "")
         .unwrap();
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, Some(2))
+    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, 2)
         .construct_numpy_identity(generator, context, dtype, n, None);
     Ok(ndarray.as_base_value())
 }
@@ -315,8 +320,8 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
             let b = NDArrayType::from_unifier_type(generator, ctx, x2_ty).map_value(n2, None);
 
             // TODO: General `np.dot()` https://numpy.org/doc/stable/reference/generated/numpy.dot.html.
-            assert!(a.get_type().ndims().is_some_and(|ndims| ndims == 1));
-            assert!(b.get_type().ndims().is_some_and(|ndims| ndims == 1));
+            assert_eq!(a.get_type().ndims(), 1);
+            assert_eq!(b.get_type().ndims(), 1);
             let common_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
 
             // Check shapes.

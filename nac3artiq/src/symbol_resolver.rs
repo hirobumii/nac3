@@ -1107,7 +1107,7 @@ impl InnerResolver {
                 self.global_value_ids.write().insert(id, obj.into());
             }
 
-            let ndims = llvm_ndarray.ndims().unwrap();
+            let ndims = llvm_ndarray.ndims();
 
             // Obtain the shape of the ndarray
             let shape_tuple: &PyTuple = obj.getattr("shape")?.downcast()?;

@@ -26,9 +26,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         ndmin: u64,
     ) -> Self {
-        assert!(self.ndims.is_some(), "NDArrayValue::atleast_nd is only supported for instances with compile-time known ndims (self.ndims = Some(...))");
-
-        let ndims = self.ndims.unwrap();
+        let ndims = self.ndims;
 
         if ndims < ndmin {
             // Extend the dimensions with np.newaxis.
@@ -67,13 +65,13 @@ impl<'ctx> NDArrayValue<'ctx> {
         //       not contiguous but could be reshaped without copying data. Look into how numpy does
         //       it.
 
-        let dst_ndarray = NDArrayType::new(generator, ctx.ctx, self.dtype, Some(new_ndims))
+        let dst_ndarray = NDArrayType::new(generator, ctx.ctx, self.dtype, new_ndims)
             .construct_uninitialized(generator, ctx, None);
         dst_ndarray.copy_shape_from_array(generator, ctx, new_shape.base_ptr(ctx, generator));
 
         // Resolve negative indices
         let size = self.size(generator, ctx);
-        let dst_ndims = self.llvm_usize.const_int(dst_ndarray.get_type().ndims().unwrap(), false);
+        let dst_ndims = self.llvm_usize.const_int(dst_ndarray.get_type().ndims(), false);
         let dst_shape = dst_ndarray.shape();
         irrt::ndarray::call_nac3_ndarray_reshape_resolve_and_check_new_shape(
             generator,
@@ -121,7 +119,6 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         axes: Option<PointerValue<'ctx>>,
     ) -> Self {
-        assert!(self.ndims.is_some(), "NDArrayValue::transpose is only supported for instances with compile-time known ndims (self.ndims = Some(...))");
         assert!(
             axes.is_none_or(|axes| axes.get_type().get_element_type() == self.llvm_usize.into())
         );
@@ -130,7 +127,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         let transposed_ndarray = self.get_type().construct_uninitialized(generator, ctx, None);
 
         let axes = if let Some(axes) = axes {
-            let num_axes = self.llvm_usize.const_int(self.ndims.unwrap(), false);
+            let num_axes = self.llvm_usize.const_int(self.ndims, false);
 
             // `axes = nullptr` if `axes` is unspecified.
             let axes = ArraySliceValue::from_ptr_val(axes, num_axes, None);

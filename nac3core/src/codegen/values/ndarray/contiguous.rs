@@ -121,9 +121,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             .alloca_var(generator, ctx, self.name);
 
         // Set ndims and shape.
-        let ndims = self
-            .ndims
-            .map_or_else(|| self.load_ndims(ctx), |ndims| self.llvm_usize.const_int(ndims, false));
+        let ndims = self.llvm_usize.const_int(self.ndims, false);
         result.store_ndims(ctx, ndims);
 
         let shape = self.shape();
@@ -180,7 +178,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         // TODO: Debug assert `ndims == carray.ndims` to catch bugs.
 
         // Allocate the resulting ndarray.
-        let ndarray = NDArrayType::new(generator, ctx.ctx, carray.item, Some(ndims))
+        let ndarray = NDArrayType::new(generator, ctx.ctx, carray.item, ndims)
             .construct_uninitialized(generator, ctx, carray.name);
 
         // Copy shape and update strides
