@@ -1,5 +1,5 @@
 use inkwell::{
-    types::{BasicTypeEnum, IntType},
+    types::BasicTypeEnum,
     values::{BasicValueEnum, CallSiteValue, IntValue},
     AddressSpace, IntPredicate,
 };
@@ -138,78 +138,8 @@ pub fn call_ndarray_calc_nd_indices<'ctx, G: CodeGenerator + ?Sized>(
     )
 }
 
-/// Generates a call to `__nac3_ndarray_flatten_index`. Returns a `usize` of the flattened index for
-/// the multidimensional index.
-///
-/// * `ndarray` - LLVM pointer to the `NDArray`. This value must be the LLVM representation of an
-///   `NDArray`.
-/// * `indices` - The multidimensional index to compute the flattened index for.
-pub fn call_ndarray_flatten_index<'ctx, G, Index>(
-    generator: &G,
-    ctx: &CodeGenContext<'ctx, '_>,
-    ndarray: NDArrayValue<'ctx>,
-    indices: &Index,
-) -> IntValue<'ctx>
-where
-    G: CodeGenerator + ?Sized,
-    Index: ArrayLikeIndexer<'ctx>,
-{
-    let llvm_i32 = ctx.ctx.i32_type();
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-
-    let llvm_pi32 = llvm_i32.ptr_type(AddressSpace::default());
-    let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
-
-    debug_assert_eq!(
-        IntType::try_from(indices.element_type(ctx, generator))
-            .map(IntType::get_bit_width)
-            .unwrap_or_default(),
-        llvm_i32.get_bit_width(),
-        "Expected i32 value for argument `indices` to `call_ndarray_flatten_index_impl`"
-    );
-    debug_assert_eq!(
-        indices.size(ctx, generator).get_type().get_bit_width(),
-        llvm_usize.get_bit_width(),
-        "Expected usize integer value for argument `indices_size` to `call_ndarray_flatten_index_impl`"
-    );
-
-    let ndarray_flatten_index_fn_name =
-        get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_flatten_index");
-    let ndarray_flatten_index_fn =
-        ctx.module.get_function(&ndarray_flatten_index_fn_name).unwrap_or_else(|| {
-            let fn_type = llvm_usize.fn_type(
-                &[llvm_pusize.into(), llvm_usize.into(), llvm_pi32.into(), llvm_usize.into()],
-                false,
-            );
-
-            ctx.module.add_function(&ndarray_flatten_index_fn_name, fn_type, None)
-        });
-
-    let ndarray_num_dims = ndarray.load_ndims(ctx);
-    let ndarray_dims = ndarray.shape();
-
-    let index = ctx
-        .builder
-        .build_call(
-            ndarray_flatten_index_fn,
-            &[
-                ndarray_dims.base_ptr(ctx, generator).into(),
-                ndarray_num_dims.into(),
-                indices.base_ptr(ctx, generator).into(),
-                indices.size(ctx, generator).into(),
-            ],
-            "",
-        )
-        .map(CallSiteValue::try_as_basic_value)
-        .map(|v| v.map_left(BasicValueEnum::into_int_value))
-        .map(Either::unwrap_left)
-        .unwrap();
-
-    index
-}
-
-/// Generates a call to `__nac3_ndarray_calc_broadcast`. Returns a [`TypedArrayLikeAdapter`]
-/// containing the size of each dimension of the resultant `ndarray`.
+/// Generates a call to `__nac3_ndarray_calc_broadcast`. Returns a tuple containing the number of
+/// dimension and size of each dimension of the resultant `ndarray`.
 pub fn call_ndarray_calc_broadcast<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,

@@ -5,8 +5,8 @@ use inkwell::{
 };
 
 use super::{
-    ArrayLikeIndexer, ArrayLikeValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeMutator,
-    UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
+    ArrayLikeIndexer, ArrayLikeValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
+    TypedArrayLikeMutator, UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
 };
 use crate::codegen::{
     irrt,
@@ -671,12 +671,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDataProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         generator: &G,
     ) -> IntValue<'ctx> {
-        irrt::ndarray::call_ndarray_calc_size(
-            generator,
-            ctx,
-            &self.as_slice_value(ctx, generator),
-            (None, None),
-        )
+        irrt::ndarray::call_nac3_ndarray_len(generator, ctx, *self.0)
     }
 }
 
@@ -688,24 +683,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        let sizeof_elem = ctx
-            .builder
-            .build_int_truncate_or_bit_cast(
-                self.element_type(ctx, generator).size_of().unwrap(),
-                idx.get_type(),
-                "",
-            )
-            .unwrap();
-        let idx = ctx.builder.build_int_mul(*idx, sizeof_elem, "").unwrap();
-        let ptr = unsafe {
-            ctx.builder
-                .build_in_bounds_gep(
-                    self.base_ptr(ctx, generator),
-                    &[idx],
-                    name.unwrap_or_default(),
-                )
-                .unwrap()
-        };
+        let ptr = irrt::ndarray::call_nac3_ndarray_get_nth_pelement(generator, ctx, *self.0, *idx);
 
         // Current implementation is transparent - The returned pointer type is
         // already cast into the expected type, allowing for immediately
@@ -716,7 +694,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
                 BasicTypeEnum::try_from(self.element_type(ctx, generator))
                     .unwrap()
                     .ptr_type(AddressSpace::default()),
-                "",
+                name.unwrap_or_default(),
             )
             .unwrap()
     }
@@ -769,52 +747,28 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
         indices: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        assert_eq!(indices.element_type(ctx, generator), generator.get_size_type(ctx.ctx).into());
 
-        let indices_elem_ty = unsafe {
-            indices
-                .ptr_offset_unchecked(ctx, generator, &llvm_usize.const_zero(), None)
-                .get_type()
-                .get_element_type()
-        };
-        let Ok(indices_elem_ty) = IntType::try_from(indices_elem_ty) else {
-            panic!("Expected list[int32] but got {indices_elem_ty}")
-        };
-        assert_eq!(
-            indices_elem_ty.get_bit_width(),
-            32,
-            "Expected list[int32] but got list[int{}]",
-            indices_elem_ty.get_bit_width()
+        let indices = TypedArrayLikeAdapter::from(
+            indices.as_slice_value(ctx, generator),
+            |_, _, v| v.into_int_value(),
+            |_, _, v| v.into(),
         );
 
-        let index = irrt::ndarray::call_ndarray_flatten_index(generator, ctx, *self.0, indices);
-        let sizeof_elem = ctx
-            .builder
-            .build_int_truncate_or_bit_cast(
-                self.element_type(ctx, generator).size_of().unwrap(),
-                index.get_type(),
-                "",
-            )
-            .unwrap();
-        let index = ctx.builder.build_int_mul(index, sizeof_elem, "").unwrap();
+        let ptr = irrt::ndarray::call_nac3_ndarray_get_pelement_by_indices(
+            generator, ctx, *self.0, &indices,
+        );
 
-        let ptr = unsafe {
-            ctx.builder
-                .build_in_bounds_gep(
-                    self.base_ptr(ctx, generator),
-                    &[index],
-                    name.unwrap_or_default(),
-                )
-                .unwrap()
-        };
-        // TODO: Current implementation is transparent
+        // Current implementation is transparent - The returned pointer type is
+        // already cast into the expected type, allowing for immediately
+        // load/store.
         ctx.builder
             .build_pointer_cast(
                 ptr,
                 BasicTypeEnum::try_from(self.element_type(ctx, generator))
                     .unwrap()
                     .ptr_type(AddressSpace::default()),
-                "",
+                name.unwrap_or_default(),
             )
             .unwrap()
     }

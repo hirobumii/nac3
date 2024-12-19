@@ -877,8 +877,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             let llvm_ndarray_ty = NDArrayType::from_unifier_type(generator, ctx, a_ty);
 
             let n = llvm_ndarray_ty.map_value(n, None);
-            let n_sz =
-                irrt::ndarray::call_ndarray_calc_size(generator, ctx, &n.shape(), (None, None));
+            let n_sz = n.size(generator, ctx);
             if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
                 let n_sz_eqz = ctx
                     .builder
@@ -913,7 +912,16 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
                 llvm_int64.const_int(1, false),
                 (n_sz, false),
                 |generator, ctx, _, idx| {
-                    let elem = unsafe { n.data().get_unchecked(ctx, generator, &idx, None) };
+                    let elem = unsafe {
+                        n.data().get_unchecked(
+                            ctx,
+                            generator,
+                            &ctx.builder
+                                .build_int_truncate_or_bit_cast(idx, llvm_usize, "")
+                                .unwrap(),
+                            None,
+                        )
+                    };
                     let accumulator = ctx.builder.build_load(accumulator_addr, "").unwrap();
                     let cur_idx = ctx.builder.build_load(res_idx, "").unwrap();
 

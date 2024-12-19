@@ -21,8 +21,8 @@ use super::{
     stmt::{gen_for_callback_incrementing, gen_for_range_callback, gen_if_else_expr_callback},
     types::{ndarray::NDArrayType, ListType, ProxyType},
     values::{
-        ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue,
-        TypedArrayLikeAccessor, TypedArrayLikeAdapter, TypedArrayLikeMutator,
+        ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue,
+        ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter, TypedArrayLikeMutator,
         UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
     },
     CodeGenContext, CodeGenerator,
@@ -318,12 +318,7 @@ where
 {
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
-    let ndarray_num_elems = call_ndarray_calc_size(
-        generator,
-        ctx,
-        &ndarray.shape().as_slice_value(ctx, generator),
-        (None, None),
-    );
+    let ndarray_num_elems = ndarray.size(generator, ctx);
 
     gen_for_callback_incrementing(
         generator,
@@ -434,6 +429,66 @@ where
         rhs_val.get_type()
     );
 
+    // Returns the element of an ndarray indexed by the given indices, performing int-promotion on
+    // `indices` where necessary.
+    //
+    // Required for compatibility with `NDArrayType::get_unchecked`.
+    let get_data_by_indices_compat =
+        |generator: &mut G,
+         ctx: &mut CodeGenContext<'ctx, '_>,
+         ndarray: NDArrayValue<'ctx>,
+         indices: TypedArrayLikeAdapter<'ctx, G, IntValue<'ctx>>| {
+            let llvm_usize = generator.get_size_type(ctx.ctx);
+
+            // Workaround: Promote lhs_idx to usize* to make the array compatible with new IRRT
+            let stackptr = llvm_intrinsics::call_stacksave(ctx, None);
+            let indices = if llvm_usize == ctx.ctx.i32_type() {
+                indices
+            } else {
+                let indices_usize = TypedArrayLikeAdapter::<G, IntValue<'ctx>>::from(
+                    ArraySliceValue::from_ptr_val(
+                        ctx.builder
+                            .build_array_alloca(llvm_usize, indices.size(ctx, generator), "")
+                            .unwrap(),
+                        indices.size(ctx, generator),
+                        None,
+                    ),
+                    |_, _, val| val.into_int_value(),
+                    |_, _, val| val.into(),
+                );
+
+                gen_for_callback_incrementing(
+                    generator,
+                    ctx,
+                    None,
+                    llvm_usize.const_zero(),
+                    (indices.size(ctx, generator), false),
+                    |generator, ctx, _, i| {
+                        let idx = unsafe { indices.get_typed_unchecked(ctx, generator, &i, None) };
+                        let idx = ctx
+                            .builder
+                            .build_int_z_extend_or_bit_cast(idx, llvm_usize, "")
+                            .unwrap();
+                        unsafe {
+                            indices_usize.set_typed_unchecked(ctx, generator, &i, idx);
+                        }
+
+                        Ok(())
+                    },
+                    llvm_usize.const_int(1, false),
+                )
+                .unwrap();
+
+                indices_usize
+            };
+
+            let elem = unsafe { ndarray.data().get_unchecked(ctx, generator, &indices, None) };
+
+            llvm_intrinsics::call_stackrestore(ctx, stackptr);
+
+            elem
+        };
+
     // Assert that all ndarray operands are broadcastable to the target size
     if !lhs_scalar {
         let lhs_val = NDArrayType::from_unifier_type(generator, ctx, lhs_ty)
@@ -455,7 +510,7 @@ where
                 .map_value(lhs_val.into_pointer_value(), None);
             let lhs_idx = call_ndarray_calc_broadcast_index(generator, ctx, lhs, idx);
 
-            unsafe { lhs.data().get_unchecked(ctx, generator, &lhs_idx, None) }
+            get_data_by_indices_compat(generator, ctx, lhs, lhs_idx)
         };
 
         let rhs_elem = if rhs_scalar {
@@ -465,7 +520,7 @@ where
                 .map_value(rhs_val.into_pointer_value(), None);
             let rhs_idx = call_ndarray_calc_broadcast_index(generator, ctx, rhs, idx);
 
-            unsafe { rhs.data().get_unchecked(ctx, generator, &rhs_idx, None) }
+            get_data_by_indices_compat(generator, ctx, rhs, rhs_idx)
         };
 
         value_fn(generator, ctx, (lhs_elem, rhs_elem))
@@ -1408,7 +1463,6 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
     lhs: NDArrayValue<'ctx>,
     rhs: NDArrayValue<'ctx>,
 ) -> Result<NDArrayValue<'ctx>, String> {
-    let llvm_i32 = ctx.ctx.i32_type();
     let llvm_usize = generator.get_size_type(ctx.ctx);
 
     if cfg!(debug_assertions) {
@@ -1597,19 +1651,19 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
 
             let idx = llvm_intrinsics::call_expect(ctx, rhs_idx0, lhs_idx1, None);
 
-            ctx.builder.build_int_truncate(idx, llvm_i32, "").unwrap()
+            ctx.builder.build_int_z_extend_or_bit_cast(idx, llvm_usize, "").unwrap()
         };
 
         let idx0 = unsafe {
             let idx0 = idx.get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None);
 
-            ctx.builder.build_int_truncate(idx0, llvm_i32, "").unwrap()
+            ctx.builder.build_int_z_extend_or_bit_cast(idx0, llvm_usize, "").unwrap()
         };
         let idx1 = unsafe {
             let idx1 =
                 idx.get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None);
 
-            ctx.builder.build_int_truncate(idx1, llvm_i32, "").unwrap()
+            ctx.builder.build_int_z_extend_or_bit_cast(idx1, llvm_usize, "").unwrap()
         };
 
         let result_addr = generator.gen_var_alloc(ctx, llvm_ndarray_ty, None)?;
@@ -1620,14 +1674,12 @@ pub fn ndarray_matmul_2d<'ctx, G: CodeGenerator>(
             generator,
             ctx,
             None,
-            llvm_i32.const_zero(),
+            llvm_usize.const_zero(),
             (common_dim, false),
             |generator, ctx, _, i| {
-                let i = ctx.builder.build_int_truncate(i, llvm_i32, "").unwrap();
-
                 let ab_idx = generator.gen_array_var_alloc(
                     ctx,
-                    llvm_i32.into(),
+                    llvm_usize.into(),
                     llvm_usize.const_int(2, false),
                     None,
                 )?;
@@ -2002,7 +2054,7 @@ pub fn ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
         let llvm_ndarray_ty = NDArrayType::from_unifier_type(generator, ctx, x1_ty);
         let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
         let n1 = llvm_ndarray_ty.map_value(n1, None);
-        let n_sz = call_ndarray_calc_size(generator, ctx, &n1.shape(), (None, None));
+        let n_sz = n1.size(generator, ctx);
 
         // Dimensions are reversed in the transposed array
         let out = create_ndarray_dyn_shape(
@@ -2122,7 +2174,7 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
         let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
         let llvm_ndarray_ty = NDArrayType::from_unifier_type(generator, ctx, x1_ty);
         let n1 = llvm_ndarray_ty.map_value(n1, None);
-        let n_sz = call_ndarray_calc_size(generator, ctx, &n1.shape(), (None, None));
+        let n_sz = n1.size(generator, ctx);
 
         let acc = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
         let num_neg = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
@@ -2350,7 +2402,7 @@ pub fn ndarray_reshape<'ctx, G: CodeGenerator + ?Sized>(
         );
 
         // The new shape must be compatible with the old shape
-        let out_sz = call_ndarray_calc_size(generator, ctx, &out.shape(), (None, None));
+        let out_sz = out.size(generator, ctx);
         ctx.make_assert(
             generator,
             ctx.builder.build_int_compare(IntPredicate::EQ, out_sz, n_sz, "").unwrap(),
@@ -2407,8 +2459,8 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
             let n1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_value(n1, None);
             let n2 = NDArrayType::from_unifier_type(generator, ctx, x2_ty).map_value(n2, None);
 
-            let n1_sz = call_ndarray_calc_size(generator, ctx, &n1.shape(), (None, None));
-            let n2_sz = call_ndarray_calc_size(generator, ctx, &n1.shape(), (None, None));
+            let n1_sz = n1.size(generator, ctx);
+            let n2_sz = n2.size(generator, ctx);
 
             ctx.make_assert(
                 generator,

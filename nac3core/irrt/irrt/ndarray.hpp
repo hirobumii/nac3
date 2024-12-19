@@ -30,25 +30,6 @@ void __nac3_ndarray_calc_nd_indices_impl(SizeT index, const SizeT* dims, SizeT n
 }
 
 template<typename SizeT>
-SizeT __nac3_ndarray_flatten_index_impl(const SizeT* dims,
-                                        SizeT num_dims,
-                                        const NDIndexInt* indices,
-                                        SizeT num_indices) {
-    SizeT idx = 0;
-    SizeT stride = 1;
-    for (SizeT i = 0; i < num_dims; ++i) {
-        SizeT ri = num_dims - i - 1;
-        if (ri < num_indices) {
-            idx += stride * indices[ri];
-        }
-
-        __builtin_assume(dims[i] > 0);
-        stride *= dims[ri];
-    }
-    return idx;
-}
-
-template<typename SizeT>
 void __nac3_ndarray_calc_broadcast_impl(const SizeT* lhs_dims,
                                         SizeT lhs_ndims,
                                         const SizeT* rhs_dims,
@@ -105,18 +86,6 @@ void __nac3_ndarray_calc_nd_indices(uint32_t index, const uint32_t* dims, uint32
 
 void __nac3_ndarray_calc_nd_indices64(uint64_t index, const uint64_t* dims, uint64_t num_dims, NDIndexInt* idxs) {
     __nac3_ndarray_calc_nd_indices_impl(index, dims, num_dims, idxs);
-}
-
-uint32_t
-__nac3_ndarray_flatten_index(const uint32_t* dims, uint32_t num_dims, const NDIndexInt* indices, uint32_t num_indices) {
-    return __nac3_ndarray_flatten_index_impl(dims, num_dims, indices, num_indices);
-}
-
-uint64_t __nac3_ndarray_flatten_index64(const uint64_t* dims,
-                                        uint64_t num_dims,
-                                        const NDIndexInt* indices,
-                                        uint64_t num_indices) {
-    return __nac3_ndarray_flatten_index_impl(dims, num_dims, indices, num_indices);
 }
 
 void __nac3_ndarray_calc_broadcast(const uint32_t* lhs_dims,
