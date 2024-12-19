@@ -1852,83 +1852,52 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
         if left_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             || right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
         {
-            let (Some(left_ty), lhs) = left else { codegen_unreachable!(ctx) };
-            let (Some(right_ty), rhs) = comparators[0] else { codegen_unreachable!(ctx) };
+            let (Some(left_ty), left) = left else { codegen_unreachable!(ctx) };
+            let (Some(right_ty), right) = comparators[0] else { codegen_unreachable!(ctx) };
             let op = ops[0];
 
-            let is_ndarray1 =
-                left_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
-            let is_ndarray2 =
-                right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id());
+            let left_ty_dtype = arraylike_flatten_element_type(&mut ctx.unifier, left_ty);
+            let right_ty_dtype = arraylike_flatten_element_type(&mut ctx.unifier, right_ty);
 
-            return if is_ndarray1 && is_ndarray2 {
-                let (ndarray_dtype1, _) = unpack_ndarray_var_tys(&mut ctx.unifier, left_ty);
-                let (ndarray_dtype2, _) = unpack_ndarray_var_tys(&mut ctx.unifier, right_ty);
+            let left = ScalarOrNDArray::from_value(generator, ctx, (left_ty, left))
+                .to_ndarray(generator, ctx);
+            let right = ScalarOrNDArray::from_value(generator, ctx, (right_ty, right))
+                .to_ndarray(generator, ctx);
 
-                assert!(ctx.unifier.unioned(ndarray_dtype1, ndarray_dtype2));
+            let result_ndarray = NDArrayType::new_broadcast(
+                generator,
+                ctx.ctx,
+                ctx.ctx.i8_type().into(),
+                &[left.get_type(), right.get_type()],
+            )
+            .broadcast_starmap(
+                generator,
+                ctx,
+                &[left, right],
+                NDArrayOut::NewNDArray { dtype: ctx.ctx.i8_type().into() },
+                |generator, ctx, scalars| {
+                    let left_scalar = scalars[0];
+                    let right_scalar = scalars[1];
 
-                let left_val = NDArrayType::from_unifier_type(generator, ctx, left_ty)
-                    .map_value(lhs.into_pointer_value(), None);
-                let res = numpy::ndarray_elementwise_binop_impl(
-                    generator,
-                    ctx,
-                    ctx.primitives.bool,
-                    None,
-                    (left_ty, left_val.as_base_value().into(), false),
-                    (right_ty, rhs, false),
-                    |generator, ctx, (lhs, rhs)| {
-                        let val = gen_cmpop_expr_with_values(
-                            generator,
-                            ctx,
-                            (Some(ndarray_dtype1), lhs),
-                            &[op],
-                            &[(Some(ndarray_dtype2), rhs)],
-                        )?
-                        .unwrap()
-                        .to_basic_value_enum(
-                            ctx,
-                            generator,
-                            ctx.primitives.bool,
-                        )?;
+                    let val = gen_cmpop_expr_with_values(
+                        generator,
+                        ctx,
+                        (Some(left_ty_dtype), left_scalar),
+                        &[op],
+                        &[(Some(right_ty_dtype), right_scalar)],
+                    )?
+                    .unwrap()
+                    .to_basic_value_enum(
+                        ctx,
+                        generator,
+                        ctx.primitives.bool,
+                    )?;
 
-                        Ok(generator.bool_to_i8(ctx, val.into_int_value()).into())
-                    },
-                )?;
+                    Ok(generator.bool_to_i8(ctx, val.into_int_value()).into())
+                },
+            )?;
 
-                Ok(Some(res.as_base_value().into()))
-            } else {
-                let (ndarray_dtype, _) = unpack_ndarray_var_tys(
-                    &mut ctx.unifier,
-                    if is_ndarray1 { left_ty } else { right_ty },
-                );
-                let res = numpy::ndarray_elementwise_binop_impl(
-                    generator,
-                    ctx,
-                    ctx.primitives.bool,
-                    None,
-                    (left_ty, lhs, !is_ndarray1),
-                    (right_ty, rhs, !is_ndarray2),
-                    |generator, ctx, (lhs, rhs)| {
-                        let val = gen_cmpop_expr_with_values(
-                            generator,
-                            ctx,
-                            (Some(ndarray_dtype), lhs),
-                            &[op],
-                            &[(Some(ndarray_dtype), rhs)],
-                        )?
-                        .unwrap()
-                        .to_basic_value_enum(
-                            ctx,
-                            generator,
-                            ctx.primitives.bool,
-                        )?;
-
-                        Ok(generator.bool_to_i8(ctx, val.into_int_value()).into())
-                    },
-                )?;
-
-                Ok(Some(res.as_base_value().into()))
-            };
+            return Ok(Some(result_ndarray.as_base_value().into()));
         }
     }
 
