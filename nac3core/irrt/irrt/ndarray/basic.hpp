@@ -6,8 +6,7 @@
 #include "irrt/ndarray/def.hpp"
 
 namespace {
-namespace ndarray {
-namespace basic {
+namespace ndarray::basic {
 /**
  * @brief Assert that `shape` does not contain negative dimensions.
  *
@@ -247,8 +246,7 @@ void copy_data(const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
         ndarray::basic::set_pelement_value(dst_ndarray, dst_element, src_element);
     }
 }
-}  // namespace basic
-}  // namespace ndarray
+}  // namespace ndarray::basic
 }  // namespace
 
 extern "C" {

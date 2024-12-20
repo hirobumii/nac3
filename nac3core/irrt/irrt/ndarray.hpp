@@ -148,4 +148,4 @@ void __nac3_ndarray_calc_broadcast_idx64(const uint64_t* src_dims,
                                          NDIndexInt* out_idx) {
     __nac3_ndarray_calc_broadcast_idx_impl(src_dims, src_ndims, in_idx, out_idx);
 }
-}  // namespace
+}
