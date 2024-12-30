@@ -1,0 +1,23 @@
+#pragma once
+
+#include "irrt/int_types.hpp"
+
+namespace {
+template<typename SizeT>
+SizeT __nac3_str_eq_impl(const char* str1, SizeT len1, const char* str2, SizeT len2) {
+    if (len1 != len2){
+        return 0;
+    }
+    return (__builtin_memcmp(str1, str2, static_cast<SizeT>(len1)) == 0) ? 1 : 0;
+}
+}  // namespace
+
+extern "C" {
+uint32_t nac3_str_eq(const char* str1, uint32_t len1, const char* str2, uint32_t len2) {
+    return __nac3_str_eq_impl<uint32_t>(str1, len1, str2, len2);
+}
+
+uint64_t nac3_str_eq64(const char* str1, uint64_t len1, const char* str2, uint64_t len2) {
+    return __nac3_str_eq_impl<uint64_t>(str1, len1, str2, len2);
+}
+}
