@@ -9,4 +9,3 @@
 #include "irrt/ndarray/def.hpp"
 #include "irrt/ndarray/iter.hpp"
 #include "irrt/ndarray/indexing.hpp"
-#include "irrt/string.hpp"
