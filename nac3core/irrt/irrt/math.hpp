@@ -1,5 +1,7 @@
 #pragma once
 
+#include "irrt/int_types.hpp"
+
 namespace {
 // adapted from GNU Scientific Library: https://git.savannah.gnu.org/cgit/gsl.git/tree/sys/pow_int.c
 // need to make sure `exp >= 0` before calling this function
