@@ -208,6 +208,7 @@ pub trait TypedArrayLikeMutator<'ctx, G: CodeGenerator + ?Sized, T, Index = IntV
 }
 
 /// An adapter for constraining untyped array values as typed values.
+#[derive(Copy, Clone)]
 pub struct TypedArrayLikeAdapter<
     'ctx,
     G: CodeGenerator + ?Sized,
