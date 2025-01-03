@@ -12,7 +12,7 @@ __all__ = [
     "Kernel", "KernelInvariant", "virtual", "ConstGeneric",
     "Option", "Some", "none", "UnwrapNoneError",
     "round64", "floor64", "ceil64",
-    "extern", "kernel", "portable", "compile",
+    "extern", "kernel", "subkernel", "portable", "compile",
     "rpc", "ms", "us", "ns",
     "print_int32", "print_int64",
     "Core", "TTLOut",
@@ -125,6 +125,18 @@ def kernel(function_or_method):
             raise RuntimeError("Kernel functions need explicit core.run()")
     return run_on_core
 
+def subkernel(function_or_method=None, destination=0):
+    if function_or_method is None:
+        def inner_decorator(function):
+            return subkernel(function, destination)
+        return inner_decorator
+    assert 0 < destination < 255
+    register_function(function_or_method)
+    @wraps(function_or_method)
+    def run_on_core(*args, **kwargs):
+        raise RuntimeError("Subkernels cannot be called by the host")
+    run_on_core._destination = destination
+    return run_on_core
 
 def portable(function):
     """Decorates a function or method to be executed on the same device (host/core device) as the caller."""
@@ -188,6 +200,7 @@ builtins = {
         "kernel": kernel,
         "portable": portable,
         "rpc": rpc,
+        "subkernel": subkernel,
     },
 }
 
@@ -242,6 +255,7 @@ class EmbeddingMap:
         self.string_map = {}
         self.string_reverse_map = {}
         self.function_map = {}
+        self.subkernel_map = {}
         self.attributes_writeback = []
 
     def store_function(self, key, fun):
@@ -265,6 +279,10 @@ class EmbeddingMap:
         self.string_reverse_map[s] = key
         return key
 
+    def store_subkernel(self, key, subk):
+        self.subkernel_map[key] = subk
+        return key
+
     def retrieve_function(self, key):
         return self.function_map[key]
 
@@ -273,6 +291,9 @@ class EmbeddingMap:
 
     def retrieve_str(self, key):
         return self.string_map[key]
+    
+    def retrieve_subkernel(self, key):
+        return self.subkernel_map[key]
 
 
 @compile

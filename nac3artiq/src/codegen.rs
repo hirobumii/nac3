@@ -963,6 +963,189 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
 }
 
+fn subkernel_call_codegen_callback_fn<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    obj: Option<(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
+    generator: &mut dyn CodeGenerator,
+    destination: u8,
+) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+    let int8 = ctx.ctx.i8_type();
+    let int32 = ctx.ctx.i32_type();
+    let bool_type = ctx.ctx.bool_type();
+    let size_type = generator.get_size_type(ctx.ctx);
+    let ptr_type = int8.ptr_type(AddressSpace::default());
+    let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
+
+    let subkernel_id = int32.const_int(fun.1.0 as u64, false);
+    let destination = int8.const_int(destination as u64, false);
+    // -- setup rpc tags
+    let mut tag = Vec::new();
+    if obj.is_some() {
+        tag.push(b'O');
+    }
+    for arg in &fun.0.args {
+        gen_rpc_tag(ctx, arg.ty, &mut tag)?;
+    }
+    tag.push(b':');
+    gen_rpc_tag(ctx, fun.0.ret, &mut tag)?;
+
+    let mut hasher = DefaultHasher::new();
+    tag.hash(&mut hasher);
+    let hash = format!("{}", hasher.finish());
+
+    let tag_ptr = ctx
+        .module
+        .get_global(hash.as_str())
+        .unwrap_or_else(|| {
+            let tag_arr_ptr = ctx.module.add_global(
+                int8.array_type(tag.len() as u32),
+                None,
+                format!("tagptr{}", fun.1.0).as_str(),
+            );
+            tag_arr_ptr.set_initializer(&int8.const_array(
+                &tag.iter().map(|v| int8.const_int(u64::from(*v), false)).collect::<Vec<_>>(),
+            ));
+            tag_arr_ptr.set_linkage(Linkage::Private);
+            let tag_ptr = ctx.module.add_global(tag_ptr_type, None, &hash);
+            tag_ptr.set_linkage(Linkage::Private);
+            tag_ptr.set_initializer(&ctx.ctx.const_struct(
+                &[
+                    tag_arr_ptr.as_pointer_value().const_cast(ptr_type).into(),
+                    size_type.const_int(tag.len() as u64, false).into(),
+                ],
+                false,
+            ));
+            tag_ptr
+        })
+        .as_pointer_value();
+
+    let arg_length = args.len() + usize::from(obj.is_some());
+
+    let stackptr = call_stacksave(ctx, Some("subkernel.stack"));
+    let args_ptr = ctx
+        .builder
+        .build_array_alloca(
+            ptr_type,
+            ctx.ctx.i32_type().const_int(arg_length as u64, false),
+            "argptr",
+        )
+        .unwrap();
+
+    // -- subkernel args handling
+    let mut keys = fun.0.args.clone();
+    let mut mapping = HashMap::new();
+    for (key, value) in args {
+        mapping.insert(key.unwrap_or_else(|| keys.remove(0).name), value);
+    }
+
+    // default value handling
+    // in old compiler, subkernels would generate default values, and they would not be sent
+    // TODO: see if it makes sense
+    for k in keys {
+        mapping
+            .insert(k.name, ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty).into());
+    }
+
+    // 'self' is skipped for subkernels
+    let no_self: Vec<_> = fun.0.args.iter().filter(|arg| arg.name != "self".into()).collect();
+    // reorder the parameters
+    let mut real_params = no_self
+        .iter()
+        .map(|arg| {
+            mapping
+                .remove(&arg.name)
+                .unwrap()
+                .to_basic_value_enum(ctx, generator, arg.ty)
+                .map(|llvm_val| (llvm_val, arg.ty))
+        })
+        .collect::<Result<Vec<(_, _)>, _>>()?;
+
+    if let Some(obj) = obj {
+        if let ValueEnum::Static(obj_val) = obj.1 {
+            real_params.insert(0, (obj_val.get_const_obj(ctx, generator), obj.0));
+        } else {
+            // should be an error here...
+            panic!("only host object is allowed");
+        }
+    }
+
+    for (i, (arg, arg_ty)) in real_params.iter().enumerate() {
+        let arg_slot = format_rpc_arg(generator, ctx, (*arg, *arg_ty, i));
+        let arg_ptr = unsafe {
+            ctx.builder.build_gep(
+                args_ptr,
+                &[int32.const_int(i as u64, false)],
+                &format!("subkernel.arg{i}"),
+            )
+        }
+        .unwrap();
+        ctx.builder.build_store(arg_ptr, arg_slot).unwrap();
+    }
+
+    // call subkernel first
+    let subkernel_call = ctx.module.get_function("subkernel_load_run").unwrap_or_else(|| {
+        ctx.module.add_function(
+            "subkernel_load_run",
+            ctx.ctx.void_type().fn_type(&[int32.into(), int8.into(), bool_type.into()], false),
+            None,
+        )
+    });
+    ctx.builder
+        .build_call(
+            subkernel_call,
+            &[subkernel_id.into(), destination.into(), bool_type.const_all_ones().into()],
+            "subkernel.call",
+        )
+        .unwrap();
+
+    // send the arguments (if any)
+    if real_params.len() > 0 {
+        let subkernel_send =
+            ctx.module.get_function("subkernel_send_message").unwrap_or_else(|| {
+                ctx.module.add_function(
+                    "subkernel_send_message",
+                    ctx.ctx.void_type().fn_type(
+                        &[
+                            int32.into(),
+                            bool_type.into(),
+                            int8.into(),
+                            int8.into(),
+                            tag_ptr_type.ptr_type(AddressSpace::default()).into(),
+                            ptr_type.ptr_type(AddressSpace::default()).into(),
+                        ],
+                        false,
+                    ),
+                    None,
+                )
+            });
+
+        ctx.builder
+            .build_call(
+                subkernel_send,
+                &[
+                    subkernel_id.into(),
+                    bool_type.const_zero().into(),
+                    destination.into(),
+                    int32.const_int(real_params.len() as u64, false).into(),
+                    tag_ptr.into(),
+                    args_ptr.into(),
+                ],
+                "subkernel.send",
+            )
+            .unwrap();
+    }
+
+    if real_params.len() > 0 {
+        // reclaim stack space used by arguments
+        call_stackrestore(ctx, stackptr);
+    }
+
+    // calling a subkernel returns nothing
+    Ok(None)
+}
+
 pub fn attributes_writeback<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     generator: &mut dyn CodeGenerator,
@@ -1074,6 +1257,12 @@ pub fn attributes_writeback<'ctx>(
 pub fn rpc_codegen_callback(is_async: bool) -> Arc<GenCall> {
     Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
         rpc_codegen_callback_fn(ctx, obj, fun, args, generator, is_async)
+    })))
+}
+
+pub fn subkernel_call_codegen_callback(destination: u8) -> Arc<GenCall> {
+    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
+        subkernel_call_codegen_callback_fn(ctx, obj, fun, args, generator, destination)
     })))
 }
 

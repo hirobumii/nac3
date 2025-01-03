@@ -63,6 +63,7 @@ use nac3ld::Linker;
 
 use codegen::{
     ArtiqCodeGenerator, attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback,
+    subkernel_call_codegen_callback,
 };
 use symbol_resolver::{DeferredEvaluationStore, InnerResolver, PythonHelper, Resolver};
 use timeline::TimeFns;
@@ -174,6 +175,7 @@ pub struct PrimitivePythonId {
     kernel_decorator: u64,
     portable_decorator: u64,
     rpc_decorator: u64,
+    subkernel_decorator: u64,
 }
 
 #[derive(Clone, Default)]
@@ -296,7 +298,7 @@ impl Nac3 {
                             Python::with_gil(|py| {
                                 let module = module.bind(py);
 
-                                // Keep all class functions decorated with `kernel`, `portable`, or `rpc` decorator
+                                // Keep all class functions decorated with `kernel`, `portable`, `rpc` or `subkernel` decorator
                                 decorator_list.iter().any(|decorator| {
                                     is_decor_fn_same(
                                         decorator,
@@ -305,6 +307,7 @@ impl Nac3 {
                                             self.primitive_ids.kernel_decorator,
                                             self.primitive_ids.portable_decorator,
                                             self.primitive_ids.rpc_decorator,
+                                            self.primitive_ids.subkernel_decorator,
                                         ],
                                     )
                                     .unwrap()
@@ -331,6 +334,7 @@ impl Nac3 {
                                     self.primitive_ids.kernel_decorator,
                                     self.primitive_ids.portable_decorator,
                                     self.primitive_ids.rpc_decorator,
+                                    self.primitive_ids.subkernel_decorator,
                                 ],
                             )
                             .unwrap()
@@ -546,6 +550,7 @@ impl Nac3 {
         let store_obj = embedding_map.getattr("store_object").unwrap();
         let store_str = embedding_map.getattr("store_str").unwrap();
         let store_fun = embedding_map.getattr("store_function").unwrap().into_py_any(py)?;
+        let store_subk = embedding_map.getattr("store_subkernel").unwrap().into_py_any(py)?;
         let host_attributes =
             embedding_map.getattr("attributes_writeback").unwrap().into_py_any(py)?;
         let global_value_ids: Arc<RwLock<HashMap<_, _>>> = Arc::new(RwLock::new(HashMap::new()));
@@ -573,6 +578,7 @@ impl Nac3 {
         let mut module_cache: HashMap<u64, _> = HashMap::new();
 
         let mut rpc_ids = vec![];
+        let mut subkernel_ids = vec![];
         for (stmt, path, module) in &self.top_levels {
             let py_module = module.bind(py).downcast::<PyModule>()?;
             let module_id = py_interp::extract_id(py_module)?;
@@ -665,6 +671,23 @@ impl Nac3 {
                                 .flat_map(decorator_get_flags)
                                 .any(|constant| constant == Constant::Str("async".into()));
                             rpc_ids.push((None, def_id, is_async));
+                        } else if decor_fn_id == self.primitive_ids.subkernel_decorator {
+                            if let Some(Constant::Int(dest)) =
+                                decorator_get_destination(decorator_list)
+                            {
+                                store_subk
+                                    .call1(
+                                        py,
+                                        (
+                                            def_id.0.into_py_any(py)?,
+                                            module
+                                                .getattr(py, name.to_string().as_str())
+                                                .unwrap(),
+                                        ),
+                                    )
+                                    .unwrap();
+                                subkernel_ids.push((None, def_id, dest));
+                            }
                         } else if ![
                             self.primitive_ids.kernel_decorator,
                             self.primitive_ids.portable_decorator,
@@ -709,6 +732,21 @@ impl Nac3 {
                                         def_id,
                                         is_async,
                                     ));
+                                } else if decorator_fn_id == self.primitive_ids.subkernel_decorator {
+                                        if name == &"__init__".into() {
+                                            return Err(CompileError::new_err(format!(
+                                                "compilation failed\n----------\nThe constructor of class {} should not be decorated with subkernel decorator (at {})",
+                                                class_name, stmt.location
+                                            )));
+                                        }
+                                        if let Some(Constant::Int(dest)) =
+                                            decorator_get_destination(decorator_list)
+                                        {
+                                            subkernel_ids.push((
+                                                Some((class_obj.clone(), *name)),
+                                                def_id,
+                                                dest,
+                                            ));
                                 } else if ![
                                     self.primitive_ids.kernel_decorator,
                                     self.primitive_ids.portable_decorator,
@@ -874,6 +912,48 @@ impl Nac3 {
                     }
                     TopLevelDef::Module { .. } => {
                         unreachable!("Type module cannot be decorated with @rpc")
+                    }
+                }
+            }
+            for (class_data, id, destination) in &subkernel_ids {
+                let mut def = defs[id.0].write();
+                match &mut *def {
+                    TopLevelDef::Function { codegen_callback, .. } => {
+                        *codegen_callback =
+                            Some(subkernel_call_codegen_callback(*destination as u8));
+                    }
+                    TopLevelDef::Class { methods, .. } => {
+                        let (class_def, method_name) = class_data.as_ref().unwrap();
+                        for (name, _, id) in &*methods {
+                            if name != method_name {
+                                continue;
+                            }
+                            if let TopLevelDef::Function { codegen_callback, .. } =
+                                &mut *defs[id.0].write()
+                            {
+                                *codegen_callback =
+                                    Some(subkernel_call_codegen_callback(*destination as u8));
+                                store_fun
+                                    .call1(
+                                        py,
+                                        (
+                                            id.0.into_py_any(py)?,
+                                            class_def
+                                                .getattr(name.to_string().as_str())
+                                                .unwrap(),
+                                        ),
+                                    )
+                                    .unwrap();
+                            }
+                        }
+                    }
+                    TopLevelDef::Variable { .. } => {
+                        return Err(CompileError::new_err(String::from(
+                            "Unsupported @subkernel annotation on global variable",
+                        )));
+                    }
+                    TopLevelDef::Module { .. } => {
+                        unreachable!("Type module cannot be decorated with @subkernel")
                     }
                 }
             }
@@ -1221,6 +1301,22 @@ fn is_decor_fn_same(
 
     Ok(decor_fn_ids.contains(&fn_id))
 }
+/// Retrieves destination from subkernel decorator.
+fn decorator_get_destination(decorator_list: &Vec<Located<ExprKind>>) -> Option<Constant> {
+    for decorator in decorator_list {
+        if let ExprKind::Call { keywords, .. } = &decorator.node {
+            for keyword in keywords {
+                if keyword.node.arg != Some("destination".into()) {
+                    continue;
+                }
+                if let ExprKind::Constant { value, .. } = &keyword.node.value.node {
+                    return Some(value.clone());
+                }
+            }
+        }
+    }
+    None
+}
 
 fn link_with_lld(elf_filename: &str, obj_filename: &str) -> PyResult<()> {
     let linker_args = ["-shared", "--eh-frame-hdr", "-x", "-o", elf_filename, obj_filename];
@@ -1388,6 +1484,7 @@ impl Nac3 {
             kernel_decorator: get_artiq_builtin_id(Some("artiq"), "kernel")?,
             portable_decorator: get_artiq_builtin_id(Some("artiq"), "portable")?,
             rpc_decorator: get_artiq_builtin_id(Some("artiq"), "rpc")?,
+            subkernel_decorator: get_artiq_builtin(Some("artiq"), "subkernel")?,
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
