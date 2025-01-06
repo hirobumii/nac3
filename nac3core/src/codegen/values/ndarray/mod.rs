@@ -950,10 +950,9 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> UntypedArrayLikeMutator<'ctx, 
 /// This function is used generating strides for globally defined contiguous ndarrays.
 #[must_use]
 pub fn make_contiguous_strides(itemsize: u64, ndims: u64, shape: &[u64]) -> Vec<u64> {
-    let mut strides = Vec::with_capacity(ndims as usize);
+    let mut strides = vec![0u64; ndims as usize];
     let mut stride_product = 1u64;
-    for i in 0..ndims {
-        let axis = ndims - i - 1;
+    for axis in (0..ndims).rev() {
         strides[axis as usize] = stride_product * itemsize;
         stride_product *= shape[axis as usize];
     }
