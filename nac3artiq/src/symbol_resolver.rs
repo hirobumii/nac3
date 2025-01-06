@@ -1131,7 +1131,10 @@ impl InnerResolver {
                             super::CompileError::new_err(format!("Error getting element {i}: {e}"))
                         })?
                         .unwrap();
-                    let value = value.into_int_value();
+                    let value = ctx
+                        .builder
+                        .build_int_z_extend(value.into_int_value(), llvm_usize, "")
+                        .unwrap();
                     Ok(value)
                 })
                 .collect::<Result<Vec<_>, PyErr>>()?;
