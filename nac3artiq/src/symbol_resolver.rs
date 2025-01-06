@@ -1213,8 +1213,16 @@ impl InnerResolver {
             data_global.set_initializer(&data);
 
             // Get the constant itemsize.
-            let itemsize = dtype.size_of().unwrap();
-            let itemsize = itemsize.get_zero_extended_constant().unwrap();
+            //
+            // NOTE: dtype.size_of() may return a non-constant, where `TargetData::get_store_size`
+            // will always return a constant size.
+            let itemsize = ctx
+                .registry
+                .llvm_options
+                .create_target_machine()
+                .map(|tm| tm.get_target_data().get_store_size(&dtype))
+                .unwrap();
+            assert_ne!(itemsize, 0);
 
             // Create the strides needed for ndarray.strides
             let strides = make_contiguous_strides(itemsize, ndims, &shape_u64s);
