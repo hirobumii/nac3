@@ -1248,9 +1248,30 @@ impl InnerResolver {
 
             let ndarray_ndims = llvm_usize.const_int(ndims, false);
 
+            // calling as_pointer_value on shape and strides returns [i64 x ndims]*
+            // convert into i64* to conform with expected layout of ndarray
+
             let ndarray_shape = shape_global.as_pointer_value();
+            let ndarray_shape = unsafe {
+                ctx.builder
+                    .build_in_bounds_gep(
+                        ndarray_shape,
+                        &[llvm_usize.const_zero(), llvm_usize.const_zero()],
+                        "",
+                    )
+                    .unwrap()
+            };
 
             let ndarray_strides = strides_global.as_pointer_value();
+            let ndarray_strides = unsafe {
+                ctx.builder
+                    .build_in_bounds_gep(
+                        ndarray_strides,
+                        &[llvm_usize.const_zero(), llvm_usize.const_zero()],
+                        "",
+                    )
+                    .unwrap()
+            };
 
             let ndarray = llvm_ndarray
                 .as_base_type()
