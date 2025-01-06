@@ -1232,7 +1232,7 @@ impl InnerResolver {
 
             // create a global for ndarray.strides and initialize it
             let strides_global = ctx.module.add_global(
-                llvm_i8.array_type(ndims as u32),
+                llvm_usize.array_type(ndims as u32),
                 Some(AddressSpace::default()),
                 &format!("${id_str}.strides"),
             );
