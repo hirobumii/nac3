@@ -162,7 +162,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
     }
 }
 
-impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
+impl CodeGenerator for ArtiqCodeGenerator<'_> {
     fn get_name(&self) -> &str {
         &self.name
     }
@@ -1505,7 +1505,7 @@ pub fn call_rtio_log_impl<'ctx>(
 /// Generates a call to `core_log`.
 pub fn gen_core_log<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    obj: Option<&(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
     generator: &mut dyn CodeGenerator,
@@ -1522,7 +1522,7 @@ pub fn gen_core_log<'ctx>(
 /// Generates a call to `rtio_log`.
 pub fn gen_rtio_log<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    obj: Option<&(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
     generator: &mut dyn CodeGenerator,

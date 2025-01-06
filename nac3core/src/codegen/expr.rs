@@ -79,7 +79,7 @@ pub fn get_subst_key(
         .join(", ")
 }
 
-impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
+impl<'ctx> CodeGenContext<'ctx, '_> {
     /// Builds a sequence of `getelementptr` and `load` instructions which stores the value of a
     /// struct field into an LLVM value.
     pub fn build_gep_and_load(

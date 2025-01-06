@@ -228,7 +228,7 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub current_loc: Location,
 }
 
-impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
+impl CodeGenContext<'_, '_> {
     /// Whether the [current basic block][Builder::get_insert_block] referenced by `builder`
     /// contains a [terminator statement][BasicBlock::get_terminator].
     pub fn is_terminated(&self) -> bool {

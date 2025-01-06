@@ -94,7 +94,7 @@ fn loc_to_str(loc: Option<Location>) -> String {
     }
 }
 
-impl<'a> Display for DisplayTypeError<'a> {
+impl Display for DisplayTypeError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         use TypeErrorKind::*;
         let mut notes = Some(HashMap::new());

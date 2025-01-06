@@ -187,7 +187,7 @@ fn fix_assignment_target_context(node: &mut ast::Located<ExprKind>) {
     }
 }
 
-impl<'a> Fold<()> for Inferencer<'a> {
+impl Fold<()> for Inferencer<'_> {
     type TargetU = Option<Type>;
     type Error = InferenceError;
 
@@ -657,7 +657,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
 
 type InferenceResult = Result<Type, InferenceError>;
 
-impl<'a> Inferencer<'a> {
+impl Inferencer<'_> {
     /// Constrain a <: b
     /// Currently implemented as unification
     fn constrain(&mut self, a: Type, b: Type, location: &Location) -> Result<(), InferenceError> {

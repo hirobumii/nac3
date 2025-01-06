@@ -931,9 +931,9 @@ impl InnerResolver {
                         |_| Ok(Ok(extracted_ty)),
                     )
                 } else if unifier.unioned(extracted_ty, primitives.bool) {
-                    if let Ok(_) = obj.extract::<bool>() {
-                        Ok(Ok(extracted_ty))
-                    } else if let Ok(_) = obj.call_method("__bool__", (), None)?.extract::<bool>() {
+                    if obj.extract::<bool>().is_ok()
+                        || obj.call_method("__bool__", (), None)?.extract::<bool>().is_ok()
+                    {
                         Ok(Ok(extracted_ty))
                     } else {
                         Ok(Err(format!("{obj} is not in the range of bool")))

@@ -807,7 +807,7 @@ struct TypeToStringFolder<'a> {
     unifier: &'a mut Unifier,
 }
 
-impl<'a> Fold<Option<Type>> for TypeToStringFolder<'a> {
+impl Fold<Option<Type>> for TypeToStringFolder<'_> {
     type TargetU = String;
     type Error = String;
     fn map_user(&mut self, user: Option<Type>) -> Result<Self::TargetU, Self::Error> {
