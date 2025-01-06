@@ -931,10 +931,13 @@ impl InnerResolver {
                         |_| Ok(Ok(extracted_ty)),
                     )
                 } else if unifier.unioned(extracted_ty, primitives.bool) {
-                    obj.extract::<bool>().map_or_else(
-                        |_| Ok(Err(format!("{obj} is not in the range of bool"))),
-                        |_| Ok(Ok(extracted_ty)),
-                    )
+                    if let Ok(_) = obj.extract::<bool>() {
+                        Ok(Ok(extracted_ty))
+                    } else if let Ok(_) = obj.call_method("__bool__", (), None)?.extract::<bool>() {
+                        Ok(Ok(extracted_ty))
+                    } else {
+                        Ok(Err(format!("{obj} is not in the range of bool")))
+                    }
                 } else if unifier.unioned(extracted_ty, primitives.float) {
                     obj.extract::<f64>().map_or_else(
                         |_| Ok(Err(format!("{obj} is not in the range of float64"))),
@@ -974,8 +977,12 @@ impl InnerResolver {
             let val: u64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::U64(val));
             Ok(Some(ctx.ctx.i64_type().const_int(val, false).into()))
-        } else if ty_id == self.primitive_ids.bool || ty_id == self.primitive_ids.np_bool_ {
+        } else if ty_id == self.primitive_ids.bool {
             let val: bool = obj.extract().unwrap();
+            self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
+            Ok(Some(ctx.ctx.i8_type().const_int(u64::from(val), false).into()))
+        } else if ty_id == self.primitive_ids.np_bool_ {
+            let val: bool = obj.call_method("__bool__", (), None)?.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
             Ok(Some(ctx.ctx.i8_type().const_int(u64::from(val), false).into()))
         } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
@@ -1413,8 +1420,11 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.uint64 {
             let val: u64 = obj.extract()?;
             Ok(SymbolValue::U64(val))
-        } else if ty_id == self.primitive_ids.bool || ty_id == self.primitive_ids.np_bool_ {
+        } else if ty_id == self.primitive_ids.bool {
             let val: bool = obj.extract()?;
+            Ok(SymbolValue::Bool(val))
+        } else if ty_id == self.primitive_ids.np_bool_ {
+            let val: bool = obj.call_method("__bool__", (), None)?.extract()?;
             Ok(SymbolValue::Bool(val))
         } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
             let val: String = obj.extract()?;
