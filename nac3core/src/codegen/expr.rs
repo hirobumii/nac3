@@ -979,7 +979,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
             TopLevelDef::Class { .. } => {
                 return Ok(Some(generator.gen_constructor(ctx, fun.0, &def, params)?))
             }
-            TopLevelDef::Variable { .. } => unreachable!(),
+            TopLevelDef::Variable { .. } | TopLevelDef::Module { .. } => unreachable!(),
         }
     }
     .or_else(|_: String| {

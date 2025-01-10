@@ -101,7 +101,8 @@ impl TopLevelComposer {
         let builtin_name_list = definition_ast_list
             .iter()
             .map(|def_ast| match *def_ast.0.read() {
-                TopLevelDef::Class { name, .. } => name.to_string(),
+                TopLevelDef::Class { name, .. } 
+                | TopLevelDef::Module { name, .. } => name.to_string(),
                 TopLevelDef::Function { simple_name, .. }
                 | TopLevelDef::Variable { simple_name, .. } => simple_name.to_string(),
             })

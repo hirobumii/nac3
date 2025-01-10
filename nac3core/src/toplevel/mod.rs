@@ -92,6 +92,18 @@ pub struct FunInstance {
 
 #[derive(Debug, Clone)]
 pub enum TopLevelDef {
+    Module {
+        /// Name of the module
+        name: StrRef,
+        /// Module ID used for [`TypeEnum`]
+        module_id: DefinitionId,
+        /// DefinitionId of `TopLevelDef::{Class, Function, Variable}` within the module
+        attributes: HashMap<StrRef, DefinitionId>,
+        /// Symbol resolver of the module defined the class.
+        resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
+        /// Definition location.
+        loc: Option<Location>,
+    },
     Class {
         /// Name for error messages and symbols.
         name: StrRef,

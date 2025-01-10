@@ -2734,7 +2734,8 @@ impl Inferencer<'_> {
             .read()
             .iter()
             .map(|def| match *def.read() {
-                TopLevelDef::Class { name, .. } => (name, false),
+                TopLevelDef::Class { name, .. }
+                | TopLevelDef::Module { name, .. } => (name, false),
                 TopLevelDef::Function { simple_name, .. } => (simple_name, false),
                 TopLevelDef::Variable { simple_name, .. } => (simple_name, true),
             })

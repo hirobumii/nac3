@@ -379,6 +379,13 @@ pub fn make_exception_fields(int32: Type, int64: Type, str: Type) -> Vec<(StrRef
 impl TopLevelDef {
     pub fn to_string(&self, unifier: &mut Unifier) -> String {
         match self {
+            TopLevelDef::Module { name, attributes, .. } => {
+                let method_str = attributes.iter().map(|(n, _)| n.to_string()).collect_vec();
+                format!(
+                    "Module {{\nname: {:?},\nattributes{:?}\n}}",
+                    name, method_str
+                )
+            }
             TopLevelDef::Class {
                 name, ancestors, fields, methods, attributes, type_vars, ..
             } => {
