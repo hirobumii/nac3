@@ -98,8 +98,8 @@ impl<'ctx> From<NDIndexValue<'ctx>> for PointerValue<'ctx> {
 impl<'ctx> NDArrayValue<'ctx> {
     /// Get the expected `ndims` after indexing with `indices`.
     #[must_use]
-    fn deduce_ndims_after_indexing_with(&self, indices: &[RustNDIndex<'ctx>]) -> Option<u64> {
-        let mut ndims = self.ndims?;
+    fn deduce_ndims_after_indexing_with(&self, indices: &[RustNDIndex<'ctx>]) -> u64 {
+        let mut ndims = self.ndims;
 
         for index in indices {
             match index {
@@ -113,7 +113,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             }
         }
 
-        Some(ndims)
+        ndims
     }
 
     /// Index into the ndarray, and return a newly-allocated view on this ndarray.
@@ -127,8 +127,6 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         indices: &[RustNDIndex<'ctx>],
     ) -> Self {
-        assert!(self.ndims.is_some(), "NDArrayValue::index is only supported for instances with compile-time known ndims (self.ndims = Some(...))");
-
         let dst_ndims = self.deduce_ndims_after_indexing_with(indices);
         let dst_ndarray = NDArrayType::new(generator, ctx.ctx, self.dtype, dst_ndims)
             .construct_uninitialized(generator, ctx, None);
@@ -248,7 +246,7 @@ impl<'ctx> RustNDIndex<'ctx> {
             RustNDIndex::Slice(in_rust_slice) => {
                 let user_slice_ptr =
                     SliceType::new(ctx.ctx, ctx.ctx.i32_type(), generator.get_size_type(ctx.ctx))
-                        .alloca(generator, ctx, None);
+                        .alloca_var(generator, ctx, None);
                 in_rust_slice.write_to_slice(ctx, user_slice_ptr);
 
                 dst_ndindex.store_data(

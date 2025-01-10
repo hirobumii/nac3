@@ -42,7 +42,7 @@ use crate::{
 };
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
-use types::{ndarray::NDArrayType, ListType, ProxyType, RangeType};
+use types::{ndarray::NDArrayType, ListType, ProxyType, RangeType, TupleType};
 
 pub mod builtin_fns;
 pub mod concrete_type;
@@ -228,7 +228,7 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub current_loc: Location,
 }
 
-impl<'ctx, 'a> CodeGenContext<'ctx, 'a> {
+impl CodeGenContext<'_, '_> {
     /// Whether the [current basic block][Builder::get_insert_block] referenced by `builder`
     /// contains a [terminator statement][BasicBlock::get_terminator].
     pub fn is_terminated(&self) -> bool {
@@ -520,7 +520,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 ctx, module, generator, unifier, top_level, type_cache, dtype,
                             );
 
-                            NDArrayType::new(generator, ctx, element_type, Some(ndims)).as_base_type().into()
+                            NDArrayType::new(generator, ctx, element_type, ndims).as_base_type().into()
                         }
 
                         _ => unreachable!(
@@ -574,7 +574,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, *ty)
                     })
                     .collect_vec();
-                ctx.struct_type(&fields, false).into()
+                TupleType::new(generator, ctx, &fields).as_base_type().into()
             }
             TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),

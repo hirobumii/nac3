@@ -931,10 +931,13 @@ impl InnerResolver {
                         |_| Ok(Ok(extracted_ty)),
                     )
                 } else if unifier.unioned(extracted_ty, primitives.bool) {
-                    obj.extract::<bool>().map_or_else(
-                        |_| Ok(Err(format!("{obj} is not in the range of bool"))),
-                        |_| Ok(Ok(extracted_ty)),
-                    )
+                    if obj.extract::<bool>().is_ok()
+                        || obj.call_method("__bool__", (), None)?.extract::<bool>().is_ok()
+                    {
+                        Ok(Ok(extracted_ty))
+                    } else {
+                        Ok(Err(format!("{obj} is not in the range of bool")))
+                    }
                 } else if unifier.unioned(extracted_ty, primitives.float) {
                     obj.extract::<f64>().map_or_else(
                         |_| Ok(Err(format!("{obj} is not in the range of float64"))),
@@ -974,8 +977,12 @@ impl InnerResolver {
             let val: u64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::U64(val));
             Ok(Some(ctx.ctx.i64_type().const_int(val, false).into()))
-        } else if ty_id == self.primitive_ids.bool || ty_id == self.primitive_ids.np_bool_ {
+        } else if ty_id == self.primitive_ids.bool {
             let val: bool = obj.extract().unwrap();
+            self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
+            Ok(Some(ctx.ctx.i8_type().const_int(u64::from(val), false).into()))
+        } else if ty_id == self.primitive_ids.np_bool_ {
+            let val: bool = obj.call_method("__bool__", (), None)?.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
             Ok(Some(ctx.ctx.i8_type().const_int(u64::from(val), false).into()))
         } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
@@ -1107,7 +1114,7 @@ impl InnerResolver {
                 self.global_value_ids.write().insert(id, obj.into());
             }
 
-            let ndims = llvm_ndarray.ndims().unwrap();
+            let ndims = llvm_ndarray.ndims();
 
             // Obtain the shape of the ndarray
             let shape_tuple: &PyTuple = obj.getattr("shape")?.downcast()?;
@@ -1124,7 +1131,10 @@ impl InnerResolver {
                             super::CompileError::new_err(format!("Error getting element {i}: {e}"))
                         })?
                         .unwrap();
-                    let value = value.into_int_value();
+                    let value = ctx
+                        .builder
+                        .build_int_z_extend(value.into_int_value(), llvm_usize, "")
+                        .unwrap();
                     Ok(value)
                 })
                 .collect::<Result<Vec<_>, PyErr>>()?;
@@ -1203,8 +1213,16 @@ impl InnerResolver {
             data_global.set_initializer(&data);
 
             // Get the constant itemsize.
-            let itemsize = dtype.size_of().unwrap();
-            let itemsize = itemsize.get_zero_extended_constant().unwrap();
+            //
+            // NOTE: dtype.size_of() may return a non-constant, where `TargetData::get_store_size`
+            // will always return a constant size.
+            let itemsize = ctx
+                .registry
+                .llvm_options
+                .create_target_machine()
+                .map(|tm| tm.get_target_data().get_store_size(&dtype))
+                .unwrap();
+            assert_ne!(itemsize, 0);
 
             // Create the strides needed for ndarray.strides
             let strides = make_contiguous_strides(itemsize, ndims, &shape_u64s);
@@ -1214,7 +1232,7 @@ impl InnerResolver {
 
             // create a global for ndarray.strides and initialize it
             let strides_global = ctx.module.add_global(
-                llvm_i8.array_type(ndims as u32),
+                llvm_usize.array_type(ndims as u32),
                 Some(AddressSpace::default()),
                 &format!("${id_str}.strides"),
             );
@@ -1230,9 +1248,30 @@ impl InnerResolver {
 
             let ndarray_ndims = llvm_usize.const_int(ndims, false);
 
+            // calling as_pointer_value on shape and strides returns [i64 x ndims]*
+            // convert into i64* to conform with expected layout of ndarray
+
             let ndarray_shape = shape_global.as_pointer_value();
+            let ndarray_shape = unsafe {
+                ctx.builder
+                    .build_in_bounds_gep(
+                        ndarray_shape,
+                        &[llvm_usize.const_zero(), llvm_usize.const_zero()],
+                        "",
+                    )
+                    .unwrap()
+            };
 
             let ndarray_strides = strides_global.as_pointer_value();
+            let ndarray_strides = unsafe {
+                ctx.builder
+                    .build_in_bounds_gep(
+                        ndarray_strides,
+                        &[llvm_usize.const_zero(), llvm_usize.const_zero()],
+                        "",
+                    )
+                    .unwrap()
+            };
 
             let ndarray = llvm_ndarray
                 .as_base_type()
@@ -1413,8 +1452,11 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.uint64 {
             let val: u64 = obj.extract()?;
             Ok(SymbolValue::U64(val))
-        } else if ty_id == self.primitive_ids.bool || ty_id == self.primitive_ids.np_bool_ {
+        } else if ty_id == self.primitive_ids.bool {
             let val: bool = obj.extract()?;
+            Ok(SymbolValue::Bool(val))
+        } else if ty_id == self.primitive_ids.np_bool_ {
+            let val: bool = obj.call_method("__bool__", (), None)?.extract()?;
             Ok(SymbolValue::Bool(val))
         } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
             let val: String = obj.extract()?;

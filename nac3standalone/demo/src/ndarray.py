@@ -68,6 +68,19 @@ def output_ndarray_float_2(n: ndarray[float, Literal[2]]):
         for c in range(len(n[r])):
             output_float64(n[r][c])
 
+def output_ndarray_float_3(n: ndarray[float, Literal[3]]):
+    for d in range(len(n)):
+        for r in range(len(n[d])):
+            for c in range(len(n[d][r])):
+                output_float64(n[d][r][c])
+
+def output_ndarray_float_4(n: ndarray[float, Literal[4]]):
+    for x in range(len(n)):
+        for y in range(len(n[x])):
+            for z in range(len(n[x][y])):
+                for w in range(len(n[x][y][z])):
+                    output_float64(n[x][y][z][w])
+
 def consume_ndarray_1(n: ndarray[float, Literal[1]]):
     pass
 
@@ -196,6 +209,104 @@ def test_ndarray_nd_idx():
     output_float64(x[0, 1])
     output_float64(x[1, 0])
     output_float64(x[1, 1])
+
+def test_ndarray_transpose():
+    x: ndarray[float, 2] = np_array([[1., 2., 3.], [4., 5., 6.]])
+    y = np_transpose(x)
+    z = np_transpose(y)
+
+    output_int32(np_shape(x)[0])
+    output_int32(np_shape(x)[1])
+    output_ndarray_float_2(x)
+
+    output_int32(np_shape(y)[0])
+    output_int32(np_shape(y)[1])
+    output_ndarray_float_2(y)
+
+    output_int32(np_shape(z)[0])
+    output_int32(np_shape(z)[1])
+    output_ndarray_float_2(z)
+
+def test_ndarray_reshape():
+    w: ndarray[float, 1] = np_array([1., 2., 3., 4., 5., 6., 7., 8., 9., 10.])
+    x = np_reshape(w, (1, 2, 1, -1))
+    y = np_reshape(x, [2, -1])
+    z = np_reshape(y, 10)
+
+    output_int32(np_shape(w)[0])
+    output_ndarray_float_1(w)
+
+    output_int32(np_shape(x)[0])
+    output_int32(np_shape(x)[1])
+    output_int32(np_shape(x)[2])
+    output_int32(np_shape(x)[3])
+    output_ndarray_float_4(x)
+
+    output_int32(np_shape(y)[0])
+    output_int32(np_shape(y)[1])
+    output_ndarray_float_2(y)
+
+    output_int32(np_shape(z)[0])
+    output_ndarray_float_1(z)
+
+    x1: ndarray[int32, 1] = np_array([1, 2, 3, 4])
+    x2: ndarray[int32, 2] = np_reshape(x1, (2, 2))
+
+    output_int32(np_shape(x1)[0])
+    output_ndarray_int32_1(x1)
+
+    output_int32(np_shape(x2)[0])
+    output_int32(np_shape(x2)[1])
+    output_ndarray_int32_2(x2)
+
+def test_ndarray_broadcast_to():
+    xs = np_array([1.0, 2.0, 3.0])
+    ys = np_broadcast_to(xs, (1, 3))
+    zs = np_broadcast_to(ys, (2, 4, 3))
+
+    output_int32(np_shape(xs)[0])
+    output_ndarray_float_1(xs)
+
+    output_int32(np_shape(ys)[0])
+    output_int32(np_shape(ys)[1])
+    output_ndarray_float_2(ys)
+
+    output_int32(np_shape(zs)[0])
+    output_int32(np_shape(zs)[1])
+    output_int32(np_shape(zs)[2])
+    output_ndarray_float_3(zs)
+
+def test_ndarray_subscript_assignment():
+    xs = np_array([[11.0, 22.0, 33.0, 44.0], [55.0, 66.0, 77.0, 88.0]])
+
+    xs[0, 0] = 99.0
+    output_ndarray_float_2(xs)
+
+    xs[0] = 100.0
+    output_ndarray_float_2(xs)
+
+    xs[:, ::2] = 101.0
+    output_ndarray_float_2(xs)
+
+    xs[1:, 0] = 102.0
+    output_ndarray_float_2(xs)
+
+    xs[0] = np_array([-1.0, -2.0, -3.0, -4.0])
+    output_ndarray_float_2(xs)
+
+    xs[:] = np_array([-5.0, -6.0, -7.0, -8.0])
+    output_ndarray_float_2(xs)
+
+    # Test assignment with memory sharing
+    ys1 = np_reshape(xs, (2, 4))
+    ys2 = np_transpose(ys1)
+    ys3 = ys2[::-1, 0]
+    ys3[0] = -999.0
+
+    output_ndarray_float_2(xs)
+    output_ndarray_float_2(ys1)
+    output_ndarray_float_2(ys2)
+    output_ndarray_float_1(ys3)
 
 def test_ndarray_add():
     x = np_identity(2)
@@ -1440,27 +1551,6 @@ def test_ndarray_nextafter_broadcast_rhs_scalar():
     output_ndarray_float_2(nextafter_x_zeros)
     output_ndarray_float_2(nextafter_x_ones)
 
-def test_ndarray_transpose():
-    x: ndarray[float, 2] = np_array([[1., 2., 3.], [4., 5., 6.]])
-    y = np_transpose(x)
-    z = np_transpose(y)
-
-    output_ndarray_float_2(x)
-    output_ndarray_float_2(y)
-
-def test_ndarray_reshape():
-    w: ndarray[float, 1] = np_array([1., 2., 3., 4., 5., 6., 7., 8., 9., 10.])
-    x = np_reshape(w, (1, 2, 1, -1))
-    y = np_reshape(x, [2, -1])
-    z = np_reshape(y, 10)
-
-    x1: ndarray[int32, 1] = np_array([1, 2, 3, 4])
-    x2: ndarray[int32, 2] = np_reshape(x1, (2, 2))
-
-    output_ndarray_float_1(w)
-    output_ndarray_float_2(y)
-    output_ndarray_float_1(z)
-
 def test_ndarray_dot():
     x1: ndarray[float, 1] = np_array([5.0, 1.0, 4.0, 2.0])
     y1: ndarray[float, 1] = np_array([5.0, 1.0, 6.0, 6.0])
@@ -1591,6 +1681,11 @@ def run() -> int32:
     test_ndarray_neg_idx()
     test_ndarray_slices()
     test_ndarray_nd_idx()
+
+    test_ndarray_transpose()
+    test_ndarray_reshape()
+    test_ndarray_broadcast_to()
+    test_ndarray_subscript_assignment()
 
     test_ndarray_add()
     test_ndarray_add_broadcast()
@@ -1755,8 +1850,6 @@ def run() -> int32:
     test_ndarray_nextafter_broadcast()
     test_ndarray_nextafter_broadcast_lhs_scalar()
     test_ndarray_nextafter_broadcast_rhs_scalar()
-    test_ndarray_transpose()
-    test_ndarray_reshape()
 
     test_ndarray_dot()
     test_ndarray_cholesky()

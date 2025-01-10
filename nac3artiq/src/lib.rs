@@ -330,7 +330,7 @@ impl Nac3 {
                         vars: into_var_map([arg_ty]),
                     },
                     Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
-                        gen_core_log(ctx, &obj, fun, &args, generator)?;
+                        gen_core_log(ctx, obj.as_ref(), fun, &args, generator)?;
 
                         Ok(None)
                     }))),
@@ -360,7 +360,7 @@ impl Nac3 {
                         vars: into_var_map([arg_ty]),
                     },
                     Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
-                        gen_rtio_log(ctx, &obj, fun, &args, generator)?;
+                        gen_rtio_log(ctx, obj.as_ref(), fun, &args, generator)?;
 
                         Ok(None)
                     }))),

@@ -65,8 +65,7 @@ struct NDIndex {
 }  // namespace
 
 namespace {
-namespace ndarray {
-namespace indexing {
+namespace ndarray::indexing {
 /**
  * @brief Perform ndarray "basic indexing" (https://numpy.org/doc/stable/user/basics.indexing.html#basic-indexing)
  *
@@ -162,7 +161,8 @@ void index(SizeT num_indices, const NDIndex* indices, const NDArray<SizeT>* src_
 
             Range<int32_t> range = slice->indices_checked<SizeT>(src_ndarray->shape[src_axis]);
 
-            dst_ndarray->data = static_cast<uint8_t*>(dst_ndarray->data) + (SizeT)range.start * src_ndarray->strides[src_axis];
+            dst_ndarray->data =
+                static_cast<uint8_t*>(dst_ndarray->data) + (SizeT)range.start * src_ndarray->strides[src_axis];
             dst_ndarray->strides[dst_axis] = ((SizeT)range.step) * src_ndarray->strides[src_axis];
             dst_ndarray->shape[dst_axis] = (SizeT)range.len<SizeT>();
 
@@ -197,8 +197,7 @@ void index(SizeT num_indices, const NDIndex* indices, const NDArray<SizeT>* src_
     debug_assert_eq(SizeT, src_ndarray->ndims, src_axis);
     debug_assert_eq(SizeT, dst_ndarray->ndims, dst_axis);
 }
-}  // namespace indexing
-}  // namespace ndarray
+}  // namespace ndarray::indexing
 }  // namespace
 
 extern "C" {

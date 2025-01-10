@@ -62,8 +62,13 @@ pub fn call_isinf<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
 ) -> IntValue<'ctx> {
+    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_f64 = ctx.ctx.f64_type();
+
+    assert_eq!(v.get_type(), llvm_f64);
+
     let intrinsic_fn = ctx.module.get_function("__nac3_isinf").unwrap_or_else(|| {
-        let fn_type = ctx.ctx.i32_type().fn_type(&[ctx.ctx.f64_type().into()], false);
+        let fn_type = llvm_i32.fn_type(&[llvm_f64.into()], false);
         ctx.module.add_function("__nac3_isinf", fn_type, None)
     });
 
@@ -84,8 +89,13 @@ pub fn call_isnan<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
 ) -> IntValue<'ctx> {
+    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_f64 = ctx.ctx.f64_type();
+
+    assert_eq!(v.get_type(), llvm_f64);
+
     let intrinsic_fn = ctx.module.get_function("__nac3_isnan").unwrap_or_else(|| {
-        let fn_type = ctx.ctx.i32_type().fn_type(&[ctx.ctx.f64_type().into()], false);
+        let fn_type = llvm_i32.fn_type(&[llvm_f64.into()], false);
         ctx.module.add_function("__nac3_isnan", fn_type, None)
     });
 
@@ -104,6 +114,8 @@ pub fn call_isnan<'ctx, G: CodeGenerator + ?Sized>(
 pub fn call_gamma<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
 
+    assert_eq!(v.get_type(), llvm_f64);
+
     let intrinsic_fn = ctx.module.get_function("__nac3_gamma").unwrap_or_else(|| {
         let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
         ctx.module.add_function("__nac3_gamma", fn_type, None)
@@ -121,6 +133,8 @@ pub fn call_gamma<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> 
 pub fn call_gammaln<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
 
+    assert_eq!(v.get_type(), llvm_f64);
+
     let intrinsic_fn = ctx.module.get_function("__nac3_gammaln").unwrap_or_else(|| {
         let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);
         ctx.module.add_function("__nac3_gammaln", fn_type, None)
@@ -137,6 +151,8 @@ pub fn call_gammaln<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -
 /// Generates a call to `j0` in IR. Returns an `f64` representing the result.
 pub fn call_j0<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
+
+    assert_eq!(v.get_type(), llvm_f64);
 
     let intrinsic_fn = ctx.module.get_function("__nac3_j0").unwrap_or_else(|| {
         let fn_type = llvm_f64.fn_type(&[llvm_f64.into()], false);

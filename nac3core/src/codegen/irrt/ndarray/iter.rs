@@ -1,4 +1,5 @@
 use inkwell::{
+    types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue},
     AddressSpace,
 };
@@ -9,20 +10,28 @@ use crate::codegen::{
     types::ProxyType,
     values::{
         ndarray::{NDArrayValue, NDIterValue},
-        ArrayLikeValue, ArraySliceValue, ProxyValue,
+        ProxyValue, TypedArrayLikeAccessor,
     },
     CodeGenContext, CodeGenerator,
 };
 
+/// Generates a call to `__nac3_nditer_initialize`.
+///
+/// Initializes the `iter` object.
 pub fn call_nac3_nditer_initialize<'ctx, G: CodeGenerator + ?Sized>(
     generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,
     iter: NDIterValue<'ctx>,
     ndarray: NDArrayValue<'ctx>,
-    indices: ArraySliceValue<'ctx>,
+    indices: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
     let llvm_usize = generator.get_size_type(ctx.ctx);
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
+
+    assert_eq!(
+        BasicTypeEnum::try_from(indices.element_type(ctx, generator)).unwrap(),
+        llvm_usize.into()
+    );
 
     let name = get_usize_dependent_function_name(generator, ctx, "__nac3_nditer_initialize");
 
@@ -40,6 +49,10 @@ pub fn call_nac3_nditer_initialize<'ctx, G: CodeGenerator + ?Sized>(
     );
 }
 
+/// Generates a call to `__nac3_nditer_initialize_has_element`.
+///
+/// Returns an `i1` value indicating whether there are elements left to traverse for the `iter`
+/// object.
 pub fn call_nac3_nditer_has_element<'ctx, G: CodeGenerator + ?Sized>(
     generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,
@@ -59,6 +72,9 @@ pub fn call_nac3_nditer_has_element<'ctx, G: CodeGenerator + ?Sized>(
     .unwrap()
 }
 
+/// Generates a call to `__nac3_nditer_next`.
+///
+/// Moves `iter` to point to the next element.
 pub fn call_nac3_nditer_next<'ctx, G: CodeGenerator + ?Sized>(
     generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,

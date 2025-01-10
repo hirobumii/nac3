@@ -5,6 +5,7 @@ use inkwell::{
     types::{BasicTypeEnum, IntType, StructType},
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
 };
+use itertools::Itertools;
 
 use crate::codegen::CodeGenContext;
 
@@ -54,6 +55,20 @@ pub trait StructFields<'ctx>: Eq + Copy {
         Self: Sized,
     {
         self.into_vec().into_iter()
+    }
+
+    /// Returns the field index of a field in this structure.
+    fn index_of_field<V>(&self, name: impl FnOnce(&Self) -> StructField<'ctx, V>) -> u32
+    where
+        V: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>, Error = ()>,
+    {
+        let field_name = name(self).name;
+        self.index_of_field_name(field_name).unwrap()
+    }
+
+    /// Returns the field index of a field with the given name in this structure.
+    fn index_of_field_name(&self, field_name: &str) -> Option<u32> {
+        self.iter().find_position(|(name, _)| *name == field_name).map(|(idx, _)| idx as u32)
     }
 }
 

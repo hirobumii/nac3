@@ -14,18 +14,23 @@ use super::{
 };
 use crate::{
     codegen::{
-        values::{ndarray::NDArrayValue, ArraySliceValue, ProxyValue, TypedArrayLikeMutator},
+        values::{ndarray::NDArrayValue, ProxyValue, TypedArrayLikeMutator},
         {CodeGenContext, CodeGenerator},
     },
     toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},
     typecheck::typedef::Type,
 };
+pub use broadcast::*;
 pub use contiguous::*;
 pub use indexing::*;
 pub use nditer::*;
 
+mod array;
+mod broadcast;
 mod contiguous;
+pub mod factory;
 mod indexing;
+mod map;
 mod nditer;
 
 /// Proxy type for a `ndarray` type in LLVM.
@@ -33,7 +38,7 @@ mod nditer;
 pub struct NDArrayType<'ctx> {
     ty: PointerType<'ctx>,
     dtype: BasicTypeEnum<'ctx>,
-    ndims: Option<u64>,
+    ndims: u64,
     llvm_usize: IntType<'ctx>,
 }
 
@@ -108,12 +113,26 @@ impl<'ctx> NDArrayType<'ctx> {
         generator: &G,
         ctx: &'ctx Context,
         dtype: BasicTypeEnum<'ctx>,
-        ndims: Option<u64>,
+        ndims: u64,
     ) -> Self {
         let llvm_usize = generator.get_size_type(ctx);
         let llvm_ndarray = Self::llvm_type(ctx, llvm_usize);
 
         NDArrayType { ty: llvm_ndarray, dtype, ndims, llvm_usize }
+    }
+
+    /// Creates an instance of [`NDArrayType`] as a result of a broadcast operation over one or more
+    /// `ndarray` operands.
+    #[must_use]
+    pub fn new_broadcast<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        dtype: BasicTypeEnum<'ctx>,
+        inputs: &[NDArrayType<'ctx>],
+    ) -> Self {
+        assert!(!inputs.is_empty());
+
+        Self::new(generator, ctx, dtype, inputs.iter().map(NDArrayType::ndims).max().unwrap())
     }
 
     /// Creates an instance of [`NDArrayType`] with `ndims` of 0.
@@ -126,7 +145,7 @@ impl<'ctx> NDArrayType<'ctx> {
         let llvm_usize = generator.get_size_type(ctx);
         let llvm_ndarray = Self::llvm_type(ctx, llvm_usize);
 
-        NDArrayType { ty: llvm_ndarray, dtype, ndims: Some(0), llvm_usize }
+        NDArrayType { ty: llvm_ndarray, dtype, ndims: 0, llvm_usize }
     }
 
     /// Creates an [`NDArrayType`] from a [unifier type][Type].
@@ -145,7 +164,7 @@ impl<'ctx> NDArrayType<'ctx> {
         NDArrayType {
             ty: Self::llvm_type(ctx.ctx, llvm_usize),
             dtype: llvm_dtype,
-            ndims: Some(ndims),
+            ndims,
             llvm_usize,
         }
     }
@@ -155,7 +174,7 @@ impl<'ctx> NDArrayType<'ctx> {
     pub fn from_type(
         ptr_ty: PointerType<'ctx>,
         dtype: BasicTypeEnum<'ctx>,
-        ndims: Option<u64>,
+        ndims: u64,
         llvm_usize: IntType<'ctx>,
     ) -> Self {
         debug_assert!(Self::is_representable(ptr_ty, llvm_usize).is_ok());
@@ -177,20 +196,40 @@ impl<'ctx> NDArrayType<'ctx> {
 
     /// Returns the number of dimensions of this `ndarray` type.
     #[must_use]
-    pub fn ndims(&self) -> Option<u64> {
+    pub fn ndims(&self) -> u64 {
         self.ndims
     }
 
     /// Allocates an instance of [`NDArrayValue`] as if by calling `alloca` on the base type.
+    ///
+    /// See [`ProxyType::raw_alloca`].
     #[must_use]
-    pub fn alloca<G: CodeGenerator + ?Sized>(
+    pub fn alloca(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_pointer_value(
+            self.raw_alloca(ctx, name),
+            self.dtype,
+            self.ndims,
+            self.llvm_usize,
+            name,
+        )
+    }
+
+    /// Allocates an instance of [`NDArrayValue`] as if by calling `alloca` on the base type.
+    ///
+    /// See [`ProxyType::raw_alloca_var`].
+    #[must_use]
+    pub fn alloca_var<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca(generator, ctx, name),
+            self.raw_alloca_var(generator, ctx, name),
             self.dtype,
             self.ndims,
             self.llvm_usize,
@@ -214,7 +253,7 @@ impl<'ctx> NDArrayType<'ctx> {
         ndims: IntValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        let ndarray = self.alloca(generator, ctx, name);
+        let ndarray = self.alloca_var(generator, ctx, name);
 
         let itemsize = ctx
             .builder
@@ -247,35 +286,7 @@ impl<'ctx> NDArrayType<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        assert!(self.ndims.is_some(), "NDArrayType::construct can only be called on an instance with compile-time known ndims (self.ndims = Some(ndims))");
-
-        let Some(ndims) = self.ndims.map(|ndims| self.llvm_usize.const_int(ndims, false)) else {
-            unreachable!()
-        };
-
-        self.construct_impl(generator, ctx, ndims, name)
-    }
-
-    /// Allocate an [`NDArrayValue`] on the stack given its `ndims` and `dtype`.
-    ///
-    /// `shape` and `strides` will be automatically allocated onto the stack.
-    ///
-    /// The returned ndarray's content will be:
-    /// - `data`: uninitialized.
-    /// - `itemsize`: set to the size of `dtype`.
-    /// - `ndims`: set to the value of `ndims`.
-    /// - `shape`: allocated with an array of length `ndims` with uninitialized values.
-    /// - `strides`: allocated with an array of length `ndims` with uninitialized values.
-    #[deprecated = "Prefer construct_uninitialized or construct_*_shape."]
-    #[must_use]
-    pub fn construct_dyn_ndims<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ndims: IntValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        assert!(self.ndims.is_none(), "NDArrayType::construct_dyn_ndims can only be called on an instance with compile-time unknown ndims (self.ndims = None)");
+        let ndims = self.llvm_usize.const_int(self.ndims, false);
 
         self.construct_impl(generator, ctx, ndims, name)
     }
@@ -291,9 +302,9 @@ impl<'ctx> NDArrayType<'ctx> {
         shape: &[u64],
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        assert!(self.ndims.is_none_or(|ndims| shape.len() as u64 == ndims));
+        assert_eq!(shape.len() as u64, self.ndims);
 
-        let ndarray = Self::new(generator, ctx.ctx, self.dtype, Some(shape.len() as u64))
+        let ndarray = Self::new(generator, ctx.ctx, self.dtype, shape.len() as u64)
             .construct_uninitialized(generator, ctx, name);
 
         let llvm_usize = generator.get_size_type(ctx.ctx);
@@ -326,9 +337,9 @@ impl<'ctx> NDArrayType<'ctx> {
         shape: &[IntValue<'ctx>],
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        assert!(self.ndims.is_none_or(|ndims| shape.len() as u64 == ndims));
+        assert_eq!(shape.len() as u64, self.ndims);
 
-        let ndarray = Self::new(generator, ctx.ctx, self.dtype, Some(shape.len() as u64))
+        let ndarray = Self::new(generator, ctx.ctx, self.dtype, shape.len() as u64)
             .construct_uninitialized(generator, ctx, name);
 
         let llvm_usize = generator.get_size_type(ctx.ctx);
@@ -368,7 +379,7 @@ impl<'ctx> NDArrayType<'ctx> {
         let value = value.as_basic_value_enum();
 
         assert_eq!(value.get_type(), self.dtype);
-        assert!(self.ndims.is_none_or(|ndims| ndims == 0));
+        assert_eq!(self.ndims, 0);
 
         // We have to put the value on the stack to get a data pointer.
         let data = ctx.builder.build_alloca(value.get_type(), "construct_unsized").unwrap();
@@ -425,36 +436,8 @@ impl<'ctx> ProxyType<'ctx> for NDArrayType<'ctx> {
         Self::is_representable(llvm_ty, generator.get_size_type(ctx))
     }
 
-    fn raw_alloca<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> <Self::Value as ProxyValue<'ctx>>::Base {
-        generator
-            .gen_var_alloc(
-                ctx,
-                self.as_base_type().get_element_type().into_struct_type().into(),
-                name,
-            )
-            .unwrap()
-    }
-
-    fn array_alloca<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        size: IntValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> ArraySliceValue<'ctx> {
-        generator
-            .gen_array_var_alloc(
-                ctx,
-                self.as_base_type().get_element_type().into_struct_type().into(),
-                size,
-                name,
-            )
-            .unwrap()
+    fn alloca_type(&self) -> impl BasicType<'ctx> {
+        self.as_base_type().get_element_type().into_struct_type()
     }
 
     fn as_base_type(&self) -> Self::Base {

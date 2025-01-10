@@ -159,7 +159,7 @@ struct SymbolTableReader<'a> {
     strtab: &'a [u8],
 }
 
-impl<'a> SymbolTableReader<'a> {
+impl SymbolTableReader<'_> {
     pub fn find_index_by_name(&self, sym_name: &[u8]) -> Option<usize> {
         self.symtab.iter().position(|sym| {
             if let Ok(dynsym_name) = name_starting_at_slice(self.strtab, sym.st_name as usize) {

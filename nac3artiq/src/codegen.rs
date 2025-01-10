@@ -162,7 +162,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
     }
 }
 
-impl<'b> CodeGenerator for ArtiqCodeGenerator<'b> {
+impl CodeGenerator for ArtiqCodeGenerator<'_> {
     fn get_name(&self) -> &str {
         &self.name
     }
@@ -464,7 +464,7 @@ fn format_rpc_arg<'ctx>(
             let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
             let ndims = extract_ndims(&ctx.unifier, ndims);
             let dtype = ctx.get_llvm_type(generator, elem_ty);
-            let ndarray = NDArrayType::new(generator, ctx.ctx, dtype, Some(ndims))
+            let ndarray = NDArrayType::new(generator, ctx.ctx, dtype, ndims)
                 .map_value(arg.into_pointer_value(), None);
 
             let ndims = llvm_usize.const_int(ndims, false);
@@ -597,7 +597,7 @@ fn format_rpc_ret<'ctx>(
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ret_ty);
             let dtype_llvm = ctx.get_llvm_type(generator, dtype);
             let ndims = extract_ndims(&ctx.unifier, ndims);
-            let ndarray = NDArrayType::new(generator, ctx.ctx, dtype_llvm, Some(ndims))
+            let ndarray = NDArrayType::new(generator, ctx.ctx, dtype_llvm, ndims)
                 .construct_uninitialized(generator, ctx, None);
 
             // NOTE: Current content of `ndarray`:
@@ -1505,7 +1505,7 @@ pub fn call_rtio_log_impl<'ctx>(
 /// Generates a call to `core_log`.
 pub fn gen_core_log<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    obj: Option<&(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
     generator: &mut dyn CodeGenerator,
@@ -1522,7 +1522,7 @@ pub fn gen_core_log<'ctx>(
 /// Generates a call to `rtio_log`.
 pub fn gen_rtio_log<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    obj: Option<&(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
     generator: &mut dyn CodeGenerator,

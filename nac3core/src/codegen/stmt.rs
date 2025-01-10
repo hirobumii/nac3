@@ -16,7 +16,11 @@ use super::{
     gen_in_range_check,
     irrt::{handle_slice_indices, list_slice_assignment},
     macros::codegen_unreachable,
-    values::{ArrayLikeIndexer, ArraySliceValue, ListValue, RangeValue},
+    types::ndarray::NDArrayType,
+    values::{
+        ndarray::{RustNDIndex, ScalarOrNDArray},
+        ArrayLikeIndexer, ArraySliceValue, ListValue, ProxyValue, RangeValue,
+    },
     CodeGenContext, CodeGenerator,
 };
 use crate::{
@@ -411,7 +415,52 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
         {
             // Handle NDArray item assignment
-            todo!("ndarray subscript assignment is not yet implemented");
+            // Process target
+            let target = generator
+                .gen_expr(ctx, target)?
+                .unwrap()
+                .to_basic_value_enum(ctx, generator, target_ty)?;
+
+            // Process key
+            let key = RustNDIndex::from_subscript_expr(generator, ctx, key)?;
+
+            // Process value
+            let value = value.to_basic_value_enum(ctx, generator, value_ty)?;
+
+            // Reference code:
+            // ```python
+            // target = target[key]
+            // value = np.asarray(value)
+            //
+            // shape = np.broadcast_shape((target, value))
+            //
+            // target = np.broadcast_to(target, shape)
+            // value = np.broadcast_to(value, shape)
+            //
+            // # ...and finally copy 1-1 from value to target.
+            // ```
+
+            let target = NDArrayType::from_unifier_type(generator, ctx, target_ty)
+                .map_value(target.into_pointer_value(), None);
+            let target = target.index(generator, ctx, &key);
+
+            let value = ScalarOrNDArray::from_value(generator, ctx, (value_ty, value))
+                .to_ndarray(generator, ctx);
+
+            let broadcast_ndims =
+                [target.get_type().ndims(), value.get_type().ndims()].into_iter().max().unwrap();
+            let broadcast_result = NDArrayType::new(
+                generator,
+                ctx.ctx,
+                value.get_type().element_type(),
+                broadcast_ndims,
+            )
+            .broadcast(generator, ctx, &[target, value]);
+
+            let target = broadcast_result.ndarrays[0];
+            let value = broadcast_result.ndarrays[1];
+
+            target.copy_data_from(generator, ctx, value);
         }
         _ => {
             panic!("encountered unknown target type: {}", ctx.unifier.stringify(target_ty));

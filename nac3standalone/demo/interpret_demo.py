@@ -67,7 +67,7 @@ def _bool(x):
 
 def _float(x):
     if isinstance(x, np.ndarray):
-        return np.float_(x)
+        return np.float64(x)
     else:
         return float(x)
 
@@ -111,6 +111,9 @@ def patch(module):
     def output_strln(x):
         print(x, end='')
 
+    def output_int32_list(x):
+        print([int(e) for e in x])
+
     def dbg_stack_address(_):
         return 0
 
@@ -126,11 +129,12 @@ def patch(module):
             return output_float
         elif name == "output_str":
             return output_strln
+        elif name == "output_int32_list":
+            return output_int32_list
         elif name in {
             "output_bool",
             "output_int32",
             "output_int64",
-            "output_int32_list",
             "output_uint32",
             "output_uint64",
             "output_strln",
@@ -179,6 +183,16 @@ def patch(module):
     module.np_identity = np.identity
     module.np_array = np.array
 
+    # NumPy NDArray view functions
+    module.np_broadcast_to = np.broadcast_to
+    module.np_transpose = np.transpose
+    module.np_reshape = np.reshape
+
+    # NumPy NDArray property getters
+    module.np_size = np.size
+    module.np_shape = np.shape
+    module.np_strides = lambda ndarray: ndarray.strides
+
     # NumPy Math functions
     module.np_isnan = np.isnan
     module.np_isinf = np.isinf
@@ -218,8 +232,6 @@ def patch(module):
     module.np_ldexp = np.ldexp
     module.np_hypot = np.hypot
     module.np_nextafter = np.nextafter
-    module.np_transpose = np.transpose
-    module.np_reshape = np.reshape
 
     # SciPy Math functions
     module.sp_spec_erf = special.erf

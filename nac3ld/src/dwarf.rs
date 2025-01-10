@@ -30,7 +30,7 @@ pub struct DwarfReader<'a> {
     pub virt_addr: u32,
 }
 
-impl<'a> DwarfReader<'a> {
+impl DwarfReader<'_> {
     pub fn new(slice: &[u8], virt_addr: u32) -> DwarfReader {
         DwarfReader { slice, virt_addr }
     }
@@ -113,7 +113,7 @@ pub struct DwarfWriter<'a> {
     pub offset: usize,
 }
 
-impl<'a> DwarfWriter<'a> {
+impl DwarfWriter<'_> {
     pub fn new(slice: &mut [u8]) -> DwarfWriter {
         DwarfWriter { slice, offset: 0 }
     }
@@ -375,7 +375,7 @@ pub struct FDE_Records<'a> {
     available: usize,
 }
 
-impl<'a> Iterator for FDE_Records<'a> {
+impl Iterator for FDE_Records<'_> {
     type Item = (u32, u32);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -423,7 +423,7 @@ pub struct EH_Frame_Hdr<'a> {
     fdes: Vec<(u32, u32)>,
 }
 
-impl<'a> EH_Frame_Hdr<'a> {
+impl EH_Frame_Hdr<'_> {
     /// Create a [EH_Frame_Hdr] object, and write out the fixed fields of `.eh_frame_hdr` to memory.
     ///
     /// Load address is not known at this point.

@@ -24,42 +24,52 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
     src_arr: ListValue<'ctx>,
     src_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
 ) {
-    let size_ty = generator.get_size_type(ctx.ctx);
-    let int8_ptr = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
-    let int32 = ctx.ctx.i32_type();
-    let (fun_symbol, elem_ptr_type) = ("__nac3_list_slice_assign_var_size", int8_ptr);
+    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
+    let llvm_i32 = ctx.ctx.i32_type();
+
+    assert_eq!(dest_idx.0.get_type(), llvm_i32);
+    assert_eq!(dest_idx.1.get_type(), llvm_i32);
+    assert_eq!(dest_idx.2.get_type(), llvm_i32);
+    assert_eq!(src_idx.0.get_type(), llvm_i32);
+    assert_eq!(src_idx.1.get_type(), llvm_i32);
+    assert_eq!(src_idx.2.get_type(), llvm_i32);
+
+    let (fun_symbol, elem_ptr_type) = ("__nac3_list_slice_assign_var_size", llvm_pi8);
     let slice_assign_fun = {
         let ty_vec = vec![
-            int32.into(),         // dest start idx
-            int32.into(),         // dest end idx
-            int32.into(),         // dest step
+            llvm_i32.into(),      // dest start idx
+            llvm_i32.into(),      // dest end idx
+            llvm_i32.into(),      // dest step
             elem_ptr_type.into(), // dest arr ptr
-            int32.into(),         // dest arr len
-            int32.into(),         // src start idx
-            int32.into(),         // src end idx
-            int32.into(),         // src step
+            llvm_i32.into(),      // dest arr len
+            llvm_i32.into(),      // src start idx
+            llvm_i32.into(),      // src end idx
+            llvm_i32.into(),      // src step
             elem_ptr_type.into(), // src arr ptr
-            int32.into(),         // src arr len
-            int32.into(),         // size
+            llvm_i32.into(),      // src arr len
+            llvm_i32.into(),      // size
         ];
         ctx.module.get_function(fun_symbol).unwrap_or_else(|| {
-            let fn_t = int32.fn_type(ty_vec.as_slice(), false);
+            let fn_t = llvm_i32.fn_type(ty_vec.as_slice(), false);
             ctx.module.add_function(fun_symbol, fn_t, None)
         })
     };
 
-    let zero = int32.const_zero();
-    let one = int32.const_int(1, false);
+    let zero = llvm_i32.const_zero();
+    let one = llvm_i32.const_int(1, false);
     let dest_arr_ptr = dest_arr.data().base_ptr(ctx, generator);
     let dest_arr_ptr =
         ctx.builder.build_pointer_cast(dest_arr_ptr, elem_ptr_type, "dest_arr_ptr_cast").unwrap();
     let dest_len = dest_arr.load_size(ctx, Some("dest.len"));
-    let dest_len = ctx.builder.build_int_truncate_or_bit_cast(dest_len, int32, "srclen32").unwrap();
+    let dest_len =
+        ctx.builder.build_int_truncate_or_bit_cast(dest_len, llvm_i32, "srclen32").unwrap();
     let src_arr_ptr = src_arr.data().base_ptr(ctx, generator);
     let src_arr_ptr =
         ctx.builder.build_pointer_cast(src_arr_ptr, elem_ptr_type, "src_arr_ptr_cast").unwrap();
     let src_len = src_arr.load_size(ctx, Some("src.len"));
-    let src_len = ctx.builder.build_int_truncate_or_bit_cast(src_len, int32, "srclen32").unwrap();
+    let src_len =
+        ctx.builder.build_int_truncate_or_bit_cast(src_len, llvm_i32, "srclen32").unwrap();
 
     // index in bound and positive should be done
     // assert if dest.step == 1 then len(src) <= len(dest) else len(src) == len(dest), and
@@ -136,7 +146,7 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
                     BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
                     _ => codegen_unreachable!(ctx),
                 };
-                ctx.builder.build_int_truncate_or_bit_cast(s, int32, "size").unwrap()
+                ctx.builder.build_int_truncate_or_bit_cast(s, llvm_i32, "size").unwrap()
             }
             .into(),
         ];
@@ -147,6 +157,7 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
             .map(Either::unwrap_left)
             .unwrap()
     };
+
     // update length
     let need_update =
         ctx.builder.build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update").unwrap();
@@ -155,7 +166,8 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
     let cont_bb = ctx.ctx.append_basic_block(current, "cont");
     ctx.builder.build_conditional_branch(need_update, update_bb, cont_bb).unwrap();
     ctx.builder.position_at_end(update_bb);
-    let new_len = ctx.builder.build_int_z_extend_or_bit_cast(new_len, size_ty, "new_len").unwrap();
+    let new_len =
+        ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len").unwrap();
     dest_arr.store_size(ctx, generator, new_len);
     ctx.builder.build_unconditional_branch(cont_bb).unwrap();
     ctx.builder.position_at_end(cont_bb);

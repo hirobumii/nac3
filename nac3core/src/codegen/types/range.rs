@@ -1,13 +1,12 @@
 use inkwell::{
     context::Context,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
-    values::IntValue,
     AddressSpace,
 };
 
 use super::ProxyType;
 use crate::codegen::{
-    values::{ArraySliceValue, ProxyValue, RangeValue},
+    values::{ProxyValue, RangeValue},
     {CodeGenContext, CodeGenerator},
 };
 
@@ -78,15 +77,29 @@ impl<'ctx> RangeType<'ctx> {
     }
 
     /// Allocates an instance of [`RangeValue`] as if by calling `alloca` on the base type.
+    ///
+    /// See [`ProxyType::raw_alloca`].
     #[must_use]
     pub fn alloca<G: CodeGenerator + ?Sized>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_pointer_value(self.raw_alloca(ctx, name), name)
+    }
+
+    /// Allocates an instance of [`RangeValue`] as if by calling `alloca` on the base type.
+    ///
+    /// See [`ProxyType::raw_alloca_var`].
+    #[must_use]
+    pub fn alloca_var<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca(generator, ctx, name),
+            self.raw_alloca_var(generator, ctx, name),
             name,
         )
     }
@@ -126,36 +139,8 @@ impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
         Self::is_representable(llvm_ty)
     }
 
-    fn raw_alloca<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> <Self::Value as ProxyValue<'ctx>>::Base {
-        generator
-            .gen_var_alloc(
-                ctx,
-                self.as_base_type().get_element_type().into_struct_type().into(),
-                name,
-            )
-            .unwrap()
-    }
-
-    fn array_alloca<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        size: IntValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> ArraySliceValue<'ctx> {
-        generator
-            .gen_array_var_alloc(
-                ctx,
-                self.as_base_type().get_element_type().into_struct_type().into(),
-                size,
-                name,
-            )
-            .unwrap()
+    fn alloca_type(&self) -> impl BasicType<'ctx> {
+        self.as_base_type().get_element_type().into_struct_type()
     }
 
     fn as_base_type(&self) -> Self::Base {

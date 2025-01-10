@@ -15,7 +15,7 @@ use super::{
 };
 use crate::toplevel::helper::PrimDef;
 
-impl<'a> Inferencer<'a> {
+impl Inferencer<'_> {
     fn should_have_value(&mut self, expr: &Expr<Option<Type>>) -> Result<(), HashSet<String>> {
         if matches!(expr.custom, Some(ty) if self.unifier.unioned(ty, self.primitives.none)) {
             Err(HashSet::from([format!("Error at {}: cannot have value none", expr.location)]))
@@ -94,7 +94,7 @@ impl<'a> Inferencer<'a> {
         // there are some cases where the custom field is None
         if let Some(ty) = &expr.custom {
             if !matches!(&expr.node, ExprKind::Constant { value: Constant::Ellipsis, .. })
-                && !ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::List.id())
+                && ty.obj_id(self.unifier).is_none_or(|id| id != PrimDef::List.id())
                 && !self.unifier.is_concrete(*ty, &self.function_data.bound_variables)
             {
                 return Err(HashSet::from([format!(

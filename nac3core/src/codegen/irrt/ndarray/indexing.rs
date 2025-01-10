@@ -5,6 +5,11 @@ use crate::codegen::{
     CodeGenContext, CodeGenerator,
 };
 
+/// Generates a call to `__nac3_ndarray_index`.
+///
+/// Performs [basic indexing](https://numpy.org/doc/stable/user/basics.indexing.html#basic-indexing)
+/// on `src_ndarray` using `indices`, writing the result to `dst_ndarray`, corresponding to the
+/// operation `dst_ndarray = src_ndarray[indices]`.
 pub fn call_nac3_ndarray_index<'ctx, G: CodeGenerator + ?Sized>(
     generator: &G,
     ctx: &CodeGenContext<'ctx, '_>,

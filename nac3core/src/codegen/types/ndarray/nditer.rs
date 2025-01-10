@@ -14,7 +14,7 @@ use crate::codegen::{
     types::structure::{check_struct_type_matches_fields, StructField, StructFields},
     values::{
         ndarray::{NDArrayValue, NDIterValue},
-        ArraySliceValue, ProxyValue,
+        ArrayLikeValue, ArraySliceValue, ProxyValue, TypedArrayLikeAdapter,
     },
     CodeGenContext, CodeGenerator,
 };
@@ -109,8 +109,31 @@ impl<'ctx> NDIterType<'ctx> {
         self.llvm_usize
     }
 
+    /// Allocates an instance of [`NDIterValue`] as if by calling `alloca` on the base type.
+    ///
+    /// See [`ProxyType::raw_alloca`].
     #[must_use]
-    pub fn alloca<G: CodeGenerator + ?Sized>(
+    pub fn alloca(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        parent: NDArrayValue<'ctx>,
+        indices: ArraySliceValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_pointer_value(
+            self.raw_alloca(ctx, name),
+            parent,
+            indices,
+            self.llvm_usize,
+            name,
+        )
+    }
+
+    /// Allocates an instance of [`NDIterValue`] as if by calling `alloca` on the base type.
+    ///
+    /// See [`ProxyType::raw_alloca_var`].
+    #[must_use]
+    pub fn alloca_var<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -119,7 +142,7 @@ impl<'ctx> NDIterType<'ctx> {
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca(generator, ctx, name),
+            self.raw_alloca_var(generator, ctx, name),
             parent,
             indices,
             self.llvm_usize,
@@ -128,6 +151,11 @@ impl<'ctx> NDIterType<'ctx> {
     }
 
     /// Allocate an [`NDIter`] that iterates through the given `ndarray`.
+    ///
+    /// Note: This function allocates an array on the stack at the current builder location, which
+    /// may lead to stack explosion if called in a hot loop. Therefore, callers are recommended to
+    /// call `llvm.stacksave` before calling this function and call `llvm.stackrestore` after the
+    /// [`NDIter`] is no longer needed.
     #[must_use]
     pub fn construct<G: CodeGenerator + ?Sized>(
         &self,
@@ -135,22 +163,18 @@ impl<'ctx> NDIterType<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         ndarray: NDArrayValue<'ctx>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        let nditer = self.raw_alloca(generator, ctx, None);
-        let ndims = ndarray.load_ndims(ctx);
+        let nditer = self.raw_alloca_var(generator, ctx, None);
+        let ndims = self.llvm_usize.const_int(ndarray.get_type().ndims(), false);
 
         // The caller has the responsibility to allocate 'indices' for `NDIter`.
         let indices =
             generator.gen_array_var_alloc(ctx, self.llvm_usize.into(), ndims, None).unwrap();
+        let indices =
+            TypedArrayLikeAdapter::from(indices, |_, _, v| v.into_int_value(), |_, _, v| v.into());
 
-        let nditer = <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            nditer,
-            ndarray,
-            indices,
-            self.llvm_usize,
-            None,
-        );
+        let nditer = self.map_value(nditer, ndarray, indices.as_slice_value(ctx, generator), None);
 
-        irrt::ndarray::call_nac3_nditer_initialize(generator, ctx, nditer, ndarray, indices);
+        irrt::ndarray::call_nac3_nditer_initialize(generator, ctx, nditer, ndarray, &indices);
 
         nditer
     }
@@ -197,36 +221,8 @@ impl<'ctx> ProxyType<'ctx> for NDIterType<'ctx> {
         Self::is_representable(llvm_ty, generator.get_size_type(ctx))
     }
 
-    fn raw_alloca<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> <Self::Value as ProxyValue<'ctx>>::Base {
-        generator
-            .gen_var_alloc(
-                ctx,
-                self.as_base_type().get_element_type().into_struct_type().into(),
-                name,
-            )
-            .unwrap()
-    }
-
-    fn array_alloca<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        size: IntValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> ArraySliceValue<'ctx> {
-        generator
-            .gen_array_var_alloc(
-                ctx,
-                self.as_base_type().get_element_type().into_struct_type().into(),
-                size,
-                name,
-            )
-            .unwrap()
+    fn alloca_type(&self) -> impl BasicType<'ctx> {
+        self.as_base_type().get_element_type().into_struct_type()
     }
 
     fn as_base_type(&self) -> Self::Base {

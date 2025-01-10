@@ -51,8 +51,8 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>>: ArrayLikeValue<'ctx> {
     /// This function should be called with a valid index.
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx>;
@@ -76,8 +76,8 @@ pub trait UntypedArrayLikeAccessor<'ctx, Index = IntValue<'ctx>>:
     /// This function should be called with a valid index.
     unsafe fn get_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &Index,
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
@@ -107,8 +107,8 @@ pub trait UntypedArrayLikeMutator<'ctx, Index = IntValue<'ctx>>:
     /// This function should be called with a valid index.
     unsafe fn set_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &Index,
         value: BasicValueEnum<'ctx>,
     ) {
@@ -130,32 +130,33 @@ pub trait UntypedArrayLikeMutator<'ctx, Index = IntValue<'ctx>>:
 }
 
 /// An array-like value that can have its array elements accessed as an arbitrary type `T`.
-pub trait TypedArrayLikeAccessor<'ctx, T, Index = IntValue<'ctx>>:
+pub trait TypedArrayLikeAccessor<'ctx, G: CodeGenerator + ?Sized, T, Index = IntValue<'ctx>>:
     UntypedArrayLikeAccessor<'ctx, Index>
 {
     /// Casts an element from [`BasicValueEnum`] into `T`.
     fn downcast_to_type(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         value: BasicValueEnum<'ctx>,
     ) -> T;
 
     /// # Safety
     ///
     /// This function should be called with a valid index.
-    unsafe fn get_typed_unchecked<G: CodeGenerator + ?Sized>(
+    unsafe fn get_typed_unchecked(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &Index,
         name: Option<&str>,
     ) -> T {
         let value = unsafe { self.get_unchecked(ctx, generator, idx, name) };
-        self.downcast_to_type(ctx, value)
+        self.downcast_to_type(ctx, generator, value)
     }
 
     /// Returns the data at the `idx`-th index.
-    fn get_typed<G: CodeGenerator + ?Sized>(
+    fn get_typed(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
@@ -163,62 +164,63 @@ pub trait TypedArrayLikeAccessor<'ctx, T, Index = IntValue<'ctx>>:
         name: Option<&str>,
     ) -> T {
         let value = self.get(ctx, generator, idx, name);
-        self.downcast_to_type(ctx, value)
+        self.downcast_to_type(ctx, generator, value)
     }
 }
 
 /// An array-like value that can have its array elements mutated as an arbitrary type `T`.
-pub trait TypedArrayLikeMutator<'ctx, T, Index = IntValue<'ctx>>:
+pub trait TypedArrayLikeMutator<'ctx, G: CodeGenerator + ?Sized, T, Index = IntValue<'ctx>>:
     UntypedArrayLikeMutator<'ctx, Index>
 {
     /// Casts an element from T into [`BasicValueEnum`].
     fn upcast_from_type(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         value: T,
     ) -> BasicValueEnum<'ctx>;
 
     /// # Safety
     ///
     /// This function should be called with a valid index.
-    unsafe fn set_typed_unchecked<G: CodeGenerator + ?Sized>(
+    unsafe fn set_typed_unchecked(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &Index,
         value: T,
     ) {
-        let value = self.upcast_from_type(ctx, value);
+        let value = self.upcast_from_type(ctx, generator, value);
         unsafe { self.set_unchecked(ctx, generator, idx, value) }
     }
 
     /// Sets the data at the `idx`-th index.
-    fn set_typed<G: CodeGenerator + ?Sized>(
+    fn set_typed(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &mut G,
         idx: &Index,
         value: T,
     ) {
-        let value = self.upcast_from_type(ctx, value);
+        let value = self.upcast_from_type(ctx, generator, value);
         self.set(ctx, generator, idx, value);
     }
 }
 
-/// Type alias for a function that casts a [`BasicValueEnum`] into a `T`.
-type ValueDowncastFn<'ctx, T> =
-    Box<dyn Fn(&mut CodeGenContext<'ctx, '_>, BasicValueEnum<'ctx>) -> T + 'ctx>;
-/// Type alias for a function that casts a `T` into a [`BasicValueEnum`].
-type ValueUpcastFn<'ctx, T> = Box<dyn Fn(&mut CodeGenContext<'ctx, '_>, T) -> BasicValueEnum<'ctx>>;
-
 /// An adapter for constraining untyped array values as typed values.
-pub struct TypedArrayLikeAdapter<'ctx, T, Adapted: ArrayLikeValue<'ctx> = ArraySliceValue<'ctx>> {
+#[derive(Copy, Clone)]
+pub struct TypedArrayLikeAdapter<
+    'ctx,
+    G: CodeGenerator + ?Sized,
+    T,
+    Adapted: ArrayLikeValue<'ctx> = ArraySliceValue<'ctx>,
+> {
     adapted: Adapted,
-    downcast_fn: ValueDowncastFn<'ctx, T>,
-    upcast_fn: ValueUpcastFn<'ctx, T>,
+    downcast_fn: fn(&CodeGenContext<'ctx, '_>, &G, BasicValueEnum<'ctx>) -> T,
+    upcast_fn: fn(&CodeGenContext<'ctx, '_>, &G, T) -> BasicValueEnum<'ctx>,
 }
 
-impl<'ctx, T, Adapted> TypedArrayLikeAdapter<'ctx, T, Adapted>
+impl<'ctx, G: CodeGenerator + ?Sized, T, Adapted> TypedArrayLikeAdapter<'ctx, G, T, Adapted>
 where
     Adapted: ArrayLikeValue<'ctx>,
 {
@@ -229,61 +231,70 @@ where
     /// * `upcast_fn` - The function converting a T into a [`BasicValueEnum`].
     pub fn from(
         adapted: Adapted,
-        downcast_fn: ValueDowncastFn<'ctx, T>,
-        upcast_fn: ValueUpcastFn<'ctx, T>,
+        downcast_fn: fn(&CodeGenContext<'ctx, '_>, &G, BasicValueEnum<'ctx>) -> T,
+        upcast_fn: fn(&CodeGenContext<'ctx, '_>, &G, T) -> BasicValueEnum<'ctx>,
     ) -> Self {
         TypedArrayLikeAdapter { adapted, downcast_fn, upcast_fn }
     }
 }
 
-impl<'ctx, T, Adapted> ArrayLikeValue<'ctx> for TypedArrayLikeAdapter<'ctx, T, Adapted>
+impl<'ctx, G: CodeGenerator + ?Sized, T, Adapted> ArrayLikeValue<'ctx>
+    for TypedArrayLikeAdapter<'ctx, G, T, Adapted>
 where
     Adapted: ArrayLikeValue<'ctx>,
 {
-    fn element_type<G: CodeGenerator + ?Sized>(
+    fn element_type<CG: CodeGenerator + ?Sized>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
-        generator: &G,
+        generator: &CG,
     ) -> AnyTypeEnum<'ctx> {
         self.adapted.element_type(ctx, generator)
     }
 
-    fn base_ptr<G: CodeGenerator + ?Sized>(
+    fn base_ptr<CG: CodeGenerator + ?Sized>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
-        generator: &G,
+        generator: &CG,
     ) -> PointerValue<'ctx> {
         self.adapted.base_ptr(ctx, generator)
     }
 
-    fn size<G: CodeGenerator + ?Sized>(
+    fn size<CG: CodeGenerator + ?Sized>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
-        generator: &G,
+        generator: &CG,
     ) -> IntValue<'ctx> {
         self.adapted.size(ctx, generator)
     }
+
+    fn as_slice_value<CG: CodeGenerator + ?Sized>(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &CG,
+    ) -> ArraySliceValue<'ctx> {
+        self.adapted.as_slice_value(ctx, generator)
+    }
 }
 
-impl<'ctx, T, Index, Adapted> ArrayLikeIndexer<'ctx, Index>
-    for TypedArrayLikeAdapter<'ctx, T, Adapted>
+impl<'ctx, G: CodeGenerator + ?Sized, T, Index, Adapted> ArrayLikeIndexer<'ctx, Index>
+    for TypedArrayLikeAdapter<'ctx, G, T, Adapted>
 where
     Adapted: ArrayLikeIndexer<'ctx, Index>,
 {
-    unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
+    unsafe fn ptr_offset_unchecked<CG: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &CG,
         idx: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         unsafe { self.adapted.ptr_offset_unchecked(ctx, generator, idx, name) }
     }
 
-    fn ptr_offset<G: CodeGenerator + ?Sized>(
+    fn ptr_offset<CG: CodeGenerator + ?Sized>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        generator: &mut CG,
         idx: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -291,44 +302,46 @@ where
     }
 }
 
-impl<'ctx, T, Index, Adapted> UntypedArrayLikeAccessor<'ctx, Index>
-    for TypedArrayLikeAdapter<'ctx, T, Adapted>
+impl<'ctx, G: CodeGenerator + ?Sized, T, Index, Adapted> UntypedArrayLikeAccessor<'ctx, Index>
+    for TypedArrayLikeAdapter<'ctx, G, T, Adapted>
 where
     Adapted: UntypedArrayLikeAccessor<'ctx, Index>,
 {
 }
-impl<'ctx, T, Index, Adapted> UntypedArrayLikeMutator<'ctx, Index>
-    for TypedArrayLikeAdapter<'ctx, T, Adapted>
+impl<'ctx, G: CodeGenerator + ?Sized, T, Index, Adapted> UntypedArrayLikeMutator<'ctx, Index>
+    for TypedArrayLikeAdapter<'ctx, G, T, Adapted>
 where
     Adapted: UntypedArrayLikeMutator<'ctx, Index>,
 {
 }
 
-impl<'ctx, T, Index, Adapted> TypedArrayLikeAccessor<'ctx, T, Index>
-    for TypedArrayLikeAdapter<'ctx, T, Adapted>
+impl<'ctx, G: CodeGenerator + ?Sized, T, Index, Adapted> TypedArrayLikeAccessor<'ctx, G, T, Index>
+    for TypedArrayLikeAdapter<'ctx, G, T, Adapted>
 where
     Adapted: UntypedArrayLikeAccessor<'ctx, Index>,
 {
     fn downcast_to_type(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         value: BasicValueEnum<'ctx>,
     ) -> T {
-        (self.downcast_fn)(ctx, value)
+        (self.downcast_fn)(ctx, generator, value)
     }
 }
 
-impl<'ctx, T, Index, Adapted> TypedArrayLikeMutator<'ctx, T, Index>
-    for TypedArrayLikeAdapter<'ctx, T, Adapted>
+impl<'ctx, G: CodeGenerator + ?Sized, T, Index, Adapted> TypedArrayLikeMutator<'ctx, G, T, Index>
+    for TypedArrayLikeAdapter<'ctx, G, T, Adapted>
 where
     Adapted: UntypedArrayLikeMutator<'ctx, Index>,
 {
     fn upcast_from_type(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         value: T,
     ) -> BasicValueEnum<'ctx> {
-        (self.upcast_fn)(ctx, value)
+        (self.upcast_fn)(ctx, generator, value)
     }
 }
 
@@ -384,12 +397,12 @@ impl<'ctx> ArrayLikeValue<'ctx> for ArraySliceValue<'ctx> {
 impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        let var_name = name.map(|v| format!("{v}.addr")).unwrap_or_default();
+        let var_name = name.or(self.2).map(|v| format!("{v}.addr")).unwrap_or_default();
 
         unsafe {
             ctx.builder

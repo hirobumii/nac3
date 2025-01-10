@@ -8,7 +8,7 @@ use super::{
     ArrayLikeIndexer, ArrayLikeValue, ProxyValue, UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
 };
 use crate::codegen::{
-    types::ListType,
+    types::{structure::StructField, ListType, ProxyType},
     {CodeGenContext, CodeGenerator},
 };
 
@@ -42,48 +42,26 @@ impl<'ctx> ListValue<'ctx> {
         ListValue { value: ptr, llvm_usize, name }
     }
 
+    fn items_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, PointerValue<'ctx>> {
+        self.get_type().get_fields(&ctx.ctx).items
+    }
+
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
     /// on the field.
     fn pptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.name.map(|v| format!("{v}.data.addr")).unwrap_or_default();
-
-        unsafe {
-            ctx.builder
-                .build_in_bounds_gep(
-                    self.as_base_value(),
-                    &[llvm_i32.const_zero(), llvm_i32.const_zero()],
-                    var_name.as_str(),
-                )
-                .unwrap()
-        }
-    }
-
-    /// Returns the pointer to the field storing the size of this `list`.
-    fn ptr_to_size(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        let llvm_i32 = ctx.ctx.i32_type();
-        let var_name = self.name.map(|v| format!("{v}.size.addr")).unwrap_or_default();
-
-        unsafe {
-            ctx.builder
-                .build_in_bounds_gep(
-                    self.as_base_value(),
-                    &[llvm_i32.const_zero(), llvm_i32.const_int(1, true)],
-                    var_name.as_str(),
-                )
-                .unwrap()
-        }
+        self.items_field(ctx).ptr_by_gep(ctx, self.value, self.name)
     }
 
     /// Stores the array of data elements `data` into this instance.
     fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
-        ctx.builder.build_store(self.pptr_to_data(ctx), data).unwrap();
+        self.items_field(ctx).set(ctx, self.value, data, self.name);
     }
 
     /// Convenience method for creating a new array storing data elements with the given element
     /// type `elem_ty` and `size`.
     ///
-    /// If `size` is [None], the size stored in the field of this instance is used instead.
+    /// If `size` is [None], the size stored in the field of this instance is used instead. If
+    /// `size` is resolved to `0` at runtime, `(T*) 0` will be assigned to `data`.
     pub fn create_data(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -114,6 +92,10 @@ impl<'ctx> ListValue<'ctx> {
         ListDataProxy(self)
     }
 
+    fn len_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, IntValue<'ctx>> {
+        self.get_type().get_fields(&ctx.ctx).len
+    }
+
     /// Stores the `size` of this `list` into this instance.
     pub fn store_size<G: CodeGenerator + ?Sized>(
         &self,
@@ -123,22 +105,33 @@ impl<'ctx> ListValue<'ctx> {
     ) {
         debug_assert_eq!(size.get_type(), generator.get_size_type(ctx.ctx));
 
-        let psize = self.ptr_to_size(ctx);
-        ctx.builder.build_store(psize, size).unwrap();
+        self.len_field(ctx).set(ctx, self.value, size, self.name);
     }
 
     /// Returns the size of this `list` as a value.
-    pub fn load_size(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
-        let psize = self.ptr_to_size(ctx);
-        let var_name = name
-            .map(ToString::to_string)
-            .or_else(|| self.name.map(|v| format!("{v}.size")))
-            .unwrap_or_default();
+    pub fn load_size(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> IntValue<'ctx> {
+        self.len_field(ctx).get(ctx, self.value, name)
+    }
 
-        ctx.builder
-            .build_load(psize, var_name.as_str())
-            .map(BasicValueEnum::into_int_value)
-            .unwrap()
+    /// Returns an instance of [`ListValue`] with the `items` pointer cast to `i8*`.
+    #[must_use]
+    pub fn as_i8_list<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &G,
+        ctx: &CodeGenContext<'ctx, '_>,
+    ) -> ListValue<'ctx> {
+        let llvm_i8 = ctx.ctx.i8_type();
+        let llvm_list_i8 = <Self as ProxyValue>::Type::new(generator, ctx.ctx, llvm_i8.into());
+
+        Self::from_pointer_value(
+            ctx.builder.build_pointer_cast(self.value, llvm_list_i8.as_base_type(), "").unwrap(),
+            self.llvm_usize,
+            self.name,
+        )
     }
 }
 
@@ -199,8 +192,8 @@ impl<'ctx> ArrayLikeValue<'ctx> for ListDataProxy<'ctx, '_> {
 impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+        ctx: &CodeGenContext<'ctx, '_>,
+        generator: &G,
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {

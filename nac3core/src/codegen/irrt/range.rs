@@ -6,6 +6,13 @@ use itertools::Either;
 
 use crate::codegen::{CodeGenContext, CodeGenerator};
 
+/// Invokes the `__nac3_range_slice_len` in IRRT.
+///
+/// - `start`: The `i32` start value for the slice.
+/// - `end`: The `i32` end value for the slice.
+/// - `step`: The `i32` step value for the slice.
+///
+/// Returns an `i32` value of the length of the slice.
 pub fn calculate_len_for_slice_range<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -14,9 +21,15 @@ pub fn calculate_len_for_slice_range<'ctx, G: CodeGenerator + ?Sized>(
     step: IntValue<'ctx>,
 ) -> IntValue<'ctx> {
     const SYMBOL: &str = "__nac3_range_slice_len";
+
+    let llvm_i32 = ctx.ctx.i32_type();
+
+    assert_eq!(start.get_type(), llvm_i32);
+    assert_eq!(end.get_type(), llvm_i32);
+    assert_eq!(step.get_type(), llvm_i32);
+
     let len_func = ctx.module.get_function(SYMBOL).unwrap_or_else(|| {
-        let i32_t = ctx.ctx.i32_type();
-        let fn_t = i32_t.fn_type(&[i32_t.into(), i32_t.into(), i32_t.into()], false);
+        let fn_t = llvm_i32.fn_type(&[llvm_i32.into(), llvm_i32.into(), llvm_i32.into()], false);
         ctx.module.add_function(SYMBOL, fn_t, None)
     });
 
@@ -33,6 +46,7 @@ pub fn calculate_len_for_slice_range<'ctx, G: CodeGenerator + ?Sized>(
         [None, None, None],
         ctx.current_loc,
     );
+
     ctx.builder
         .build_call(len_func, &[start.into(), end.into(), step.into()], "calc_len")
         .map(CallSiteValue::try_as_basic_value)

@@ -3,7 +3,7 @@ use std::{
     cmp::max,
     collections::{HashMap, HashSet},
     convert::{From, TryInto},
-    iter::once,
+    iter::{once, repeat_n},
     sync::Arc,
 };
 
@@ -187,7 +187,7 @@ fn fix_assignment_target_context(node: &mut ast::Located<ExprKind>) {
     }
 }
 
-impl<'a> Fold<()> for Inferencer<'a> {
+impl Fold<()> for Inferencer<'_> {
     type TargetU = Option<Type>;
     type Error = InferenceError;
 
@@ -657,7 +657,7 @@ impl<'a> Fold<()> for Inferencer<'a> {
 
 type InferenceResult = Result<Type, InferenceError>;
 
-impl<'a> Inferencer<'a> {
+impl Inferencer<'_> {
     /// Constrain a <: b
     /// Currently implemented as unification
     fn constrain(&mut self, a: Type, b: Type, location: &Location) -> Result<(), InferenceError> {
@@ -1234,6 +1234,45 @@ impl<'a> Inferencer<'a> {
             }));
         }
 
+        if ["np_shape".into(), "np_strides".into()].contains(id) && args.len() == 1 {
+            let ndarray = self.fold_expr(args.remove(0))?;
+
+            let ndims = arraylike_get_ndims(self.unifier, ndarray.custom.unwrap());
+
+            // Make a tuple of size `ndims` full of int32 (TODO: Make it usize)
+            let ret_ty = TypeEnum::TTuple {
+                ty: repeat_n(self.primitives.int32, ndims as usize).collect_vec(),
+                is_vararg_ctx: false,
+            };
+            let ret_ty = self.unifier.add_ty(ret_ty);
+
+            let func_ty = TypeEnum::TFunc(FunSignature {
+                args: vec![FuncArg {
+                    name: "a".into(),
+                    default_value: None,
+                    ty: ndarray.custom.unwrap(),
+                    is_vararg: false,
+                }],
+                ret: ret_ty,
+                vars: VarMap::new(),
+            });
+            let func_ty = self.unifier.add_ty(func_ty);
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(ret_ty),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(func_ty),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
+                    }),
+                    args: vec![ndarray],
+                    keywords: vec![],
+                },
+            }));
+        }
+
         if id == &"np_dot".into() {
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg1 = self.fold_expr(args.remove(0))?;
@@ -1555,7 +1594,7 @@ impl<'a> Inferencer<'a> {
             }));
         }
         // 2-argument ndarray n-dimensional factory functions
-        if id == &"np_reshape".into() && args.len() == 2 {
+        if ["np_reshape".into(), "np_broadcast_to".into()].contains(id) && args.len() == 2 {
             let arg0 = self.fold_expr(args.remove(0))?;
 
             let shape_expr = args.remove(0);

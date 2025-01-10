@@ -16,7 +16,11 @@
 //!   the returned object. This is similar to a `new` expression in C++ but the object is allocated
 //!   on the stack.
 
-use inkwell::{context::Context, types::BasicType, values::IntValue};
+use inkwell::{
+    context::Context,
+    types::BasicType,
+    values::{IntValue, PointerValue},
+};
 
 use super::{
     values::{ArraySliceValue, ProxyValue},
@@ -24,11 +28,13 @@ use super::{
 };
 pub use list::*;
 pub use range::*;
+pub use tuple::*;
 
 mod list;
 pub mod ndarray;
 mod range;
 pub mod structure;
+mod tuple;
 pub mod utils;
 
 /// A LLVM type that is used to represent a corresponding type in NAC3.
@@ -53,23 +59,66 @@ pub trait ProxyType<'ctx>: Into<Self::Base> {
         llvm_ty: Self::Base,
     ) -> Result<(), String>;
 
-    /// Creates a new value of this type, returning the LLVM instance of this value.
-    fn raw_alloca<G: CodeGenerator + ?Sized>(
+    /// Returns the type that should be used in `alloca` IR statements.
+    fn alloca_type(&self) -> impl BasicType<'ctx>;
+
+    /// Creates a new value of this type by invoking `alloca` at the current builder location,
+    /// returning a [`PointerValue`] instance representing the allocated value.
+    fn raw_alloca(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> PointerValue<'ctx> {
+        ctx.builder
+            .build_alloca(self.alloca_type().as_basic_type_enum(), name.unwrap_or_default())
+            .unwrap()
+    }
+
+    /// Creates a new value of this type by invoking `alloca` at the beginning of the function,
+    /// returning a [`PointerValue`] instance representing the allocated value.
+    fn raw_alloca_var<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
-    ) -> <Self::Value as ProxyValue<'ctx>>::Base;
+    ) -> PointerValue<'ctx> {
+        generator.gen_var_alloc(ctx, self.alloca_type().as_basic_type_enum(), name).unwrap()
+    }
 
-    /// Creates a new array value of this type, returning an [`ArraySliceValue`] encapsulating the
-    /// resulting array.
-    fn array_alloca<G: CodeGenerator + ?Sized>(
+    /// Creates a new array value of this type by invoking `alloca` at the current builder location,
+    /// returning an [`ArraySliceValue`] encapsulating the resulting array.
+    fn array_alloca(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        size: IntValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> ArraySliceValue<'ctx> {
+        ArraySliceValue::from_ptr_val(
+            ctx.builder
+                .build_array_alloca(
+                    self.alloca_type().as_basic_type_enum(),
+                    size,
+                    name.unwrap_or_default(),
+                )
+                .unwrap(),
+            size,
+            name,
+        )
+    }
+
+    /// Creates a new array value of this type by invoking `alloca` at the beginning of the
+    /// function, returning an [`ArraySliceValue`] encapsulating the resulting array.
+    fn array_alloca_var<G: CodeGenerator + ?Sized>(
         &self,
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         size: IntValue<'ctx>,
         name: Option<&'ctx str>,
-    ) -> ArraySliceValue<'ctx>;
+    ) -> ArraySliceValue<'ctx> {
+        generator
+            .gen_array_var_alloc(ctx, self.alloca_type().as_basic_type_enum(), size, name)
+            .unwrap()
+    }
 
     /// Returns the [base type][Self::Base] of this proxy.
     fn as_base_type(&self) -> Self::Base;
