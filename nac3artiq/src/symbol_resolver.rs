@@ -679,6 +679,11 @@ impl InnerResolver {
             return Ok(Ok(ty));
         }
 
+        // Early check for string type
+        if let Ok(_s) = obj.extract::<String>() {
+            return Ok(Ok(primitives.str));
+        }
+
         let (extracted_ty, inst_check) = match self.get_pyty_obj_type(
             py,
             {
@@ -686,6 +691,7 @@ impl InnerResolver {
                     self.primitive_ids.typevar,
                     self.primitive_ids.generic_alias.0,
                     self.primitive_ids.generic_alias.1,
+                    self.primitive_ids.string, // Add string type to the check
                 ]
                 .contains(&self.helper.id_fn.call1(py, (ty.clone(),))?.extract::<u64>(py)?)
                 {
@@ -943,8 +949,15 @@ impl InnerResolver {
                         |_| Ok(Err(format!("{obj} is not in the range of float64"))),
                         |_| Ok(Ok(extracted_ty)),
                     )
+                } else if let Ok(s) = obj.extract::<String>() {
+                        if unifier.unioned(extracted_ty, primitives.str) {
+                            Ok(Ok(primitives.str))
+                        } else {
+                            Ok(Err(format!("expected str, got {s}")))
+                        }
                 } else {
                     Ok(Ok(extracted_ty))
+                }
                 }
             }
         }
@@ -988,7 +1001,7 @@ impl InnerResolver {
         } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
             let val: String = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Str(val.clone()));
-            Ok(Some(ctx.gen_string(generator, val).into()))
+            return Ok(Some(ctx.gen_string(generator, val).into()));
         } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
             let val: f64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::F64(val));
@@ -1480,7 +1493,6 @@ impl InnerResolver {
             Err("only primitives values, option and tuple can be default parameter value".into())
         })
     }
-}
 
 impl SymbolResolver for Resolver {
     fn get_default_param_value(&self, expr: &ast::Expr) -> Option<SymbolValue> {

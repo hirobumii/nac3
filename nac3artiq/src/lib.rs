@@ -378,6 +378,18 @@ impl Nac3 {
         py: Python,
         link_fn: &dyn Fn(&Module) -> PyResult<T>,
     ) -> PyResult<T> {
+        // Pre-register string arguments in string store
+        Python::with_gil(|py| {
+            let mut string_store = self.string_store.write();
+            for arg in &args {
+                if let Ok(s) = arg.extract::<String>() {
+                    if !string_store.contains_key(&s) {
+                        string_store.insert(s.clone(), i32::try_from(string_store.len()).unwrap());
+                    }
+                }
+            }
+        });
+
         let size_t = self.isa.get_size_type();
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
             self.builtins.clone(),
@@ -993,55 +1005,64 @@ impl Nac3 {
             Isa::CortexA9 | Isa::Host => &timeline::EXTERN_TIME_FNS,
         };
         let (primitive, _) = TopLevelComposer::make_primitives(isa.get_size_type());
-        let builtins = vec![
-            (
-                "now_mu".into(),
-                FunSignature { args: vec![], ret: primitive.int64, vars: VarMap::new() },
-                Arc::new(GenCall::new(Box::new(move |ctx, _, _, _, _| {
-                    Ok(Some(time_fns.emit_now_mu(ctx)))
-                }))),
-            ),
-            (
-                "at_mu".into(),
-                FunSignature {
-                    args: vec![FuncArg {
-                        name: "t".into(),
-                        ty: primitive.int64,
-                        default_value: None,
-                        is_vararg: false,
-                    }],
-                    ret: primitive.none,
-                    vars: VarMap::new(),
-                },
-                Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args, generator| {
-                    let arg_ty = fun.0.args[0].ty;
-                    let arg =
-                        args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty).unwrap();
-                    time_fns.emit_at_mu(ctx, arg);
-                    Ok(None)
-                }))),
-            ),
-            (
-                "delay_mu".into(),
-                FunSignature {
-                    args: vec![FuncArg {
-                        name: "dt".into(),
-                        ty: primitive.int64,
-                        default_value: None,
-                        is_vararg: false,
-                    }],
-                    ret: primitive.none,
-                    vars: VarMap::new(),
-                },
-                Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args, generator| {
-                    let arg_ty = fun.0.args[0].ty;
-                    let arg =
-                        args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty).unwrap();
-                    time_fns.emit_delay_mu(ctx, arg);
-                    Ok(None)
-                }))),
-            ),
-        ];
+        let builtins = {
+            let mut b = vec![
+                (
+                    "now_mu".into(),
+                    FunSignature { args: vec![], ret: primitive.int64, vars: VarMap::new() },
+                    Arc::new(GenCall::new(Box::new(move |ctx, _, _, _, _| {
+                        Ok(Some(time_fns.emit_now_mu(ctx)))
+                    }))),
+                ),
+                (
+                    "at_mu".into(),
+                    FunSignature {
+                        args: vec![FuncArg {
+                            name: "t".into(),
+                            ty: primitive.int64,
+                            default_value: None,
+                            is_vararg: false,
+                        }],
+                        ret: primitive.none,
+                        vars: VarMap::new(),
+                    },
+                    Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args, generator| {
+                        let arg_ty = fun.0.args[0].ty;
+                        let arg =
+                            args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty).unwrap();
+                        time_fns.emit_at_mu(ctx, arg);
+                        Ok(None)
+                    }))),
+                ),
+                (
+                    "delay_mu".into(),
+                    FunSignature {
+                        args: vec![FuncArg {
+                            name: "dt".into(),
+                            ty: primitive.int64,
+                            default_value: None,
+                            is_vararg: false,
+                        }],
+                        ret: primitive.none,
+                        vars: VarMap::new(),
+                    },
+                    Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args, generator| {
+                        let arg_ty = fun.0.args[0].ty;
+                        let arg =
+                            args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty).unwrap();
+                        time_fns.emit_delay_mu(ctx, arg);
+                        Ok(None)
+                    }))),
+                ),
+            ];
+            b.push((
+                "str".into(),
+                FunSignature { args: vec![], ret: primitive.str, vars: VarMap::new() },
+                Arc::new(GenCall::new(Box::new(|_, _, _, _, _| Ok(None)))),
+            ));
+
+            b
+        };
 
         let builtins_mod = PyModule::import(py, "builtins").unwrap();
         let id_fn = builtins_mod.getattr("id").unwrap();
@@ -1086,6 +1107,7 @@ impl Nac3 {
         fs::write(working_directory.path().join("kernel.ld"), include_bytes!("kernel.ld")).unwrap();
 
         let mut string_store: HashMap<String, i32> = HashMap::default();
+        string_store.insert(String::new(), 0);
 
         // Keep this list of exceptions in sync with `EXCEPTION_ID_LOOKUP` in `artiq::firmware::ksupport::eh_artiq`
         // The exceptions declared here must be defined in `artiq.coredevice.exceptions`
