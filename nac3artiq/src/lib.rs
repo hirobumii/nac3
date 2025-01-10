@@ -159,6 +159,7 @@ pub struct PrimitivePythonId {
     generic_alias: (u64, u64),
     virtual_id: u64,
     option: u64,
+    module: u64,
 }
 
 type TopLevelComponent = (Stmt, String, PyObject);
@@ -1097,6 +1098,7 @@ impl Nac3 {
             tuple: get_attr_id(builtins_mod, "tuple"),
             exception: get_attr_id(builtins_mod, "Exception"),
             option: get_id(artiq_builtins.get_item("Option").ok().flatten().unwrap()),
+            module: get_attr_id(types_mod, "ModuleType"),
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
