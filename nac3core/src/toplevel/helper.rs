@@ -379,8 +379,15 @@ pub fn make_exception_fields(int32: Type, int64: Type, str: Type) -> Vec<(StrRef
 impl TopLevelDef {
     pub fn to_string(&self, unifier: &mut Unifier) -> String {
         match self {
-            TopLevelDef::Class { name, ancestors, fields, methods, type_vars, .. } => {
+            TopLevelDef::Class {
+                name, ancestors, fields, methods, attributes, type_vars, ..
+            } => {
                 let fields_str = fields
+                    .iter()
+                    .map(|(n, ty, _)| (n.to_string(), unifier.stringify(*ty)))
+                    .collect_vec();
+
+                let attributes_str = attributes
                     .iter()
                     .map(|(n, ty, _)| (n.to_string(), unifier.stringify(*ty)))
                     .collect_vec();
@@ -390,10 +397,11 @@ impl TopLevelDef {
                     .map(|(n, ty, id)| (n.to_string(), unifier.stringify(*ty), *id))
                     .collect_vec();
                 format!(
-                    "Class {{\nname: {:?},\nancestors: {:?},\nfields: {:?},\nmethods: {:?},\ntype_vars: {:?}\n}}",
+                    "Class {{\nname: {:?},\nancestors: {:?},\nfields: {:?},\nattributes: {:?},\nmethods: {:?},\ntype_vars: {:?}\n}}",
                     name,
                     ancestors.iter().map(|ancestor| ancestor.stringify(unifier)).collect_vec(),
                     fields_str.iter().map(|(a, _)| a).collect_vec(),
+                    attributes_str.iter().map(|(a, _)| a).collect_vec(),
                     methods_str.iter().map(|(a, b, _)| (a, b)).collect_vec(),
                     type_vars.iter().map(|id| unifier.stringify(*id)).collect_vec(),
                 )
