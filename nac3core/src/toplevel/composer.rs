@@ -202,6 +202,35 @@ impl TopLevelComposer {
         self.definition_ast_list.iter().map(|(def, ..)| def.clone()).collect_vec()
     }
 
+    /// register top level modules
+    pub fn register_top_level_module(
+        &mut self,
+        module_name: String,
+        name_to_pyid: Rc<HashMap<StrRef, u64>>,
+        resolver: Arc<dyn SymbolResolver + Send + Sync>,
+        location: Option<Location>
+    ) -> Result<DefinitionId, String> {
+        let mut attributes: HashMap<StrRef, DefinitionId> = HashMap::new();
+        for (name, _) in name_to_pyid.iter() {
+            if let Ok(def_id) = resolver.get_identifier_def(*name) {
+                // Avoid repeated attribute instances resulting from multiple imports of same module
+                if self.defined_names.contains(&format!("{module_name}.{name}")) {
+                    attributes.insert(*name, def_id);
+                }
+            };
+        }
+        let module_def = TopLevelDef::Module { 
+            name: module_name.clone().into(), 
+            module_id: DefinitionId(self.definition_ast_list.len()), 
+            attributes, 
+            resolver: Some(resolver), 
+            loc: location
+        };
+
+        self.definition_ast_list.push((Arc::new(RwLock::new(module_def)).into(), None));
+        Ok(DefinitionId(self.definition_ast_list.len() - 1))
+    }
+
     /// register, just remember the names of top level classes/function
     /// and check duplicate class/method/function definition
     pub fn register_top_level(

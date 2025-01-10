@@ -43,7 +43,7 @@ use nac3core::{
         OptimizationLevel,
     },
     nac3parser::{
-        ast::{Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
+        ast::{self, Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
         parser::parse_program,
     },
     symbol_resolver::SymbolResolver,
@@ -470,12 +470,14 @@ impl Nac3 {
         ];
         add_exceptions(&mut composer, &mut builtins_def, &mut builtins_ty, &exception_names);
 
+        // Stores a mapping from module id to attributes
         let mut module_to_resolver_cache: HashMap<u64, _> = HashMap::new();
 
         let mut rpc_ids = vec![];
         for (stmt, path, module) in &self.top_levels {
             let py_module: &PyAny = module.extract(py)?;
             let module_id: u64 = id_fn.call1((py_module,))?.extract()?;
+            let module_name: String = py_module.getattr("__name__")?.extract()?;
             let helper = helper.clone();
             let class_obj;
             if let StmtKind::ClassDef { name, .. } = &stmt.node {
@@ -490,7 +492,7 @@ impl Nac3 {
             } else {
                 class_obj = None;
             }
-            let (name_to_pyid, resolver) =
+            let (name_to_pyid, resolver, _, _) =
                 module_to_resolver_cache.get(&module_id).cloned().unwrap_or_else(|| {
                     let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
                     let members: &PyDict =
@@ -519,9 +521,10 @@ impl Nac3 {
                     })))
                         as Arc<dyn SymbolResolver + Send + Sync>;
                     let name_to_pyid = Rc::new(name_to_pyid);
+                    let module_location = ast::Location::new(1, 1, stmt.location.file);
                     module_to_resolver_cache
-                        .insert(module_id, (name_to_pyid.clone(), resolver.clone()));
-                    (name_to_pyid, resolver)
+                        .insert(module_id, (name_to_pyid.clone(), resolver.clone(), module_name.clone(), Some(module_location)));
+                    (name_to_pyid, resolver, module_name, Some(module_location))
                 });
 
             let (name, def_id, ty) = composer
@@ -593,6 +596,20 @@ impl Nac3 {
                     pyid_to_ty.insert(id, ty);
                 }
             }
+        }
+
+        // Adding top level module definitions
+        for (module_id, (module_name_to_pyid, module_resolver, module_name, module_location)) in module_to_resolver_cache.into_iter() {
+            let def_id= composer.register_top_level_module(
+                module_name,
+                module_name_to_pyid,
+                module_resolver,
+                module_location
+            ).map_err(|e| {
+                CompileError::new_err(format!("compilation failed\n----------\n{e}"))
+            })?;
+
+            self.pyid_to_def.write().insert(module_id, def_id);
         }
 
         let id_fun = PyModule::import(py, "builtins")?.getattr("id")?;
