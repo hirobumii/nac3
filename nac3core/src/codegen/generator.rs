@@ -19,6 +19,9 @@ pub trait CodeGenerator {
     fn get_name(&self) -> &str;
 
     /// Return an instance of [`IntType`] corresponding to the type of `size_t` for this instance.
+    ///
+    /// Prefer using [`CodeGenContext::get_size_type`] if [`CodeGenContext`] is available, as it is
+    /// equivalent to this function in a more concise syntax.
     fn get_size_type<'ctx>(&self, ctx: &'ctx Context) -> IntType<'ctx>;
 
     /// Generate function call and returns the function return value.

@@ -1,4 +1,5 @@
 use std::{
+    cell::OnceCell,
     collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -19,7 +20,7 @@ use inkwell::{
     module::Module,
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
-    types::{AnyType, BasicType, BasicTypeEnum},
+    types::{AnyType, BasicType, BasicTypeEnum, IntType},
     values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue},
     AddressSpace, IntPredicate, OptimizationLevel,
 };
@@ -226,13 +227,32 @@ pub struct CodeGenContext<'ctx, 'a> {
 
     /// The current source location.
     pub current_loc: Location,
+
+    /// The cached type of `size_t`.
+    llvm_usize: OnceCell<IntType<'ctx>>,
 }
 
-impl CodeGenContext<'_, '_> {
+impl<'ctx> CodeGenContext<'ctx, '_> {
     /// Whether the [current basic block][Builder::get_insert_block] referenced by `builder`
     /// contains a [terminator statement][BasicBlock::get_terminator].
     pub fn is_terminated(&self) -> bool {
         self.builder.get_insert_block().and_then(BasicBlock::get_terminator).is_some()
+    }
+
+    /// Returns a [`IntType`] representing `size_t` for the compilation target as specified by
+    /// [`self.registry`][WorkerRegistry].
+    pub fn get_size_type(&self) -> IntType<'ctx> {
+        *self.llvm_usize.get_or_init(|| {
+            self.ctx.ptr_sized_int_type(
+                &self
+                    .registry
+                    .llvm_options
+                    .create_target_machine()
+                    .map(|tm| tm.get_target_data())
+                    .unwrap(),
+                None,
+            )
+        })
     }
 }
 
@@ -987,6 +1007,7 @@ pub fn gen_func_impl<
         need_sret: has_sret,
         current_loc: Location::default(),
         debug_info: (dibuilder, compile_unit, func_scope.as_debug_info_scope()),
+        llvm_usize: OnceCell::default(),
     };
 
     let target_llvm_usize = context.ptr_sized_int_type(
