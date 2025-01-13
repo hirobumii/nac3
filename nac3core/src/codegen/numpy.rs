@@ -207,7 +207,7 @@ pub fn gen_ndarray_eye<'ctx>(
 
     let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
 
-    let llvm_usize = generator.get_size_type(context.ctx);
+    let llvm_usize = context.get_size_type();
     let llvm_dtype = context.get_llvm_type(generator, dtype);
 
     let nrows = context
@@ -244,7 +244,7 @@ pub fn gen_ndarray_identity<'ctx>(
 
     let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
 
-    let llvm_usize = generator.get_size_type(context.ctx);
+    let llvm_usize = context.get_size_type();
     let llvm_dtype = context.get_llvm_type(generator, dtype);
 
     let n = context
@@ -325,8 +325,8 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
             let common_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
 
             // Check shapes.
-            let a_size = a.size(generator, ctx);
-            let b_size = b.size(generator, ctx);
+            let a_size = a.size(ctx);
+            let b_size = b.size(ctx);
             let same_shape =
                 ctx.builder.build_int_compare(IntPredicate::EQ, a_size, b_size, "").unwrap();
             ctx.make_assert(
@@ -353,9 +353,9 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
                     let b_iter = NDIterType::new(generator, ctx.ctx).construct(generator, ctx, b);
                     Ok((a_iter, b_iter))
                 },
-                |generator, ctx, (a_iter, _b_iter)| {
+                |_, ctx, (a_iter, _b_iter)| {
                     // Only a_iter drives the condition, b_iter should have the same status.
-                    Ok(a_iter.has_element(generator, ctx))
+                    Ok(a_iter.has_element(ctx))
                 },
                 |_, ctx, _hooks, (a_iter, b_iter)| {
                     let a_scalar = a_iter.get_scalar(ctx);
@@ -385,9 +385,9 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
                     ctx.builder.build_store(result, new_result).unwrap();
                     Ok(())
                 },
-                |generator, ctx, (a_iter, b_iter)| {
-                    a_iter.next(generator, ctx);
-                    b_iter.next(generator, ctx);
+                |_, ctx, (a_iter, b_iter)| {
+                    a_iter.next(ctx);
+                    b_iter.next(ctx);
                     Ok(())
                 },
             )

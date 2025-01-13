@@ -30,7 +30,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (input_seq_ty, input_seq): (Type, BasicValueEnum<'ctx>),
 ) -> impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let zero = llvm_usize.const_zero();
     let one = llvm_usize.const_int(1, false);
 

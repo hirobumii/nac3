@@ -86,10 +86,10 @@ impl<'ctx> NDArrayType<'ctx> {
                     .collect_vec();
                 Ok((nditer, other_nditers))
             },
-            |generator, ctx, (out_nditer, _in_nditers)| {
+            |_, ctx, (out_nditer, _in_nditers)| {
                 // We can simply use `out_nditer`'s `has_element()`.
                 // `in_nditers`' `has_element()`s should return the same value.
-                Ok(out_nditer.has_element(generator, ctx))
+                Ok(out_nditer.has_element(ctx))
             },
             |generator, ctx, _hooks, (out_nditer, in_nditers)| {
                 // Get all the scalars from the broadcasted input ndarrays, pass them to `mapping`,
@@ -104,10 +104,10 @@ impl<'ctx> NDArrayType<'ctx> {
 
                 Ok(())
             },
-            |generator, ctx, (out_nditer, in_nditers)| {
+            |_, ctx, (out_nditer, in_nditers)| {
                 // Advance all iterators
-                out_nditer.next(generator, ctx);
-                in_nditers.iter().for_each(|nditer| nditer.next(generator, ctx));
+                out_nditer.next(ctx);
+                in_nditers.iter().for_each(|nditer| nditer.next(ctx));
                 Ok(())
             },
         )?;

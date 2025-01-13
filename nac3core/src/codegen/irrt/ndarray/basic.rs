@@ -20,7 +20,7 @@ pub fn call_nac3_ndarray_util_assert_shape_no_negative<'ctx, G: CodeGenerator + 
     ctx: &CodeGenContext<'ctx, '_>,
     shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
     assert_eq!(
@@ -28,11 +28,8 @@ pub fn call_nac3_ndarray_util_assert_shape_no_negative<'ctx, G: CodeGenerator + 
         llvm_usize.into()
     );
 
-    let name = get_usize_dependent_function_name(
-        generator,
-        ctx,
-        "__nac3_ndarray_util_assert_shape_no_negative",
-    );
+    let name =
+        get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_shape_no_negative");
 
     create_and_call_function(
         ctx,
@@ -57,7 +54,7 @@ pub fn call_nac3_ndarray_util_assert_output_shape_same<'ctx, G: CodeGenerator + 
     ndarray_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
     output_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
     assert_eq!(
@@ -69,11 +66,8 @@ pub fn call_nac3_ndarray_util_assert_output_shape_same<'ctx, G: CodeGenerator + 
         llvm_usize.into()
     );
 
-    let name = get_usize_dependent_function_name(
-        generator,
-        ctx,
-        "__nac3_ndarray_util_assert_output_shape_same",
-    );
+    let name =
+        get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_output_shape_same");
 
     create_and_call_function(
         ctx,
@@ -94,15 +88,14 @@ pub fn call_nac3_ndarray_util_assert_output_shape_same<'ctx, G: CodeGenerator + 
 ///
 /// Returns a [`usize`][CodeGenerator::get_size_type] value of the number of elements of an
 /// `ndarray`, corresponding to the value of `ndarray.size`.
-pub fn call_nac3_ndarray_size<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_size<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_ndarray = ndarray.get_type().as_base_type();
 
-    let name = get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_size");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_size");
 
     create_and_call_function(
         ctx,
@@ -120,15 +113,14 @@ pub fn call_nac3_ndarray_size<'ctx, G: CodeGenerator + ?Sized>(
 ///
 /// Returns a [`usize`][CodeGenerator::get_size_type] value of the number of bytes consumed by the
 /// data of the `ndarray`, corresponding to the value of `ndarray.nbytes`.
-pub fn call_nac3_ndarray_nbytes<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_nbytes<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_ndarray = ndarray.get_type().as_base_type();
 
-    let name = get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_nbytes");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_nbytes");
 
     create_and_call_function(
         ctx,
@@ -146,15 +138,14 @@ pub fn call_nac3_ndarray_nbytes<'ctx, G: CodeGenerator + ?Sized>(
 ///
 /// Returns a [`usize`][CodeGenerator::get_size_type] value of the size of the topmost dimension of
 /// the `ndarray`, corresponding to the value of `ndarray.__len__`.
-pub fn call_nac3_ndarray_len<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_len<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_ndarray = ndarray.get_type().as_base_type();
 
-    let name = get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_len");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_len");
 
     create_and_call_function(
         ctx,
@@ -171,15 +162,14 @@ pub fn call_nac3_ndarray_len<'ctx, G: CodeGenerator + ?Sized>(
 /// Generates a call to `__nac3_ndarray_is_c_contiguous`.
 ///
 /// Returns an `i1` value indicating whether the `ndarray` is C-contiguous.
-pub fn call_nac3_ndarray_is_c_contiguous<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_is_c_contiguous<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
     let llvm_i1 = ctx.ctx.bool_type();
     let llvm_ndarray = ndarray.get_type().as_base_type();
 
-    let name = get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_is_c_contiguous");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_is_c_contiguous");
 
     create_and_call_function(
         ctx,
@@ -196,20 +186,19 @@ pub fn call_nac3_ndarray_is_c_contiguous<'ctx, G: CodeGenerator + ?Sized>(
 /// Generates a call to `__nac3_ndarray_get_nth_pelement`.
 ///
 /// Returns a [`PointerValue`] to the `index`-th flattened element of the `ndarray`.
-pub fn call_nac3_ndarray_get_nth_pelement<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_get_nth_pelement<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
     index: IntValue<'ctx>,
 ) -> PointerValue<'ctx> {
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_ndarray = ndarray.get_type().as_base_type();
 
     assert_eq!(index.get_type(), llvm_usize);
 
-    let name = get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_get_nth_pelement");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_nth_pelement");
 
     create_and_call_function(
         ctx,
@@ -236,7 +225,7 @@ pub fn call_nac3_ndarray_get_pelement_by_indices<'ctx, G: CodeGenerator + ?Sized
 ) -> PointerValue<'ctx> {
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
     let llvm_ndarray = ndarray.get_type().as_base_type();
 
@@ -245,8 +234,7 @@ pub fn call_nac3_ndarray_get_pelement_by_indices<'ctx, G: CodeGenerator + ?Sized
         llvm_usize.into()
     );
 
-    let name =
-        get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_get_pelement_by_indices");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_pelement_by_indices");
 
     create_and_call_function(
         ctx,
@@ -266,15 +254,13 @@ pub fn call_nac3_ndarray_get_pelement_by_indices<'ctx, G: CodeGenerator + ?Sized
 /// Generates a call to `__nac3_ndarray_set_strides_by_shape`.
 ///
 /// Sets `ndarray.strides` assuming that `ndarray.shape` is C-contiguous.
-pub fn call_nac3_ndarray_set_strides_by_shape<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_set_strides_by_shape<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
 ) {
     let llvm_ndarray = ndarray.get_type().as_base_type();
 
-    let name =
-        get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_set_strides_by_shape");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_set_strides_by_shape");
 
     create_and_call_function(
         ctx,
@@ -291,13 +277,12 @@ pub fn call_nac3_ndarray_set_strides_by_shape<'ctx, G: CodeGenerator + ?Sized>(
 /// Copies all elements from `src_ndarray` to `dst_ndarray` using their flattened views. The number
 /// of elements in `src_ndarray` must be greater than or equal to the number of elements in
 /// `dst_ndarray`.
-pub fn call_nac3_ndarray_copy_data<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_copy_data<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     src_ndarray: NDArrayValue<'ctx>,
     dst_ndarray: NDArrayValue<'ctx>,
 ) {
-    let name = get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_copy_data");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_copy_data");
 
     infer_and_call_function(
         ctx,

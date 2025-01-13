@@ -245,7 +245,7 @@ impl<'ctx> RustNDIndex<'ctx> {
             }
             RustNDIndex::Slice(in_rust_slice) => {
                 let user_slice_ptr =
-                    SliceType::new(ctx.ctx, ctx.ctx.i32_type(), generator.get_size_type(ctx.ctx))
+                    SliceType::new(ctx.ctx, ctx.ctx.i32_type(), ctx.get_size_type())
                         .alloca_var(generator, ctx, None);
                 in_rust_slice.write_to_slice(ctx, user_slice_ptr);
 

@@ -35,7 +35,7 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
     let lhs_dtype = arraylike_flatten_element_type(&mut ctx.unifier, in_a_ty);
     let rhs_dtype = arraylike_flatten_element_type(&mut ctx.unifier, in_b_ty);
 
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_dst_dtype = ctx.get_llvm_type(generator, dst_dtype);
 
     // Deduce ndims of the result of matmul.
@@ -315,7 +315,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 let result_shape = result.shape();
                 out_ndarray.assert_can_be_written_by_out(generator, ctx, result_shape);
 
-                out_ndarray.copy_data_from(generator, ctx, result);
+                out_ndarray.copy_data_from(ctx, result);
                 out_ndarray
             }
         }

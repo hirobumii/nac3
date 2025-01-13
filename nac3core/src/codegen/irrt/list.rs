@@ -24,7 +24,7 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
     src_arr: ListValue<'ctx>,
     src_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
 ) {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
     let llvm_i32 = ctx.ctx.i32_type();
 
@@ -168,7 +168,7 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
     ctx.builder.position_at_end(update_bb);
     let new_len =
         ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len").unwrap();
-    dest_arr.store_size(ctx, generator, new_len);
+    dest_arr.store_size(ctx, new_len);
     ctx.builder.build_unconditional_branch(cont_bb).unwrap();
     ctx.builder.position_at_end(cont_bb);
 }

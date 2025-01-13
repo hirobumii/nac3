@@ -70,7 +70,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         dst_ndarray.copy_shape_from_array(generator, ctx, new_shape.base_ptr(ctx, generator));
 
         // Resolve negative indices
-        let size = self.size(generator, ctx);
+        let size = self.size(ctx);
         let dst_ndims = self.llvm_usize.const_int(dst_ndarray.get_type().ndims(), false);
         let dst_shape = dst_ndarray.shape();
         irrt::ndarray::call_nac3_ndarray_reshape_resolve_and_check_new_shape(
@@ -84,10 +84,10 @@ impl<'ctx> NDArrayValue<'ctx> {
         gen_if_callback(
             generator,
             ctx,
-            |generator, ctx| Ok(self.is_c_contiguous(generator, ctx)),
+            |_, ctx| Ok(self.is_c_contiguous(ctx)),
             |generator, ctx| {
                 // Reshape is possible without copying
-                dst_ndarray.set_strides_contiguous(generator, ctx);
+                dst_ndarray.set_strides_contiguous(ctx);
                 dst_ndarray.store_data(ctx, self.data().base_ptr(ctx, generator));
 
                 Ok(())
@@ -97,7 +97,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 unsafe {
                     dst_ndarray.create_data(generator, ctx);
                 }
-                dst_ndarray.copy_data_from(generator, ctx, *self);
+                dst_ndarray.copy_data_from(ctx, *self);
 
                 Ok(())
             },

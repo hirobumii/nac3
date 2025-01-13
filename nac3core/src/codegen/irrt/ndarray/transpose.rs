@@ -23,12 +23,12 @@ pub fn call_nac3_ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
     dst_ndarray: NDArrayValue<'ctx>,
     axes: Option<&impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>>,
 ) {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
 
     assert!(axes.is_none_or(|axes| axes.size(ctx, generator).get_type() == llvm_usize));
     assert!(axes.is_none_or(|axes| axes.element_type(ctx, generator) == llvm_usize.into()));
 
-    let name = get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_transpose");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_transpose");
     infer_and_call_function(
         ctx,
         &name,

@@ -471,7 +471,7 @@ fn format_rpc_arg<'ctx>(
             // libproto_artiq: NDArray = [data[..], dim_sz[..]]
 
             let llvm_i1 = ctx.ctx.bool_type();
-            let llvm_usize = generator.get_size_type(ctx.ctx);
+            let llvm_usize = ctx.get_size_type();
 
             let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
             let ndims = extract_ndims(&ctx.unifier, ndims);
@@ -556,7 +556,7 @@ fn format_rpc_ret<'ctx>(
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_i8_8 = ctx.ctx.struct_type(&[llvm_i8.array_type(8).into()], false);
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
     let rpc_recv = ctx.module.get_function("rpc_recv").unwrap_or_else(|| {
@@ -697,7 +697,7 @@ fn format_rpc_ret<'ctx>(
 
             // debug_assert(nelems * sizeof(T) >= ndarray_nbytes)
             if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
-                let num_elements = ndarray.size(generator, ctx);
+                let num_elements = ndarray.size(ctx);
 
                 let expected_ndarray_nbytes =
                     ctx.builder.build_int_mul(num_elements, itemsize, "").unwrap();
@@ -809,7 +809,7 @@ fn rpc_codegen_callback_fn<'ctx>(
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
     let int8 = ctx.ctx.i8_type();
     let int32 = ctx.ctx.i32_type();
-    let size_type = generator.get_size_type(ctx.ctx);
+    let size_type = ctx.get_size_type();
     let ptr_type = int8.ptr_type(AddressSpace::default());
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
@@ -1167,7 +1167,7 @@ fn polymorphic_print<'ctx>(
 
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_i64 = ctx.ctx.i64_type();
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
 
     let suffix = suffix.unwrap_or_default();
 

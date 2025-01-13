@@ -53,20 +53,16 @@ impl<'ctx> NDIterValue<'ctx> {
     /// If `ndarray` is unsized, this returns true only for the first iteration.
     /// If `ndarray` is 0-sized, this always returns false.
     #[must_use]
-    pub fn has_element<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &G,
-        ctx: &CodeGenContext<'ctx, '_>,
-    ) -> IntValue<'ctx> {
-        irrt::ndarray::call_nac3_nditer_has_element(generator, ctx, *self)
+    pub fn has_element(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+        irrt::ndarray::call_nac3_nditer_has_element(ctx, *self)
     }
 
     /// Go to the next element. If `has_element()` is false, then this has undefined behavior.
     ///
     /// If `ndarray` is unsized, this can only be called once.
     /// If `ndarray` is 0-sized, this can never be called.
-    pub fn next<G: CodeGenerator + ?Sized>(&self, generator: &G, ctx: &CodeGenContext<'ctx, '_>) {
-        irrt::ndarray::call_nac3_nditer_next(generator, ctx, *self);
+    pub fn next(&self, ctx: &CodeGenContext<'ctx, '_>) {
+        irrt::ndarray::call_nac3_nditer_next(ctx, *self);
     }
 
     fn element_field(
@@ -167,10 +163,10 @@ impl<'ctx> NDArrayValue<'ctx> {
             |generator, ctx| {
                 Ok(NDIterType::new(generator, ctx.ctx).construct(generator, ctx, *self))
             },
-            |generator, ctx, nditer| Ok(nditer.has_element(generator, ctx)),
+            |_, ctx, nditer| Ok(nditer.has_element(ctx)),
             |generator, ctx, hooks, nditer| body(generator, ctx, hooks, nditer),
-            |generator, ctx, nditer| {
-                nditer.next(generator, ctx);
+            |_, ctx, nditer| {
+                nditer.next(ctx);
                 Ok(())
             },
         )

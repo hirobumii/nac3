@@ -52,7 +52,7 @@ impl<'ctx> TupleType<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         ty: Type,
     ) -> Self {
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_usize = ctx.get_size_type();
 
         // Sanity check on object type.
         let TypeEnum::TTuple { ty: tys, .. } = &*ctx.unifier.get_ty_immutable(ty) else {

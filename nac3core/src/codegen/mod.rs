@@ -1212,7 +1212,7 @@ pub fn type_aligned_alloca<'ctx, G: CodeGenerator + ?Sized>(
 
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let align_ty = align_ty.into();
 
     let size = ctx.builder.build_int_truncate_or_bit_cast(size, llvm_usize, "").unwrap();

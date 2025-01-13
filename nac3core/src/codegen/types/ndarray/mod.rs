@@ -158,7 +158,7 @@ impl<'ctx> NDArrayType<'ctx> {
         let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
         let llvm_dtype = ctx.get_llvm_type(generator, dtype);
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_usize = ctx.get_size_type();
         let ndims = extract_ndims(&ctx.unifier, ndims);
 
         NDArrayType {
@@ -259,9 +259,9 @@ impl<'ctx> NDArrayType<'ctx> {
             .builder
             .build_int_truncate_or_bit_cast(self.dtype.size_of().unwrap(), self.llvm_usize, "")
             .unwrap();
-        ndarray.store_itemsize(ctx, generator, itemsize);
+        ndarray.store_itemsize(ctx, itemsize);
 
-        ndarray.store_ndims(ctx, generator, ndims);
+        ndarray.store_ndims(ctx, ndims);
 
         ndarray.create_shape(ctx, self.llvm_usize, ndims);
         ndarray.create_strides(ctx, self.llvm_usize, ndims);
@@ -307,7 +307,7 @@ impl<'ctx> NDArrayType<'ctx> {
         let ndarray = Self::new(generator, ctx.ctx, self.dtype, shape.len() as u64)
             .construct_uninitialized(generator, ctx, name);
 
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_usize = ctx.get_size_type();
 
         // Write shape
         let ndarray_shape = ndarray.shape();
@@ -342,7 +342,7 @@ impl<'ctx> NDArrayType<'ctx> {
         let ndarray = Self::new(generator, ctx.ctx, self.dtype, shape.len() as u64)
             .construct_uninitialized(generator, ctx, name);
 
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_usize = ctx.get_size_type();
 
         // Write shape
         let ndarray_shape = ndarray.shape();

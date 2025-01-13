@@ -306,7 +306,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
             // Handle list item assignment
-            let llvm_usize = generator.get_size_type(ctx.ctx);
+            let llvm_usize = ctx.get_size_type();
             let target_item_ty = iter_type_vars(list_params).next().unwrap().ty;
 
             let target = generator
@@ -367,10 +367,8 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                     .unwrap()
                     .to_basic_value_enum(ctx, generator, key_ty)?
                     .into_int_value();
-                let index = ctx
-                    .builder
-                    .build_int_s_extend(index, generator.get_size_type(ctx.ctx), "sext")
-                    .unwrap();
+                let index =
+                    ctx.builder.build_int_s_extend(index, ctx.get_size_type(), "sext").unwrap();
 
                 // handle negative index
                 let is_negative = ctx
@@ -378,7 +376,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                     .build_int_compare(
                         IntPredicate::SLT,
                         index,
-                        generator.get_size_type(ctx.ctx).const_zero(),
+                        ctx.get_size_type().const_zero(),
                         "is_neg",
                     )
                     .unwrap();
@@ -460,7 +458,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             let target = broadcast_result.ndarrays[0];
             let value = broadcast_result.ndarrays[1];
 
-            target.copy_data_from(generator, ctx, value);
+            target.copy_data_from(ctx, value);
         }
         _ => {
             panic!("encountered unknown target type: {}", ctx.unifier.stringify(target_ty));
@@ -484,7 +482,7 @@ pub fn gen_for<G: CodeGenerator>(
     let var_assignment = ctx.var_assignment.clone();
 
     let int32 = ctx.ctx.i32_type();
-    let size_t = generator.get_size_type(ctx.ctx);
+    let size_t = ctx.get_size_type();
     let zero = int32.const_zero();
     let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let body_bb = ctx.ctx.append_basic_block(current, "for.body");

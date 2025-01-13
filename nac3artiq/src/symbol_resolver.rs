@@ -1007,7 +1007,7 @@ impl InnerResolver {
                 }
                 _ => unreachable!("must be list"),
             };
-            let size_t = generator.get_size_type(ctx.ctx);
+            let size_t = ctx.get_size_type();
             let ty = if len == 0
                 && matches!(&*ctx.unifier.get_ty_immutable(elem_ty), TypeEnum::TVar { .. })
             {
@@ -1096,7 +1096,7 @@ impl InnerResolver {
 
             let llvm_i8 = ctx.ctx.i8_type();
             let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-            let llvm_usize = generator.get_size_type(ctx.ctx);
+            let llvm_usize = ctx.get_size_type();
             let llvm_ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty);
             let dtype = llvm_ndarray.element_type();
 

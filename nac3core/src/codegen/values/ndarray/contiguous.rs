@@ -130,7 +130,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         gen_if_callback(
             generator,
             ctx,
-            |generator, ctx| Ok(self.is_c_contiguous(generator, ctx)),
+            |_, ctx| Ok(self.is_c_contiguous(ctx)),
             |_, ctx| {
                 // This ndarray is contiguous.
                 let data = self.data_field(ctx).get(ctx, self.as_base_value(), self.name);
@@ -184,7 +184,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         // Copy shape and update strides
         let shape = carray.load_shape(ctx);
         ndarray.copy_shape_from_array(generator, ctx, shape);
-        ndarray.set_strides_contiguous(generator, ctx);
+        ndarray.set_strides_contiguous(ctx);
 
         // Share data
         let data = carray.load_data(ctx);

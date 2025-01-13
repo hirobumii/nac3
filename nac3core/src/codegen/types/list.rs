@@ -152,7 +152,7 @@ impl<'ctx> ListType<'ctx> {
             _ => panic!("Expected `list` type, but got {}", ctx.unifier.stringify(ty)),
         };
 
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_usize = ctx.get_size_type();
         let llvm_elem_type = if let TypeEnum::TVar { .. } = &*ctx.unifier.get_ty_immutable(ty) {
             None
         } else {
@@ -273,7 +273,7 @@ impl<'ctx> ListType<'ctx> {
         }
 
         let plist = self.alloca_var(generator, ctx, name);
-        plist.store_size(ctx, generator, len);
+        plist.store_size(ctx, len);
 
         let item = self.item.unwrap_or(self.llvm_usize.into());
         plist.create_data(ctx, item, None);
@@ -300,7 +300,7 @@ impl<'ctx> ListType<'ctx> {
     ) -> <Self as ProxyType<'ctx>>::Value {
         let plist = self.alloca_var(generator, ctx, name);
 
-        plist.store_size(ctx, generator, self.llvm_usize.const_zero());
+        plist.store_size(ctx, self.llvm_usize.const_zero());
         plist.create_data(ctx, self.item.unwrap_or(self.llvm_usize.into()), None);
 
         plist

@@ -165,7 +165,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     .build_global_string_ptr(v, "const")
                     .map(|v| v.as_pointer_value().into())
                     .unwrap();
-                let size = generator.get_size_type(self.ctx).const_int(v.len() as u64, false);
+                let size = self.get_size_type().const_int(v.len() as u64, false);
                 let ty = self.get_llvm_type(generator, self.primitives.str).into_struct_type();
                 ty.const_named_struct(&[str_ptr, size.into()]).into()
             }
@@ -318,7 +318,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                         .build_global_string_ptr(v, "const")
                         .map(|v| v.as_pointer_value().into())
                         .unwrap();
-                    let size = generator.get_size_type(self.ctx).const_int(v.len() as u64, false);
+                    let size = self.get_size_type().const_int(v.len() as u64, false);
                     let ty = self.get_llvm_type(generator, self.primitives.str);
                     let val =
                         ty.into_struct_type().const_named_struct(&[str_ptr, size.into()]).into();
@@ -820,7 +820,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
     fun: (&FunSignature, DefinitionId),
     params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
 
     let definition = ctx.top_level.definitions.read().get(fun.1 .0).cloned().unwrap();
     let id;
@@ -1020,7 +1020,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
         }
         let is_vararg = args.iter().any(|arg| arg.is_vararg);
         if is_vararg {
-            params.push(generator.get_size_type(ctx.ctx).into());
+            params.push(ctx.get_size_type().into());
         }
         let fun_ty = match ret_type {
             Some(ret_type) if !has_sret => ret_type.fn_type(&params, is_vararg),
@@ -1128,7 +1128,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         return Ok(None);
     };
     let int32 = ctx.ctx.i32_type();
-    let size_t = generator.get_size_type(ctx.ctx);
+    let size_t = ctx.get_size_type();
     let zero_size_t = size_t.const_zero();
     let zero_32 = int32.const_zero();
 
@@ -1258,15 +1258,13 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     }
 
     // Emits the content of `cont_bb`
-    let emit_cont_bb =
-        |ctx: &CodeGenContext<'ctx, '_>, generator: &dyn CodeGenerator, list: ListValue<'ctx>| {
-            ctx.builder.position_at_end(cont_bb);
-            list.store_size(
-                ctx,
-                generator,
-                ctx.builder.build_load(index, "index").map(BasicValueEnum::into_int_value).unwrap(),
-            );
-        };
+    let emit_cont_bb = |ctx: &CodeGenContext<'ctx, '_>, list: ListValue<'ctx>| {
+        ctx.builder.position_at_end(cont_bb);
+        list.store_size(
+            ctx,
+            ctx.builder.build_load(index, "index").map(BasicValueEnum::into_int_value).unwrap(),
+        );
+    };
 
     for cond in ifs {
         let result = if let Some(v) = generator.gen_expr(ctx, cond)? {
@@ -1274,7 +1272,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         } else {
             // Bail if the predicate is an ellipsis - Emit cont_bb contents in case the
             // no element matches the predicate
-            emit_cont_bb(ctx, generator, list);
+            emit_cont_bb(ctx, list);
 
             return Ok(None);
         };
@@ -1287,7 +1285,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 
     let Some(elem) = generator.gen_expr(ctx, elt)? else {
         // Similarly, bail if the generator expression is an ellipsis, but keep cont_bb contents
-        emit_cont_bb(ctx, generator, list);
+        emit_cont_bb(ctx, list);
 
         return Ok(None);
     };
@@ -1304,7 +1302,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         .unwrap();
     ctx.builder.build_unconditional_branch(test_bb).unwrap();
 
-    emit_cont_bb(ctx, generator, list);
+    emit_cont_bb(ctx, list);
 
     Ok(Some(list.as_base_value().into()))
 }
@@ -1350,7 +1348,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
     } else if ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id())
         || ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id())
     {
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_usize = ctx.get_size_type();
 
         if op.variant == BinopVariant::AugAssign {
             todo!("Augmented assignment operators not implemented for lists")
@@ -1972,7 +1970,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 let rhs = rhs.into_struct_value();
 
                 let llvm_i32 = ctx.ctx.i32_type();
-                let llvm_usize = generator.get_size_type(ctx.ctx);
+                let llvm_usize = ctx.get_size_type();
 
                 let plhs = generator.gen_var_alloc(ctx, lhs.get_type().into(), None).unwrap();
                 ctx.builder.build_store(plhs, lhs).unwrap();
@@ -2000,7 +1998,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     &[llvm_usize.const_zero(), llvm_i32.const_int(1, false)],
                     None,
                 ).into_int_value();
-                let result = call_string_eq(generator, ctx, lhs_ptr, lhs_len, rhs_ptr, rhs_len);
+                let result = call_string_eq(ctx, lhs_ptr, lhs_len, rhs_ptr, rhs_len);
                 if *op == Cmpop::NotEq {
                     ctx.builder.build_not(result, "").unwrap() 
                 } else {
@@ -2010,7 +2008,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 .iter()
                 .any(|ty| ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id()))
             {
-                let llvm_usize = generator.get_size_type(ctx.ctx);
+                let llvm_usize = ctx.get_size_type();
 
                 let gen_list_cmpop = |generator: &mut G,
                                       ctx: &mut CodeGenContext<'ctx, '_>|
@@ -2375,7 +2373,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
 ) -> Result<Option<ValueEnum<'ctx>>, String> {
     ctx.current_loc = expr.location;
     let int32 = ctx.ctx.i32_type();
-    let usize = generator.get_size_type(ctx.ctx);
+    let usize = ctx.get_size_type();
     let zero = int32.const_int(0, false);
 
     let loc = ctx.debug_info.0.create_debug_location(
@@ -2480,7 +2478,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             } else {
                 Some(elements[0].get_type())
             };
-            let length = generator.get_size_type(ctx.ctx).const_int(elements.len() as u64, false);
+            let length = ctx.get_size_type().const_int(elements.len() as u64, false);
             let arr_str_ptr = if let Some(ty) = ty {
                 ListType::new(generator, ctx.ctx, ty).construct(
                     generator,
@@ -3009,7 +3007,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         };
                         let raw_index = ctx
                             .builder
-                            .build_int_s_extend(raw_index, generator.get_size_type(ctx.ctx), "sext")
+                            .build_int_s_extend(raw_index, ctx.get_size_type(), "sext")
                             .unwrap();
                         // handle negative index
                         let is_negative = ctx
@@ -3017,7 +3015,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             .build_int_compare(
                                 IntPredicate::SLT,
                                 raw_index,
-                                generator.get_size_type(ctx.ctx).const_zero(),
+                                ctx.get_size_type().const_zero(),
                                 "is_neg",
                             )
                             .unwrap();

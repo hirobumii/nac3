@@ -112,7 +112,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             target_shape.base_ptr(ctx, generator),
         );
 
-        irrt::ndarray::call_nac3_ndarray_broadcast_to(generator, ctx, *self, broadcast_ndarray);
+        irrt::ndarray::call_nac3_ndarray_broadcast_to(ctx, *self, broadcast_ndarray);
         broadcast_ndarray
     }
 }
@@ -146,7 +146,7 @@ fn broadcast_shapes<'ctx, G, Shape>(
     Shape: TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
         + TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>,
 {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_shape_ty = ShapeEntryType::new(generator, ctx.ctx);
 
     assert!(in_shape_entries
@@ -199,7 +199,7 @@ impl<'ctx> NDArrayType<'ctx> {
     ) -> BroadcastAllResult<'ctx, G> {
         assert!(!ndarrays.is_empty());
 
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_usize = ctx.get_size_type();
 
         // Infer the broadcast output ndims.
         let broadcast_ndims_int =

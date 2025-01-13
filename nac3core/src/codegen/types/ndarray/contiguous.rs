@@ -140,7 +140,7 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
         let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
         let llvm_dtype = ctx.get_llvm_type(generator, dtype);
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_usize = ctx.get_size_type();
 
         Self { ty: Self::llvm_type(ctx.ctx, llvm_dtype, llvm_usize), item: llvm_dtype, llvm_usize }
     }

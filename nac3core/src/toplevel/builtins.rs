@@ -1278,11 +1278,7 @@ impl<'a> BuiltinBuilder<'a> {
 
                     let size = ctx
                         .builder
-                        .build_int_truncate_or_bit_cast(
-                            ndarray.size(generator, ctx),
-                            ctx.ctx.i32_type(),
-                            "",
-                        )
+                        .build_int_truncate_or_bit_cast(ndarray.size(ctx), ctx.ctx.i32_type(), "")
                         .unwrap();
                     Ok(Some(size.into()))
                 }),

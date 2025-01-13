@@ -67,9 +67,7 @@ impl<'ctx> NDArrayType<'ctx> {
         unsafe { ndarray.create_data(generator, ctx) };
 
         // Copy all contents from the list.
-        irrt::ndarray::call_nac3_ndarray_array_write_list_to_array(
-            generator, ctx, list_value, ndarray,
-        );
+        irrt::ndarray::call_nac3_ndarray_array_write_list_to_array(ctx, list_value, ndarray);
 
         ndarray
     }
@@ -116,7 +114,7 @@ impl<'ctx> NDArrayType<'ctx> {
             }
 
             // Set strides, the `data` is contiguous
-            ndarray.set_strides_contiguous(generator, ctx);
+            ndarray.set_strides_contiguous(ctx);
 
             ndarray
         } else {
