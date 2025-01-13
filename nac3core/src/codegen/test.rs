@@ -97,6 +97,7 @@ fn test_primitives() {
         "};
     let statements = parse_program(source, FileName::default()).unwrap();
 
+    let context = inkwell::context::Context::create();
     let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 32).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
@@ -107,7 +108,7 @@ fn test_primitives() {
         Arc::new(Resolver { id_to_type: HashMap::new(), id_to_def: RwLock::new(HashMap::new()) })
             as Arc<dyn SymbolResolver + Send + Sync>;
 
-    let threads = vec![DefaultCodeGenerator::new("test".into(), 32).into()];
+    let threads = vec![DefaultCodeGenerator::new("test".into(), context.i32_type()).into()];
     let signature = FunSignature {
         args: vec![
             FuncArg {
@@ -260,6 +261,7 @@ fn test_simple_call() {
         "};
     let statements_2 = parse_program(source_2, FileName::default()).unwrap();
 
+    let context = inkwell::context::Context::create();
     let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 32).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
@@ -307,7 +309,7 @@ fn test_simple_call() {
         unreachable!()
     }
 
-    let threads = vec![DefaultCodeGenerator::new("test".into(), 32).into()];
+    let threads = vec![DefaultCodeGenerator::new("test".into(), context.i32_type()).into()];
     let mut function_data = FunctionData {
         resolver: resolver.clone(),
         bound_variables: Vec::new(),
@@ -439,7 +441,7 @@ fn test_simple_call() {
 #[test]
 fn test_classes_list_type_new() {
     let ctx = inkwell::context::Context::create();
-    let generator = DefaultCodeGenerator::new(String::new(), 64);
+    let generator = DefaultCodeGenerator::new(String::new(), ctx.i64_type());
 
     let llvm_i32 = ctx.i32_type();
     let llvm_usize = generator.get_size_type(&ctx);
@@ -459,7 +461,7 @@ fn test_classes_range_type_new() {
 #[test]
 fn test_classes_ndarray_type_new() {
     let ctx = inkwell::context::Context::create();
-    let generator = DefaultCodeGenerator::new(String::new(), 64);
+    let generator = DefaultCodeGenerator::new(String::new(), ctx.i64_type());
 
     let llvm_i32 = ctx.i32_type();
     let llvm_usize = generator.get_size_type(&ctx);

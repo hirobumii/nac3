@@ -29,6 +29,7 @@ use nac3core::{
     inkwell::{
         context::Context,
         module::Linkage,
+        targets::TargetMachine,
         types::{BasicType, IntType},
         values::{BasicValueEnum, IntValue, PointerValue, StructValue},
         AddressSpace, IntPredicate, OptimizationLevel,
@@ -87,19 +88,30 @@ pub struct ArtiqCodeGenerator<'a> {
 impl<'a> ArtiqCodeGenerator<'a> {
     pub fn new(
         name: String,
-        size_t: u32,
+        size_t: IntType<'_>,
         timeline: &'a (dyn TimeFns + Sync),
     ) -> ArtiqCodeGenerator<'a> {
-        assert!(size_t == 32 || size_t == 64);
+        assert!(matches!(size_t.get_bit_width(), 32 | 64));
         ArtiqCodeGenerator {
             name,
-            size_t,
+            size_t: size_t.get_bit_width(),
             name_counter: 0,
             start: None,
             end: None,
             timeline,
             parallel_mode: ParallelMode::None,
         }
+    }
+
+    #[must_use]
+    pub fn with_target_machine(
+        name: String,
+        ctx: &Context,
+        target_machine: &TargetMachine,
+        timeline: &'a (dyn TimeFns + Sync),
+    ) -> ArtiqCodeGenerator<'a> {
+        let llvm_usize = ctx.ptr_sized_int_type(&target_machine.get_target_data(), None);
+        Self::new(name, llvm_usize, timeline)
     }
 
     /// If the generator is currently in a direct-`parallel` block context, emits IR that resets the

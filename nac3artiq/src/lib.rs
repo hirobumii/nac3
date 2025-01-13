@@ -703,14 +703,18 @@ impl Nac3 {
             let buffer = buffer.as_slice().into();
             membuffer.lock().push(buffer);
         })));
-        let size_t = context
-            .ptr_sized_int_type(&self.get_llvm_target_machine().get_target_data(), None)
-            .get_bit_width();
         let num_threads = if is_multithreaded() { 4 } else { 1 };
         let thread_names: Vec<String> = (0..num_threads).map(|_| "main".to_string()).collect();
         let threads: Vec<_> = thread_names
             .iter()
-            .map(|s| Box::new(ArtiqCodeGenerator::new(s.to_string(), size_t, self.time_fns)))
+            .map(|s| {
+                Box::new(ArtiqCodeGenerator::with_target_machine(
+                    s.to_string(),
+                    &context,
+                    &self.get_llvm_target_machine(),
+                    self.time_fns,
+                ))
+            })
             .collect();
 
         let membuffer = membuffers.clone();
@@ -719,8 +723,13 @@ impl Nac3 {
             let (registry, handles) =
                 WorkerRegistry::create_workers(threads, top_level.clone(), &self.llvm_options, &f);
 
-            let mut generator = ArtiqCodeGenerator::new("main".to_string(), size_t, self.time_fns);
             let context = Context::create();
+            let mut generator = ArtiqCodeGenerator::with_target_machine(
+                "main".to_string(),
+                &context,
+                &self.get_llvm_target_machine(),
+                self.time_fns,
+            );
             let module = context.create_module("main");
             let target_machine = self.llvm_options.create_target_machine().unwrap();
             module.set_data_layout(&target_machine.get_target_data().get_data_layout());
