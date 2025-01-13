@@ -78,13 +78,61 @@ enum Isa {
 }
 
 impl Isa {
-    /// Returns the number of bits in `size_t` for the [`Isa`].
-    fn get_size_type(self) -> u32 {
-        if self == Isa::Host {
-            64u32
-        } else {
-            32u32
+    /// Returns the [`TargetTriple`] used for compiling to this ISA.
+    pub fn get_llvm_target_triple(self) -> TargetTriple {
+        match self {
+            Isa::Host => TargetMachine::get_default_triple(),
+            Isa::RiscV32G | Isa::RiscV32IMA => TargetTriple::create("riscv32-unknown-linux"),
+            Isa::CortexA9 => TargetTriple::create("armv7-unknown-linux-gnueabihf"),
         }
+    }
+
+    /// Returns the [`String`] representing the target CPU used for compiling to this ISA.
+    pub fn get_llvm_target_cpu(self) -> String {
+        match self {
+            Isa::Host => TargetMachine::get_host_cpu_name().to_string(),
+            Isa::RiscV32G | Isa::RiscV32IMA => "generic-rv32".to_string(),
+            Isa::CortexA9 => "cortex-a9".to_string(),
+        }
+    }
+
+    /// Returns the [`String`] representing the target features used for compiling to this ISA.
+    pub fn get_llvm_target_features(self) -> String {
+        match self {
+            Isa::Host => TargetMachine::get_host_cpu_features().to_string(),
+            Isa::RiscV32G => "+a,+m,+f,+d".to_string(),
+            Isa::RiscV32IMA => "+a,+m".to_string(),
+            Isa::CortexA9 => "+dsp,+fp16,+neon,+vfp3,+long-calls".to_string(),
+        }
+    }
+
+    /// Returns an instance of [`CodeGenTargetMachineOptions`] representing the target machine
+    /// options used for compiling to this ISA.
+    pub fn get_llvm_target_options(self) -> CodeGenTargetMachineOptions {
+        CodeGenTargetMachineOptions {
+            triple: self.get_llvm_target_triple().as_str().to_string_lossy().into_owned(),
+            cpu: self.get_llvm_target_cpu(),
+            features: self.get_llvm_target_features(),
+            reloc_mode: RelocMode::PIC,
+            ..CodeGenTargetMachineOptions::from_host()
+        }
+    }
+
+    /// Returns an instance of [`TargetMachine`] used in compiling and linking of a program of this
+    /// ISA.
+    pub fn create_llvm_target_machine(self, opt_level: OptimizationLevel) -> TargetMachine {
+        self.get_llvm_target_options()
+            .create_target_machine(opt_level)
+            .expect("couldn't create target machine")
+    }
+
+    /// Returns the number of bits in `size_t` for this ISA.
+    fn get_size_type(self, ctx: &Context) -> u32 {
+        ctx.ptr_sized_int_type(
+            &self.create_llvm_target_machine(OptimizationLevel::Default).get_target_data(),
+            None,
+        )
+        .get_bit_width()
     }
 }
 
@@ -378,7 +426,7 @@ impl Nac3 {
         py: Python,
         link_fn: &dyn Fn(&Module) -> PyResult<T>,
     ) -> PyResult<T> {
-        let size_t = self.isa.get_size_type();
+        let size_t = self.isa.get_size_type(&Context::create());
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
             self.builtins.clone(),
             Self::get_lateinit_builtins(),
@@ -848,52 +896,10 @@ impl Nac3 {
         link_fn(&main)
     }
 
-    /// Returns the [`TargetTriple`] used for compiling to [isa].
-    fn get_llvm_target_triple(isa: Isa) -> TargetTriple {
-        match isa {
-            Isa::Host => TargetMachine::get_default_triple(),
-            Isa::RiscV32G | Isa::RiscV32IMA => TargetTriple::create("riscv32-unknown-linux"),
-            Isa::CortexA9 => TargetTriple::create("armv7-unknown-linux-gnueabihf"),
-        }
-    }
-
-    /// Returns the [`String`] representing the target CPU used for compiling to [isa].
-    fn get_llvm_target_cpu(isa: Isa) -> String {
-        match isa {
-            Isa::Host => TargetMachine::get_host_cpu_name().to_string(),
-            Isa::RiscV32G | Isa::RiscV32IMA => "generic-rv32".to_string(),
-            Isa::CortexA9 => "cortex-a9".to_string(),
-        }
-    }
-
-    /// Returns the [`String`] representing the target features used for compiling to [isa].
-    fn get_llvm_target_features(isa: Isa) -> String {
-        match isa {
-            Isa::Host => TargetMachine::get_host_cpu_features().to_string(),
-            Isa::RiscV32G => "+a,+m,+f,+d".to_string(),
-            Isa::RiscV32IMA => "+a,+m".to_string(),
-            Isa::CortexA9 => "+dsp,+fp16,+neon,+vfp3,+long-calls".to_string(),
-        }
-    }
-
-    /// Returns an instance of [`CodeGenTargetMachineOptions`] representing the target machine
-    /// options used for compiling to [isa].
-    fn get_llvm_target_options(isa: Isa) -> CodeGenTargetMachineOptions {
-        CodeGenTargetMachineOptions {
-            triple: Nac3::get_llvm_target_triple(isa).as_str().to_string_lossy().into_owned(),
-            cpu: Nac3::get_llvm_target_cpu(isa),
-            features: Nac3::get_llvm_target_features(isa),
-            reloc_mode: RelocMode::PIC,
-            ..CodeGenTargetMachineOptions::from_host()
-        }
-    }
-
     /// Returns an instance of [`TargetMachine`] used in compiling and linking of a program to the
-    /// target [isa].
+    /// target [ISA][isa].
     fn get_llvm_target_machine(&self) -> TargetMachine {
-        Nac3::get_llvm_target_options(self.isa)
-            .create_target_machine(self.llvm_options.opt_level)
-            .expect("couldn't create target machine")
+        self.isa.create_llvm_target_machine(self.llvm_options.opt_level)
     }
 }
 
@@ -1001,7 +1007,8 @@ impl Nac3 {
             Isa::RiscV32IMA => &timeline::NOW_PINNING_TIME_FNS,
             Isa::CortexA9 | Isa::Host => &timeline::EXTERN_TIME_FNS,
         };
-        let (primitive, _) = TopLevelComposer::make_primitives(isa.get_size_type());
+        let (primitive, _) =
+            TopLevelComposer::make_primitives(isa.get_size_type(&Context::create()));
         let builtins = vec![
             (
                 "now_mu".into(),
@@ -1150,7 +1157,7 @@ impl Nac3 {
             deferred_eval_store: DeferredEvaluationStore::new(),
             llvm_options: CodeGenLLVMOptions {
                 opt_level: OptimizationLevel::Default,
-                target: Nac3::get_llvm_target_options(isa),
+                target: isa.get_llvm_target_options(),
             },
         })
     }
