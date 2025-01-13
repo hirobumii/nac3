@@ -98,7 +98,7 @@ fn test_primitives() {
     let statements = parse_program(source, FileName::default()).unwrap();
 
     let context = inkwell::context::Context::create();
-    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 32).0;
+    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
     let top_level = Arc::new(composer.make_top_level_context());
@@ -108,7 +108,7 @@ fn test_primitives() {
         Arc::new(Resolver { id_to_type: HashMap::new(), id_to_def: RwLock::new(HashMap::new()) })
             as Arc<dyn SymbolResolver + Send + Sync>;
 
-    let threads = vec![DefaultCodeGenerator::new("test".into(), context.i32_type()).into()];
+    let threads = vec![DefaultCodeGenerator::new("test".into(), context.i64_type()).into()];
     let signature = FunSignature {
         args: vec![
             FuncArg {
@@ -262,7 +262,7 @@ fn test_simple_call() {
     let statements_2 = parse_program(source_2, FileName::default()).unwrap();
 
     let context = inkwell::context::Context::create();
-    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 32).0;
+    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
     let top_level = Arc::new(composer.make_top_level_context());
@@ -309,7 +309,7 @@ fn test_simple_call() {
         unreachable!()
     }
 
-    let threads = vec![DefaultCodeGenerator::new("test".into(), context.i32_type()).into()];
+    let threads = vec![DefaultCodeGenerator::new("test".into(), context.i64_type()).into()];
     let mut function_data = FunctionData {
         resolver: resolver.clone(),
         bound_variables: Vec::new(),

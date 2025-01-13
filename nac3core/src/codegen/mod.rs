@@ -989,6 +989,17 @@ pub fn gen_func_impl<
         debug_info: (dibuilder, compile_unit, func_scope.as_debug_info_scope()),
     };
 
+    let target_llvm_usize = context.ptr_sized_int_type(
+        &registry.llvm_options.create_target_machine().map(|tm| tm.get_target_data()).unwrap(),
+        None,
+    );
+    let generator_llvm_usize = generator.get_size_type(context);
+    assert_eq!(
+        generator_llvm_usize,
+        target_llvm_usize,
+        "CodeGenerator (size_t = {generator_llvm_usize}) is not compatible with CodeGen Target (size_t = {target_llvm_usize})",
+    );
+
     let loc = code_gen_context.debug_info.0.create_debug_location(
         context,
         row as u32,
