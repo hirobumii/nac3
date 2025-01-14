@@ -378,13 +378,13 @@ impl Nac3 {
         py: Python,
         link_fn: &dyn Fn(&Module) -> PyResult<T>,
     ) -> PyResult<T> {
-        // Pre-register string arguments in string store
-        Python::with_gil(|py| {
+        Python::with_gil(|_py| {
             let mut string_store = self.string_store.write();
             for arg in &args {
                 if let Ok(s) = arg.extract::<String>() {
                     if !string_store.contains_key(&s) {
-                        string_store.insert(s.clone(), i32::try_from(string_store.len()).unwrap());
+                        let next_id = i32::try_from(string_store.len()).unwrap();
+                        string_store.insert(s.clone(), next_id);
                     }
                 }
             }
