@@ -122,19 +122,31 @@ impl<'ctx> SliceType<'ctx> {
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
-    /// Creates an instance of [`SliceType`] with `int_ty` as its backing integer type.
-    #[must_use]
-    pub fn new(ctx: &'ctx Context, int_ty: IntType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+    fn new_impl(ctx: &'ctx Context, int_ty: IntType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         let llvm_ty = Self::llvm_type(ctx, int_ty);
 
         Self { ty: llvm_ty, int_ty, llvm_usize }
     }
 
+    /// Creates an instance of [`SliceType`] with `int_ty` as its backing integer type.
+    #[must_use]
+    pub fn new(ctx: &CodeGenContext<'ctx, '_>, int_ty: IntType<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, int_ty, ctx.get_size_type())
+    }
+
     /// Creates an instance of [`SliceType`] with `usize` as its backing integer type.
     #[must_use]
-    pub fn new_usize<G: CodeGenerator + ?Sized>(generator: &G, ctx: &'ctx Context) -> Self {
-        let llvm_usize = generator.get_size_type(ctx);
-        Self::new(ctx, llvm_usize, llvm_usize)
+    pub fn new_usize(ctx: &CodeGenContext<'ctx, '_>) -> Self {
+        Self::new_impl(ctx.ctx, ctx.get_size_type(), ctx.get_size_type())
+    }
+
+    /// Creates an instance of [`SliceType`] with `usize` as its backing integer type.
+    #[must_use]
+    pub fn new_usize_with_generator<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+    ) -> Self {
+        Self::new_impl(ctx, generator.get_size_type(ctx), generator.get_size_type(ctx))
     }
 
     /// Creates an [`SliceType`] from a [`PointerType`] representing a `slice`.

@@ -44,7 +44,7 @@ impl<'ctx> NDArrayType<'ctx> {
         assert!(self.ndims >= ndims_int);
         assert_eq!(dtype, self.dtype);
 
-        let list_value = list.as_i8_list(generator, ctx);
+        let list_value = list.as_i8_list(ctx);
 
         // Validate `list` has a consistent shape.
         // Raise an exception if `list` is something abnormal like `[[1, 2], [3]]`.
@@ -61,8 +61,8 @@ impl<'ctx> NDArrayType<'ctx> {
             generator, ctx, list_value, ndims, &shape,
         );
 
-        let ndarray = Self::new(generator, ctx.ctx, dtype, ndims_int)
-            .construct_uninitialized(generator, ctx, name);
+        let ndarray =
+            Self::new(ctx, dtype, ndims_int).construct_uninitialized(generator, ctx, name);
         ndarray.copy_shape_from_array(generator, ctx, shape.base_ptr(ctx, generator));
         unsafe { ndarray.create_data(generator, ctx) };
 
@@ -96,8 +96,7 @@ impl<'ctx> NDArrayType<'ctx> {
 
             let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
 
-            let ndarray = Self::new(generator, ctx.ctx, dtype, 1)
-                .construct_uninitialized(generator, ctx, name);
+            let ndarray = Self::new(ctx, dtype, 1).construct_uninitialized(generator, ctx, name);
 
             // Set data
             let data = ctx
@@ -168,7 +167,7 @@ impl<'ctx> NDArrayType<'ctx> {
         .map(BasicValueEnum::into_pointer_value)
         .unwrap();
 
-        NDArrayType::new(generator, ctx.ctx, dtype, ndims).map_value(ndarray, None)
+        NDArrayType::new(ctx, dtype, ndims).map_value(ndarray, None)
     }
 
     /// Implementation of `np_array(<ndarray>, copy=copy)`.

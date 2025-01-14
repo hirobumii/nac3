@@ -104,7 +104,7 @@ impl<'ctx> ListType<'ctx> {
         element_type: Option<BasicTypeEnum<'ctx>>,
         llvm_usize: IntType<'ctx>,
     ) -> PointerType<'ctx> {
-        let element_type = element_type.unwrap_or(llvm_usize.into());
+        let element_type = element_type.map_or(llvm_usize.into(), |ty| ty.as_basic_type_enum());
 
         let field_tys =
             Self::fields(element_type, llvm_usize).into_iter().map(|field| field.1).collect_vec();
@@ -112,26 +112,45 @@ impl<'ctx> ListType<'ctx> {
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
+    fn new_impl(
+        ctx: &'ctx Context,
+        element_type: Option<BasicTypeEnum<'ctx>>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Self {
+        let llvm_list = Self::llvm_type(ctx, element_type, llvm_usize);
+
+        Self { ty: llvm_list, item: element_type, llvm_usize }
+    }
+
     /// Creates an instance of [`ListType`].
     #[must_use]
-    pub fn new<G: CodeGenerator + ?Sized>(
+    pub fn new(ctx: &CodeGenContext<'ctx, '_>, element_type: &impl BasicType<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, Some(element_type.as_basic_type_enum()), ctx.get_size_type())
+    }
+
+    /// Creates an instance of [`ListType`].
+    #[must_use]
+    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
         generator: &G,
         ctx: &'ctx Context,
         element_type: BasicTypeEnum<'ctx>,
     ) -> Self {
-        let llvm_usize = generator.get_size_type(ctx);
-        let llvm_list = Self::llvm_type(ctx, Some(element_type), llvm_usize);
-
-        Self { ty: llvm_list, item: Some(element_type), llvm_usize }
+        Self::new_impl(ctx, Some(element_type.as_basic_type_enum()), generator.get_size_type(ctx))
     }
 
     /// Creates an instance of [`ListType`] with an unknown element type.
     #[must_use]
-    pub fn new_untyped<G: CodeGenerator + ?Sized>(generator: &G, ctx: &'ctx Context) -> Self {
-        let llvm_usize = generator.get_size_type(ctx);
-        let llvm_list = Self::llvm_type(ctx, None, llvm_usize);
+    pub fn new_untyped(ctx: &CodeGenContext<'ctx, '_>) -> Self {
+        Self::new_impl(ctx.ctx, None, ctx.get_size_type())
+    }
 
-        Self { ty: llvm_list, item: None, llvm_usize }
+    /// Creates an instance of [`ListType`] with an unknown element type.
+    #[must_use]
+    pub fn new_untyped_with_generator<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+    ) -> Self {
+        Self::new_impl(ctx, None, generator.get_size_type(ctx))
     }
 
     /// Creates an [`ListType`] from a [unifier type][Type].
@@ -159,11 +178,7 @@ impl<'ctx> ListType<'ctx> {
             Some(ctx.get_llvm_type(generator, elem_type))
         };
 
-        Self {
-            ty: Self::llvm_type(ctx.ctx, llvm_elem_type, llvm_usize),
-            item: llvm_elem_type,
-            llvm_usize,
-        }
+        Self::new_impl(ctx.ctx, llvm_elem_type, llvm_usize)
     }
 
     /// Creates an [`ListType`] from a [`PointerType`].

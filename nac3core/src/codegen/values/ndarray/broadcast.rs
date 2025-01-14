@@ -104,7 +104,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         assert!(self.ndims <= target_ndims);
         assert_eq!(target_shape.element_type(ctx, generator), self.llvm_usize.into());
 
-        let broadcast_ndarray = NDArrayType::new(generator, ctx.ctx, self.dtype, target_ndims)
+        let broadcast_ndarray = NDArrayType::new(ctx, self.dtype, target_ndims)
             .construct_uninitialized(generator, ctx, None);
         broadcast_ndarray.copy_shape_from_array(
             generator,
@@ -147,7 +147,7 @@ fn broadcast_shapes<'ctx, G, Shape>(
         + TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>,
 {
     let llvm_usize = ctx.get_size_type();
-    let llvm_shape_ty = ShapeEntryType::new(generator, ctx.ctx);
+    let llvm_shape_ty = ShapeEntryType::new(ctx);
 
     assert!(in_shape_entries
         .iter()

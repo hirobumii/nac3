@@ -117,8 +117,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> ContiguousNDArrayValue<'ctx> {
-        let result = ContiguousNDArrayType::new(generator, ctx.ctx, self.dtype)
-            .alloca_var(generator, ctx, self.name);
+        let result =
+            ContiguousNDArrayType::new(ctx, &self.dtype).alloca_var(generator, ctx, self.name);
 
         // Set ndims and shape.
         let ndims = self.llvm_usize.const_int(self.ndims, false);
@@ -178,8 +178,11 @@ impl<'ctx> NDArrayValue<'ctx> {
         // TODO: Debug assert `ndims == carray.ndims` to catch bugs.
 
         // Allocate the resulting ndarray.
-        let ndarray = NDArrayType::new(generator, ctx.ctx, carray.item, ndims)
-            .construct_uninitialized(generator, ctx, carray.name);
+        let ndarray = NDArrayType::new(ctx, carray.item, ndims).construct_uninitialized(
+            generator,
+            ctx,
+            carray.name,
+        );
 
         // Copy shape and update strides
         let shape = carray.load_shape(ctx);

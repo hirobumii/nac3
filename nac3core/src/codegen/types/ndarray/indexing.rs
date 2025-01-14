@@ -75,12 +75,23 @@ impl<'ctx> NDIndexType<'ctx> {
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
-    #[must_use]
-    pub fn new<G: CodeGenerator + ?Sized>(generator: &G, ctx: &'ctx Context) -> Self {
-        let llvm_usize = generator.get_size_type(ctx);
+    fn new_impl(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> Self {
         let llvm_ndindex = Self::llvm_type(ctx, llvm_usize);
 
         Self { ty: llvm_ndindex, llvm_usize }
+    }
+
+    #[must_use]
+    pub fn new(ctx: &CodeGenContext<'ctx, '_>) -> Self {
+        Self::new_impl(ctx.ctx, ctx.get_size_type())
+    }
+
+    #[must_use]
+    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+    ) -> Self {
+        Self::new_impl(ctx, generator.get_size_type(ctx))
     }
 
     #[must_use]

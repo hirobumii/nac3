@@ -107,24 +107,56 @@ impl<'ctx> NDArrayType<'ctx> {
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
-    /// Creates an instance of [`NDArrayType`].
-    #[must_use]
-    pub fn new<G: CodeGenerator + ?Sized>(
-        generator: &G,
+    fn new_impl(
         ctx: &'ctx Context,
         dtype: BasicTypeEnum<'ctx>,
         ndims: u64,
+        llvm_usize: IntType<'ctx>,
     ) -> Self {
-        let llvm_usize = generator.get_size_type(ctx);
         let llvm_ndarray = Self::llvm_type(ctx, llvm_usize);
 
         NDArrayType { ty: llvm_ndarray, dtype, ndims, llvm_usize }
     }
 
+    /// Creates an instance of [`NDArrayType`].
+    #[must_use]
+    pub fn new(ctx: &CodeGenContext<'ctx, '_>, dtype: BasicTypeEnum<'ctx>, ndims: u64) -> Self {
+        Self::new_impl(ctx.ctx, dtype, ndims, ctx.get_size_type())
+    }
+
+    /// Creates an instance of [`NDArrayType`].
+    #[must_use]
+    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        dtype: BasicTypeEnum<'ctx>,
+        ndims: u64,
+    ) -> Self {
+        Self::new_impl(ctx, dtype, ndims, generator.get_size_type(ctx))
+    }
+
     /// Creates an instance of [`NDArrayType`] as a result of a broadcast operation over one or more
     /// `ndarray` operands.
     #[must_use]
-    pub fn new_broadcast<G: CodeGenerator + ?Sized>(
+    pub fn new_broadcast(
+        ctx: &CodeGenContext<'ctx, '_>,
+        dtype: BasicTypeEnum<'ctx>,
+        inputs: &[NDArrayType<'ctx>],
+    ) -> Self {
+        assert!(!inputs.is_empty());
+
+        Self::new_impl(
+            ctx.ctx,
+            dtype,
+            inputs.iter().map(NDArrayType::ndims).max().unwrap(),
+            ctx.get_size_type(),
+        )
+    }
+
+    /// Creates an instance of [`NDArrayType`] as a result of a broadcast operation over one or more
+    /// `ndarray` operands.
+    #[must_use]
+    pub fn new_broadcast_with_generator<G: CodeGenerator + ?Sized>(
         generator: &G,
         ctx: &'ctx Context,
         dtype: BasicTypeEnum<'ctx>,
@@ -132,20 +164,28 @@ impl<'ctx> NDArrayType<'ctx> {
     ) -> Self {
         assert!(!inputs.is_empty());
 
-        Self::new(generator, ctx, dtype, inputs.iter().map(NDArrayType::ndims).max().unwrap())
+        Self::new_impl(
+            ctx,
+            dtype,
+            inputs.iter().map(NDArrayType::ndims).max().unwrap(),
+            generator.get_size_type(ctx),
+        )
     }
 
     /// Creates an instance of [`NDArrayType`] with `ndims` of 0.
     #[must_use]
-    pub fn new_unsized<G: CodeGenerator + ?Sized>(
+    pub fn new_unsized(ctx: &CodeGenContext<'ctx, '_>, dtype: BasicTypeEnum<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, dtype, 0, ctx.get_size_type())
+    }
+
+    /// Creates an instance of [`NDArrayType`] with `ndims` of 0.
+    #[must_use]
+    pub fn new_unsized_with_generator<G: CodeGenerator + ?Sized>(
         generator: &G,
         ctx: &'ctx Context,
         dtype: BasicTypeEnum<'ctx>,
     ) -> Self {
-        let llvm_usize = generator.get_size_type(ctx);
-        let llvm_ndarray = Self::llvm_type(ctx, llvm_usize);
-
-        NDArrayType { ty: llvm_ndarray, dtype, ndims: 0, llvm_usize }
+        Self::new_impl(ctx, dtype, 0, generator.get_size_type(ctx))
     }
 
     /// Creates an [`NDArrayType`] from a [unifier type][Type].
@@ -158,15 +198,9 @@ impl<'ctx> NDArrayType<'ctx> {
         let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
         let llvm_dtype = ctx.get_llvm_type(generator, dtype);
-        let llvm_usize = ctx.get_size_type();
         let ndims = extract_ndims(&ctx.unifier, ndims);
 
-        NDArrayType {
-            ty: Self::llvm_type(ctx.ctx, llvm_usize),
-            dtype: llvm_dtype,
-            ndims,
-            llvm_usize,
-        }
+        Self::new_impl(ctx.ctx, llvm_dtype, ndims, ctx.get_size_type())
     }
 
     /// Creates an [`NDArrayType`] from a [`PointerType`] representing an `NDArray`.
@@ -304,7 +338,7 @@ impl<'ctx> NDArrayType<'ctx> {
     ) -> <Self as ProxyType<'ctx>>::Value {
         assert_eq!(shape.len() as u64, self.ndims);
 
-        let ndarray = Self::new(generator, ctx.ctx, self.dtype, shape.len() as u64)
+        let ndarray = Self::new(ctx, self.dtype, shape.len() as u64)
             .construct_uninitialized(generator, ctx, name);
 
         let llvm_usize = ctx.get_size_type();
@@ -339,7 +373,7 @@ impl<'ctx> NDArrayType<'ctx> {
     ) -> <Self as ProxyType<'ctx>>::Value {
         assert_eq!(shape.len() as u64, self.ndims);
 
-        let ndarray = Self::new(generator, ctx.ctx, self.dtype, shape.len() as u64)
+        let ndarray = Self::new(ctx, self.dtype, shape.len() as u64)
             .construct_uninitialized(generator, ctx, name);
 
         let llvm_usize = ctx.get_size_type();
@@ -389,8 +423,8 @@ impl<'ctx> NDArrayType<'ctx> {
             .build_pointer_cast(data, ctx.ctx.i8_type().ptr_type(AddressSpace::default()), "")
             .unwrap();
 
-        let ndarray = Self::new_unsized(generator, ctx.ctx, value.get_type())
-            .construct_uninitialized(generator, ctx, name);
+        let ndarray =
+            Self::new_unsized(ctx, value.get_type()).construct_uninitialized(generator, ctx, name);
         ctx.builder.build_store(ndarray.ptr_to_data(ctx), data).unwrap();
         ndarray
     }

@@ -1167,7 +1167,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                     "listcomp.alloc_size",
                 )
                 .unwrap();
-            list = ListType::new(generator, ctx.ctx, elem_ty).construct(
+            list = ListType::new(ctx, &elem_ty).construct(
                 generator,
                 ctx,
                 list_alloc_size.into_int_value(),
@@ -1218,12 +1218,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                     Some("length"),
                 )
                 .into_int_value();
-            list = ListType::new(generator, ctx.ctx, elem_ty).construct(
-                generator,
-                ctx,
-                length,
-                Some("listcomp"),
-            );
+            list = ListType::new(ctx, &elem_ty).construct(generator, ctx, length, Some("listcomp"));
 
             let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
             // counter = -1
@@ -1386,8 +1381,8 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                     .build_int_add(lhs.load_size(ctx, None), rhs.load_size(ctx, None), "")
                     .unwrap();
 
-                let new_list = ListType::new(generator, ctx.ctx, llvm_elem_ty)
-                    .construct(generator, ctx, size, None);
+                let new_list =
+                    ListType::new(ctx, &llvm_elem_ty).construct(generator, ctx, size, None);
 
                 let lhs_size = ctx
                     .builder
@@ -1474,7 +1469,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 let elem_llvm_ty = ctx.get_llvm_type(generator, elem_ty);
                 let sizeof_elem = elem_llvm_ty.size_of().unwrap();
 
-                let new_list = ListType::new(generator, ctx.ctx, elem_llvm_ty).construct(
+                let new_list = ListType::new(ctx, &elem_llvm_ty).construct(
                     generator,
                     ctx,
                     ctx.builder.build_int_mul(list_val.load_size(ctx, None), int_val, "").unwrap(),
@@ -1576,8 +1571,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             let right = right.to_ndarray(generator, ctx);
 
             let result = NDArrayType::new_broadcast(
-                generator,
-                ctx.ctx,
+                ctx,
                 llvm_common_dtype,
                 &[left.get_type(), right.get_type()],
             )
@@ -1850,8 +1844,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 .to_ndarray(generator, ctx);
 
             let result_ndarray = NDArrayType::new_broadcast(
-                generator,
-                ctx.ctx,
+                ctx,
                 ctx.ctx.i8_type().into(),
                 &[left.get_type(), right.get_type()],
             )
@@ -2480,18 +2473,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             };
             let length = ctx.get_size_type().const_int(elements.len() as u64, false);
             let arr_str_ptr = if let Some(ty) = ty {
-                ListType::new(generator, ctx.ctx, ty).construct(
-                    generator,
-                    ctx,
-                    length,
-                    Some("list"),
-                )
+                ListType::new(ctx, &ty).construct(generator, ctx, length, Some("list"))
             } else {
-                ListType::new_untyped(generator, ctx.ctx).construct_empty(
-                    generator,
-                    ctx,
-                    Some("list"),
-                )
+                ListType::new_untyped(ctx).construct_empty(generator, ctx, Some("list"))
             };
             let arr_ptr = arr_str_ptr.data();
             for (i, v) in elements.iter().enumerate() {
@@ -2970,12 +2954,8 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                 .unwrap(),
                             step,
                         );
-                        let res_array_ret = ListType::new(generator, ctx.ctx, ty).construct(
-                            generator,
-                            ctx,
-                            length,
-                            Some("ret"),
-                        );
+                        let res_array_ret =
+                            ListType::new(ctx, &ty).construct(generator, ctx, length, Some("ret"));
                         let Some(res_ind) = handle_slice_indices(
                             &None,
                             &None,

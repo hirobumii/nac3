@@ -108,7 +108,7 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
         let lhs = in_a.broadcast_to(generator, ctx, ndims_int, &lhs_shape);
         let rhs = in_b.broadcast_to(generator, ctx, ndims_int, &rhs_shape);
 
-        let dst = NDArrayType::new(generator, ctx.ctx, llvm_dst_dtype, ndims_int)
+        let dst = NDArrayType::new(ctx, llvm_dst_dtype, ndims_int)
             .construct_uninitialized(generator, ctx, None);
         dst.copy_shape_from_array(generator, ctx, dst_shape.base_ptr(ctx, generator));
         unsafe {

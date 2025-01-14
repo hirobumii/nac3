@@ -160,9 +160,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             generator,
             ctx,
             Some("ndarray_foreach"),
-            |generator, ctx| {
-                Ok(NDIterType::new(generator, ctx.ctx).construct(generator, ctx, *self))
-            },
+            |generator, ctx| Ok(NDIterType::new(ctx).construct(generator, ctx, *self)),
             |_, ctx, nditer| Ok(nditer.has_element(ctx)),
             |generator, ctx, hooks, nditer| body(generator, ctx, hooks, nditer),
             |_, ctx, nditer| {

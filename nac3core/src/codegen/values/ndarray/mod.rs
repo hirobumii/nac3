@@ -377,12 +377,8 @@ impl<'ctx> NDArrayValue<'ctx> {
             .map(|obj| obj.as_basic_value_enum())
             .collect_vec();
 
-        TupleType::new(
-            generator,
-            ctx.ctx,
-            &repeat_n(llvm_i32.into(), self.ndims as usize).collect_vec(),
-        )
-        .construct_from_objects(ctx, objects, None)
+        TupleType::new(ctx, &repeat_n(llvm_i32, self.ndims as usize).collect_vec())
+            .construct_from_objects(ctx, objects, None)
     }
 
     /// Create the strides tuple of this ndarray like
@@ -411,12 +407,8 @@ impl<'ctx> NDArrayValue<'ctx> {
             .map(|obj| obj.as_basic_value_enum())
             .collect_vec();
 
-        TupleType::new(
-            generator,
-            ctx.ctx,
-            &repeat_n(llvm_i32.into(), self.ndims as usize).collect_vec(),
-        )
-        .construct_from_objects(ctx, objects, None)
+        TupleType::new(ctx, &repeat_n(llvm_i32, self.ndims as usize).collect_vec())
+            .construct_from_objects(ctx, objects, None)
     }
 
     /// Returns true if this ndarray is unsized - `ndims == 0` and only contains a scalar.
@@ -998,10 +990,8 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
     ) -> NDArrayValue<'ctx> {
         match self {
             ScalarOrNDArray::NDArray(ndarray) => *ndarray,
-            ScalarOrNDArray::Scalar(scalar) => {
-                NDArrayType::new_unsized(generator, ctx.ctx, scalar.get_type())
-                    .construct_unsized(generator, ctx, scalar, None)
-            }
+            ScalarOrNDArray::Scalar(scalar) => NDArrayType::new_unsized(ctx, scalar.get_type())
+                .construct_unsized(generator, ctx, scalar, None),
         }
     }
 

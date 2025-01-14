@@ -32,17 +32,34 @@ impl<'ctx> TupleType<'ctx> {
         ctx.struct_type(tys, false)
     }
 
+    fn new_impl(
+        ctx: &'ctx Context,
+        tys: &[BasicTypeEnum<'ctx>],
+        llvm_usize: IntType<'ctx>,
+    ) -> Self {
+        let llvm_tuple = Self::llvm_type(ctx, tys);
+
+        Self { ty: llvm_tuple, llvm_usize }
+    }
+
     /// Creates an instance of [`TupleType`].
     #[must_use]
-    pub fn new<G: CodeGenerator + ?Sized>(
+    pub fn new(ctx: &CodeGenContext<'ctx, '_>, tys: &[impl BasicType<'ctx>]) -> Self {
+        Self::new_impl(
+            ctx.ctx,
+            &tys.iter().map(BasicType::as_basic_type_enum).collect_vec(),
+            ctx.get_size_type(),
+        )
+    }
+
+    /// Creates an instance of [`TupleType`].
+    #[must_use]
+    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
         generator: &G,
         ctx: &'ctx Context,
         tys: &[BasicTypeEnum<'ctx>],
     ) -> Self {
-        let llvm_usize = generator.get_size_type(ctx);
-        let llvm_tuple = Self::llvm_type(ctx, tys);
-
-        Self { ty: llvm_tuple, llvm_usize }
+        Self::new_impl(ctx, tys, generator.get_size_type(ctx))
     }
 
     /// Creates an [`TupleType`] from a [unifier type][Type].

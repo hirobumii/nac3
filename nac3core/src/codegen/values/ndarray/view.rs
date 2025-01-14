@@ -65,7 +65,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         //       not contiguous but could be reshaped without copying data. Look into how numpy does
         //       it.
 
-        let dst_ndarray = NDArrayType::new(generator, ctx.ctx, self.dtype, new_ndims)
+        let dst_ndarray = NDArrayType::new(ctx, self.dtype, new_ndims)
             .construct_uninitialized(generator, ctx, None);
         dst_ndarray.copy_shape_from_array(generator, ctx, new_shape.base_ptr(ctx, generator));
 

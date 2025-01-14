@@ -448,8 +448,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             let broadcast_ndims =
                 [target.get_type().ndims(), value.get_type().ndims()].into_iter().max().unwrap();
             let broadcast_result = NDArrayType::new(
-                generator,
-                ctx.ctx,
+                ctx,
                 value.get_type().element_type(),
                 broadcast_ndims,
             )

@@ -128,11 +128,10 @@ impl<'ctx> NDArrayValue<'ctx> {
         indices: &[RustNDIndex<'ctx>],
     ) -> Self {
         let dst_ndims = self.deduce_ndims_after_indexing_with(indices);
-        let dst_ndarray = NDArrayType::new(generator, ctx.ctx, self.dtype, dst_ndims)
+        let dst_ndarray = NDArrayType::new(ctx, self.dtype, dst_ndims)
             .construct_uninitialized(generator, ctx, None);
 
-        let indices =
-            NDIndexType::new(generator, ctx.ctx).construct_ndindices(generator, ctx, indices);
+        let indices = NDIndexType::new(ctx).construct_ndindices(generator, ctx, indices);
         irrt::ndarray::call_nac3_ndarray_index(generator, ctx, indices, *self, dst_ndarray);
 
         dst_ndarray
@@ -245,8 +244,7 @@ impl<'ctx> RustNDIndex<'ctx> {
             }
             RustNDIndex::Slice(in_rust_slice) => {
                 let user_slice_ptr =
-                    SliceType::new(ctx.ctx, ctx.ctx.i32_type(), ctx.get_size_type())
-                        .alloca_var(generator, ctx, None);
+                    SliceType::new(ctx, ctx.ctx.i32_type()).alloca_var(generator, ctx, None);
                 in_rust_slice.write_to_slice(ctx, user_slice_ptr);
 
                 dst_ndindex.store_data(

@@ -530,7 +530,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 *params.iter().next().unwrap().1,
                             );
 
-                            ListType::new(generator, ctx, element_type).as_base_type().into()
+                            ListType::new_with_generator(generator, ctx, element_type).as_base_type().into()
                         }
 
                         TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
@@ -540,7 +540,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 ctx, module, generator, unifier, top_level, type_cache, dtype,
                             );
 
-                            NDArrayType::new(generator, ctx, element_type, ndims).as_base_type().into()
+                            NDArrayType::new_with_generator(generator, ctx, element_type, ndims).as_base_type().into()
                         }
 
                         _ => unreachable!(
@@ -594,7 +594,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, *ty)
                     })
                     .collect_vec();
-                TupleType::new(generator, ctx, &fields).as_base_type().into()
+                TupleType::new_with_generator(generator, ctx, &fields).as_base_type().into()
             }
             TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),

@@ -86,13 +86,25 @@ impl<'ctx> NDIterType<'ctx> {
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
-    /// Creates an instance of [`NDIter`].
-    #[must_use]
-    pub fn new<G: CodeGenerator + ?Sized>(generator: &G, ctx: &'ctx Context) -> Self {
-        let llvm_usize = generator.get_size_type(ctx);
+    fn new_impl(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> Self {
         let llvm_nditer = Self::llvm_type(ctx, llvm_usize);
 
         Self { ty: llvm_nditer, llvm_usize }
+    }
+
+    /// Creates an instance of [`NDIter`].
+    #[must_use]
+    pub fn new(ctx: &CodeGenContext<'ctx, '_>) -> Self {
+        Self::new_impl(ctx.ctx, ctx.get_size_type())
+    }
+
+    /// Creates an instance of [`NDIter`].
+    #[must_use]
+    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+    ) -> Self {
+        Self::new_impl(ctx, generator.get_size_type(ctx))
     }
 
     /// Creates an [`NDIterType`] from a [`PointerType`] representing an `NDIter`.
