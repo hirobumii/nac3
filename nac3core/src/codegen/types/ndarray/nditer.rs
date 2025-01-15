@@ -163,11 +163,6 @@ impl<'ctx> NDIterType<'ctx> {
     }
 
     /// Allocate an [`NDIter`] that iterates through the given `ndarray`.
-    ///
-    /// Note: This function allocates an array on the stack at the current builder location, which
-    /// may lead to stack explosion if called in a hot loop. Therefore, callers are recommended to
-    /// call `llvm.stacksave` before calling this function and call `llvm.stackrestore` after the
-    /// [`NDIter`] is no longer needed.
     #[must_use]
     pub fn construct<G: CodeGenerator + ?Sized>(
         &self,
