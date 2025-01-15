@@ -6,7 +6,8 @@ use strum::IntoEnumIterator;
 
 use super::{
     helper::{
-        debug_assert_prim_is_allowed, extract_ndims, make_exception_fields, PrimDef, PrimDefDetails,
+        arraylike_flatten_element_type, debug_assert_prim_is_allowed, extract_ndims,
+        make_exception_fields, PrimDef, PrimDefDetails,
     },
     numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
     *,
@@ -15,9 +16,12 @@ use crate::{
     codegen::{
         builtin_fns,
         numpy::*,
-        stmt::exn_constructor,
+        stmt::{exn_constructor, gen_if_callback},
         types::ndarray::NDArrayType,
-        values::{ndarray::shape::parse_numpy_int_sequence, ProxyValue, RangeValue},
+        values::{
+            ndarray::{shape::parse_numpy_int_sequence, ScalarOrNDArray},
+            ProxyValue, RangeValue,
+        },
     },
     symbol_resolver::SymbolValue,
     typecheck::typedef::{into_var_map, iter_type_vars, TypeVar, VarMap},
@@ -404,6 +408,8 @@ impl<'a> BuiltinBuilder<'a> {
             }
 
             PrimDef::FunNpIsNan | PrimDef::FunNpIsInf => self.build_np_float_to_bool_function(prim),
+
+            PrimDef::FunNpAny | PrimDef::FunNpAll => self.build_np_any_all_function(prim),
 
             PrimDef::FunNpSin
             | PrimDef::FunNpCos
@@ -1718,6 +1724,64 @@ impl<'a> BuiltinBuilder<'a> {
                 Ok(Some(func(generator, ctx, (x_ty, x_val))?))
             }),
         )
+    }
+
+    fn build_np_any_all_function(&mut self, prim: PrimDef) -> TopLevelDef {
+        debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpAny, PrimDef::FunNpAll]);
+
+        let param_ty = &[(self.num_or_ndarray_ty.ty, "a")];
+        let ret_ty = self.primitives.bool;
+        let var_map = &self.num_or_ndarray_var_map;
+        let codegen_callback: Box<GenCallCallback> =
+            Box::new(move |ctx, _, fun, args, generator| {
+                let llvm_i1 = ctx.ctx.bool_type();
+                let llvm_i1_k0 = llvm_i1.const_zero();
+                let llvm_i1_k1 = llvm_i1.const_all_ones();
+
+                let a_ty = fun.0.args[0].ty;
+                let a_val = args[0].1.clone().to_basic_value_enum(ctx, generator, a_ty)?;
+                let a = ScalarOrNDArray::from_value(generator, ctx, (a_ty, a_val));
+                let a_elem_ty = arraylike_flatten_element_type(&mut ctx.unifier, a_ty);
+
+                let (init, sc_val) = match prim {
+                    PrimDef::FunNpAny => (llvm_i1_k0, llvm_i1_k1),
+                    PrimDef::FunNpAll => (llvm_i1_k1, llvm_i1_k0),
+                    _ => unreachable!(),
+                };
+
+                let acc = a.fold(generator, ctx, init, |generator, ctx, hooks, acc, elem| {
+                    gen_if_callback(
+                        generator,
+                        ctx,
+                        |_, ctx| {
+                            Ok(ctx
+                                .builder
+                                .build_int_compare(IntPredicate::EQ, acc, sc_val, "")
+                                .unwrap())
+                        },
+                        |_, ctx| {
+                            if let Some(hooks) = hooks {
+                                hooks.build_break_branch(&ctx.builder);
+                            }
+                            Ok(())
+                        },
+                        |_, _| Ok(()),
+                    )?;
+
+                    let is_truthy =
+                        builtin_fns::call_bool(generator, ctx, (a_elem_ty, elem))?.into_int_value();
+
+                    Ok(match prim {
+                        PrimDef::FunNpAny => ctx.builder.build_or(acc, is_truthy, "").unwrap(),
+                        PrimDef::FunNpAll => ctx.builder.build_and(acc, is_truthy, "").unwrap(),
+                        _ => unreachable!(),
+                    })
+                })?;
+
+                Ok(Some(acc.as_basic_value_enum()))
+            });
+
+        create_fn_by_codegen(self.unifier, var_map, prim.name(), ret_ty, param_ty, codegen_callback)
     }
 
     /// Build 1-ary numpy/scipy functions that take in a float or an ndarray and return a value of the same type as the input.
