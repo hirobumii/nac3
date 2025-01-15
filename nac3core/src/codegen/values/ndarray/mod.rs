@@ -30,6 +30,7 @@ pub use nditer::*;
 
 mod broadcast;
 mod contiguous;
+mod fold;
 mod indexing;
 mod map;
 mod matmul;
