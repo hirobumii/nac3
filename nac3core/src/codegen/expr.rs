@@ -2122,9 +2122,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                                     ctx.ctx.bool_type().const_zero(),
                                                 )
                                                 .unwrap();
-                                            ctx.builder
-                                                .build_unconditional_branch(hooks.exit_bb)
-                                                .unwrap();
+                                            hooks.build_break_branch(&ctx.builder);
 
                                             Ok(())
                                         },

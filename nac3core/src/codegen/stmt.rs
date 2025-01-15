@@ -1,6 +1,7 @@
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
+    builder::Builder,
     types::{BasicType, BasicTypeEnum},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
     IntPredicate,
@@ -662,11 +663,25 @@ pub fn gen_for<G: CodeGenerator>(
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 pub struct BreakContinueHooks<'ctx> {
     /// The [exit block][`BasicBlock`] to branch to when `break`-ing out of a loop.
-    pub exit_bb: BasicBlock<'ctx>,
+    exit_bb: BasicBlock<'ctx>,
 
     /// The [latch basic block][`BasicBlock`] to branch to for `continue`-ing to the next iteration
     /// of the loop.
-    pub latch_bb: BasicBlock<'ctx>,
+    latch_bb: BasicBlock<'ctx>,
+}
+
+impl<'ctx> BreakContinueHooks<'ctx> {
+    /// Creates a [`br` instruction][Builder::build_unconditional_branch] to the exit
+    /// [`BasicBlock`], as if by calling `break`.
+    pub fn build_break_branch(&self, builder: &Builder<'ctx>) {
+        builder.build_unconditional_branch(self.exit_bb).unwrap();
+    }
+
+    /// Creates a [`br` instruction][Builder::build_unconditional_branch] to the latch
+    /// [`BasicBlock`], as if by calling `continue`.
+    pub fn build_continue_branch(&self, builder: &Builder<'ctx>) {
+        builder.build_unconditional_branch(self.latch_bb).unwrap();
+    }
 }
 
 /// Generates a C-style `for` construct using lambdas, similar to the following C code:
