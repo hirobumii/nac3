@@ -205,6 +205,19 @@ impl ConcreteTypeStore {
                         })
                         .collect(),
                 },
+                TypeEnum::TModule { module_id, attributes } => ConcreteTypeEnum::TModule {
+                    module_id: *module_id,
+                    methods: attributes
+                        .iter()
+                        .filter_map(|(name, ty)| match &*unifier.get_ty(ty.0) {
+                            TypeEnum::TFunc(..) | TypeEnum::TObj { .. } => None,
+                            _ => Some((
+                                *name,
+                                (self.from_unifier_type(unifier, primitives, ty.0, cache), ty.1),
+                            )),
+                        })
+                        .collect(),
+                },
                 TypeEnum::TVirtual { ty } => ConcreteTypeEnum::TVirtual {
                     ty: self.from_unifier_type(unifier, primitives, *ty, cache),
                 },
