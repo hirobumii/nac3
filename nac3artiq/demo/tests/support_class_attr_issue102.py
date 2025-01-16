@@ -1,7 +1,6 @@
 from min_artiq import *
 from numpy import int32
 
-
 @nac3
 class Demo:
     attr1: KernelInvariant[int32] = 2
@@ -11,7 +10,6 @@ class Demo:
     @kernel
     def __init__(self):
         self.attr3 = 8
-
 
 @nac3
 class NAC3Devices:
@@ -34,7 +32,6 @@ class NAC3Devices:
         obj.attr1  # Attributes can be accessed by class objects
 
         NAC3Devices.attr4  # Attributes accessible for classes without __init__
-
 
 if __name__ == "__main__":
     NAC3Devices().run()
