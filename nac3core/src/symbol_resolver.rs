@@ -598,10 +598,12 @@ impl dyn SymbolResolver + Send + Sync {
         unifier.internal_stringify(
             ty,
             &mut |id| {
-                let TopLevelDef::Class { name, .. } = &*top_level_defs[id].read() else {
-                    unreachable!("expected class definition")
+                let top_level_def = &*top_level_defs[id].read();
+                let (TopLevelDef::Class { name, .. } | TopLevelDef::Module { name, .. }) =
+                    top_level_def
+                else {
+                    unreachable!("expected class/module definition")
                 };
-
                 name.to_string()
             },
             &mut |id| format!("typevar{id}"),

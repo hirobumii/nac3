@@ -1052,6 +1052,34 @@ pub fn attributes_writeback<'ctx>(
                         ));
                     }
                 }
+                TypeEnum::TModule { attributes, .. } => {
+                    let mut fields = Vec::new();
+                    let obj = inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap();
+
+                    for (name, (field_ty, is_method)) in attributes {
+                        if *is_method {
+                            continue;
+                        }
+                        if gen_rpc_tag(ctx, *field_ty, &mut scratch_buffer).is_ok() {
+                            fields.push(name.to_string());
+                            let (index, _) = ctx.get_attr_index(ty, *name);
+                            values.push((
+                                *field_ty,
+                                ctx.build_gep_and_load(
+                                    obj.into_pointer_value(),
+                                    &[zero, int32.const_int(index as u64, false)],
+                                    None,
+                                ),
+                            ));
+                        }
+                    }
+                    if !fields.is_empty() {
+                        let pydict = PyDict::new(py);
+                        pydict.set_item("obj", val)?;
+                        pydict.set_item("fields", fields)?;
+                        host_attributes.append(pydict)?;
+                    }
+                }
                 _ => {}
             }
         }

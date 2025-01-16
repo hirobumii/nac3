@@ -61,8 +61,13 @@ pub fn get_subst_key(
 ) -> String {
     let mut vars = obj
         .map(|ty| {
-            let TypeEnum::TObj { params, .. } = &*unifier.get_ty(ty) else { unreachable!() };
-            params.clone()
+            if let TypeEnum::TObj { params, .. } = &*unifier.get_ty(ty) {
+                params.clone()
+            } else if let TypeEnum::TModule { .. } = &*unifier.get_ty(ty) {
+                indexmap::IndexMap::new()
+            } else {
+                unreachable!()
+            }
         })
         .unwrap_or_default();
     vars.extend(fun_vars);
@@ -120,6 +125,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     pub fn get_attr_index(&mut self, ty: Type, attr: StrRef) -> (usize, Option<Constant>) {
         let obj_id = match &*self.unifier.get_ty(ty) {
             TypeEnum::TObj { obj_id, .. } => *obj_id,
+            TypeEnum::TModule { module_id, .. } => *module_id,
             // we cannot have other types, virtual type should be handled by function calls
             _ => codegen_unreachable!(self),
         };
@@ -131,6 +137,8 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 let attribute_index = attributes.iter().find_position(|x| x.0 == attr).unwrap();
                 (attribute_index.0, Some(attribute_index.1 .2.clone()))
             }
+        } else if let TopLevelDef::Module { attributes, .. } = &*def.read() {
+            (attributes.iter().find_position(|x| x.0 == attr).unwrap().0, None)
         } else {
             codegen_unreachable!(self)
         };
@@ -2805,6 +2813,10 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         &*ctx.unifier.get_ty(value.custom.unwrap())
                     {
                         *obj_id
+                    } else if let TypeEnum::TModule { module_id, .. } =
+                        &*ctx.unifier.get_ty(value.custom.unwrap())
+                    {
+                        *module_id
                     } else {
                         codegen_unreachable!(ctx)
                     };
@@ -2815,11 +2827,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     } else {
                         let defs = ctx.top_level.definitions.read();
                         let obj_def = defs.get(id.0).unwrap().read();
-                        let TopLevelDef::Class { methods, .. } = &*obj_def else {
+                        if let TopLevelDef::Class { methods, .. } = &*obj_def {
+                            methods.iter().find(|method| method.0 == *attr).unwrap().2
+                        } else if let TopLevelDef::Module { methods, .. } = &*obj_def {
+                            *methods.iter().find(|method| method.0 == attr).unwrap().1
+                        } else {
                             codegen_unreachable!(ctx)
-                        };
-
-                        methods.iter().find(|method| method.0 == *attr).unwrap().2
+                        }
                     };
                     // directly generate code for option.unwrap
                     // since it needs to return static value to optimize for kernel invariant
