@@ -277,6 +277,10 @@ impl Nac3 {
                         }
                     })
                 }
+                // Allow global variable declaration with `Kernel` type annotation
+                StmtKind::AnnAssign { ref annotation, .. } => {
+                    matches!(&annotation.node, ExprKind::Subscript { value, .. } if matches!(&value.node, ExprKind::Name {id, ..} if id == &"Kernel".into()))
+                }
                 _ => false,
             };
 
@@ -522,8 +526,15 @@ impl Nac3 {
                         as Arc<dyn SymbolResolver + Send + Sync>;
                     let name_to_pyid = Rc::new(name_to_pyid);
                     let module_location = ast::Location::new(1, 1, stmt.location.file);
-                    module_to_resolver_cache
-                        .insert(module_id, (name_to_pyid.clone(), resolver.clone(), module_name.clone(), Some(module_location)));
+                    module_to_resolver_cache.insert(
+                        module_id,
+                        (
+                            name_to_pyid.clone(),
+                            resolver.clone(),
+                            module_name.clone(),
+                            Some(module_location),
+                        ),
+                    );
                     (name_to_pyid, resolver, module_name, Some(module_location))
                 });
 
@@ -599,15 +610,19 @@ impl Nac3 {
         }
 
         // Adding top level module definitions
-        for (module_id, (module_name_to_pyid, module_resolver, module_name, module_location)) in module_to_resolver_cache.into_iter() {
-            let def_id= composer.register_top_level_module(
-                module_name,
-                module_name_to_pyid,
-                module_resolver,
-                module_location
-            ).map_err(|e| {
-                CompileError::new_err(format!("compilation failed\n----------\n{e}"))
-            })?;
+        for (module_id, (module_name_to_pyid, module_resolver, module_name, module_location)) in
+            module_to_resolver_cache
+        {
+            let def_id = composer
+                .register_top_level_module(
+                    &module_name,
+                    &module_name_to_pyid,
+                    module_resolver,
+                    module_location,
+                )
+                .map_err(|e| {
+                    CompileError::new_err(format!("compilation failed\n----------\n{e}"))
+                })?;
 
             self.pyid_to_def.write().insert(module_id, def_id);
         }
@@ -731,7 +746,9 @@ impl Nac3 {
                             "Unsupported @rpc annotation on global variable",
                         )))
                     }
-                    TopLevelDef::Module { .. } => unreachable!("Type module cannot be decorated with @rpc"),
+                    TopLevelDef::Module { .. } => {
+                        unreachable!("Type module cannot be decorated with @rpc")
+                    }
                 }
             }
         }

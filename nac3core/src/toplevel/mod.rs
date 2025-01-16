@@ -97,8 +97,10 @@ pub enum TopLevelDef {
         name: StrRef,
         /// Module ID used for [`TypeEnum`]
         module_id: DefinitionId,
-        /// DefinitionId of `TopLevelDef::{Class, Function, Variable}` within the module
-        attributes: HashMap<StrRef, DefinitionId>,
+        /// `DefinitionId` of `TopLevelDef::{Class, Function}` within the module
+        methods: HashMap<StrRef, DefinitionId>,
+        /// `DefinitionId` of `TopLevelDef::{Variable}` within the module
+        attributes: Vec<(StrRef, DefinitionId)>,
         /// Symbol resolver of the module defined the class.
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
         /// Definition location.
