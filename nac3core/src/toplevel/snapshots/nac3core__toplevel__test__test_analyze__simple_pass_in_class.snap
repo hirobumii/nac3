@@ -1,9 +1,7 @@
 ---
 source: nac3core/src/toplevel/test.rs
-assertion_line: 549
 expression: res_vec
-
 ---
 [
-    "Class {\nname: \"A\",\nancestors: [\"A\"],\nfields: [],\nmethods: [],\ntype_vars: []\n}\n",
+    "Class {\nname: \"A\",\nancestors: [\"A\"],\nfields: [],\nattributes: [],\nmethods: [],\ntype_vars: []\n}\n",
 ]
