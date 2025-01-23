@@ -11,10 +11,10 @@ use super::{
     irrt::calculate_len_for_slice_range,
     llvm_intrinsics,
     macros::codegen_unreachable,
-    types::{ndarray::NDArrayType, ListType, TupleType},
+    types::{ndarray::NDArrayType, ListType, RangeType, TupleType},
     values::{
         ndarray::{NDArrayOut, NDArrayValue, ScalarOrNDArray},
-        ProxyValue, RangeValue, TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
+        ProxyValue, TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
     },
     CodeGenContext, CodeGenerator,
 };
@@ -47,7 +47,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
     let range_ty = ctx.primitives.range;
 
     Ok(if ctx.unifier.unioned(arg_ty, range_ty) {
-        let arg = RangeValue::from_pointer_value(arg.into_pointer_value(), Some("range"));
+        let arg = RangeType::new(ctx).map_value(arg.into_pointer_value(), Some("range"));
         let (start, end, step) = destructure_range(ctx, arg);
         calculate_len_for_slice_range(generator, ctx, start, end, step)
     } else {

@@ -24,15 +24,6 @@ pub struct SliceValue<'ctx> {
 }
 
 impl<'ctx> SliceValue<'ctx> {
-    /// Checks whether `value` is an instance of `ContiguousNDArray`, returning [Err] if `value` is
-    /// not an instance.
-    pub fn is_representable(
-        value: PointerValue<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        <Self as ProxyValue<'ctx>>::Type::is_representable(value.get_type(), llvm_usize)
-    }
-
     /// Creates an [`SliceValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_pointer_value(
@@ -41,7 +32,7 @@ impl<'ctx> SliceValue<'ctx> {
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        debug_assert!(Self::is_representable(ptr, llvm_usize).is_ok());
+        debug_assert!(Self::is_instance(ptr, llvm_usize).is_ok());
 
         Self { value: ptr, int_ty, llvm_usize, name }
     }

@@ -35,25 +35,6 @@ pub struct NDIndexStructFields<'ctx> {
 }
 
 impl<'ctx> NDIndexType<'ctx> {
-    /// Checks whether `llvm_ty` represents a `ndindex` type, returning [Err] if it does not.
-    pub fn is_representable(
-        llvm_ty: PointerType<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        let ctx = llvm_ty.get_context();
-
-        let llvm_ty = llvm_ty.get_element_type();
-        let AnyTypeEnum::StructType(llvm_ty) = llvm_ty else {
-            return Err(format!(
-                "Expected struct type for `ContiguousNDArray` type, got {llvm_ty}"
-            ));
-        };
-
-        let fields = NDIndexStructFields::new(ctx, llvm_usize);
-
-        check_struct_type_matches_fields(fields, llvm_ty, "NDIndex", &[])
-    }
-
     #[must_use]
     fn fields(
         ctx: impl AsContextRef<'ctx>,
@@ -96,7 +77,7 @@ impl<'ctx> NDIndexType<'ctx> {
 
     #[must_use]
     pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        debug_assert!(Self::is_representable(ptr_ty, llvm_usize).is_ok());
+        debug_assert!(Self::has_same_repr(ptr_ty, llvm_usize).is_ok());
 
         Self { ty: ptr_ty, llvm_usize }
     }
@@ -180,24 +161,30 @@ impl<'ctx> ProxyType<'ctx> for NDIndexType<'ctx> {
     type Base = PointerType<'ctx>;
     type Value = NDIndexValue<'ctx>;
 
-    fn is_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
+    fn is_representable(
         llvm_ty: impl BasicType<'ctx>,
+        llvm_usize: IntType<'ctx>,
     ) -> Result<(), String> {
         if let BasicTypeEnum::PointerType(ty) = llvm_ty.as_basic_type_enum() {
-            <Self as ProxyType<'ctx>>::is_representable(generator, ctx, ty)
+            Self::has_same_repr(ty, llvm_usize)
         } else {
             Err(format!("Expected pointer type, got {llvm_ty:?}"))
         }
     }
 
-    fn is_representable<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        llvm_ty: Self::Base,
-    ) -> Result<(), String> {
-        Self::is_representable(llvm_ty, generator.get_size_type(ctx))
+    fn has_same_repr(ty: Self::Base, llvm_usize: IntType<'ctx>) -> Result<(), String> {
+        let ctx = ty.get_context();
+
+        let llvm_ty = ty.get_element_type();
+        let AnyTypeEnum::StructType(llvm_ty) = llvm_ty else {
+            return Err(format!(
+                "Expected struct type for `ContiguousNDArray` type, got {llvm_ty}"
+            ));
+        };
+
+        let fields = NDIndexStructFields::new(ctx, llvm_usize);
+
+        check_struct_type_matches_fields(fields, llvm_ty, "NDIndex", &[])
     }
 
     fn alloca_type(&self) -> impl BasicType<'ctx> {

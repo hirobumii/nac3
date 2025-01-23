@@ -21,11 +21,6 @@ pub struct TupleType<'ctx> {
 }
 
 impl<'ctx> TupleType<'ctx> {
-    /// Checks whether `llvm_ty` represents any tuple type, returning [Err] if it does not.
-    pub fn is_representable(_value: StructType<'ctx>) -> Result<(), String> {
-        Ok(())
-    }
-
     /// Creates an LLVM type corresponding to the expected structure of a tuple.
     #[must_use]
     fn llvm_type(ctx: &'ctx Context, tys: &[BasicTypeEnum<'ctx>]) -> StructType<'ctx> {
@@ -83,7 +78,7 @@ impl<'ctx> TupleType<'ctx> {
     /// Creates an [`TupleType`] from a [`StructType`].
     #[must_use]
     pub fn from_type(struct_ty: StructType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        debug_assert!(Self::is_representable(struct_ty).is_ok());
+        debug_assert!(Self::has_same_repr(struct_ty, llvm_usize).is_ok());
 
         TupleType { ty: struct_ty, llvm_usize }
     }
@@ -165,24 +160,19 @@ impl<'ctx> ProxyType<'ctx> for TupleType<'ctx> {
     type Base = StructType<'ctx>;
     type Value = TupleValue<'ctx>;
 
-    fn is_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
+    fn is_representable(
         llvm_ty: impl BasicType<'ctx>,
+        llvm_usize: IntType<'ctx>,
     ) -> Result<(), String> {
         if let BasicTypeEnum::StructType(ty) = llvm_ty.as_basic_type_enum() {
-            <Self as ProxyType<'ctx>>::is_representable(generator, ctx, ty)
+            Self::has_same_repr(ty, llvm_usize)
         } else {
             Err(format!("Expected struct type, got {llvm_ty:?}"))
         }
     }
 
-    fn is_representable<G: CodeGenerator + ?Sized>(
-        _generator: &G,
-        _ctx: &'ctx Context,
-        llvm_ty: Self::Base,
-    ) -> Result<(), String> {
-        Self::is_representable(llvm_ty)
+    fn has_same_repr(_: Self::Base, _: IntType<'ctx>) -> Result<(), String> {
+        Ok(())
     }
 
     fn alloca_type(&self) -> impl BasicType<'ctx> {

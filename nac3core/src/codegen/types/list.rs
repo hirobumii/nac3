@@ -56,34 +56,6 @@ impl<'ctx> ListStructFields<'ctx> {
 }
 
 impl<'ctx> ListType<'ctx> {
-    /// Checks whether `llvm_ty` represents a `list` type, returning [Err] if it does not.
-    pub fn is_representable(
-        llvm_ty: PointerType<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        let ctx = llvm_ty.get_context();
-
-        let llvm_ty = llvm_ty.get_element_type();
-        let AnyTypeEnum::StructType(llvm_ty) = llvm_ty else {
-            return Err(format!("Expected struct type for `list` type, got {llvm_ty}"));
-        };
-
-        let fields = ListStructFields::new(ctx, llvm_usize);
-
-        check_struct_type_matches_fields(
-            fields,
-            llvm_ty,
-            "list",
-            &[(fields.items.name(), &|ty| {
-                if ty.is_pointer_type() {
-                    Ok(())
-                } else {
-                    Err(format!("Expected T* for `list.items`, got {ty}"))
-                }
-            })],
-        )
-    }
-
     /// Returns an instance of [`StructFields`] containing all field accessors for this type.
     #[must_use]
     fn fields(item: BasicTypeEnum<'ctx>, llvm_usize: IntType<'ctx>) -> ListStructFields<'ctx> {
@@ -184,7 +156,7 @@ impl<'ctx> ListType<'ctx> {
     /// Creates an [`ListType`] from a [`PointerType`].
     #[must_use]
     pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        debug_assert!(Self::is_representable(ptr_ty, llvm_usize).is_ok());
+        debug_assert!(Self::has_same_repr(ptr_ty, llvm_usize).is_ok());
 
         let ctx = ptr_ty.get_context();
 
@@ -336,24 +308,39 @@ impl<'ctx> ProxyType<'ctx> for ListType<'ctx> {
     type Base = PointerType<'ctx>;
     type Value = ListValue<'ctx>;
 
-    fn is_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
+    fn is_representable(
         llvm_ty: impl BasicType<'ctx>,
+        llvm_usize: IntType<'ctx>,
     ) -> Result<(), String> {
         if let BasicTypeEnum::PointerType(ty) = llvm_ty.as_basic_type_enum() {
-            <Self as ProxyType<'ctx>>::is_representable(generator, ctx, ty)
+            Self::has_same_repr(ty, llvm_usize)
         } else {
             Err(format!("Expected pointer type, got {llvm_ty:?}"))
         }
     }
 
-    fn is_representable<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        llvm_ty: Self::Base,
-    ) -> Result<(), String> {
-        Self::is_representable(llvm_ty, generator.get_size_type(ctx))
+    fn has_same_repr(ty: Self::Base, llvm_usize: IntType<'ctx>) -> Result<(), String> {
+        let ctx = ty.get_context();
+
+        let llvm_ty = ty.get_element_type();
+        let AnyTypeEnum::StructType(llvm_ty) = llvm_ty else {
+            return Err(format!("Expected struct type for `list` type, got {llvm_ty}"));
+        };
+
+        let fields = ListStructFields::new(ctx, llvm_usize);
+
+        check_struct_type_matches_fields(
+            fields,
+            llvm_ty,
+            "list",
+            &[(fields.items.name(), &|ty| {
+                if ty.is_pointer_type() {
+                    Ok(())
+                } else {
+                    Err(format!("Expected T* for `list.items`, got {ty}"))
+                }
+            })],
+        )
     }
 
     fn alloca_type(&self) -> impl BasicType<'ctx> {

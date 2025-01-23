@@ -1,4 +1,7 @@
-use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
+use inkwell::{
+    types::IntType,
+    values::{BasicValueEnum, IntValue, PointerValue},
+};
 
 use super::ProxyValue;
 use crate::codegen::{types::RangeType, CodeGenContext};
@@ -7,21 +10,21 @@ use crate::codegen::{types::RangeType, CodeGenContext};
 #[derive(Copy, Clone)]
 pub struct RangeValue<'ctx> {
     value: PointerValue<'ctx>,
+    llvm_usize: IntType<'ctx>,
     name: Option<&'ctx str>,
 }
 
 impl<'ctx> RangeValue<'ctx> {
-    /// Checks whether `value` is an instance of `range`, returning [Err] if `value` is not an instance.
-    pub fn is_representable(value: PointerValue<'ctx>) -> Result<(), String> {
-        RangeType::is_representable(value.get_type())
-    }
-
     /// Creates an [`RangeValue`] from a [`PointerValue`].
     #[must_use]
-    pub fn from_pointer_value(ptr: PointerValue<'ctx>, name: Option<&'ctx str>) -> Self {
-        debug_assert!(Self::is_representable(ptr).is_ok());
+    pub fn from_pointer_value(
+        ptr: PointerValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        debug_assert!(Self::is_instance(ptr, llvm_usize).is_ok());
 
-        RangeValue { value: ptr, name }
+        RangeValue { value: ptr, llvm_usize, name }
     }
 
     fn ptr_to_start(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
@@ -138,7 +141,7 @@ impl<'ctx> ProxyValue<'ctx> for RangeValue<'ctx> {
     type Type = RangeType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        RangeType::from_type(self.value.get_type())
+        RangeType::from_type(self.value.get_type(), self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
