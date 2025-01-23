@@ -10,6 +10,7 @@ mod array;
 mod list;
 pub mod ndarray;
 mod range;
+pub mod structure;
 mod tuple;
 pub mod utils;
 

@@ -2,12 +2,54 @@ use std::marker::PhantomData;
 
 use inkwell::{
     context::AsContextRef,
-    types::{BasicTypeEnum, IntType, StructType},
+    types::{BasicTypeEnum, IntType, PointerType, StructType},
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
+    AddressSpace,
 };
 use itertools::Itertools;
 
+use super::ProxyType;
 use crate::codegen::CodeGenContext;
+
+/// A LLVM type that is used to represent a corresponding structure-like type in NAC3.
+pub trait StructProxyType<'ctx>: ProxyType<'ctx, Base = PointerType<'ctx>> {
+    /// The concrete type of [`StructFields`].
+    type StructFields: StructFields<'ctx>;
+
+    /// Whether this [`StructProxyType`] has the same LLVM type representation as
+    /// [`llvm_ty`][StructType].
+    fn has_same_struct_repr(
+        llvm_ty: StructType<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Result<(), String> {
+        Self::has_same_pointer_repr(llvm_ty.ptr_type(AddressSpace::default()), llvm_usize)
+    }
+
+    /// Whether this [`StructProxyType`] has the same LLVM type representation as
+    /// [`llvm_ty`][PointerType].
+    fn has_same_pointer_repr(
+        llvm_ty: PointerType<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Result<(), String> {
+        Self::has_same_repr(llvm_ty, llvm_usize)
+    }
+
+    /// Returns the fields present in this [`StructProxyType`].
+    #[must_use]
+    fn get_fields(&self) -> Self::StructFields;
+
+    /// Returns the [`StructType`].
+    #[must_use]
+    fn get_struct_type(&self) -> StructType<'ctx> {
+        self.as_base_type().get_element_type().into_struct_type()
+    }
+
+    /// Returns the [`PointerType`] representing this type.
+    #[must_use]
+    fn get_pointer_type(&self) -> PointerType<'ctx> {
+        self.as_base_type()
+    }
+}
 
 /// Trait indicating that the structure is a field-wise representation of an LLVM structure.
 ///
