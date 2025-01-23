@@ -17,10 +17,10 @@ use super::{
     gen_in_range_check,
     irrt::{handle_slice_indices, list_slice_assignment},
     macros::codegen_unreachable,
-    types::ndarray::NDArrayType,
+    types::{ndarray::NDArrayType, RangeType},
     values::{
         ndarray::{RustNDIndex, ScalarOrNDArray},
-        ArrayLikeIndexer, ArraySliceValue, ListValue, ProxyValue, RangeValue,
+        ArrayLikeIndexer, ArraySliceValue, ListValue, ProxyValue,
     },
     CodeGenContext, CodeGenerator,
 };
@@ -511,7 +511,7 @@ pub fn gen_for<G: CodeGenerator>(
             if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
         {
             let iter_val =
-                RangeValue::from_pointer_value(iter_val.into_pointer_value(), Some("range"));
+                RangeType::new(ctx).map_value(iter_val.into_pointer_value(), Some("range"));
             // Internal variable for loop; Cannot be assigned
             let i = generator.gen_var_alloc(ctx, int32.into(), Some("for.i.addr"))?;
             // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed

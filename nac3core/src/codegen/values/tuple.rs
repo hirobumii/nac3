@@ -14,15 +14,6 @@ pub struct TupleValue<'ctx> {
 }
 
 impl<'ctx> TupleValue<'ctx> {
-    /// Checks whether `value` is an instance of `tuple`, returning [Err] if `value` is not an
-    /// instance.
-    pub fn is_representable(
-        value: StructValue<'ctx>,
-        _llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        TupleType::is_representable(value.get_type())
-    }
-
     /// Creates an [`TupleValue`] from a [`StructValue`].
     #[must_use]
     pub fn from_struct_value(
@@ -30,7 +21,7 @@ impl<'ctx> TupleValue<'ctx> {
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        debug_assert!(Self::is_representable(value, llvm_usize).is_ok());
+        debug_assert!(Self::is_instance(value, llvm_usize).is_ok());
 
         Self { value, llvm_usize, name }
     }

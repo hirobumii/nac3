@@ -49,15 +49,6 @@ pub struct NDArrayValue<'ctx> {
 }
 
 impl<'ctx> NDArrayValue<'ctx> {
-    /// Checks whether `value` is an instance of `NDArray`, returning [Err] if `value` is not an
-    /// instance.
-    pub fn is_representable(
-        value: PointerValue<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        NDArrayType::is_representable(value.get_type(), llvm_usize)
-    }
-
     /// Creates an [`NDArrayValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_pointer_value(
@@ -67,7 +58,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        debug_assert!(Self::is_representable(ptr, llvm_usize).is_ok());
+        debug_assert!(Self::is_instance(ptr, llvm_usize).is_ok());
 
         NDArrayValue { value: ptr, dtype, ndims, llvm_usize, name }
     }

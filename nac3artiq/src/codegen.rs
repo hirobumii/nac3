@@ -19,9 +19,9 @@ use nac3core::{
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_alloca,
-        types::ndarray::NDArrayType,
+        types::{ndarray::NDArrayType, RangeType},
         values::{
-            ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, ProxyValue, RangeValue,
+            ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, ProxyValue,
             UntypedArrayLikeAccessor,
         },
         CodeGenContext, CodeGenerator,
@@ -1431,7 +1431,7 @@ fn polymorphic_print<'ctx>(
                 fmt.push_str("range(");
                 flush(ctx, generator, &mut fmt, &mut args);
 
-                let val = RangeValue::from_pointer_value(value.into_pointer_value(), None);
+                let val = RangeType::new(ctx).map_value(value.into_pointer_value(), None);
 
                 let (start, stop, step) = destructure_range(ctx, val);
 

@@ -1,7 +1,6 @@
-use inkwell::{context::Context, values::BasicValue};
+use inkwell::{types::IntType, values::BasicValue};
 
 use super::types::ProxyType;
-use crate::codegen::CodeGenerator;
 pub use array::*;
 pub use list::*;
 pub use range::*;
@@ -24,21 +23,8 @@ pub trait ProxyValue<'ctx>: Into<Self::Base> {
     type Type: ProxyType<'ctx, Value = Self>;
 
     /// Checks whether `value` can be represented by this [`ProxyValue`].
-    fn is_instance<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        value: impl BasicValue<'ctx>,
-    ) -> Result<(), String> {
-        Self::Type::is_type(generator, ctx, value.as_basic_value_enum().get_type())
-    }
-
-    /// Checks whether `value` can be represented by this [`ProxyValue`].
-    fn is_representable<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        value: Self::Base,
-    ) -> Result<(), String> {
-        Self::is_instance(generator, ctx, value.as_basic_value_enum())
+    fn is_instance(value: impl BasicValue<'ctx>, llvm_usize: IntType<'ctx>) -> Result<(), String> {
+        Self::Type::is_representable(value.as_basic_value_enum().get_type(), llvm_usize)
     }
 
     /// Returns the [type][ProxyType] of this value.

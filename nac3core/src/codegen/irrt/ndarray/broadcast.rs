@@ -55,10 +55,9 @@ pub fn call_nac3_ndarray_broadcast_shapes<'ctx, G, Shape>(
     let llvm_usize = ctx.get_size_type();
 
     assert_eq!(num_shape_entries.get_type(), llvm_usize);
-    assert!(ShapeEntryType::is_type(
-        generator,
-        ctx.ctx,
-        shape_entries.base_ptr(ctx, generator).get_type()
+    assert!(ShapeEntryType::is_representable(
+        shape_entries.base_ptr(ctx, generator).get_type(),
+        llvm_usize,
     )
     .is_ok());
     assert_eq!(dst_ndims.get_type(), llvm_usize);
