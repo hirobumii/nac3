@@ -5,9 +5,12 @@ use inkwell::{
 };
 
 use super::ProxyType;
-use crate::codegen::{
-    values::{ProxyValue, RangeValue},
-    {CodeGenContext, CodeGenerator},
+use crate::{
+    codegen::{
+        values::{ProxyValue, RangeValue},
+        {CodeGenContext, CodeGenerator},
+    },
+    typecheck::typedef::{Type, TypeEnum},
 };
 
 /// Proxy type for a `range` type in LLVM.
@@ -54,12 +57,33 @@ impl<'ctx> RangeType<'ctx> {
         llvm_i32.array_type(3).ptr_type(AddressSpace::default())
     }
 
-    /// Creates an instance of [`RangeType`].
-    #[must_use]
-    pub fn new(ctx: &'ctx Context) -> Self {
+    fn new_impl(ctx: &'ctx Context) -> Self {
         let llvm_range = Self::llvm_type(ctx);
 
-        RangeType::from_type(llvm_range)
+        RangeType { ty: llvm_range }
+    }
+
+    /// Creates an instance of [`RangeType`].
+    #[must_use]
+    pub fn new(ctx: &CodeGenContext<'ctx, '_>) -> Self {
+        RangeType::new_impl(ctx.ctx)
+    }
+
+    /// Creates an instance of [`RangeType`].
+    #[must_use]
+    pub fn new_with_generator<G: CodeGenerator + ?Sized>(_: &G, ctx: &'ctx Context) -> Self {
+        Self::new_impl(ctx)
+    }
+
+    /// Creates an [`RangeType`] from a [unifier type][Type].
+    #[must_use]
+    pub fn from_unifier_type(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> Self {
+        // Check unifier type
+        assert!(
+            matches!(&*ctx.unifier.get_ty_immutable(ty), TypeEnum::TObj { obj_id, .. } if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap())
+        );
+
+        Self::new(ctx)
     }
 
     /// Creates an [`RangeType`] from a [`PointerType`].

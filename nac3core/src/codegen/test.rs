@@ -453,8 +453,9 @@ fn test_classes_list_type_new() {
 #[test]
 fn test_classes_range_type_new() {
     let ctx = inkwell::context::Context::create();
+    let generator = DefaultCodeGenerator::new(String::new(), ctx.i64_type());
 
-    let llvm_range = RangeType::new(&ctx);
+    let llvm_range = RangeType::new_with_generator(&generator, &ctx);
     assert!(RangeType::is_representable(llvm_range.as_base_type()).is_ok());
 }
 

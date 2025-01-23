@@ -800,7 +800,7 @@ pub fn gen_func_impl<
                 Some(t) => t.as_basic_type_enum(),
             }
         }),
-        (primitives.range, RangeType::new(context).as_base_type().into()),
+        (primitives.range, RangeType::new_with_generator(generator, context).as_base_type().into()),
         (primitives.exception, {
             let name = "Exception";
             if let Some(t) = module.get_struct_type(name) {
