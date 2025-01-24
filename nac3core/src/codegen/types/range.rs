@@ -72,7 +72,7 @@ impl<'ctx> RangeType<'ctx> {
     /// Returns the type of all fields of this `range` type.
     #[must_use]
     pub fn value_type(&self) -> IntType<'ctx> {
-        self.as_base_type().get_element_type().into_array_type().get_element_type().into_int_type()
+        self.as_abi_type().get_element_type().into_array_type().get_element_type().into_int_type()
     }
 
     /// Allocates an instance of [`RangeValue`] as if by calling `alloca` on the base type.
@@ -120,6 +120,7 @@ impl<'ctx> RangeType<'ctx> {
 }
 
 impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
+    type ABI = PointerType<'ctx>;
     type Base = PointerType<'ctx>;
     type Value = RangeValue<'ctx>;
 
@@ -163,11 +164,15 @@ impl<'ctx> ProxyType<'ctx> for RangeType<'ctx> {
     }
 
     fn alloca_type(&self) -> impl BasicType<'ctx> {
-        self.as_base_type().get_element_type().into_struct_type()
+        self.as_abi_type().get_element_type().into_struct_type()
     }
 
     fn as_base_type(&self) -> Self::Base {
         self.ty
+    }
+
+    fn as_abi_type(&self) -> Self::ABI {
+        self.as_base_type()
     }
 }
 

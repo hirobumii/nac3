@@ -562,7 +562,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 *params.iter().next().unwrap().1,
                             );
 
-                            ListType::new_with_generator(generator, ctx, element_type).as_base_type().into()
+                            ListType::new_with_generator(generator, ctx, element_type).as_abi_type().into()
                         }
 
                         TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
@@ -572,7 +572,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 ctx, module, generator, unifier, top_level, type_cache, dtype,
                             );
 
-                            NDArrayType::new_with_generator(generator, ctx, element_type, ndims).as_base_type().into()
+                            NDArrayType::new_with_generator(generator, ctx, element_type, ndims).as_abi_type().into()
                         }
 
                         _ => unreachable!(
@@ -626,7 +626,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, *ty)
                     })
                     .collect_vec();
-                TupleType::new_with_generator(generator, ctx, &fields).as_base_type().into()
+                TupleType::new_with_generator(generator, ctx, &fields).as_abi_type().into()
             }
             TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),
@@ -800,7 +800,7 @@ pub fn gen_func_impl<
                 Some(t) => t.as_basic_type_enum(),
             }
         }),
-        (primitives.range, RangeType::new_with_generator(generator, context).as_base_type().into()),
+        (primitives.range, RangeType::new_with_generator(generator, context).as_abi_type().into()),
         (primitives.exception, {
             let name = "Exception";
             if let Some(t) = module.get_struct_type(name) {

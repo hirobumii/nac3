@@ -157,6 +157,7 @@ impl<'ctx> TupleType<'ctx> {
 }
 
 impl<'ctx> ProxyType<'ctx> for TupleType<'ctx> {
+    type ABI = StructType<'ctx>;
     type Base = StructType<'ctx>;
     type Value = TupleValue<'ctx>;
 
@@ -181,6 +182,10 @@ impl<'ctx> ProxyType<'ctx> for TupleType<'ctx> {
 
     fn as_base_type(&self) -> Self::Base {
         self.ty
+    }
+
+    fn as_abi_type(&self) -> Self::ABI {
+        self.as_base_type()
     }
 }
 

@@ -664,7 +664,7 @@ impl<'a> BuiltinBuilder<'a> {
                         zelf.store_end(ctx, stop);
                         zelf.store_step(ctx, step);
 
-                        Ok(Some(zelf.as_base_value().into()))
+                        Ok(Some(zelf.as_abi_value(ctx).into()))
                     },
                 )))),
                 loc: None,
@@ -1320,7 +1320,7 @@ impl<'a> BuiltinBuilder<'a> {
                             _ => unreachable!(),
                         };
 
-                        Ok(Some(result_tuple.as_base_value().into()))
+                        Ok(Some(result_tuple.as_abi_value(ctx).into()))
                     }),
                 )
             }
@@ -1356,7 +1356,7 @@ impl<'a> BuiltinBuilder<'a> {
                         .map_value(arg_val.into_pointer_value(), None);
 
                     let ndarray = ndarray.transpose(generator, ctx, None); // TODO: Add axes argument
-                    Ok(Some(ndarray.as_base_value().into()))
+                    Ok(Some(ndarray.as_abi_value(ctx).into()))
                 }),
             ),
 
@@ -1410,7 +1410,7 @@ impl<'a> BuiltinBuilder<'a> {
 
                             _ => unreachable!(),
                         };
-                        Ok(Some(new_ndarray.as_base_value().as_basic_value_enum()))
+                        Ok(Some(new_ndarray.as_abi_value(ctx).as_basic_value_enum()))
                     }),
                 )
             }

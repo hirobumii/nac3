@@ -34,7 +34,7 @@ impl<'ctx> RangeValue<'ctx> {
         unsafe {
             ctx.builder
                 .build_in_bounds_gep(
-                    self.as_base_value(),
+                    self.as_abi_value(ctx),
                     &[llvm_i32.const_zero(), llvm_i32.const_int(0, false)],
                     var_name.as_str(),
                 )
@@ -49,7 +49,7 @@ impl<'ctx> RangeValue<'ctx> {
         unsafe {
             ctx.builder
                 .build_in_bounds_gep(
-                    self.as_base_value(),
+                    self.as_abi_value(ctx),
                     &[llvm_i32.const_zero(), llvm_i32.const_int(1, false)],
                     var_name.as_str(),
                 )
@@ -64,7 +64,7 @@ impl<'ctx> RangeValue<'ctx> {
         unsafe {
             ctx.builder
                 .build_in_bounds_gep(
-                    self.as_base_value(),
+                    self.as_abi_value(ctx),
                     &[llvm_i32.const_zero(), llvm_i32.const_int(2, false)],
                     var_name.as_str(),
                 )
@@ -137,6 +137,7 @@ impl<'ctx> RangeValue<'ctx> {
 }
 
 impl<'ctx> ProxyValue<'ctx> for RangeValue<'ctx> {
+    type ABI = PointerValue<'ctx>;
     type Base = PointerValue<'ctx>;
     type Type = RangeType<'ctx>;
 
@@ -146,6 +147,10 @@ impl<'ctx> ProxyValue<'ctx> for RangeValue<'ctx> {
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
     }
 }
 

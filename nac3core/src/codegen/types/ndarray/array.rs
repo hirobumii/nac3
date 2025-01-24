@@ -151,7 +151,7 @@ impl<'ctx> NDArrayType<'ctx> {
                     (list_ty, list),
                     name,
                 );
-                Ok(Some(ndarray.as_base_value()))
+                Ok(Some(ndarray.as_abi_value(ctx)))
             },
             |generator, ctx| {
                 let ndarray = self.construct_numpy_array_from_list_copy_none_impl(
@@ -160,7 +160,7 @@ impl<'ctx> NDArrayType<'ctx> {
                     (list_ty, list),
                     name,
                 );
-                Ok(Some(ndarray.as_base_value()))
+                Ok(Some(ndarray.as_abi_value(ctx)))
             },
         )
         .unwrap()
@@ -189,11 +189,11 @@ impl<'ctx> NDArrayType<'ctx> {
             |_generator, _ctx| Ok(copy),
             |generator, ctx| {
                 let ndarray = ndarray.make_copy(generator, ctx); // Force copy
-                Ok(Some(ndarray.as_base_value()))
+                Ok(Some(ndarray.as_abi_value(ctx)))
             },
-            |_generator, _ctx| {
+            |_generator, ctx| {
                 // No need to copy. Return `ndarray` itself.
-                Ok(Some(ndarray.as_base_value()))
+                Ok(Some(ndarray.as_abi_value(ctx)))
             },
         )
         .unwrap()

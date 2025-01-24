@@ -36,7 +36,7 @@ pub fn call_nac3_ndarray_array_set_and_validate_list_shape<'ctx, G: CodeGenerato
         ctx,
         &name,
         None,
-        &[list.as_base_value().into(), ndims.into(), shape.base_ptr(ctx, generator).into()],
+        &[list.as_abi_value(ctx).into(), ndims.into(), shape.base_ptr(ctx, generator).into()],
         None,
         None,
     );
@@ -65,7 +65,7 @@ pub fn call_nac3_ndarray_array_write_list_to_array<'ctx>(
         ctx,
         &name,
         None,
-        &[list.as_base_value().into(), ndarray.as_base_value().into()],
+        &[list.as_abi_value(ctx).into(), ndarray.as_abi_value(ctx).into()],
         None,
         None,
     );

@@ -150,6 +150,7 @@ impl<'ctx> SliceValue<'ctx> {
 }
 
 impl<'ctx> ProxyValue<'ctx> for SliceValue<'ctx> {
+    type ABI = PointerValue<'ctx>;
     type Base = PointerValue<'ctx>;
     type Type = SliceType<'ctx>;
 
@@ -159,6 +160,10 @@ impl<'ctx> ProxyValue<'ctx> for SliceValue<'ctx> {
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
     }
 }
 

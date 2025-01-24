@@ -1,6 +1,6 @@
 use inkwell::{types::IntType, values::BasicValue};
 
-use super::types::ProxyType;
+use super::{types::ProxyType, CodeGenContext};
 pub use array::*;
 pub use list::*;
 pub use range::*;
@@ -16,8 +16,10 @@ pub mod utils;
 
 /// A LLVM type that is used to represent a non-primitive value in NAC3.
 pub trait ProxyValue<'ctx>: Into<Self::Base> {
-    /// The type of LLVM values represented by this instance. This is usually the
-    /// [LLVM pointer type][PointerValue].
+    /// The ABI type of LLVM values represented by this instance.
+    type ABI: BasicValue<'ctx>;
+
+    /// The type of LLVM values represented by this instance.
     type Base: BasicValue<'ctx>;
 
     /// The type of this value.
@@ -33,4 +35,10 @@ pub trait ProxyValue<'ctx>: Into<Self::Base> {
 
     /// Returns the [base value][Self::Base] of this proxy.
     fn as_base_value(&self) -> Self::Base;
+
+    /// Returns this proxy as its ABI value, i.e. the expected value representation if a value
+    /// represented by this [`ProxyValue`] is being passed into or returned from a function.
+    ///
+    /// See [`CodeGenContext::get_llvm_abi_type`].
+    fn as_abi_value(&self, ctx: &CodeGenContext<'ctx, '_>) -> Self::ABI;
 }

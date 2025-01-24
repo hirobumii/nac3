@@ -110,7 +110,7 @@ impl<'ctx> ListValue<'ctx> {
         let llvm_list_i8 = <Self as ProxyValue>::Type::new(ctx, &llvm_i8);
 
         Self::from_pointer_value(
-            ctx.builder.build_pointer_cast(self.value, llvm_list_i8.as_base_type(), "").unwrap(),
+            ctx.builder.build_pointer_cast(self.value, llvm_list_i8.as_abi_type(), "").unwrap(),
             self.llvm_usize,
             self.name,
         )
@@ -118,6 +118,7 @@ impl<'ctx> ListValue<'ctx> {
 }
 
 impl<'ctx> ProxyValue<'ctx> for ListValue<'ctx> {
+    type ABI = PointerValue<'ctx>;
     type Base = PointerValue<'ctx>;
     type Type = ListType<'ctx>;
 
@@ -127,6 +128,10 @@ impl<'ctx> ProxyValue<'ctx> for ListValue<'ctx> {
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
     }
 }
 

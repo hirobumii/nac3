@@ -761,7 +761,7 @@ fn format_rpc_ret<'ctx>(
             ctx.builder.build_unconditional_branch(head_bb).unwrap();
 
             ctx.builder.position_at_end(tail_bb);
-            ndarray.as_base_value().into()
+            ndarray.as_abi_value(ctx).into()
         }
 
         _ => {

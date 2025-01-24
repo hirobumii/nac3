@@ -40,8 +40,8 @@ pub fn call_nac3_nditer_initialize<'ctx, G: CodeGenerator + ?Sized>(
         &name,
         None,
         &[
-            (iter.get_type().as_base_type().into(), iter.as_base_value().into()),
-            (ndarray.get_type().as_base_type().into(), ndarray.as_base_value().into()),
+            (iter.get_type().as_abi_type().into(), iter.as_abi_value(ctx).into()),
+            (ndarray.get_type().as_abi_type().into(), ndarray.as_abi_value(ctx).into()),
             (llvm_pusize.into(), indices.base_ptr(ctx, generator).into()),
         ],
         None,
@@ -63,7 +63,7 @@ pub fn call_nac3_nditer_has_element<'ctx>(
         ctx,
         &name,
         Some(ctx.ctx.bool_type().into()),
-        &[iter.as_base_value().into()],
+        &[iter.as_abi_value(ctx).into()],
         None,
         None,
     )
@@ -77,5 +77,5 @@ pub fn call_nac3_nditer_has_element<'ctx>(
 pub fn call_nac3_nditer_next<'ctx>(ctx: &CodeGenContext<'ctx, '_>, iter: NDIterValue<'ctx>) {
     let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_next");
 
-    infer_and_call_function(ctx, &name, None, &[iter.as_base_value().into()], None, None);
+    infer_and_call_function(ctx, &name, None, &[iter.as_abi_value(ctx).into()], None, None);
 }
