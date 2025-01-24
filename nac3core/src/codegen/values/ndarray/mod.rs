@@ -94,12 +94,12 @@ impl<'ctx> NDArrayValue<'ctx> {
     pub fn store_itemsize(&self, ctx: &CodeGenContext<'ctx, '_>, itemsize: IntValue<'ctx>) {
         debug_assert_eq!(itemsize.get_type(), ctx.get_size_type());
 
-        self.itemsize_field(ctx).set(ctx, self.value, itemsize, self.name);
+        self.itemsize_field(ctx).store(ctx, self.value, itemsize, self.name);
     }
 
     /// Returns the size of each element of this `NDArray` as a value.
     pub fn load_itemsize(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.itemsize_field(ctx).get(ctx, self.value, self.name)
+        self.itemsize_field(ctx).load(ctx, self.value, self.name)
     }
 
     fn shape_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, PointerValue<'ctx>> {
@@ -108,7 +108,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Stores the array of dimension sizes `dims` into this instance.
     fn store_shape(&self, ctx: &CodeGenContext<'ctx, '_>, dims: PointerValue<'ctx>) {
-        self.shape_field(ctx).set(ctx, self.value, dims, self.name);
+        self.shape_field(ctx).store(ctx, self.value, dims, self.name);
     }
 
     /// Convenience method for creating a new array storing dimension sizes with the given `size`.
@@ -136,7 +136,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Stores the array of stride sizes `strides` into this instance.
     fn store_strides(&self, ctx: &CodeGenContext<'ctx, '_>, strides: PointerValue<'ctx>) {
-        self.strides_field(ctx).set(ctx, self.value, strides, self.name);
+        self.strides_field(ctx).store(ctx, self.value, strides, self.name);
     }
 
     /// Convenience method for creating a new array storing the stride with the given `size`.
@@ -171,7 +171,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             .builder
             .build_bit_cast(data, ctx.ctx.i8_type().ptr_type(AddressSpace::default()), "")
             .unwrap();
-        self.data_field(ctx).set(ctx, self.value, data.into_pointer_value(), self.name);
+        self.data_field(ctx).store(ctx, self.value, data.into_pointer_value(), self.name);
     }
 
     /// Convenience method for creating a new array storing data elements with the given element
@@ -508,7 +508,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayShapeProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> PointerValue<'ctx> {
-        self.0.shape_field(ctx).get(ctx, self.0.value, self.0.name)
+        self.0.shape_field(ctx).load(ctx, self.0.value, self.0.name)
     }
 
     fn size<G: CodeGenerator + ?Sized>(
@@ -606,7 +606,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayStridesProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> PointerValue<'ctx> {
-        self.0.strides_field(ctx).get(ctx, self.0.value, self.0.name)
+        self.0.strides_field(ctx).load(ctx, self.0.value, self.0.name)
     }
 
     fn size<G: CodeGenerator + ?Sized>(
@@ -704,7 +704,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDataProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> PointerValue<'ctx> {
-        self.0.data_field(ctx).get(ctx, self.0.value, self.0.name)
+        self.0.data_field(ctx).load(ctx, self.0.value, self.0.name)
     }
 
     fn size<G: CodeGenerator + ?Sized>(

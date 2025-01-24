@@ -47,11 +47,11 @@ impl<'ctx> NDIndexValue<'ctx> {
     }
 
     pub fn load_type(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.type_field().get(ctx, self.value, self.name)
+        self.type_field().load(ctx, self.value, self.name)
     }
 
     pub fn store_type(&self, ctx: &CodeGenContext<'ctx, '_>, value: IntValue<'ctx>) {
-        self.type_field().set(ctx, self.value, value, self.name);
+        self.type_field().store(ctx, self.value, value, self.name);
     }
 
     fn data_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
@@ -59,11 +59,11 @@ impl<'ctx> NDIndexValue<'ctx> {
     }
 
     pub fn load_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        self.data_field().get(ctx, self.value, self.name)
+        self.data_field().load(ctx, self.value, self.name)
     }
 
     pub fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
-        self.data_field().set(ctx, self.value, value, self.name);
+        self.data_field().store(ctx, self.value, value, self.name);
     }
 }
 

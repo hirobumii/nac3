@@ -42,7 +42,7 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_start_defined(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.start_defined_field().get(ctx, self.value, self.name)
+        self.start_defined_field().load(ctx, self.value, self.name)
     }
 
     fn start_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
@@ -50,22 +50,22 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_start(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.start_field().get(ctx, self.value, self.name)
+        self.start_field().load(ctx, self.value, self.name)
     }
 
     pub fn store_start(&self, ctx: &CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
         match value {
             Some(start) => {
-                self.start_defined_field().set(
+                self.start_defined_field().store(
                     ctx,
                     self.value,
                     ctx.ctx.bool_type().const_all_ones(),
                     self.name,
                 );
-                self.start_field().set(ctx, self.value, start, self.name);
+                self.start_field().store(ctx, self.value, start, self.name);
             }
 
-            None => self.start_defined_field().set(
+            None => self.start_defined_field().store(
                 ctx,
                 self.value,
                 ctx.ctx.bool_type().const_zero(),
@@ -79,7 +79,7 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_stop_defined(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.stop_defined_field().get(ctx, self.value, self.name)
+        self.stop_defined_field().load(ctx, self.value, self.name)
     }
 
     fn stop_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
@@ -87,22 +87,22 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_stop(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.stop_field().get(ctx, self.value, self.name)
+        self.stop_field().load(ctx, self.value, self.name)
     }
 
     pub fn store_stop(&self, ctx: &CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
         match value {
             Some(stop) => {
-                self.stop_defined_field().set(
+                self.stop_defined_field().store(
                     ctx,
                     self.value,
                     ctx.ctx.bool_type().const_all_ones(),
                     self.name,
                 );
-                self.stop_field().set(ctx, self.value, stop, self.name);
+                self.stop_field().store(ctx, self.value, stop, self.name);
             }
 
-            None => self.stop_defined_field().set(
+            None => self.stop_defined_field().store(
                 ctx,
                 self.value,
                 ctx.ctx.bool_type().const_zero(),
@@ -116,7 +116,7 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_step_defined(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.step_defined_field().get(ctx, self.value, self.name)
+        self.step_defined_field().load(ctx, self.value, self.name)
     }
 
     fn step_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
@@ -124,22 +124,22 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_step(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.step_field().get(ctx, self.value, self.name)
+        self.step_field().load(ctx, self.value, self.name)
     }
 
     pub fn store_step(&self, ctx: &CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
         match value {
             Some(step) => {
-                self.step_defined_field().set(
+                self.step_defined_field().store(
                     ctx,
                     self.value,
                     ctx.ctx.bool_type().const_all_ones(),
                     self.name,
                 );
-                self.step_field().set(ctx, self.value, step, self.name);
+                self.step_field().store(ctx, self.value, step, self.name);
             }
 
-            None => self.step_defined_field().set(
+            None => self.step_defined_field().store(
                 ctx,
                 self.value,
                 ctx.ctx.bool_type().const_zero(),
