@@ -68,7 +68,7 @@ impl<'ctx> NDIterValue<'ctx> {
     pub fn get_pointer(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let elem_ty = self.parent.dtype;
 
-        let p = self.element_field(ctx).get(ctx, self.as_base_value(), self.name);
+        let p = self.element_field(ctx).get(ctx, self.as_abi_value(ctx), self.name);
         ctx.builder
             .build_pointer_cast(p, elem_ty.ptr_type(AddressSpace::default()), "element")
             .unwrap()
@@ -88,7 +88,7 @@ impl<'ctx> NDIterValue<'ctx> {
     /// Get the index of the current element if this ndarray were a flat ndarray.
     #[must_use]
     pub fn get_index(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.nth_field(ctx).get(ctx, self.as_base_value(), self.name)
+        self.nth_field(ctx).get(ctx, self.as_abi_value(ctx), self.name)
     }
 
     /// Get the indices of the current element.
@@ -105,6 +105,7 @@ impl<'ctx> NDIterValue<'ctx> {
 }
 
 impl<'ctx> ProxyValue<'ctx> for NDIterValue<'ctx> {
+    type ABI = PointerValue<'ctx>;
     type Base = PointerValue<'ctx>;
     type Type = NDIterType<'ctx>;
 
@@ -114,6 +115,10 @@ impl<'ctx> ProxyValue<'ctx> for NDIterValue<'ctx> {
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
     }
 }
 

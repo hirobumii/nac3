@@ -57,6 +57,7 @@ impl<'ctx> TupleValue<'ctx> {
 }
 
 impl<'ctx> ProxyValue<'ctx> for TupleValue<'ctx> {
+    type ABI = StructValue<'ctx>;
     type Base = StructValue<'ctx>;
     type Type = TupleType<'ctx>;
 
@@ -66,6 +67,10 @@ impl<'ctx> ProxyValue<'ctx> for TupleValue<'ctx> {
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
     }
 }
 

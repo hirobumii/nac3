@@ -41,7 +41,7 @@ impl<'ctx> ContiguousNDArrayValue<'ctx> {
     }
 
     pub fn store_ndims(&self, ctx: &CodeGenContext<'ctx, '_>, value: IntValue<'ctx>) {
-        self.ndims_field().set(ctx, self.as_base_value(), value, self.name);
+        self.ndims_field().set(ctx, self.as_abi_value(ctx), value, self.name);
     }
 
     fn shape_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
@@ -49,7 +49,7 @@ impl<'ctx> ContiguousNDArrayValue<'ctx> {
     }
 
     pub fn store_shape(&self, ctx: &CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
-        self.shape_field().set(ctx, self.as_base_value(), value, self.name);
+        self.shape_field().set(ctx, self.as_abi_value(ctx), value, self.name);
     }
 
     pub fn load_shape(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
@@ -61,7 +61,7 @@ impl<'ctx> ContiguousNDArrayValue<'ctx> {
     }
 
     pub fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
-        self.data_field().set(ctx, self.as_base_value(), value, self.name);
+        self.data_field().set(ctx, self.as_abi_value(ctx), value, self.name);
     }
 
     pub fn load_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
@@ -70,6 +70,7 @@ impl<'ctx> ContiguousNDArrayValue<'ctx> {
 }
 
 impl<'ctx> ProxyValue<'ctx> for ContiguousNDArrayValue<'ctx> {
+    type ABI = PointerValue<'ctx>;
     type Base = PointerValue<'ctx>;
     type Type = ContiguousNDArrayType<'ctx>;
 
@@ -83,6 +84,10 @@ impl<'ctx> ProxyValue<'ctx> for ContiguousNDArrayValue<'ctx> {
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
     }
 }
 
@@ -124,7 +129,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             |_, ctx| Ok(self.is_c_contiguous(ctx)),
             |_, ctx| {
                 // This ndarray is contiguous.
-                let data = self.data_field(ctx).get(ctx, self.as_base_value(), self.name);
+                let data = self.data_field(ctx).get(ctx, self.as_abi_value(ctx), self.name);
                 let data = ctx
                     .builder
                     .build_pointer_cast(data, result.item.ptr_type(AddressSpace::default()), "")

@@ -34,8 +34,8 @@ pub fn call_nac3_ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
         &name,
         None,
         &[
-            src_ndarray.as_base_value().into(),
-            dst_ndarray.as_base_value().into(),
+            src_ndarray.as_abi_value(ctx).into(),
+            dst_ndarray.as_abi_value(ctx).into(),
             axes.map_or(llvm_usize.const_zero(), |axes| axes.size(ctx, generator)).into(),
             axes.map_or(llvm_usize.ptr_type(AddressSpace::default()).const_null(), |axes| {
                 axes.base_ptr(ctx, generator)

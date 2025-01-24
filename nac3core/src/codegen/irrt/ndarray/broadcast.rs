@@ -30,7 +30,7 @@ pub fn call_nac3_ndarray_broadcast_to<'ctx>(
         ctx,
         &name,
         None,
-        &[src_ndarray.as_base_value().into(), dst_ndarray.as_base_value().into()],
+        &[src_ndarray.as_abi_value(ctx).into(), dst_ndarray.as_abi_value(ctx).into()],
         None,
         None,
     );

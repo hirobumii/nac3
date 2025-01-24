@@ -1,6 +1,6 @@
 use inkwell::{
     types::BasicTypeEnum,
-    values::{BasicValue, BasicValueEnum, IntValue},
+    values::{BasicValueEnum, IntValue},
     FloatPredicate, IntPredicate, OptimizationLevel,
 };
 use itertools::Itertools;
@@ -137,7 +137,7 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
                 )
                 .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, "int32", &[n_ty]),
@@ -197,7 +197,7 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
                 )
                 .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, "int64", &[n_ty]),
@@ -273,7 +273,7 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
                 )
                 .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, "uint32", &[n_ty]),
@@ -338,7 +338,7 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
                 )
                 .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, "uint64", &[n_ty]),
@@ -402,7 +402,7 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
                 )
                 .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, "float", &[n_ty]),
@@ -448,7 +448,7 @@ pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
                 )
                 .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty]),
@@ -485,7 +485,7 @@ pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
                 )
                 .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty]),
@@ -550,7 +550,7 @@ pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
                 )
                 .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty]),
@@ -600,7 +600,7 @@ pub fn call_floor<'ctx, G: CodeGenerator + ?Sized>(
                 )
                 .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty]),
@@ -650,7 +650,7 @@ pub fn call_ceil<'ctx, G: CodeGenerator + ?Sized>(
                 )
                 .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[n_ty]),
@@ -767,7 +767,7 @@ pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
                     )
                     .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
@@ -1026,7 +1026,7 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
                     )
                     .unwrap();
 
-            result.as_base_value().into()
+            result.as_abi_value(ctx).into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
@@ -1653,11 +1653,11 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
     let out_c = out.make_contiguous_ndarray(generator, ctx);
     extern_fns::call_np_linalg_cholesky(
         ctx,
-        x1_c.as_base_value().into(),
-        out_c.as_base_value().into(),
+        x1_c.as_abi_value(ctx).into(),
+        out_c.as_abi_value(ctx).into(),
         None,
     );
-    Ok(out.as_base_value().into())
+    Ok(out.as_abi_value(ctx).into())
 }
 
 /// Invokes the `np_linalg_qr` linalg function
@@ -1699,20 +1699,20 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
 
     extern_fns::call_np_linalg_qr(
         ctx,
-        x1_c.as_base_value().into(),
-        q_c.as_base_value().into(),
-        r_c.as_base_value().into(),
+        x1_c.as_abi_value(ctx).into(),
+        q_c.as_abi_value(ctx).into(),
+        r_c.as_abi_value(ctx).into(),
         None,
     );
 
-    let q = q.as_base_value().as_basic_value_enum();
-    let r = r.as_base_value().as_basic_value_enum();
+    let q = q.as_abi_value(ctx);
+    let r = r.as_abi_value(ctx);
     let tuple = TupleType::new(ctx, &[q.get_type(), r.get_type()]).construct_from_objects(
         ctx,
-        [q, r],
+        [q.into(), r.into()],
         None,
     );
-    Ok(tuple.as_base_value().into())
+    Ok(tuple.as_abi_value(ctx).into())
 }
 
 /// Invokes the `np_linalg_svd` linalg function
@@ -1760,19 +1760,19 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
 
     extern_fns::call_np_linalg_svd(
         ctx,
-        x1_c.as_base_value().into(),
-        u_c.as_base_value().into(),
-        s_c.as_base_value().into(),
-        vh_c.as_base_value().into(),
+        x1_c.as_abi_value(ctx).into(),
+        u_c.as_abi_value(ctx).into(),
+        s_c.as_abi_value(ctx).into(),
+        vh_c.as_abi_value(ctx).into(),
         None,
     );
 
-    let u = u.as_base_value().as_basic_value_enum();
-    let s = s.as_base_value().as_basic_value_enum();
-    let vh = vh.as_base_value().as_basic_value_enum();
+    let u = u.as_abi_value(ctx);
+    let s = s.as_abi_value(ctx);
+    let vh = vh.as_abi_value(ctx);
     let tuple = TupleType::new(ctx, &[u.get_type(), s.get_type(), vh.get_type()])
-        .construct_from_objects(ctx, [u, s, vh], None);
-    Ok(tuple.as_base_value().into())
+        .construct_from_objects(ctx, [u.into(), s.into(), vh.into()], None);
+    Ok(tuple.as_abi_value(ctx).into())
 }
 
 /// Invokes the `np_linalg_inv` linalg function
@@ -1800,12 +1800,12 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
     let out_c = out.make_contiguous_ndarray(generator, ctx);
     extern_fns::call_np_linalg_inv(
         ctx,
-        x1_c.as_base_value().into(),
-        out_c.as_base_value().into(),
+        x1_c.as_abi_value(ctx).into(),
+        out_c.as_abi_value(ctx).into(),
         None,
     );
 
-    Ok(out.as_base_value().into())
+    Ok(out.as_abi_value(ctx).into())
 }
 
 /// Invokes the `np_linalg_pinv` linalg function
@@ -1845,12 +1845,12 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
     let out_c = out.make_contiguous_ndarray(generator, ctx);
     extern_fns::call_np_linalg_pinv(
         ctx,
-        x1_c.as_base_value().into(),
-        out_c.as_base_value().into(),
+        x1_c.as_abi_value(ctx).into(),
+        out_c.as_abi_value(ctx).into(),
         None,
     );
 
-    Ok(out.as_base_value().into())
+    Ok(out.as_abi_value(ctx).into())
 }
 
 /// Invokes the `sp_linalg_lu` linalg function
@@ -1892,20 +1892,20 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
     let u_c = u.make_contiguous_ndarray(generator, ctx);
     extern_fns::call_sp_linalg_lu(
         ctx,
-        x1_c.as_base_value().into(),
-        l_c.as_base_value().into(),
-        u_c.as_base_value().into(),
+        x1_c.as_abi_value(ctx).into(),
+        l_c.as_abi_value(ctx).into(),
+        u_c.as_abi_value(ctx).into(),
         None,
     );
 
-    let l = l.as_base_value().as_basic_value_enum();
-    let u = u.as_base_value().as_basic_value_enum();
+    let l = l.as_abi_value(ctx);
+    let u = u.as_abi_value(ctx);
     let tuple = TupleType::new(ctx, &[l.get_type(), u.get_type()]).construct_from_objects(
         ctx,
-        [l, u],
+        [l.into(), u.into()],
         None,
     );
-    Ok(tuple.as_base_value().into())
+    Ok(tuple.as_abi_value(ctx).into())
 }
 
 /// Invokes the `np_linalg_matrix_power` linalg function
@@ -1953,13 +1953,13 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
 
     extern_fns::call_np_linalg_matrix_power(
         ctx,
-        x1_c.as_base_value().into(),
-        x2_c.as_base_value().into(),
-        out_c.as_base_value().into(),
+        x1_c.as_abi_value(ctx).into(),
+        x2_c.as_abi_value(ctx).into(),
+        out_c.as_abi_value(ctx).into(),
         None,
     );
 
-    Ok(out.as_base_value().into())
+    Ok(out.as_abi_value(ctx).into())
 }
 
 /// Invokes the `np_linalg_det` linalg function
@@ -1993,8 +1993,8 @@ pub fn call_np_linalg_det<'ctx, G: CodeGenerator + ?Sized>(
     let out_c = det.make_contiguous_ndarray(generator, ctx);
     extern_fns::call_np_linalg_det(
         ctx,
-        x1_c.as_base_value().into(),
-        out_c.as_base_value().into(),
+        x1_c.as_abi_value(ctx).into(),
+        out_c.as_abi_value(ctx).into(),
         None,
     );
 
@@ -2035,20 +2035,20 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
     let z_c = z.make_contiguous_ndarray(generator, ctx);
     extern_fns::call_sp_linalg_schur(
         ctx,
-        x1_c.as_base_value().into(),
-        t_c.as_base_value().into(),
-        z_c.as_base_value().into(),
+        x1_c.as_abi_value(ctx).into(),
+        t_c.as_abi_value(ctx).into(),
+        z_c.as_abi_value(ctx).into(),
         None,
     );
 
-    let t = t.as_base_value().as_basic_value_enum();
-    let z = z.as_base_value().as_basic_value_enum();
+    let t = t.as_abi_value(ctx);
+    let z = z.as_abi_value(ctx);
     let tuple = TupleType::new(ctx, &[t.get_type(), z.get_type()]).construct_from_objects(
         ctx,
-        [t, z],
+        [t.into(), z.into()],
         None,
     );
-    Ok(tuple.as_base_value().into())
+    Ok(tuple.as_abi_value(ctx).into())
 }
 
 /// Invokes the `sp_linalg_hessenberg` linalg function
@@ -2083,18 +2083,18 @@ pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
     let q_c = q.make_contiguous_ndarray(generator, ctx);
     extern_fns::call_sp_linalg_hessenberg(
         ctx,
-        x1_c.as_base_value().into(),
-        h_c.as_base_value().into(),
-        q_c.as_base_value().into(),
+        x1_c.as_abi_value(ctx).into(),
+        h_c.as_abi_value(ctx).into(),
+        q_c.as_abi_value(ctx).into(),
         None,
     );
 
-    let h = h.as_base_value().as_basic_value_enum();
-    let q = q.as_base_value().as_basic_value_enum();
+    let h = h.as_abi_value(ctx);
+    let q = q.as_abi_value(ctx);
     let tuple = TupleType::new(ctx, &[h.get_type(), q.get_type()]).construct_from_objects(
         ctx,
-        [h, q],
+        [h.into(), q.into()],
         None,
     );
-    Ok(tuple.as_base_value().into())
+    Ok(tuple.as_abi_value(ctx).into())
 }

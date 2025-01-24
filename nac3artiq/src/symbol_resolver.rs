@@ -1146,7 +1146,7 @@ impl InnerResolver {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
                         ctx.module.add_global(
-                            llvm_ndarray.as_base_type().get_element_type().into_struct_type(),
+                            llvm_ndarray.as_abi_type().get_element_type().into_struct_type(),
                             Some(AddressSpace::default()),
                             &id_str,
                         )
@@ -1316,7 +1316,7 @@ impl InnerResolver {
             };
 
             let ndarray = llvm_ndarray
-                .as_base_type()
+                .as_abi_type()
                 .get_element_type()
                 .into_struct_type()
                 .const_named_struct(&[
@@ -1328,7 +1328,7 @@ impl InnerResolver {
                 ]);
 
             let ndarray_global = ctx.module.add_global(
-                llvm_ndarray.as_base_type().get_element_type().into_struct_type(),
+                llvm_ndarray.as_abi_type().get_element_type().into_struct_type(),
                 Some(AddressSpace::default()),
                 &id_str,
             );

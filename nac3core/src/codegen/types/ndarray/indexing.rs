@@ -158,6 +158,7 @@ impl<'ctx> NDIndexType<'ctx> {
 }
 
 impl<'ctx> ProxyType<'ctx> for NDIndexType<'ctx> {
+    type ABI = PointerType<'ctx>;
     type Base = PointerType<'ctx>;
     type Value = NDIndexValue<'ctx>;
 
@@ -188,11 +189,15 @@ impl<'ctx> ProxyType<'ctx> for NDIndexType<'ctx> {
     }
 
     fn alloca_type(&self) -> impl BasicType<'ctx> {
-        self.as_base_type().get_element_type().into_struct_type()
+        self.as_abi_type().get_element_type().into_struct_type()
     }
 
     fn as_base_type(&self) -> Self::Base {
         self.ty
+    }
+
+    fn as_abi_type(&self) -> Self::ABI {
+        self.as_base_type()
     }
 }
 

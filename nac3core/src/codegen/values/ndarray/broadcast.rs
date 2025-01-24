@@ -58,6 +58,7 @@ impl<'ctx> ShapeEntryValue<'ctx> {
 }
 
 impl<'ctx> ProxyValue<'ctx> for ShapeEntryValue<'ctx> {
+    type ABI = PointerValue<'ctx>;
     type Base = PointerValue<'ctx>;
     type Type = ShapeEntryType<'ctx>;
 
@@ -67,6 +68,10 @@ impl<'ctx> ProxyValue<'ctx> for ShapeEntryValue<'ctx> {
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
     }
 }
 

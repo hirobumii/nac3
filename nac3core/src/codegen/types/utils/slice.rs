@@ -174,6 +174,7 @@ impl<'ctx> SliceType<'ctx> {
 }
 
 impl<'ctx> ProxyType<'ctx> for SliceType<'ctx> {
+    type ABI = PointerType<'ctx>;
     type Base = PointerType<'ctx>;
     type Value = SliceValue<'ctx>;
 
@@ -229,11 +230,15 @@ impl<'ctx> ProxyType<'ctx> for SliceType<'ctx> {
     }
 
     fn alloca_type(&self) -> impl BasicType<'ctx> {
-        self.as_base_type().get_element_type().into_struct_type()
+        self.as_abi_type().get_element_type().into_struct_type()
     }
 
     fn as_base_type(&self) -> Self::Base {
         self.ty
+    }
+
+    fn as_abi_type(&self) -> Self::ABI {
+        self.as_base_type()
     }
 }
 

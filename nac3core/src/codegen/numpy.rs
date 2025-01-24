@@ -44,7 +44,7 @@ pub fn gen_ndarray_empty<'ctx>(
 
     let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
         .construct_numpy_empty(generator, context, &shape, None);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.zeros`.
@@ -69,7 +69,7 @@ pub fn gen_ndarray_zeros<'ctx>(
 
     let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
         .construct_numpy_zeros(generator, context, dtype, &shape, None);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.ones`.
@@ -94,7 +94,7 @@ pub fn gen_ndarray_ones<'ctx>(
 
     let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
         .construct_numpy_ones(generator, context, dtype, &shape, None);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.full`.
@@ -127,7 +127,7 @@ pub fn gen_ndarray_full<'ctx>(
         fill_value_arg,
         None,
     );
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 pub fn gen_ndarray_array<'ctx>(
@@ -166,7 +166,7 @@ pub fn gen_ndarray_array<'ctx>(
         .construct_numpy_array(generator, context, (obj_ty, obj_arg), copy, None)
         .atleast_nd(generator, context, ndims);
 
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.eye`.
@@ -225,7 +225,7 @@ pub fn gen_ndarray_eye<'ctx>(
 
     let ndarray = NDArrayType::new(context, llvm_dtype, 2)
         .construct_numpy_eye(generator, context, dtype, nrows, ncols, offset, None);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.identity`.
@@ -253,7 +253,7 @@ pub fn gen_ndarray_identity<'ctx>(
         .unwrap();
     let ndarray = NDArrayType::new(context, llvm_dtype, 2)
         .construct_numpy_identity(generator, context, dtype, n, None);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.copy`.
@@ -274,7 +274,7 @@ pub fn gen_ndarray_copy<'ctx>(
     let this = NDArrayType::from_unifier_type(generator, context, this_ty)
         .map_value(this_arg.into_pointer_value(), None);
     let ndarray = this.make_copy(generator, context);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.fill`.

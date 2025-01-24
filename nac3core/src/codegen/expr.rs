@@ -1307,7 +1307,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 
     emit_cont_bb(ctx, list);
 
-    Ok(Some(list.as_base_value().into()))
+    Ok(Some(list.as_abi_value(ctx).into()))
 }
 
 /// Generates LLVM IR for a binary operator expression using the [`Type`] and
@@ -1437,7 +1437,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                     ctx.ctx.bool_type().const_zero(),
                 );
 
-                Ok(Some(new_list.as_base_value().into()))
+                Ok(Some(new_list.as_abi_value(ctx).into()))
             }
 
             Operator::Mult => {
@@ -1524,7 +1524,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                     llvm_usize.const_int(1, false),
                 )?;
 
-                Ok(Some(new_list.as_base_value().into()))
+                Ok(Some(new_list.as_abi_value(ctx).into()))
             }
 
             _ => todo!("Operator not supported"),
@@ -1601,7 +1601,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 Ok(result)
             })
             .unwrap();
-            Ok(Some(result.as_base_value().into()))
+            Ok(Some(result.as_abi_value(ctx).into()))
         }
     } else {
         let left_ty_enum = ctx.unifier.get_ty_immutable(left_ty.unwrap());
@@ -1796,7 +1796,7 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             },
         )?;
 
-        mapped_ndarray.as_base_value().into()
+        mapped_ndarray.as_abi_value(ctx).into()
     } else {
         unimplemented!()
     }))
@@ -1883,7 +1883,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 },
             )?;
 
-            return Ok(Some(result_ndarray.as_base_value().into()));
+            return Ok(Some(result_ndarray.as_abi_value(ctx).into()));
         }
     }
 
@@ -2493,7 +2493,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 );
                 ctx.builder.build_store(elem_ptr, *v).unwrap();
             }
-            arr_str_ptr.as_base_value().into()
+            arr_str_ptr.as_abi_value(ctx).into()
         }
         ExprKind::Tuple { elts, .. } => {
             let elements_val = elts
@@ -2988,7 +2988,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             v,
                             (start, end, step),
                         );
-                        res_array_ret.as_base_value().into()
+                        res_array_ret.as_abi_value(ctx).into()
                     } else {
                         let len = v.load_size(ctx, Some("len"));
                         let raw_index = if let Some(v) = generator.gen_expr(ctx, slice)? {
@@ -3050,7 +3050,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         .index(generator, ctx, &indices)
                         .split_unsized(generator, ctx)
                         .to_basic_value_enum();
-                    return Ok(Some(ValueEnum::Dynamic(result)));
+                    return Ok(Some(result.into()));
                 }
                 TypeEnum::TTuple { .. } => {
                     let index: u32 =
