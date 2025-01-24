@@ -41,7 +41,7 @@ impl<'ctx> ContiguousNDArrayValue<'ctx> {
     }
 
     pub fn store_ndims(&self, ctx: &CodeGenContext<'ctx, '_>, value: IntValue<'ctx>) {
-        self.ndims_field().set(ctx, self.as_abi_value(ctx), value, self.name);
+        self.ndims_field().store(ctx, self.as_abi_value(ctx), value, self.name);
     }
 
     fn shape_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
@@ -49,11 +49,11 @@ impl<'ctx> ContiguousNDArrayValue<'ctx> {
     }
 
     pub fn store_shape(&self, ctx: &CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
-        self.shape_field().set(ctx, self.as_abi_value(ctx), value, self.name);
+        self.shape_field().store(ctx, self.as_abi_value(ctx), value, self.name);
     }
 
     pub fn load_shape(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        self.shape_field().get(ctx, self.value, self.name)
+        self.shape_field().load(ctx, self.value, self.name)
     }
 
     fn data_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
@@ -61,11 +61,11 @@ impl<'ctx> ContiguousNDArrayValue<'ctx> {
     }
 
     pub fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
-        self.data_field().set(ctx, self.as_abi_value(ctx), value, self.name);
+        self.data_field().store(ctx, self.as_abi_value(ctx), value, self.name);
     }
 
     pub fn load_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        self.data_field().get(ctx, self.value, self.name)
+        self.data_field().load(ctx, self.value, self.name)
     }
 }
 
@@ -129,7 +129,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             |_, ctx| Ok(self.is_c_contiguous(ctx)),
             |_, ctx| {
                 // This ndarray is contiguous.
-                let data = self.data_field(ctx).get(ctx, self.as_abi_value(ctx), self.name);
+                let data = self.data_field(ctx).load(ctx, self.as_abi_value(ctx), self.name);
                 let data = ctx
                     .builder
                     .build_pointer_cast(data, result.item.ptr_type(AddressSpace::default()), "")

@@ -45,7 +45,7 @@ impl<'ctx> ListValue<'ctx> {
 
     /// Stores the array of data elements `data` into this instance.
     fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
-        self.items_field(ctx).set(ctx, self.value, data, self.name);
+        self.items_field(ctx).store(ctx, self.value, data, self.name);
     }
 
     /// Convenience method for creating a new array storing data elements with the given element
@@ -91,7 +91,7 @@ impl<'ctx> ListValue<'ctx> {
     pub fn store_size(&self, ctx: &CodeGenContext<'ctx, '_>, size: IntValue<'ctx>) {
         debug_assert_eq!(size.get_type(), ctx.get_size_type());
 
-        self.len_field(ctx).set(ctx, self.value, size, self.name);
+        self.len_field(ctx).store(ctx, self.value, size, self.name);
     }
 
     /// Returns the size of this `list` as a value.
@@ -100,7 +100,7 @@ impl<'ctx> ListValue<'ctx> {
         ctx: &CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> IntValue<'ctx> {
-        self.len_field(ctx).get(ctx, self.value, name)
+        self.len_field(ctx).load(ctx, self.value, name)
     }
 
     /// Returns an instance of [`ListValue`] with the `items` pointer cast to `i8*`.

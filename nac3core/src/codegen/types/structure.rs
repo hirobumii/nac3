@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use inkwell::{
     context::AsContextRef,
     types::{BasicTypeEnum, IntType, PointerType, StructType},
-    values::{BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
+    values::{AggregateValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
     AddressSpace,
 };
 use itertools::Itertools;
@@ -203,17 +203,38 @@ where
 
     /// Gets the value of this field for a given `obj`.
     #[must_use]
-    pub fn get_from_value(&self, obj: StructValue<'ctx>) -> Value {
-        obj.get_field_at_index(self.index).and_then(|value| Value::try_from(value).ok()).unwrap()
+    pub fn extract_value(&self, ctx: &CodeGenContext<'ctx, '_>, obj: StructValue<'ctx>) -> Value {
+        Value::try_from(
+            ctx.builder
+                .build_extract_value(
+                    obj,
+                    self.index,
+                    &format!("{}.{}", obj.get_name().to_str().unwrap(), self.name),
+                )
+                .unwrap(),
+        )
+        .unwrap()
     }
 
     /// Sets the value of this field for a given `obj`.
-    pub fn set_for_value(&self, obj: StructValue<'ctx>, value: Value) {
-        obj.set_field_at_index(self.index, value);
+    #[must_use]
+    pub fn insert_value(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        obj: StructValue<'ctx>,
+        value: Value,
+    ) -> StructValue<'ctx> {
+        let obj_name = obj.get_name().to_str().unwrap();
+        let new_obj_name = if obj_name.chars().all(char::is_numeric) { "" } else { obj_name };
+
+        ctx.builder
+            .build_insert_value(obj, value, self.index, new_obj_name)
+            .map(AggregateValueEnum::into_struct_value)
+            .unwrap()
     }
 
-    /// Gets the value of this field for a pointer-to-structure.
-    pub fn get(
+    /// Loads the value of this field for a pointer-to-structure.
+    pub fn load(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
         pobj: PointerValue<'ctx>,
@@ -229,8 +250,8 @@ where
             .unwrap()
     }
 
-    /// Sets the value of this field for a pointer-to-structure.
-    pub fn set(
+    /// Stores the value of this field for a pointer-to-structure.
+    pub fn store(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
         pobj: PointerValue<'ctx>,
