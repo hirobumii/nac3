@@ -16,7 +16,7 @@ use pyo3::{
 use super::PrimitivePythonId;
 use nac3core::{
     codegen::{
-        types::{ndarray::NDArrayType, ProxyType},
+        types::{ndarray::NDArrayType, structure::StructProxyType, ProxyType},
         values::ndarray::make_contiguous_strides,
         CodeGenContext, CodeGenerator,
     },
@@ -1315,17 +1315,13 @@ impl InnerResolver {
                     .unwrap()
             };
 
-            let ndarray = llvm_ndarray
-                .as_abi_type()
-                .get_element_type()
-                .into_struct_type()
-                .const_named_struct(&[
-                    ndarray_itemsize.into(),
-                    ndarray_ndims.into(),
-                    ndarray_shape.into(),
-                    ndarray_strides.into(),
-                    ndarray_data.into(),
-                ]);
+            let ndarray = llvm_ndarray.get_struct_type().const_named_struct(&[
+                ndarray_itemsize.into(),
+                ndarray_ndims.into(),
+                ndarray_shape.into(),
+                ndarray_strides.into(),
+                ndarray_data.into(),
+            ]);
 
             let ndarray_global = ctx.module.add_global(
                 llvm_ndarray.as_abi_type().get_element_type().into_struct_type(),

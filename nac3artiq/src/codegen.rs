@@ -476,8 +476,8 @@ fn format_rpc_arg<'ctx>(
             let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
             let ndims = extract_ndims(&ctx.unifier, ndims);
             let dtype = ctx.get_llvm_type(generator, elem_ty);
-            let ndarray =
-                NDArrayType::new(ctx, dtype, ndims).map_value(arg.into_pointer_value(), None);
+            let ndarray = NDArrayType::new(ctx, dtype, ndims)
+                .map_pointer_value(arg.into_pointer_value(), None);
 
             let ndims = llvm_usize.const_int(ndims, false);
 
@@ -1383,7 +1383,7 @@ fn polymorphic_print<'ctx>(
 
                 let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
                 let ndarray = NDArrayType::from_unifier_type(generator, ctx, ty)
-                    .map_value(value.into_pointer_value(), None);
+                    .map_pointer_value(value.into_pointer_value(), None);
 
                 let num_0 = llvm_usize.const_zero();
 
@@ -1431,7 +1431,7 @@ fn polymorphic_print<'ctx>(
                 fmt.push_str("range(");
                 flush(ctx, generator, &mut fmt, &mut args);
 
-                let val = RangeType::new(ctx).map_value(value.into_pointer_value(), None);
+                let val = RangeType::new(ctx).map_pointer_value(value.into_pointer_value(), None);
 
                 let (start, stop, step) = destructure_range(ctx, val);
 

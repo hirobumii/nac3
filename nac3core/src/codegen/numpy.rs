@@ -272,7 +272,7 @@ pub fn gen_ndarray_copy<'ctx>(
         obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, generator, this_ty)?;
 
     let this = NDArrayType::from_unifier_type(generator, context, this_ty)
-        .map_value(this_arg.into_pointer_value(), None);
+        .map_pointer_value(this_arg.into_pointer_value(), None);
     let ndarray = this.make_copy(generator, context);
     Ok(ndarray.as_abi_value(context))
 }
@@ -295,7 +295,7 @@ pub fn gen_ndarray_fill<'ctx>(
     let value_arg = args[0].1.clone().to_basic_value_enum(context, generator, value_ty)?;
 
     let this = NDArrayType::from_unifier_type(generator, context, this_ty)
-        .map_value(this_arg.into_pointer_value(), None);
+        .map_pointer_value(this_arg.into_pointer_value(), None);
     this.fill(generator, context, value_arg);
     Ok(())
 }
@@ -316,8 +316,10 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
 
     match (x1, x2) {
         (BasicValueEnum::PointerValue(n1), BasicValueEnum::PointerValue(n2)) => {
-            let a = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_value(n1, None);
-            let b = NDArrayType::from_unifier_type(generator, ctx, x2_ty).map_value(n2, None);
+            let a =
+                NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(n1, None);
+            let b =
+                NDArrayType::from_unifier_type(generator, ctx, x2_ty).map_pointer_value(n2, None);
 
             // TODO: General `np.dot()` https://numpy.org/doc/stable/reference/generated/numpy.dot.html.
             assert_eq!(a.get_type().ndims(), 1);

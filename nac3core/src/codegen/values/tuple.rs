@@ -1,6 +1,6 @@
 use inkwell::{
     types::IntType,
-    values::{BasicValue, BasicValueEnum, StructValue},
+    values::{BasicValue, BasicValueEnum, PointerValue, StructValue},
 };
 
 use super::ProxyValue;
@@ -24,6 +24,24 @@ impl<'ctx> TupleValue<'ctx> {
         debug_assert!(Self::is_instance(value, llvm_usize).is_ok());
 
         Self { value, llvm_usize, name }
+    }
+
+    /// Creates an [`TupleValue`] from a [`PointerValue`].
+    #[must_use]
+    pub fn from_pointer_value(
+        ctx: &CodeGenContext<'ctx, '_>,
+        ptr: PointerValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        Self::from_struct_value(
+            ctx.builder
+                .build_load(ptr, name.unwrap_or_default())
+                .map(BasicValueEnum::into_struct_value)
+                .unwrap(),
+            llvm_usize,
+            name,
+        )
     }
 
     /// Stores a value into the tuple element at the given `index`.
@@ -62,7 +80,7 @@ impl<'ctx> ProxyValue<'ctx> for TupleValue<'ctx> {
     type Type = TupleType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        TupleType::from_type(self.as_base_value().get_type(), self.llvm_usize)
+        TupleType::from_struct_type(self.as_base_value().get_type(), self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {

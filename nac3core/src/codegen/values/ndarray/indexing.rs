@@ -1,6 +1,6 @@
 use inkwell::{
     types::IntType,
-    values::{IntValue, PointerValue},
+    values::{IntValue, PointerValue, StructValue},
     AddressSpace,
 };
 use itertools::Itertools;
@@ -12,10 +12,12 @@ use crate::{
         irrt,
         types::{
             ndarray::{NDArrayType, NDIndexType},
-            structure::StructField,
+            structure::{StructField, StructProxyType},
             utils::SliceType,
         },
-        values::{ndarray::NDArrayValue, utils::RustSlice, ProxyValue},
+        values::{
+            ndarray::NDArrayValue, structure::StructProxyValue, utils::RustSlice, ProxyValue,
+        },
         CodeGenContext, CodeGenerator,
     },
     typecheck::typedef::Type,
@@ -30,6 +32,26 @@ pub struct NDIndexValue<'ctx> {
 }
 
 impl<'ctx> NDIndexValue<'ctx> {
+    /// Creates an [`NDIndexValue`] from a [`StructValue`].
+    #[must_use]
+    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: StructValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, llvm_usize, name)
+    }
+
     /// Creates an [`NDIndexValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_pointer_value(
@@ -73,7 +95,7 @@ impl<'ctx> ProxyValue<'ctx> for NDIndexValue<'ctx> {
     type Type = NDIndexType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        Self::Type::from_type(self.value.get_type(), self.llvm_usize)
+        Self::Type::from_pointer_type(self.value.get_type(), self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
@@ -84,6 +106,8 @@ impl<'ctx> ProxyValue<'ctx> for NDIndexValue<'ctx> {
         self.as_base_value()
     }
 }
+
+impl<'ctx> StructProxyValue<'ctx> for NDIndexValue<'ctx> {}
 
 impl<'ctx> From<NDIndexValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: NDIndexValue<'ctx>) -> Self {

@@ -1,15 +1,18 @@
 use inkwell::{
     types::{BasicType, IntType},
-    values::{BasicValueEnum, IntValue, PointerValue},
+    values::{BasicValueEnum, IntValue, PointerValue, StructValue},
     AddressSpace,
 };
 
-use super::{NDArrayValue, ProxyValue};
+use super::NDArrayValue;
 use crate::codegen::{
     irrt,
     stmt::{gen_for_callback, BreakContinueHooks},
-    types::{ndarray::NDIterType, structure::StructField},
-    values::{ArraySliceValue, TypedArrayLikeAdapter},
+    types::{
+        ndarray::NDIterType,
+        structure::{StructField, StructProxyType},
+    },
+    values::{structure::StructProxyValue, ArraySliceValue, ProxyValue, TypedArrayLikeAdapter},
     CodeGenContext, CodeGenerator,
 };
 
@@ -23,6 +26,28 @@ pub struct NDIterValue<'ctx> {
 }
 
 impl<'ctx> NDIterValue<'ctx> {
+    /// Creates an [`NDArrayValue`] from a [`StructValue`].
+    #[must_use]
+    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: StructValue<'ctx>,
+        parent: NDArrayValue<'ctx>,
+        indices: ArraySliceValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, parent, indices, llvm_usize, name)
+    }
+
     /// Creates an [`NDArrayValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_pointer_value(
@@ -56,11 +81,8 @@ impl<'ctx> NDIterValue<'ctx> {
         irrt::ndarray::call_nac3_nditer_next(ctx, *self);
     }
 
-    fn element_field(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-    ) -> StructField<'ctx, PointerValue<'ctx>> {
-        self.get_type().get_fields(ctx.ctx).element
+    fn element_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
+        self.get_type().get_fields().element
     }
 
     /// Get pointer to the current element.
@@ -68,7 +90,7 @@ impl<'ctx> NDIterValue<'ctx> {
     pub fn get_pointer(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let elem_ty = self.parent.dtype;
 
-        let p = self.element_field(ctx).load(ctx, self.as_abi_value(ctx), self.name);
+        let p = self.element_field().load(ctx, self.as_abi_value(ctx), self.name);
         ctx.builder
             .build_pointer_cast(p, elem_ty.ptr_type(AddressSpace::default()), "element")
             .unwrap()
@@ -81,14 +103,14 @@ impl<'ctx> NDIterValue<'ctx> {
         ctx.builder.build_load(p, "value").unwrap()
     }
 
-    fn nth_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, IntValue<'ctx>> {
-        self.get_type().get_fields(ctx.ctx).nth
+    fn nth_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
+        self.get_type().get_fields().nth
     }
 
     /// Get the index of the current element if this ndarray were a flat ndarray.
     #[must_use]
     pub fn get_index(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.nth_field(ctx).load(ctx, self.as_abi_value(ctx), self.name)
+        self.nth_field().load(ctx, self.as_abi_value(ctx), self.name)
     }
 
     /// Get the indices of the current element.
@@ -110,7 +132,7 @@ impl<'ctx> ProxyValue<'ctx> for NDIterValue<'ctx> {
     type Type = NDIterType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        NDIterType::from_type(self.as_base_value().get_type(), self.llvm_usize)
+        NDIterType::from_pointer_type(self.as_base_value().get_type(), self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
@@ -121,6 +143,8 @@ impl<'ctx> ProxyValue<'ctx> for NDIterValue<'ctx> {
         self.as_base_value()
     }
 }
+
+impl<'ctx> StructProxyValue<'ctx> for NDIterValue<'ctx> {}
 
 impl<'ctx> From<NDIterValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: NDIterValue<'ctx>) -> Self {

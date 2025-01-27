@@ -167,7 +167,7 @@ impl<'ctx> NDArrayType<'ctx> {
         .map(BasicValueEnum::into_pointer_value)
         .unwrap();
 
-        NDArrayType::new(ctx, dtype, ndims).map_value(ndarray, None)
+        NDArrayType::new(ctx, dtype, ndims).map_pointer_value(ndarray, None)
     }
 
     /// Implementation of `np_array(<ndarray>, copy=copy)`.
@@ -200,7 +200,7 @@ impl<'ctx> NDArrayType<'ctx> {
         .map(BasicValueEnum::into_pointer_value)
         .unwrap();
 
-        ndarray.get_type().map_value(ndarray_val, name)
+        ndarray.get_type().map_pointer_value(ndarray_val, name)
     }
 
     /// Create a new ndarray like
@@ -222,7 +222,7 @@ impl<'ctx> NDArrayType<'ctx> {
                 if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
             {
                 let list = ListType::from_unifier_type(generator, ctx, object_ty)
-                    .map_value(object.into_pointer_value(), None);
+                    .map_pointer_value(object.into_pointer_value(), None);
                 self.construct_numpy_array_list_impl(generator, ctx, (object_ty, list), copy, name)
             }
 
@@ -230,7 +230,7 @@ impl<'ctx> NDArrayType<'ctx> {
                 if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
             {
                 let ndarray = NDArrayType::from_unifier_type(generator, ctx, object_ty)
-                    .map_value(object.into_pointer_value(), None);
+                    .map_pointer_value(object.into_pointer_value(), None);
                 self.construct_numpy_array_ndarray_impl(generator, ctx, ndarray, copy, name)
             }
 

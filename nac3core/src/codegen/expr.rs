@@ -1151,7 +1151,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
         {
             let iter_val =
-                RangeType::new(ctx).map_value(iter_val.into_pointer_value(), Some("range"));
+                RangeType::new(ctx).map_pointer_value(iter_val.into_pointer_value(), Some("range"));
             let (start, stop, step) = destructure_range(ctx, iter_val);
             let diff = ctx.builder.build_int_sub(stop, start, "diff").unwrap();
             // add 1 to the length as the value is rounded to zero
@@ -1767,7 +1767,7 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
         let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
         let ndarray = NDArrayType::from_unifier_type(generator, ctx, ty)
-            .map_value(val.into_pointer_value(), None);
+            .map_pointer_value(val.into_pointer_value(), None);
 
         // ndarray uses `~` rather than `not` to perform elementwise inversion, convert it before
         // passing it to the elementwise codegen function
@@ -3043,7 +3043,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     let ndarray_ty = value.custom.unwrap();
                     let ndarray = ndarray.to_basic_value_enum(ctx, generator, ndarray_ty)?;
                     let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
-                        .map_value(ndarray.into_pointer_value(), None);
+                        .map_pointer_value(ndarray.into_pointer_value(), None);
 
                     let indices = RustNDIndex::from_subscript_expr(generator, ctx, slice)?;
                     let result = ndarray

@@ -1,14 +1,18 @@
 use inkwell::{
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType},
-    values::{BasicValueEnum, IntValue, PointerValue},
+    values::{BasicValueEnum, IntValue, PointerValue, StructValue},
     AddressSpace, IntPredicate,
 };
 
 use super::{
-    ArrayLikeIndexer, ArrayLikeValue, ProxyValue, UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
+    structure::StructProxyValue, ArrayLikeIndexer, ArrayLikeValue, ProxyValue,
+    UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
 };
 use crate::codegen::{
-    types::{structure::StructField, ListType, ProxyType},
+    types::{
+        structure::{StructField, StructProxyType},
+        ListType, ProxyType,
+    },
     {CodeGenContext, CodeGenerator},
 };
 
@@ -23,6 +27,26 @@ pub struct ListValue<'ctx> {
 impl<'ctx> ListValue<'ctx> {
     /// Creates an [`ListValue`] from a [`PointerValue`].
     #[must_use]
+    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: StructValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, llvm_usize, name)
+    }
+
+    /// Creates an [`ListValue`] from a [`PointerValue`].
+    #[must_use]
     pub fn from_pointer_value(
         ptr: PointerValue<'ctx>,
         llvm_usize: IntType<'ctx>,
@@ -33,19 +57,13 @@ impl<'ctx> ListValue<'ctx> {
         ListValue { value: ptr, llvm_usize, name }
     }
 
-    fn items_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, PointerValue<'ctx>> {
-        self.get_type().get_fields(&ctx.ctx).items
-    }
-
-    /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
-    /// on the field.
-    fn pptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        self.items_field(ctx).ptr_by_gep(ctx, self.value, self.name)
+    fn items_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
+        self.get_type().get_fields().items
     }
 
     /// Stores the array of data elements `data` into this instance.
     fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
-        self.items_field(ctx).store(ctx, self.value, data, self.name);
+        self.items_field().store(ctx, self.value, data, self.name);
     }
 
     /// Convenience method for creating a new array storing data elements with the given element
@@ -83,15 +101,15 @@ impl<'ctx> ListValue<'ctx> {
         ListDataProxy(self)
     }
 
-    fn len_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, IntValue<'ctx>> {
-        self.get_type().get_fields(&ctx.ctx).len
+    fn len_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
+        self.get_type().get_fields().len
     }
 
     /// Stores the `size` of this `list` into this instance.
     pub fn store_size(&self, ctx: &CodeGenContext<'ctx, '_>, size: IntValue<'ctx>) {
         debug_assert_eq!(size.get_type(), ctx.get_size_type());
 
-        self.len_field(ctx).store(ctx, self.value, size, self.name);
+        self.len_field().store(ctx, self.value, size, self.name);
     }
 
     /// Returns the size of this `list` as a value.
@@ -100,7 +118,7 @@ impl<'ctx> ListValue<'ctx> {
         ctx: &CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> IntValue<'ctx> {
-        self.len_field(ctx).load(ctx, self.value, name)
+        self.len_field().load(ctx, self.value, name)
     }
 
     /// Returns an instance of [`ListValue`] with the `items` pointer cast to `i8*`.
@@ -123,7 +141,7 @@ impl<'ctx> ProxyValue<'ctx> for ListValue<'ctx> {
     type Type = ListType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        ListType::from_type(self.as_base_value().get_type(), self.llvm_usize)
+        ListType::from_pointer_type(self.as_base_value().get_type(), self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
@@ -134,6 +152,8 @@ impl<'ctx> ProxyValue<'ctx> for ListValue<'ctx> {
         self.as_base_value()
     }
 }
+
+impl<'ctx> StructProxyValue<'ctx> for ListValue<'ctx> {}
 
 impl<'ctx> From<ListValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: ListValue<'ctx>) -> Self {
@@ -159,12 +179,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for ListDataProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> PointerValue<'ctx> {
-        let var_name = self.0.name.map(|v| format!("{v}.data")).unwrap_or_default();
-
-        ctx.builder
-            .build_load(self.0.pptr_to_data(ctx), var_name.as_str())
-            .map(BasicValueEnum::into_pointer_value)
-            .unwrap()
+        self.0.items_field().load(ctx, self.0.value, self.0.name)
     }
 
     fn size<G: CodeGenerator + ?Sized>(

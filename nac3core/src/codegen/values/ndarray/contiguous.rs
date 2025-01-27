@@ -1,16 +1,17 @@
 use inkwell::{
     types::{BasicType, BasicTypeEnum, IntType},
-    values::{IntValue, PointerValue},
+    values::{IntValue, PointerValue, StructValue},
     AddressSpace,
 };
 
-use super::{ArrayLikeValue, NDArrayValue, ProxyValue};
+use super::NDArrayValue;
 use crate::codegen::{
     stmt::gen_if_callback,
     types::{
         ndarray::{ContiguousNDArrayType, NDArrayType},
-        structure::StructField,
+        structure::{StructField, StructProxyType},
     },
+    values::{structure::StructProxyValue, ArrayLikeValue, ProxyValue},
     CodeGenContext, CodeGenerator,
 };
 
@@ -23,6 +24,27 @@ pub struct ContiguousNDArrayValue<'ctx> {
 }
 
 impl<'ctx> ContiguousNDArrayValue<'ctx> {
+    /// Creates an [`ContiguousNDArrayValue`] from a [`StructValue`].
+    #[must_use]
+    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: StructValue<'ctx>,
+        dtype: BasicTypeEnum<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, dtype, llvm_usize, name)
+    }
+
     /// Creates an [`ContiguousNDArrayValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_pointer_value(
@@ -75,7 +97,7 @@ impl<'ctx> ProxyValue<'ctx> for ContiguousNDArrayValue<'ctx> {
     type Type = ContiguousNDArrayType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        <Self as ProxyValue<'ctx>>::Type::from_type(
+        <Self as ProxyValue<'ctx>>::Type::from_pointer_type(
             self.as_base_value().get_type(),
             self.item,
             self.llvm_usize,
@@ -90,6 +112,8 @@ impl<'ctx> ProxyValue<'ctx> for ContiguousNDArrayValue<'ctx> {
         self.as_base_value()
     }
 }
+
+impl<'ctx> StructProxyValue<'ctx> for ContiguousNDArrayValue<'ctx> {}
 
 impl<'ctx> From<ContiguousNDArrayValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: ContiguousNDArrayValue<'ctx>) -> Self {
@@ -129,7 +153,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             |_, ctx| Ok(self.is_c_contiguous(ctx)),
             |_, ctx| {
                 // This ndarray is contiguous.
-                let data = self.data_field(ctx).load(ctx, self.as_abi_value(ctx), self.name);
+                let data = self.data_field().load(ctx, self.as_abi_value(ctx), self.name);
                 let data = ctx
                     .builder
                     .build_pointer_cast(data, result.item.ptr_type(AddressSpace::default()), "")

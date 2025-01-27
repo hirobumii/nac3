@@ -1,13 +1,14 @@
 use inkwell::{
     context::Context,
-    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
+    types::{AnyTypeEnum, ArrayType, BasicType, BasicTypeEnum, IntType, PointerType},
+    values::{ArrayValue, PointerValue},
     AddressSpace,
 };
 
 use super::ProxyType;
 use crate::{
     codegen::{
-        values::{ProxyValue, RangeValue},
+        values::RangeValue,
         {CodeGenContext, CodeGenerator},
     },
     typecheck::typedef::{Type, TypeEnum},
@@ -61,9 +62,15 @@ impl<'ctx> RangeType<'ctx> {
         Self::new(ctx)
     }
 
+    /// Creates an [`RangeType`] from a [`ArrayType`].
+    #[must_use]
+    pub fn from_array_type(arr_ty: ArrayType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+        Self::from_pointer_type(arr_ty.ptr_type(AddressSpace::default()), llvm_usize)
+    }
+
     /// Creates an [`RangeType`] from a [`PointerType`].
     #[must_use]
-    pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+    pub fn from_pointer_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         debug_assert!(Self::has_same_repr(ptr_ty, llvm_usize).is_ok());
 
         RangeType { ty: ptr_ty, llvm_usize }
@@ -110,9 +117,27 @@ impl<'ctx> RangeType<'ctx> {
 
     /// Converts an existing value into a [`RangeValue`].
     #[must_use]
-    pub fn map_value(
+    pub fn map_array_value<G: CodeGenerator + ?Sized>(
         &self,
-        value: <<Self as ProxyType<'ctx>>::Value as ProxyValue<'ctx>>::Base,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        value: ArrayValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_array_value(
+            generator,
+            ctx,
+            value,
+            self.llvm_usize,
+            name,
+        )
+    }
+
+    /// Converts an existing value into a [`RangeValue`].
+    #[must_use]
+    pub fn map_pointer_value(
+        &self,
+        value: PointerValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(value, self.llvm_usize, name)

@@ -2,14 +2,14 @@ use std::iter::repeat_n;
 
 use inkwell::{
     types::{AnyType, AnyTypeEnum, BasicType, BasicTypeEnum, IntType},
-    values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
+    values::{BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
     AddressSpace, IntPredicate,
 };
 use itertools::Itertools;
 
 use super::{
-    ArrayLikeIndexer, ArrayLikeValue, ProxyValue, TupleValue, TypedArrayLikeAccessor,
-    TypedArrayLikeAdapter, TypedArrayLikeMutator, UntypedArrayLikeAccessor,
+    structure::StructProxyValue, ArrayLikeIndexer, ArrayLikeValue, ProxyValue, TupleValue,
+    TypedArrayLikeAccessor, TypedArrayLikeAdapter, TypedArrayLikeMutator, UntypedArrayLikeAccessor,
     UntypedArrayLikeMutator,
 };
 use crate::{
@@ -18,7 +18,11 @@ use crate::{
         llvm_intrinsics::{call_int_umin, call_memcpy_generic_array},
         stmt::gen_for_callback_incrementing,
         type_aligned_alloca,
-        types::{ndarray::NDArrayType, structure::StructField, TupleType},
+        types::{
+            ndarray::NDArrayType,
+            structure::{StructField, StructProxyType},
+            TupleType,
+        },
         CodeGenContext, CodeGenerator,
     },
     typecheck::typedef::{Type, TypeEnum},
@@ -49,6 +53,28 @@ pub struct NDArrayValue<'ctx> {
 }
 
 impl<'ctx> NDArrayValue<'ctx> {
+    /// Creates an [`NDArrayValue`] from a [`StructValue`].
+    #[must_use]
+    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: StructValue<'ctx>,
+        dtype: BasicTypeEnum<'ctx>,
+        ndims: u64,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, dtype, ndims, llvm_usize, name)
+    }
+
     /// Creates an [`NDArrayValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_pointer_value(
@@ -63,52 +89,45 @@ impl<'ctx> NDArrayValue<'ctx> {
         NDArrayValue { value: ptr, dtype, ndims, llvm_usize, name }
     }
 
-    fn ndims_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, IntValue<'ctx>> {
-        self.get_type().get_fields(ctx.ctx).ndims
-    }
-
-    /// Returns the pointer to the field storing the number of dimensions of this `NDArray`.
-    fn ptr_to_ndims(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        self.ndims_field(ctx).ptr_by_gep(ctx, self.value, self.name)
+    fn ndims_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
+        self.get_type().get_fields().ndims
     }
 
     /// Stores the number of dimensions `ndims` into this instance.
     pub fn store_ndims(&self, ctx: &CodeGenContext<'ctx, '_>, ndims: IntValue<'ctx>) {
         debug_assert_eq!(ndims.get_type(), ctx.get_size_type());
 
-        let pndims = self.ptr_to_ndims(ctx);
-        ctx.builder.build_store(pndims, ndims).unwrap();
+        self.ndims_field().store(ctx, self.value, ndims, self.name);
     }
 
     /// Returns the number of dimensions of this `NDArray` as a value.
     pub fn load_ndims(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        let pndims = self.ptr_to_ndims(ctx);
-        ctx.builder.build_load(pndims, "").map(BasicValueEnum::into_int_value).unwrap()
+        self.ndims_field().load(ctx, self.value, self.name)
     }
 
-    fn itemsize_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, IntValue<'ctx>> {
-        self.get_type().get_fields(ctx.ctx).itemsize
+    fn itemsize_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
+        self.get_type().get_fields().itemsize
     }
 
     /// Stores the size of each element `itemsize` into this instance.
     pub fn store_itemsize(&self, ctx: &CodeGenContext<'ctx, '_>, itemsize: IntValue<'ctx>) {
         debug_assert_eq!(itemsize.get_type(), ctx.get_size_type());
 
-        self.itemsize_field(ctx).store(ctx, self.value, itemsize, self.name);
+        self.itemsize_field().store(ctx, self.value, itemsize, self.name);
     }
 
     /// Returns the size of each element of this `NDArray` as a value.
     pub fn load_itemsize(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.itemsize_field(ctx).load(ctx, self.value, self.name)
+        self.itemsize_field().load(ctx, self.value, self.name)
     }
 
-    fn shape_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, PointerValue<'ctx>> {
-        self.get_type().get_fields(ctx.ctx).shape
+    fn shape_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
+        self.get_type().get_fields().shape
     }
 
     /// Stores the array of dimension sizes `dims` into this instance.
     fn store_shape(&self, ctx: &CodeGenContext<'ctx, '_>, dims: PointerValue<'ctx>) {
-        self.shape_field(ctx).store(ctx, self.value, dims, self.name);
+        self.shape_field().store(ctx, self.value, dims, self.name);
     }
 
     /// Convenience method for creating a new array storing dimension sizes with the given `size`.
@@ -127,16 +146,13 @@ impl<'ctx> NDArrayValue<'ctx> {
         NDArrayShapeProxy(self)
     }
 
-    fn strides_field(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-    ) -> StructField<'ctx, PointerValue<'ctx>> {
-        self.get_type().get_fields(ctx.ctx).strides
+    fn strides_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
+        self.get_type().get_fields().strides
     }
 
     /// Stores the array of stride sizes `strides` into this instance.
     fn store_strides(&self, ctx: &CodeGenContext<'ctx, '_>, strides: PointerValue<'ctx>) {
-        self.strides_field(ctx).store(ctx, self.value, strides, self.name);
+        self.strides_field().store(ctx, self.value, strides, self.name);
     }
 
     /// Convenience method for creating a new array storing the stride with the given `size`.
@@ -155,14 +171,14 @@ impl<'ctx> NDArrayValue<'ctx> {
         NDArrayStridesProxy(self)
     }
 
-    fn data_field(&self, ctx: &CodeGenContext<'ctx, '_>) -> StructField<'ctx, PointerValue<'ctx>> {
-        self.get_type().get_fields(ctx.ctx).data
+    fn data_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
+        self.get_type().get_fields().data
     }
 
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
     /// on the field.
     pub fn ptr_to_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        self.data_field(ctx).ptr_by_gep(ctx, self.value, self.name)
+        self.data_field().ptr_by_gep(ctx, self.value, self.name)
     }
 
     /// Stores the array of data elements `data` into this instance.
@@ -171,7 +187,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             .builder
             .build_bit_cast(data, ctx.ctx.i8_type().ptr_type(AddressSpace::default()), "")
             .unwrap();
-        self.data_field(ctx).store(ctx, self.value, data.into_pointer_value(), self.name);
+        self.data_field().store(ctx, self.value, data.into_pointer_value(), self.name);
     }
 
     /// Convenience method for creating a new array storing data elements with the given element
@@ -467,7 +483,7 @@ impl<'ctx> ProxyValue<'ctx> for NDArrayValue<'ctx> {
     type Type = NDArrayType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        NDArrayType::from_type(
+        NDArrayType::from_pointer_type(
             self.as_base_value().get_type(),
             self.dtype,
             self.ndims,
@@ -483,6 +499,8 @@ impl<'ctx> ProxyValue<'ctx> for NDArrayValue<'ctx> {
         self.as_base_value()
     }
 }
+
+impl<'ctx> StructProxyValue<'ctx> for NDArrayValue<'ctx> {}
 
 impl<'ctx> From<NDArrayValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: NDArrayValue<'ctx>) -> Self {
@@ -508,7 +526,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayShapeProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> PointerValue<'ctx> {
-        self.0.shape_field(ctx).load(ctx, self.0.value, self.0.name)
+        self.0.shape_field().load(ctx, self.0.value, self.0.name)
     }
 
     fn size<G: CodeGenerator + ?Sized>(
@@ -606,7 +624,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayStridesProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> PointerValue<'ctx> {
-        self.0.strides_field(ctx).load(ctx, self.0.value, self.0.name)
+        self.0.strides_field().load(ctx, self.0.value, self.0.name)
     }
 
     fn size<G: CodeGenerator + ?Sized>(
@@ -704,7 +722,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDataProxy<'ctx, '_> {
         ctx: &CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> PointerValue<'ctx> {
-        self.0.data_field(ctx).load(ctx, self.0.value, self.0.name)
+        self.0.data_field().load(ctx, self.0.value, self.0.name)
     }
 
     fn size<G: CodeGenerator + ?Sized>(
@@ -958,7 +976,7 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
                 if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
             {
                 let ndarray = NDArrayType::from_unifier_type(generator, ctx, object_ty)
-                    .map_value(object.into_pointer_value(), None);
+                    .map_pointer_value(object.into_pointer_value(), None);
                 ScalarOrNDArray::NDArray(ndarray)
             }
 

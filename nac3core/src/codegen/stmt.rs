@@ -440,7 +440,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             // ```
 
             let target = NDArrayType::from_unifier_type(generator, ctx, target_ty)
-                .map_value(target.into_pointer_value(), None);
+                .map_pointer_value(target.into_pointer_value(), None);
             let target = target.index(generator, ctx, &key);
 
             let value = ScalarOrNDArray::from_value(generator, ctx, (value_ty, value))
@@ -511,7 +511,7 @@ pub fn gen_for<G: CodeGenerator>(
             if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
         {
             let iter_val =
-                RangeType::new(ctx).map_value(iter_val.into_pointer_value(), Some("range"));
+                RangeType::new(ctx).map_pointer_value(iter_val.into_pointer_value(), Some("range"));
             // Internal variable for loop; Cannot be assigned
             let i = generator.gen_var_alloc(ctx, int32.into(), Some("for.i.addr"))?;
             // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed

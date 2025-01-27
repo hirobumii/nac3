@@ -1,7 +1,7 @@
 use inkwell::{
     context::{AsContextRef, Context, ContextRef},
-    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
-    values::IntValue,
+    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
+    values::{IntValue, PointerValue, StructValue},
     AddressSpace,
 };
 use itertools::Itertools;
@@ -12,10 +12,11 @@ use crate::codegen::{
     types::{
         structure::{
             check_struct_type_matches_fields, FieldIndexCounter, StructField, StructFields,
+            StructProxyType,
         },
         ProxyType,
     },
-    values::{utils::SliceValue, ProxyValue},
+    values::utils::SliceValue,
     CodeGenContext, CodeGenerator,
 };
 
@@ -27,7 +28,7 @@ pub struct SliceType<'ctx> {
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, StructFields)]
-pub struct SliceFields<'ctx> {
+pub struct SliceStructFields<'ctx> {
     #[value_type(bool_type())]
     pub start_defined: StructField<'ctx, IntValue<'ctx>>,
     #[value_type(usize)]
@@ -42,14 +43,14 @@ pub struct SliceFields<'ctx> {
     pub step: StructField<'ctx, IntValue<'ctx>>,
 }
 
-impl<'ctx> SliceFields<'ctx> {
-    /// Creates a new instance of [`SliceFields`] with a custom integer type for its range values.
+impl<'ctx> SliceStructFields<'ctx> {
+    /// Creates a new instance of [`SliceStructFields`] with a custom integer type for its range values.
     #[must_use]
     pub fn new_sized(ctx: &impl AsContextRef<'ctx>, int_ty: IntType<'ctx>) -> Self {
         let ctx = unsafe { ContextRef::new(ctx.as_ctx_ref()) };
         let mut counter = FieldIndexCounter::default();
 
-        SliceFields {
+        SliceStructFields {
             start_defined: StructField::create(&mut counter, "start_defined", ctx.bool_type()),
             start: StructField::create(&mut counter, "start", int_ty),
             stop_defined: StructField::create(&mut counter, "stop_defined", ctx.bool_type()),
@@ -61,16 +62,10 @@ impl<'ctx> SliceFields<'ctx> {
 }
 
 impl<'ctx> SliceType<'ctx> {
-    // TODO: Move this into e.g. StructProxyType
-    #[must_use]
-    pub fn get_fields(&self) -> SliceFields<'ctx> {
-        SliceFields::new_sized(&self.int_ty.get_context(), self.int_ty)
-    }
-
     /// Creates an LLVM type corresponding to the expected structure of a `Slice`.
     #[must_use]
     fn llvm_type(ctx: &'ctx Context, int_ty: IntType<'ctx>) -> PointerType<'ctx> {
-        let field_tys = SliceFields::new_sized(&int_ty.get_context(), int_ty)
+        let field_tys = SliceStructFields::new_sized(&int_ty.get_context(), int_ty)
             .into_iter()
             .map(|field| field.1)
             .collect_vec();
@@ -90,6 +85,16 @@ impl<'ctx> SliceType<'ctx> {
         Self::new_impl(ctx.ctx, int_ty, ctx.get_size_type())
     }
 
+    /// Creates an instance of [`SliceType`] with `int_ty` as its backing integer type.
+    #[must_use]
+    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
+        generator: &G,
+        ctx: &'ctx Context,
+        int_ty: IntType<'ctx>,
+    ) -> Self {
+        Self::new_impl(ctx, int_ty, generator.get_size_type(ctx))
+    }
+
     /// Creates an instance of [`SliceType`] with `usize` as its backing integer type.
     #[must_use]
     pub fn new_usize(ctx: &CodeGenContext<'ctx, '_>) -> Self {
@@ -105,9 +110,19 @@ impl<'ctx> SliceType<'ctx> {
         Self::new_impl(ctx, generator.get_size_type(ctx), generator.get_size_type(ctx))
     }
 
+    /// Creates an [`SliceType`] from a [`StructType`] representing a `slice`.
+    #[must_use]
+    pub fn from_struct_type(
+        ty: StructType<'ctx>,
+        int_ty: IntType<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Self {
+        Self::from_pointer_type(ty.ptr_type(AddressSpace::default()), int_ty, llvm_usize)
+    }
+
     /// Creates an [`SliceType`] from a [`PointerType`] representing a `slice`.
     #[must_use]
-    pub fn from_type(
+    pub fn from_pointer_type(
         ptr_ty: PointerType<'ctx>,
         int_ty: IntType<'ctx>,
         llvm_usize: IntType<'ctx>,
@@ -157,11 +172,30 @@ impl<'ctx> SliceType<'ctx> {
         )
     }
 
+    /// Converts an existing value into a [`SliceValue`].
+    #[must_use]
+    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        value: StructValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_struct_value(
+            generator,
+            ctx,
+            value,
+            self.int_ty,
+            self.llvm_usize,
+            name,
+        )
+    }
+
     /// Converts an existing value into a [`ContiguousNDArrayValue`].
     #[must_use]
-    pub fn map_value(
+    pub fn map_pointer_value(
         &self,
-        value: <<Self as ProxyType<'ctx>>::Value as ProxyValue<'ctx>>::Base,
+        value: PointerValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
@@ -192,7 +226,7 @@ impl<'ctx> ProxyType<'ctx> for SliceType<'ctx> {
     fn has_same_repr(ty: Self::Base, llvm_usize: IntType<'ctx>) -> Result<(), String> {
         let ctx = ty.get_context();
 
-        let fields = SliceFields::new(ctx, llvm_usize);
+        let fields = SliceStructFields::new(ctx, llvm_usize);
 
         let llvm_ty = ty.get_element_type();
         let AnyTypeEnum::StructType(llvm_ty) = llvm_ty else {
@@ -239,6 +273,14 @@ impl<'ctx> ProxyType<'ctx> for SliceType<'ctx> {
 
     fn as_abi_type(&self) -> Self::ABI {
         self.as_base_type()
+    }
+}
+
+impl<'ctx> StructProxyType<'ctx> for SliceType<'ctx> {
+    type StructFields = SliceStructFields<'ctx>;
+
+    fn get_fields(&self) -> Self::StructFields {
+        SliceStructFields::new_sized(&self.ty.get_context(), self.int_ty)
     }
 }
 

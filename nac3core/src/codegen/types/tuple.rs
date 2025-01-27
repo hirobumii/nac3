@@ -1,16 +1,13 @@
 use inkwell::{
     context::Context,
-    types::{BasicType, BasicTypeEnum, IntType, StructType},
-    values::BasicValueEnum,
+    types::{BasicType, BasicTypeEnum, IntType, PointerType, StructType},
+    values::{BasicValueEnum, PointerValue, StructValue},
 };
 use itertools::Itertools;
 
 use super::ProxyType;
 use crate::{
-    codegen::{
-        values::{ProxyValue, TupleValue},
-        CodeGenContext, CodeGenerator,
-    },
+    codegen::{values::TupleValue, CodeGenContext, CodeGenerator},
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -77,10 +74,16 @@ impl<'ctx> TupleType<'ctx> {
 
     /// Creates an [`TupleType`] from a [`StructType`].
     #[must_use]
-    pub fn from_type(struct_ty: StructType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+    pub fn from_struct_type(struct_ty: StructType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         debug_assert!(Self::has_same_repr(struct_ty, llvm_usize).is_ok());
 
         TupleType { ty: struct_ty, llvm_usize }
+    }
+
+    /// Creates an [`TupleType`] from a [`PointerType`].
+    #[must_use]
+    pub fn from_pointer_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+        Self::from_struct_type(ptr_ty.get_element_type().into_struct_type(), llvm_usize)
     }
 
     /// Returns the number of elements present in this [`TupleType`].
@@ -117,7 +120,10 @@ impl<'ctx> TupleType<'ctx> {
         ctx: &CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        self.map_value(Self::llvm_type(ctx.ctx, &self.ty.get_field_types()).const_zero(), name)
+        self.map_struct_value(
+            Self::llvm_type(ctx.ctx, &self.ty.get_field_types()).const_zero(),
+            name,
+        )
     }
 
     /// Constructs a [`TupleValue`] from `objects`. The resulting tuple preserves the order of
@@ -147,12 +153,23 @@ impl<'ctx> TupleType<'ctx> {
 
     /// Converts an existing value into a [`ListValue`].
     #[must_use]
-    pub fn map_value(
+    pub fn map_struct_value(
         &self,
-        value: <<Self as ProxyType<'ctx>>::Value as ProxyValue<'ctx>>::Base,
+        value: StructValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_struct_value(value, self.llvm_usize, name)
+    }
+
+    /// Converts an existing value into a [`TupleValue`].
+    #[must_use]
+    pub fn map_pointer_value(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        value: PointerValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_pointer_value(ctx, value, self.llvm_usize, name)
     }
 }
 
