@@ -1,10 +1,10 @@
 use inkwell::{
     types::IntType,
-    values::{BasicValueEnum, IntValue, PointerValue},
+    values::{ArrayValue, BasicValueEnum, IntValue, PointerValue},
 };
 
 use super::ProxyValue;
-use crate::codegen::{types::RangeType, CodeGenContext};
+use crate::codegen::{types::RangeType, CodeGenContext, CodeGenerator};
 
 /// Proxy type for accessing a `range` value in LLVM.
 #[derive(Copy, Clone)]
@@ -15,6 +15,26 @@ pub struct RangeValue<'ctx> {
 }
 
 impl<'ctx> RangeValue<'ctx> {
+    /// Creates an [`RangeValue`] from a [`PointerValue`].
+    #[must_use]
+    pub fn from_array_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: ArrayValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, llvm_usize, name)
+    }
+
     /// Creates an [`RangeValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_pointer_value(
@@ -142,7 +162,7 @@ impl<'ctx> ProxyValue<'ctx> for RangeValue<'ctx> {
     type Type = RangeType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        RangeType::from_type(self.value.get_type(), self.llvm_usize)
+        RangeType::from_pointer_type(self.value.get_type(), self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {

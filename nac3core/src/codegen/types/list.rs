@@ -1,7 +1,7 @@
 use inkwell::{
-    context::{AsContextRef, Context},
-    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
-    values::{IntValue, PointerValue},
+    context::Context,
+    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
+    values::{IntValue, PointerValue, StructValue},
     AddressSpace, IntPredicate, OptimizationLevel,
 };
 use itertools::Itertools;
@@ -13,8 +13,9 @@ use crate::{
     codegen::{
         types::structure::{
             check_struct_type_matches_fields, FieldIndexCounter, StructField, StructFields,
+            StructProxyType,
         },
-        values::{ListValue, ProxyValue},
+        values::ListValue,
         CodeGenContext, CodeGenerator,
     },
     typecheck::typedef::{iter_type_vars, Type, TypeEnum},
@@ -60,13 +61,6 @@ impl<'ctx> ListType<'ctx> {
     #[must_use]
     fn fields(item: BasicTypeEnum<'ctx>, llvm_usize: IntType<'ctx>) -> ListStructFields<'ctx> {
         ListStructFields::new_typed(item, llvm_usize)
-    }
-
-    /// See [`ListType::fields`].
-    // TODO: Move this into e.g. StructProxyType
-    #[must_use]
-    pub fn get_fields(&self, _ctx: &impl AsContextRef<'ctx>) -> ListStructFields<'ctx> {
-        Self::fields(self.item.unwrap_or(self.llvm_usize.into()), self.llvm_usize)
     }
 
     /// Creates an LLVM type corresponding to the expected structure of a `List`.
@@ -153,9 +147,15 @@ impl<'ctx> ListType<'ctx> {
         Self::new_impl(ctx.ctx, llvm_elem_type, llvm_usize)
     }
 
+    /// Creates an [`ListType`] from a [`StructType`].
+    #[must_use]
+    pub fn from_struct_type(ty: StructType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+        Self::from_pointer_type(ty.ptr_type(AddressSpace::default()), llvm_usize)
+    }
+
     /// Creates an [`ListType`] from a [`PointerType`].
     #[must_use]
-    pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+    pub fn from_pointer_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         debug_assert!(Self::has_same_repr(ptr_ty, llvm_usize).is_ok());
 
         let ctx = ptr_ty.get_context();
@@ -295,9 +295,27 @@ impl<'ctx> ListType<'ctx> {
 
     /// Converts an existing value into a [`ListValue`].
     #[must_use]
-    pub fn map_value(
+    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
         &self,
-        value: <<Self as ProxyType<'ctx>>::Value as ProxyValue<'ctx>>::Base,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        value: StructValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_struct_value(
+            generator,
+            ctx,
+            value,
+            self.llvm_usize,
+            name,
+        )
+    }
+
+    /// Converts an existing value into a [`ListValue`].
+    #[must_use]
+    pub fn map_pointer_value(
+        &self,
+        value: PointerValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(value, self.llvm_usize, name)
@@ -354,6 +372,14 @@ impl<'ctx> ProxyType<'ctx> for ListType<'ctx> {
 
     fn as_abi_type(&self) -> Self::ABI {
         self.as_base_type()
+    }
+}
+
+impl<'ctx> StructProxyType<'ctx> for ListType<'ctx> {
+    type StructFields = ListStructFields<'ctx>;
+
+    fn get_fields(&self) -> Self::StructFields {
+        Self::fields(self.item.unwrap_or(self.llvm_usize.into()), self.llvm_usize)
     }
 }
 

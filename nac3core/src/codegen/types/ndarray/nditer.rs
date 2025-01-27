@@ -1,7 +1,7 @@
 use inkwell::{
     context::{AsContextRef, Context},
-    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
-    values::{IntValue, PointerValue},
+    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
+    values::{IntValue, PointerValue, StructValue},
     AddressSpace,
 };
 use itertools::Itertools;
@@ -11,7 +11,9 @@ use nac3core_derive::StructFields;
 use super::ProxyType;
 use crate::codegen::{
     irrt,
-    types::structure::{check_struct_type_matches_fields, StructField, StructFields},
+    types::structure::{
+        check_struct_type_matches_fields, StructField, StructFields, StructProxyType,
+    },
     values::{
         ndarray::{NDArrayValue, NDIterValue},
         ArrayLikeValue, ArraySliceValue, ProxyValue, TypedArrayLikeAdapter,
@@ -50,13 +52,6 @@ impl<'ctx> NDIterType<'ctx> {
         NDIterStructFields::new(ctx, llvm_usize)
     }
 
-    /// See [`NDIterType::fields`].
-    // TODO: Move this into e.g. StructProxyType
-    #[must_use]
-    pub fn get_fields(&self, ctx: impl AsContextRef<'ctx>) -> NDIterStructFields<'ctx> {
-        Self::fields(ctx, self.llvm_usize)
-    }
-
     /// Creates an LLVM type corresponding to the expected structure of an `NDIter`.
     #[must_use]
     fn llvm_type(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
@@ -87,9 +82,15 @@ impl<'ctx> NDIterType<'ctx> {
         Self::new_impl(ctx, generator.get_size_type(ctx))
     }
 
+    /// Creates an [`NDIterType`] from a [`StructType`] representing an `NDIter`.
+    #[must_use]
+    pub fn from_struct_type(ty: StructType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+        Self::from_pointer_type(ty.ptr_type(AddressSpace::default()), llvm_usize)
+    }
+
     /// Creates an [`NDIterType`] from a [`PointerType`] representing an `NDIter`.
     #[must_use]
-    pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+    pub fn from_pointer_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         debug_assert!(Self::has_same_repr(ptr_ty, llvm_usize).is_ok());
 
         Self { ty: ptr_ty, llvm_usize }
@@ -159,7 +160,8 @@ impl<'ctx> NDIterType<'ctx> {
         let indices =
             TypedArrayLikeAdapter::from(indices, |_, _, v| v.into_int_value(), |_, _, v| v.into());
 
-        let nditer = self.map_value(nditer, ndarray, indices.as_slice_value(ctx, generator), None);
+        let nditer =
+            self.map_pointer_value(nditer, ndarray, indices.as_slice_value(ctx, generator), None);
 
         irrt::ndarray::call_nac3_nditer_initialize(generator, ctx, nditer, ndarray, &indices);
 
@@ -167,9 +169,30 @@ impl<'ctx> NDIterType<'ctx> {
     }
 
     #[must_use]
-    pub fn map_value(
+    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
         &self,
-        value: <<Self as ProxyType<'ctx>>::Value as ProxyValue<'ctx>>::Base,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        value: StructValue<'ctx>,
+        parent: NDArrayValue<'ctx>,
+        indices: ArraySliceValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_struct_value(
+            generator,
+            ctx,
+            value,
+            parent,
+            indices,
+            self.llvm_usize,
+            name,
+        )
+    }
+
+    #[must_use]
+    pub fn map_pointer_value(
+        &self,
+        value: PointerValue<'ctx>,
         parent: NDArrayValue<'ctx>,
         indices: ArraySliceValue<'ctx>,
         name: Option<&'ctx str>,
@@ -226,6 +249,14 @@ impl<'ctx> ProxyType<'ctx> for NDIterType<'ctx> {
 
     fn as_abi_type(&self) -> Self::ABI {
         self.as_base_type()
+    }
+}
+
+impl<'ctx> StructProxyType<'ctx> for NDIterType<'ctx> {
+    type StructFields = NDIterStructFields<'ctx>;
+
+    fn get_fields(&self) -> Self::StructFields {
+        Self::fields(self.ty.get_context(), self.llvm_usize)
     }
 }
 

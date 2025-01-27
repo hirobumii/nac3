@@ -1,6 +1,6 @@
 use inkwell::{
     types::IntType,
-    values::{IntValue, PointerValue},
+    values::{IntValue, PointerValue, StructValue},
 };
 use itertools::Itertools;
 
@@ -8,12 +8,13 @@ use crate::codegen::{
     irrt,
     types::{
         ndarray::{NDArrayType, ShapeEntryType},
-        structure::StructField,
+        structure::{StructField, StructProxyType},
         ProxyType,
     },
     values::{
-        ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ProxyValue,
-        TypedArrayLikeAccessor, TypedArrayLikeAdapter, TypedArrayLikeMutator,
+        ndarray::NDArrayValue, structure::StructProxyValue, ArrayLikeIndexer, ArrayLikeValue,
+        ArraySliceValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
+        TypedArrayLikeMutator,
     },
     CodeGenContext, CodeGenerator,
 };
@@ -26,6 +27,26 @@ pub struct ShapeEntryValue<'ctx> {
 }
 
 impl<'ctx> ShapeEntryValue<'ctx> {
+    /// Creates an [`ShapeEntryValue`] from a [`StructValue`].
+    #[must_use]
+    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: StructValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, llvm_usize, name)
+    }
+
     /// Creates an [`ShapeEntryValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_pointer_value(
@@ -39,7 +60,7 @@ impl<'ctx> ShapeEntryValue<'ctx> {
     }
 
     fn ndims_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
-        self.get_type().get_fields(self.value.get_type().get_context()).ndims
+        self.get_type().get_fields().ndims
     }
 
     /// Stores the number of dimensions into this value.
@@ -48,7 +69,7 @@ impl<'ctx> ShapeEntryValue<'ctx> {
     }
 
     fn shape_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
-        self.get_type().get_fields(self.value.get_type().get_context()).shape
+        self.get_type().get_fields().shape
     }
 
     /// Stores the shape into this value.
@@ -63,7 +84,7 @@ impl<'ctx> ProxyValue<'ctx> for ShapeEntryValue<'ctx> {
     type Type = ShapeEntryType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        Self::Type::from_type(self.value.get_type(), self.llvm_usize)
+        Self::Type::from_pointer_type(self.value.get_type(), self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
@@ -74,6 +95,8 @@ impl<'ctx> ProxyValue<'ctx> for ShapeEntryValue<'ctx> {
         self.as_base_value()
     }
 }
+
+impl<'ctx> StructProxyValue<'ctx> for ShapeEntryValue<'ctx> {}
 
 impl<'ctx> From<ShapeEntryValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: ShapeEntryValue<'ctx>) -> Self {
@@ -163,7 +186,7 @@ fn broadcast_shapes<'ctx, G, Shape>(
                 None,
             )
         };
-        let shape_entry = llvm_shape_ty.map_value(pshape_entry, None);
+        let shape_entry = llvm_shape_ty.map_pointer_value(pshape_entry, None);
 
         let in_ndims = llvm_usize.const_int(*in_ndims, false);
         shape_entry.store_ndims(ctx, in_ndims);

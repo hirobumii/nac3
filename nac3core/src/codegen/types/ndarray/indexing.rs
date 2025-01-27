@@ -1,7 +1,7 @@
 use inkwell::{
     context::{AsContextRef, Context},
-    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
-    values::{IntValue, PointerValue},
+    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
+    values::{IntValue, PointerValue, StructValue},
     AddressSpace,
 };
 use itertools::Itertools;
@@ -10,12 +10,12 @@ use nac3core_derive::StructFields;
 
 use crate::codegen::{
     types::{
-        structure::{check_struct_type_matches_fields, StructField, StructFields},
+        structure::{check_struct_type_matches_fields, StructField, StructFields, StructProxyType},
         ProxyType,
     },
     values::{
         ndarray::{NDIndexValue, RustNDIndex},
-        ArrayLikeIndexer, ArraySliceValue, ProxyValue,
+        ArrayLikeIndexer, ArraySliceValue,
     },
     CodeGenContext, CodeGenerator,
 };
@@ -41,11 +41,6 @@ impl<'ctx> NDIndexType<'ctx> {
         llvm_usize: IntType<'ctx>,
     ) -> NDIndexStructFields<'ctx> {
         NDIndexStructFields::new(ctx, llvm_usize)
-    }
-
-    #[must_use]
-    pub fn get_fields(&self) -> NDIndexStructFields<'ctx> {
-        Self::fields(self.ty.get_context(), self.llvm_usize)
     }
 
     #[must_use]
@@ -76,7 +71,12 @@ impl<'ctx> NDIndexType<'ctx> {
     }
 
     #[must_use]
-    pub fn from_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+    pub fn from_struct_type(ty: StructType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+        Self::from_pointer_type(ty.ptr_type(AddressSpace::default()), llvm_usize)
+    }
+
+    #[must_use]
+    pub fn from_pointer_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         debug_assert!(Self::has_same_repr(ptr_ty, llvm_usize).is_ok());
 
         Self { ty: ptr_ty, llvm_usize }
@@ -148,9 +148,26 @@ impl<'ctx> NDIndexType<'ctx> {
     }
 
     #[must_use]
-    pub fn map_value(
+    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
         &self,
-        value: <<Self as ProxyType<'ctx>>::Value as ProxyValue<'ctx>>::Base,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        value: StructValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_struct_value(
+            generator,
+            ctx,
+            value,
+            self.llvm_usize,
+            name,
+        )
+    }
+
+    #[must_use]
+    pub fn map_pointer_value(
+        &self,
+        value: PointerValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(value, self.llvm_usize, name)
@@ -198,6 +215,14 @@ impl<'ctx> ProxyType<'ctx> for NDIndexType<'ctx> {
 
     fn as_abi_type(&self) -> Self::ABI {
         self.as_base_type()
+    }
+}
+
+impl<'ctx> StructProxyType<'ctx> for NDIndexType<'ctx> {
+    type StructFields = NDIndexStructFields<'ctx>;
+
+    fn get_fields(&self) -> Self::StructFields {
+        Self::fields(self.ty.get_context(), self.llvm_usize)
     }
 }
 

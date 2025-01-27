@@ -42,7 +42,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
             // 1. A list of `int32`; e.g., `np.empty([600, 800, 3])`
 
             let input_seq = ListType::from_unifier_type(generator, ctx, input_seq_ty)
-                .map_value(input_seq.into_pointer_value(), None);
+                .map_pointer_value(input_seq.into_pointer_value(), None);
 
             let len = input_seq.load_size(ctx, None);
             // TODO: Find a way to remove this mid-BB allocation
@@ -86,7 +86,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
             // 2. A tuple of ints; e.g., `np.empty((600, 800, 3))`
 
             let input_seq = TupleType::from_unifier_type(generator, ctx, input_seq_ty)
-                .map_value(input_seq.into_struct_value(), None);
+                .map_struct_value(input_seq.into_struct_value(), None);
 
             let len = input_seq.get_type().num_elements();
 

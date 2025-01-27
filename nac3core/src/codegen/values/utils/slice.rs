@@ -1,14 +1,17 @@
 use inkwell::{
     types::IntType,
-    values::{IntValue, PointerValue},
+    values::{IntValue, PointerValue, StructValue},
 };
 
 use nac3parser::ast::Expr;
 
 use crate::{
     codegen::{
-        types::{structure::StructField, utils::SliceType},
-        values::ProxyValue,
+        types::{
+            structure::{StructField, StructProxyType},
+            utils::SliceType,
+        },
+        values::{structure::StructProxyValue, ProxyValue},
         CodeGenContext, CodeGenerator,
     },
     typecheck::typedef::Type,
@@ -24,6 +27,27 @@ pub struct SliceValue<'ctx> {
 }
 
 impl<'ctx> SliceValue<'ctx> {
+    /// Creates an [`SliceValue`] from a [`StructValue`].
+    #[must_use]
+    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: StructValue<'ctx>,
+        int_ty: IntType<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, int_ty, llvm_usize, name)
+    }
+
     /// Creates an [`SliceValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_pointer_value(
@@ -155,7 +179,7 @@ impl<'ctx> ProxyValue<'ctx> for SliceValue<'ctx> {
     type Type = SliceType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        Self::Type::from_type(self.value.get_type(), self.int_ty, self.llvm_usize)
+        Self::Type::from_pointer_type(self.value.get_type(), self.int_ty, self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
@@ -166,6 +190,8 @@ impl<'ctx> ProxyValue<'ctx> for SliceValue<'ctx> {
         self.as_base_value()
     }
 }
+
+impl<'ctx> StructProxyValue<'ctx> for SliceValue<'ctx> {}
 
 impl<'ctx> From<SliceValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: SliceValue<'ctx>) -> Self {
