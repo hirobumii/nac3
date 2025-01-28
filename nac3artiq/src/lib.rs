@@ -379,16 +379,16 @@ impl Nac3 {
         link_fn: &dyn Fn(&Module) -> PyResult<T>,
     ) -> PyResult<T> {
         Python::with_gil(|_py| {
-            let mut string_store = self.string_store.write();
-            for arg in &args {
-                if let Ok(s) = arg.extract::<String>() {
-                    if !string_store.contains_key(&s) {
-                        let next_id = i32::try_from(string_store.len()).unwrap();
-                        string_store.insert(s.clone(), next_id);
-                    }
-                }
+            let string_map_py = embedding_map.getattr("string_map")?;
+            let reverse_map_py = embedding_map.getattr("string_reverse_map")?;
+
+            let string_store = self.string_store.read();
+            for (s, key) in string_store.iter() {
+                string_map_py.set_item(s, key)?;
+                reverse_map_py.set_item(key, s)?;
             }
-        });
+            Ok::<_, PyErr>(())
+        })?;
 
         let size_t = self.isa.get_size_type();
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
@@ -565,10 +565,16 @@ impl Nac3 {
         name_to_pyid.insert("base".into(), id_fun.call1((obj,))?.extract()?);
         let mut arg_names = vec![];
         for (i, arg) in args.into_iter().enumerate() {
-            let name = format!("tmp{i}");
-            module.add(&name, arg)?;
-            name_to_pyid.insert(name.clone().into(), id_fun.call1((arg,))?.extract()?);
-            arg_names.push(name);
+            if let Ok(st) = arg.extract::<String>() {
+                let literal = format!("{st:?}");
+                arg_names.push(literal);
+            } else {
+                let tmp_name = format!("tmp{i}");
+                module.add(&tmp_name, arg)?;
+                let pyid_val: u64 = id_fun.call1((arg,))?.extract()?;
+                name_to_pyid.insert(tmp_name.clone().into(), pyid_val);
+                arg_names.push(tmp_name);
+            }
         }
         let synthesized = if method_name.is_empty() {
             format!("def __modinit__():\n    base({})", arg_names.join(", "))
@@ -834,20 +840,6 @@ impl Nac3 {
             panic!("Failed to run optimization for module `main`: {}", err.to_string());
         }
 
-        Python::with_gil(|py| {
-            let string_store = self.string_store.read();
-            let mut string_store_vec = string_store.iter().collect::<Vec<_>>();
-            string_store_vec.sort_by(|(_s1, key1), (_s2, key2)| key1.cmp(key2));
-            for (s, key) in string_store_vec {
-                let embed_key: i32 = helper.store_str.call1(py, (s,)).unwrap().extract(py).unwrap();
-                assert_eq!(
-                    embed_key, *key,
-                    "string {s} is out of sync between embedding map (key={embed_key}) and \
-                    the internal string store (key={key})"
-                );
-            }
-        });
-
         link_fn(&main)
     }
 
@@ -1107,7 +1099,6 @@ impl Nac3 {
         fs::write(working_directory.path().join("kernel.ld"), include_bytes!("kernel.ld")).unwrap();
 
         let mut string_store: HashMap<String, i32> = HashMap::default();
-        string_store.insert(String::new(), 0);
 
         // Keep this list of exceptions in sync with `EXCEPTION_ID_LOOKUP` in `artiq::firmware::ksupport::eh_artiq`
         // The exceptions declared here must be defined in `artiq.coredevice.exceptions`

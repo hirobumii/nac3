@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from numpy import int32, int64
 from typing import Generic, TypeVar
 from math import floor, ceil
+import builtins
 
 import nac3artiq
 from embedding_map import EmbeddingMap
@@ -17,7 +18,8 @@ __all__ = [
     "rpc", "ms", "us", "ns",
     "print_int32", "print_int64",
     "Core", "TTLOut",
-    "parallel", "sequential"
+    "parallel", "sequential",
+    "StringWrapper"
 ]
 
 
@@ -91,6 +93,7 @@ artiq_builtins = {
     "virtual": virtual,
     "_ConstGenericMarker": _ConstGenericMarker,
     "Option": Option,
+    "str": builtins.str, 
 }
 compiler = nac3artiq.NAC3(core_arguments["target"], artiq_builtins)
 allow_registration = True
@@ -204,6 +207,8 @@ class Core:
         global allow_registration
 
         embedding = EmbeddingMap()
+        for value, str_id in sorted(string_store.items(), key=lambda x: x[1]):
+            embedding.string_map[value] = str_id
 
         if allow_registration:
             compiler.analyze(registered_functions, registered_classes, set())
@@ -291,6 +296,36 @@ class KernelContextManager:
     def __exit__(self):
         pass
 
+@nac3
+class StringWrapper:
+    """Wrapper for Python strings in NAC3"""
+    artiq_builtin = True
+    _value: str
+    _id: int 
+
+    def __init__(self, value: str):
+        global next_string_id
+        self._value = value
+        if value not in string_store:
+            string_store[value] = next_string_id
+            next_string_id += 1
+        self._id = string_store[value]
+
+    def __str__(self):
+        return self._value
+
+    def get_identifier(self) -> int:
+        return self._id
+    
+string_store = {}
+NAC3_INTERNAL_STRINGS = {
+    "0:artiq.coredevice.exceptions.RTIOUnderflow": 0,
+    "": 1,
+}
+
+for s, id in NAC3_INTERNAL_STRINGS.items():
+    string_store[s] = id
+next_string_id = max(NAC3_INTERNAL_STRINGS.values()) + 1
 @nac3
 class UnwrapNoneError(Exception):
     """raised when unwrapping a none value"""
