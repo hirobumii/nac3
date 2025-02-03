@@ -32,7 +32,7 @@ use super::{
         gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         gen_var,
     },
-    types::{ndarray::NDArrayType, ListType, RangeType, StringType, TupleType},
+    types::{ndarray::NDArrayType, ListType, OptionType, RangeType, StringType, TupleType},
     values::{
         ndarray::{NDArrayOut, RustNDIndex, ScalarOrNDArray},
         ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, RangeValue,
@@ -179,34 +179,16 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     .into()
             }
             SymbolValue::OptionSome(v) => {
-                let ty = match self.unifier.get_ty_immutable(ty).as_ref() {
-                    TypeEnum::TObj { obj_id, params, .. }
-                        if *obj_id == self.primitives.option.obj_id(&self.unifier).unwrap() =>
-                    {
-                        *params.iter().next().unwrap().1
-                    }
-                    _ => codegen_unreachable!(self, "must be option type"),
-                };
                 let val = self.gen_symbol_val(generator, v, ty);
-                let ptr = generator
-                    .gen_var_alloc(self, val.get_type(), Some("default_opt_some"))
-                    .unwrap();
-                self.builder.build_store(ptr, val).unwrap();
-                ptr.into()
+                OptionType::from_unifier_type(generator, self, ty)
+                    .construct_some_value(generator, self, &val, None)
+                    .as_abi_value(self)
+                    .into()
             }
-            SymbolValue::OptionNone => {
-                let ty = match self.unifier.get_ty_immutable(ty).as_ref() {
-                    TypeEnum::TObj { obj_id, params, .. }
-                        if *obj_id == self.primitives.option.obj_id(&self.unifier).unwrap() =>
-                    {
-                        *params.iter().next().unwrap().1
-                    }
-                    _ => codegen_unreachable!(self, "must be option type"),
-                };
-                let actual_ptr_type =
-                    self.get_llvm_type(generator, ty).ptr_type(AddressSpace::default());
-                actual_ptr_type.const_null().into()
-            }
+            SymbolValue::OptionNone => OptionType::from_unifier_type(generator, self, ty)
+                .construct_empty(generator, self, None)
+                .as_abi_value(self)
+                .into(),
         }
     }
 
@@ -2333,16 +2315,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             const_val.into()
         }
         ExprKind::Name { id, .. } if id == &"none".into() => {
-            match (
-                ctx.unifier.get_ty(expr.custom.unwrap()).as_ref(),
-                ctx.unifier.get_ty(ctx.primitives.option).as_ref(),
-            ) {
-                (TypeEnum::TObj { obj_id, params, .. }, TypeEnum::TObj { obj_id: opt_id, .. })
-                    if *obj_id == *opt_id =>
+            match &*ctx.unifier.get_ty(expr.custom.unwrap()) {
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
                 {
-                    ctx.get_llvm_type(generator, *params.iter().next().unwrap().1)
-                        .ptr_type(AddressSpace::default())
-                        .const_null()
+                    OptionType::from_unifier_type(generator, ctx, expr.custom.unwrap())
+                        .construct_empty(generator, ctx, None)
+                        .as_abi_value(ctx)
                         .into()
                 }
                 _ => codegen_unreachable!(ctx, "must be option type"),
@@ -2827,8 +2806,12 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                 };
                             }
                             ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
-                                let not_null =
-                                    ctx.builder.build_is_not_null(ptr, "unwrap_not_null").unwrap();
+                                let option = OptionType::from_pointer_type(
+                                    ptr.get_type(),
+                                    ctx.get_size_type(),
+                                )
+                                .map_pointer_value(ptr, None);
+                                let not_null = option.is_some(ctx);
                                 ctx.make_assert(
                                     generator,
                                     not_null,
@@ -2837,12 +2820,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                     [None, None, None],
                                     expr.location,
                                 );
-                                return Ok(Some(
-                                    ctx.builder
-                                        .build_load(ptr, "unwrap_some_load")
-                                        .map(Into::into)
-                                        .unwrap(),
-                                ));
+                                return Ok(Some(unsafe { option.load(ctx).into() }));
                             }
                             ValueEnum::Dynamic(_) => {
                                 codegen_unreachable!(ctx, "option must be static or ptr")

@@ -26,12 +26,14 @@ use super::{
     {CodeGenContext, CodeGenerator},
 };
 pub use list::*;
+pub use option::*;
 pub use range::*;
 pub use string::*;
 pub use tuple::*;
 
 mod list;
 pub mod ndarray;
+mod option;
 mod range;
 mod string;
 pub mod structure;

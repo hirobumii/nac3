@@ -43,7 +43,9 @@ use crate::{
 };
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
-use types::{ndarray::NDArrayType, ListType, ProxyType, RangeType, StringType, TupleType};
+use types::{
+    ndarray::NDArrayType, ListType, OptionType, ProxyType, RangeType, StringType, TupleType,
+};
 
 pub mod builtin_fns;
 pub mod concrete_type;
@@ -538,7 +540,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                 if PrimDef::contains_id(*obj_id) {
                     return match &*unifier.get_ty_immutable(ty) {
                         TObj { obj_id, params, .. } if *obj_id == PrimDef::Option.id() => {
-                            get_llvm_type(
+                            let element_type = get_llvm_type(
                                 ctx,
                                 module,
                                 generator,
@@ -546,9 +548,9 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 top_level,
                                 type_cache,
                                 *params.iter().next().unwrap().1,
-                            )
-                            .ptr_type(AddressSpace::default())
-                            .into()
+                            );
+
+                            OptionType::new_with_generator(generator, ctx, &element_type).as_abi_type().into()
                         }
 
                         TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
