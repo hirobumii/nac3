@@ -4,12 +4,14 @@ use super::{types::ProxyType, CodeGenContext};
 pub use array::*;
 pub use list::*;
 pub use range::*;
+pub use string::*;
 pub use tuple::*;
 
 mod array;
 mod list;
 pub mod ndarray;
 mod range;
+mod string;
 pub mod structure;
 mod tuple;
 pub mod utils;

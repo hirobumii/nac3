@@ -43,7 +43,7 @@ use crate::{
 };
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
-use types::{ndarray::NDArrayType, ListType, ProxyType, RangeType, TupleType};
+use types::{ndarray::NDArrayType, ListType, ProxyType, RangeType, StringType, TupleType};
 
 pub mod builtin_fns;
 pub mod concrete_type;
@@ -786,19 +786,7 @@ pub fn gen_func_impl<
         (primitives.float, context.f64_type().into()),
         (primitives.bool, context.i8_type().into()),
         (primitives.str, {
-            let name = "str";
-            match module.get_struct_type(name) {
-                None => {
-                    let str_type = context.opaque_struct_type("str");
-                    let fields = [
-                        context.i8_type().ptr_type(AddressSpace::default()).into(),
-                        generator.get_size_type(context).into(),
-                    ];
-                    str_type.set_body(&fields, false);
-                    str_type.into()
-                }
-                Some(t) => t.as_basic_type_enum(),
-            }
+            StringType::new_with_generator(generator, context).as_abi_type().into()
         }),
         (primitives.range, RangeType::new_with_generator(generator, context).as_abi_type().into()),
         (primitives.exception, {

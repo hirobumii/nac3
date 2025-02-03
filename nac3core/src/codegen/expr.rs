@@ -32,7 +32,7 @@ use super::{
         gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         gen_var,
     },
-    types::{ndarray::NDArrayType, ListType, RangeType, TupleType},
+    types::{ndarray::NDArrayType, ListType, RangeType, StringType, TupleType},
     values::{
         ndarray::{NDArrayOut, RustNDIndex, ScalarOrNDArray},
         ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, RangeValue,
@@ -168,14 +168,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             SymbolValue::Bool(v) => self.ctx.i8_type().const_int(u64::from(*v), true).into(),
             SymbolValue::Double(v) => self.ctx.f64_type().const_float(*v).into(),
             SymbolValue::Str(v) => {
-                let str_ptr = self
-                    .builder
-                    .build_global_string_ptr(v, "const")
-                    .map(|v| v.as_pointer_value().into())
-                    .unwrap();
-                let size = self.get_size_type().const_int(v.len() as u64, false);
-                let ty = self.get_llvm_type(generator, self.primitives.str).into_struct_type();
-                ty.const_named_struct(&[str_ptr, size.into()]).into()
+                StringType::new(self).construct_constant(self, v, None).as_abi_value(self).into()
             }
             SymbolValue::Tuple(ls) => {
                 let vals = ls.iter().map(|v| self.gen_symbol_val(generator, v, ty)).collect_vec();
@@ -308,15 +301,10 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 if let Some(v) = self.const_strings.get(v) {
                     Some(*v)
                 } else {
-                    let str_ptr = self
-                        .builder
-                        .build_global_string_ptr(v, "const")
-                        .map(|v| v.as_pointer_value().into())
-                        .unwrap();
-                    let size = self.get_size_type().const_int(v.len() as u64, false);
-                    let ty = self.get_llvm_type(generator, self.primitives.str);
-                    let val =
-                        ty.into_struct_type().const_named_struct(&[str_ptr, size.into()]).into();
+                    let val = StringType::new(self)
+                        .construct_constant(self, v, None)
+                        .as_abi_value(self)
+                        .into();
                     self.const_strings.insert(v.to_string(), val);
                     Some(val)
                 }
@@ -1950,39 +1938,12 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
             } else if left_ty == ctx.primitives.str {
                 assert!(ctx.unifier.unioned(left_ty, right_ty));
 
-                let lhs = lhs.into_struct_value();
-                let rhs = rhs.into_struct_value();
+                let llvm_str = StringType::new(ctx);
 
-                let llvm_i32 = ctx.ctx.i32_type();
-                let llvm_usize = ctx.get_size_type();
+                let lhs = llvm_str.map_struct_value(lhs.into_struct_value(), None);
+                let rhs = llvm_str.map_struct_value(rhs.into_struct_value(), None);
 
-                let plhs = generator.gen_var_alloc(ctx, lhs.get_type().into(), None).unwrap();
-                ctx.builder.build_store(plhs, lhs).unwrap();
-                let prhs = generator.gen_var_alloc(ctx, lhs.get_type().into(), None).unwrap();
-                ctx.builder.build_store(prhs, rhs).unwrap();
-
-                let lhs_ptr = ctx.build_in_bounds_gep_and_load(
-                    plhs,
-                    &[llvm_usize.const_zero(), llvm_i32.const_zero()],
-                    None,
-                ).into_pointer_value();
-                let lhs_len = ctx.build_in_bounds_gep_and_load(
-                    plhs,
-                    &[llvm_usize.const_zero(), llvm_i32.const_int(1, false)],
-                    None,
-                ).into_int_value();
-
-                let rhs_ptr = ctx.build_in_bounds_gep_and_load(
-                    prhs,
-                    &[llvm_usize.const_zero(), llvm_i32.const_zero()],
-                    None,
-                ).into_pointer_value();
-                let rhs_len = ctx.build_in_bounds_gep_and_load(
-                    prhs,
-                    &[llvm_usize.const_zero(), llvm_i32.const_int(1, false)],
-                    None,
-                ).into_int_value();
-                let result = call_string_eq(ctx, lhs_ptr, lhs_len, rhs_ptr, rhs_len);
+                let result = call_string_eq(ctx, lhs, rhs);
                 if *op == Cmpop::NotEq {
                     gen_unaryop_expr_with_values(
                         generator,
