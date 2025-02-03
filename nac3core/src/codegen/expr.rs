@@ -32,7 +32,7 @@ use super::{
         gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         gen_var,
     },
-    types::{ndarray::NDArrayType, ListType, RangeType},
+    types::{ndarray::NDArrayType, ListType, RangeType, TupleType},
     values::{
         ndarray::{NDArrayOut, RustNDIndex, ScalarOrNDArray},
         ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, RangeValue,
@@ -180,23 +180,10 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             SymbolValue::Tuple(ls) => {
                 let vals = ls.iter().map(|v| self.gen_symbol_val(generator, v, ty)).collect_vec();
                 let fields = vals.iter().map(BasicValueEnum::get_type).collect_vec();
-                let ty = self.ctx.struct_type(&fields, false);
-                let ptr = gen_var(self, ty.into(), Some("tuple")).unwrap();
-                let zero = self.ctx.i32_type().const_zero();
-                unsafe {
-                    for (i, val) in vals.into_iter().enumerate() {
-                        let p = self
-                            .builder
-                            .build_in_bounds_gep(
-                                ptr,
-                                &[zero, self.ctx.i32_type().const_int(i as u64, false)],
-                                "elemptr",
-                            )
-                            .unwrap();
-                        self.builder.build_store(p, val).unwrap();
-                    }
-                }
-                self.builder.build_load(ptr, "tup_val").unwrap()
+                TupleType::new(self, &fields)
+                    .construct_from_objects(self, vals, Some("tup_val"))
+                    .as_abi_value(self)
+                    .into()
             }
             SymbolValue::OptionSome(v) => {
                 let ty = match self.unifier.get_ty_immutable(ty).as_ref() {
