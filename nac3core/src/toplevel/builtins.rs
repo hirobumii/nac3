@@ -36,9 +36,7 @@ pub fn get_exn_constructor(
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
 ) -> (TopLevelDef, TopLevelDef, Type, Type) {
-    let int32 = primitives.int32;
-    let int64 = primitives.int64;
-    let string = primitives.str;
+    let PrimitiveStore { int32, int64, str: string, .. } = *primitives;
     let exception_fields = make_exception_fields(int32, int64, string);
     let exn_cons_args = vec![
         FuncArg {

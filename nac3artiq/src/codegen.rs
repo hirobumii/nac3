@@ -41,7 +41,10 @@ use nac3core::{
         numpy::unpack_ndarray_var_tys,
         DefinitionId, GenCall,
     },
-    typecheck::typedef::{iter_type_vars, FunSignature, FuncArg, Type, TypeEnum, VarMap},
+    typecheck::{
+        type_inferencer::PrimitiveStore,
+        typedef::{iter_type_vars, FunSignature, FuncArg, Type, TypeEnum, VarMap},
+    },
 };
 
 /// The parallelism mode within a block.
@@ -389,12 +392,7 @@ fn gen_rpc_tag(
 ) -> Result<(), String> {
     use nac3core::typecheck::typedef::TypeEnum::*;
 
-    let int32 = ctx.primitives.int32;
-    let int64 = ctx.primitives.int64;
-    let float = ctx.primitives.float;
-    let bool = ctx.primitives.bool;
-    let str = ctx.primitives.str;
-    let none = ctx.primitives.none;
+    let PrimitiveStore { int32, int64, float, bool, str, none, .. } = ctx.primitives;
 
     if ctx.unifier.unioned(ty, int32) {
         buffer.push(b'i');
