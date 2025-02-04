@@ -32,7 +32,9 @@ use super::{
         gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         gen_var,
     },
-    types::{ndarray::NDArrayType, ListType, OptionType, RangeType, StringType, TupleType},
+    types::{
+        ndarray::NDArrayType, ExceptionType, ListType, OptionType, RangeType, StringType, TupleType,
+    },
     values::{
         ndarray::{NDArrayOut, RustNDIndex, ScalarOrNDArray},
         ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, RangeValue,
@@ -576,42 +578,35 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         params: [Option<IntValue<'ctx>>; 3],
         loc: Location,
     ) {
+        let llvm_i32 = self.ctx.i32_type();
+        let llvm_i64 = self.ctx.i64_type();
+        let llvm_exn = ExceptionType::get_instance(generator, self);
+
         let zelf = if let Some(exception_val) = self.exception_val {
-            exception_val
+            llvm_exn.map_pointer_value(exception_val, Some("exn"))
         } else {
-            let ty = self.get_llvm_type(generator, self.primitives.exception).into_pointer_type();
-            let zelf_ty: BasicTypeEnum = ty.get_element_type().into_struct_type().into();
-            let zelf = generator.gen_var_alloc(self, zelf_ty, Some("exn")).unwrap();
-            *self.exception_val.insert(zelf)
+            let zelf = llvm_exn.alloca_var(generator, self, Some("exn"));
+            self.exception_val = Some(zelf.as_abi_value(self));
+            zelf
         };
-        let int32 = self.ctx.i32_type();
-        let zero = int32.const_zero();
-        unsafe {
-            let id_ptr = self.builder.build_in_bounds_gep(zelf, &[zero, zero], "exn.id").unwrap();
-            let id = self.resolver.get_string_id(name);
-            self.builder.build_store(id_ptr, int32.const_int(id as u64, false)).unwrap();
-            let ptr = self
-                .builder
-                .build_in_bounds_gep(zelf, &[zero, int32.const_int(5, false)], "exn.msg")
-                .unwrap();
-            self.builder.build_store(ptr, msg).unwrap();
-            let i64_zero = self.ctx.i64_type().const_zero();
-            for (i, attr_ind) in [6, 7, 8].iter().enumerate() {
-                let ptr = self
-                    .builder
-                    .build_in_bounds_gep(
-                        zelf,
-                        &[zero, int32.const_int(*attr_ind, false)],
-                        "exn.param",
-                    )
-                    .unwrap();
-                let val = params[i].map_or(i64_zero, |v| {
-                    self.builder.build_int_s_extend(v, self.ctx.i64_type(), "sext").unwrap()
-                });
-                self.builder.build_store(ptr, val).unwrap();
-            }
-        }
-        gen_raise(generator, self, Some(&zelf.into()), loc);
+
+        let id = self.resolver.get_string_id(name);
+        zelf.store_name(self, llvm_i32.const_int(id as u64, false));
+        zelf.store_message(self, msg.into_struct_value());
+        zelf.store_params(
+            self,
+            params
+                .iter()
+                .map(|p| {
+                    p.map_or(llvm_i64.const_zero(), |v| {
+                        self.builder.build_int_s_extend(v, self.ctx.i64_type(), "sext").unwrap()
+                    })
+                })
+                .collect_array()
+                .as_ref()
+                .unwrap(),
+        );
+        gen_raise(generator, self, Some(&zelf), loc);
     }
 
     pub fn make_assert<G: CodeGenerator + ?Sized>(

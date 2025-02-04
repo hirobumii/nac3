@@ -17,10 +17,10 @@ use super::{
     gen_in_range_check,
     irrt::{handle_slice_indices, list_slice_assignment},
     macros::codegen_unreachable,
-    types::{ndarray::NDArrayType, RangeType},
+    types::{ndarray::NDArrayType, ExceptionType, RangeType},
     values::{
         ndarray::{RustNDIndex, ScalarOrNDArray},
-        ArrayLikeIndexer, ArraySliceValue, ListValue, ProxyValue,
+        ArrayLikeIndexer, ArraySliceValue, ExceptionValue, ListValue, ProxyValue,
     },
     CodeGenContext, CodeGenerator,
 };
@@ -1337,43 +1337,19 @@ pub fn exn_constructor<'ctx>(
 pub fn gen_raise<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
-    exception: Option<&BasicValueEnum<'ctx>>,
+    exception: Option<&ExceptionValue<'ctx>>,
     loc: Location,
 ) {
     if let Some(exception) = exception {
-        unsafe {
-            let int32 = ctx.ctx.i32_type();
-            let zero = int32.const_zero();
-            let exception = exception.into_pointer_value();
-            let file_ptr = ctx
-                .builder
-                .build_in_bounds_gep(exception, &[zero, int32.const_int(1, false)], "file_ptr")
-                .unwrap();
-            let filename = ctx.gen_string(generator, loc.file.0);
-            ctx.builder.build_store(file_ptr, filename).unwrap();
-            let row_ptr = ctx
-                .builder
-                .build_in_bounds_gep(exception, &[zero, int32.const_int(2, false)], "row_ptr")
-                .unwrap();
-            ctx.builder.build_store(row_ptr, int32.const_int(loc.row as u64, false)).unwrap();
-            let col_ptr = ctx
-                .builder
-                .build_in_bounds_gep(exception, &[zero, int32.const_int(3, false)], "col_ptr")
-                .unwrap();
-            ctx.builder.build_store(col_ptr, int32.const_int(loc.column as u64, false)).unwrap();
+        exception.store_location(generator, ctx, loc);
 
-            let current_fun = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-            let fun_name = ctx.gen_string(generator, current_fun.get_name().to_str().unwrap());
-            let name_ptr = ctx
-                .builder
-                .build_in_bounds_gep(exception, &[zero, int32.const_int(4, false)], "name_ptr")
-                .unwrap();
-            ctx.builder.build_store(name_ptr, fun_name).unwrap();
-        }
+        let current_fun = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
+        let fun_name = ctx.gen_string(generator, current_fun.get_name().to_str().unwrap());
+        exception.store_func(ctx, fun_name);
 
         let raise = get_builtins(generator, ctx, "__nac3_raise");
         let exception = *exception;
-        ctx.build_call_or_invoke(raise, &[exception], "raise");
+        ctx.build_call_or_invoke(raise, &[exception.as_abi_value(ctx).into()], "raise");
     } else {
         let resume = get_builtins(generator, ctx, "__nac3_resume");
         ctx.build_call_or_invoke(resume, &[], "resume");
@@ -1860,6 +1836,8 @@ pub fn gen_stmt<G: CodeGenerator>(
                 } else {
                     return Ok(());
                 };
+                let exc = ExceptionType::get_instance(generator, ctx)
+                    .map_pointer_value(exc.into_pointer_value(), None);
                 gen_raise(generator, ctx, Some(&exc), stmt.location);
             } else {
                 gen_raise(generator, ctx, None, stmt.location);
