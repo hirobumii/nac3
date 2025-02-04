@@ -1688,13 +1688,259 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// See [`CodeGenerator::gen_with`].
-pub fn gen_with<G: CodeGenerator>(
-    _: &mut G,
-    _: &mut CodeGenContext<'_, '_>,
+pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
     stmt: &Stmt<Option<Type>>,
 ) -> Result<(), String> {
-    // TODO: Implement with statement after finishing exceptions
-    Err(format!("With statement with custom types is not yet supported (at {})", stmt.location))
+    let StmtKind::With { items, body, .. } = &stmt.node else { codegen_unreachable!(ctx) };
+    let mut exits = vec![];
+    let mut enters = vec![];
+
+    // prepare enters and exits
+    for item in items {
+        // evaluate the expression first
+        let expr_ty = item.context_expr.custom.unwrap();
+        let expr = generator.gen_expr(ctx, &item.context_expr)?.unwrap();
+
+        // get the __enter__ method signature and ID
+        let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(expr_ty) else {
+            codegen_unreachable!(ctx)
+        };
+        let top_level_defs = ctx.top_level.definitions.read();
+        let def = top_level_defs[obj_id.0].read();
+        let TopLevelDef::Class { methods, .. } = &*def else { codegen_unreachable!(ctx) };
+        let enter_fun_id = methods
+            .iter()
+            .find(|method| method.0 == "__enter__".into())
+            .map(|method| method.2)
+            .unwrap();
+        let enter = fields.get(&"__enter__".into()).copied().unwrap();
+        let TypeEnum::TFunc(enter_signature) = &*ctx.unifier.get_ty(enter.0) else {
+            codegen_unreachable!(ctx)
+        };
+
+        enters.push((
+            expr_ty,
+            expr.clone(),
+            enter_signature.clone(),
+            enter_fun_id,
+            item.optional_vars.clone(),
+        ));
+
+        // save __exit__() data to be called later in final stage
+        let exit_fun_id = methods
+            .iter()
+            .find(|method| method.0 == "__exit__".into())
+            .map(|method| method.2)
+            .unwrap();
+        let exit = fields.get(&"__exit__".into()).copied().unwrap();
+        let TypeEnum::TFunc(exit_signature) = &*ctx.unifier.get_ty(exit.0) else {
+            codegen_unreachable!(ctx)
+        };
+        // stack the exits as the exit order is opposite of enter
+        // would be best to reuse try...finally but re-building Stmt vec seems infeasible
+        exits.push((expr_ty, expr, exit_signature.clone(), exit_fun_id));
+    }
+
+    let body_gen_lambda = |ctx: &mut CodeGenContext<'ctx, 'a>,
+                           generator: &mut G|
+     -> Result<(), String> {
+        for enter in enters.iter() {
+            // call __enter__()
+            let enter_ret = generator.gen_call(
+                ctx,
+                Some((enter.0, enter.1.clone())),
+                (&enter.2, enter.3),
+                Vec::default(),
+            )?;
+
+            // deal with assignments (`as`)
+            if let Some(optional_vars) = &enter.4 {
+                generator.gen_assign(ctx, optional_vars, enter_ret.unwrap().into(), enter.2.ret)?;
+            }
+        }
+
+        // generate the `with` body
+        generator.gen_block(ctx, body.iter())
+    };
+
+    let exit_gen_lambda =
+        |ctx: &mut CodeGenContext<'ctx, 'a>, generator: &mut G| -> Result<(), String> {
+            // call __exit__()s in the reverse order
+            for exit in exits.iter().rev() {
+                generator.gen_call(
+                    ctx,
+                    Some((exit.0, exit.1.clone())),
+                    (&exit.2, exit.3),
+                    Vec::default(),
+                )?;
+            }
+            Ok(())
+        };
+
+    // copied and trimmed from gen_try, to cover try (setup, enter)..finally (exit)
+    let personality_symbol = ctx.top_level.personality_symbol.as_ref().unwrap();
+    let personality = ctx.module.get_function(personality_symbol).unwrap_or_else(|| {
+        let ty = ctx.ctx.i32_type().fn_type(&[], true);
+        ctx.module.add_function(personality_symbol, ty, None)
+    });
+    let exception_type = ctx.get_llvm_type(generator, ctx.primitives.exception);
+    let ptr_type = ctx.ctx.i8_type().ptr_type(inkwell::AddressSpace::default());
+    let current_block = ctx.builder.get_insert_block().unwrap();
+    let current_fun = current_block.get_parent().unwrap();
+    let landingpad = ctx.ctx.append_basic_block(current_fun, "with.landingpad");
+    let dispatcher = ctx.ctx.append_basic_block(current_fun, "with.dispatch");
+    let dispatcher_end = dispatcher;
+    ctx.builder.position_at_end(dispatcher);
+    let exn = ctx.builder.build_phi(exception_type, "exn").unwrap();
+    ctx.builder.position_at_end(current_block);
+
+    let mut old_loop_target = None;
+    let final_state =
+        generator.gen_var_alloc(ctx, ptr_type.into(), Some("with.final_state.addr"))?;
+    let mut final_data = Some((final_state, Vec::new(), Vec::new()));
+    if let Some((continue_target, break_target)) = ctx.loop_target {
+        let break_proxy = ctx.ctx.append_basic_block(current_fun, "with.break");
+        let continue_proxy = ctx.ctx.append_basic_block(current_fun, "with.continue");
+        final_proxy(ctx, break_target, break_proxy, final_data.as_mut().unwrap());
+        final_proxy(ctx, continue_target, continue_proxy, final_data.as_mut().unwrap());
+        old_loop_target = ctx.loop_target.replace((continue_proxy, break_proxy));
+    }
+    let return_proxy = ctx.ctx.append_basic_block(current_fun, "with.return");
+    if let Some(return_target) = ctx.return_target {
+        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap());
+    } else {
+        let return_target = ctx.ctx.append_basic_block(current_fun, "with.return_target");
+        ctx.builder.position_at_end(return_target);
+        let return_value = ctx.return_buffer.map(|v| ctx.builder.build_load(v, "$ret").unwrap());
+        ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue)).unwrap();
+        ctx.builder.position_at_end(current_block);
+        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap());
+    }
+    let old_return = ctx.return_target.replace(return_proxy);
+    let cleanup = ctx.ctx.append_basic_block(current_fun, "with.cleanup");
+
+    // replace unwind target, clauses stay the same
+    let old_unwind = ctx.unwind_target.replace(landingpad);
+    body_gen_lambda(ctx, generator)?;
+    let body = ctx.builder.get_insert_block().unwrap();
+    // reset old_unwind
+    ctx.unwind_target = old_unwind;
+    ctx.return_target = old_return;
+    ctx.loop_target = old_loop_target.or(ctx.loop_target).take();
+
+    let final_landingpad = ctx.ctx.append_basic_block(current_fun, "with.catch.final");
+    ctx.builder.position_at_end(final_landingpad);
+    ctx.builder
+        .build_landing_pad(
+            ctx.ctx.struct_type(&[ptr_type.into(), exception_type], false),
+            personality,
+            &[],
+            true,
+            "with.catch.final",
+        )
+        .unwrap();
+    ctx.builder.build_unconditional_branch(cleanup).unwrap();
+    ctx.builder.position_at_end(body);
+    let old_unwind = ctx.unwind_target.replace(final_landingpad);
+
+    let mut final_proxy_lambda =
+        |ctx: &mut CodeGenContext<'ctx, 'a>, target: BasicBlock<'ctx>, block: BasicBlock<'ctx>| {
+            final_proxy(ctx, target, block, final_data.as_mut().unwrap());
+        };
+    let redirect = &mut final_proxy_lambda
+        as &mut dyn FnMut(&mut CodeGenContext<'ctx, 'a>, BasicBlock<'ctx>, BasicBlock<'ctx>);
+
+    let resume = get_builtins(generator, ctx, "__nac3_resume");
+    let end_catch = get_builtins(generator, ctx, "__nac3_end_catch");
+    if let Some((continue_target, break_target)) = ctx.loop_target.take() {
+        let break_proxy = ctx.ctx.append_basic_block(current_fun, "with.break");
+        let continue_proxy = ctx.ctx.append_basic_block(current_fun, "with.continue");
+        ctx.builder.position_at_end(break_proxy);
+        ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
+        ctx.builder.position_at_end(continue_proxy);
+        ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
+        ctx.builder.position_at_end(body);
+        redirect(ctx, break_target, break_proxy);
+        redirect(ctx, continue_target, continue_proxy);
+        ctx.loop_target = Some((continue_proxy, break_proxy));
+        old_loop_target = Some((continue_target, break_target));
+    }
+    let return_proxy = ctx.ctx.append_basic_block(current_fun, "with.return");
+    ctx.builder.position_at_end(return_proxy);
+    ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
+    let return_target = ctx.return_target.take().unwrap_or_else(|| {
+        let doreturn = ctx.ctx.append_basic_block(current_fun, "with.doreturn");
+        ctx.builder.position_at_end(doreturn);
+        let return_value = ctx.return_buffer.map(|v| ctx.builder.build_load(v, "$ret").unwrap());
+        ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue)).unwrap();
+        doreturn
+    });
+    redirect(ctx, return_target, return_proxy);
+    ctx.return_target = Some(return_proxy);
+    let old_return = Some(return_target);
+
+    ctx.unwind_target = old_unwind;
+    ctx.loop_target = old_loop_target.or(ctx.loop_target).take();
+    ctx.return_target = old_return;
+
+    ctx.builder.position_at_end(landingpad);
+
+    let landingpad_value = ctx
+        .builder
+        .build_landing_pad(
+            ctx.ctx.struct_type(&[ptr_type.into(), exception_type], false),
+            personality,
+            &Vec::new(),
+            true,
+            "try.landingpad",
+        )
+        .map(BasicValueEnum::into_struct_value)
+        .unwrap();
+    let exn_val = ctx.builder.build_extract_value(landingpad_value, 1, "exn").unwrap();
+    ctx.builder.build_unconditional_branch(dispatcher).unwrap();
+    exn.add_incoming(&[(&exn_val, landingpad)]);
+
+    if dispatcher_end.get_terminator().is_none() {
+        ctx.builder.position_at_end(dispatcher_end);
+        ctx.builder.build_unconditional_branch(cleanup).unwrap();
+    }
+
+    // exception path
+    ctx.builder.position_at_end(cleanup);
+    exit_gen_lambda(ctx, generator)?;
+    ctx.build_call_or_invoke(resume, &[], "resume");
+    ctx.builder.build_unreachable().unwrap();
+
+    // normal path
+    let (final_state, mut final_targets, final_paths) = final_data.unwrap();
+    let tail = ctx.ctx.append_basic_block(current_fun, "with.tail");
+    final_targets.push(tail);
+    let finalizer = ctx.ctx.append_basic_block(current_fun, "with.exits");
+    ctx.builder.position_at_end(finalizer);
+    exit_gen_lambda(ctx, generator)?;
+    let dest = ctx.builder.build_load(final_state, "final_dest").unwrap();
+    ctx.builder.build_indirect_branch(dest, &final_targets).unwrap();
+    for block in &final_paths {
+        if block.get_terminator().is_none() {
+            ctx.builder.position_at_end(*block);
+            ctx.builder.build_unconditional_branch(finalizer).unwrap();
+        }
+    }
+    for block in [body].iter() {
+        if block.get_terminator().is_none() {
+            ctx.builder.position_at_end(*block);
+            unsafe {
+                ctx.builder.build_store(final_state, tail.get_address().unwrap()).unwrap();
+            }
+            ctx.builder.build_unconditional_branch(finalizer).unwrap();
+        }
+    }
+
+    ctx.builder.position_at_end(tail);
+
+    Ok(())
 }
 
 /// Generates IR for a `return` statement.
