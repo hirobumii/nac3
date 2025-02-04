@@ -1,10 +1,9 @@
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
-    values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue},
+    values::{BasicValueEnum, FloatValue, IntValue},
 };
-use itertools::Either;
 
-use super::CodeGenContext;
+use super::{expr::infer_and_call_function, CodeGenContext};
 
 /// Macro to generate extern function
 /// Both function return type and function parameter type are `FloatValue`
@@ -46,24 +45,23 @@ macro_rules! generate_extern_fn {
             let llvm_f64 = ctx.ctx.f64_type();
             $(debug_assert_eq!($args.get_type(), llvm_f64);)*
 
-            let extern_fn = ctx.module.get_function(FN_NAME).unwrap_or_else(|| {
-                let fn_type = llvm_f64.fn_type(&[$($args.get_type().into()),*], false);
-                let func = ctx.module.add_function(FN_NAME, fn_type, None);
-                for attr in [$($attributes),*] {
-                    func.add_attribute(
-                        AttributeLoc::Function,
-                        ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
-                    );
-                }
-                func
-            });
-
-            ctx.builder
-                .build_call(extern_fn, &[$($args.into()),*], name.unwrap_or_default())
-                .map(CallSiteValue::try_as_basic_value)
-                .map(|v| v.map_left(BasicValueEnum::into_float_value))
-                .map(Either::unwrap_left)
-                .unwrap()
+            infer_and_call_function(
+                ctx,
+                FN_NAME,
+                Some(llvm_f64.into()),
+                &[$($args.into()),*],
+                name,
+                Some(&|func| {
+                   for attr in [$($attributes),*] {
+                        func.add_attribute(
+                            AttributeLoc::Function,
+                            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
+                        );
+                    }
+                })
+            )
+            .map(BasicValueEnum::into_float_value)
+            .unwrap()
         }
     };
 }
@@ -112,25 +110,23 @@ pub fn call_ldexp<'ctx>(
     debug_assert_eq!(arg.get_type(), llvm_f64);
     debug_assert_eq!(exp.get_type(), llvm_i32);
 
-    let extern_fn = ctx.module.get_function(FN_NAME).unwrap_or_else(|| {
-        let fn_type = llvm_f64.fn_type(&[llvm_f64.into(), llvm_i32.into()], false);
-        let func = ctx.module.add_function(FN_NAME, fn_type, None);
-        for attr in ["mustprogress", "nofree", "nounwind", "willreturn"] {
-            func.add_attribute(
-                AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
-            );
-        }
-
-        func
-    });
-
-    ctx.builder
-        .build_call(extern_fn, &[arg.into(), exp.into()], name.unwrap_or_default())
-        .map(CallSiteValue::try_as_basic_value)
-        .map(|v| v.map_left(BasicValueEnum::into_float_value))
-        .map(Either::unwrap_left)
-        .unwrap()
+    infer_and_call_function(
+        ctx,
+        FN_NAME,
+        Some(llvm_f64.into()),
+        &[arg.into(), exp.into()],
+        name,
+        Some(&|func| {
+            for attr in ["mustprogress", "nofree", "nounwind", "willreturn"] {
+                func.add_attribute(
+                    AttributeLoc::Function,
+                    ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
+                );
+            }
+        }),
+    )
+    .map(BasicValueEnum::into_float_value)
+    .unwrap()
 }
 
 /// Macro to generate `np_linalg` and `sp_linalg` functions
@@ -163,20 +159,22 @@ macro_rules! generate_linalg_extern_fn {
             name: Option<&str>,
         ){
             const FN_NAME: &str = $extern_fn;
-            let extern_fn = ctx.module.get_function(FN_NAME).unwrap_or_else(|| {
-                let fn_type = ctx.ctx.void_type().fn_type(&[$($input_matrix.get_type().into()),*], false);
 
-                let func = ctx.module.add_function(FN_NAME, fn_type, None);
-                for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
-                    func.add_attribute(
-                        AttributeLoc::Function,
-                        ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
-                    );
-                }
-                func
-            });
-
-            ctx.builder.build_call(extern_fn, &[$($input_matrix.into(),)*], name.unwrap_or_default()).unwrap();
+            infer_and_call_function(
+                ctx,
+                FN_NAME,
+                None,
+                &[$($input_matrix.into(),)*],
+                name,
+                Some(&|func| {
+                   for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
+                        func.add_attribute(
+                            AttributeLoc::Function,
+                            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
+                        );
+                    }
+                }),
+            );
         }
     };
 }

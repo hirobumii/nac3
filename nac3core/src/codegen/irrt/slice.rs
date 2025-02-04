@@ -1,10 +1,9 @@
-use inkwell::values::{BasicValueEnum, CallSiteValue, IntValue};
-use itertools::Either;
+use inkwell::values::{BasicValueEnum, IntValue};
 
 use nac3parser::ast::Expr;
 
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator},
+    codegen::{expr::infer_and_call_function, CodeGenContext, CodeGenerator},
     typecheck::typedef::Type,
 };
 
@@ -17,23 +16,26 @@ pub fn handle_slice_index_bound<'ctx, G: CodeGenerator>(
     length: IntValue<'ctx>,
 ) -> Result<Option<IntValue<'ctx>>, String> {
     const SYMBOL: &str = "__nac3_slice_index_bound";
-    let func = ctx.module.get_function(SYMBOL).unwrap_or_else(|| {
-        let i32_t = ctx.ctx.i32_type();
-        let fn_t = i32_t.fn_type(&[i32_t.into(), i32_t.into()], false);
-        ctx.module.add_function(SYMBOL, fn_t, None)
-    });
+
+    let llvm_i32 = ctx.ctx.i32_type();
+    assert_eq!(length.get_type(), llvm_i32);
 
     let i = if let Some(v) = generator.gen_expr(ctx, i)? {
         v.to_basic_value_enum(ctx, generator, i.custom.unwrap())?
     } else {
         return Ok(None);
     };
+
     Ok(Some(
-        ctx.builder
-            .build_call(func, &[i.into(), length.into()], "bounded_ind")
-            .map(CallSiteValue::try_as_basic_value)
-            .map(|v| v.map_left(BasicValueEnum::into_int_value))
-            .map(Either::unwrap_left)
-            .unwrap(),
+        infer_and_call_function(
+            ctx,
+            SYMBOL,
+            Some(llvm_i32.into()),
+            &[i, length.into()],
+            Some("bounded_ind"),
+            None,
+        )
+        .map(BasicValueEnum::into_int_value)
+        .unwrap(),
     ))
 }

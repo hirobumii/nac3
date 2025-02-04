@@ -1,13 +1,11 @@
 use inkwell::{
-    types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue},
     AddressSpace,
 };
 
 use crate::codegen::{
-    expr::{create_and_call_function, infer_and_call_function},
+    expr::infer_and_call_function,
     irrt::get_usize_dependent_function_name,
-    types::ProxyType,
     values::{ndarray::NDArrayValue, ProxyValue, TypedArrayLikeAccessor},
     CodeGenContext, CodeGenerator,
 };
@@ -21,24 +19,17 @@ pub fn call_nac3_ndarray_util_assert_shape_no_negative<'ctx, G: CodeGenerator + 
     shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
     let llvm_usize = ctx.get_size_type();
-    let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
-    assert_eq!(
-        BasicTypeEnum::try_from(shape.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
+    assert_eq!(shape.element_type(ctx, generator), llvm_usize.into());
 
     let name =
         get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_shape_no_negative");
 
-    create_and_call_function(
+    infer_and_call_function(
         ctx,
         &name,
         Some(llvm_usize.into()),
-        &[
-            (llvm_usize.into(), shape.size(ctx, generator).into()),
-            (llvm_pusize.into(), shape.base_ptr(ctx, generator).into()),
-        ],
+        &[shape.size(ctx, generator).into(), shape.base_ptr(ctx, generator).into()],
         None,
         None,
     );
@@ -55,29 +46,22 @@ pub fn call_nac3_ndarray_util_assert_output_shape_same<'ctx, G: CodeGenerator + 
     output_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
     let llvm_usize = ctx.get_size_type();
-    let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
-    assert_eq!(
-        BasicTypeEnum::try_from(ndarray_shape.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
-    assert_eq!(
-        BasicTypeEnum::try_from(output_shape.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
+    assert_eq!(ndarray_shape.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(output_shape.element_type(ctx, generator), llvm_usize.into());
 
     let name =
         get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_output_shape_same");
 
-    create_and_call_function(
+    infer_and_call_function(
         ctx,
         &name,
         Some(llvm_usize.into()),
         &[
-            (llvm_usize.into(), ndarray_shape.size(ctx, generator).into()),
-            (llvm_pusize.into(), ndarray_shape.base_ptr(ctx, generator).into()),
-            (llvm_usize.into(), output_shape.size(ctx, generator).into()),
-            (llvm_pusize.into(), output_shape.base_ptr(ctx, generator).into()),
+            ndarray_shape.size(ctx, generator).into(),
+            ndarray_shape.base_ptr(ctx, generator).into(),
+            output_shape.size(ctx, generator).into(),
+            output_shape.base_ptr(ctx, generator).into(),
         ],
         None,
         None,
@@ -93,15 +77,14 @@ pub fn call_nac3_ndarray_size<'ctx>(
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
     let llvm_usize = ctx.get_size_type();
-    let llvm_ndarray = ndarray.get_type();
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_size");
 
-    create_and_call_function(
+    infer_and_call_function(
         ctx,
         &name,
         Some(llvm_usize.into()),
-        &[(llvm_ndarray.as_abi_type().into(), ndarray.as_abi_value(ctx).into())],
+        &[ndarray.as_abi_value(ctx).into()],
         Some("size"),
         None,
     )
@@ -118,15 +101,14 @@ pub fn call_nac3_ndarray_nbytes<'ctx>(
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
     let llvm_usize = ctx.get_size_type();
-    let llvm_ndarray = ndarray.get_type();
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_nbytes");
 
-    create_and_call_function(
+    infer_and_call_function(
         ctx,
         &name,
         Some(llvm_usize.into()),
-        &[(llvm_ndarray.as_abi_type().into(), ndarray.as_abi_value(ctx).into())],
+        &[ndarray.as_abi_value(ctx).into()],
         Some("nbytes"),
         None,
     )
@@ -143,15 +125,14 @@ pub fn call_nac3_ndarray_len<'ctx>(
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
     let llvm_usize = ctx.get_size_type();
-    let llvm_ndarray = ndarray.get_type();
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_len");
 
-    create_and_call_function(
+    infer_and_call_function(
         ctx,
         &name,
         Some(llvm_usize.into()),
-        &[(llvm_ndarray.as_abi_type().into(), ndarray.as_abi_value(ctx).into())],
+        &[ndarray.as_abi_value(ctx).into()],
         Some("len"),
         None,
     )
@@ -167,15 +148,14 @@ pub fn call_nac3_ndarray_is_c_contiguous<'ctx>(
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
     let llvm_i1 = ctx.ctx.bool_type();
-    let llvm_ndarray = ndarray.get_type();
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_is_c_contiguous");
 
-    create_and_call_function(
+    infer_and_call_function(
         ctx,
         &name,
         Some(llvm_i1.into()),
-        &[(llvm_ndarray.as_abi_type().into(), ndarray.as_abi_value(ctx).into())],
+        &[ndarray.as_abi_value(ctx).into()],
         Some("is_c_contiguous"),
         None,
     )
@@ -194,20 +174,16 @@ pub fn call_nac3_ndarray_get_nth_pelement<'ctx>(
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
     let llvm_usize = ctx.get_size_type();
-    let llvm_ndarray = ndarray.get_type();
 
     assert_eq!(index.get_type(), llvm_usize);
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_nth_pelement");
 
-    create_and_call_function(
+    infer_and_call_function(
         ctx,
         &name,
         Some(llvm_pi8.into()),
-        &[
-            (llvm_ndarray.as_abi_type().into(), ndarray.as_abi_value(ctx).into()),
-            (llvm_usize.into(), index.into()),
-        ],
+        &[ndarray.as_abi_value(ctx).into(), index.into()],
         Some("pelement"),
         None,
     )
@@ -229,24 +205,16 @@ pub fn call_nac3_ndarray_get_pelement_by_indices<'ctx, G: CodeGenerator + ?Sized
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
     let llvm_usize = ctx.get_size_type();
-    let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
-    let llvm_ndarray = ndarray.get_type();
 
-    assert_eq!(
-        BasicTypeEnum::try_from(indices.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
+    assert_eq!(indices.element_type(ctx, generator), llvm_usize.into());
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_pelement_by_indices");
 
-    create_and_call_function(
+    infer_and_call_function(
         ctx,
         &name,
         Some(llvm_pi8.into()),
-        &[
-            (llvm_ndarray.as_abi_type().into(), ndarray.as_abi_value(ctx).into()),
-            (llvm_pusize.into(), indices.base_ptr(ctx, generator).into()),
-        ],
+        &[ndarray.as_abi_value(ctx).into(), indices.base_ptr(ctx, generator).into()],
         Some("pelement"),
         None,
     )
@@ -261,18 +229,9 @@ pub fn call_nac3_ndarray_set_strides_by_shape<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
 ) {
-    let llvm_ndarray = ndarray.get_type();
-
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_set_strides_by_shape");
 
-    create_and_call_function(
-        ctx,
-        &name,
-        None,
-        &[(llvm_ndarray.as_abi_type().into(), ndarray.as_abi_value(ctx).into())],
-        None,
-        None,
-    );
+    infer_and_call_function(ctx, &name, None, &[ndarray.as_abi_value(ctx).into()], None, None);
 }
 
 /// Generates a call to `__nac3_ndarray_copy_data`.

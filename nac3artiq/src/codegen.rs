@@ -15,7 +15,7 @@ use pyo3::{
 use super::{symbol_resolver::InnerResolver, timeline::TimeFns};
 use nac3core::{
     codegen::{
-        expr::{destructure_range, gen_call},
+        expr::{create_fn_and_call, destructure_range, gen_call, infer_and_call_function},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_alloca,
@@ -914,47 +914,14 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
 
     // call
-    if is_async {
-        let rpc_send_async = ctx.module.get_function("rpc_send_async").unwrap_or_else(|| {
-            ctx.module.add_function(
-                "rpc_send_async",
-                ctx.ctx.void_type().fn_type(
-                    &[
-                        int32.into(),
-                        tag_ptr_type.ptr_type(AddressSpace::default()).into(),
-                        ptr_type.ptr_type(AddressSpace::default()).into(),
-                    ],
-                    false,
-                ),
-                None,
-            )
-        });
-        ctx.builder
-            .build_call(
-                rpc_send_async,
-                &[service_id.into(), tag_ptr.into(), args_ptr.into()],
-                "rpc.send",
-            )
-            .unwrap();
-    } else {
-        let rpc_send = ctx.module.get_function("rpc_send").unwrap_or_else(|| {
-            ctx.module.add_function(
-                "rpc_send",
-                ctx.ctx.void_type().fn_type(
-                    &[
-                        int32.into(),
-                        tag_ptr_type.ptr_type(AddressSpace::default()).into(),
-                        ptr_type.ptr_type(AddressSpace::default()).into(),
-                    ],
-                    false,
-                ),
-                None,
-            )
-        });
-        ctx.builder
-            .build_call(rpc_send, &[service_id.into(), tag_ptr.into(), args_ptr.into()], "rpc.send")
-            .unwrap();
-    }
+    infer_and_call_function(
+        ctx,
+        if is_async { "rpc_send_async" } else { "rpc_send" },
+        None,
+        &[service_id.into(), tag_ptr.into(), args_ptr.into()],
+        Some("rpc.send"),
+        None,
+    );
 
     // reclaim stack space used by arguments
     call_stackrestore(ctx, stackptr);
@@ -1168,29 +1135,22 @@ fn polymorphic_print<'ctx>(
         debug_assert!(!fmt.is_empty());
         debug_assert_eq!(fmt.as_bytes().last().unwrap(), &0u8);
 
-        let fn_name = if as_rtio { "rtio_log" } else { "core_log" };
-        let print_fn = ctx.module.get_function(fn_name).unwrap_or_else(|| {
-            let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
-            let fn_t = if as_rtio {
-                let llvm_void = ctx.ctx.void_type();
-                llvm_void.fn_type(&[llvm_pi8.into()], true)
-            } else {
-                let llvm_i32 = ctx.ctx.i32_type();
-                llvm_i32.fn_type(&[llvm_pi8.into()], true)
-            };
-            ctx.module.add_function(fn_name, fn_t, None)
-        });
+        let llvm_i32 = ctx.ctx.i32_type();
+        let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
 
         let fmt = ctx.gen_string(generator, fmt);
         let fmt = unsafe { fmt.get_field_at_index_unchecked(0) }.into_pointer_value();
 
-        ctx.builder
-            .build_call(
-                print_fn,
-                &once(fmt.into()).chain(args).map(BasicValueEnum::into).collect_vec(),
-                "",
-            )
-            .unwrap();
+        create_fn_and_call(
+            ctx,
+            if as_rtio { "rtio_log" } else { "core_log" },
+            if as_rtio { None } else { Some(llvm_i32.into()) },
+            &[llvm_pi8.into()],
+            &once(fmt.into()).chain(args).map(BasicValueEnum::into).collect_vec(),
+            true,
+            None,
+            None,
+        );
     };
 
     let llvm_i32 = ctx.ctx.i32_type();

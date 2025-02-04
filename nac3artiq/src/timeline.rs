@@ -1,11 +1,6 @@
-use itertools::Either;
-
 use nac3core::{
-    codegen::CodeGenContext,
-    inkwell::{
-        values::{BasicValueEnum, CallSiteValue},
-        AddressSpace, AtomicOrdering,
-    },
+    codegen::{expr::infer_and_call_function, CodeGenContext},
+    inkwell::{values::BasicValueEnum, AddressSpace, AtomicOrdering},
 };
 
 /// Functions for manipulating the timeline.
@@ -288,36 +283,27 @@ pub struct ExternTimeFns {}
 
 impl TimeFns for ExternTimeFns {
     fn emit_now_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
-        let now_mu = ctx.module.get_function("now_mu").unwrap_or_else(|| {
-            ctx.module.add_function("now_mu", ctx.ctx.i64_type().fn_type(&[], false), None)
-        });
-        ctx.builder
-            .build_call(now_mu, &[], "now_mu")
-            .map(CallSiteValue::try_as_basic_value)
-            .map(Either::unwrap_left)
-            .unwrap()
+        infer_and_call_function(
+            ctx,
+            "now_mu",
+            Some(ctx.ctx.i64_type().into()),
+            &[],
+            Some("now_mu"),
+            None,
+        )
+        .unwrap()
     }
 
     fn emit_at_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>, t: BasicValueEnum<'ctx>) {
-        let at_mu = ctx.module.get_function("at_mu").unwrap_or_else(|| {
-            ctx.module.add_function(
-                "at_mu",
-                ctx.ctx.void_type().fn_type(&[ctx.ctx.i64_type().into()], false),
-                None,
-            )
-        });
-        ctx.builder.build_call(at_mu, &[t.into()], "at_mu").unwrap();
+        assert_eq!(t.get_type(), ctx.ctx.i64_type().into());
+
+        infer_and_call_function(ctx, "at_mu", None, &[t], Some("at_mu"), None);
     }
 
     fn emit_delay_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>, dt: BasicValueEnum<'ctx>) {
-        let delay_mu = ctx.module.get_function("delay_mu").unwrap_or_else(|| {
-            ctx.module.add_function(
-                "delay_mu",
-                ctx.ctx.void_type().fn_type(&[ctx.ctx.i64_type().into()], false),
-                None,
-            )
-        });
-        ctx.builder.build_call(delay_mu, &[dt.into()], "delay_mu").unwrap();
+        assert_eq!(dt.get_type(), ctx.ctx.i64_type().into());
+
+        infer_and_call_function(ctx, "delay_mu", None, &[dt], Some("delay_mu"), None);
     }
 }
 

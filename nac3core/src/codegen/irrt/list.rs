@@ -1,13 +1,14 @@
 use inkwell::{
     types::BasicTypeEnum,
-    values::{BasicValueEnum, CallSiteValue, IntValue},
+    values::{BasicValueEnum, IntValue},
     AddressSpace, IntPredicate,
 };
-use itertools::Either;
 
 use super::calculate_len_for_slice_range;
 use crate::codegen::{
+    expr::infer_and_call_function,
     macros::codegen_unreachable,
+    stmt::gen_if_callback,
     values::{ArrayLikeValue, ListValue},
     CodeGenContext, CodeGenerator,
 };
@@ -36,25 +37,6 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
     assert_eq!(src_idx.2.get_type(), llvm_i32);
 
     let (fun_symbol, elem_ptr_type) = ("__nac3_list_slice_assign_var_size", llvm_pi8);
-    let slice_assign_fun = {
-        let ty_vec = vec![
-            llvm_i32.into(),      // dest start idx
-            llvm_i32.into(),      // dest end idx
-            llvm_i32.into(),      // dest step
-            elem_ptr_type.into(), // dest arr ptr
-            llvm_i32.into(),      // dest arr len
-            llvm_i32.into(),      // src start idx
-            llvm_i32.into(),      // src end idx
-            llvm_i32.into(),      // src step
-            elem_ptr_type.into(), // src arr ptr
-            llvm_i32.into(),      // src arr len
-            llvm_i32.into(),      // size
-        ];
-        ctx.module.get_function(fun_symbol).unwrap_or_else(|| {
-            let fn_t = llvm_i32.fn_type(ty_vec.as_slice(), false);
-            ctx.module.add_function(fun_symbol, fn_t, None)
-        })
-    };
 
     let zero = llvm_i32.const_zero();
     let one = llvm_i32.const_int(1, false);
@@ -127,7 +109,7 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
     );
 
     let new_len = {
-        let args = vec![
+        let args = [
             dest_idx.0.into(),   // dest start idx
             dest_idx.1.into(),   // dest end idx
             dest_idx.2.into(),   // dest step
@@ -150,25 +132,35 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
             }
             .into(),
         ];
-        ctx.builder
-            .build_call(slice_assign_fun, args.as_slice(), "slice_assign")
-            .map(CallSiteValue::try_as_basic_value)
-            .map(|v| v.map_left(BasicValueEnum::into_int_value))
-            .map(Either::unwrap_left)
-            .unwrap()
+        infer_and_call_function(
+            ctx,
+            fun_symbol,
+            Some(llvm_i32.into()),
+            &args,
+            Some("slice_assign"),
+            None,
+        )
+        .map(BasicValueEnum::into_int_value)
+        .unwrap()
     };
 
     // update length
-    let need_update =
-        ctx.builder.build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update").unwrap();
-    let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-    let update_bb = ctx.ctx.append_basic_block(current, "update");
-    let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-    ctx.builder.build_conditional_branch(need_update, update_bb, cont_bb).unwrap();
-    ctx.builder.position_at_end(update_bb);
-    let new_len =
-        ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len").unwrap();
-    dest_arr.store_size(ctx, new_len);
-    ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-    ctx.builder.position_at_end(cont_bb);
+    gen_if_callback(
+        generator,
+        ctx,
+        |_, ctx| {
+            Ok(ctx
+                .builder
+                .build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update")
+                .unwrap())
+        },
+        |_, ctx| {
+            let new_len =
+                ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len").unwrap();
+            dest_arr.store_size(ctx, new_len);
+            Ok(())
+        },
+        |_, _| Ok(()),
+    )
+    .unwrap();
 }

@@ -1,4 +1,4 @@
-use inkwell::{types::BasicTypeEnum, values::IntValue};
+use inkwell::values::IntValue;
 
 use crate::codegen::{
     expr::infer_and_call_function, irrt::get_usize_dependent_function_name,
@@ -22,26 +22,12 @@ pub fn call_nac3_ndarray_matmul_calculate_shapes<'ctx, G: CodeGenerator + ?Sized
 ) {
     let llvm_usize = ctx.get_size_type();
 
-    assert_eq!(
-        BasicTypeEnum::try_from(a_shape.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
-    assert_eq!(
-        BasicTypeEnum::try_from(b_shape.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
-    assert_eq!(
-        BasicTypeEnum::try_from(new_a_shape.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
-    assert_eq!(
-        BasicTypeEnum::try_from(new_b_shape.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
-    assert_eq!(
-        BasicTypeEnum::try_from(dst_shape.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
+    assert_eq!(a_shape.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(b_shape.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(final_ndims.get_type(), llvm_usize);
+    assert_eq!(new_a_shape.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(new_b_shape.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(dst_shape.element_type(ctx, generator), llvm_usize.into());
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_matmul_calculate_shapes");
 
