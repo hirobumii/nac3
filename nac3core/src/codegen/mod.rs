@@ -933,7 +933,7 @@ pub fn gen_func_impl<
             let param_val = param.into_int_value();
 
             if expected_ty.get_bit_width() == 8 && param_val.get_type().get_bit_width() == 1 {
-                bool_to_i8(&builder, context, param_val)
+                bool_to_int_type(&builder, param_val, context.i8_type())
             } else {
                 param_val
             }
@@ -1103,43 +1103,29 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
     })
 }
 
-/// Converts the value of a boolean-like value `bool_value` into an `i1`.
-fn bool_to_i1<'ctx>(builder: &Builder<'ctx>, bool_value: IntValue<'ctx>) -> IntValue<'ctx> {
-    if bool_value.get_type().get_bit_width() == 1 {
-        bool_value
-    } else {
-        builder
-            .build_int_compare(
-                IntPredicate::NE,
-                bool_value,
-                bool_value.get_type().const_zero(),
-                "tobool",
-            )
-            .unwrap()
-    }
-}
-
-/// Converts the value of a boolean-like value `bool_value` into an `i8`.
-fn bool_to_i8<'ctx>(
+/// Converts the value of a boolean-like value `value` into an arbitrary [`IntType`].
+///
+/// This has the same semantics as `(ty)(value != 0)` in C.
+///
+/// The returned value is guaranteed to either be `0` or `1`, except for `ty == i1` where only the
+/// least-significant bit would be guaranteed to be `0` or `1`.
+fn bool_to_int_type<'ctx>(
     builder: &Builder<'ctx>,
-    ctx: &'ctx Context,
-    bool_value: IntValue<'ctx>,
+    value: IntValue<'ctx>,
+    ty: IntType<'ctx>,
 ) -> IntValue<'ctx> {
-    let value_bits = bool_value.get_type().get_bit_width();
-    match value_bits {
-        8 => bool_value,
-        1 => builder.build_int_z_extend(bool_value, ctx.i8_type(), "frombool").unwrap(),
-        _ => bool_to_i8(
+    // i1 -> i1    : %value                                     ; no-op
+    // i1 -> i<N>  : zext i1 %value to i<N>                     ; guaranteed to be 0 or 1 - see docs
+    // i<M> -> i<N>: zext i1 (icmp eq i<M> %value, 0) to i<N>   ; same as i<M> -> i1 -> i<N>
+    match (value.get_type().get_bit_width(), ty.get_bit_width()) {
+        (1, 1) => value,
+        (1, _) => builder.build_int_z_extend(value, ty, "frombool").unwrap(),
+        _ => bool_to_int_type(
             builder,
-            ctx,
             builder
-                .build_int_compare(
-                    IntPredicate::NE,
-                    bool_value,
-                    bool_value.get_type().const_zero(),
-                    "",
-                )
+                .build_int_compare(IntPredicate::NE, value, value.get_type().const_zero(), "tobool")
                 .unwrap(),
+            ty,
         ),
     }
 }

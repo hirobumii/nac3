@@ -2001,7 +2001,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 ).into_int_value();
                 let result = call_string_eq(ctx, lhs_ptr, lhs_len, rhs_ptr, rhs_len);
                 if *op == Cmpop::NotEq {
-                    ctx.builder.build_not(result, "").unwrap() 
+                    ctx.builder.build_not(result, "").unwrap()
                 } else {
                     result
                 }
