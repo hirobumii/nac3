@@ -213,9 +213,7 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
                     Binop::normal(Operator::Mult),
                     (&Some(rhs_dtype), b_kj),
                     ctx.current_loc,
-                )?
-                .unwrap()
-                .to_basic_value_enum(ctx, generator, dst_dtype)?;
+                )?;
 
                 // dst_[...]ij += x
                 let dst_ij = ctx.builder.build_load(pdst_ij, "").unwrap();
@@ -226,9 +224,7 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
                     Binop::normal(Operator::Add),
                     (&Some(dst_dtype), x),
                     ctx.current_loc,
-                )?
-                .unwrap()
-                .to_basic_value_enum(ctx, generator, dst_dtype)?;
+                )?;
                 ctx.builder.build_store(pdst_ij, dst_ij).unwrap();
 
                 Ok(())
