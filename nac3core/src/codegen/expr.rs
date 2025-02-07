@@ -1704,11 +1704,12 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
     Ok(Some(if ty == ctx.primitives.bool {
         let val = val.into_int_value();
         if op == ast::Unaryop::Not {
-            let not = ctx.builder.build_not(val, "not").unwrap();
-            let not_bool =
-                ctx.builder.build_and(not, not.get_type().const_int(1, false), "").unwrap();
+            let not = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, val, val.get_type().const_zero(), "not")
+                .unwrap();
 
-            not_bool.into()
+            generator.bool_to_int_type(ctx, not, val.get_type()).into()
         } else {
             let llvm_i32 = ctx.ctx.i32_type();
 
@@ -2001,7 +2002,18 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 ).into_int_value();
                 let result = call_string_eq(ctx, lhs_ptr, lhs_len, rhs_ptr, rhs_len);
                 if *op == Cmpop::NotEq {
-                    ctx.builder.build_not(result, "").unwrap()
+                    gen_unaryop_expr_with_values(
+                        generator,
+                        ctx,
+                        Unaryop::Not,
+                        (&Some(ctx.primitives.bool), result.into()),
+                    )
+                        .transpose()
+                        .unwrap()
+                        .and_then(|res| {
+                            res.to_basic_value_enum(ctx, generator, ctx.primitives.bool)
+                        })?
+                        .into_int_value()
                 } else {
                     result
                 }
@@ -2248,8 +2260,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                 .unwrap()
                                 .and_then(|v| {
                                     v.to_basic_value_enum(ctx, generator, ctx.primitives.bool)
-                                })
-                                .map(BasicValueEnum::into_int_value)?;
+                                })?
+                                .into_int_value();
 
                             Ok(ctx.builder.build_not(
                                 generator.bool_to_i1(ctx, cmp),
@@ -2285,7 +2297,18 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 // Invert the final value if __ne__
                 if *op == Cmpop::NotEq {
-                    ctx.builder.build_not(cmp_phi, "").unwrap()
+                    gen_unaryop_expr_with_values(
+                        generator,
+                        ctx,
+                        Unaryop::Not,
+                        (&Some(ctx.primitives.bool), cmp_phi.into())
+                    )
+                        .transpose()
+                        .unwrap()
+                        .and_then(|res| {
+                            res.to_basic_value_enum(ctx, generator, ctx.primitives.bool)
+                        })?
+                        .into_int_value()
                 } else {
                     cmp_phi
                 }
