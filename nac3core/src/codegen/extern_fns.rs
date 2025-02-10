@@ -37,8 +37,8 @@ macro_rules! generate_extern_fn {
     ($fn_name:ident, $extern_fn:literal $(,$args:ident)* $(,$attributes:literal)*) => {
         #[doc = concat!("Invokes the [`", stringify!($extern_fn), "`](https://en.cppreference.com/w/c/numeric/math/", stringify!($llvm_name), ") function." )]
         pub fn $fn_name<'ctx>(
-            ctx: &CodeGenContext<'ctx, '_>
-            $(,$args: FloatValue<'ctx>)*,
+            ctx: &CodeGenContext<'ctx, '_>,
+            $($args: FloatValue<'ctx>,)*
             name: Option<&str>,
         ) -> FloatValue<'ctx> {
             const FN_NAME: &str = $extern_fn;
@@ -158,8 +158,8 @@ macro_rules! generate_linalg_extern_fn {
     ($fn_name:ident, $extern_fn:literal $(,$input_matrix:ident)*) => {
         #[doc = concat!("Invokes the linalg `", stringify!($extern_fn), " function." )]
         pub fn $fn_name<'ctx>(
-            ctx: &mut CodeGenContext<'ctx, '_>
-            $(,$input_matrix: BasicValueEnum<'ctx>)*,
+            ctx: &mut CodeGenContext<'ctx, '_>,
+            $($input_matrix: BasicValueEnum<'ctx>,)*
             name: Option<&str>,
         ){
             const FN_NAME: &str = $extern_fn;
