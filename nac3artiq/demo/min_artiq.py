@@ -16,7 +16,7 @@ __all__ = [
     "rpc", "ms", "us", "ns",
     "print_int32", "print_int64",
     "Core", "TTLOut",
-    "parallel", "sequential"
+    "parallel", "legacy_parallel", "sequential"
 ]
 
 
@@ -245,7 +245,7 @@ class Core:
         embedding = EmbeddingMap()
 
         if allow_registration:
-            compiler.analyze(registered_functions, registered_classes, set())
+            compiler.analyze(registered_functions, registered_classes, special_ids, set())
             allow_registration = False
 
         if hasattr(method, "__self__"):
@@ -336,4 +336,11 @@ class UnwrapNoneError(Exception):
     artiq_builtin = True
 
 parallel = KernelContextManager()
+legacy_parallel = KernelContextManager()
 sequential = KernelContextManager()
+
+special_ids = {
+    "parallel": id(parallel),
+    "legacy_parallel": id(legacy_parallel),
+    "sequential": id(sequential),
+}
