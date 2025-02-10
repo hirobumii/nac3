@@ -43,7 +43,7 @@ use super::{
 use crate::{
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
-        helper::{arraylike_flatten_element_type, PrimDef},
+        helper::{arraylike_flatten_element_type, extract_ndims, PrimDef},
         numpy::unpack_ndarray_var_tys,
         DefinitionId, TopLevelDef,
     },
@@ -1775,10 +1775,13 @@ pub fn gen_unaryop_expr_with_values<'ctx, G: CodeGenerator>(
             if op == ast::Unaryop::Invert {
                 ast::Unaryop::Not
             } else {
+                let ndims = extract_ndims(&ctx.unifier, ty);
+
                 codegen_unreachable!(
                     ctx,
-                    "ufunc {} not supported for ndarray[bool, N]",
+                    "ufunc {} not supported for ndarray[bool, {}]",
                     op.op_info().method_name,
+                    ndims,
                 )
             }
         } else {
