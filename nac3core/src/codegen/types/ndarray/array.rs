@@ -44,7 +44,7 @@ impl<'ctx> NDArrayType<'ctx> {
         assert!(self.ndims >= ndims_int);
         assert_eq!(dtype, self.dtype);
 
-        let list_value = list.as_i8_list(generator, ctx);
+        let list_value = list.as_i8_list(ctx);
 
         // Validate `list` has a consistent shape.
         // Raise an exception if `list` is something abnormal like `[[1, 2], [3]]`.
@@ -61,15 +61,13 @@ impl<'ctx> NDArrayType<'ctx> {
             generator, ctx, list_value, ndims, &shape,
         );
 
-        let ndarray = Self::new(generator, ctx.ctx, dtype, ndims_int)
-            .construct_uninitialized(generator, ctx, name);
+        let ndarray =
+            Self::new(ctx, dtype, ndims_int).construct_uninitialized(generator, ctx, name);
         ndarray.copy_shape_from_array(generator, ctx, shape.base_ptr(ctx, generator));
         unsafe { ndarray.create_data(generator, ctx) };
 
         // Copy all contents from the list.
-        irrt::ndarray::call_nac3_ndarray_array_write_list_to_array(
-            generator, ctx, list_value, ndarray,
-        );
+        irrt::ndarray::call_nac3_ndarray_array_write_list_to_array(ctx, list_value, ndarray);
 
         ndarray
     }
@@ -98,8 +96,7 @@ impl<'ctx> NDArrayType<'ctx> {
 
             let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
 
-            let ndarray = Self::new(generator, ctx.ctx, dtype, 1)
-                .construct_uninitialized(generator, ctx, name);
+            let ndarray = Self::new(ctx, dtype, 1).construct_uninitialized(generator, ctx, name);
 
             // Set data
             let data = ctx
@@ -116,7 +113,7 @@ impl<'ctx> NDArrayType<'ctx> {
             }
 
             // Set strides, the `data` is contiguous
-            ndarray.set_strides_contiguous(generator, ctx);
+            ndarray.set_strides_contiguous(ctx);
 
             ndarray
         } else {
@@ -154,7 +151,7 @@ impl<'ctx> NDArrayType<'ctx> {
                     (list_ty, list),
                     name,
                 );
-                Ok(Some(ndarray.as_base_value()))
+                Ok(Some(ndarray.as_abi_value(ctx)))
             },
             |generator, ctx| {
                 let ndarray = self.construct_numpy_array_from_list_copy_none_impl(
@@ -163,14 +160,14 @@ impl<'ctx> NDArrayType<'ctx> {
                     (list_ty, list),
                     name,
                 );
-                Ok(Some(ndarray.as_base_value()))
+                Ok(Some(ndarray.as_abi_value(ctx)))
             },
         )
         .unwrap()
         .map(BasicValueEnum::into_pointer_value)
         .unwrap();
 
-        NDArrayType::new(generator, ctx.ctx, dtype, ndims).map_value(ndarray, None)
+        NDArrayType::new(ctx, dtype, ndims).map_pointer_value(ndarray, None)
     }
 
     /// Implementation of `np_array(<ndarray>, copy=copy)`.
@@ -192,18 +189,18 @@ impl<'ctx> NDArrayType<'ctx> {
             |_generator, _ctx| Ok(copy),
             |generator, ctx| {
                 let ndarray = ndarray.make_copy(generator, ctx); // Force copy
-                Ok(Some(ndarray.as_base_value()))
+                Ok(Some(ndarray.as_abi_value(ctx)))
             },
-            |_generator, _ctx| {
+            |_generator, ctx| {
                 // No need to copy. Return `ndarray` itself.
-                Ok(Some(ndarray.as_base_value()))
+                Ok(Some(ndarray.as_abi_value(ctx)))
             },
         )
         .unwrap()
         .map(BasicValueEnum::into_pointer_value)
         .unwrap();
 
-        ndarray.get_type().map_value(ndarray_val, name)
+        ndarray.get_type().map_pointer_value(ndarray_val, name)
     }
 
     /// Create a new ndarray like
@@ -225,7 +222,7 @@ impl<'ctx> NDArrayType<'ctx> {
                 if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
             {
                 let list = ListType::from_unifier_type(generator, ctx, object_ty)
-                    .map_value(object.into_pointer_value(), None);
+                    .map_pointer_value(object.into_pointer_value(), None);
                 self.construct_numpy_array_list_impl(generator, ctx, (object_ty, list), copy, name)
             }
 
@@ -233,7 +230,7 @@ impl<'ctx> NDArrayType<'ctx> {
                 if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
             {
                 let ndarray = NDArrayType::from_unifier_type(generator, ctx, object_ty)
-                    .map_value(object.into_pointer_value(), None);
+                    .map_pointer_value(object.into_pointer_value(), None);
                 self.construct_numpy_array_ndarray_impl(generator, ctx, ndarray, copy, name)
             }
 

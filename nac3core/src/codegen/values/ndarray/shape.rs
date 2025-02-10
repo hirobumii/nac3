@@ -30,7 +30,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (input_seq_ty, input_seq): (Type, BasicValueEnum<'ctx>),
 ) -> impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>> {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let zero = llvm_usize.const_zero();
     let one = llvm_usize.const_int(1, false);
 
@@ -42,7 +42,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
             // 1. A list of `int32`; e.g., `np.empty([600, 800, 3])`
 
             let input_seq = ListType::from_unifier_type(generator, ctx, input_seq_ty)
-                .map_value(input_seq.into_pointer_value(), None);
+                .map_pointer_value(input_seq.into_pointer_value(), None);
 
             let len = input_seq.load_size(ctx, None);
             // TODO: Find a way to remove this mid-BB allocation
@@ -86,7 +86,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
             // 2. A tuple of ints; e.g., `np.empty((600, 800, 3))`
 
             let input_seq = TupleType::from_unifier_type(generator, ctx, input_seq_ty)
-                .map_value(input_seq.into_struct_value(), None);
+                .map_struct_value(input_seq.into_struct_value(), None);
 
             let len = input_seq.get_type().num_elements();
 
@@ -106,7 +106,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
 
             for i in 0..input_seq.get_type().num_elements() {
                 // Get the i-th element off of the tuple and load it into `result`.
-                let int = input_seq.load_element(ctx, i).into_int_value();
+                let int = input_seq.extract_element(ctx, i).into_int_value();
                 let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "").unwrap();
 
                 unsafe {

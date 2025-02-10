@@ -111,6 +111,8 @@ pub enum PrimDef {
     FunNpLdExp,
     FunNpHypot,
     FunNpNextAfter,
+    FunNpAny,
+    FunNpAll,
 
     // Linalg functions
     FunNpDot,
@@ -305,6 +307,8 @@ impl PrimDef {
             PrimDef::FunNpLdExp => fun("np_ldexp", None),
             PrimDef::FunNpHypot => fun("np_hypot", None),
             PrimDef::FunNpNextAfter => fun("np_nextafter", None),
+            PrimDef::FunNpAny => fun("np_any", None),
+            PrimDef::FunNpAll => fun("np_all", None),
 
             // Linalg functions
             PrimDef::FunNpDot => fun("np_dot", None),
@@ -375,8 +379,23 @@ pub fn make_exception_fields(int32: Type, int64: Type, str: Type) -> Vec<(StrRef
 impl TopLevelDef {
     pub fn to_string(&self, unifier: &mut Unifier) -> String {
         match self {
-            TopLevelDef::Class { name, ancestors, fields, methods, type_vars, .. } => {
+            TopLevelDef::Module { name, attributes, methods, .. } => {
+                format!(
+                    "Module {{\nname: {:?},\nattributes: {:?}\nmethods: {:?}\n}}",
+                    name,
+                    attributes.iter().map(|(n, _)| n.to_string()).collect_vec(),
+                    methods.iter().map(|(n, _)| n.to_string()).collect_vec()
+                )
+            }
+            TopLevelDef::Class {
+                name, ancestors, fields, methods, attributes, type_vars, ..
+            } => {
                 let fields_str = fields
+                    .iter()
+                    .map(|(n, ty, _)| (n.to_string(), unifier.stringify(*ty)))
+                    .collect_vec();
+
+                let attributes_str = attributes
                     .iter()
                     .map(|(n, ty, _)| (n.to_string(), unifier.stringify(*ty)))
                     .collect_vec();
@@ -386,10 +405,11 @@ impl TopLevelDef {
                     .map(|(n, ty, id)| (n.to_string(), unifier.stringify(*ty), *id))
                     .collect_vec();
                 format!(
-                    "Class {{\nname: {:?},\nancestors: {:?},\nfields: {:?},\nmethods: {:?},\ntype_vars: {:?}\n}}",
+                    "Class {{\nname: {:?},\nancestors: {:?},\nfields: {:?},\nattributes: {:?},\nmethods: {:?},\ntype_vars: {:?}\n}}",
                     name,
                     ancestors.iter().map(|ancestor| ancestor.stringify(unifier)).collect_vec(),
                     fields_str.iter().map(|(a, _)| a).collect_vec(),
+                    attributes_str.iter().map(|(a, _)| a).collect_vec(),
                     methods_str.iter().map(|(a, b, _)| (a, b)).collect_vec(),
                     type_vars.iter().map(|id| unifier.stringify(*id)).collect_vec(),
                 )

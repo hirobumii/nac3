@@ -1,6 +1,7 @@
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
+    builder::Builder,
     types::{BasicType, BasicTypeEnum},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
     IntPredicate,
@@ -16,10 +17,10 @@ use super::{
     gen_in_range_check,
     irrt::{handle_slice_indices, list_slice_assignment},
     macros::codegen_unreachable,
-    types::ndarray::NDArrayType,
+    types::{ndarray::NDArrayType, ExceptionType, RangeType},
     values::{
         ndarray::{RustNDIndex, ScalarOrNDArray},
-        ArrayLikeIndexer, ArraySliceValue, ListValue, ProxyValue, RangeValue,
+        ArrayLikeIndexer, ArraySliceValue, ExceptionValue, ListValue, ProxyValue,
     },
     CodeGenContext, CodeGenerator,
 };
@@ -306,7 +307,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
             // Handle list item assignment
-            let llvm_usize = generator.get_size_type(ctx.ctx);
+            let llvm_usize = ctx.get_size_type();
             let target_item_ty = iter_type_vars(list_params).next().unwrap().ty;
 
             let target = generator
@@ -367,10 +368,8 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                     .unwrap()
                     .to_basic_value_enum(ctx, generator, key_ty)?
                     .into_int_value();
-                let index = ctx
-                    .builder
-                    .build_int_s_extend(index, generator.get_size_type(ctx.ctx), "sext")
-                    .unwrap();
+                let index =
+                    ctx.builder.build_int_s_extend(index, ctx.get_size_type(), "sext").unwrap();
 
                 // handle negative index
                 let is_negative = ctx
@@ -378,7 +377,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                     .build_int_compare(
                         IntPredicate::SLT,
                         index,
-                        generator.get_size_type(ctx.ctx).const_zero(),
+                        ctx.get_size_type().const_zero(),
                         "is_neg",
                     )
                     .unwrap();
@@ -441,7 +440,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             // ```
 
             let target = NDArrayType::from_unifier_type(generator, ctx, target_ty)
-                .map_value(target.into_pointer_value(), None);
+                .map_pointer_value(target.into_pointer_value(), None);
             let target = target.index(generator, ctx, &key);
 
             let value = ScalarOrNDArray::from_value(generator, ctx, (value_ty, value))
@@ -450,8 +449,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             let broadcast_ndims =
                 [target.get_type().ndims(), value.get_type().ndims()].into_iter().max().unwrap();
             let broadcast_result = NDArrayType::new(
-                generator,
-                ctx.ctx,
+                ctx,
                 value.get_type().element_type(),
                 broadcast_ndims,
             )
@@ -460,7 +458,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             let target = broadcast_result.ndarrays[0];
             let value = broadcast_result.ndarrays[1];
 
-            target.copy_data_from(generator, ctx, value);
+            target.copy_data_from(ctx, value);
         }
         _ => {
             panic!("encountered unknown target type: {}", ctx.unifier.stringify(target_ty));
@@ -484,7 +482,7 @@ pub fn gen_for<G: CodeGenerator>(
     let var_assignment = ctx.var_assignment.clone();
 
     let int32 = ctx.ctx.i32_type();
-    let size_t = generator.get_size_type(ctx.ctx);
+    let size_t = ctx.get_size_type();
     let zero = int32.const_zero();
     let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let body_bb = ctx.ctx.append_basic_block(current, "for.body");
@@ -513,7 +511,7 @@ pub fn gen_for<G: CodeGenerator>(
             if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
         {
             let iter_val =
-                RangeValue::from_pointer_value(iter_val.into_pointer_value(), Some("range"));
+                RangeType::new(ctx).map_pointer_value(iter_val.into_pointer_value(), Some("range"));
             // Internal variable for loop; Cannot be assigned
             let i = generator.gen_var_alloc(ctx, int32.into(), Some("for.i.addr"))?;
             // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed
@@ -665,11 +663,25 @@ pub fn gen_for<G: CodeGenerator>(
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
 pub struct BreakContinueHooks<'ctx> {
     /// The [exit block][`BasicBlock`] to branch to when `break`-ing out of a loop.
-    pub exit_bb: BasicBlock<'ctx>,
+    exit_bb: BasicBlock<'ctx>,
 
     /// The [latch basic block][`BasicBlock`] to branch to for `continue`-ing to the next iteration
     /// of the loop.
-    pub latch_bb: BasicBlock<'ctx>,
+    latch_bb: BasicBlock<'ctx>,
+}
+
+impl<'ctx> BreakContinueHooks<'ctx> {
+    /// Creates a [`br` instruction][Builder::build_unconditional_branch] to the exit
+    /// [`BasicBlock`], as if by calling `break`.
+    pub fn build_break_branch(&self, builder: &Builder<'ctx>) {
+        builder.build_unconditional_branch(self.exit_bb).unwrap();
+    }
+
+    /// Creates a [`br` instruction][Builder::build_unconditional_branch] to the latch
+    /// [`BasicBlock`], as if by calling `continue`.
+    pub fn build_continue_branch(&self, builder: &Builder<'ctx>) {
+        builder.build_unconditional_branch(self.latch_bb).unwrap();
+    }
 }
 
 /// Generates a C-style `for` construct using lambdas, similar to the following C code:
@@ -1325,43 +1337,19 @@ pub fn exn_constructor<'ctx>(
 pub fn gen_raise<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
-    exception: Option<&BasicValueEnum<'ctx>>,
+    exception: Option<&ExceptionValue<'ctx>>,
     loc: Location,
 ) {
     if let Some(exception) = exception {
-        unsafe {
-            let int32 = ctx.ctx.i32_type();
-            let zero = int32.const_zero();
-            let exception = exception.into_pointer_value();
-            let file_ptr = ctx
-                .builder
-                .build_in_bounds_gep(exception, &[zero, int32.const_int(1, false)], "file_ptr")
-                .unwrap();
-            let filename = ctx.gen_string(generator, loc.file.0);
-            ctx.builder.build_store(file_ptr, filename).unwrap();
-            let row_ptr = ctx
-                .builder
-                .build_in_bounds_gep(exception, &[zero, int32.const_int(2, false)], "row_ptr")
-                .unwrap();
-            ctx.builder.build_store(row_ptr, int32.const_int(loc.row as u64, false)).unwrap();
-            let col_ptr = ctx
-                .builder
-                .build_in_bounds_gep(exception, &[zero, int32.const_int(3, false)], "col_ptr")
-                .unwrap();
-            ctx.builder.build_store(col_ptr, int32.const_int(loc.column as u64, false)).unwrap();
+        exception.store_location(generator, ctx, loc);
 
-            let current_fun = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-            let fun_name = ctx.gen_string(generator, current_fun.get_name().to_str().unwrap());
-            let name_ptr = ctx
-                .builder
-                .build_in_bounds_gep(exception, &[zero, int32.const_int(4, false)], "name_ptr")
-                .unwrap();
-            ctx.builder.build_store(name_ptr, fun_name).unwrap();
-        }
+        let current_fun = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
+        let fun_name = ctx.gen_string(generator, current_fun.get_name().to_str().unwrap());
+        exception.store_func(ctx, fun_name);
 
         let raise = get_builtins(generator, ctx, "__nac3_raise");
         let exception = *exception;
-        ctx.build_call_or_invoke(raise, &[exception], "raise");
+        ctx.build_call_or_invoke(raise, &[exception.as_abi_value(ctx).into()], "raise");
     } else {
         let resume = get_builtins(generator, ctx, "__nac3_resume");
         ctx.build_call_or_invoke(resume, &[], "resume");
@@ -1848,6 +1836,8 @@ pub fn gen_stmt<G: CodeGenerator>(
                 } else {
                     return Ok(());
                 };
+                let exc = ExceptionType::get_instance(generator, ctx)
+                    .map_pointer_value(exc.into_pointer_value(), None);
                 gen_raise(generator, ctx, Some(&exc), stmt.location);
             } else {
                 gen_raise(generator, ctx, None, stmt.location);

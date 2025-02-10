@@ -456,7 +456,13 @@ fn main() {
         membuffer.lock().push(buffer);
     })));
     let threads = (0..threads)
-        .map(|i| Box::new(DefaultCodeGenerator::new(format!("module{i}"), size_t)))
+        .map(|i| {
+            Box::new(DefaultCodeGenerator::with_target_machine(
+                format!("module{i}"),
+                &context,
+                &target_machine,
+            ))
+        })
         .collect();
     let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
     registry.add_task(task);

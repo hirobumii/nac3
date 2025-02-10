@@ -1,12 +1,13 @@
 use inkwell::{
     context::Context,
+    targets::TargetMachine,
     types::{BasicTypeEnum, IntType},
     values::{BasicValueEnum, IntValue, PointerValue},
 };
 
 use nac3parser::ast::{Expr, Stmt, StrRef};
 
-use super::{bool_to_i1, bool_to_i8, expr::*, stmt::*, values::ArraySliceValue, CodeGenContext};
+use super::{bool_to_int_type, expr::*, stmt::*, values::ArraySliceValue, CodeGenContext};
 use crate::{
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},
@@ -18,6 +19,9 @@ pub trait CodeGenerator {
     fn get_name(&self) -> &str;
 
     /// Return an instance of [`IntType`] corresponding to the type of `size_t` for this instance.
+    ///
+    /// Prefer using [`CodeGenContext::get_size_type`] if [`CodeGenContext`] is available, as it is
+    /// equivalent to this function in a more concise syntax.
     fn get_size_type<'ctx>(&self, ctx: &'ctx Context) -> IntType<'ctx>;
 
     /// Generate function call and returns the function return value.
@@ -244,22 +248,32 @@ pub trait CodeGenerator {
         gen_block(self, ctx, stmts)
     }
 
-    /// See [`bool_to_i1`].
+    /// Converts the value of a boolean-like value `bool_value` into an `i1`.
     fn bool_to_i1<'ctx>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
         bool_value: IntValue<'ctx>,
     ) -> IntValue<'ctx> {
-        bool_to_i1(&ctx.builder, bool_value)
+        self.bool_to_int_type(ctx, bool_value, ctx.ctx.bool_type())
     }
 
-    /// See [`bool_to_i8`].
+    /// Converts the value of a boolean-like value `bool_value` into an `i8`.
     fn bool_to_i8<'ctx>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
         bool_value: IntValue<'ctx>,
     ) -> IntValue<'ctx> {
-        bool_to_i8(&ctx.builder, ctx.ctx, bool_value)
+        self.bool_to_int_type(ctx, bool_value, ctx.ctx.i8_type())
+    }
+
+    /// See [`bool_to_int_type`].
+    fn bool_to_int_type<'ctx>(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        bool_value: IntValue<'ctx>,
+        ty: IntType<'ctx>,
+    ) -> IntValue<'ctx> {
+        bool_to_int_type(&ctx.builder, bool_value, ty)
     }
 }
 
@@ -270,19 +284,27 @@ pub struct DefaultCodeGenerator {
 
 impl DefaultCodeGenerator {
     #[must_use]
-    pub fn new(name: String, size_t: u32) -> DefaultCodeGenerator {
-        assert!(matches!(size_t, 32 | 64));
-        DefaultCodeGenerator { name, size_t }
+    pub fn new(name: String, size_t: IntType<'_>) -> DefaultCodeGenerator {
+        assert!(matches!(size_t.get_bit_width(), 32 | 64));
+        DefaultCodeGenerator { name, size_t: size_t.get_bit_width() }
+    }
+
+    #[must_use]
+    pub fn with_target_machine(
+        name: String,
+        ctx: &Context,
+        target_machine: &TargetMachine,
+    ) -> DefaultCodeGenerator {
+        let llvm_usize = ctx.ptr_sized_int_type(&target_machine.get_target_data(), None);
+        Self::new(name, llvm_usize)
     }
 }
 
 impl CodeGenerator for DefaultCodeGenerator {
-    /// Returns the name for this [`CodeGenerator`].
     fn get_name(&self) -> &str {
         &self.name
     }
 
-    /// Returns an LLVM integer type representing `size_t`.
     fn get_size_type<'ctx>(&self, ctx: &'ctx Context) -> IntType<'ctx> {
         // it should be unsigned, but we don't really need unsigned and this could save us from
         // having to do a bit cast...

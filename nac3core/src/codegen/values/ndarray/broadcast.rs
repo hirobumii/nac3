@@ -1,6 +1,6 @@
 use inkwell::{
     types::IntType,
-    values::{IntValue, PointerValue},
+    values::{IntValue, PointerValue, StructValue},
 };
 use itertools::Itertools;
 
@@ -8,12 +8,13 @@ use crate::codegen::{
     irrt,
     types::{
         ndarray::{NDArrayType, ShapeEntryType},
-        structure::StructField,
+        structure::{StructField, StructProxyType},
         ProxyType,
     },
     values::{
-        ndarray::NDArrayValue, ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ProxyValue,
-        TypedArrayLikeAccessor, TypedArrayLikeAdapter, TypedArrayLikeMutator,
+        ndarray::NDArrayValue, structure::StructProxyValue, ArrayLikeIndexer, ArrayLikeValue,
+        ArraySliceValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
+        TypedArrayLikeMutator,
     },
     CodeGenContext, CodeGenerator,
 };
@@ -26,13 +27,24 @@ pub struct ShapeEntryValue<'ctx> {
 }
 
 impl<'ctx> ShapeEntryValue<'ctx> {
-    /// Checks whether `value` is an instance of `ShapeEntry`, returning [Err] if `value` is
-    /// not an instance.
-    pub fn is_representable(
-        value: PointerValue<'ctx>,
+    /// Creates an [`ShapeEntryValue`] from a [`StructValue`].
+    #[must_use]
+    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: StructValue<'ctx>,
         llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        <Self as ProxyValue<'ctx>>::Type::is_representable(value.get_type(), llvm_usize)
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, llvm_usize, name)
     }
 
     /// Creates an [`ShapeEntryValue`] from a [`PointerValue`].
@@ -42,42 +54,49 @@ impl<'ctx> ShapeEntryValue<'ctx> {
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        debug_assert!(Self::is_representable(ptr, llvm_usize).is_ok());
+        debug_assert!(Self::is_instance(ptr, llvm_usize).is_ok());
 
         Self { value: ptr, llvm_usize, name }
     }
 
     fn ndims_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
-        self.get_type().get_fields(self.value.get_type().get_context()).ndims
+        self.get_type().get_fields().ndims
     }
 
     /// Stores the number of dimensions into this value.
     pub fn store_ndims(&self, ctx: &CodeGenContext<'ctx, '_>, value: IntValue<'ctx>) {
-        self.ndims_field().set(ctx, self.value, value, self.name);
+        self.ndims_field().store(ctx, self.value, value, self.name);
     }
 
     fn shape_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
-        self.get_type().get_fields(self.value.get_type().get_context()).shape
+        self.get_type().get_fields().shape
     }
 
     /// Stores the shape into this value.
     pub fn store_shape(&self, ctx: &CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
-        self.shape_field().set(ctx, self.value, value, self.name);
+        self.shape_field().store(ctx, self.value, value, self.name);
     }
 }
 
 impl<'ctx> ProxyValue<'ctx> for ShapeEntryValue<'ctx> {
+    type ABI = PointerValue<'ctx>;
     type Base = PointerValue<'ctx>;
     type Type = ShapeEntryType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        Self::Type::from_type(self.value.get_type(), self.llvm_usize)
+        Self::Type::from_pointer_type(self.value.get_type(), self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
         self.value
     }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
+    }
 }
+
+impl<'ctx> StructProxyValue<'ctx> for ShapeEntryValue<'ctx> {}
 
 impl<'ctx> From<ShapeEntryValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: ShapeEntryValue<'ctx>) -> Self {
@@ -104,7 +123,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         assert!(self.ndims <= target_ndims);
         assert_eq!(target_shape.element_type(ctx, generator), self.llvm_usize.into());
 
-        let broadcast_ndarray = NDArrayType::new(generator, ctx.ctx, self.dtype, target_ndims)
+        let broadcast_ndarray = NDArrayType::new(ctx, self.dtype, target_ndims)
             .construct_uninitialized(generator, ctx, None);
         broadcast_ndarray.copy_shape_from_array(
             generator,
@@ -112,7 +131,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             target_shape.base_ptr(ctx, generator),
         );
 
-        irrt::ndarray::call_nac3_ndarray_broadcast_to(generator, ctx, *self, broadcast_ndarray);
+        irrt::ndarray::call_nac3_ndarray_broadcast_to(ctx, *self, broadcast_ndarray);
         broadcast_ndarray
     }
 }
@@ -146,8 +165,8 @@ fn broadcast_shapes<'ctx, G, Shape>(
     Shape: TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
         + TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>,
 {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
-    let llvm_shape_ty = ShapeEntryType::new(generator, ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
+    let llvm_shape_ty = ShapeEntryType::new(ctx);
 
     assert!(in_shape_entries
         .iter()
@@ -167,7 +186,7 @@ fn broadcast_shapes<'ctx, G, Shape>(
                 None,
             )
         };
-        let shape_entry = llvm_shape_ty.map_value(pshape_entry, None);
+        let shape_entry = llvm_shape_ty.map_pointer_value(pshape_entry, None);
 
         let in_ndims = llvm_usize.const_int(*in_ndims, false);
         shape_entry.store_ndims(ctx, in_ndims);
@@ -199,7 +218,7 @@ impl<'ctx> NDArrayType<'ctx> {
     ) -> BroadcastAllResult<'ctx, G> {
         assert!(!ndarrays.is_empty());
 
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_usize = ctx.get_size_type();
 
         // Infer the broadcast output ndims.
         let broadcast_ndims_int =

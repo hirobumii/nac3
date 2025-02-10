@@ -20,18 +20,17 @@ use crate::codegen::{
 /// - `dst_ndarray.ndims` must be initialized and matching the length of `dst_ndarray.shape`.
 /// - `dst_ndarray.shape` must be initialized and contains the target broadcast shape.
 /// - `dst_ndarray.strides` must be allocated and may contain uninitialized values.
-pub fn call_nac3_ndarray_broadcast_to<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_broadcast_to<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     src_ndarray: NDArrayValue<'ctx>,
     dst_ndarray: NDArrayValue<'ctx>,
 ) {
-    let name = get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_broadcast_to");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_to");
     infer_and_call_function(
         ctx,
         &name,
         None,
-        &[src_ndarray.as_base_value().into(), dst_ndarray.as_base_value().into()],
+        &[src_ndarray.as_abi_value(ctx).into(), dst_ndarray.as_abi_value(ctx).into()],
         None,
         None,
     );
@@ -53,19 +52,18 @@ pub fn call_nac3_ndarray_broadcast_shapes<'ctx, G, Shape>(
     Shape: TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
         + TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>,
 {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
 
     assert_eq!(num_shape_entries.get_type(), llvm_usize);
-    assert!(ShapeEntryType::is_type(
-        generator,
-        ctx.ctx,
-        shape_entries.base_ptr(ctx, generator).get_type()
+    assert!(ShapeEntryType::is_representable(
+        shape_entries.base_ptr(ctx, generator).get_type(),
+        llvm_usize,
     )
     .is_ok());
     assert_eq!(dst_ndims.get_type(), llvm_usize);
     assert_eq!(dst_shape.element_type(ctx, generator), llvm_usize.into());
 
-    let name = get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_broadcast_shapes");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");
     infer_and_call_function(
         ctx,
         &name,

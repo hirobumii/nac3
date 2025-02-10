@@ -1,27 +1,50 @@
-use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
+use inkwell::{
+    types::IntType,
+    values::{ArrayValue, BasicValueEnum, IntValue, PointerValue},
+};
 
 use super::ProxyValue;
-use crate::codegen::{types::RangeType, CodeGenContext};
+use crate::codegen::{types::RangeType, CodeGenContext, CodeGenerator};
 
 /// Proxy type for accessing a `range` value in LLVM.
 #[derive(Copy, Clone)]
 pub struct RangeValue<'ctx> {
     value: PointerValue<'ctx>,
+    llvm_usize: IntType<'ctx>,
     name: Option<&'ctx str>,
 }
 
 impl<'ctx> RangeValue<'ctx> {
-    /// Checks whether `value` is an instance of `range`, returning [Err] if `value` is not an instance.
-    pub fn is_representable(value: PointerValue<'ctx>) -> Result<(), String> {
-        RangeType::is_representable(value.get_type())
+    /// Creates an [`RangeValue`] from a [`PointerValue`].
+    #[must_use]
+    pub fn from_array_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: ArrayValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, llvm_usize, name)
     }
 
     /// Creates an [`RangeValue`] from a [`PointerValue`].
     #[must_use]
-    pub fn from_pointer_value(ptr: PointerValue<'ctx>, name: Option<&'ctx str>) -> Self {
-        debug_assert!(Self::is_representable(ptr).is_ok());
+    pub fn from_pointer_value(
+        ptr: PointerValue<'ctx>,
+        llvm_usize: IntType<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> Self {
+        debug_assert!(Self::is_instance(ptr, llvm_usize).is_ok());
 
-        RangeValue { value: ptr, name }
+        RangeValue { value: ptr, llvm_usize, name }
     }
 
     fn ptr_to_start(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
@@ -31,7 +54,7 @@ impl<'ctx> RangeValue<'ctx> {
         unsafe {
             ctx.builder
                 .build_in_bounds_gep(
-                    self.as_base_value(),
+                    self.as_abi_value(ctx),
                     &[llvm_i32.const_zero(), llvm_i32.const_int(0, false)],
                     var_name.as_str(),
                 )
@@ -46,7 +69,7 @@ impl<'ctx> RangeValue<'ctx> {
         unsafe {
             ctx.builder
                 .build_in_bounds_gep(
-                    self.as_base_value(),
+                    self.as_abi_value(ctx),
                     &[llvm_i32.const_zero(), llvm_i32.const_int(1, false)],
                     var_name.as_str(),
                 )
@@ -61,7 +84,7 @@ impl<'ctx> RangeValue<'ctx> {
         unsafe {
             ctx.builder
                 .build_in_bounds_gep(
-                    self.as_base_value(),
+                    self.as_abi_value(ctx),
                     &[llvm_i32.const_zero(), llvm_i32.const_int(2, false)],
                     var_name.as_str(),
                 )
@@ -134,15 +157,20 @@ impl<'ctx> RangeValue<'ctx> {
 }
 
 impl<'ctx> ProxyValue<'ctx> for RangeValue<'ctx> {
+    type ABI = PointerValue<'ctx>;
     type Base = PointerValue<'ctx>;
     type Type = RangeType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        RangeType::from_type(self.value.get_type())
+        RangeType::from_pointer_type(self.value.get_type(), self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
         self.value
+    }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
     }
 }
 

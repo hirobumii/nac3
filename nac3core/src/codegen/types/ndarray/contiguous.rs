@@ -1,7 +1,7 @@
 use inkwell::{
     context::Context,
-    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType},
-    values::{IntValue, PointerValue},
+    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
+    values::{IntValue, PointerValue, StructValue},
     AddressSpace,
 };
 use itertools::Itertools;
@@ -13,10 +13,11 @@ use crate::{
         types::{
             structure::{
                 check_struct_type_matches_fields, FieldIndexCounter, StructField, StructFields,
+                StructProxyType,
             },
             ProxyType,
         },
-        values::{ndarray::ContiguousNDArrayValue, ProxyValue},
+        values::ndarray::ContiguousNDArrayValue,
         CodeGenContext, CodeGenerator,
     },
     toplevel::numpy::unpack_ndarray_var_tys,
@@ -58,36 +59,6 @@ impl<'ctx> ContiguousNDArrayStructFields<'ctx> {
 }
 
 impl<'ctx> ContiguousNDArrayType<'ctx> {
-    /// Checks whether `llvm_ty` represents a `ndarray` type, returning [Err] if it does not.
-    pub fn is_representable(
-        llvm_ty: PointerType<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        let ctx = llvm_ty.get_context();
-
-        let llvm_ty = llvm_ty.get_element_type();
-        let AnyTypeEnum::StructType(llvm_ty) = llvm_ty else {
-            return Err(format!(
-                "Expected struct type for `ContiguousNDArray` type, got {llvm_ty}"
-            ));
-        };
-
-        let fields = ContiguousNDArrayStructFields::new(ctx, llvm_usize);
-
-        check_struct_type_matches_fields(
-            fields,
-            llvm_ty,
-            "ContiguousNDArray",
-            &[(fields.data.name(), &|ty| {
-                if ty.is_pointer_type() {
-                    Ok(())
-                } else {
-                    Err(format!("Expected T* for `ContiguousNDArray.data`, got {ty}"))
-                }
-            })],
-        )
-    }
-
     /// Returns an instance of [`StructFields`] containing all field accessors for this type.
     #[must_use]
     fn fields(
@@ -95,13 +66,6 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
         llvm_usize: IntType<'ctx>,
     ) -> ContiguousNDArrayStructFields<'ctx> {
         ContiguousNDArrayStructFields::new_typed(item, llvm_usize)
-    }
-
-    /// See [`NDArrayType::fields`].
-    // TODO: Move this into e.g. StructProxyType
-    #[must_use]
-    pub fn get_fields(&self) -> ContiguousNDArrayStructFields<'ctx> {
-        Self::fields(self.item, self.llvm_usize)
     }
 
     /// Creates an LLVM type corresponding to the expected structure of an `NDArray`.
@@ -117,17 +81,26 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
+    fn new_impl(ctx: &'ctx Context, item: BasicTypeEnum<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+        let llvm_cndarray = Self::llvm_type(ctx, item, llvm_usize);
+
+        Self { ty: llvm_cndarray, item, llvm_usize }
+    }
+
     /// Creates an instance of [`ContiguousNDArrayType`].
     #[must_use]
-    pub fn new<G: CodeGenerator + ?Sized>(
+    pub fn new(ctx: &CodeGenContext<'ctx, '_>, item: &impl BasicType<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, item.as_basic_type_enum(), ctx.get_size_type())
+    }
+
+    /// Creates an instance of [`ContiguousNDArrayType`].
+    #[must_use]
+    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
         generator: &G,
         ctx: &'ctx Context,
         item: BasicTypeEnum<'ctx>,
     ) -> Self {
-        let llvm_usize = generator.get_size_type(ctx);
-        let llvm_cndarray = Self::llvm_type(ctx, item, llvm_usize);
-
-        Self { ty: llvm_cndarray, item, llvm_usize }
+        Self::new_impl(ctx, item, generator.get_size_type(ctx))
     }
 
     /// Creates an [`ContiguousNDArrayType`] from a [unifier type][Type].
@@ -140,19 +113,28 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
         let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
         let llvm_dtype = ctx.get_llvm_type(generator, dtype);
-        let llvm_usize = generator.get_size_type(ctx.ctx);
 
-        Self { ty: Self::llvm_type(ctx.ctx, llvm_dtype, llvm_usize), item: llvm_dtype, llvm_usize }
+        Self::new_impl(ctx.ctx, llvm_dtype, ctx.get_size_type())
+    }
+
+    /// Creates an [`ContiguousNDArrayType`] from a [`StructType`] representing an `NDArray`.
+    #[must_use]
+    pub fn from_struct_type(
+        ty: StructType<'ctx>,
+        item: BasicTypeEnum<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Self {
+        Self::from_pointer_type(ty.ptr_type(AddressSpace::default()), item, llvm_usize)
     }
 
     /// Creates an [`ContiguousNDArrayType`] from a [`PointerType`] representing an `NDArray`.
     #[must_use]
-    pub fn from_type(
+    pub fn from_pointer_type(
         ptr_ty: PointerType<'ctx>,
         item: BasicTypeEnum<'ctx>,
         llvm_usize: IntType<'ctx>,
     ) -> Self {
-        debug_assert!(Self::is_representable(ptr_ty, llvm_usize).is_ok());
+        debug_assert!(Self::has_same_repr(ptr_ty, llvm_usize).is_ok());
 
         Self { ty: ptr_ty, item, llvm_usize }
     }
@@ -196,9 +178,28 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
 
     /// Converts an existing value into a [`ContiguousNDArrayValue`].
     #[must_use]
-    pub fn map_value(
+    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
         &self,
-        value: <<Self as ProxyType<'ctx>>::Value as ProxyValue<'ctx>>::Base,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        value: StructValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_struct_value(
+            generator,
+            ctx,
+            value,
+            self.item,
+            self.llvm_usize,
+            name,
+        )
+    }
+
+    /// Converts an existing value into a [`ContiguousNDArrayValue`].
+    #[must_use]
+    pub fn map_pointer_value(
+        &self,
+        value: PointerValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
@@ -211,35 +212,65 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
 }
 
 impl<'ctx> ProxyType<'ctx> for ContiguousNDArrayType<'ctx> {
+    type ABI = PointerType<'ctx>;
     type Base = PointerType<'ctx>;
     type Value = ContiguousNDArrayValue<'ctx>;
 
-    fn is_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
+    fn is_representable(
         llvm_ty: impl BasicType<'ctx>,
+        llvm_usize: IntType<'ctx>,
     ) -> Result<(), String> {
         if let BasicTypeEnum::PointerType(ty) = llvm_ty.as_basic_type_enum() {
-            <Self as ProxyType<'ctx>>::is_representable(generator, ctx, ty)
+            Self::has_same_repr(ty, llvm_usize)
         } else {
             Err(format!("Expected pointer type, got {llvm_ty:?}"))
         }
     }
 
-    fn is_representable<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        llvm_ty: Self::Base,
-    ) -> Result<(), String> {
-        Self::is_representable(llvm_ty, generator.get_size_type(ctx))
+    fn has_same_repr(ty: Self::Base, llvm_usize: IntType<'ctx>) -> Result<(), String> {
+        let ctx = ty.get_context();
+
+        let llvm_ty = ty.get_element_type();
+        let AnyTypeEnum::StructType(llvm_ty) = llvm_ty else {
+            return Err(format!(
+                "Expected struct type for `ContiguousNDArray` type, got {llvm_ty}"
+            ));
+        };
+
+        let fields = ContiguousNDArrayStructFields::new(ctx, llvm_usize);
+
+        check_struct_type_matches_fields(
+            fields,
+            llvm_ty,
+            "ContiguousNDArray",
+            &[(fields.data.name(), &|ty| {
+                if ty.is_pointer_type() {
+                    Ok(())
+                } else {
+                    Err(format!("Expected T* for `ContiguousNDArray.data`, got {ty}"))
+                }
+            })],
+        )
     }
 
     fn alloca_type(&self) -> impl BasicType<'ctx> {
-        self.as_base_type().get_element_type().into_struct_type()
+        self.as_abi_type().get_element_type().into_struct_type()
     }
 
     fn as_base_type(&self) -> Self::Base {
         self.ty
+    }
+
+    fn as_abi_type(&self) -> Self::ABI {
+        self.as_base_type()
+    }
+}
+
+impl<'ctx> StructProxyType<'ctx> for ContiguousNDArrayType<'ctx> {
+    type StructFields = ContiguousNDArrayStructFields<'ctx>;
+
+    fn get_fields(&self) -> Self::StructFields {
+        Self::fields(self.item, self.llvm_usize)
     }
 }
 

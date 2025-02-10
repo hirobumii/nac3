@@ -42,9 +42,9 @@ pub fn gen_ndarray_empty<'ctx>(
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
 
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, ndims)
+    let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
         .construct_numpy_empty(generator, context, &shape, None);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.zeros`.
@@ -67,9 +67,9 @@ pub fn gen_ndarray_zeros<'ctx>(
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
 
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, ndims)
+    let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
         .construct_numpy_zeros(generator, context, dtype, &shape, None);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.ones`.
@@ -92,9 +92,9 @@ pub fn gen_ndarray_ones<'ctx>(
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
 
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, ndims)
+    let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
         .construct_numpy_ones(generator, context, dtype, &shape, None);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.full`.
@@ -120,14 +120,14 @@ pub fn gen_ndarray_full<'ctx>(
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
 
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, ndims).construct_numpy_full(
+    let ndarray = NDArrayType::new(context, llvm_dtype, ndims).construct_numpy_full(
         generator,
         context,
         &shape,
         fill_value_arg,
         None,
     );
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 pub fn gen_ndarray_array<'ctx>(
@@ -166,7 +166,7 @@ pub fn gen_ndarray_array<'ctx>(
         .construct_numpy_array(generator, context, (obj_ty, obj_arg), copy, None)
         .atleast_nd(generator, context, ndims);
 
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.eye`.
@@ -207,7 +207,7 @@ pub fn gen_ndarray_eye<'ctx>(
 
     let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
 
-    let llvm_usize = generator.get_size_type(context.ctx);
+    let llvm_usize = context.get_size_type();
     let llvm_dtype = context.get_llvm_type(generator, dtype);
 
     let nrows = context
@@ -223,9 +223,9 @@ pub fn gen_ndarray_eye<'ctx>(
         .build_int_s_extend_or_bit_cast(offset_arg.into_int_value(), llvm_usize, "")
         .unwrap();
 
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, 2)
+    let ndarray = NDArrayType::new(context, llvm_dtype, 2)
         .construct_numpy_eye(generator, context, dtype, nrows, ncols, offset, None);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.identity`.
@@ -244,16 +244,16 @@ pub fn gen_ndarray_identity<'ctx>(
 
     let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
 
-    let llvm_usize = generator.get_size_type(context.ctx);
+    let llvm_usize = context.get_size_type();
     let llvm_dtype = context.get_llvm_type(generator, dtype);
 
     let n = context
         .builder
         .build_int_s_extend_or_bit_cast(n_arg.into_int_value(), llvm_usize, "")
         .unwrap();
-    let ndarray = NDArrayType::new(generator, context.ctx, llvm_dtype, 2)
+    let ndarray = NDArrayType::new(context, llvm_dtype, 2)
         .construct_numpy_identity(generator, context, dtype, n, None);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.copy`.
@@ -272,9 +272,9 @@ pub fn gen_ndarray_copy<'ctx>(
         obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, generator, this_ty)?;
 
     let this = NDArrayType::from_unifier_type(generator, context, this_ty)
-        .map_value(this_arg.into_pointer_value(), None);
+        .map_pointer_value(this_arg.into_pointer_value(), None);
     let ndarray = this.make_copy(generator, context);
-    Ok(ndarray.as_base_value())
+    Ok(ndarray.as_abi_value(context))
 }
 
 /// Generates LLVM IR for `ndarray.fill`.
@@ -295,7 +295,7 @@ pub fn gen_ndarray_fill<'ctx>(
     let value_arg = args[0].1.clone().to_basic_value_enum(context, generator, value_ty)?;
 
     let this = NDArrayType::from_unifier_type(generator, context, this_ty)
-        .map_value(this_arg.into_pointer_value(), None);
+        .map_pointer_value(this_arg.into_pointer_value(), None);
     this.fill(generator, context, value_arg);
     Ok(())
 }
@@ -316,8 +316,10 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
 
     match (x1, x2) {
         (BasicValueEnum::PointerValue(n1), BasicValueEnum::PointerValue(n2)) => {
-            let a = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_value(n1, None);
-            let b = NDArrayType::from_unifier_type(generator, ctx, x2_ty).map_value(n2, None);
+            let a =
+                NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(n1, None);
+            let b =
+                NDArrayType::from_unifier_type(generator, ctx, x2_ty).map_pointer_value(n2, None);
 
             // TODO: General `np.dot()` https://numpy.org/doc/stable/reference/generated/numpy.dot.html.
             assert_eq!(a.get_type().ndims(), 1);
@@ -325,8 +327,8 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
             let common_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
 
             // Check shapes.
-            let a_size = a.size(generator, ctx);
-            let b_size = b.size(generator, ctx);
+            let a_size = a.size(ctx);
+            let b_size = b.size(ctx);
             let same_shape =
                 ctx.builder.build_int_compare(IntPredicate::EQ, a_size, b_size, "").unwrap();
             ctx.make_assert(
@@ -349,13 +351,13 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
                 ctx,
                 Some("np_dot"),
                 |generator, ctx| {
-                    let a_iter = NDIterType::new(generator, ctx.ctx).construct(generator, ctx, a);
-                    let b_iter = NDIterType::new(generator, ctx.ctx).construct(generator, ctx, b);
+                    let a_iter = NDIterType::new(ctx).construct(generator, ctx, a);
+                    let b_iter = NDIterType::new(ctx).construct(generator, ctx, b);
                     Ok((a_iter, b_iter))
                 },
-                |generator, ctx, (a_iter, _b_iter)| {
+                |_, ctx, (a_iter, _b_iter)| {
                     // Only a_iter drives the condition, b_iter should have the same status.
-                    Ok(a_iter.has_element(generator, ctx))
+                    Ok(a_iter.has_element(ctx))
                 },
                 |_, ctx, _hooks, (a_iter, b_iter)| {
                     let a_scalar = a_iter.get_scalar(ctx);
@@ -385,9 +387,9 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
                     ctx.builder.build_store(result, new_result).unwrap();
                     Ok(())
                 },
-                |generator, ctx, (a_iter, b_iter)| {
-                    a_iter.next(generator, ctx);
-                    b_iter.next(generator, ctx);
+                |_, ctx, (a_iter, b_iter)| {
+                    a_iter.next(ctx);
+                    b_iter.next(ctx);
                     Ok(())
                 },
             )

@@ -41,7 +41,7 @@
               lockFile = ./Cargo.lock;
             };
             passthru.cargoLock = cargoLock;
-            nativeBuildInputs = [ pkgs.python3 (pkgs.wrapClangMulti pkgs.llvmPackages_14.clang) llvm-tools-irrt pkgs.llvmPackages_14.llvm.out llvm-nac3 ];
+            nativeBuildInputs = [ pkgs.python3 (pkgs.wrapClangMulti pkgs.llvmPackages_14.clang) llvm-tools-irrt pkgs.llvmPackages_14.llvm.out pkgs.llvmPackages_14.bintools llvm-nac3 ];
             buildInputs = [ pkgs.python3 llvm-nac3 ];
             checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ps.scipy ])) ];
             checkPhase =
@@ -85,7 +85,7 @@
             name = "nac3artiq-instrumented";
             src = self;
             inherit (nac3artiq) cargoLock;
-            nativeBuildInputs = [ pkgs.python3 packages.x86_64-linux.llvm-tools-irrt llvm-nac3-instrumented ];
+            nativeBuildInputs = [ pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_14.bintools llvm-nac3-instrumented ];
             buildInputs = [ pkgs.python3 llvm-nac3-instrumented ];
             cargoBuildFlags = [ "--package" "nac3artiq" "--features" "init-llvm-profile" ];
             doCheck = false;
@@ -113,13 +113,14 @@
             (pkgs.fetchFromGitHub {
               owner = "m-labs";
               repo = "artiq";
-              rev = "28c9de3e251daa89a8c9fd79d5ab64a3ec03bac6";
-              sha256 = "sha256-vAvpbHc5B+1wtG8zqN7j9dQE1ON+i22v+uqA+tw6Gak=";
+              rev = "554b0749ca5985bf4d006c4f29a05e83de0a226d";
+              sha256 = "sha256-3eSNHTSlmdzLMcEMIspxqjmjrcQe4aIGqIfRgquUg18=";
             })
           ];
           buildInputs = [
             (python3-mimalloc.withPackages(ps: [ ps.numpy ps.scipy ps.jsonschema ps.lmdb ps.platformdirs nac3artiq-instrumented ]))
             pkgs.llvmPackages_14.llvm.out
+            pkgs.llvmPackages_14.bintools
           ];
           phases = [ "buildPhase" "installPhase" ];
           buildPhase =
@@ -147,7 +148,7 @@
             name = "nac3artiq-pgo";
             src = self;
             inherit (nac3artiq) cargoLock;
-            nativeBuildInputs = [ pkgs.python3 packages.x86_64-linux.llvm-tools-irrt llvm-nac3-pgo ];
+            nativeBuildInputs = [ pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_14.bintools llvm-nac3-pgo ];
             buildInputs = [ pkgs.python3 llvm-nac3-pgo ];
             cargoBuildFlags = [ "--package" "nac3artiq" ];
             cargoTestFlags = [ "--package" "nac3ast" "--package" "nac3parser" "--package" "nac3core" "--package" "nac3artiq" ];
@@ -168,7 +169,7 @@
         buildInputs = with pkgs; [
           # build dependencies
           packages.x86_64-linux.llvm-nac3
-          (pkgs.wrapClangMulti llvmPackages_14.clang) llvmPackages_14.llvm.out  # for running nac3standalone demos
+          (pkgs.wrapClangMulti llvmPackages_14.clang) llvmPackages_14.llvm.out llvmPackages_14.bintools  # for running nac3standalone demos
           packages.x86_64-linux.llvm-tools-irrt
           cargo
           rustc

@@ -101,7 +101,9 @@ impl TopLevelComposer {
         let builtin_name_list = definition_ast_list
             .iter()
             .map(|def_ast| match *def_ast.0.read() {
-                TopLevelDef::Class { name, .. } => name.to_string(),
+                TopLevelDef::Class { name, .. } | TopLevelDef::Module { name, .. } => {
+                    name.to_string()
+                }
                 TopLevelDef::Function { simple_name, .. }
                 | TopLevelDef::Variable { simple_name, .. } => simple_name.to_string(),
             })
@@ -199,6 +201,43 @@ impl TopLevelComposer {
     #[must_use]
     pub fn extract_def_list(&self) -> Vec<Arc<RwLock<TopLevelDef>>> {
         self.definition_ast_list.iter().map(|(def, ..)| def.clone()).collect_vec()
+    }
+
+    /// register top level modules
+    pub fn register_top_level_module(
+        &mut self,
+        module_name: &str,
+        name_to_pyid: &Rc<HashMap<StrRef, u64>>,
+        resolver: Arc<dyn SymbolResolver + Send + Sync>,
+        location: Option<Location>,
+    ) -> Result<DefinitionId, String> {
+        let mut methods: HashMap<StrRef, DefinitionId> = HashMap::new();
+        let mut attributes: Vec<(StrRef, DefinitionId)> = Vec::new();
+
+        for (name, _) in name_to_pyid.iter() {
+            if let Ok(def_id) = resolver.get_identifier_def(*name) {
+                // Avoid repeated attribute instances resulting from multiple imports of same module
+                if self.defined_names.contains(&format!("{module_name}.{name}")) {
+                    match &*self.definition_ast_list[def_id.0].0.read() {
+                        TopLevelDef::Class { .. } | TopLevelDef::Function { .. } => {
+                            methods.insert(*name, def_id);
+                        }
+                        _ => attributes.push((*name, def_id)),
+                    }
+                }
+            };
+        }
+        let module_def = TopLevelDef::Module {
+            name: module_name.to_string().into(),
+            module_id: DefinitionId(self.definition_ast_list.len()),
+            methods,
+            attributes,
+            resolver: Some(resolver),
+            loc: location,
+        };
+
+        self.definition_ast_list.push((Arc::new(RwLock::new(module_def)), None));
+        Ok(DefinitionId(self.definition_ast_list.len() - 1))
     }
 
     /// register, just remember the names of top level classes/function
@@ -469,10 +508,10 @@ impl TopLevelComposer {
         self.analyze_top_level_class_definition()?;
         self.analyze_top_level_class_fields_methods()?;
         self.analyze_top_level_function()?;
+        self.analyze_top_level_variables()?;
         if inference {
             self.analyze_function_instance()?;
         }
-        self.analyze_top_level_variables()?;
         Ok(())
     }
 
@@ -1410,7 +1449,7 @@ impl TopLevelComposer {
         Ok(())
     }
 
-    /// step 4, analyze and call type inferencer to fill the `instance_to_stmt` of
+    /// step 5, analyze and call type inferencer to fill the `instance_to_stmt` of
     /// [`TopLevelDef::Function`]
     fn analyze_function_instance(&mut self) -> Result<(), HashSet<String>> {
         // first get the class constructor type correct for the following type check in function body
@@ -1482,8 +1521,7 @@ impl TopLevelComposer {
                     .any(|ann| matches!(ann, TypeAnnotation::CustomClass { id, .. } if id.0 == 7))
                 {
                     // create constructor for these classes
-                    let string = primitives_ty.str;
-                    let int64 = primitives_ty.int64;
+                    let PrimitiveStore { str: string, int64, .. } = *primitives_ty;
                     let signature = unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         args: vec![
                             FuncArg {
@@ -1941,7 +1979,7 @@ impl TopLevelComposer {
         Ok(())
     }
 
-    /// Step 5. Analyze and populate the types of global variables.
+    /// Step 4. Analyze and populate the types of global variables.
     fn analyze_top_level_variables(&mut self) -> Result<(), HashSet<String>> {
         let def_list = &self.definition_ast_list;
         let temp_def_list = self.extract_def_list();
@@ -1959,6 +1997,19 @@ impl TopLevelComposer {
             let resolver = &**resolver.as_ref().unwrap();
 
             if let Some(ty_decl) = ty_decl {
+                let ty_decl = match &ty_decl.node {
+                    ExprKind::Subscript { value, slice, .. }
+                        if matches!(
+                            &value.node,
+                            ast::ExprKind::Name { id, .. } if self.core_config.kernel_ann.map_or(false, |c| id == &c.into())
+                        ) =>
+                    {
+                        slice
+                    }
+                    _ if self.core_config.kernel_ann.is_none() => ty_decl,
+                    _ => unreachable!("Global variables should be annotated with Kernel[]"), // ignore fields annotated otherwise
+                };
+
                 let ty_annotation = parse_ast_to_type_annotation_kinds(
                     resolver,
                     &temp_def_list,

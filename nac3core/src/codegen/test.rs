@@ -97,7 +97,8 @@ fn test_primitives() {
         "};
     let statements = parse_program(source, FileName::default()).unwrap();
 
-    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 32).0;
+    let context = inkwell::context::Context::create();
+    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
     let top_level = Arc::new(composer.make_top_level_context());
@@ -107,7 +108,7 @@ fn test_primitives() {
         Arc::new(Resolver { id_to_type: HashMap::new(), id_to_def: RwLock::new(HashMap::new()) })
             as Arc<dyn SymbolResolver + Send + Sync>;
 
-    let threads = vec![DefaultCodeGenerator::new("test".into(), 32).into()];
+    let threads = vec![DefaultCodeGenerator::new("test".into(), context.i64_type()).into()];
     let signature = FunSignature {
         args: vec![
             FuncArg {
@@ -260,7 +261,8 @@ fn test_simple_call() {
         "};
     let statements_2 = parse_program(source_2, FileName::default()).unwrap();
 
-    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 32).0;
+    let context = inkwell::context::Context::create();
+    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
     let top_level = Arc::new(composer.make_top_level_context());
@@ -307,7 +309,7 @@ fn test_simple_call() {
         unreachable!()
     }
 
-    let threads = vec![DefaultCodeGenerator::new("test".into(), 32).into()];
+    let threads = vec![DefaultCodeGenerator::new("test".into(), context.i64_type()).into()];
     let mut function_data = FunctionData {
         resolver: resolver.clone(),
         bound_variables: Vec::new(),
@@ -439,31 +441,34 @@ fn test_simple_call() {
 #[test]
 fn test_classes_list_type_new() {
     let ctx = inkwell::context::Context::create();
-    let generator = DefaultCodeGenerator::new(String::new(), 64);
+    let generator = DefaultCodeGenerator::new(String::new(), ctx.i64_type());
 
     let llvm_i32 = ctx.i32_type();
     let llvm_usize = generator.get_size_type(&ctx);
 
-    let llvm_list = ListType::new(&generator, &ctx, llvm_i32.into());
-    assert!(ListType::is_representable(llvm_list.as_base_type(), llvm_usize).is_ok());
+    let llvm_list = ListType::new_with_generator(&generator, &ctx, llvm_i32.into());
+    assert!(ListType::is_representable(llvm_list.as_abi_type(), llvm_usize).is_ok());
 }
 
 #[test]
 fn test_classes_range_type_new() {
     let ctx = inkwell::context::Context::create();
+    let generator = DefaultCodeGenerator::new(String::new(), ctx.i64_type());
 
-    let llvm_range = RangeType::new(&ctx);
-    assert!(RangeType::is_representable(llvm_range.as_base_type()).is_ok());
+    let llvm_usize = generator.get_size_type(&ctx);
+
+    let llvm_range = RangeType::new_with_generator(&generator, &ctx);
+    assert!(RangeType::is_representable(llvm_range.as_abi_type(), llvm_usize).is_ok());
 }
 
 #[test]
 fn test_classes_ndarray_type_new() {
     let ctx = inkwell::context::Context::create();
-    let generator = DefaultCodeGenerator::new(String::new(), 64);
+    let generator = DefaultCodeGenerator::new(String::new(), ctx.i64_type());
 
     let llvm_i32 = ctx.i32_type();
     let llvm_usize = generator.get_size_type(&ctx);
 
-    let llvm_ndarray = NDArrayType::new(&generator, &ctx, llvm_i32.into(), 2);
-    assert!(NDArrayType::is_representable(llvm_ndarray.as_base_type(), llvm_usize).is_ok());
+    let llvm_ndarray = NDArrayType::new_with_generator(&generator, &ctx, llvm_i32.into(), 2);
+    assert!(NDArrayType::is_representable(llvm_ndarray.as_abi_type(), llvm_usize).is_ok());
 }

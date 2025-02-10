@@ -1,4 +1,5 @@
 use std::{
+    cell::OnceCell,
     collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -19,7 +20,7 @@ use inkwell::{
     module::Module,
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
-    types::{AnyType, BasicType, BasicTypeEnum},
+    types::{AnyType, BasicType, BasicTypeEnum, IntType},
     values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue},
     AddressSpace, IntPredicate, OptimizationLevel,
 };
@@ -42,7 +43,9 @@ use crate::{
 };
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
-use types::{ndarray::NDArrayType, ListType, ProxyType, RangeType, TupleType};
+use types::{
+    ndarray::NDArrayType, ListType, OptionType, ProxyType, RangeType, StringType, TupleType,
+};
 
 pub mod builtin_fns;
 pub mod concrete_type;
@@ -226,13 +229,32 @@ pub struct CodeGenContext<'ctx, 'a> {
 
     /// The current source location.
     pub current_loc: Location,
+
+    /// The cached type of `size_t`.
+    llvm_usize: OnceCell<IntType<'ctx>>,
 }
 
-impl CodeGenContext<'_, '_> {
+impl<'ctx> CodeGenContext<'ctx, '_> {
     /// Whether the [current basic block][Builder::get_insert_block] referenced by `builder`
     /// contains a [terminator statement][BasicBlock::get_terminator].
     pub fn is_terminated(&self) -> bool {
         self.builder.get_insert_block().and_then(BasicBlock::get_terminator).is_some()
+    }
+
+    /// Returns a [`IntType`] representing `size_t` for the compilation target as specified by
+    /// [`self.registry`][WorkerRegistry].
+    pub fn get_size_type(&self) -> IntType<'ctx> {
+        *self.llvm_usize.get_or_init(|| {
+            self.ctx.ptr_sized_int_type(
+                &self
+                    .registry
+                    .llvm_options
+                    .create_target_machine()
+                    .map(|tm| tm.get_target_data())
+                    .unwrap(),
+                None,
+            )
+        })
     }
 }
 
@@ -481,12 +503,44 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
     type_cache.get(&unifier.get_representative(ty)).copied().unwrap_or_else(|| {
         let ty_enum = unifier.get_ty(ty);
         let result = match &*ty_enum {
+            TModule {module_id, attributes} => {
+                let top_level_defs = top_level.definitions.read();
+                let definition = top_level_defs.get(module_id.0).unwrap();
+                let TopLevelDef::Module { name, attributes: attribute_fields, .. } = &*definition.read() else {
+                    unreachable!()
+                };
+                let ty: BasicTypeEnum<'_> = if let Some(t) = module.get_struct_type(&name.to_string()) {
+                    t.ptr_type(AddressSpace::default()).into()
+                } else {
+                    let struct_type = ctx.opaque_struct_type(&name.to_string());
+                    type_cache.insert(
+                        unifier.get_representative(ty),
+                        struct_type.ptr_type(AddressSpace::default()).into(),
+                    );
+                    let module_fields: Vec<BasicTypeEnum<'_>> = attribute_fields.iter()
+                    .map(|f| {
+                        get_llvm_type(
+                            ctx,
+                            module,
+                            generator,
+                            unifier,
+                            top_level,
+                            type_cache,
+                            attributes[&f.0].0,
+                        )
+                    })
+                    .collect_vec();
+                    struct_type.set_body(&module_fields, false);
+                    struct_type.ptr_type(AddressSpace::default()).into()
+                };
+                return ty;
+            },
             TObj { obj_id, fields, .. } => {
                 // check to avoid treating non-class primitives as classes
                 if PrimDef::contains_id(*obj_id) {
                     return match &*unifier.get_ty_immutable(ty) {
                         TObj { obj_id, params, .. } if *obj_id == PrimDef::Option.id() => {
-                            get_llvm_type(
+                            let element_type = get_llvm_type(
                                 ctx,
                                 module,
                                 generator,
@@ -494,9 +548,9 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 top_level,
                                 type_cache,
                                 *params.iter().next().unwrap().1,
-                            )
-                            .ptr_type(AddressSpace::default())
-                            .into()
+                            );
+
+                            OptionType::new_with_generator(generator, ctx, &element_type).as_abi_type().into()
                         }
 
                         TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
@@ -510,7 +564,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 *params.iter().next().unwrap().1,
                             );
 
-                            ListType::new(generator, ctx, element_type).as_base_type().into()
+                            ListType::new_with_generator(generator, ctx, element_type).as_abi_type().into()
                         }
 
                         TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
@@ -520,7 +574,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                                 ctx, module, generator, unifier, top_level, type_cache, dtype,
                             );
 
-                            NDArrayType::new(generator, ctx, element_type, ndims).as_base_type().into()
+                            NDArrayType::new_with_generator(generator, ctx, element_type, ndims).as_abi_type().into()
                         }
 
                         _ => unreachable!(
@@ -574,7 +628,7 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, *ty)
                     })
                     .collect_vec();
-                TupleType::new(generator, ctx, &fields).as_base_type().into()
+                TupleType::new_with_generator(generator, ctx, &fields).as_abi_type().into()
             }
             TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),
@@ -734,21 +788,9 @@ pub fn gen_func_impl<
         (primitives.float, context.f64_type().into()),
         (primitives.bool, context.i8_type().into()),
         (primitives.str, {
-            let name = "str";
-            match module.get_struct_type(name) {
-                None => {
-                    let str_type = context.opaque_struct_type("str");
-                    let fields = [
-                        context.i8_type().ptr_type(AddressSpace::default()).into(),
-                        generator.get_size_type(context).into(),
-                    ];
-                    str_type.set_body(&fields, false);
-                    str_type.into()
-                }
-                Some(t) => t.as_basic_type_enum(),
-            }
+            StringType::new_with_generator(generator, context).as_abi_type().into()
         }),
-        (primitives.range, RangeType::new(context).as_base_type().into()),
+        (primitives.range, RangeType::new_with_generator(generator, context).as_abi_type().into()),
         (primitives.exception, {
             let name = "Exception";
             if let Some(t) = module.get_struct_type(name) {
@@ -881,7 +923,7 @@ pub fn gen_func_impl<
             let param_val = param.into_int_value();
 
             if expected_ty.get_bit_width() == 8 && param_val.get_type().get_bit_width() == 1 {
-                bool_to_i8(&builder, context, param_val)
+                bool_to_int_type(&builder, param_val, context.i8_type())
             } else {
                 param_val
             }
@@ -987,7 +1029,19 @@ pub fn gen_func_impl<
         need_sret: has_sret,
         current_loc: Location::default(),
         debug_info: (dibuilder, compile_unit, func_scope.as_debug_info_scope()),
+        llvm_usize: OnceCell::default(),
     };
+
+    let target_llvm_usize = context.ptr_sized_int_type(
+        &registry.llvm_options.create_target_machine().map(|tm| tm.get_target_data()).unwrap(),
+        None,
+    );
+    let generator_llvm_usize = generator.get_size_type(context);
+    assert_eq!(
+        generator_llvm_usize,
+        target_llvm_usize,
+        "CodeGenerator (size_t = {generator_llvm_usize}) is not compatible with CodeGen Target (size_t = {target_llvm_usize})",
+    );
 
     let loc = code_gen_context.debug_info.0.create_debug_location(
         context,
@@ -1039,43 +1093,29 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
     })
 }
 
-/// Converts the value of a boolean-like value `bool_value` into an `i1`.
-fn bool_to_i1<'ctx>(builder: &Builder<'ctx>, bool_value: IntValue<'ctx>) -> IntValue<'ctx> {
-    if bool_value.get_type().get_bit_width() == 1 {
-        bool_value
-    } else {
-        builder
-            .build_int_compare(
-                IntPredicate::NE,
-                bool_value,
-                bool_value.get_type().const_zero(),
-                "tobool",
-            )
-            .unwrap()
-    }
-}
-
-/// Converts the value of a boolean-like value `bool_value` into an `i8`.
-fn bool_to_i8<'ctx>(
+/// Converts the value of a boolean-like value `value` into an arbitrary [`IntType`].
+///
+/// This has the same semantics as `(ty)(value != 0)` in C.
+///
+/// The returned value is guaranteed to either be `0` or `1`, except for `ty == i1` where only the
+/// least-significant bit would be guaranteed to be `0` or `1`.
+fn bool_to_int_type<'ctx>(
     builder: &Builder<'ctx>,
-    ctx: &'ctx Context,
-    bool_value: IntValue<'ctx>,
+    value: IntValue<'ctx>,
+    ty: IntType<'ctx>,
 ) -> IntValue<'ctx> {
-    let value_bits = bool_value.get_type().get_bit_width();
-    match value_bits {
-        8 => bool_value,
-        1 => builder.build_int_z_extend(bool_value, ctx.i8_type(), "frombool").unwrap(),
-        _ => bool_to_i8(
+    // i1 -> i1    : %value                                     ; no-op
+    // i1 -> i<N>  : zext i1 %value to i<N>                     ; guaranteed to be 0 or 1 - see docs
+    // i<M> -> i<N>: zext i1 (icmp eq i<M> %value, 0) to i<N>   ; same as i<M> -> i1 -> i<N>
+    match (value.get_type().get_bit_width(), ty.get_bit_width()) {
+        (1, 1) => value,
+        (1, _) => builder.build_int_z_extend(value, ty, "frombool").unwrap(),
+        _ => bool_to_int_type(
             builder,
-            ctx,
             builder
-                .build_int_compare(
-                    IntPredicate::NE,
-                    bool_value,
-                    bool_value.get_type().const_zero(),
-                    "",
-                )
+                .build_int_compare(IntPredicate::NE, value, value.get_type().const_zero(), "tobool")
                 .unwrap(),
+            ty,
         ),
     }
 }
@@ -1180,7 +1220,7 @@ pub fn type_aligned_alloca<'ctx, G: CodeGenerator + ?Sized>(
 
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let align_ty = align_ty.into();
 
     let size = ctx.builder.build_int_truncate_or_bit_cast(size, llvm_usize, "").unwrap();

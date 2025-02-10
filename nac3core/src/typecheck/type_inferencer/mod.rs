@@ -2008,72 +2008,90 @@ impl Inferencer<'_> {
         ctx: ExprContext,
     ) -> InferenceResult {
         let ty = value.custom.unwrap();
-        if let TypeEnum::TObj { obj_id, fields, .. } = &*self.unifier.get_ty(ty) {
-            // just a fast path
-            match (fields.get(&attr), ctx == ExprContext::Store) {
-                (Some((ty, true)), _) | (Some((ty, false)), false) => Ok(*ty),
-                (Some((ty, false)), true) => report_type_error(
-                    TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
-                    Some(value.location),
-                    self.unifier,
-                ),
-                (None, mutable) => {
-                    // Check whether it is a class attribute
-                    let defs = self.top_level.definitions.read();
-                    let result = {
-                        if let TopLevelDef::Class { attributes, .. } = &*defs[obj_id.0].read() {
-                            attributes.iter().find_map(|f| {
-                                if f.0 == attr {
-                                    return Some(f.1);
-                                }
-                                None
-                            })
-                        } else {
-                            None
-                        }
-                    };
-                    match result {
-                        Some(res) if !mutable => Ok(res),
-                        Some(_) => report_error(
-                            &format!("Class Attribute `{attr}` is immutable"),
-                            value.location,
-                        ),
-                        None => report_type_error(
-                            TypeErrorKind::NoSuchField(RecordKey::Str(attr), ty),
-                            Some(value.location),
-                            self.unifier,
-                        ),
-                    }
-                }
-            }
-        } else if let TypeEnum::TFunc(sign) = &*self.unifier.get_ty(ty) {
-            // Access Class Attributes of classes with __init__ function using Class names e.g. Foo.ATTR1
-            let result = {
-                self.top_level.definitions.read().iter().find_map(|def| {
-                    if let Some(rear_guard) = def.try_read() {
-                        if let TopLevelDef::Class { name, attributes, .. } = &*rear_guard {
-                            if name.to_string() == self.unifier.stringify(sign.ret) {
-                                return attributes.iter().find_map(|f| {
+        match &*self.unifier.get_ty(ty) {
+            TypeEnum::TObj { obj_id, fields, .. } => {
+                // just a fast path
+                match (fields.get(&attr), ctx == ExprContext::Store) {
+                    (Some((ty, true)), _) | (Some((ty, false)), false) => Ok(*ty),
+                    (Some((ty, false)), true) => report_type_error(
+                        TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
+                        Some(value.location),
+                        self.unifier,
+                    ),
+                    (None, mutable) => {
+                        // Check whether it is a class attribute
+                        let defs = self.top_level.definitions.read();
+                        let result = {
+                            if let TopLevelDef::Class { attributes, .. } = &*defs[obj_id.0].read() {
+                                attributes.iter().find_map(|f| {
                                     if f.0 == attr {
-                                        return Some(f.clone().1);
+                                        return Some(f.1);
                                     }
                                     None
-                                });
+                                })
+                            } else {
+                                None
                             }
+                        };
+                        match result {
+                            Some(res) if !mutable => Ok(res),
+                            Some(_) => report_error(
+                                &format!("Class Attribute `{attr}` is immutable"),
+                                value.location,
+                            ),
+                            None => report_type_error(
+                                TypeErrorKind::NoSuchField(RecordKey::Str(attr), ty),
+                                Some(value.location),
+                                self.unifier,
+                            ),
                         }
                     }
-                    None
-                })
-            };
-            match result {
-                Some(f) if ctx != ExprContext::Store => Ok(f),
-                Some(_) => {
-                    report_error(&format!("Class Attribute `{attr}` is immutable"), value.location)
                 }
-                None => self.infer_general_attribute(value, attr, ctx),
             }
-        } else {
-            self.infer_general_attribute(value, attr, ctx)
+            TypeEnum::TFunc(sign) => {
+                // Access Class Attributes of classes with __init__ function using Class names e.g. Foo.ATTR1
+                let result = {
+                    self.top_level.definitions.read().iter().find_map(|def| {
+                        if let Some(rear_guard) = def.try_read() {
+                            if let TopLevelDef::Class { name, attributes, .. } = &*rear_guard {
+                                if name.to_string() == self.unifier.stringify(sign.ret) {
+                                    return attributes.iter().find_map(|f| {
+                                        if f.0 == attr {
+                                            return Some(f.clone().1);
+                                        }
+                                        None
+                                    });
+                                }
+                            }
+                        }
+                        None
+                    })
+                };
+                match result {
+                    Some(f) if ctx != ExprContext::Store => Ok(f),
+                    Some(_) => report_error(
+                        &format!("Class Attribute `{attr}` is immutable"),
+                        value.location,
+                    ),
+                    None => self.infer_general_attribute(value, attr, ctx),
+                }
+            }
+            TypeEnum::TModule { attributes, .. } => {
+                match (attributes.get(&attr), ctx == ExprContext::Load) {
+                    (Some((ty, _)), true) | (Some((ty, false)), false) => Ok(*ty),
+                    (Some((ty, true)), false) => report_type_error(
+                        TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
+                        Some(value.location),
+                        self.unifier,
+                    ),
+                    (None, _) => report_type_error(
+                        TypeErrorKind::NoSuchField(RecordKey::Str(attr), ty),
+                        Some(value.location),
+                        self.unifier,
+                    ),
+                }
+            }
+            _ => self.infer_general_attribute(value, attr, ctx),
         }
     }
 
@@ -2734,7 +2752,7 @@ impl Inferencer<'_> {
             .read()
             .iter()
             .map(|def| match *def.read() {
-                TopLevelDef::Class { name, .. } => (name, false),
+                TopLevelDef::Class { name, .. } | TopLevelDef::Module { name, .. } => (name, false),
                 TopLevelDef::Function { simple_name, .. } => (simple_name, false),
                 TopLevelDef::Variable { simple_name, .. } => (simple_name, true),
             })

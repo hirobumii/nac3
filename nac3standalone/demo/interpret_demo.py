@@ -232,6 +232,8 @@ def patch(module):
     module.np_ldexp = np.ldexp
     module.np_hypot = np.hypot
     module.np_nextafter = np.nextafter
+    module.np_any = np.any
+    module.np_all = np.all
 
     # SciPy Math functions
     module.sp_spec_erf = special.erf
