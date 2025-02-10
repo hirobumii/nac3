@@ -138,7 +138,7 @@ impl<'ctx> TupleType<'ctx> {
 
         let mut value = self.construct(name);
         for (i, val) in values.into_iter().enumerate() {
-            value.store_element(ctx, i as u32, val);
+            value.insert_element(ctx, i as u32, val);
         }
 
         value

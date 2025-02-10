@@ -45,7 +45,7 @@ impl<'ctx> TupleValue<'ctx> {
     }
 
     /// Stores a value into the tuple element at the given `index`.
-    pub fn store_element(
+    pub fn insert_element(
         &mut self,
         ctx: &CodeGenContext<'ctx, '_>,
         index: u32,
@@ -63,7 +63,11 @@ impl<'ctx> TupleValue<'ctx> {
     }
 
     /// Loads a value from the tuple element at the given `index`.
-    pub fn load_element(&self, ctx: &CodeGenContext<'ctx, '_>, index: u32) -> BasicValueEnum<'ctx> {
+    pub fn extract_element(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        index: u32,
+    ) -> BasicValueEnum<'ctx> {
         ctx.builder
             .build_extract_value(
                 self.value,
