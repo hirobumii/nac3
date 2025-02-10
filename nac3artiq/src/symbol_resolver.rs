@@ -16,14 +16,14 @@ use pyo3::{
 use super::PrimitivePythonId;
 use nac3core::{
     codegen::{
-        types::{ndarray::NDArrayType, ProxyType},
+        types::{ndarray::NDArrayType, structure::StructProxyType, ProxyType},
         values::ndarray::make_contiguous_strides,
         CodeGenContext, CodeGenerator,
     },
     inkwell::{
         module::Linkage,
         types::{BasicType, BasicTypeEnum},
-        values::BasicValueEnum,
+        values::{BasicValue, BasicValueEnum},
         AddressSpace,
     },
     nac3parser::ast::{self, StrRef},
@@ -674,6 +674,48 @@ impl InnerResolver {
             })
         });
 
+        // check if obj is module
+        if self.helper.id_fn.call1(py, (ty.clone(),))?.extract::<u64>(py)?
+            == self.primitive_ids.module
+            && self.pyid_to_def.read().contains_key(&py_obj_id)
+        {
+            let def_id = self.pyid_to_def.read()[&py_obj_id];
+            let def = defs[def_id.0].read();
+            let TopLevelDef::Module { name: module_name, module_id, attributes, methods, .. } =
+                &*def
+            else {
+                unreachable!("must be a module here");
+            };
+            // Construct the module return type
+            let mut module_attributes = HashMap::new();
+            for (name, _) in attributes {
+                let attribute_obj = obj.getattr(name.to_string().as_str())?;
+                let attribute_ty =
+                    self.get_obj_type(py, attribute_obj, unifier, defs, primitives)?;
+                if let Ok(attribute_ty) = attribute_ty {
+                    module_attributes.insert(*name, (attribute_ty, false));
+                } else {
+                    return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
+                }
+            }
+
+            for name in methods.keys() {
+                let method_obj = obj.getattr(name.to_string().as_str())?;
+                let method_ty = self.get_obj_type(py, method_obj, unifier, defs, primitives)?;
+                if let Ok(method_ty) = method_ty {
+                    module_attributes.insert(*name, (method_ty, true));
+                } else {
+                    return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
+                }
+            }
+
+            let module_ty =
+                TypeEnum::TModule { module_id: *module_id, attributes: module_attributes };
+
+            let ty = unifier.add_ty(module_ty);
+            return Ok(Ok(ty));
+        }
+
         if let Some(ty) = constructor_ty {
             self.pyid_to_type.write().insert(py_obj_id, ty);
             return Ok(Ok(ty));
@@ -1012,7 +1054,7 @@ impl InnerResolver {
                 }
                 _ => unreachable!("must be list"),
             };
-            let size_t = generator.get_size_type(ctx.ctx);
+            let size_t = ctx.get_size_type();
             let ty = if len == 0
                 && matches!(&*ctx.unifier.get_ty_immutable(elem_ty), TypeEnum::TVar { .. })
             {
@@ -1101,7 +1143,7 @@ impl InnerResolver {
 
             let llvm_i8 = ctx.ctx.i8_type();
             let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-            let llvm_usize = generator.get_size_type(ctx.ctx);
+            let llvm_usize = ctx.get_size_type();
             let llvm_ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty);
             let dtype = llvm_ndarray.element_type();
 
@@ -1109,7 +1151,7 @@ impl InnerResolver {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
                         ctx.module.add_global(
-                            llvm_ndarray.as_base_type().get_element_type().into_struct_type(),
+                            llvm_ndarray.as_abi_type().get_element_type().into_struct_type(),
                             Some(AddressSpace::default()),
                             &id_str,
                         )
@@ -1278,20 +1320,16 @@ impl InnerResolver {
                     .unwrap()
             };
 
-            let ndarray = llvm_ndarray
-                .as_base_type()
-                .get_element_type()
-                .into_struct_type()
-                .const_named_struct(&[
-                    ndarray_itemsize.into(),
-                    ndarray_ndims.into(),
-                    ndarray_shape.into(),
-                    ndarray_strides.into(),
-                    ndarray_data.into(),
-                ]);
+            let ndarray = llvm_ndarray.get_struct_type().const_named_struct(&[
+                ndarray_itemsize.into(),
+                ndarray_ndims.into(),
+                ndarray_shape.into(),
+                ndarray_strides.into(),
+                ndarray_data.into(),
+            ]);
 
             let ndarray_global = ctx.module.add_global(
-                llvm_ndarray.as_base_type().get_element_type().into_struct_type(),
+                llvm_ndarray.as_abi_type().get_element_type().into_struct_type(),
                 Some(AddressSpace::default()),
                 &id_str,
             );
@@ -1377,6 +1415,77 @@ impl InnerResolver {
                     }
                     None => Ok(None),
                 }
+            }
+        } else if ty_id == self.primitive_ids.module {
+            let id_str = id.to_string();
+
+            if let Some(global) = ctx.module.get_global(&id_str) {
+                return Ok(Some(global.as_pointer_value().into()));
+            }
+
+            let top_level_defs = ctx.top_level.definitions.read();
+            let ty = self
+                .get_obj_type(py, obj, &mut ctx.unifier, &top_level_defs, &ctx.primitives)?
+                .unwrap();
+            let ty = ctx
+                .get_llvm_type(generator, ty)
+                .into_pointer_type()
+                .get_element_type()
+                .into_struct_type();
+
+            {
+                if self.global_value_ids.read().contains_key(&id) {
+                    let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
+                        ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
+                    });
+                    return Ok(Some(global.as_pointer_value().into()));
+                }
+                self.global_value_ids.write().insert(id, obj.into());
+            }
+
+            let fields = {
+                let definition =
+                    top_level_defs.get(self.pyid_to_def.read().get(&id).unwrap().0).unwrap().read();
+                let TopLevelDef::Module { attributes, .. } = &*definition else { unreachable!() };
+                attributes
+                    .iter()
+                    .filter_map(|f| {
+                        let definition = top_level_defs.get(f.1 .0).unwrap().read();
+                        if let TopLevelDef::Variable { ty, .. } = &*definition {
+                            Some((f.0, *ty))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect_vec()
+            };
+
+            let values: Result<Option<Vec<_>>, _> = fields
+                .iter()
+                .map(|(name, ty)| {
+                    self.get_obj_value(
+                        py,
+                        obj.getattr(name.to_string().as_str())?,
+                        ctx,
+                        generator,
+                        *ty,
+                    )
+                    .map_err(|e| {
+                        super::CompileError::new_err(format!("Error getting field {name}: {e}"))
+                    })
+                })
+                .collect();
+            let values = values?;
+
+            if let Some(values) = values {
+                let val = ty.const_named_struct(&values);
+                let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
+                    ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
+                });
+                global.set_initializer(&val);
+                Ok(Some(global.as_pointer_value().into()))
+            } else {
+                Ok(None)
             }
         } else {
             let id_str = id.to_string();
@@ -1560,9 +1669,50 @@ impl SymbolResolver for Resolver {
     fn get_symbol_value<'ctx>(
         &self,
         id: StrRef,
-        _: &mut CodeGenContext<'ctx, '_>,
-        _: &mut dyn CodeGenerator,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        generator: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
+        if let Some(def_id) = self.0.id_to_def.read().get(&id) {
+            let top_levels = ctx.top_level.definitions.read();
+            if matches!(&*top_levels[def_id.0].read(), TopLevelDef::Variable { .. }) {
+                let module_val = &self.0.module;
+                let ret = Python::with_gil(|py| -> PyResult<Result<BasicValueEnum, String>> {
+                    let module_val = module_val.as_ref(py);
+
+                    let ty = self.0.get_obj_type(
+                        py,
+                        module_val,
+                        &mut ctx.unifier,
+                        &top_levels,
+                        &ctx.primitives,
+                    )?;
+                    if let Err(ty) = ty {
+                        return Ok(Err(ty));
+                    }
+                    let ty = ty.unwrap();
+                    let obj = self.0.get_obj_value(py, module_val, ctx, generator, ty)?.unwrap();
+                    let (idx, _) = ctx.get_attr_index(ty, id);
+                    let ret = unsafe {
+                        ctx.builder.build_gep(
+                            obj.into_pointer_value(),
+                            &[
+                                ctx.ctx.i32_type().const_zero(),
+                                ctx.ctx.i32_type().const_int(idx as u64, false),
+                            ],
+                            id.to_string().as_str(),
+                        )
+                    }
+                    .unwrap();
+                    Ok(Ok(ret.as_basic_value_enum()))
+                })
+                .unwrap();
+                if ret.is_err() {
+                    return None;
+                }
+                return Some(ret.unwrap().into());
+            }
+        }
+
         let sym_value = {
             let id_to_val = self.0.id_to_pyval.read();
             id_to_val.get(&id).cloned()

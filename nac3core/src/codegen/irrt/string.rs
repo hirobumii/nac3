@@ -2,11 +2,10 @@ use inkwell::values::{BasicValueEnum, CallSiteValue, IntValue, PointerValue};
 use itertools::Either;
 
 use super::get_usize_dependent_function_name;
-use crate::codegen::{CodeGenContext, CodeGenerator};
+use crate::codegen::CodeGenContext;
 
 /// Generates a call to string equality comparison. Returns an `i1` representing whether the strings are equal.
-pub fn call_string_eq<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_string_eq<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     str1_ptr: PointerValue<'ctx>,
     str1_len: IntValue<'ctx>,
@@ -15,7 +14,7 @@ pub fn call_string_eq<'ctx, G: CodeGenerator + ?Sized>(
 ) -> IntValue<'ctx> {
     let llvm_i1 = ctx.ctx.bool_type();
 
-    let func_name = get_usize_dependent_function_name(generator, ctx, "nac3_str_eq");
+    let func_name = get_usize_dependent_function_name(ctx, "nac3_str_eq");
 
     let func = ctx.module.get_function(&func_name).unwrap_or_else(|| {
         ctx.module.add_function(

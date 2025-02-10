@@ -6,7 +6,8 @@ use strum::IntoEnumIterator;
 
 use super::{
     helper::{
-        debug_assert_prim_is_allowed, extract_ndims, make_exception_fields, PrimDef, PrimDefDetails,
+        arraylike_flatten_element_type, debug_assert_prim_is_allowed, extract_ndims,
+        make_exception_fields, PrimDef, PrimDefDetails,
     },
     numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
     *,
@@ -15,9 +16,12 @@ use crate::{
     codegen::{
         builtin_fns,
         numpy::*,
-        stmt::exn_constructor,
-        types::ndarray::NDArrayType,
-        values::{ndarray::shape::parse_numpy_int_sequence, ProxyValue, RangeValue},
+        stmt::{exn_constructor, gen_if_callback},
+        types::{ndarray::NDArrayType, RangeType},
+        values::{
+            ndarray::{shape::parse_numpy_int_sequence, ScalarOrNDArray},
+            ProxyValue,
+        },
     },
     symbol_resolver::SymbolValue,
     typecheck::typedef::{into_var_map, iter_type_vars, TypeVar, VarMap},
@@ -405,6 +409,8 @@ impl<'a> BuiltinBuilder<'a> {
 
             PrimDef::FunNpIsNan | PrimDef::FunNpIsInf => self.build_np_float_to_bool_function(prim),
 
+            PrimDef::FunNpAny | PrimDef::FunNpAll => self.build_np_any_all_function(prim),
+
             PrimDef::FunNpSin
             | PrimDef::FunNpCos
             | PrimDef::FunNpTan
@@ -571,7 +577,7 @@ impl<'a> BuiltinBuilder<'a> {
                         let (zelf_ty, zelf) = obj.unwrap();
                         let zelf =
                             zelf.to_basic_value_enum(ctx, generator, zelf_ty)?.into_pointer_value();
-                        let zelf = RangeValue::from_pointer_value(zelf, Some("range"));
+                        let zelf = RangeType::new(ctx).map_pointer_value(zelf, Some("range"));
 
                         let mut start = None;
                         let mut stop = None;
@@ -658,7 +664,7 @@ impl<'a> BuiltinBuilder<'a> {
                         zelf.store_end(ctx, stop);
                         zelf.store_step(ctx, step);
 
-                        Ok(Some(zelf.as_base_value().into()))
+                        Ok(Some(zelf.as_abi_value(ctx).into()))
                     },
                 )))),
                 loc: None,
@@ -1274,15 +1280,11 @@ impl<'a> BuiltinBuilder<'a> {
                     let ndarray =
                         args[0].1.clone().to_basic_value_enum(ctx, generator, ndarray_ty)?;
                     let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
-                        .map_value(ndarray.into_pointer_value(), None);
+                        .map_pointer_value(ndarray.into_pointer_value(), None);
 
                     let size = ctx
                         .builder
-                        .build_int_truncate_or_bit_cast(
-                            ndarray.size(generator, ctx),
-                            ctx.ctx.i32_type(),
-                            "",
-                        )
+                        .build_int_truncate_or_bit_cast(ndarray.size(ctx), ctx.ctx.i32_type(), "")
                         .unwrap();
                     Ok(Some(size.into()))
                 }),
@@ -1310,7 +1312,7 @@ impl<'a> BuiltinBuilder<'a> {
                             args[0].1.clone().to_basic_value_enum(ctx, generator, ndarray_ty)?;
 
                         let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
-                            .map_value(ndarray.into_pointer_value(), None);
+                            .map_pointer_value(ndarray.into_pointer_value(), None);
 
                         let result_tuple = match prim {
                             PrimDef::FunNpShape => ndarray.make_shape_tuple(generator, ctx),
@@ -1318,7 +1320,7 @@ impl<'a> BuiltinBuilder<'a> {
                             _ => unreachable!(),
                         };
 
-                        Ok(Some(result_tuple.as_base_value().into()))
+                        Ok(Some(result_tuple.as_abi_value(ctx).into()))
                     }),
                 )
             }
@@ -1351,10 +1353,10 @@ impl<'a> BuiltinBuilder<'a> {
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
 
                     let ndarray = NDArrayType::from_unifier_type(generator, ctx, arg_ty)
-                        .map_value(arg_val.into_pointer_value(), None);
+                        .map_pointer_value(arg_val.into_pointer_value(), None);
 
                     let ndarray = ndarray.transpose(generator, ctx, None); // TODO: Add axes argument
-                    Ok(Some(ndarray.as_base_value().into()))
+                    Ok(Some(ndarray.as_abi_value(ctx).into()))
                 }),
             ),
 
@@ -1389,7 +1391,7 @@ impl<'a> BuiltinBuilder<'a> {
                             args[1].1.clone().to_basic_value_enum(ctx, generator, shape_ty)?;
 
                         let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
-                            .map_value(ndarray_val.into_pointer_value(), None);
+                            .map_pointer_value(ndarray_val.into_pointer_value(), None);
 
                         let shape = parse_numpy_int_sequence(generator, ctx, (shape_ty, shape_val));
 
@@ -1408,7 +1410,7 @@ impl<'a> BuiltinBuilder<'a> {
 
                             _ => unreachable!(),
                         };
-                        Ok(Some(new_ndarray.as_base_value().as_basic_value_enum()))
+                        Ok(Some(new_ndarray.as_abi_value(ctx).as_basic_value_enum()))
                     }),
                 )
             }
@@ -1722,6 +1724,64 @@ impl<'a> BuiltinBuilder<'a> {
                 Ok(Some(func(generator, ctx, (x_ty, x_val))?))
             }),
         )
+    }
+
+    fn build_np_any_all_function(&mut self, prim: PrimDef) -> TopLevelDef {
+        debug_assert_prim_is_allowed(prim, &[PrimDef::FunNpAny, PrimDef::FunNpAll]);
+
+        let param_ty = &[(self.num_or_ndarray_ty.ty, "a")];
+        let ret_ty = self.primitives.bool;
+        let var_map = &self.num_or_ndarray_var_map;
+        let codegen_callback: Box<GenCallCallback> =
+            Box::new(move |ctx, _, fun, args, generator| {
+                let llvm_i1 = ctx.ctx.bool_type();
+                let llvm_i1_k0 = llvm_i1.const_zero();
+                let llvm_i1_k1 = llvm_i1.const_all_ones();
+
+                let a_ty = fun.0.args[0].ty;
+                let a_val = args[0].1.clone().to_basic_value_enum(ctx, generator, a_ty)?;
+                let a = ScalarOrNDArray::from_value(generator, ctx, (a_ty, a_val));
+                let a_elem_ty = arraylike_flatten_element_type(&mut ctx.unifier, a_ty);
+
+                let (init, sc_val) = match prim {
+                    PrimDef::FunNpAny => (llvm_i1_k0, llvm_i1_k1),
+                    PrimDef::FunNpAll => (llvm_i1_k1, llvm_i1_k0),
+                    _ => unreachable!(),
+                };
+
+                let acc = a.fold(generator, ctx, init, |generator, ctx, hooks, acc, elem| {
+                    gen_if_callback(
+                        generator,
+                        ctx,
+                        |_, ctx| {
+                            Ok(ctx
+                                .builder
+                                .build_int_compare(IntPredicate::EQ, acc, sc_val, "")
+                                .unwrap())
+                        },
+                        |_, ctx| {
+                            if let Some(hooks) = hooks {
+                                hooks.build_break_branch(&ctx.builder);
+                            }
+                            Ok(())
+                        },
+                        |_, _| Ok(()),
+                    )?;
+
+                    let is_truthy =
+                        builtin_fns::call_bool(generator, ctx, (a_elem_ty, elem))?.into_int_value();
+
+                    Ok(match prim {
+                        PrimDef::FunNpAny => ctx.builder.build_or(acc, is_truthy, "").unwrap(),
+                        PrimDef::FunNpAll => ctx.builder.build_and(acc, is_truthy, "").unwrap(),
+                        _ => unreachable!(),
+                    })
+                })?;
+
+                Ok(Some(acc.as_basic_value_enum()))
+            });
+
+        create_fn_by_codegen(self.unifier, var_map, prim.name(), ret_ty, param_ty, codegen_callback)
     }
 
     /// Build 1-ary numpy/scipy functions that take in a float or an ndarray and return a value of the same type as the input.

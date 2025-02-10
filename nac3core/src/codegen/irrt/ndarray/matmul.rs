@@ -20,7 +20,7 @@ pub fn call_nac3_ndarray_matmul_calculate_shapes<'ctx, G: CodeGenerator + ?Sized
     new_b_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
     dst_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
 
     assert_eq!(
         BasicTypeEnum::try_from(a_shape.element_type(ctx, generator)).unwrap(),
@@ -43,8 +43,7 @@ pub fn call_nac3_ndarray_matmul_calculate_shapes<'ctx, G: CodeGenerator + ?Sized
         llvm_usize.into()
     );
 
-    let name =
-        get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_matmul_calculate_shapes");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_matmul_calculate_shapes");
 
     infer_and_call_function(
         ctx,

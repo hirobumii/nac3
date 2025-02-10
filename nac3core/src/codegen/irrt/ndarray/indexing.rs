@@ -17,7 +17,7 @@ pub fn call_nac3_ndarray_index<'ctx, G: CodeGenerator + ?Sized>(
     src_ndarray: NDArrayValue<'ctx>,
     dst_ndarray: NDArrayValue<'ctx>,
 ) {
-    let name = get_usize_dependent_function_name(generator, ctx, "__nac3_ndarray_index");
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_index");
     infer_and_call_function(
         ctx,
         &name,
@@ -25,8 +25,8 @@ pub fn call_nac3_ndarray_index<'ctx, G: CodeGenerator + ?Sized>(
         &[
             indices.size(ctx, generator).into(),
             indices.base_ptr(ctx, generator).into(),
-            src_ndarray.as_base_value().into(),
-            dst_ndarray.as_base_value().into(),
+            src_ndarray.as_abi_value(ctx).into(),
+            dst_ndarray.as_abi_value(ctx).into(),
         ],
         None,
         None,

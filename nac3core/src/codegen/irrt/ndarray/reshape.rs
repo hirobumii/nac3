@@ -18,14 +18,13 @@ pub fn call_nac3_ndarray_reshape_resolve_and_check_new_shape<'ctx, G: CodeGenera
     new_ndims: IntValue<'ctx>,
     new_shape: ArraySliceValue<'ctx>,
 ) {
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
 
     assert_eq!(size.get_type(), llvm_usize);
     assert_eq!(new_ndims.get_type(), llvm_usize);
     assert_eq!(new_shape.element_type(ctx, generator), llvm_usize.into());
 
     let name = get_usize_dependent_function_name(
-        generator,
         ctx,
         "__nac3_ndarray_reshape_resolve_and_check_new_shape",
     );

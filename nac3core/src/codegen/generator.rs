@@ -1,5 +1,6 @@
 use inkwell::{
     context::Context,
+    targets::TargetMachine,
     types::{BasicTypeEnum, IntType},
     values::{BasicValueEnum, IntValue, PointerValue},
 };
@@ -18,6 +19,9 @@ pub trait CodeGenerator {
     fn get_name(&self) -> &str;
 
     /// Return an instance of [`IntType`] corresponding to the type of `size_t` for this instance.
+    ///
+    /// Prefer using [`CodeGenContext::get_size_type`] if [`CodeGenContext`] is available, as it is
+    /// equivalent to this function in a more concise syntax.
     fn get_size_type<'ctx>(&self, ctx: &'ctx Context) -> IntType<'ctx>;
 
     /// Generate function call and returns the function return value.
@@ -270,19 +274,27 @@ pub struct DefaultCodeGenerator {
 
 impl DefaultCodeGenerator {
     #[must_use]
-    pub fn new(name: String, size_t: u32) -> DefaultCodeGenerator {
-        assert!(matches!(size_t, 32 | 64));
-        DefaultCodeGenerator { name, size_t }
+    pub fn new(name: String, size_t: IntType<'_>) -> DefaultCodeGenerator {
+        assert!(matches!(size_t.get_bit_width(), 32 | 64));
+        DefaultCodeGenerator { name, size_t: size_t.get_bit_width() }
+    }
+
+    #[must_use]
+    pub fn with_target_machine(
+        name: String,
+        ctx: &Context,
+        target_machine: &TargetMachine,
+    ) -> DefaultCodeGenerator {
+        let llvm_usize = ctx.ptr_sized_int_type(&target_machine.get_target_data(), None);
+        Self::new(name, llvm_usize)
     }
 }
 
 impl CodeGenerator for DefaultCodeGenerator {
-    /// Returns the name for this [`CodeGenerator`].
     fn get_name(&self) -> &str {
         &self.name
     }
 
-    /// Returns an LLVM integer type representing `size_t`.
     fn get_size_type<'ctx>(&self, ctx: &'ctx Context) -> IntType<'ctx> {
         // it should be unsigned, but we don't really need unsigned and this could save us from
         // having to do a bit cast...

@@ -1,14 +1,17 @@
 use inkwell::{
     types::IntType,
-    values::{IntValue, PointerValue},
+    values::{IntValue, PointerValue, StructValue},
 };
 
 use nac3parser::ast::Expr;
 
 use crate::{
     codegen::{
-        types::{structure::StructField, utils::SliceType},
-        values::ProxyValue,
+        types::{
+            structure::{StructField, StructProxyType},
+            utils::SliceType,
+        },
+        values::{structure::StructProxyValue, ProxyValue},
         CodeGenContext, CodeGenerator,
     },
     typecheck::typedef::Type,
@@ -24,13 +27,25 @@ pub struct SliceValue<'ctx> {
 }
 
 impl<'ctx> SliceValue<'ctx> {
-    /// Checks whether `value` is an instance of `ContiguousNDArray`, returning [Err] if `value` is
-    /// not an instance.
-    pub fn is_representable(
-        value: PointerValue<'ctx>,
+    /// Creates an [`SliceValue`] from a [`StructValue`].
+    #[must_use]
+    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: StructValue<'ctx>,
+        int_ty: IntType<'ctx>,
         llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        <Self as ProxyValue<'ctx>>::Type::is_representable(value.get_type(), llvm_usize)
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, int_ty, llvm_usize, name)
     }
 
     /// Creates an [`SliceValue`] from a [`PointerValue`].
@@ -41,7 +56,7 @@ impl<'ctx> SliceValue<'ctx> {
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        debug_assert!(Self::is_representable(ptr, llvm_usize).is_ok());
+        debug_assert!(Self::is_instance(ptr, llvm_usize).is_ok());
 
         Self { value: ptr, int_ty, llvm_usize, name }
     }
@@ -51,7 +66,7 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_start_defined(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.start_defined_field().get(ctx, self.value, self.name)
+        self.start_defined_field().load(ctx, self.value, self.name)
     }
 
     fn start_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
@@ -59,22 +74,22 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_start(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.start_field().get(ctx, self.value, self.name)
+        self.start_field().load(ctx, self.value, self.name)
     }
 
     pub fn store_start(&self, ctx: &CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
         match value {
             Some(start) => {
-                self.start_defined_field().set(
+                self.start_defined_field().store(
                     ctx,
                     self.value,
                     ctx.ctx.bool_type().const_all_ones(),
                     self.name,
                 );
-                self.start_field().set(ctx, self.value, start, self.name);
+                self.start_field().store(ctx, self.value, start, self.name);
             }
 
-            None => self.start_defined_field().set(
+            None => self.start_defined_field().store(
                 ctx,
                 self.value,
                 ctx.ctx.bool_type().const_zero(),
@@ -88,7 +103,7 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_stop_defined(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.stop_defined_field().get(ctx, self.value, self.name)
+        self.stop_defined_field().load(ctx, self.value, self.name)
     }
 
     fn stop_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
@@ -96,22 +111,22 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_stop(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.stop_field().get(ctx, self.value, self.name)
+        self.stop_field().load(ctx, self.value, self.name)
     }
 
     pub fn store_stop(&self, ctx: &CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
         match value {
             Some(stop) => {
-                self.stop_defined_field().set(
+                self.stop_defined_field().store(
                     ctx,
                     self.value,
                     ctx.ctx.bool_type().const_all_ones(),
                     self.name,
                 );
-                self.stop_field().set(ctx, self.value, stop, self.name);
+                self.stop_field().store(ctx, self.value, stop, self.name);
             }
 
-            None => self.stop_defined_field().set(
+            None => self.stop_defined_field().store(
                 ctx,
                 self.value,
                 ctx.ctx.bool_type().const_zero(),
@@ -125,7 +140,7 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_step_defined(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.step_defined_field().get(ctx, self.value, self.name)
+        self.step_defined_field().load(ctx, self.value, self.name)
     }
 
     fn step_field(&self) -> StructField<'ctx, IntValue<'ctx>> {
@@ -133,22 +148,22 @@ impl<'ctx> SliceValue<'ctx> {
     }
 
     pub fn load_step(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.step_field().get(ctx, self.value, self.name)
+        self.step_field().load(ctx, self.value, self.name)
     }
 
     pub fn store_step(&self, ctx: &CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
         match value {
             Some(step) => {
-                self.step_defined_field().set(
+                self.step_defined_field().store(
                     ctx,
                     self.value,
                     ctx.ctx.bool_type().const_all_ones(),
                     self.name,
                 );
-                self.step_field().set(ctx, self.value, step, self.name);
+                self.step_field().store(ctx, self.value, step, self.name);
             }
 
-            None => self.step_defined_field().set(
+            None => self.step_defined_field().store(
                 ctx,
                 self.value,
                 ctx.ctx.bool_type().const_zero(),
@@ -159,17 +174,24 @@ impl<'ctx> SliceValue<'ctx> {
 }
 
 impl<'ctx> ProxyValue<'ctx> for SliceValue<'ctx> {
+    type ABI = PointerValue<'ctx>;
     type Base = PointerValue<'ctx>;
     type Type = SliceType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        Self::Type::from_type(self.value.get_type(), self.int_ty, self.llvm_usize)
+        Self::Type::from_pointer_type(self.value.get_type(), self.int_ty, self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
         self.value
     }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
+    }
 }
+
+impl<'ctx> StructProxyValue<'ctx> for SliceValue<'ctx> {}
 
 impl<'ctx> From<SliceValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: SliceValue<'ctx>) -> Self {

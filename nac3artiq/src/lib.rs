@@ -43,7 +43,7 @@ use nac3core::{
         OptimizationLevel,
     },
     nac3parser::{
-        ast::{Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
+        ast::{self, Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
         parser::parse_program,
     },
     symbol_resolver::SymbolResolver,
@@ -78,13 +78,61 @@ enum Isa {
 }
 
 impl Isa {
-    /// Returns the number of bits in `size_t` for the [`Isa`].
-    fn get_size_type(self) -> u32 {
-        if self == Isa::Host {
-            64u32
-        } else {
-            32u32
+    /// Returns the [`TargetTriple`] used for compiling to this ISA.
+    pub fn get_llvm_target_triple(self) -> TargetTriple {
+        match self {
+            Isa::Host => TargetMachine::get_default_triple(),
+            Isa::RiscV32G | Isa::RiscV32IMA => TargetTriple::create("riscv32-unknown-linux"),
+            Isa::CortexA9 => TargetTriple::create("armv7-unknown-linux-gnueabihf"),
         }
+    }
+
+    /// Returns the [`String`] representing the target CPU used for compiling to this ISA.
+    pub fn get_llvm_target_cpu(self) -> String {
+        match self {
+            Isa::Host => TargetMachine::get_host_cpu_name().to_string(),
+            Isa::RiscV32G | Isa::RiscV32IMA => "generic-rv32".to_string(),
+            Isa::CortexA9 => "cortex-a9".to_string(),
+        }
+    }
+
+    /// Returns the [`String`] representing the target features used for compiling to this ISA.
+    pub fn get_llvm_target_features(self) -> String {
+        match self {
+            Isa::Host => TargetMachine::get_host_cpu_features().to_string(),
+            Isa::RiscV32G => "+a,+m,+f,+d".to_string(),
+            Isa::RiscV32IMA => "+a,+m".to_string(),
+            Isa::CortexA9 => "+dsp,+fp16,+neon,+vfp3,+long-calls".to_string(),
+        }
+    }
+
+    /// Returns an instance of [`CodeGenTargetMachineOptions`] representing the target machine
+    /// options used for compiling to this ISA.
+    pub fn get_llvm_target_options(self) -> CodeGenTargetMachineOptions {
+        CodeGenTargetMachineOptions {
+            triple: self.get_llvm_target_triple().as_str().to_string_lossy().into_owned(),
+            cpu: self.get_llvm_target_cpu(),
+            features: self.get_llvm_target_features(),
+            reloc_mode: RelocMode::PIC,
+            ..CodeGenTargetMachineOptions::from_host()
+        }
+    }
+
+    /// Returns an instance of [`TargetMachine`] used in compiling and linking of a program of this
+    /// ISA.
+    pub fn create_llvm_target_machine(self, opt_level: OptimizationLevel) -> TargetMachine {
+        self.get_llvm_target_options()
+            .create_target_machine(opt_level)
+            .expect("couldn't create target machine")
+    }
+
+    /// Returns the number of bits in `size_t` for this ISA.
+    fn get_size_type(self, ctx: &Context) -> u32 {
+        ctx.ptr_sized_int_type(
+            &self.create_llvm_target_machine(OptimizationLevel::Default).get_target_data(),
+            None,
+        )
+        .get_bit_width()
     }
 }
 
@@ -111,6 +159,7 @@ pub struct PrimitivePythonId {
     generic_alias: (u64, u64),
     virtual_id: u64,
     option: u64,
+    module: u64,
 }
 
 type TopLevelComponent = (Stmt, String, PyObject);
@@ -227,6 +276,10 @@ impl Nac3 {
                             false
                         }
                     })
+                }
+                // Allow global variable declaration with `Kernel` type annotation
+                StmtKind::AnnAssign { ref annotation, .. } => {
+                    matches!(&annotation.node, ExprKind::Subscript { value, .. } if matches!(&value.node, ExprKind::Name {id, ..} if id == &"Kernel".into()))
                 }
                 _ => false,
             };
@@ -390,7 +443,7 @@ impl Nac3 {
             Ok::<_, PyErr>(())
         })?;
 
-        let size_t = self.isa.get_size_type();
+        let size_t = self.isa.get_size_type(&Context::create());
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
             self.builtins.clone(),
             Self::get_lateinit_builtins(),
@@ -433,12 +486,14 @@ impl Nac3 {
         ];
         add_exceptions(&mut composer, &mut builtins_def, &mut builtins_ty, &exception_names);
 
+        // Stores a mapping from module id to attributes
         let mut module_to_resolver_cache: HashMap<u64, _> = HashMap::new();
 
         let mut rpc_ids = vec![];
         for (stmt, path, module) in &self.top_levels {
             let py_module: &PyAny = module.extract(py)?;
             let module_id: u64 = id_fn.call1((py_module,))?.extract()?;
+            let module_name: String = py_module.getattr("__name__")?.extract()?;
             let helper = helper.clone();
             let class_obj;
             if let StmtKind::ClassDef { name, .. } = &stmt.node {
@@ -453,7 +508,7 @@ impl Nac3 {
             } else {
                 class_obj = None;
             }
-            let (name_to_pyid, resolver) =
+            let (name_to_pyid, resolver, _, _) =
                 module_to_resolver_cache.get(&module_id).cloned().unwrap_or_else(|| {
                     let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
                     let members: &PyDict =
@@ -482,9 +537,17 @@ impl Nac3 {
                     })))
                         as Arc<dyn SymbolResolver + Send + Sync>;
                     let name_to_pyid = Rc::new(name_to_pyid);
-                    module_to_resolver_cache
-                        .insert(module_id, (name_to_pyid.clone(), resolver.clone()));
-                    (name_to_pyid, resolver)
+                    let module_location = ast::Location::new(1, 1, stmt.location.file);
+                    module_to_resolver_cache.insert(
+                        module_id,
+                        (
+                            name_to_pyid.clone(),
+                            resolver.clone(),
+                            module_name.clone(),
+                            Some(module_location),
+                        ),
+                    );
+                    (name_to_pyid, resolver, module_name, Some(module_location))
                 });
 
             let (name, def_id, ty) = composer
@@ -556,6 +619,24 @@ impl Nac3 {
                     pyid_to_ty.insert(id, ty);
                 }
             }
+        }
+
+        // Adding top level module definitions
+        for (module_id, (module_name_to_pyid, module_resolver, module_name, module_location)) in
+            module_to_resolver_cache
+        {
+            let def_id = composer
+                .register_top_level_module(
+                    &module_name,
+                    &module_name_to_pyid,
+                    module_resolver,
+                    module_location,
+                )
+                .map_err(|e| {
+                    CompileError::new_err(format!("compilation failed\n----------\n{e}"))
+                })?;
+
+            self.pyid_to_def.write().insert(module_id, def_id);
         }
 
         let id_fun = PyModule::import(py, "builtins")?.getattr("id")?;
@@ -683,6 +764,9 @@ impl Nac3 {
                             "Unsupported @rpc annotation on global variable",
                         )))
                     }
+                    TopLevelDef::Module { .. } => {
+                        unreachable!("Type module cannot be decorated with @rpc")
+                    }
                 }
             }
         }
@@ -721,14 +805,18 @@ impl Nac3 {
             let buffer = buffer.as_slice().into();
             membuffer.lock().push(buffer);
         })));
-        let size_t = context
-            .ptr_sized_int_type(&self.get_llvm_target_machine().get_target_data(), None)
-            .get_bit_width();
         let num_threads = if is_multithreaded() { 4 } else { 1 };
         let thread_names: Vec<String> = (0..num_threads).map(|_| "main".to_string()).collect();
         let threads: Vec<_> = thread_names
             .iter()
-            .map(|s| Box::new(ArtiqCodeGenerator::new(s.to_string(), size_t, self.time_fns)))
+            .map(|s| {
+                Box::new(ArtiqCodeGenerator::with_target_machine(
+                    s.to_string(),
+                    &context,
+                    &self.get_llvm_target_machine(),
+                    self.time_fns,
+                ))
+            })
             .collect();
 
         let membuffer = membuffers.clone();
@@ -737,8 +825,13 @@ impl Nac3 {
             let (registry, handles) =
                 WorkerRegistry::create_workers(threads, top_level.clone(), &self.llvm_options, &f);
 
-            let mut generator = ArtiqCodeGenerator::new("main".to_string(), size_t, self.time_fns);
             let context = Context::create();
+            let mut generator = ArtiqCodeGenerator::with_target_machine(
+                "main".to_string(),
+                &context,
+                &self.get_llvm_target_machine(),
+                self.time_fns,
+            );
             let module = context.create_module("main");
             let target_machine = self.llvm_options.create_target_machine().unwrap();
             module.set_data_layout(&target_machine.get_target_data().get_data_layout());
@@ -843,52 +936,10 @@ impl Nac3 {
         link_fn(&main)
     }
 
-    /// Returns the [`TargetTriple`] used for compiling to [isa].
-    fn get_llvm_target_triple(isa: Isa) -> TargetTriple {
-        match isa {
-            Isa::Host => TargetMachine::get_default_triple(),
-            Isa::RiscV32G | Isa::RiscV32IMA => TargetTriple::create("riscv32-unknown-linux"),
-            Isa::CortexA9 => TargetTriple::create("armv7-unknown-linux-gnueabihf"),
-        }
-    }
-
-    /// Returns the [`String`] representing the target CPU used for compiling to [isa].
-    fn get_llvm_target_cpu(isa: Isa) -> String {
-        match isa {
-            Isa::Host => TargetMachine::get_host_cpu_name().to_string(),
-            Isa::RiscV32G | Isa::RiscV32IMA => "generic-rv32".to_string(),
-            Isa::CortexA9 => "cortex-a9".to_string(),
-        }
-    }
-
-    /// Returns the [`String`] representing the target features used for compiling to [isa].
-    fn get_llvm_target_features(isa: Isa) -> String {
-        match isa {
-            Isa::Host => TargetMachine::get_host_cpu_features().to_string(),
-            Isa::RiscV32G => "+a,+m,+f,+d".to_string(),
-            Isa::RiscV32IMA => "+a,+m".to_string(),
-            Isa::CortexA9 => "+dsp,+fp16,+neon,+vfp3,+long-calls".to_string(),
-        }
-    }
-
-    /// Returns an instance of [`CodeGenTargetMachineOptions`] representing the target machine
-    /// options used for compiling to [isa].
-    fn get_llvm_target_options(isa: Isa) -> CodeGenTargetMachineOptions {
-        CodeGenTargetMachineOptions {
-            triple: Nac3::get_llvm_target_triple(isa).as_str().to_string_lossy().into_owned(),
-            cpu: Nac3::get_llvm_target_cpu(isa),
-            features: Nac3::get_llvm_target_features(isa),
-            reloc_mode: RelocMode::PIC,
-            ..CodeGenTargetMachineOptions::from_host()
-        }
-    }
-
     /// Returns an instance of [`TargetMachine`] used in compiling and linking of a program to the
-    /// target [isa].
+    /// target [ISA][isa].
     fn get_llvm_target_machine(&self) -> TargetMachine {
-        Nac3::get_llvm_target_options(self.isa)
-            .create_target_machine(self.llvm_options.opt_level)
-            .expect("couldn't create target machine")
+        self.isa.create_llvm_target_machine(self.llvm_options.opt_level)
     }
 }
 
@@ -996,7 +1047,8 @@ impl Nac3 {
             Isa::RiscV32IMA => &timeline::NOW_PINNING_TIME_FNS,
             Isa::CortexA9 | Isa::Host => &timeline::EXTERN_TIME_FNS,
         };
-        let (primitive, _) = TopLevelComposer::make_primitives(isa.get_size_type());
+        let (primitive, _) =
+            TopLevelComposer::make_primitives(isa.get_size_type(&Context::create()));
         let builtins = {
             let mut b = vec![
                 (
@@ -1093,6 +1145,7 @@ impl Nac3 {
             tuple: get_attr_id(builtins_mod, "tuple"),
             exception: get_attr_id(builtins_mod, "Exception"),
             option: get_id(artiq_builtins.get_item("Option").ok().flatten().unwrap()),
+            module: get_attr_id(types_mod, "ModuleType"),
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
@@ -1154,7 +1207,7 @@ impl Nac3 {
             deferred_eval_store: DeferredEvaluationStore::new(),
             llvm_options: CodeGenLLVMOptions {
                 opt_level: OptimizationLevel::Default,
-                target: Nac3::get_llvm_target_options(isa),
+                target: isa.get_llvm_target_options(),
             },
         })
     }

@@ -17,8 +17,7 @@
 //!   on the stack.
 
 use inkwell::{
-    context::Context,
-    types::BasicType,
+    types::{BasicType, IntType},
     values::{IntValue, PointerValue},
 };
 
@@ -39,25 +38,24 @@ pub mod utils;
 
 /// A LLVM type that is used to represent a corresponding type in NAC3.
 pub trait ProxyType<'ctx>: Into<Self::Base> {
-    /// The LLVM type of which values of this type possess. This is usually a
-    /// [LLVM pointer type][PointerType] for any non-primitive types.
+    /// The ABI type of which values of this type possess.
+    type ABI: BasicType<'ctx>;
+
+    /// The LLVM type of which values of this type possess.
     type Base: BasicType<'ctx>;
 
     /// The type of values represented by this type.
     type Value: ProxyValue<'ctx, Type = Self>;
 
-    fn is_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
+    /// Checks whether `llvm_ty` can be represented by this [`ProxyType`].
+    fn is_representable(
         llvm_ty: impl BasicType<'ctx>,
+        llvm_usize: IntType<'ctx>,
     ) -> Result<(), String>;
 
-    /// Checks whether `llvm_ty` can be represented by this [`ProxyType`].
-    fn is_representable<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        llvm_ty: Self::Base,
-    ) -> Result<(), String>;
+    /// Checks whether the type represented by `ty` expresses the same type represented by this
+    /// [`ProxyType`].
+    fn has_same_repr(ty: Self::Base, llvm_usize: IntType<'ctx>) -> Result<(), String>;
 
     /// Returns the type that should be used in `alloca` IR statements.
     fn alloca_type(&self) -> impl BasicType<'ctx>;
@@ -122,4 +120,10 @@ pub trait ProxyType<'ctx>: Into<Self::Base> {
 
     /// Returns the [base type][Self::Base] of this proxy.
     fn as_base_type(&self) -> Self::Base;
+
+    /// Returns this proxy as its ABI type, i.e. the expected type representation if a value of this
+    /// [`ProxyType`] is being passed into or returned from a function.
+    ///
+    /// See [`CodeGenContext::get_llvm_abi_type`].
+    fn as_abi_type(&self) -> Self::ABI;
 }

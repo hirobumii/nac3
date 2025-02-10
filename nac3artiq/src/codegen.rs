@@ -19,9 +19,9 @@ use nac3core::{
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_alloca,
-        types::ndarray::NDArrayType,
+        types::{ndarray::NDArrayType, RangeType},
         values::{
-            ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, ProxyValue, RangeValue,
+            ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, ProxyValue,
             UntypedArrayLikeAccessor,
         },
         CodeGenContext, CodeGenerator,
@@ -29,6 +29,7 @@ use nac3core::{
     inkwell::{
         context::Context,
         module::Linkage,
+        targets::TargetMachine,
         types::{BasicType, IntType},
         values::{BasicValueEnum, IntValue, PointerValue, StructValue},
         AddressSpace, IntPredicate, OptimizationLevel,
@@ -87,19 +88,30 @@ pub struct ArtiqCodeGenerator<'a> {
 impl<'a> ArtiqCodeGenerator<'a> {
     pub fn new(
         name: String,
-        size_t: u32,
+        size_t: IntType<'_>,
         timeline: &'a (dyn TimeFns + Sync),
     ) -> ArtiqCodeGenerator<'a> {
-        assert!(size_t == 32 || size_t == 64);
+        assert!(matches!(size_t.get_bit_width(), 32 | 64));
         ArtiqCodeGenerator {
             name,
-            size_t,
+            size_t: size_t.get_bit_width(),
             name_counter: 0,
             start: None,
             end: None,
             timeline,
             parallel_mode: ParallelMode::None,
         }
+    }
+
+    #[must_use]
+    pub fn with_target_machine(
+        name: String,
+        ctx: &Context,
+        target_machine: &TargetMachine,
+        timeline: &'a (dyn TimeFns + Sync),
+    ) -> ArtiqCodeGenerator<'a> {
+        let llvm_usize = ctx.ptr_sized_int_type(&target_machine.get_target_data(), None);
+        Self::new(name, llvm_usize, timeline)
     }
 
     /// If the generator is currently in a direct-`parallel` block context, emits IR that resets the
@@ -459,13 +471,13 @@ fn format_rpc_arg<'ctx>(
             // libproto_artiq: NDArray = [data[..], dim_sz[..]]
 
             let llvm_i1 = ctx.ctx.bool_type();
-            let llvm_usize = generator.get_size_type(ctx.ctx);
+            let llvm_usize = ctx.get_size_type();
 
             let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
             let ndims = extract_ndims(&ctx.unifier, ndims);
             let dtype = ctx.get_llvm_type(generator, elem_ty);
-            let ndarray = NDArrayType::new(generator, ctx.ctx, dtype, ndims)
-                .map_value(arg.into_pointer_value(), None);
+            let ndarray = NDArrayType::new(ctx, dtype, ndims)
+                .map_pointer_value(arg.into_pointer_value(), None);
 
             let ndims = llvm_usize.const_int(ndims, false);
 
@@ -544,7 +556,7 @@ fn format_rpc_ret<'ctx>(
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_i8_8 = ctx.ctx.struct_type(&[llvm_i8.array_type(8).into()], false);
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
     let rpc_recv = ctx.module.get_function("rpc_recv").unwrap_or_else(|| {
@@ -597,7 +609,7 @@ fn format_rpc_ret<'ctx>(
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ret_ty);
             let dtype_llvm = ctx.get_llvm_type(generator, dtype);
             let ndims = extract_ndims(&ctx.unifier, ndims);
-            let ndarray = NDArrayType::new(generator, ctx.ctx, dtype_llvm, ndims)
+            let ndarray = NDArrayType::new(ctx, dtype_llvm, ndims)
                 .construct_uninitialized(generator, ctx, None);
 
             // NOTE: Current content of `ndarray`:
@@ -685,7 +697,7 @@ fn format_rpc_ret<'ctx>(
 
             // debug_assert(nelems * sizeof(T) >= ndarray_nbytes)
             if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
-                let num_elements = ndarray.size(generator, ctx);
+                let num_elements = ndarray.size(ctx);
 
                 let expected_ndarray_nbytes =
                     ctx.builder.build_int_mul(num_elements, itemsize, "").unwrap();
@@ -749,7 +761,7 @@ fn format_rpc_ret<'ctx>(
             ctx.builder.build_unconditional_branch(head_bb).unwrap();
 
             ctx.builder.position_at_end(tail_bb);
-            ndarray.as_base_value().into()
+            ndarray.as_abi_value(ctx).into()
         }
 
         _ => {
@@ -797,7 +809,7 @@ fn rpc_codegen_callback_fn<'ctx>(
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
     let int8 = ctx.ctx.i8_type();
     let int32 = ctx.ctx.i32_type();
-    let size_type = generator.get_size_type(ctx.ctx);
+    let size_type = ctx.get_size_type();
     let ptr_type = int8.ptr_type(AddressSpace::default());
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
@@ -1040,6 +1052,34 @@ pub fn attributes_writeback<'ctx>(
                         ));
                     }
                 }
+                TypeEnum::TModule { attributes, .. } => {
+                    let mut fields = Vec::new();
+                    let obj = inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap();
+
+                    for (name, (field_ty, is_method)) in attributes {
+                        if *is_method {
+                            continue;
+                        }
+                        if gen_rpc_tag(ctx, *field_ty, &mut scratch_buffer).is_ok() {
+                            fields.push(name.to_string());
+                            let (index, _) = ctx.get_attr_index(ty, *name);
+                            values.push((
+                                *field_ty,
+                                ctx.build_gep_and_load(
+                                    obj.into_pointer_value(),
+                                    &[zero, int32.const_int(index as u64, false)],
+                                    None,
+                                ),
+                            ));
+                        }
+                    }
+                    if !fields.is_empty() {
+                        let pydict = PyDict::new(py);
+                        pydict.set_item("obj", val)?;
+                        pydict.set_item("fields", fields)?;
+                        host_attributes.append(pydict)?;
+                    }
+                }
                 _ => {}
             }
         }
@@ -1155,7 +1195,7 @@ fn polymorphic_print<'ctx>(
 
     let llvm_i32 = ctx.ctx.i32_type();
     let llvm_i64 = ctx.ctx.i64_type();
-    let llvm_usize = generator.get_size_type(ctx.ctx);
+    let llvm_usize = ctx.get_size_type();
 
     let suffix = suffix.unwrap_or_default();
 
@@ -1343,7 +1383,7 @@ fn polymorphic_print<'ctx>(
 
                 let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
                 let ndarray = NDArrayType::from_unifier_type(generator, ctx, ty)
-                    .map_value(value.into_pointer_value(), None);
+                    .map_pointer_value(value.into_pointer_value(), None);
 
                 let num_0 = llvm_usize.const_zero();
 
@@ -1391,7 +1431,7 @@ fn polymorphic_print<'ctx>(
                 fmt.push_str("range(");
                 flush(ctx, generator, &mut fmt, &mut args);
 
-                let val = RangeValue::from_pointer_value(value.into_pointer_value(), None);
+                let val = RangeType::new(ctx).map_pointer_value(value.into_pointer_value(), None);
 
                 let (start, stop, step) = destructure_range(ctx, val);
 

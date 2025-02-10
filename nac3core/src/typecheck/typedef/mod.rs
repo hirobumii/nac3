@@ -270,6 +270,19 @@ pub enum TypeEnum {
 
     /// A function type.
     TFunc(FunSignature),
+
+    /// Module Type
+    TModule {
+        /// The [`DefinitionId`] of this object type.
+        module_id: DefinitionId,
+
+        /// The attributes present in this object type.
+        ///
+        /// The key of the [Mapping] is the identifier of the field, while the value is a tuple
+        /// containing the [Type] of the field, and a `bool` indicating whether the field is a
+        /// variable (as opposed to a function).
+        attributes: Mapping<StrRef, (Type, bool)>,
+    },
 }
 
 impl TypeEnum {
@@ -284,6 +297,7 @@ impl TypeEnum {
             TypeEnum::TVirtual { .. } => "TVirtual",
             TypeEnum::TCall { .. } => "TCall",
             TypeEnum::TFunc { .. } => "TFunc",
+            TypeEnum::TModule { .. } => "TModule",
         }
     }
 }
@@ -593,7 +607,8 @@ impl Unifier {
             | TLiteral { .. }
             // functions are instantiated for each call sites, so the function type can contain
             // type variables.
-            | TFunc { .. } => true,
+            | TFunc { .. }
+            | TModule { .. } => true,
 
             TVar { .. } => allowed_typevars.iter().any(|b| self.unification_table.unioned(a, *b)),
             TCall { .. } => false,
@@ -1315,10 +1330,12 @@ impl Unifier {
                     || format!("{id}"),
                     |top_level| {
                         let top_level_def = &top_level.definitions.read()[id];
-                        let TopLevelDef::Class { name, .. } = &*top_level_def.read() else {
-                            unreachable!("expected class definition")
+                        let top_level_def = top_level_def.read();
+                        let (TopLevelDef::Class { name, .. } | TopLevelDef::Module { name, .. }) =
+                            &*top_level_def
+                        else {
+                            unreachable!("expected module/class definition")
                         };
-
                         name.to_string()
                     },
                 )
@@ -1446,6 +1463,10 @@ impl Unifier {
                 let ret = self.internal_stringify(signature.ret, obj_to_name, var_to_name, notes);
                 format!("fn[[{params}], {ret}]")
             }
+            TypeEnum::TModule { module_id, .. } => {
+                let name = obj_to_name(module_id.0);
+                name.to_string()
+            }
         }
     }
 
@@ -1521,7 +1542,9 @@ impl Unifier {
         // variables, i.e. things like TRecord, TCall should not occur, and we
         // should be safe to not implement the substitution for those variants.
         match &*ty {
-            TypeEnum::TRigidVar { .. } | TypeEnum::TLiteral { .. } => None,
+            TypeEnum::TRigidVar { .. } | TypeEnum::TLiteral { .. } | TypeEnum::TModule { .. } => {
+                None
+            }
             TypeEnum::TVar { id, .. } => mapping.get(id).copied(),
             TypeEnum::TTuple { ty, is_vararg_ctx } => {
                 let mut new_ty = Cow::from(ty);

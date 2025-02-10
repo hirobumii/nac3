@@ -46,9 +46,8 @@ impl<'ctx> NDArrayType<'ctx> {
         let out_ndarray = match out {
             NDArrayOut::NewNDArray { dtype } => {
                 // Create a new ndarray based on the broadcast shape.
-                let result_ndarray =
-                    NDArrayType::new(generator, ctx.ctx, dtype, broadcast_result.ndims)
-                        .construct_uninitialized(generator, ctx, None);
+                let result_ndarray = NDArrayType::new(ctx, dtype, broadcast_result.ndims)
+                    .construct_uninitialized(generator, ctx, None);
                 result_ndarray.copy_shape_from_array(
                     generator,
                     ctx,
@@ -70,7 +69,7 @@ impl<'ctx> NDArrayType<'ctx> {
         };
 
         // Map element-wise and store results into `mapped_ndarray`.
-        let nditer = NDIterType::new(generator, ctx.ctx).construct(generator, ctx, out_ndarray);
+        let nditer = NDIterType::new(ctx).construct(generator, ctx, out_ndarray);
         gen_for_callback(
             generator,
             ctx,
@@ -80,16 +79,14 @@ impl<'ctx> NDArrayType<'ctx> {
                 let other_nditers = broadcast_result
                     .ndarrays
                     .iter()
-                    .map(|ndarray| {
-                        NDIterType::new(generator, ctx.ctx).construct(generator, ctx, *ndarray)
-                    })
+                    .map(|ndarray| NDIterType::new(ctx).construct(generator, ctx, *ndarray))
                     .collect_vec();
                 Ok((nditer, other_nditers))
             },
-            |generator, ctx, (out_nditer, _in_nditers)| {
+            |_, ctx, (out_nditer, _in_nditers)| {
                 // We can simply use `out_nditer`'s `has_element()`.
                 // `in_nditers`' `has_element()`s should return the same value.
-                Ok(out_nditer.has_element(generator, ctx))
+                Ok(out_nditer.has_element(ctx))
             },
             |generator, ctx, _hooks, (out_nditer, in_nditers)| {
                 // Get all the scalars from the broadcasted input ndarrays, pass them to `mapping`,
@@ -104,10 +101,10 @@ impl<'ctx> NDArrayType<'ctx> {
 
                 Ok(())
             },
-            |generator, ctx, (out_nditer, in_nditers)| {
+            |_, ctx, (out_nditer, in_nditers)| {
                 // Advance all iterators
-                out_nditer.next(generator, ctx);
-                in_nditers.iter().for_each(|nditer| nditer.next(generator, ctx));
+                out_nditer.next(ctx);
+                in_nditers.iter().for_each(|nditer| nditer.next(ctx));
                 Ok(())
             },
         )?;
@@ -169,8 +166,7 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
             // Promote all input to ndarrays and map through them.
             let inputs = inputs.iter().map(|input| input.to_ndarray(generator, ctx)).collect_vec();
             let ndarray = NDArrayType::new_broadcast(
-                generator,
-                ctx.ctx,
+                ctx,
                 ret_dtype,
                 &inputs.iter().map(NDArrayValue::get_type).collect_vec(),
             )

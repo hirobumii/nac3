@@ -56,6 +56,10 @@ pub enum ConcreteTypeEnum {
         fields: HashMap<StrRef, (ConcreteType, bool)>,
         params: IndexMap<TypeVarId, ConcreteType>,
     },
+    TModule {
+        module_id: DefinitionId,
+        methods: HashMap<StrRef, (ConcreteType, bool)>,
+    },
     TVirtual {
         ty: ConcreteType,
     },
@@ -205,6 +209,19 @@ impl ConcreteTypeStore {
                         })
                         .collect(),
                 },
+                TypeEnum::TModule { module_id, attributes } => ConcreteTypeEnum::TModule {
+                    module_id: *module_id,
+                    methods: attributes
+                        .iter()
+                        .filter_map(|(name, ty)| match &*unifier.get_ty(ty.0) {
+                            TypeEnum::TFunc(..) | TypeEnum::TObj { .. } => None,
+                            _ => Some((
+                                *name,
+                                (self.from_unifier_type(unifier, primitives, ty.0, cache), ty.1),
+                            )),
+                        })
+                        .collect(),
+                },
                 TypeEnum::TVirtual { ty } => ConcreteTypeEnum::TVirtual {
                     ty: self.from_unifier_type(unifier, primitives, *ty, cache),
                 },
@@ -283,6 +300,15 @@ impl ConcreteTypeStore {
                     let ty = self.to_unifier_type(unifier, primitives, *cty, cache);
                     TypeVar { id, ty }
                 })),
+            },
+            ConcreteTypeEnum::TModule { module_id, methods } => TypeEnum::TModule {
+                module_id: *module_id,
+                attributes: methods
+                    .iter()
+                    .map(|(name, cty)| {
+                        (*name, (self.to_unifier_type(unifier, primitives, cty.0, cache), cty.1))
+                    })
+                    .collect::<HashMap<_, _>>(),
             },
             ConcreteTypeEnum::TFunc { args, ret, vars } => TypeEnum::TFunc(FunSignature {
                 args: args

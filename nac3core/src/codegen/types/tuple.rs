@@ -1,16 +1,13 @@
 use inkwell::{
     context::Context,
-    types::{BasicType, BasicTypeEnum, IntType, StructType},
-    values::BasicValueEnum,
+    types::{BasicType, BasicTypeEnum, IntType, PointerType, StructType},
+    values::{BasicValueEnum, PointerValue, StructValue},
 };
 use itertools::Itertools;
 
 use super::ProxyType;
 use crate::{
-    codegen::{
-        values::{ProxyValue, TupleValue},
-        CodeGenContext, CodeGenerator,
-    },
+    codegen::{values::TupleValue, CodeGenContext, CodeGenerator},
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -21,28 +18,40 @@ pub struct TupleType<'ctx> {
 }
 
 impl<'ctx> TupleType<'ctx> {
-    /// Checks whether `llvm_ty` represents any tuple type, returning [Err] if it does not.
-    pub fn is_representable(_value: StructType<'ctx>) -> Result<(), String> {
-        Ok(())
-    }
-
     /// Creates an LLVM type corresponding to the expected structure of a tuple.
     #[must_use]
     fn llvm_type(ctx: &'ctx Context, tys: &[BasicTypeEnum<'ctx>]) -> StructType<'ctx> {
         ctx.struct_type(tys, false)
     }
 
+    fn new_impl(
+        ctx: &'ctx Context,
+        tys: &[BasicTypeEnum<'ctx>],
+        llvm_usize: IntType<'ctx>,
+    ) -> Self {
+        let llvm_tuple = Self::llvm_type(ctx, tys);
+
+        Self { ty: llvm_tuple, llvm_usize }
+    }
+
     /// Creates an instance of [`TupleType`].
     #[must_use]
-    pub fn new<G: CodeGenerator + ?Sized>(
+    pub fn new(ctx: &CodeGenContext<'ctx, '_>, tys: &[impl BasicType<'ctx>]) -> Self {
+        Self::new_impl(
+            ctx.ctx,
+            &tys.iter().map(BasicType::as_basic_type_enum).collect_vec(),
+            ctx.get_size_type(),
+        )
+    }
+
+    /// Creates an instance of [`TupleType`].
+    #[must_use]
+    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
         generator: &G,
         ctx: &'ctx Context,
         tys: &[BasicTypeEnum<'ctx>],
     ) -> Self {
-        let llvm_usize = generator.get_size_type(ctx);
-        let llvm_tuple = Self::llvm_type(ctx, tys);
-
-        Self { ty: llvm_tuple, llvm_usize }
+        Self::new_impl(ctx, tys, generator.get_size_type(ctx))
     }
 
     /// Creates an [`TupleType`] from a [unifier type][Type].
@@ -52,7 +61,7 @@ impl<'ctx> TupleType<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         ty: Type,
     ) -> Self {
-        let llvm_usize = generator.get_size_type(ctx.ctx);
+        let llvm_usize = ctx.get_size_type();
 
         // Sanity check on object type.
         let TypeEnum::TTuple { ty: tys, .. } = &*ctx.unifier.get_ty_immutable(ty) else {
@@ -65,10 +74,16 @@ impl<'ctx> TupleType<'ctx> {
 
     /// Creates an [`TupleType`] from a [`StructType`].
     #[must_use]
-    pub fn from_type(struct_ty: StructType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        debug_assert!(Self::is_representable(struct_ty).is_ok());
+    pub fn from_struct_type(struct_ty: StructType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+        debug_assert!(Self::has_same_repr(struct_ty, llvm_usize).is_ok());
 
         TupleType { ty: struct_ty, llvm_usize }
+    }
+
+    /// Creates an [`TupleType`] from a [`PointerType`].
+    #[must_use]
+    pub fn from_pointer_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+        Self::from_struct_type(ptr_ty.get_element_type().into_struct_type(), llvm_usize)
     }
 
     /// Returns the number of elements present in this [`TupleType`].
@@ -105,7 +120,10 @@ impl<'ctx> TupleType<'ctx> {
         ctx: &CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        self.map_value(Self::llvm_type(ctx.ctx, &self.ty.get_field_types()).const_zero(), name)
+        self.map_struct_value(
+            Self::llvm_type(ctx.ctx, &self.ty.get_field_types()).const_zero(),
+            name,
+        )
     }
 
     /// Constructs a [`TupleValue`] from `objects`. The resulting tuple preserves the order of
@@ -135,37 +153,44 @@ impl<'ctx> TupleType<'ctx> {
 
     /// Converts an existing value into a [`ListValue`].
     #[must_use]
-    pub fn map_value(
+    pub fn map_struct_value(
         &self,
-        value: <<Self as ProxyType<'ctx>>::Value as ProxyValue<'ctx>>::Base,
+        value: StructValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_struct_value(value, self.llvm_usize, name)
     }
+
+    /// Converts an existing value into a [`TupleValue`].
+    #[must_use]
+    pub fn map_pointer_value(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        value: PointerValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+        <Self as ProxyType<'ctx>>::Value::from_pointer_value(ctx, value, self.llvm_usize, name)
+    }
 }
 
 impl<'ctx> ProxyType<'ctx> for TupleType<'ctx> {
+    type ABI = StructType<'ctx>;
     type Base = StructType<'ctx>;
     type Value = TupleValue<'ctx>;
 
-    fn is_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
+    fn is_representable(
         llvm_ty: impl BasicType<'ctx>,
+        llvm_usize: IntType<'ctx>,
     ) -> Result<(), String> {
         if let BasicTypeEnum::StructType(ty) = llvm_ty.as_basic_type_enum() {
-            <Self as ProxyType<'ctx>>::is_representable(generator, ctx, ty)
+            Self::has_same_repr(ty, llvm_usize)
         } else {
             Err(format!("Expected struct type, got {llvm_ty:?}"))
         }
     }
 
-    fn is_representable<G: CodeGenerator + ?Sized>(
-        _generator: &G,
-        _ctx: &'ctx Context,
-        llvm_ty: Self::Base,
-    ) -> Result<(), String> {
-        Self::is_representable(llvm_ty)
+    fn has_same_repr(_: Self::Base, _: IntType<'ctx>) -> Result<(), String> {
+        Ok(())
     }
 
     fn alloca_type(&self) -> impl BasicType<'ctx> {
@@ -174,6 +199,10 @@ impl<'ctx> ProxyType<'ctx> for TupleType<'ctx> {
 
     fn as_base_type(&self) -> Self::Base {
         self.ty
+    }
+
+    fn as_abi_type(&self) -> Self::ABI {
+        self.as_base_type()
     }
 }
 

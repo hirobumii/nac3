@@ -1,6 +1,6 @@
 use inkwell::{
     types::IntType,
-    values::{IntValue, PointerValue},
+    values::{IntValue, PointerValue, StructValue},
     AddressSpace,
 };
 use itertools::Itertools;
@@ -12,10 +12,12 @@ use crate::{
         irrt,
         types::{
             ndarray::{NDArrayType, NDIndexType},
-            structure::StructField,
+            structure::{StructField, StructProxyType},
             utils::SliceType,
         },
-        values::{ndarray::NDArrayValue, utils::RustSlice, ProxyValue},
+        values::{
+            ndarray::NDArrayValue, structure::StructProxyValue, utils::RustSlice, ProxyValue,
+        },
         CodeGenContext, CodeGenerator,
     },
     typecheck::typedef::Type,
@@ -30,13 +32,24 @@ pub struct NDIndexValue<'ctx> {
 }
 
 impl<'ctx> NDIndexValue<'ctx> {
-    /// Checks whether `value` is an instance of `ndindex`, returning [Err] if `value` is not an
-    /// instance.
-    pub fn is_representable(
-        value: PointerValue<'ctx>,
+    /// Creates an [`NDIndexValue`] from a [`StructValue`].
+    #[must_use]
+    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        val: StructValue<'ctx>,
         llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        <Self as ProxyValue<'ctx>>::Type::is_representable(value.get_type(), llvm_usize)
+        name: Option<&'ctx str>,
+    ) -> Self {
+        let pval = generator
+            .gen_var_alloc(
+                ctx,
+                val.get_type().into(),
+                name.map(|name| format!("{name}.addr")).as_deref(),
+            )
+            .unwrap();
+        ctx.builder.build_store(pval, val).unwrap();
+        Self::from_pointer_value(pval, llvm_usize, name)
     }
 
     /// Creates an [`NDIndexValue`] from a [`PointerValue`].
@@ -46,7 +59,7 @@ impl<'ctx> NDIndexValue<'ctx> {
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        debug_assert!(Self::is_representable(ptr, llvm_usize).is_ok());
+        debug_assert!(Self::is_instance(ptr, llvm_usize).is_ok());
 
         Self { value: ptr, llvm_usize, name }
     }
@@ -56,11 +69,11 @@ impl<'ctx> NDIndexValue<'ctx> {
     }
 
     pub fn load_type(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        self.type_field().get(ctx, self.value, self.name)
+        self.type_field().load(ctx, self.value, self.name)
     }
 
     pub fn store_type(&self, ctx: &CodeGenContext<'ctx, '_>, value: IntValue<'ctx>) {
-        self.type_field().set(ctx, self.value, value, self.name);
+        self.type_field().store(ctx, self.value, value, self.name);
     }
 
     fn data_field(&self) -> StructField<'ctx, PointerValue<'ctx>> {
@@ -68,26 +81,33 @@ impl<'ctx> NDIndexValue<'ctx> {
     }
 
     pub fn load_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        self.data_field().get(ctx, self.value, self.name)
+        self.data_field().load(ctx, self.value, self.name)
     }
 
     pub fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
-        self.data_field().set(ctx, self.value, value, self.name);
+        self.data_field().store(ctx, self.value, value, self.name);
     }
 }
 
 impl<'ctx> ProxyValue<'ctx> for NDIndexValue<'ctx> {
+    type ABI = PointerValue<'ctx>;
     type Base = PointerValue<'ctx>;
     type Type = NDIndexType<'ctx>;
 
     fn get_type(&self) -> Self::Type {
-        Self::Type::from_type(self.value.get_type(), self.llvm_usize)
+        Self::Type::from_pointer_type(self.value.get_type(), self.llvm_usize)
     }
 
     fn as_base_value(&self) -> Self::Base {
         self.value
     }
+
+    fn as_abi_value(&self, _: &CodeGenContext<'ctx, '_>) -> Self::ABI {
+        self.as_base_value()
+    }
 }
+
+impl<'ctx> StructProxyValue<'ctx> for NDIndexValue<'ctx> {}
 
 impl<'ctx> From<NDIndexValue<'ctx>> for PointerValue<'ctx> {
     fn from(value: NDIndexValue<'ctx>) -> Self {
@@ -128,11 +148,10 @@ impl<'ctx> NDArrayValue<'ctx> {
         indices: &[RustNDIndex<'ctx>],
     ) -> Self {
         let dst_ndims = self.deduce_ndims_after_indexing_with(indices);
-        let dst_ndarray = NDArrayType::new(generator, ctx.ctx, self.dtype, dst_ndims)
+        let dst_ndarray = NDArrayType::new(ctx, self.dtype, dst_ndims)
             .construct_uninitialized(generator, ctx, None);
 
-        let indices =
-            NDIndexType::new(generator, ctx.ctx).construct_ndindices(generator, ctx, indices);
+        let indices = NDIndexType::new(ctx).construct_ndindices(generator, ctx, indices);
         irrt::ndarray::call_nac3_ndarray_index(generator, ctx, indices, *self, dst_ndarray);
 
         dst_ndarray
@@ -245,8 +264,7 @@ impl<'ctx> RustNDIndex<'ctx> {
             }
             RustNDIndex::Slice(in_rust_slice) => {
                 let user_slice_ptr =
-                    SliceType::new(ctx.ctx, ctx.ctx.i32_type(), generator.get_size_type(ctx.ctx))
-                        .alloca_var(generator, ctx, None);
+                    SliceType::new(ctx, ctx.ctx.i32_type()).alloca_var(generator, ctx, None);
                 in_rust_slice.write_to_slice(ctx, user_slice_ptr);
 
                 dst_ndindex.store_data(
