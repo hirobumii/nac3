@@ -1202,7 +1202,7 @@ impl Nac3 {
             string_store: Arc::new(string_store.into()),
             exception_ids: Arc::default(),
             deferred_eval_store: DeferredEvaluationStore::new(),
-            special_ids: Default::default(),
+            special_ids: SpecialPythonId::default(),
             llvm_options: CodeGenLLVMOptions {
                 opt_level: OptimizationLevel::Default,
                 target: isa.get_llvm_target_options(),
