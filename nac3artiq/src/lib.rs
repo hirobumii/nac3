@@ -19,6 +19,7 @@ use std::{
     sync::Arc,
 };
 
+use indexmap::IndexMap;
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use pyo3::{
@@ -162,6 +163,13 @@ pub struct PrimitivePythonId {
     module: u64,
 }
 
+#[derive(Clone, Default)]
+pub struct SpecialPythonId {
+    parallel: u64,
+    legacy_parallel: u64,
+    sequential: u64,
+}
+
 type TopLevelComponent = (Stmt, String, PyObject);
 
 // TopLevelComposer is unsendable as it holds the unification table, which is
@@ -179,6 +187,7 @@ struct Nac3 {
     string_store: Arc<RwLock<HashMap<String, i32>>>,
     exception_ids: Arc<RwLock<HashMap<usize, usize>>>,
     deferred_eval_store: DeferredEvaluationStore,
+    special_ids: SpecialPythonId,
     /// LLVM-related options for code generation.
     llvm_options: CodeGenLLVMOptions,
 }
@@ -815,6 +824,7 @@ impl Nac3 {
                     &context,
                     &self.get_llvm_target_machine(),
                     self.time_fns,
+                    self.special_ids.clone(),
                 ))
             })
             .collect();
@@ -831,6 +841,7 @@ impl Nac3 {
                 &context,
                 &self.get_llvm_target_machine(),
                 self.time_fns,
+                self.special_ids.clone(),
             );
             let module = context.create_module("main");
             let target_machine = self.llvm_options.create_target_machine().unwrap();
@@ -1205,6 +1216,7 @@ impl Nac3 {
             string_store: Arc::new(string_store.into()),
             exception_ids: Arc::default(),
             deferred_eval_store: DeferredEvaluationStore::new(),
+            special_ids: SpecialPythonId::default(),
             llvm_options: CodeGenLLVMOptions {
                 opt_level: OptimizationLevel::Default,
                 target: isa.get_llvm_target_options(),
@@ -1216,11 +1228,12 @@ impl Nac3 {
         &mut self,
         functions: &PySet,
         classes: &PySet,
+        special_ids: &PyDict,
         content_modules: &PySet,
     ) -> PyResult<()> {
         let (modules, class_ids) =
-            Python::with_gil(|py| -> PyResult<(HashMap<u64, PyObject>, HashSet<u64>)> {
-                let mut modules: HashMap<u64, PyObject> = HashMap::new();
+            Python::with_gil(|py| -> PyResult<(IndexMap<u64, PyObject>, HashSet<u64>)> {
+                let mut modules: IndexMap<u64, PyObject> = IndexMap::new();
                 let mut class_ids: HashSet<u64> = HashSet::new();
 
                 let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
@@ -1249,6 +1262,25 @@ impl Nac3 {
         for module in modules.into_values() {
             self.register_module(&module, &class_ids)?;
         }
+
+        self.special_ids = SpecialPythonId {
+            parallel: special_ids.get_item("parallel").ok().flatten().unwrap().extract().unwrap(),
+            legacy_parallel: special_ids
+                .get_item("legacy_parallel")
+                .ok()
+                .flatten()
+                .unwrap()
+                .extract()
+                .unwrap(),
+            sequential: special_ids
+                .get_item("sequential")
+                .ok()
+                .flatten()
+                .unwrap()
+                .extract()
+                .unwrap(),
+        };
+
         Ok(())
     }
 

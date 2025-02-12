@@ -25,13 +25,19 @@ use super::{
     values::{ArraySliceValue, ProxyValue},
     {CodeGenContext, CodeGenerator},
 };
+pub use exception::*;
 pub use list::*;
+pub use option::*;
 pub use range::*;
+pub use string::*;
 pub use tuple::*;
 
+mod exception;
 mod list;
 pub mod ndarray;
+mod option;
 mod range;
+mod string;
 pub mod structure;
 mod tuple;
 pub mod utils;

@@ -12,10 +12,10 @@ use pyo3::{
     PyObject, PyResult, Python,
 };
 
-use super::{symbol_resolver::InnerResolver, timeline::TimeFns};
+use super::{symbol_resolver::InnerResolver, timeline::TimeFns, SpecialPythonId};
 use nac3core::{
     codegen::{
-        expr::{destructure_range, gen_call},
+        expr::{create_fn_and_call, destructure_range, gen_call, infer_and_call_function},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_alloca,
@@ -41,7 +41,10 @@ use nac3core::{
         numpy::unpack_ndarray_var_tys,
         DefinitionId, GenCall,
     },
-    typecheck::typedef::{iter_type_vars, FunSignature, FuncArg, Type, TypeEnum, VarMap},
+    typecheck::{
+        type_inferencer::PrimitiveStore,
+        typedef::{iter_type_vars, FunSignature, FuncArg, Type, TypeEnum, VarMap},
+    },
 };
 
 /// The parallelism mode within a block.
@@ -83,6 +86,9 @@ pub struct ArtiqCodeGenerator<'a> {
     /// The current parallel context refers to the nearest `with parallel` or `with legacy_parallel`
     /// statement, which is used to determine when and how the timeline should be updated.
     parallel_mode: ParallelMode,
+
+    /// Specially treated python IDs to identify `with parallel` and `with sequential` blocks.
+    special_ids: SpecialPythonId,
 }
 
 impl<'a> ArtiqCodeGenerator<'a> {
@@ -90,6 +96,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
         name: String,
         size_t: IntType<'_>,
         timeline: &'a (dyn TimeFns + Sync),
+        special_ids: SpecialPythonId,
     ) -> ArtiqCodeGenerator<'a> {
         assert!(matches!(size_t.get_bit_width(), 32 | 64));
         ArtiqCodeGenerator {
@@ -100,6 +107,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
             end: None,
             timeline,
             parallel_mode: ParallelMode::None,
+            special_ids,
         }
     }
 
@@ -109,9 +117,10 @@ impl<'a> ArtiqCodeGenerator<'a> {
         ctx: &Context,
         target_machine: &TargetMachine,
         timeline: &'a (dyn TimeFns + Sync),
+        special_ids: SpecialPythonId,
     ) -> ArtiqCodeGenerator<'a> {
         let llvm_usize = ctx.ptr_sized_int_type(&target_machine.get_target_data(), None);
-        Self::new(name, llvm_usize, timeline)
+        Self::new(name, llvm_usize, timeline, special_ids)
     }
 
     /// If the generator is currently in a direct-`parallel` block context, emits IR that resets the
@@ -257,122 +266,140 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
             // - If there is a end variable, it indicates that we are (indirectly) inside a
             // parallel block, and we should update the max end value.
             if let ExprKind::Name { id, ctx: name_ctx } = &item.context_expr.node {
-                if id == &"parallel".into() || id == &"legacy_parallel".into() {
-                    let old_start = self.start.take();
-                    let old_end = self.end.take();
-                    let old_parallel_mode = self.parallel_mode;
+                let resolver = ctx.resolver.clone();
+                if let Some(static_value) =
+                    if let Some((_ptr, static_value, _counter)) = ctx.var_assignment.get(id) {
+                        static_value.clone()
+                    } else if let Some(ValueEnum::Static(val)) =
+                        resolver.get_symbol_value(*id, ctx, self)
+                    {
+                        Some(val)
+                    } else {
+                        None
+                    }
+                {
+                    let python_id = static_value.get_unique_identifier();
+                    if python_id == self.special_ids.parallel
+                        || python_id == self.special_ids.legacy_parallel
+                    {
+                        let old_start = self.start.take();
+                        let old_end = self.end.take();
+                        let old_parallel_mode = self.parallel_mode;
 
-                    let now = if let Some(old_start) = &old_start {
-                        self.gen_expr(ctx, old_start)?.unwrap().to_basic_value_enum(
+                        let now = if let Some(old_start) = &old_start {
+                            self.gen_expr(ctx, old_start)?.unwrap().to_basic_value_enum(
+                                ctx,
+                                self,
+                                old_start.custom.unwrap(),
+                            )?
+                        } else {
+                            self.timeline.emit_now_mu(ctx)
+                        };
+
+                        // Emulate variable allocation, as we need to use the CodeGenContext
+                        // HashMap to store our variable due to lifetime limitation
+                        // Note: we should be able to store variables directly if generic
+                        // associative type is used by limiting the lifetime of CodeGenerator to
+                        // the LLVM Context.
+                        // The name is guaranteed to be unique as users cannot use this as variable
+                        // name.
+                        self.start = old_start.clone().map_or_else(
+                            || {
+                                let start = format!("with-{}-start", self.name_counter).into();
+                                let start_expr = Located {
+                                    // location does not matter at this point
+                                    location: stmt.location,
+                                    node: ExprKind::Name { id: start, ctx: *name_ctx },
+                                    custom: Some(ctx.primitives.int64),
+                                };
+                                let start = self
+                                    .gen_store_target(ctx, &start_expr, Some("start.addr"))?
+                                    .unwrap();
+                                ctx.builder.build_store(start, now).unwrap();
+                                Ok(Some(start_expr)) as Result<_, String>
+                            },
+                            |v| Ok(Some(v)),
+                        )?;
+                        let end = format!("with-{}-end", self.name_counter).into();
+                        let end_expr = Located {
+                            // location does not matter at this point
+                            location: stmt.location,
+                            node: ExprKind::Name { id: end, ctx: *name_ctx },
+                            custom: Some(ctx.primitives.int64),
+                        };
+                        let end = self.gen_store_target(ctx, &end_expr, Some("end.addr"))?.unwrap();
+                        ctx.builder.build_store(end, now).unwrap();
+                        self.end = Some(end_expr);
+                        self.name_counter += 1;
+                        self.parallel_mode = if python_id == self.special_ids.parallel {
+                            ParallelMode::Deep
+                        } else if python_id == self.special_ids.legacy_parallel {
+                            ParallelMode::Legacy
+                        } else {
+                            unreachable!()
+                        };
+
+                        self.gen_block(ctx, body.iter())?;
+
+                        let current = ctx.builder.get_insert_block().unwrap();
+
+                        // if the current block is terminated, move before the terminator
+                        // we want to set the timeline before reaching the terminator
+                        // TODO: This may be unsound if there are multiple exit paths in the
+                        // block... e.g.
+                        // if ...:
+                        //     return
+                        // Perhaps we can fix this by using actual with block?
+                        let reset_position = if let Some(terminator) = current.get_terminator() {
+                            ctx.builder.position_before(&terminator);
+                            true
+                        } else {
+                            false
+                        };
+
+                        // set duration
+                        let end_expr = self.end.take().unwrap();
+                        let end_val = self.gen_expr(ctx, &end_expr)?.unwrap().to_basic_value_enum(
                             ctx,
                             self,
-                            old_start.custom.unwrap(),
-                        )?
-                    } else {
-                        self.timeline.emit_now_mu(ctx)
-                    };
+                            end_expr.custom.unwrap(),
+                        )?;
 
-                    // Emulate variable allocation, as we need to use the CodeGenContext
-                    // HashMap to store our variable due to lifetime limitation
-                    // Note: we should be able to store variables directly if generic
-                    // associative type is used by limiting the lifetime of CodeGenerator to
-                    // the LLVM Context.
-                    // The name is guaranteed to be unique as users cannot use this as variable
-                    // name.
-                    self.start = old_start.clone().map_or_else(
-                        || {
-                            let start = format!("with-{}-start", self.name_counter).into();
-                            let start_expr = Located {
-                                // location does not matter at this point
-                                location: stmt.location,
-                                node: ExprKind::Name { id: start, ctx: *name_ctx },
-                                custom: Some(ctx.primitives.int64),
-                            };
-                            let start = self
-                                .gen_store_target(ctx, &start_expr, Some("start.addr"))?
-                                .unwrap();
-                            ctx.builder.build_store(start, now).unwrap();
-                            Ok(Some(start_expr)) as Result<_, String>
-                        },
-                        |v| Ok(Some(v)),
-                    )?;
-                    let end = format!("with-{}-end", self.name_counter).into();
-                    let end_expr = Located {
-                        // location does not matter at this point
-                        location: stmt.location,
-                        node: ExprKind::Name { id: end, ctx: *name_ctx },
-                        custom: Some(ctx.primitives.int64),
-                    };
-                    let end = self.gen_store_target(ctx, &end_expr, Some("end.addr"))?.unwrap();
-                    ctx.builder.build_store(end, now).unwrap();
-                    self.end = Some(end_expr);
-                    self.name_counter += 1;
-                    self.parallel_mode = match id.to_string().as_str() {
-                        "parallel" => ParallelMode::Deep,
-                        "legacy_parallel" => ParallelMode::Legacy,
-                        _ => unreachable!(),
-                    };
+                        // inside a sequential block
+                        if old_start.is_none() {
+                            self.timeline.emit_at_mu(ctx, end_val);
+                        }
 
-                    self.gen_block(ctx, body.iter())?;
+                        // inside a parallel block, should update the outer max now_mu
+                        self.timeline_update_end_max(ctx, old_end.clone(), Some("outer.end"))?;
 
-                    let current = ctx.builder.get_insert_block().unwrap();
+                        self.parallel_mode = old_parallel_mode;
+                        self.end = old_end;
+                        self.start = old_start;
 
-                    // if the current block is terminated, move before the terminator
-                    // we want to set the timeline before reaching the terminator
-                    // TODO: This may be unsound if there are multiple exit paths in the
-                    // block... e.g.
-                    // if ...:
-                    //     return
-                    // Perhaps we can fix this by using actual with block?
-                    let reset_position = if let Some(terminator) = current.get_terminator() {
-                        ctx.builder.position_before(&terminator);
-                        true
-                    } else {
-                        false
-                    };
+                        if reset_position {
+                            ctx.builder.position_at_end(current);
+                        }
 
-                    // set duration
-                    let end_expr = self.end.take().unwrap();
-                    let end_val = self.gen_expr(ctx, &end_expr)?.unwrap().to_basic_value_enum(
-                        ctx,
-                        self,
-                        end_expr.custom.unwrap(),
-                    )?;
+                        return Ok(());
+                    } else if python_id == self.special_ids.sequential {
+                        // For deep parallel, temporarily take away start to avoid function calls in
+                        // the block from resetting the timeline.
+                        // This does not affect legacy parallel, as the timeline will be reset after
+                        // this block finishes execution.
+                        let start = self.start.take();
+                        self.gen_block(ctx, body.iter())?;
+                        self.start = start;
 
-                    // inside a sequential block
-                    if old_start.is_none() {
-                        self.timeline.emit_at_mu(ctx, end_val);
+                        // Reset the timeline when we are exiting the sequential block
+                        // Legacy parallel does not need this, since it will be reset after codegen
+                        // for this statement is completed
+                        if self.parallel_mode == ParallelMode::Deep {
+                            self.timeline_reset_start(ctx)?;
+                        }
+
+                        return Ok(());
                     }
-
-                    // inside a parallel block, should update the outer max now_mu
-                    self.timeline_update_end_max(ctx, old_end.clone(), Some("outer.end"))?;
-
-                    self.parallel_mode = old_parallel_mode;
-                    self.end = old_end;
-                    self.start = old_start;
-
-                    if reset_position {
-                        ctx.builder.position_at_end(current);
-                    }
-
-                    return Ok(());
-                } else if id == &"sequential".into() {
-                    // For deep parallel, temporarily take away start to avoid function calls in
-                    // the block from resetting the timeline.
-                    // This does not affect legacy parallel, as the timeline will be reset after
-                    // this block finishes execution.
-                    let start = self.start.take();
-                    self.gen_block(ctx, body.iter())?;
-                    self.start = start;
-
-                    // Reset the timeline when we are exiting the sequential block
-                    // Legacy parallel does not need this, since it will be reset after codegen
-                    // for this statement is completed
-                    if self.parallel_mode == ParallelMode::Deep {
-                        self.timeline_reset_start(ctx)?;
-                    }
-
-                    return Ok(());
                 }
             }
         }
@@ -389,12 +416,7 @@ fn gen_rpc_tag(
 ) -> Result<(), String> {
     use nac3core::typecheck::typedef::TypeEnum::*;
 
-    let int32 = ctx.primitives.int32;
-    let int64 = ctx.primitives.int64;
-    let float = ctx.primitives.float;
-    let bool = ctx.primitives.bool;
-    let str = ctx.primitives.str;
-    let none = ctx.primitives.none;
+    let PrimitiveStore { int32, int64, float, bool, str, none, .. } = ctx.primitives;
 
     if ctx.unifier.unioned(ty, int32) {
         buffer.push(b'i');
@@ -914,47 +936,14 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
 
     // call
-    if is_async {
-        let rpc_send_async = ctx.module.get_function("rpc_send_async").unwrap_or_else(|| {
-            ctx.module.add_function(
-                "rpc_send_async",
-                ctx.ctx.void_type().fn_type(
-                    &[
-                        int32.into(),
-                        tag_ptr_type.ptr_type(AddressSpace::default()).into(),
-                        ptr_type.ptr_type(AddressSpace::default()).into(),
-                    ],
-                    false,
-                ),
-                None,
-            )
-        });
-        ctx.builder
-            .build_call(
-                rpc_send_async,
-                &[service_id.into(), tag_ptr.into(), args_ptr.into()],
-                "rpc.send",
-            )
-            .unwrap();
-    } else {
-        let rpc_send = ctx.module.get_function("rpc_send").unwrap_or_else(|| {
-            ctx.module.add_function(
-                "rpc_send",
-                ctx.ctx.void_type().fn_type(
-                    &[
-                        int32.into(),
-                        tag_ptr_type.ptr_type(AddressSpace::default()).into(),
-                        ptr_type.ptr_type(AddressSpace::default()).into(),
-                    ],
-                    false,
-                ),
-                None,
-            )
-        });
-        ctx.builder
-            .build_call(rpc_send, &[service_id.into(), tag_ptr.into(), args_ptr.into()], "rpc.send")
-            .unwrap();
-    }
+    infer_and_call_function(
+        ctx,
+        if is_async { "rpc_send_async" } else { "rpc_send" },
+        None,
+        &[service_id.into(), tag_ptr.into(), args_ptr.into()],
+        Some("rpc.send"),
+        None,
+    );
 
     // reclaim stack space used by arguments
     call_stackrestore(ctx, stackptr);
@@ -1168,29 +1157,22 @@ fn polymorphic_print<'ctx>(
         debug_assert!(!fmt.is_empty());
         debug_assert_eq!(fmt.as_bytes().last().unwrap(), &0u8);
 
-        let fn_name = if as_rtio { "rtio_log" } else { "core_log" };
-        let print_fn = ctx.module.get_function(fn_name).unwrap_or_else(|| {
-            let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
-            let fn_t = if as_rtio {
-                let llvm_void = ctx.ctx.void_type();
-                llvm_void.fn_type(&[llvm_pi8.into()], true)
-            } else {
-                let llvm_i32 = ctx.ctx.i32_type();
-                llvm_i32.fn_type(&[llvm_pi8.into()], true)
-            };
-            ctx.module.add_function(fn_name, fn_t, None)
-        });
+        let llvm_i32 = ctx.ctx.i32_type();
+        let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
 
         let fmt = ctx.gen_string(generator, fmt);
         let fmt = unsafe { fmt.get_field_at_index_unchecked(0) }.into_pointer_value();
 
-        ctx.builder
-            .build_call(
-                print_fn,
-                &once(fmt.into()).chain(args).map(BasicValueEnum::into).collect_vec(),
-                "",
-            )
-            .unwrap();
+        create_fn_and_call(
+            ctx,
+            if as_rtio { "rtio_log" } else { "core_log" },
+            if as_rtio { None } else { Some(llvm_i32.into()) },
+            &[llvm_pi8.into()],
+            &once(fmt.into()).chain(args).map(BasicValueEnum::into).collect_vec(),
+            true,
+            None,
+            None,
+        );
     };
 
     let llvm_i32 = ctx.ctx.i32_type();

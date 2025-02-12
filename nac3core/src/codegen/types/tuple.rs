@@ -115,15 +115,8 @@ impl<'ctx> TupleType<'ctx> {
 
     /// Constructs a [`TupleValue`] from this type by zero-initializing the tuple value.
     #[must_use]
-    pub fn construct(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        self.map_struct_value(
-            Self::llvm_type(ctx.ctx, &self.ty.get_field_types()).const_zero(),
-            name,
-        )
+    pub fn construct(&self, name: Option<&'ctx str>) -> <Self as ProxyType<'ctx>>::Value {
+        self.map_struct_value(self.as_abi_type().const_zero(), name)
     }
 
     /// Constructs a [`TupleValue`] from `objects`. The resulting tuple preserves the order of
@@ -143,9 +136,9 @@ impl<'ctx> TupleType<'ctx> {
             .enumerate()
             .all(|(i, v)| { v.get_type() == unsafe { self.type_at_index_unchecked(i as u32) } }));
 
-        let mut value = self.construct(ctx, name);
+        let mut value = self.construct(name);
         for (i, val) in values.into_iter().enumerate() {
-            value.store_element(ctx, i as u32, val);
+            value.insert_element(ctx, i as u32, val);
         }
 
         value

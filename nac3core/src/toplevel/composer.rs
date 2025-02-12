@@ -1521,8 +1521,7 @@ impl TopLevelComposer {
                     .any(|ann| matches!(ann, TypeAnnotation::CustomClass { id, .. } if id.0 == 7))
                 {
                     // create constructor for these classes
-                    let string = primitives_ty.str;
-                    let int64 = primitives_ty.int64;
+                    let PrimitiveStore { str: string, int64, .. } = *primitives_ty;
                     let signature = unifier.add_ty(TypeEnum::TFunc(FunSignature {
                         args: vec![
                             FuncArg {

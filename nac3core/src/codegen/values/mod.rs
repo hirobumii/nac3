@@ -2,14 +2,20 @@ use inkwell::{types::IntType, values::BasicValue};
 
 use super::{types::ProxyType, CodeGenContext};
 pub use array::*;
+pub use exception::*;
 pub use list::*;
+pub use option::*;
 pub use range::*;
+pub use string::*;
 pub use tuple::*;
 
 mod array;
+mod exception;
 mod list;
 pub mod ndarray;
+mod option;
 mod range;
+mod string;
 pub mod structure;
 mod tuple;
 pub mod utils;

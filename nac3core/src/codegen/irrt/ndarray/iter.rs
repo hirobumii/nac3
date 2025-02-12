@@ -1,13 +1,8 @@
-use inkwell::{
-    types::BasicTypeEnum,
-    values::{BasicValueEnum, IntValue},
-    AddressSpace,
-};
+use inkwell::values::{BasicValueEnum, IntValue};
 
 use crate::codegen::{
-    expr::{create_and_call_function, infer_and_call_function},
+    expr::infer_and_call_function,
     irrt::get_usize_dependent_function_name,
-    types::ProxyType,
     values::{
         ndarray::{NDArrayValue, NDIterValue},
         ProxyValue, TypedArrayLikeAccessor,
@@ -26,23 +21,19 @@ pub fn call_nac3_nditer_initialize<'ctx, G: CodeGenerator + ?Sized>(
     indices: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
     let llvm_usize = ctx.get_size_type();
-    let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
-    assert_eq!(
-        BasicTypeEnum::try_from(indices.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
+    assert_eq!(indices.element_type(ctx, generator), llvm_usize.into());
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_initialize");
 
-    create_and_call_function(
+    infer_and_call_function(
         ctx,
         &name,
         None,
         &[
-            (iter.get_type().as_abi_type().into(), iter.as_abi_value(ctx).into()),
-            (ndarray.get_type().as_abi_type().into(), ndarray.as_abi_value(ctx).into()),
-            (llvm_pusize.into(), indices.base_ptr(ctx, generator).into()),
+            iter.as_abi_value(ctx).into(),
+            ndarray.as_abi_value(ctx).into(),
+            indices.base_ptr(ctx, generator).into(),
         ],
         None,
         None,

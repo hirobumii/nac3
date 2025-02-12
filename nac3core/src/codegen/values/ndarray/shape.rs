@@ -106,7 +106,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
 
             for i in 0..input_seq.get_type().num_elements() {
                 // Get the i-th element off of the tuple and load it into `result`.
-                let int = input_seq.load_element(ctx, i).into_int_value();
+                let int = input_seq.extract_element(ctx, i).into_int_value();
                 let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "").unwrap();
 
                 unsafe {
