@@ -73,12 +73,19 @@ impl<'ctx> ExceptionType<'ctx> {
     /// Creates an LLVM type corresponding to the expected structure of an `Exception`.
     #[must_use]
     fn llvm_type(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
+        const NAME: &str = "Exception";
+
         assert!(ctx.get_struct_type("str").is_some());
 
-        let field_tys =
-            Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
-
-        ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
+        if let Some(t) = ctx.get_struct_type(NAME) {
+            t.ptr_type(AddressSpace::default())
+        } else {
+            let exn_ty = ctx.opaque_struct_type(NAME);
+            let field_tys =
+                Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
+            exn_ty.set_body(&field_tys, false);
+            exn_ty.ptr_type(AddressSpace::default())
+        }
     }
 
     fn new_impl(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> Self {

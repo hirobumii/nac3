@@ -44,7 +44,8 @@ use crate::{
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
 use types::{
-    ndarray::NDArrayType, ListType, OptionType, ProxyType, RangeType, StringType, TupleType,
+    ndarray::NDArrayType, ExceptionType, ListType, OptionType, ProxyType, RangeType, StringType,
+    TupleType,
 };
 
 pub mod builtin_fns;
@@ -792,18 +793,7 @@ pub fn gen_func_impl<
         }),
         (primitives.range, RangeType::new_with_generator(generator, context).as_abi_type().into()),
         (primitives.exception, {
-            let name = "Exception";
-            if let Some(t) = module.get_struct_type(name) {
-                t.ptr_type(AddressSpace::default()).as_basic_type_enum()
-            } else {
-                let exception = context.opaque_struct_type("Exception");
-                let int32 = context.i32_type().into();
-                let int64 = context.i64_type().into();
-                let str_ty = module.get_struct_type("str").unwrap().as_basic_type_enum();
-                let fields = [int32, str_ty, int32, int32, str_ty, str_ty, int64, int64, int64];
-                exception.set_body(&fields, false);
-                exception.ptr_type(AddressSpace::default()).as_basic_type_enum()
-            }
+            ExceptionType::new_with_generator(generator, context).as_abi_type().into()
         }),
     ]
     .iter()
