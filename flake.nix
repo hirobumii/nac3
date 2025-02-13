@@ -13,8 +13,8 @@
         llvm-tools-irrt = pkgs.runCommandNoCC "llvm-tools-irrt" {}
           ''
           mkdir -p $out/bin
-          ln -s ${pkgs.llvmPackages_14.clang-unwrapped}/bin/clang $out/bin/clang-irrt
-          ln -s ${pkgs.llvmPackages_14.llvm.out}/bin/llvm-as $out/bin/llvm-as-irrt
+          ln -s ${pkgs.llvmPackages_16.clang-unwrapped}/bin/clang $out/bin/clang-irrt
+          ln -s ${pkgs.llvmPackages_16.llvm.out}/bin/llvm-as $out/bin/llvm-as-irrt
           '';
         demo-linalg-stub = pkgs.rustPlatform.buildRustPackage {
           name = "demo-linalg-stub";
@@ -41,7 +41,7 @@
               lockFile = ./Cargo.lock;
             };
             passthru.cargoLock = cargoLock;
-            nativeBuildInputs = [ pkgs.python3 (pkgs.wrapClangMulti pkgs.llvmPackages_14.clang) llvm-tools-irrt pkgs.llvmPackages_14.llvm.out pkgs.llvmPackages_14.bintools llvm-nac3 ];
+            nativeBuildInputs = [ pkgs.python3 (pkgs.wrapClangMulti pkgs.llvmPackages_16.clang) llvm-tools-irrt pkgs.llvmPackages_16.llvm.out pkgs.llvmPackages_16.bintools llvm-nac3 ];
             buildInputs = [ pkgs.python3 llvm-nac3 ];
             checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ps.scipy ])) ];
             checkPhase =
@@ -77,7 +77,7 @@
 
         # LLVM PGO support
         llvm-nac3-instrumented = pkgs.callPackage ./nix/llvm {
-          stdenv = pkgs.llvmPackages_14.stdenv;
+          stdenv = pkgs.llvmPackages_16.stdenv;
           extraCmakeFlags = [ "-DLLVM_BUILD_INSTRUMENTED=IR" ];
         };
         nac3artiq-instrumented = pkgs.python3Packages.toPythonModule (
@@ -85,13 +85,13 @@
             name = "nac3artiq-instrumented";
             src = self;
             inherit (nac3artiq) cargoLock;
-            nativeBuildInputs = [ pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_14.bintools llvm-nac3-instrumented ];
+            nativeBuildInputs = [ pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_16.bintools llvm-nac3-instrumented ];
             buildInputs = [ pkgs.python3 llvm-nac3-instrumented ];
             cargoBuildFlags = [ "--package" "nac3artiq" "--features" "init-llvm-profile" ];
             doCheck = false;
             configurePhase =
               ''
-              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-L${pkgs.llvmPackages_14.compiler-rt}/lib/linux -C link-arg=-lclang_rt.profile-x86_64"
+              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-L${pkgs.llvmPackages_16.compiler-rt}/lib/linux -C link-arg=-lclang_rt.profile-x86_64"
               '';
             installPhase =
               ''
@@ -119,8 +119,8 @@
           ];
           buildInputs = [
             (python3-mimalloc.withPackages(ps: [ ps.numpy ps.scipy ps.jsonschema ps.lmdb ps.platformdirs nac3artiq-instrumented ]))
-            pkgs.llvmPackages_14.llvm.out
-            pkgs.llvmPackages_14.bintools
+            pkgs.llvmPackages_16.llvm.out
+            pkgs.llvmPackages_16.bintools
           ];
           phases = [ "buildPhase" "installPhase" ];
           buildPhase =
@@ -140,7 +140,7 @@
             '';
         };
         llvm-nac3-pgo = pkgs.callPackage ./nix/llvm {
-          stdenv = pkgs.llvmPackages_14.stdenv;
+          stdenv = pkgs.llvmPackages_16.stdenv;
           extraCmakeFlags = [ "-DLLVM_PROFDATA_FILE=${nac3artiq-profile}/llvm.profdata" ];
         };
         nac3artiq-pgo = pkgs.python3Packages.toPythonModule (
@@ -148,7 +148,7 @@
             name = "nac3artiq-pgo";
             src = self;
             inherit (nac3artiq) cargoLock;
-            nativeBuildInputs = [ pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_14.bintools llvm-nac3-pgo ];
+            nativeBuildInputs = [ pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_16.bintools llvm-nac3-pgo ];
             buildInputs = [ pkgs.python3 llvm-nac3-pgo ];
             cargoBuildFlags = [ "--package" "nac3artiq" ];
             cargoTestFlags = [ "--package" "nac3ast" "--package" "nac3parser" "--package" "nac3core" "--package" "nac3artiq" ];
@@ -169,12 +169,12 @@
         buildInputs = with pkgs; [
           # build dependencies
           packages.x86_64-linux.llvm-nac3
-          (pkgs.wrapClangMulti llvmPackages_14.clang) llvmPackages_14.llvm.out llvmPackages_14.bintools  # for running nac3standalone demos
+          (pkgs.wrapClangMulti llvmPackages_16.clang) llvmPackages_16.llvm.out llvmPackages_16.bintools  # for running nac3standalone demos
           packages.x86_64-linux.llvm-tools-irrt
           cargo
           rustc
           # runtime dependencies
-          lld_14                           # for running kernels on the host
+          lld_16                           # for running kernels on the host
           (packages.x86_64-linux.python3-mimalloc.withPackages(ps: [ ps.numpy ps.scipy ]))
           # development tools
           cargo-insta

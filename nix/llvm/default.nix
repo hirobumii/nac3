@@ -9,43 +9,29 @@
 , zlib
 , which
 , debugVersion ? false
-, enableManpages ? false
 , enableSharedLibraries ? false
 , extraCmakeFlags ? []
 }:
 
 let
   inherit (lib) optional optionals optionalString;
-
-  release_version = "14.0.6";
-  candidate = ""; # empty or "rcN"
-  dash-candidate = lib.optionalString (candidate != "") "-${candidate}";
-  version = "${release_version}${dash-candidate}"; # differentiating these (variables) is important for RCs
-  fetch = name: sha256: fetchurl {
-    url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/${name}-${release_version}${candidate}.src.tar.xz";
-    inherit sha256;
-  };
-
-  # Used when creating a version-suffixed symlink of libLLVM.dylib
-  shortVersion = with lib;
-    concatStringsSep "." (take 1 (splitString "." release_version));
-
-in stdenv.mkDerivation (rec {
+  sources = import ../llvm/sources.nix { inherit fetchurl; };
+in stdenv.mkDerivation rec {
   pname = "llvm";
-  inherit version;
-
-  src = fetch pname "sha256-BQki7KrKV4H99mMeqSvHFRg/IC+dLxUUcibwI0FPYZo=";
+  inherit (sources) version;
 
   unpackPhase = ''
-    unpackFile $src
-    mv llvm-${release_version}* llvm
+    mkdir llvm
+    tar xf ${sources.llvm} -C llvm --strip-components=1
+    tar xf ${sources.cmake} -C llvm/cmake --strip-components=2
+    mkdir cmake
+    ln -s $PWD/llvm/cmake cmake/Modules
     sourceRoot=$PWD/llvm
   '';
 
   outputs = [ "out" "lib" "dev" "python" ];
 
-  nativeBuildInputs = [ cmake python3 ]
-    ++ optionals enableManpages [ python3.pkgs.sphinx python3.pkgs.recommonmark ];
+  nativeBuildInputs = [ cmake python3 ];
 
   buildInputs = [ ];
 
@@ -55,44 +41,18 @@ in stdenv.mkDerivation (rec {
 
   patches = [
     ./gnu-install-dirs.patch
-    ./llvm-future-riscv-abi.diff
   ];
 
-  postPatch = optionalString stdenv.isDarwin ''
-    substituteInPlace cmake/modules/AddLLVM.cmake \
-      --replace 'set(_install_name_dir INSTALL_NAME_DIR "@rpath")' "set(_install_name_dir)" \
-      --replace 'set(_install_rpath "@loader_path/../''${CMAKE_INSTALL_LIBDIR}''${LLVM_LIBDIR_SUFFIX}" ''${extra_libdir})' ""
-  ''
-  # Patch llvm-config to return correct library path based on --link-{shared,static}.
-  + ''
-    substitute '${./outputs.patch}' ./outputs.patch --subst-var lib
-    patch -p1 < ./outputs.patch
-  '' + ''
+  postPatch = 
+    ''
     # FileSystem permissions tests fail with various special bits
     substituteInPlace unittests/Support/CMakeLists.txt \
-      --replace "Path.cpp" ""
+      --replace-fail "Path.cpp" ""
     rm unittests/Support/Path.cpp
     substituteInPlace unittests/IR/CMakeLists.txt \
-      --replace "PassBuilderCallbacksTest.cpp" ""
+      --replace-fail "PassBuilderCallbacksTest.cpp" ""
     rm unittests/IR/PassBuilderCallbacksTest.cpp
     rm test/tools/llvm-objcopy/ELF/mirror-permissions-unix.test
-  '' + optionalString stdenv.hostPlatform.isMusl ''
-    patch -p1 -i ${./TLI-musl.patch}
-    substituteInPlace unittests/Support/CMakeLists.txt \
-      --replace "add_subdirectory(DynamicLibrary)" ""
-    rm unittests/Support/DynamicLibrary/DynamicLibraryTest.cpp
-    # valgrind unhappy with musl or glibc, but fails w/musl only
-    rm test/CodeGen/AArch64/wineh4.mir
-  '' + optionalString stdenv.hostPlatform.isAarch32 ''
-    # skip failing X86 test cases on 32-bit ARM
-    rm test/DebugInfo/X86/convert-debugloc.ll
-    rm test/DebugInfo/X86/convert-inlined.ll
-    rm test/DebugInfo/X86/convert-linked.ll
-    rm test/tools/dsymutil/X86/op-convert.test
-  '' + optionalString (stdenv.hostPlatform.system == "armv6l-linux") ''
-    # Seems to require certain floating point hardware (NEON?)
-    rm test/ExecutionEngine/frem.ll
-  '' + ''
     patchShebangs test/BugPoint/compile-custom.ll.py
   '';
 
@@ -103,12 +63,12 @@ in stdenv.mkDerivation (rec {
   '';
 
   # E.g. mesa.drivers use the build-id as a cache key (see #93946):
-  LDFLAGS = optionalString (enableSharedLibraries && !stdenv.isDarwin) "-Wl,--build-id=sha1";
+  LDFLAGS = optionalString enableSharedLibraries "-Wl,--build-id=sha1";
 
   cmakeFlags = with stdenv; [
-    "-DLLVM_INSTALL_CMAKE_DIR=${placeholder "dev"}/lib/cmake/llvm/"
+    "-DLLVM_INSTALL_PACKAGE_DIR=${placeholder "dev"}/lib/cmake/llvm"
     "-DCMAKE_BUILD_TYPE=${if debugVersion then "Debug" else "Release"}"
-    "-DLLVM_BUILD_TESTS=${if stdenv.targetPlatform.isMinGW then "OFF" else "ON"}"
+    "-DLLVM_INCLUDE_TESTS=OFF"
     "-DLLVM_HOST_TRIPLE=${stdenv.hostPlatform.config}"
     "-DLLVM_DEFAULT_TARGET_TRIPLE=${stdenv.hostPlatform.config}"
     "-DLLVM_ENABLE_UNWIND_TABLES=OFF"
@@ -118,17 +78,8 @@ in stdenv.mkDerivation (rec {
     "-DLLVM_TARGETS_TO_BUILD=X86;ARM;RISCV"
   ] ++ optionals enableSharedLibraries [
     "-DLLVM_LINK_LLVM_DYLIB=ON"
-  ] ++ optionals enableManpages [
-    "-DLLVM_BUILD_DOCS=ON"
-    "-DLLVM_ENABLE_SPHINX=ON"
-    "-DSPHINX_OUTPUT_MAN=ON"
-    "-DSPHINX_OUTPUT_HTML=OFF"
-    "-DSPHINX_WARNINGS_AS_ERRORS=OFF"
   ] ++ optionals (!isDarwin && !stdenv.targetPlatform.isMinGW) [
     "-DLLVM_BINUTILS_INCDIR=${libbfd.dev}/include"
-  ] ++ optionals isDarwin [
-    "-DLLVM_ENABLE_LIBCXX=ON"
-    "-DCAN_TARGET_i386=false"
   ] ++ optionals (stdenv.hostPlatform != stdenv.buildPlatform) [
     "-DCMAKE_CROSSCOMPILING=True"
     (
@@ -166,10 +117,6 @@ in stdenv.mkDerivation (rec {
     substituteInPlace "$dev/lib/cmake/llvm/LLVMConfig.cmake" \
       --replace 'set(LLVM_BINARY_DIR "''${LLVM_INSTALL_PREFIX}")' 'set(LLVM_BINARY_DIR "''${LLVM_INSTALL_PREFIX}'"$lib"'")'
   ''
-  + optionalString (stdenv.isDarwin && enableSharedLibraries) ''
-    ln -s $lib/lib/libLLVM.dylib $lib/lib/libLLVM-${shortVersion}.dylib
-    ln -s $lib/lib/libLLVM.dylib $lib/lib/libLLVM-${release_version}.dylib
-  ''
   + optionalString (stdenv.buildPlatform != stdenv.hostPlatform) ''
     cp NATIVE/bin/llvm-config $dev/bin/llvm-config-native
   '';
@@ -197,27 +144,4 @@ in stdenv.mkDerivation (rec {
       under the "Apache 2.0 License with LLVM exceptions".
     '';
   };
-} // lib.optionalAttrs enableManpages {
-  pname = "llvm-manpages";
-
-  buildPhase = ''
-    make docs-llvm-man
-  '';
-
-  propagatedBuildInputs = [];
-
-  installPhase = ''
-    make -C docs install
-  '';
-
-  postPatch = null;
-  postInstall = null;
-
-  outputs = [ "out" ];
-
-  doCheck = false;
-
-  meta = {
-    description = "man pages for LLVM ${version}";
-  };
-})
+}

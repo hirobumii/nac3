@@ -31,32 +31,26 @@ let
       suppress_build_script_link_lines=false
       '';
   };
+  sources = import ../llvm/sources.nix { inherit (pkgs) fetchurl; };
 in rec {
   llvm-nac3 = pkgs.stdenvNoCC.mkDerivation rec {
     pname = "llvm-nac3-msys2";
-    version = "14.0.6";
-    src-llvm = pkgs.fetchurl {
-      url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/llvm-${version}.src.tar.xz";
-      sha256 = "sha256-BQki7KrKV4H99mMeqSvHFRg/IC+dLxUUcibwI0FPYZo=";
-    };
-    src-clang = pkgs.fetchurl {
-      url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/clang-${version}.src.tar.xz";
-      sha256 = "sha256-K1hHtqYxGLnv5chVSDY8gf/glrZsOzZ16VPiY0KuQDE=";
-    };
+    version = "16.0.6";
     buildInputs = [ pkgs.wineWowPackages.stable ];
     phases = [ "unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase" ];
     unpackPhase =
       ''
       mkdir llvm
-      tar xf ${src-llvm} -C llvm --strip-components=1
-      mv llvm/Modules/* llvm/cmake/modules  # work around https://github.com/llvm/llvm-project/issues/53281
+      tar xf ${sources.llvm} -C llvm --strip-components=1
+      tar xf ${sources.cmake} -C llvm/cmake --strip-components=2
       mkdir clang
-      tar xf ${src-clang} -C clang --strip-components=1
+      tar xf ${sources.clang} -C clang --strip-components=1
+      mkdir cmake
+      ln -s $PWD/llvm/cmake cmake/Modules
       cd llvm
       # build of llvm-lto fails and -DLLVM_BUILD_TOOLS=OFF does not disable it reliably because cmake
       rm -rf tools/lto
       '';
-    patches = [ ../llvm/llvm-future-riscv-abi.diff ];
     configurePhase =
       ''
       export HOME=`mktemp -d`
@@ -65,7 +59,7 @@ in rec {
       ${silenceFontconfig}
       mkdir build
       cd build
-      wine64 cmake .. -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_UNWIND_TABLES=OFF -DLLVM_ENABLE_THREADS=ON -DLLVM_TARGETS_TO_BUILD=X86\;ARM\;RISCV -DLLVM_LINK_LLVM_DYLIB=OFF -DLLVM_ENABLE_FFI=OFF -DFFI_INCLUDE_DIR=fck-cmake -DFFI_LIBRARY_DIR=fck-cmake -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_ENABLE_PROJECTS=clang -DCMAKE_INSTALL_PREFIX=Z:$out
+      wine64 cmake .. -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_UNWIND_TABLES=OFF -DLLVM_ENABLE_THREADS=ON -DLLVM_TARGETS_TO_BUILD=X86\;ARM\;RISCV -DLLVM_LINK_LLVM_DYLIB=OFF -DLLVM_ENABLE_FFI=OFF -DFFI_INCLUDE_DIR=fck-cmake -DFFI_LIBRARY_DIR=fck-cmake -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_ENABLE_PROJECTS=clang -DCMAKE_INSTALL_PREFIX=Z:$out
       '';
     buildPhase =
       ''
@@ -98,7 +92,7 @@ in rec {
       ${silenceFontconfig}
       export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
       export CC=clang
-      export LLVM_SYS_140_PREFIX=Z:${llvm-nac3}
+      export LLVM_SYS_160_PREFIX=Z:${llvm-nac3}
       wine64 cargo build --release -p nac3artiq
       '';
     installPhase =
