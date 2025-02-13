@@ -98,41 +98,29 @@ pub fn call_stackrestore<'ctx>(ctx: &CodeGenContext<'ctx, '_>, ptr: PointerValue
 /// * `dest` - The pointer to the destination. Must be a pointer to an integer type.
 /// * `src` - The pointer to the source. Must be a pointer to an integer type.
 /// * `len` - The number of bytes to copy.
-/// * `is_volatile` - Whether the `memcpy` operation should be `volatile`.
 pub fn call_memcpy<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     dest: PointerValue<'ctx>,
     src: PointerValue<'ctx>,
     len: IntValue<'ctx>,
-    is_volatile: IntValue<'ctx>,
 ) {
-    const FN_NAME: &str = "llvm.memcpy";
-
     debug_assert!(dest.get_type().get_element_type().is_int_type());
     debug_assert!(src.get_type().get_element_type().is_int_type());
     debug_assert_eq!(
         dest.get_type().get_element_type().into_int_type().get_bit_width(),
         src.get_type().get_element_type().into_int_type().get_bit_width(),
     );
-    debug_assert!(matches!(len.get_type().get_bit_width(), 32 | 64));
-    debug_assert_eq!(is_volatile.get_type().get_bit_width(), 1);
+    debug_assert_eq!(len.get_type(), ctx.get_size_type());
 
     let llvm_dest_t = dest.get_type();
     let llvm_src_t = src.get_type();
-    let llvm_len_t = len.get_type();
 
-    let intrinsic_fn = Intrinsic::find(FN_NAME)
-        .and_then(|intrinsic| {
-            intrinsic.get_declaration(
-                &ctx.module,
-                &[llvm_dest_t.into(), llvm_src_t.into(), llvm_len_t.into()],
-            )
-        })
-        .unwrap();
+    let target_data =
+        ctx.registry.llvm_options.create_target_machine().map(|tm| tm.get_target_data()).unwrap();
+    let dest_alignment = target_data.get_abi_alignment(&llvm_dest_t);
+    let src_alignment = target_data.get_abi_alignment(&llvm_src_t);
 
-    ctx.builder
-        .build_call(intrinsic_fn, &[dest.into(), src.into(), len.into(), is_volatile.into()], "")
-        .unwrap();
+    ctx.builder.build_memcpy(dest, dest_alignment, src, src_alignment, len).unwrap();
 }
 
 /// Invokes the `llvm.memcpy` intrinsic.
@@ -144,7 +132,6 @@ pub fn call_memcpy_generic<'ctx>(
     dest: PointerValue<'ctx>,
     src: PointerValue<'ctx>,
     len: IntValue<'ctx>,
-    is_volatile: IntValue<'ctx>,
 ) {
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
@@ -169,7 +156,7 @@ pub fn call_memcpy_generic<'ctx>(
             .unwrap()
     };
 
-    call_memcpy(ctx, dest, src, len, is_volatile);
+    call_memcpy(ctx, dest, src, len);
 }
 
 /// Invokes the `llvm.memcpy` intrinsic.
@@ -183,11 +170,10 @@ pub fn call_memcpy_generic_array<'ctx>(
     dest: PointerValue<'ctx>,
     src: PointerValue<'ctx>,
     len: IntValue<'ctx>,
-    is_volatile: IntValue<'ctx>,
 ) {
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_sizeof_expr_t = llvm_i8.size_of().get_type();
+    let llvm_usize = ctx.get_size_type();
 
     let dest_elem_t = dest.get_type().get_element_type();
     let src_elem_t = src.get_type().get_element_type();
@@ -209,10 +195,13 @@ pub fn call_memcpy_generic_array<'ctx>(
             .unwrap()
     };
 
-    let len = ctx.builder.build_int_z_extend_or_bit_cast(len, llvm_sizeof_expr_t, "").unwrap();
-    let len = ctx.builder.build_int_mul(len, src_elem_t.size_of().unwrap(), "").unwrap();
+    let sizeof_elem = ctx
+        .builder
+        .build_int_truncate_or_bit_cast(src_elem_t.size_of().unwrap(), llvm_usize, "")
+        .unwrap();
+    let len = ctx.builder.build_int_mul(len, sizeof_elem, "").unwrap();
 
-    call_memcpy(ctx, dest, src, len, is_volatile);
+    call_memcpy(ctx, dest, src, len);
 }
 
 /// Macro to find and generate build call for llvm intrinsic (body of llvm intrinsic function)

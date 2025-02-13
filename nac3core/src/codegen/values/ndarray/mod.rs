@@ -226,13 +226,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     ) {
         let num_items = self.load_ndims(ctx);
 
-        call_memcpy_generic_array(
-            ctx,
-            self.shape().base_ptr(ctx, generator),
-            shape,
-            num_items,
-            ctx.ctx.bool_type().const_zero(),
-        );
+        call_memcpy_generic_array(ctx, self.shape().base_ptr(ctx, generator), shape, num_items);
     }
 
     /// Copy shape dimensions from an ndarray.
@@ -258,13 +252,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     ) {
         let num_items = self.load_ndims(ctx);
 
-        call_memcpy_generic_array(
-            ctx,
-            self.strides().base_ptr(ctx, generator),
-            strides,
-            num_items,
-            ctx.ctx.bool_type().const_zero(),
-        );
+        call_memcpy_generic_array(ctx, self.strides().base_ptr(ctx, generator), strides, num_items);
     }
 
     /// Copy strides dimensions from an ndarray.

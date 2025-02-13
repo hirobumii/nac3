@@ -1329,7 +1329,10 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 debug_assert!(ctx.unifier.unioned(elem_ty1, elem_ty2));
 
                 let llvm_elem_ty = ctx.get_llvm_type(generator, elem_ty1);
-                let sizeof_elem = llvm_elem_ty.size_of().unwrap();
+                let sizeof_elem = ctx
+                    .builder
+                    .build_int_truncate_or_bit_cast(llvm_elem_ty.size_of().unwrap(), llvm_usize, "")
+                    .unwrap();
 
                 let lhs =
                     ListValue::from_pointer_value(left_val.into_pointer_value(), llvm_usize, None);
@@ -1344,34 +1347,14 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 let new_list =
                     ListType::new(ctx, &llvm_elem_ty).construct(generator, ctx, size, None);
 
-                let lhs_size = ctx
-                    .builder
-                    .build_int_z_extend_or_bit_cast(
-                        lhs.load_size(ctx, None),
-                        sizeof_elem.get_type(),
-                        "",
-                    )
-                    .unwrap();
+                let lhs_size = lhs.load_size(ctx, None);
                 let lhs_len = ctx.builder.build_int_mul(lhs_size, sizeof_elem, "").unwrap();
 
-                let rhs_size = ctx
-                    .builder
-                    .build_int_z_extend_or_bit_cast(
-                        rhs.load_size(ctx, None),
-                        sizeof_elem.get_type(),
-                        "",
-                    )
-                    .unwrap();
+                let rhs_size = rhs.load_size(ctx, None);
                 let rhs_len = ctx.builder.build_int_mul(rhs_size, sizeof_elem, "").unwrap();
 
                 let list_ptr = new_list.data().base_ptr(ctx, generator);
-                call_memcpy_generic(
-                    ctx,
-                    list_ptr,
-                    lhs.data().base_ptr(ctx, generator),
-                    lhs_len,
-                    ctx.ctx.bool_type().const_zero(),
-                );
+                call_memcpy_generic(ctx, list_ptr, lhs.data().base_ptr(ctx, generator), lhs_len);
 
                 let list_ptr = unsafe {
                     new_list.data().ptr_offset_unchecked(
@@ -1381,13 +1364,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                         None,
                     )
                 };
-                call_memcpy_generic(
-                    ctx,
-                    list_ptr,
-                    rhs.data().base_ptr(ctx, generator),
-                    rhs_len,
-                    ctx.ctx.bool_type().const_zero(),
-                );
+                call_memcpy_generic(ctx, list_ptr, rhs.data().base_ptr(ctx, generator), rhs_len);
 
                 Ok(new_list.as_abi_value(ctx).into())
             }
@@ -1427,7 +1404,10 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None);
 
                 let elem_llvm_ty = ctx.get_llvm_type(generator, elem_ty);
-                let sizeof_elem = elem_llvm_ty.size_of().unwrap();
+                let sizeof_elem = ctx
+                    .builder
+                    .build_int_truncate_or_bit_cast(elem_llvm_ty.size_of().unwrap(), llvm_usize, "")
+                    .unwrap();
 
                 let new_list = ListType::new(ctx, &elem_llvm_ty).construct(
                     generator,
@@ -1451,14 +1431,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                             new_list.data().ptr_offset_unchecked(ctx, generator, &offset, None)
                         };
 
-                        let list_size = ctx
-                            .builder
-                            .build_int_z_extend_or_bit_cast(
-                                list_val.load_size(ctx, None),
-                                sizeof_elem.get_type(),
-                                "",
-                            )
-                            .unwrap();
+                        let list_size = list_val.load_size(ctx, None);
 
                         let memcpy_sz =
                             ctx.builder.build_int_mul(list_size, sizeof_elem, "").unwrap();
@@ -1468,7 +1441,6 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                             ptr,
                             list_val.data().base_ptr(ctx, generator),
                             memcpy_sz,
-                            ctx.ctx.bool_type().const_zero(),
                         );
 
                         Ok(())

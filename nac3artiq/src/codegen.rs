@@ -492,7 +492,6 @@ fn format_rpc_arg<'ctx>(
             // NAC3: NDArray = { usize, usize*, T* }
             // libproto_artiq: NDArray = [data[..], dim_sz[..]]
 
-            let llvm_i1 = ctx.ctx.bool_type();
             let llvm_usize = ctx.get_size_type();
 
             let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
@@ -510,11 +509,11 @@ fn format_rpc_arg<'ctx>(
 
             let sizeof_usize = llvm_usize.size_of();
             let sizeof_usize =
-                ctx.builder.build_int_z_extend_or_bit_cast(sizeof_usize, llvm_usize, "").unwrap();
+                ctx.builder.build_int_truncate_or_bit_cast(sizeof_usize, llvm_usize, "").unwrap();
 
             let sizeof_pdata = dtype.ptr_type(AddressSpace::default()).size_of();
             let sizeof_pdata =
-                ctx.builder.build_int_z_extend_or_bit_cast(sizeof_pdata, llvm_usize, "").unwrap();
+                ctx.builder.build_int_truncate_or_bit_cast(sizeof_pdata, llvm_usize, "").unwrap();
 
             let sizeof_buf_shape = ctx.builder.build_int_mul(sizeof_usize, ndims, "").unwrap();
             let sizeof_buf = ctx.builder.build_int_add(sizeof_buf_shape, sizeof_pdata, "").unwrap();
@@ -529,13 +528,13 @@ fn format_rpc_arg<'ctx>(
             // Write to `buf->data`
             let carray_data = carray.load_data(ctx);
             let carray_data = ctx.builder.build_pointer_cast(carray_data, llvm_pi8, "").unwrap();
-            call_memcpy(ctx, buf_data, carray_data, sizeof_pdata, llvm_i1.const_zero());
+            call_memcpy(ctx, buf_data, carray_data, sizeof_pdata);
 
             // Write to `buf->shape`
             let carray_shape = ndarray.shape().base_ptr(ctx, generator);
             let carray_shape_i8 =
                 ctx.builder.build_pointer_cast(carray_shape, llvm_pi8, "").unwrap();
-            call_memcpy(ctx, buf_shape, carray_shape_i8, sizeof_buf_shape, llvm_i1.const_zero());
+            call_memcpy(ctx, buf_shape, carray_shape_i8, sizeof_buf_shape);
 
             buf.base_ptr(ctx, generator)
         }
