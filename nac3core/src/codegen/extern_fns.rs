@@ -106,12 +106,13 @@ macro_rules! generate_linalg_extern_fn {
                 &[$($input_matrix.into(),)*],
                 name,
                 Some(&|func| {
-                    for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
-                        func.add_attribute(
-                            AttributeLoc::Function,
-                            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
-                        );
-                     }
+                    func.add_attribute(
+                        AttributeLoc::Function,
+                        ctx.ctx.create_enum_attribute(
+                            Attribute::get_named_enum_kind_id("nounwind"),
+                            0,
+                        ),
+                    )
                 }),
             );
         }
