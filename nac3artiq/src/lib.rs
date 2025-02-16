@@ -19,6 +19,7 @@ use std::{
     sync::Arc,
 };
 
+use indexmap::IndexMap;
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use pyo3::{
@@ -1202,7 +1203,7 @@ impl Nac3 {
             string_store: Arc::new(string_store.into()),
             exception_ids: Arc::default(),
             deferred_eval_store: DeferredEvaluationStore::new(),
-            special_ids: Default::default(),
+            special_ids: SpecialPythonId::default(),
             llvm_options: CodeGenLLVMOptions {
                 opt_level: OptimizationLevel::Default,
                 target: isa.get_llvm_target_options(),
@@ -1218,8 +1219,8 @@ impl Nac3 {
         content_modules: &PySet,
     ) -> PyResult<()> {
         let (modules, class_ids) =
-            Python::with_gil(|py| -> PyResult<(HashMap<u64, PyObject>, HashSet<u64>)> {
-                let mut modules: HashMap<u64, PyObject> = HashMap::new();
+            Python::with_gil(|py| -> PyResult<(IndexMap<u64, PyObject>, HashSet<u64>)> {
+                let mut modules: IndexMap<u64, PyObject> = IndexMap::new();
                 let mut class_ids: HashSet<u64> = HashSet::new();
 
                 let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;

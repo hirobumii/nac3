@@ -646,6 +646,7 @@ dependencies = [
 name = "nac3artiq"
 version = "0.1.0"
 dependencies = [
+ "indexmap 2.7.1",
  "itertools",
  "nac3core",
  "nac3ld",
