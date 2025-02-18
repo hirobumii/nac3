@@ -16,8 +16,8 @@ indexmap = "2.7"
 parking_lot = "0.12"
 nac3core_derive = { path = "nac3core_derive", optional = true }
 nac3parser = { path = "../nac3parser" }
-strum = "0.26"
-strum_macros = "0.26"
+strum = "0.27"
+strum_macros = "0.27"
 
 [dependencies.inkwell]
 version = "0.5"
