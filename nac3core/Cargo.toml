@@ -28,6 +28,7 @@ features = ["llvm14-0-prefer-dynamic", "target-x86", "target-arm", "target-riscv
 test-case = "1.2.0"
 indoc = "2.0"
 insta = "=1.11.0"
+function_name = "0.3"
 
 [build-dependencies]
 regex = "1.11"
