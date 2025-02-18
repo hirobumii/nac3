@@ -11,12 +11,14 @@ use nac3parser::ast::Expr;
 
 use super::{CodeGenContext, CodeGenerator};
 use crate::{symbol_resolver::SymbolResolver, typecheck::typedef::Type};
+pub use cc_builtins::*;
 pub use list::*;
 pub use math::*;
 pub use range::*;
 pub use slice::*;
 pub use string::*;
 
+mod cc_builtins;
 mod list;
 mod math;
 pub mod ndarray;

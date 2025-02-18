@@ -59,54 +59,6 @@ pub fn integer_power<'ctx, G: CodeGenerator + ?Sized>(
     .unwrap()
 }
 
-/// Generates a call to `isinf` in IR. Returns an `i1` representing the result.
-pub fn call_isinf<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &CodeGenContext<'ctx, '_>,
-    v: FloatValue<'ctx>,
-) -> IntValue<'ctx> {
-    let llvm_i32 = ctx.ctx.i32_type();
-    let llvm_f64 = ctx.ctx.f64_type();
-
-    assert_eq!(v.get_type(), llvm_f64);
-
-    infer_and_call_function(
-        ctx,
-        "__nac3_isinf",
-        Some(llvm_i32.into()),
-        &[v.into()],
-        Some("isinf"),
-        None,
-    )
-    .map(BasicValueEnum::into_int_value)
-    .map(|ret| generator.bool_to_i1(ctx, ret))
-    .unwrap()
-}
-
-/// Generates a call to `isnan` in IR. Returns an `i1` representing the result.
-pub fn call_isnan<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
-    ctx: &CodeGenContext<'ctx, '_>,
-    v: FloatValue<'ctx>,
-) -> IntValue<'ctx> {
-    let llvm_i32 = ctx.ctx.i32_type();
-    let llvm_f64 = ctx.ctx.f64_type();
-
-    assert_eq!(v.get_type(), llvm_f64);
-
-    infer_and_call_function(
-        ctx,
-        "__nac3_isnan",
-        Some(llvm_i32.into()),
-        &[v.into()],
-        Some("isnan"),
-        None,
-    )
-    .map(BasicValueEnum::into_int_value)
-    .map(|ret| generator.bool_to_i1(ctx, ret))
-    .unwrap()
-}
-
 /// Generates a call to `gamma` in IR. Returns an `f64` representing the result.
 pub fn call_gamma<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();

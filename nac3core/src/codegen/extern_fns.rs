@@ -1,6 +1,6 @@
 use inkwell::{
     attributes::{Attribute, AttributeLoc},
-    values::{BasicValueEnum, FloatValue, IntValue},
+    values::{BasicValueEnum, FloatValue},
 };
 
 use super::{expr::infer_and_call_function, CodeGenContext};
@@ -66,68 +66,7 @@ macro_rules! generate_extern_fn {
     };
 }
 
-generate_extern_fn!("unary", call_tan, "tan");
-generate_extern_fn!("unary", call_asin, "asin");
-generate_extern_fn!("unary", call_acos, "acos");
-generate_extern_fn!("unary", call_atan, "atan");
-generate_extern_fn!("unary", call_sinh, "sinh");
-generate_extern_fn!("unary", call_cosh, "cosh");
-generate_extern_fn!("unary", call_tanh, "tanh");
-generate_extern_fn!("unary", call_asinh, "asinh");
-generate_extern_fn!("unary", call_acosh, "acosh");
-generate_extern_fn!("unary", call_atanh, "atanh");
-generate_extern_fn!("unary", call_expm1, "expm1");
-generate_extern_fn!(
-    "unary",
-    call_cbrt,
-    "cbrt",
-    "mustprogress",
-    "nofree",
-    "nosync",
-    "nounwind",
-    "readonly",
-    "willreturn"
-);
-generate_extern_fn!("unary", call_erf, "erf", "nounwind");
-generate_extern_fn!("unary", call_erfc, "erfc", "nounwind");
 generate_extern_fn!("unary", call_j1, "j1", "nounwind");
-
-generate_extern_fn!("binary", call_atan2, "atan2");
-generate_extern_fn!("binary", call_hypot, "hypot", "nounwind");
-generate_extern_fn!("binary", call_nextafter, "nextafter", "nounwind");
-
-/// Invokes the [`ldexp`](https://en.cppreference.com/w/c/numeric/math/ldexp) function.
-pub fn call_ldexp<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    arg: FloatValue<'ctx>,
-    exp: IntValue<'ctx>,
-    name: Option<&str>,
-) -> FloatValue<'ctx> {
-    const FN_NAME: &str = "ldexp";
-
-    let llvm_f64 = ctx.ctx.f64_type();
-    let llvm_i32 = ctx.ctx.i32_type();
-    debug_assert_eq!(arg.get_type(), llvm_f64);
-    debug_assert_eq!(exp.get_type(), llvm_i32);
-
-    infer_and_call_function(
-        ctx,
-        FN_NAME,
-        Some(llvm_f64.into()),
-        &[arg.into(), exp.into()],
-        name,
-        Some(&|func| {
-            for attr in ["mustprogress", "nofree", "nounwind", "willreturn"] {
-                func.add_attribute(
-                    AttributeLoc::Function,
-                    ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
-                );
-            }
-        }),
-    )
-    .map(BasicValueEnum::into_float_value)
-    .unwrap()
-}
 
 /// Macro to generate `np_linalg` and `sp_linalg` functions
 /// The function takes as input `NDArray` and returns ()

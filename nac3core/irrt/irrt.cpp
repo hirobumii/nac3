@@ -1,3 +1,4 @@
+#include "irrt/cc-builtins.hpp"
 #include "irrt/exception.hpp"
 #include "irrt/list.hpp"
 #include "irrt/math.hpp"

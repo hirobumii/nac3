@@ -1194,7 +1194,7 @@ macro_rules! create_helper_call_numpy_unary_elementwise_float_to_bool {
                     BasicValueEnum::FloatValue(n) => {
                         debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-                        let ret = $on_scalar(generator, ctx, n);
+                        let ret = $on_scalar(ctx, n, Option::<&str>::None);
                         Some(generator.bool_to_i8(ctx, ret).into())
                     }
                     _ => None,
@@ -1263,55 +1263,55 @@ create_helper_call_numpy_unary_elementwise_float_to_float!(
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_tan,
     "np_tan",
-    extern_fns::call_tan
+    irrt::call_tan
 );
 
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_arcsin,
     "np_arcsin",
-    extern_fns::call_asin
+    irrt::call_asin
 );
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_arccos,
     "np_arccos",
-    extern_fns::call_acos
+    irrt::call_acos
 );
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_arctan,
     "np_arctan",
-    extern_fns::call_atan
+    irrt::call_atan
 );
 
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_sinh,
     "np_sinh",
-    extern_fns::call_sinh
+    irrt::call_sinh
 );
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_cosh,
     "np_cosh",
-    extern_fns::call_cosh
+    irrt::call_cosh
 );
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_tanh,
     "np_tanh",
-    extern_fns::call_tanh
+    irrt::call_tanh
 );
 
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_arcsinh,
     "np_arcsinh",
-    extern_fns::call_asinh
+    irrt::call_asinh
 );
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_arccosh,
     "np_arccosh",
-    extern_fns::call_acosh
+    irrt::call_acosh
 );
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_arctanh,
     "np_arctanh",
-    extern_fns::call_atanh
+    irrt::call_atanh
 );
 
 create_helper_call_numpy_unary_elementwise_float_to_float!(
@@ -1327,7 +1327,7 @@ create_helper_call_numpy_unary_elementwise_float_to_float!(
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_expm1,
     "np_expm1",
-    extern_fns::call_expm1
+    irrt::call_expm1
 );
 
 create_helper_call_numpy_unary_elementwise_float_to_float!(
@@ -1354,7 +1354,7 @@ create_helper_call_numpy_unary_elementwise_float_to_float!(
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_numpy_cbrt,
     "np_cbrt",
-    extern_fns::call_cbrt
+    irrt::call_cbrt
 );
 
 create_helper_call_numpy_unary_elementwise_float_to_float!(
@@ -1371,12 +1371,12 @@ create_helper_call_numpy_unary_elementwise_float_to_float!(
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_scipy_special_erf,
     "sp_spec_erf",
-    extern_fns::call_erf
+    irrt::call_erf
 );
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_scipy_special_erfc,
     "sp_spec_erfc",
-    extern_fns::call_erfc
+    irrt::call_erfc
 );
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_scipy_special_gamma,
@@ -1422,7 +1422,7 @@ pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
 
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
-                    Ok(extern_fns::call_atan2(ctx, x1, x2, None).into())
+                    Ok(irrt::call_atan2(ctx, x1, x2, None).into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
@@ -1560,7 +1560,7 @@ pub fn call_numpy_ldexp<'ctx, G: CodeGenerator + ?Sized>(
                 (BasicValueEnum::FloatValue(x1_scalar), BasicValueEnum::IntValue(x2_scalar)) => {
                     debug_assert_eq!(x1.get_dtype(), ctx.ctx.f64_type().into());
                     debug_assert_eq!(x2.get_dtype(), ctx.ctx.i32_type().into());
-                    Ok(extern_fns::call_ldexp(ctx, x1_scalar, x2_scalar, None).into())
+                    Ok(irrt::call_ldexp(ctx, x1_scalar, x2_scalar, None).into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
@@ -1594,7 +1594,7 @@ pub fn call_numpy_hypot<'ctx, G: CodeGenerator + ?Sized>(
 
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
-                    Ok(extern_fns::call_hypot(ctx, x1, x2, None).into())
+                    Ok(irrt::call_hypot(ctx, x1, x2, None).into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
@@ -1628,7 +1628,7 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
 
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
-                    Ok(extern_fns::call_nextafter(ctx, x1, x2, None).into())
+                    Ok(irrt::call_nextafter(ctx, x1, x2, None).into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }

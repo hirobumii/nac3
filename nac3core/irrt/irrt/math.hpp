@@ -34,16 +34,6 @@ DEF_nac3_int_exp_(int64_t);
 DEF_nac3_int_exp_(uint32_t);
 DEF_nac3_int_exp_(uint64_t);
 
-int32_t __nac3_isinf(double x) {
-    return __builtin_isinf(x);
-}
-
-int32_t __nac3_isnan(double x) {
-    return __builtin_isnan(x);
-}
-
-double tgamma(double arg);
-
 double __nac3_gamma(double z) {
     // Handling for denormals
     //     | x                 | Python gamma(x) | C tgamma(x) |
@@ -59,13 +49,11 @@ double __nac3_gamma(double z) {
         return z;
     }
 
-    double v = tgamma(z);
+    double v = __builtin_tgamma(z);
 
     // (4)-(5)
     return __builtin_isinf(v) || __builtin_isnan(v) ? __builtin_inf() : v;
 }
-
-double lgamma(double arg);
 
 double __nac3_gammaln(double x) {
     // libm's handling of value overflows differs from scipy:
@@ -76,7 +64,7 @@ double __nac3_gammaln(double x) {
         return x;
     }
 
-    return lgamma(x);
+    return __builtin_lgamma(x);
 }
 
 double j0(double x);
