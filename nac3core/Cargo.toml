@@ -25,9 +25,9 @@ default-features = false
 features = ["llvm14-0-prefer-dynamic", "target-x86", "target-arm", "target-riscv", "no-libffi-linking"]
 
 [dev-dependencies]
-test-case = "1.2.0"
+test-case = "3.3"
 indoc = "2.0"
-insta = "=1.11.0"
+insta = "1.42"
 function_name = "0.3"
 
 [build-dependencies]

@@ -247,7 +247,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                 pass
         "}
     ],
-    &[];
+    &[],
+    "simple class compose";
     "simple class compose"
 )]
 #[test_case(
@@ -269,7 +270,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &[];
+    &[],
+    "generic class";
     "generic class"
 )]
 #[test_case(
@@ -298,7 +300,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &[];
+    &[],
+    "list tuple generic";
     "list tuple generic"
 )]
 #[test_case(
@@ -323,7 +326,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &[];
+    &[],
+    "self1";
     "self1"
 )]
 #[test_case(
@@ -357,7 +361,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &[];
+    &[],
+    "inheritance_override";
     "inheritance_override"
 )]
 #[test_case(
@@ -370,7 +375,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &["application of type vars to generic class is not currently supported (at unknown:4:24)"];
+    &["application of type vars to generic class is not currently supported (at unknown:4:24)"],
+    "err no type var in generic app";
     "err no type var in generic app"
 )]
 #[test_case(
@@ -386,7 +392,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &["NameError: name 'B' is not defined (at unknown:1:9)"];
+    &["NameError: name 'B' is not defined (at unknown:1:9)"],
+    "cyclic1";
     "cyclic1"
 )]
 #[test_case(
@@ -407,7 +414,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "},
     ],
-    &["NameError: name 'C' is not defined (at unknown:1:25)"];
+    &["NameError: name 'C' is not defined (at unknown:1:25)"],
+    "cyclic2";
     "cyclic2"
 )]
 #[test_case(
@@ -417,7 +425,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                 pass
         "}
     ],
-    &["5: Class {\nname: \"A\",\ndef_id: DefinitionId(5),\nancestors: [CustomClassKind { id: DefinitionId(5), params: [] }],\nfields: [],\nmethods: [],\ntype_vars: []\n}"];
+    &["5: Class {\nname: \"A\",\ndef_id: DefinitionId(5),\nancestors: [CustomClassKind { id: DefinitionId(5), params: [] }],\nfields: [],\nmethods: [],\ntype_vars: []\n}"],
+    "simple pass in class";
     "simple pass in class"
 )]
 #[test_case(
@@ -426,7 +435,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
             def __init__():
                 pass
     "}],
-    &["__init__ method must have a `self` parameter (at unknown:2:5)"];
+    &["__init__ method must have a `self` parameter (at unknown:2:5)"],
+    "err no self_1";
     "err no self_1"
 )]
 #[test_case(
@@ -448,7 +458,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
         "}
 
     ],
-    &["a class definition can only have at most one base class declaration and one generic declaration (at unknown:1:24)"];
+    &["a class definition can only have at most one base class declaration and one generic declaration (at unknown:1:24)"],
+    "err multiple inheritance";
     "err multiple inheritance"
 )]
 #[test_case(
@@ -473,7 +484,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &["method fun has same name as ancestors' method, but incompatible type"];
+    &["method fun has same name as ancestors' method, but incompatible type"],
+    "err_incompatible_inheritance_method";
     "err_incompatible_inheritance_method"
 )]
 #[test_case(
@@ -499,7 +511,8 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &["field `a` has already declared in the ancestor classes"];
+    &["field `a` has already declared in the ancestor classes"],
+    "err_incompatible_inheritance_field";
     "err_incompatible_inheritance_field"
 )]
 #[test_case(
@@ -516,10 +529,13 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &["duplicate definition of class `A` (at unknown:1:1)"];
+    &["duplicate definition of class `A` (at unknown:1:1)"],
+    "class same name";
     "class same name"
 )]
-fn test_analyze(source: &[&str], res: &[&str]) {
+// case_name param is required for insta to distinguish different test_case
+// See https://github.com/frondeus/test-case/issues/37
+fn test_analyze(source: &[&str], res: &[&str], case_name: &str) {
     let print = false;
     let mut composer =
         TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
@@ -572,7 +588,9 @@ fn test_analyze(source: &[&str], res: &[&str]) {
             let def = &*def.read();
             res_vec.push(format!("{}\n", def.to_string(composer.unifier.borrow_mut())));
         }
-        insta::assert_debug_snapshot!(res_vec);
+        insta::with_settings!({ snapshot_suffix => case_name.replace(' ', "_") }, {
+            insta::assert_debug_snapshot!(res_vec);
+        });
     }
 }
 
