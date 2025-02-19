@@ -73,7 +73,7 @@ generate_extern_fn!("unary", call_j1, "j1", "nounwind");
 ///
 /// Arguments:
 /// * `$fn_name:ident`: The identifier of the rust function to be generated
-/// * `$extern_fn:literal`: Name of underlying extern function
+/// * `$extern_fn:ident`: Name of underlying extern function
 /// * (2/3/4): Number of `NDArray` that function takes as input
 ///
 /// Note:
@@ -81,23 +81,23 @@ generate_extern_fn!("unary", call_j1, "j1", "nounwind");
 /// It is the responsibility of caller to ensure that output `NDArray` is properly allocated on stack
 /// The function changes the content of the output `NDArray` in-place
 macro_rules! generate_linalg_extern_fn {
-    ($fn_name:ident, $extern_fn:literal, 2) => {
+    ($fn_name:ident, $extern_fn:ident, 2) => {
         generate_linalg_extern_fn!($fn_name, $extern_fn, mat1, mat2);
     };
-    ($fn_name:ident, $extern_fn:literal, 3) => {
+    ($fn_name:ident, $extern_fn:ident, 3) => {
         generate_linalg_extern_fn!($fn_name, $extern_fn, mat1, mat2, mat3);
     };
-    ($fn_name:ident, $extern_fn:literal, 4) => {
+    ($fn_name:ident, $extern_fn:ident, 4) => {
         generate_linalg_extern_fn!($fn_name, $extern_fn, mat1, mat2, mat3, mat4);
     };
-    ($fn_name:ident, $extern_fn:literal $(,$input_matrix:ident)*) => {
-        #[doc = concat!("Invokes the linalg `", stringify!($extern_fn), " function." )]
+    ($fn_name:ident, $extern_fn:ident $(,$input_matrix:ident)*) => {
+        #[doc = concat!("Invokes the linalg `", stringify!($extern_fn), "` function." )]
         pub fn $fn_name<'ctx>(
             ctx: &mut CodeGenContext<'ctx, '_>,
             $($input_matrix: BasicValueEnum<'ctx>,)*
             name: Option<&str>,
-        ){
-            const FN_NAME: &str = $extern_fn;
+        ) {
+            const FN_NAME: &str = stringify!($extern_fn);
 
             infer_and_call_function(
                 ctx,
@@ -106,25 +106,25 @@ macro_rules! generate_linalg_extern_fn {
                 &[$($input_matrix.into(),)*],
                 name,
                 Some(&|func| {
-                   for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
+                    for attr in ["mustprogress", "nofree", "nounwind", "willreturn", "writeonly"] {
                         func.add_attribute(
                             AttributeLoc::Function,
                             ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
                         );
-                    }
+                     }
                 }),
             );
         }
     };
 }
 
-generate_linalg_extern_fn!(call_np_linalg_cholesky, "np_linalg_cholesky", 2);
-generate_linalg_extern_fn!(call_np_linalg_qr, "np_linalg_qr", 3);
-generate_linalg_extern_fn!(call_np_linalg_svd, "np_linalg_svd", 4);
-generate_linalg_extern_fn!(call_np_linalg_inv, "np_linalg_inv", 2);
-generate_linalg_extern_fn!(call_np_linalg_pinv, "np_linalg_pinv", 2);
-generate_linalg_extern_fn!(call_np_linalg_matrix_power, "np_linalg_matrix_power", 3);
-generate_linalg_extern_fn!(call_np_linalg_det, "np_linalg_det", 2);
-generate_linalg_extern_fn!(call_sp_linalg_lu, "sp_linalg_lu", 3);
-generate_linalg_extern_fn!(call_sp_linalg_schur, "sp_linalg_schur", 3);
-generate_linalg_extern_fn!(call_sp_linalg_hessenberg, "sp_linalg_hessenberg", 3);
+generate_linalg_extern_fn!(call_np_linalg_cholesky, np_linalg_cholesky, 2);
+generate_linalg_extern_fn!(call_np_linalg_qr, np_linalg_qr, 3);
+generate_linalg_extern_fn!(call_np_linalg_svd, np_linalg_svd, 4);
+generate_linalg_extern_fn!(call_np_linalg_inv, np_linalg_inv, 2);
+generate_linalg_extern_fn!(call_np_linalg_pinv, np_linalg_pinv, 2);
+generate_linalg_extern_fn!(call_np_linalg_matrix_power, np_linalg_matrix_power, 3);
+generate_linalg_extern_fn!(call_np_linalg_det, np_linalg_det, 2);
+generate_linalg_extern_fn!(call_sp_linalg_lu, sp_linalg_lu, 3);
+generate_linalg_extern_fn!(call_sp_linalg_schur, sp_linalg_schur, 3);
+generate_linalg_extern_fn!(call_sp_linalg_hessenberg, sp_linalg_hessenberg, 3);
