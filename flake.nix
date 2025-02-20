@@ -39,6 +39,9 @@
             src = self;
             cargoLock = {
               lockFile = ./Cargo.lock;
+              outputHashes = {
+                "inkwell-0.5.0" = "sha256-Qsqy/fhD/qK0rKBeXetE99vW9G9XAePxlXv0An3Yeuo=";
+              };
             };
             passthru.cargoLock = cargoLock;
             nativeBuildInputs = [ pkgs.python3 (pkgs.wrapClangMulti pkgs.llvmPackages_16.clang) llvm-tools-irrt pkgs.llvmPackages_16.llvm.out pkgs.llvmPackages_16.bintools llvm-nac3 ];
