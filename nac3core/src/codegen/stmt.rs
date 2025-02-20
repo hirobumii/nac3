@@ -1746,7 +1746,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     let body_gen_lambda = |ctx: &mut CodeGenContext<'ctx, 'a>,
                            generator: &mut G|
      -> Result<(), String> {
-        for enter in enters.iter() {
+        for enter in &enters {
             // call __enter__()
             let enter_ret = generator.gen_call(
                 ctx,
@@ -1928,7 +1928,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
             ctx.builder.build_unconditional_branch(finalizer).unwrap();
         }
     }
-    for block in [body].iter() {
+    for block in &[body] {
         if block.get_terminator().is_none() {
             ctx.builder.position_at_end(*block);
             unsafe {
