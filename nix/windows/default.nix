@@ -82,6 +82,9 @@ in rec {
     src = ../../.;
     cargoLock = {
       lockFile = ../../Cargo.lock;
+      outputHashes = {
+        "inkwell-0.5.0" = "sha256-Qsqy/fhD/qK0rKBeXetE99vW9G9XAePxlXv0An3Yeuo=";
+      };
     };
     nativeBuildInputs = [ pkgs.wineWowPackages.stable ];
     buildPhase =
