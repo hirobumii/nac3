@@ -40,8 +40,7 @@ use super::{
         ExceptionType, ListType, OptionType, RangeType, StringType, TupleType, ndarray::NDArrayType,
     },
     values::{
-        ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, RangeValue,
-        UntypedArrayLikeAccessor,
+        ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, UntypedArrayLikeAccessor,
         ndarray::{NDArrayOut, RustNDIndex, ScalarOrNDArray},
     },
 };
@@ -1021,18 +1020,6 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
     Ok(ctx.build_call_or_invoke(fun_val, &param_vals, "call"))
 }
 
-/// Generates three LLVM variables representing the start, stop, and step values of a [range] class
-/// respectively.
-pub fn destructure_range<'ctx>(
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    range: RangeValue<'ctx>,
-) -> (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>) {
-    let start = range.load_start(ctx, None);
-    let end = range.load_end(ctx, None);
-    let step = range.load_step(ctx, None);
-    (start, end, step)
-}
-
 /// Generates LLVM IR for a [list comprehension expression][expr].
 pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     generator: &mut G,
@@ -1082,7 +1069,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         {
             let iter_val =
                 RangeType::new(ctx).map_pointer_value(iter_val.into_pointer_value(), Some("range"));
-            let (start, stop, step) = destructure_range(ctx, iter_val);
+            let (start, stop, step) = iter_val.load_values(ctx);
             let diff = ctx.builder.build_int_sub(stop, start, "diff").unwrap();
             // add 1 to the length as the value is rounded to zero
             // the length may be 1 more than the actual length if the division is exact, but the

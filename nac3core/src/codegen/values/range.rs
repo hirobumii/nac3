@@ -154,6 +154,18 @@ impl<'ctx> RangeValue<'ctx> {
             .map(BasicValueEnum::into_int_value)
             .unwrap()
     }
+
+    /// Return a tuple of LLVM values representing the start, stop, and step values of this `range`
+    /// respectively.
+    pub fn load_values(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+    ) -> (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>) {
+        let start = self.load_start(ctx, None);
+        let end = self.load_end(ctx, None);
+        let step = self.load_step(ctx, None);
+        (start, end, step)
+    }
 }
 
 impl<'ctx> ProxyValue<'ctx> for RangeValue<'ctx> {

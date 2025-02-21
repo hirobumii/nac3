@@ -14,7 +14,7 @@ use nac3parser::ast::{
 
 use super::{
     CodeGenContext, CodeGenerator,
-    expr::{destructure_range, gen_binop_expr},
+    expr::gen_binop_expr,
     gen_in_range_check,
     irrt::{handle_slice_indices, list_slice_assignment},
     macros::codegen_unreachable,
@@ -520,7 +520,7 @@ pub fn gen_for<G: CodeGenerator>(
             else {
                 codegen_unreachable!(ctx)
             };
-            let (start, stop, step) = destructure_range(ctx, iter_val);
+            let (start, stop, step) = iter_val.load_values(ctx);
 
             ctx.builder.build_store(i, start).unwrap();
 

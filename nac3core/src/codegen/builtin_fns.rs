@@ -7,7 +7,6 @@ use itertools::Itertools;
 
 use super::{
     CodeGenContext, CodeGenerator,
-    expr::destructure_range,
     extern_fns, irrt,
     irrt::calculate_len_for_slice_range,
     llvm_intrinsics,
@@ -48,7 +47,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
 
     Ok(if ctx.unifier.unioned(arg_ty, range_ty) {
         let arg = RangeType::new(ctx).map_pointer_value(arg.into_pointer_value(), Some("range"));
-        let (start, end, step) = destructure_range(ctx, arg);
+        let (start, end, step) = arg.load_values(ctx);
         calculate_len_for_slice_range(generator, ctx, start, end, step)
     } else {
         match &*ctx.unifier.get_ty_immutable(arg_ty) {

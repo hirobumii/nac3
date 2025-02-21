@@ -16,7 +16,7 @@ use pyo3::{
 use nac3core::{
     codegen::{
         CodeGenContext, CodeGenerator,
-        expr::{create_fn_and_call, destructure_range, gen_call, infer_and_call_function},
+        expr::{create_fn_and_call, gen_call, infer_and_call_function},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_alloca,
@@ -1387,7 +1387,7 @@ fn polymorphic_print<'ctx>(
 
                 let val = RangeType::new(ctx).map_pointer_value(value.into_pointer_value(), None);
 
-                let (start, stop, step) = destructure_range(ctx, val);
+                let (start, stop, step) = val.load_values(ctx);
 
                 polymorphic_print(
                     ctx,
