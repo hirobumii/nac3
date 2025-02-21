@@ -90,15 +90,18 @@ impl SymbolResolver for Resolver {
     }
 }
 
-#[test]
-#[named]
-fn test_primitives() {
-    let source = indoc! { "
-        c = a + b
-        d = a if c == 1 else 0
-        return d
-        "};
-    let statements = parse_program(source, FileName::default()).unwrap();
+/// Tests compilation of a function to its IR representation.
+///
+/// - `main`: A tuple containing the [`FunSignature`] and body of the function.
+/// - `codegen_opts_override`: Optional lambda to override compilation defaults, which is
+///   `-O2 -march=native`.
+/// - `test_name`: The name of the test case; usually `function_name!()`.
+fn test_compile_to_ir(
+    main: (fn(&PrimitiveStore) -> FunSignature, &str),
+    codegen_opts_override: Option<fn(CodeGenLLVMOptions) -> CodeGenLLVMOptions>,
+    test_name: &'static str,
+) {
+    let statements = parse_program(main.1, FileName::default()).unwrap();
 
     let context = inkwell::context::Context::create();
     let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
@@ -112,7 +115,97 @@ fn test_primitives() {
             as Arc<dyn SymbolResolver + Send + Sync>;
 
     let threads = vec![DefaultCodeGenerator::new("test".into(), context.i64_type()).into()];
-    let signature = FunSignature {
+    let signature = (main.0)(&primitives);
+
+    let mut store = ConcreteTypeStore::new();
+    let mut cache = HashMap::new();
+    let signature_ty = store.from_signature(&mut unifier, &primitives, &signature, &mut cache);
+    let signature_ty = store.add_cty(signature_ty);
+
+    let mut function_data = FunctionData {
+        resolver: resolver.clone(),
+        bound_variables: Vec::new(),
+        return_type: Some(signature.ret),
+    };
+    let mut virtual_checks = Vec::new();
+    let mut calls = HashMap::new();
+    let mut identifiers: HashMap<_, _> = signature
+        .args
+        .iter()
+        .map(|arg| arg.name)
+        .map(|id| (id, IdentifierInfo::default()))
+        .collect();
+    let mut inferencer = Inferencer {
+        top_level: &top_level,
+        function_data: &mut function_data,
+        unifier: &mut unifier,
+        variable_mapping: HashMap::default(),
+        primitives: &primitives,
+        virtual_checks: &mut virtual_checks,
+        calls: &mut calls,
+        defined_identifiers: identifiers.clone(),
+        in_handler: false,
+    };
+    for arg in signature.args {
+        inferencer.variable_mapping.insert(arg.name, arg.ty);
+    }
+
+    let statements = statements
+        .into_iter()
+        .map(|v| inferencer.fold_stmt(v))
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    inferencer.check_block(&statements, &mut identifiers).unwrap();
+    let top_level = Arc::new(TopLevelContext {
+        definitions: Arc::new(RwLock::new(std::mem::take(&mut *top_level.definitions.write()))),
+        unifiers: Arc::new(RwLock::new(vec![(unifier.get_shared_unifier(), primitives)])),
+        personality_symbol: None,
+    });
+
+    let task = CodeGenTask {
+        subst: Vec::default(),
+        symbol_name: "main".into(),
+        body: Arc::new(statements),
+        unifier_index: 0,
+        calls: Arc::new(calls),
+        resolver,
+        store,
+        signature: signature_ty,
+        id: 0,
+    };
+    let f = Arc::new(WithCall::new(Box::new(move |module| {
+        insta::assert_snapshot!(
+            test_name,
+            module.print_to_string().to_str().map(str::trim).unwrap()
+        );
+    })));
+
+    Target::initialize_all(&InitializationConfig::default());
+
+    let llvm_options = CodeGenLLVMOptions {
+        opt_level: OptimizationLevel::Default,
+        target: CodeGenTargetMachineOptions::from_host_triple(),
+    };
+    let llvm_options = if let Some(opt_override) = codegen_opts_override {
+        opt_override(llvm_options)
+    } else {
+        llvm_options
+    };
+    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
+    registry.add_task(task);
+    registry.wait_tasks_complete(handles);
+}
+
+#[test]
+#[named]
+fn test_primitives() {
+    let source = indoc! { "
+        c = a + b
+        d = a if c == 1 else 0
+        return d
+        "};
+    let signature = |primitives: &PrimitiveStore| FunSignature {
         args: vec![
             FuncArg {
                 name: "a".into(),
@@ -131,74 +224,7 @@ fn test_primitives() {
         vars: VarMap::new(),
     };
 
-    let mut store = ConcreteTypeStore::new();
-    let mut cache = HashMap::new();
-    let signature = store.from_signature(&mut unifier, &primitives, &signature, &mut cache);
-    let signature = store.add_cty(signature);
-
-    let mut function_data = FunctionData {
-        resolver: resolver.clone(),
-        bound_variables: Vec::new(),
-        return_type: Some(primitives.int32),
-    };
-    let mut virtual_checks = Vec::new();
-    let mut calls = HashMap::new();
-    let mut identifiers: HashMap<_, _> =
-        ["a".into(), "b".into()].map(|id| (id, IdentifierInfo::default())).into();
-    let mut inferencer = Inferencer {
-        top_level: &top_level,
-        function_data: &mut function_data,
-        unifier: &mut unifier,
-        variable_mapping: HashMap::default(),
-        primitives: &primitives,
-        virtual_checks: &mut virtual_checks,
-        calls: &mut calls,
-        defined_identifiers: identifiers.clone(),
-        in_handler: false,
-    };
-    inferencer.variable_mapping.insert("a".into(), inferencer.primitives.int32);
-    inferencer.variable_mapping.insert("b".into(), inferencer.primitives.int32);
-
-    let statements = statements
-        .into_iter()
-        .map(|v| inferencer.fold_stmt(v))
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-
-    inferencer.check_block(&statements, &mut identifiers).unwrap();
-    let top_level = Arc::new(TopLevelContext {
-        definitions: Arc::new(RwLock::new(std::mem::take(&mut *top_level.definitions.write()))),
-        unifiers: Arc::new(RwLock::new(vec![(unifier.get_shared_unifier(), primitives)])),
-        personality_symbol: None,
-    });
-
-    let task = CodeGenTask {
-        subst: Vec::default(),
-        symbol_name: "testing".into(),
-        body: Arc::new(statements),
-        unifier_index: 0,
-        calls: Arc::new(calls),
-        resolver,
-        store,
-        signature,
-        id: 0,
-    };
-    let f = Arc::new(WithCall::new(Box::new(|module| {
-        insta::assert_snapshot!(
-            function_name!(),
-            module.print_to_string().to_str().map(str::trim).unwrap()
-        );
-    })));
-
-    Target::initialize_all(&InitializationConfig::default());
-
-    let llvm_options = CodeGenLLVMOptions {
-        opt_level: OptimizationLevel::Default,
-        target: CodeGenTargetMachineOptions::from_host_triple(),
-    };
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
-    registry.add_task(task);
-    registry.wait_tasks_complete(handles);
+    test_compile_to_ir((signature, source), None, function_name!());
 }
 
 #[test]
