@@ -7,7 +7,7 @@ use inkwell::{
 use super::NDArrayValue;
 use crate::codegen::{
     CodeGenContext, CodeGenerator, irrt,
-    stmt::{BreakContinueHooks, gen_for_callback},
+    stmt::{LoopHooks, gen_for_callback},
     types::{
         ndarray::NDIterType,
         structure::{StructField, StructProxyType},
@@ -154,7 +154,7 @@ impl<'ctx> From<NDIterValue<'ctx>> for PointerValue<'ctx> {
 impl<'ctx> NDArrayValue<'ctx> {
     /// Iterate through every element in the ndarray.
     ///
-    /// `body` has access to [`BreakContinueHooks`] to short-circuit and [`NDIterValue`] to
+    /// `body` has access to [`LoopHooks`] to short-circuit and [`NDIterValue`] to
     /// get properties of the current iteration (e.g., the current element, indices, etc.)
     pub fn foreach<'a, G, F>(
         &self,
@@ -167,7 +167,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         F: FnOnce(
             &mut G,
             &mut CodeGenContext<'ctx, 'a>,
-            BreakContinueHooks<'ctx>,
+            LoopHooks<'ctx>,
             NDIterValue<'ctx>,
         ) -> Result<(), String>,
     {

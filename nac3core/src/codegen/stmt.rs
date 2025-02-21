@@ -661,7 +661,7 @@ pub fn gen_for<G: CodeGenerator>(
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Hash)]
-pub struct BreakContinueHooks<'ctx> {
+pub struct LoopHooks<'ctx> {
     /// The [exit block][`BasicBlock`] to branch to when `break`-ing out of a loop.
     exit_bb: BasicBlock<'ctx>,
 
@@ -670,7 +670,7 @@ pub struct BreakContinueHooks<'ctx> {
     latch_bb: BasicBlock<'ctx>,
 }
 
-impl<'ctx> BreakContinueHooks<'ctx> {
+impl<'ctx> LoopHooks<'ctx> {
     /// Creates a [`br` instruction][Builder::build_unconditional_branch] to the exit
     /// [`BasicBlock`], as if by calling `break`.
     pub fn build_break_branch(&self, builder: &Builder<'ctx>) {
@@ -715,7 +715,7 @@ where
     BodyFn: FnOnce(
         &mut G,
         &mut CodeGenContext<'ctx, 'a>,
-        BreakContinueHooks<'ctx>,
+        LoopHooks<'ctx>,
         I,
     ) -> Result<(), String>,
     UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
@@ -750,7 +750,7 @@ where
     }
 
     ctx.builder.position_at_end(body_bb);
-    let hooks = BreakContinueHooks { exit_bb: cont_bb, latch_bb: update_bb };
+    let hooks = LoopHooks { exit_bb: cont_bb, latch_bb: update_bb };
     body(generator, ctx, hooks, loop_var.clone())?;
     if !ctx.is_terminated() {
         ctx.builder.build_unconditional_branch(update_bb).unwrap();
@@ -797,7 +797,7 @@ where
     BodyFn: FnOnce(
         &mut G,
         &mut CodeGenContext<'ctx, 'a>,
-        BreakContinueHooks<'ctx>,
+        LoopHooks<'ctx>,
         IntValue<'ctx>,
     ) -> Result<(), String>,
 {
@@ -877,7 +877,7 @@ where
     BodyFn: FnOnce(
         &mut G,
         &mut CodeGenContext<'ctx, 'a>,
-        BreakContinueHooks<'ctx>,
+        LoopHooks<'ctx>,
         IntValue<'ctx>,
     ) -> Result<(), String>,
 {

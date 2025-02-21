@@ -3,7 +3,7 @@ use inkwell::values::{BasicValue, BasicValueEnum};
 use super::{NDArrayValue, NDIterValue, ScalarOrNDArray};
 use crate::codegen::{
     CodeGenContext, CodeGenerator,
-    stmt::{BreakContinueHooks, gen_for_callback},
+    stmt::{LoopHooks, gen_for_callback},
     types::ndarray::NDIterType,
 };
 
@@ -11,7 +11,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// Folds the elements of this ndarray into an accumulator value by applying `f`, returning the
     /// final value.
     ///
-    /// `f` has access to [`BreakContinueHooks`] to short-circuit the `fold` operation, an instance
+    /// `f` has access to [`LoopHooks`] to short-circuit the `fold` operation, an instance
     /// of `V` representing the current accumulated value, and an [`NDIterValue`] to get the
     /// properties of the current iterated element.
     pub fn fold<'a, G, V, F>(
@@ -28,7 +28,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         F: FnOnce(
             &mut G,
             &mut CodeGenContext<'ctx, 'a>,
-            BreakContinueHooks<'ctx>,
+            LoopHooks<'ctx>,
             V,
             NDIterValue<'ctx>,
         ) -> Result<V, String>,
@@ -83,7 +83,7 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
         F: FnOnce(
             &mut G,
             &mut CodeGenContext<'ctx, 'a>,
-            Option<&BreakContinueHooks<'ctx>>,
+            Option<&LoopHooks<'ctx>>,
             V,
             BasicValueEnum<'ctx>,
         ) -> Result<V, String>,
