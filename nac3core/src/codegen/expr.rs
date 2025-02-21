@@ -1028,6 +1028,8 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
     let ExprKind::ListComp { elt, generators } = &expr.node else { codegen_unreachable!(ctx) };
 
+    // gen_for_
+
     let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
 
     let init_bb = ctx.ctx.append_basic_block(current, "listcomp.init");
@@ -1061,9 +1063,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     ctx.builder.build_store(index, zero_size_t).unwrap();
 
     let elem_ty = ctx.get_llvm_type(generator, elt.custom.unwrap());
-    let list;
-
-    match &*ctx.unifier.get_ty(iter_ty) {
+    let list = match &*ctx.unifier.get_ty(iter_ty) {
         TypeEnum::TObj { obj_id, .. }
             if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
         {
@@ -1092,12 +1092,40 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                     "listcomp.alloc_size",
                 )
                 .unwrap();
-            list = ListType::new(ctx, &elem_ty).construct(
+            ListType::new(ctx, &elem_ty).construct(
                 generator,
                 ctx,
                 list_alloc_size.into_int_value(),
                 Some("listcomp"),
+            )
+        }
+        TypeEnum::TObj { obj_id, .. }
+            if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
+        {
+            let length = ctx
+                .build_gep_and_load(
+                    iter_val.into_pointer_value(),
+                    &[zero_size_t, int32.const_int(1, false)],
+                    Some("length"),
+                )
+                .into_int_value();
+            ListType::new(ctx, &elem_ty).construct(generator, ctx, length, Some("listcomp"))
+        }
+        _ => {
+            panic!(
+                "unsupported list comprehension iterator type: {}",
+                ctx.unifier.stringify(iter_ty)
             );
+        }
+    };
+
+    match &*ctx.unifier.get_ty(iter_ty) {
+        TypeEnum::TObj { obj_id, .. }
+            if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
+        {
+            let iter_val =
+                RangeType::new(ctx).map_pointer_value(iter_val.into_pointer_value(), Some("range"));
+            let (start, stop, step) = iter_val.load_values(ctx);
 
             let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
             ctx.builder
@@ -1136,14 +1164,9 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         TypeEnum::TObj { obj_id, .. }
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
-            let length = ctx
-                .build_gep_and_load(
-                    iter_val.into_pointer_value(),
-                    &[zero_size_t, int32.const_int(1, false)],
-                    Some("length"),
-                )
-                .into_int_value();
-            list = ListType::new(ctx, &elem_ty).construct(generator, ctx, length, Some("listcomp"));
+            let list = ListType::from_unifier_type(generator, ctx, iter_ty)
+                .map_pointer_value(iter_val.into_pointer_value(), None);
+            let length = list.load_size(ctx, Some("length"));
 
             let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
             // counter = -1
