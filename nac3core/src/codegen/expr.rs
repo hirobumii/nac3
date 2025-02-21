@@ -2558,75 +2558,52 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
         }
         ExprKind::BoolOp { op, values } => {
             // requires conditional branches for short-circuiting...
+
+            let llvm_i1 = ctx.ctx.bool_type();
+
             let left = if let Some(v) = generator.gen_expr(ctx, &values[0])? {
                 v.to_basic_value_enum(ctx, generator, values[0].custom.unwrap())?.into_int_value()
             } else {
                 return Ok(None);
             };
-            let left = generator.bool_to_i1(ctx, left);
-            let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-            let a_begin_bb = ctx.ctx.append_basic_block(current, "a_begin");
-            let a_end_bb = ctx.ctx.append_basic_block(current, "a_end");
-            let b_begin_bb = ctx.ctx.append_basic_block(current, "b_begin");
-            let b_end_bb = ctx.ctx.append_basic_block(current, "b_end");
-            let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-            ctx.builder.build_conditional_branch(left, a_begin_bb, b_begin_bb).unwrap();
 
-            ctx.builder.position_at_end(a_end_bb);
-            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-            ctx.builder.position_at_end(b_end_bb);
-            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-            let (a, b) = match op {
-                Boolop::Or => {
-                    ctx.builder.position_at_end(a_begin_bb);
-                    let a = ctx.ctx.i8_type().const_int(1, false);
-                    ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
-
-                    ctx.builder.position_at_end(b_begin_bb);
-                    let b = if let Some(v) = generator.gen_expr(ctx, &values[1])? {
-                        let b = v
-                            .to_basic_value_enum(ctx, generator, values[1].custom.unwrap())?
-                            .into_int_value();
-                        let b = generator.bool_to_i8(ctx, b);
-                        Some(b)
-                    } else {
-                        None
-                    };
-                    ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
-
-                    (Some(a), b)
-                }
-                Boolop::And => {
-                    ctx.builder.position_at_end(a_begin_bb);
-                    let a = if let Some(v) = generator.gen_expr(ctx, &values[1])? {
-                        let a = v
-                            .to_basic_value_enum(ctx, generator, values[1].custom.unwrap())?
-                            .into_int_value();
-                        let a = generator.bool_to_i8(ctx, a);
-                        Some(a)
-                    } else {
-                        None
-                    };
-                    ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
-
-                    ctx.builder.position_at_end(b_begin_bb);
-                    let b = ctx.ctx.i8_type().const_zero();
-                    ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
-
-                    (a, Some(b))
-                }
+            let gen_right_expr = |generator: &mut G, ctx: &mut _| -> Result<_, String> {
+                Ok(if let Some(v) = generator.gen_expr(ctx, &values[1])? {
+                    Some(
+                        v.to_basic_value_enum(ctx, generator, values[1].custom.unwrap())?
+                            .into_int_value(),
+                    )
+                } else {
+                    None
+                })
             };
 
-            ctx.builder.position_at_end(cont_bb);
-            match (a, b) {
-                (Some(a), Some(b)) => {
-                    let phi = ctx.builder.build_phi(ctx.ctx.i8_type(), "").unwrap();
-                    phi.add_incoming(&[(&a, a_end_bb), (&b, b_end_bb)]);
-                    phi.as_basic_value().into()
-                }
-                (Some(a), None) => a.into(),
-                (None, Some(b)) => b.into(),
-                (None, None) => codegen_unreachable!(ctx),
+            let result = gen_if_else_expr_callback(
+                generator,
+                ctx,
+                |generator, ctx| Ok(generator.bool_to_i1(ctx, left)),
+                |generator, ctx| {
+                    Ok(match op {
+                        Boolop::And => gen_right_expr(generator, ctx)?
+                            .map(|right| generator.bool_to_i1(ctx, right)),
+
+                        Boolop::Or => Some(llvm_i1.const_all_ones()),
+                    })
+                },
+                |generator, ctx| {
+                    Ok(match op {
+                        Boolop::Or => gen_right_expr(generator, ctx)?
+                            .map(|right| generator.bool_to_i1(ctx, right)),
+
+                        Boolop::And => Some(llvm_i1.const_zero()),
+                    })
+                },
+            )?;
+
+            if let Some(result) = result {
+                generator.bool_to_i8(ctx, result.into_int_value()).into()
+            } else {
+                return Ok(None);
             }
         }
         ExprKind::BinOp { op, left, right } => {
