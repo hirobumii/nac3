@@ -2620,50 +2620,27 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 }
                 None => return Ok(None),
             };
-            let test = generator.bool_to_i1(ctx, test);
-            let body_ty = body.custom.unwrap();
-            let is_none = ctx.unifier.get_representative(body_ty) == ctx.primitives.none;
-            let result = if is_none {
-                None
-            } else {
-                let llvm_ty = ctx.get_llvm_type(generator, body_ty);
-                Some(ctx.builder.build_alloca(llvm_ty, "if_exp_result").unwrap())
-            };
-            let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-            let then_bb = ctx.ctx.append_basic_block(current, "then");
-            let else_bb = ctx.ctx.append_basic_block(current, "else");
-            let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-            ctx.builder.build_conditional_branch(test, then_bb, else_bb).unwrap();
 
-            ctx.builder.position_at_end(then_bb);
-            let a = generator.gen_expr(ctx, body)?;
-            if let Some(a) = a {
-                match result {
-                    None => None,
-                    Some(v) => {
-                        let a = a.to_basic_value_enum(ctx, generator, body.custom.unwrap())?;
-                        Some(ctx.builder.build_store(v, a))
-                    }
-                };
-                ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-            }
+            let result = gen_if_else_expr_callback(
+                generator,
+                ctx,
+                |generator, ctx| Ok(generator.bool_to_i1(ctx, test)),
+                |generator, ctx| {
+                    generator
+                        .gen_expr(ctx, body)?
+                        .map(|a| a.to_basic_value_enum(ctx, generator, body.custom.unwrap()))
+                        .transpose()
+                },
+                |generator, ctx| {
+                    generator
+                        .gen_expr(ctx, orelse)?
+                        .map(|b| b.to_basic_value_enum(ctx, generator, body.custom.unwrap()))
+                        .transpose()
+                },
+            )?;
 
-            ctx.builder.position_at_end(else_bb);
-            let b = generator.gen_expr(ctx, orelse)?;
-            if let Some(b) = b {
-                match result {
-                    None => None,
-                    Some(v) => {
-                        let b = b.to_basic_value_enum(ctx, generator, orelse.custom.unwrap())?;
-                        Some(ctx.builder.build_store(v, b))
-                    }
-                };
-                ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-            }
-
-            ctx.builder.position_at_end(cont_bb);
             if let Some(v) = result {
-                ctx.builder.build_load(v, "if_exp_val_load").map(Into::into).unwrap()
+                v.into()
             } else {
                 return Ok(None);
             }

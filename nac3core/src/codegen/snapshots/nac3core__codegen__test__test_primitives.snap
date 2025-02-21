@@ -12,8 +12,8 @@ define i32 @main(i32 %0, i32 %1) local_unnamed_addr #0 !dbg !4 {
 init:
   %add = add i32 %1, %0, !dbg !9
   %cmp = icmp eq i32 %add, 1, !dbg !10
-  %. = select i1 %cmp, i32 %0, i32 0, !dbg !11
-  ret i32 %., !dbg !12
+  %2 = select i1 %cmp, i32 %0, i32 0, !dbg !10
+  ret i32 %2, !dbg !11
 }
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
@@ -32,5 +32,4 @@ attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 !8 = !{}
 !9 = !DILocation(line: 1, column: 9, scope: !4)
 !10 = !DILocation(line: 2, column: 15, scope: !4)
-!11 = !DILocation(line: 2, scope: !4)
-!12 = !DILocation(line: 3, column: 8, scope: !4)
+!11 = !DILocation(line: 3, column: 8, scope: !4)
