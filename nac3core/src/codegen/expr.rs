@@ -33,8 +33,8 @@ use super::{
     macros::codegen_unreachable,
     need_sret,
     stmt::{
-        gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
-        gen_var,
+        gen_for_callback, gen_for_callback_incrementing, gen_if_callback,
+        gen_if_else_expr_callback, gen_raise, gen_var,
     },
     types::{
         ExceptionType, ListType, OptionType, RangeType, StringType, TupleType, ndarray::NDArrayType,
@@ -1028,39 +1028,17 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
     let ExprKind::ListComp { elt, generators } = &expr.node else { codegen_unreachable!(ctx) };
 
-    // gen_for_
-
-    let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-
-    let init_bb = ctx.ctx.append_basic_block(current, "listcomp.init");
-    let test_bb = ctx.ctx.append_basic_block(current, "listcomp.test");
-    let body_bb = ctx.ctx.append_basic_block(current, "listcomp.body");
-    let cont_bb = ctx.ctx.append_basic_block(current, "listcomp.cont");
-
-    ctx.builder.build_unconditional_branch(init_bb).unwrap();
-
-    ctx.builder.position_at_end(init_bb);
-
     let Comprehension { target, iter, ifs, .. } = &generators[0];
 
     let iter_ty = iter.custom.unwrap();
     let iter_val = if let Some(v) = generator.gen_expr(ctx, iter)? {
         v.to_basic_value_enum(ctx, generator, iter_ty)?
     } else {
-        for bb in [test_bb, body_bb, cont_bb] {
-            ctx.builder.position_at_end(bb);
-            ctx.builder.build_unreachable().unwrap();
-        }
-
         return Ok(None);
     };
-    let int32 = ctx.ctx.i32_type();
-    let size_t = ctx.get_size_type();
-    let zero_size_t = size_t.const_zero();
-    let zero_32 = int32.const_zero();
 
-    let index = generator.gen_var_alloc(ctx, size_t.into(), Some("index.addr"))?;
-    ctx.builder.build_store(index, zero_size_t).unwrap();
+    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_usize = ctx.get_size_type();
 
     let elem_ty = ctx.get_llvm_type(generator, elt.custom.unwrap());
     let list = match &*ctx.unifier.get_ty(iter_ty) {
@@ -1076,19 +1054,21 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             // length is a upper bound only anyway so it does not matter.
             let length = ctx.builder.build_int_signed_div(diff, step, "div").unwrap();
             let length =
-                ctx.builder.build_int_add(length, int32.const_int(1, false), "add1").unwrap();
+                ctx.builder.build_int_add(length, llvm_i32.const_int(1, false), "add1").unwrap();
             // in case length is non-positive
-            let is_valid =
-                ctx.builder.build_int_compare(IntPredicate::SGT, length, zero_32, "check").unwrap();
+            let is_valid = ctx
+                .builder
+                .build_int_compare(IntPredicate::SGT, length, llvm_i32.const_zero(), "check")
+                .unwrap();
 
             let list_alloc_size = ctx
                 .builder
                 .build_select(
                     is_valid,
                     ctx.builder
-                        .build_int_z_extend_or_bit_cast(length, size_t, "z_ext_len")
+                        .build_int_z_extend_or_bit_cast(length, llvm_usize, "z_ext_len")
                         .unwrap(),
-                    zero_size_t,
+                    llvm_usize.const_zero(),
                     "listcomp.alloc_size",
                 )
                 .unwrap();
@@ -1105,7 +1085,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             let length = ctx
                 .build_gep_and_load(
                     iter_val.into_pointer_value(),
-                    &[zero_size_t, int32.const_int(1, false)],
+                    &[llvm_usize.const_zero(), llvm_i32.const_int(1, false)],
                     Some("length"),
                 )
                 .into_int_value();
@@ -1119,133 +1099,209 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         }
     };
 
-    match &*ctx.unifier.get_ty(iter_ty) {
-        TypeEnum::TObj { obj_id, .. }
-            if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
-        {
-            let iter_val =
-                RangeType::new(ctx).map_pointer_value(iter_val.into_pointer_value(), Some("range"));
-            let (start, stop, step) = iter_val.load_values(ctx);
+    gen_for_callback(
+        generator,
+        ctx,
+        Some("listcomp"),
+        |generator, ctx| {
+            // index with respect to the new list
+            let list_idx = generator.gen_var_alloc(ctx, llvm_usize.into(), Some("index.addr"))?;
+            ctx.builder.build_store(list_idx, llvm_usize.const_zero()).unwrap();
 
-            let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
+            // index with respect to the iterable value
+            let iter_idx = match &*ctx.unifier.get_ty(iter_ty) {
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
+                {
+                    let iter_val = RangeType::new(ctx)
+                        .map_pointer_value(iter_val.into_pointer_value(), Some("range"));
+                    let start = iter_val.load_start(ctx, Some("range"));
+
+                    let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
+                    ctx.builder.build_store(i, start).unwrap();
+
+                    i
+                }
+
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
+                {
+                    let i = generator.gen_var_alloc(ctx, llvm_usize.into(), Some("counter"))?;
+                    ctx.builder.build_store(i, llvm_usize.const_zero()).unwrap();
+
+                    i
+                }
+
+                _ => unreachable!(),
+            };
+
+            Ok((list_idx, iter_idx))
+        },
+        |generator, ctx, (_, piter_idx)| {
+            Ok(match &*ctx.unifier.get_ty(iter_ty) {
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
+                {
+                    let iter_val = RangeType::new(ctx)
+                        .map_pointer_value(iter_val.into_pointer_value(), Some("range"));
+
+                    let iter_idx = ctx
+                        .builder
+                        .build_load(piter_idx, "start_loop")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    gen_in_range_check(
+                        ctx,
+                        iter_idx,
+                        iter_val.load_end(ctx, None),
+                        iter_val.load_step(ctx, None),
+                    )
+                }
+
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
+                {
+                    let list = ListType::from_unifier_type(generator, ctx, iter_ty)
+                        .map_pointer_value(iter_val.into_pointer_value(), None);
+                    let length = list.load_size(ctx, Some("length"));
+
+                    let iter_idx = ctx
+                        .builder
+                        .build_load(piter_idx, "i")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    ctx.builder
+                        .build_int_compare(IntPredicate::SLT, iter_idx, length, "cmp")
+                        .unwrap()
+                }
+
+                _ => unreachable!(),
+            })
+        },
+        |generator, ctx, hooks, (plist_idx, piter_idx)| {
+            // If the iterable is a list, store its value into the `target` variable first
+            match &*ctx.unifier.get_ty(iter_ty) {
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
+                {
+                    let iter_idx = ctx
+                        .builder
+                        .build_load(piter_idx, "")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+
+                    let arr_ptr = ctx
+                        .build_gep_and_load(
+                            iter_val.into_pointer_value(),
+                            &[llvm_usize.const_zero(), llvm_i32.const_zero()],
+                            Some("arr.addr"),
+                        )
+                        .into_pointer_value();
+                    let val = ctx.build_gep_and_load(arr_ptr, &[iter_idx], Some("val"));
+                    generator.gen_assign(ctx, target, val.into(), elt.custom.unwrap())?;
+                }
+
+                _ => {}
+            }
+
+            for cond in ifs {
+                let result = if let Some(v) = generator.gen_expr(ctx, cond)? {
+                    v.to_basic_value_enum(ctx, generator, cond.custom.unwrap())?.into_int_value()
+                } else {
+                    // Bail if the predicate is an ellipsis
+                    hooks.build_continue_branch(&ctx.builder);
+
+                    return Ok(());
+                };
+
+                gen_if_callback(
+                    generator,
+                    ctx,
+                    |generator, ctx| Ok(generator.bool_to_i1(ctx, result)),
+                    |_, _| Ok(()),
+                    |_, ctx| {
+                        hooks.build_continue_branch(&ctx.builder);
+                        Ok(())
+                    },
+                )?;
+            }
+
+            let Some(elem) = generator.gen_expr(ctx, elt)? else {
+                // Similarly, bail if the generator expression is an ellipsis
+                hooks.build_continue_branch(&ctx.builder);
+
+                return Ok(());
+            };
+            let list_idx =
+                ctx.builder.build_load(plist_idx, "i").map(BasicValueEnum::into_int_value).unwrap();
+            let elem_ptr = unsafe {
+                list.data().ptr_offset_unchecked(ctx, generator, &list_idx, Some("elem_ptr"))
+            };
+            let val = elem.to_basic_value_enum(ctx, generator, elt.custom.unwrap())?;
+            ctx.builder.build_store(elem_ptr, val).unwrap();
             ctx.builder
-                .build_store(i, ctx.builder.build_int_sub(start, step, "start_init").unwrap())
-                .unwrap();
-
-            ctx.builder
-                .build_conditional_branch(
-                    gen_in_range_check(ctx, start, stop, step),
-                    test_bb,
-                    cont_bb,
+                .build_store(
+                    plist_idx,
+                    ctx.builder
+                        .build_int_add(list_idx, llvm_usize.const_int(1, false), "inc")
+                        .unwrap(),
                 )
                 .unwrap();
 
-            ctx.builder.position_at_end(test_bb);
-            // add and test
-            let tmp = ctx
-                .builder
-                .build_int_add(
-                    ctx.builder.build_load(i, "i").map(BasicValueEnum::into_int_value).unwrap(),
-                    step,
-                    "start_loop",
-                )
-                .unwrap();
-            ctx.builder.build_store(i, tmp).unwrap();
-            ctx.builder
-                .build_conditional_branch(
-                    gen_in_range_check(ctx, tmp, stop, step),
-                    body_bb,
-                    cont_bb,
-                )
-                .unwrap();
-
-            ctx.builder.position_at_end(body_bb);
-        }
-        TypeEnum::TObj { obj_id, .. }
-            if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
-        {
-            let list = ListType::from_unifier_type(generator, ctx, iter_ty)
-                .map_pointer_value(iter_val.into_pointer_value(), None);
-            let length = list.load_size(ctx, Some("length"));
-
-            let counter = generator.gen_var_alloc(ctx, size_t.into(), Some("counter.addr"))?;
-            // counter = -1
-            ctx.builder.build_store(counter, size_t.const_all_ones()).unwrap();
-            ctx.builder.build_unconditional_branch(test_bb).unwrap();
-
-            ctx.builder.position_at_end(test_bb);
-            let tmp =
-                ctx.builder.build_load(counter, "i").map(BasicValueEnum::into_int_value).unwrap();
-            let tmp = ctx.builder.build_int_add(tmp, size_t.const_int(1, false), "inc").unwrap();
-            ctx.builder.build_store(counter, tmp).unwrap();
-            let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, length, "cmp").unwrap();
-            ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb).unwrap();
-
-            ctx.builder.position_at_end(body_bb);
-            let arr_ptr = ctx
-                .build_gep_and_load(
-                    iter_val.into_pointer_value(),
-                    &[zero_size_t, zero_32],
-                    Some("arr.addr"),
-                )
-                .into_pointer_value();
-            let val = ctx.build_gep_and_load(arr_ptr, &[tmp], Some("val"));
-            generator.gen_assign(ctx, target, val.into(), elt.custom.unwrap())?;
-        }
-        _ => {
-            panic!(
-                "unsupported list comprehension iterator type: {}",
-                ctx.unifier.stringify(iter_ty)
+            Ok(())
+        },
+        |_, ctx, (plist_idx, piter_idx)| {
+            list.store_size(
+                ctx,
+                ctx.builder
+                    .build_load(plist_idx, "index")
+                    .map(BasicValueEnum::into_int_value)
+                    .unwrap(),
             );
-        }
-    }
 
-    // Emits the content of `cont_bb`
-    let emit_cont_bb = |ctx: &CodeGenContext<'ctx, '_>, list: ListValue<'ctx>| {
-        ctx.builder.position_at_end(cont_bb);
-        list.store_size(
-            ctx,
-            ctx.builder.build_load(index, "index").map(BasicValueEnum::into_int_value).unwrap(),
-        );
-    };
+            match &*ctx.unifier.get_ty(iter_ty) {
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
+                {
+                    let iter_val = RangeType::new(ctx)
+                        .map_pointer_value(iter_val.into_pointer_value(), Some("range"));
+                    let step = iter_val.load_step(ctx, Some("range"));
 
-    for cond in ifs {
-        let result = if let Some(v) = generator.gen_expr(ctx, cond)? {
-            v.to_basic_value_enum(ctx, generator, cond.custom.unwrap())?.into_int_value()
-        } else {
-            // Bail if the predicate is an ellipsis - Emit cont_bb contents in case the
-            // no element matches the predicate
-            emit_cont_bb(ctx, list);
+                    let iter_idx = ctx
+                        .builder
+                        .build_int_add(
+                            ctx.builder
+                                .build_load(piter_idx, "i")
+                                .map(BasicValueEnum::into_int_value)
+                                .unwrap(),
+                            step,
+                            "start_loop",
+                        )
+                        .unwrap();
+                    ctx.builder.build_store(piter_idx, iter_idx).unwrap();
+                }
 
-            return Ok(None);
-        };
-        let result = generator.bool_to_i1(ctx, result);
-        let succ = ctx.ctx.append_basic_block(current, "then");
-        ctx.builder.build_conditional_branch(result, succ, test_bb).unwrap();
+                TypeEnum::TObj { obj_id, .. }
+                    if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
+                {
+                    let iter_idx = ctx
+                        .builder
+                        .build_load(piter_idx, "i")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    let tmp = ctx
+                        .builder
+                        .build_int_add(iter_idx, llvm_usize.const_int(1, false), "inc")
+                        .unwrap();
+                    ctx.builder.build_store(piter_idx, tmp).unwrap();
+                }
 
-        ctx.builder.position_at_end(succ);
-    }
+                _ => unreachable!(),
+            };
 
-    let Some(elem) = generator.gen_expr(ctx, elt)? else {
-        // Similarly, bail if the generator expression is an ellipsis, but keep cont_bb contents
-        emit_cont_bb(ctx, list);
-
-        return Ok(None);
-    };
-    let i = ctx.builder.build_load(index, "i").map(BasicValueEnum::into_int_value).unwrap();
-    let elem_ptr =
-        unsafe { list.data().ptr_offset_unchecked(ctx, generator, &i, Some("elem_ptr")) };
-    let val = elem.to_basic_value_enum(ctx, generator, elt.custom.unwrap())?;
-    ctx.builder.build_store(elem_ptr, val).unwrap();
-    ctx.builder
-        .build_store(
-            index,
-            ctx.builder.build_int_add(i, size_t.const_int(1, false), "inc").unwrap(),
-        )
-        .unwrap();
-    ctx.builder.build_unconditional_branch(test_bb).unwrap();
-
-    emit_cont_bb(ctx, list);
+            Ok(())
+        },
+    )?;
 
     Ok(Some(list.as_abi_value(ctx).into()))
 }
