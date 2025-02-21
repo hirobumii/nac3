@@ -218,7 +218,7 @@ impl<'a> Linker<'a> {
         relocs: &[R],
         target_section: Elf32_Word,
     ) -> Result<(), Error> {
-        type RelocateFn = dyn Fn(&mut [u8], Elf32_Word);
+        type RelocateFn = fn(&mut [u8], Elf32_Word);
 
         struct RelocInfo<'a, R> {
             pub defined_val: bool,
@@ -329,16 +329,11 @@ impl<'a> Linker<'a> {
                             let expected_offset = sym_option.map_or(0, |sym| sym.st_value);
                             let indirect_reloc =
                                 relocs.iter().find(|reloc| reloc.offset() == expected_offset)?;
-                            Some(RelocInfo {
-                                defined_val: {
-                                    let indirect_sym =
-                                        self.symtab[indirect_reloc.sym_info() as usize];
-                                    indirect_sym.st_shndx != SHN_UNDEF
-                                        || ELF32_ST_BIND(indirect_sym.st_info) == STB_LOCAL
-                                },
-                                indirect_reloc: Some(indirect_reloc),
-                                pc_relative: true,
-                                relocate: Some(Box::new(|target_word, value| {
+                            let indir_type_info = indirect_reloc.type_info();
+                            let indirect_addressing = (indir_type_info == R_RISCV_CALL_PLT)
+                                || (indir_type_info == R_RISCV_GOT_HI20);
+                            let relocate = Some(Box::new(if indirect_addressing {
+                                |target_word: &mut [u8], value: u32| {
                                     // Here, we convert to direct addressing
                                     // GOT reloc (indirect) -> lw + addi
                                     // PCREL reloc (direct) -> addi
@@ -350,6 +345,46 @@ impl<'a> Linker<'a> {
                                         | ((value & 0xFFF) << 20);
 
                                     LittleEndian::write_u32(target_word, addi_insn);
+                                }
+                            } else {
+                                |target_word: &mut [u8], value: u32| {
+                                    let i_raw = LittleEndian::read_u32(target_word);
+                                    let i_insn = (i_raw & 0xFFFFF) | ((value & 0xFFF) << 20);
+                                    LittleEndian::write_u32(target_word, i_insn);
+                                }
+                            }));
+                            Some(RelocInfo {
+                                defined_val: {
+                                    let indirect_sym =
+                                        self.symtab[indirect_reloc.sym_info() as usize];
+                                    indirect_sym.st_shndx != SHN_UNDEF
+                                        || ELF32_ST_BIND(indirect_sym.st_info) == STB_LOCAL
+                                },
+                                indirect_reloc: Some(indirect_reloc),
+                                pc_relative: true,
+                                relocate,
+                            })
+                        }
+
+                        R_RISCV_PCREL_LO12_S => {
+                            let expected_offset = sym_option.map_or(0, |sym| sym.st_value);
+                            let indirect_reloc =
+                                relocs.iter().find(|reloc| reloc.offset() == expected_offset)?;
+                            Some(RelocInfo {
+                                defined_val: {
+                                    let indirect_sym =
+                                        self.symtab[indirect_reloc.sym_info() as usize];
+                                    indirect_sym.st_shndx != SHN_UNDEF
+                                        || ELF32_ST_BIND(indirect_sym.st_info) == STB_LOCAL
+                                },
+                                indirect_reloc: Some(indirect_reloc),
+                                pc_relative: true,
+                                relocate: Some(Box::new(|target_word: &mut [u8], value: u32| {
+                                    let store_raw = LittleEndian::read_u32(target_word);
+                                    let store_insn = ((value & 0x1F) << 7)
+                                        | ((value & 0xFE0) << 20)
+                                        | (store_raw & 0x1FFF07F);
+                                    LittleEndian::write_u32(target_word, store_insn);
                                 })),
                             })
                         }
@@ -620,7 +655,7 @@ impl<'a> Linker<'a> {
                     // RISC-V: Lower 12-bits relocations
                     // If the upper 20-bits relocation cannot be resolved,
                     // this relocation will be relayed to the runtime linker.
-                    (Isa::RiscV32, R_RISCV_PCREL_LO12_I) => {
+                    (Isa::RiscV32, R_RISCV_PCREL_LO12_I) | (Isa::RiscV32, R_RISCV_PCREL_LO12_S) => {
                         // Find the HI20 relocation
                         let indirect_reloc = relocs
                             .iter()
