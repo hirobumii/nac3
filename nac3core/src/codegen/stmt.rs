@@ -467,6 +467,83 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
     Ok(())
 }
 
+pub fn gen_for_pythonic<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn, OrElseFn>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    label: Option<&str>,
+    init: InitFn,
+    cond: CondFn,
+    body: BodyFn,
+    update: UpdateFn,
+    orelse: Option<OrElseFn>,
+) -> Result<(), String>
+where
+    G: CodeGenerator + ?Sized,
+    I: Clone,
+    InitFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<I, String>,
+    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<IntValue<'ctx>, String>,
+    BodyFn: FnOnce(
+        &mut G,
+        &mut CodeGenContext<'ctx, 'a>,
+        LoopHooks<'ctx>,
+        I,
+    ) -> Result<(), String>,
+    UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
+    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+{
+    // var_assignment static values may be changed in another branch
+    // if so, remove the static value as it may not be correct in this branch
+    let var_assignment = ctx.var_assignment.clone();
+
+    // if there is no orelse, we just go to cont_bb
+    let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
+    let orelse_bb = orelse.as_ref().map(|_| ctx.ctx.append_basic_block(current, "for.orelse"));
+
+    gen_for_callback(
+        generator,
+        ctx,
+        label,
+        init,
+        |generator, ctx, i| todo!(),
+        |generator, ctx, hooks, i| {
+            body(generator, ctx, hooks, i)?;
+
+            for (k, (_, _, counter)) in &var_assignment {
+                let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
+                if counter != counter2 {
+                    *static_val = None;
+                }
+            }
+
+            Ok(())
+        },
+        update,
+    )?;
+
+    if let (Some(orelse), Some(orelse_bb)) = (orelse, orelse_bb) {
+        let cont_bb = ctx.builder.get_insert_block().unwrap();
+
+        ctx.builder.position_at_end(orelse_bb);
+        orelse(generator, ctx)?;
+        if !ctx.is_terminated() {
+            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+        }
+
+        orelse_bb.move_before(cont_bb).unwrap();
+
+        for (k, (_, _, counter)) in &var_assignment {
+            let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
+            if counter != counter2 {
+                *static_val = None;
+            }
+        }
+
+        ctx.builder.position_at_end(cont_bb);
+    }
+
+    Ok(())
+}
+
 /// See [`CodeGenerator::gen_for`].
 pub fn gen_for<G: CodeGenerator>(
     generator: &mut G,
