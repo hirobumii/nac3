@@ -383,7 +383,7 @@ impl<'a> Linker<'a> {
                                     let store_raw = LittleEndian::read_u32(target_word);
                                     let store_insn = ((value & 0x1F) << 7)
                                         | ((value & 0xFE0) << 20)
-                                        | (store_raw & 0x1FFF07F);
+                                        | (store_raw & 0x01FF_F07F);
                                     LittleEndian::write_u32(target_word, store_insn);
                                 })),
                             })
@@ -655,7 +655,7 @@ impl<'a> Linker<'a> {
                     // RISC-V: Lower 12-bits relocations
                     // If the upper 20-bits relocation cannot be resolved,
                     // this relocation will be relayed to the runtime linker.
-                    (Isa::RiscV32, R_RISCV_PCREL_LO12_I) | (Isa::RiscV32, R_RISCV_PCREL_LO12_S) => {
+                    (Isa::RiscV32, R_RISCV_PCREL_LO12_I | R_RISCV_PCREL_LO12_S) => {
                         // Find the HI20 relocation
                         let indirect_reloc = relocs
                             .iter()
