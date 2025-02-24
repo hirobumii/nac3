@@ -886,6 +886,9 @@ fn rpc_codegen_callback_fn<'ctx>(
     let mut pos_index = 0usize;
 
     if let Some((_obj_ty, obj_val)) = obj {
+        if n_params == 0 {
+            return Err("Param map is empty.".to_string());
+        }
         param_map[0] = Some(obj_val);
         pos_index = 1;
     }
