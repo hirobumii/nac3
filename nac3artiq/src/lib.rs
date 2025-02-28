@@ -560,25 +560,34 @@ impl Nac3 {
 
             match &stmt.node {
                 StmtKind::FunctionDef { decorator_list, .. } => {
-                    if decorator_list
-                        .iter()
-                        .any(|decorator| decorator_id_string(decorator) == Some("rpc".to_string()))
-                    {
-                        store_fun
-                            .call1(
-                                py,
-                                (
-                                    def_id.0.into_py(py),
-                                    module.getattr(py, name.to_string().as_str()).unwrap(),
-                                ),
-                            )
-                            .unwrap();
-                        let is_async = decorator_list.iter().any(|decorator| {
-                            decorator_get_flags(decorator)
-                                .iter()
-                                .any(|constant| *constant == Constant::Str("async".into()))
-                        });
-                        rpc_ids.push((None, def_id, is_async));
+                    for decorator in decorator_list.iter() {
+                        if let Some(decorator_str) = decorator_id_string(decorator) {
+                            if decorator_str == "rpc" {
+                                store_fun
+                                    .call1(
+                                        py,
+                                        (
+                                            def_id.0.into_py(py),
+                                            module.getattr(py, name.to_string().as_str()).unwrap(),
+                                        ),
+                                    )
+                                    .unwrap();
+                                let is_async = decorator_list.iter().any(|decorator| {
+                                    decorator_get_flags(decorator)
+                                        .iter()
+                                        .any(|constant| *constant == Constant::Str("async".into()))
+                                });
+                                rpc_ids.push((None, def_id, is_async));
+                            } else if decorator_str != "kernel"
+                                && decorator_str != "portable"
+                                && decorator_str != "extern"
+                            {
+                                return Err(CompileError::new_err(format!(
+                                "compilation failed\n----------\nDecorator {} is not supported (at {})",
+                                decorator_id_string(decorator).unwrap(), stmt.location
+                            )));
+                            }
+                        }
                     }
                 }
                 StmtKind::ClassDef { name, body, .. } => {
@@ -586,21 +595,34 @@ impl Nac3 {
                     let class_obj = module.getattr(py, class_name.as_str()).unwrap();
                     for stmt in body {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
-                            if decorator_list.iter().any(|decorator| {
-                                decorator_id_string(decorator) == Some("rpc".to_string())
-                            }) {
-                                let is_async = decorator_list.iter().any(|decorator| {
-                                    decorator_get_flags(decorator)
-                                        .iter()
-                                        .any(|constant| *constant == Constant::Str("async".into()))
-                                });
-                                if name == &"__init__".into() {
-                                    return Err(CompileError::new_err(format!(
-                                        "compilation failed\n----------\nThe constructor of class {} should not be decorated with rpc decorator (at {})",
-                                        class_name, stmt.location
-                                    )));
+                            for decorator in decorator_list.iter() {
+                                if let Some(decorator_str) = decorator_id_string(decorator) {
+                                    if decorator_str == "rpc" {
+                                        let is_async = decorator_list.iter().any(|decorator| {
+                                            decorator_get_flags(decorator).iter().any(|constant| {
+                                                *constant == Constant::Str("async".into())
+                                            })
+                                        });
+                                        if name == &"__init__".into() {
+                                            return Err(CompileError::new_err(format!(
+                                                "compilation failed\n----------\nThe constructor of class {} should not be decorated with rpc decorator (at {})",
+                                                class_name, stmt.location
+                                            )));
+                                        }
+                                        rpc_ids.push((
+                                            Some((class_obj.clone(), *name)),
+                                            def_id,
+                                            is_async,
+                                        ));
+                                    } else if decorator_str != "kernel"
+                                        && decorator_str != "portable"
+                                    {
+                                        return Err(CompileError::new_err(format!(
+                                            "compilation failed\n----------\nDecorator {} is not supported (at {})",
+                                            decorator_id_string(decorator).unwrap(), stmt.location
+                                        )));
+                                    }
                                 }
-                                rpc_ids.push((Some((class_obj.clone(), *name)), def_id, is_async));
                             }
                         }
                     }
