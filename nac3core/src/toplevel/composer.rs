@@ -1234,7 +1234,7 @@ impl TopLevelComposer {
                                         ExprKind::Subscript { value, slice, .. }
                                             if matches!(
                                                 &value.node,
-                                                ast::ExprKind::Name { id, .. } if core_config.kernel_ann.map_or(false, |c| id == &c.into())
+                                                ast::ExprKind::Name { id, .. } if core_config.kernel_ann.is_some_and(|c| id == &c.into())
                                             ) =>
                                         {
                                             (slice, true)
@@ -2001,7 +2001,7 @@ impl TopLevelComposer {
                     ExprKind::Subscript { value, slice, .. }
                         if matches!(
                             &value.node,
-                            ast::ExprKind::Name { id, .. } if self.core_config.kernel_ann.map_or(false, |c| id == &c.into())
+                            ast::ExprKind::Name { id, .. } if self.core_config.kernel_ann.is_some_and(|c| id == &c.into())
                         ) =>
                     {
                         slice

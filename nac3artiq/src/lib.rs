@@ -560,7 +560,7 @@ impl Nac3 {
 
             match &stmt.node {
                 StmtKind::FunctionDef { decorator_list, .. } => {
-                    for decorator in decorator_list.iter() {
+                    for decorator in decorator_list {
                         if let Some(decorator_str) = decorator_id_string(decorator) {
                             if decorator_str == "rpc" {
                                 store_fun
@@ -595,7 +595,7 @@ impl Nac3 {
                     let class_obj = module.getattr(py, class_name.as_str()).unwrap();
                     for stmt in body {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
-                            for decorator in decorator_list.iter() {
+                            for decorator in decorator_list {
                                 if let Some(decorator_str) = decorator_id_string(decorator) {
                                     if decorator_str == "rpc" {
                                         let is_async = decorator_list.iter().any(|decorator| {

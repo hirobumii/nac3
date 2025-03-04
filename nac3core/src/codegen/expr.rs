@@ -958,7 +958,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
         } else {
             Some(ctx.get_llvm_abi_type(generator, fun.0.ret))
         };
-        let has_sret = ret_type.map_or(false, |ret_type| need_sret(ret_type));
+        let has_sret = ret_type.is_some_and(|ret_type| need_sret(ret_type));
         let mut byrefs = Vec::new();
         let mut params = args
             .iter()

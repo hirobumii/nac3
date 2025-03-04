@@ -832,7 +832,7 @@ pub fn gen_func_impl<
         ))
     };
 
-    let has_sret = ret_type.map_or(false, |ty| need_sret(ty));
+    let has_sret = ret_type.is_some_and(|ty| need_sret(ty));
     let mut params = args
         .iter()
         .filter(|arg| !arg.is_vararg)
