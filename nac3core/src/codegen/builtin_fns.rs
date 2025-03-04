@@ -1381,7 +1381,7 @@ create_helper_call_numpy_unary_elementwise_float_to_float!(
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_scipy_special_gamma,
     "sp_spec_gamma",
-    |ctx, val, _| irrt::call_gamma(ctx, val)
+    irrt::call_gamma
 );
 create_helper_call_numpy_unary_elementwise_float_to_float!(
     call_scipy_special_gammaln,

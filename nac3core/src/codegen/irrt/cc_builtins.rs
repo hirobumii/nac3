@@ -94,6 +94,7 @@ generate_f64_nary_fn!(call_expm1, expm1, arg);
 generate_f64_nary_fn!(call_cbrt, cbrt, arg);
 generate_f64_nary_fn!(call_erf, erf, arg);
 generate_f64_nary_fn!(call_erfc, erfc, arg);
+generate_f64_nary_fn!(call_gamma, gamma, z);
 generate_f64_nary_fn!(call_atan2, atan2, y, x);
 generate_f64_nary_fn!(call_hypot, hypot, x, y);
 generate_f64_nary_fn!(call_nextafter, nextafter, from, to);

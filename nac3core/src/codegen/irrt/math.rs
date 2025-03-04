@@ -59,24 +59,6 @@ pub fn integer_power<'ctx, G: CodeGenerator + ?Sized>(
     .unwrap()
 }
 
-/// Generates a call to `gamma` in IR. Returns an `f64` representing the result.
-pub fn call_gamma<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
-    let llvm_f64 = ctx.ctx.f64_type();
-
-    assert_eq!(v.get_type(), llvm_f64);
-
-    infer_and_call_function(
-        ctx,
-        "__nac3_gamma",
-        Some(llvm_f64.into()),
-        &[v.into()],
-        Some("gamma"),
-        None,
-    )
-    .map(BasicValueEnum::into_float_value)
-    .unwrap()
-}
-
 /// Generates a call to `gammaln` in IR. Returns an `f64` representing the result.
 pub fn call_gammaln<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();

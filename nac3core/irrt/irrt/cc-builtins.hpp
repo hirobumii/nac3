@@ -23,6 +23,10 @@ DEF_builtin_unary(double, cbrt, double);
 DEF_builtin_unary(double, erf, double);
 DEF_builtin_unary(double, erfc, double);
 
+#define __builtin_gamma __builtin_tgamma
+DEF_builtin_unary(double, gamma, double);
+#undef __builtin_gamma
+
 DEF_builtin_binary(double, atan2, double, double);
 DEF_builtin_binary(double, hypot, double, double);
 DEF_builtin_binary(double, nextafter, double, double);
