@@ -516,8 +516,16 @@ fn format_rpc_arg<'ctx>(
                 ctx.builder.build_int_truncate_or_bit_cast(sizeof_pdata, llvm_usize, "").unwrap();
 
             let sizeof_buf_shape = ctx.builder.build_int_mul(sizeof_usize, ndims, "").unwrap();
-            let sizeof_buf = ctx.builder.build_int_add(sizeof_buf_shape, sizeof_pdata, "").unwrap();
 
+            let alignment = llvm_usize.const_int(8, false);
+            let sizeof_buf = ctx
+                .builder
+                .build_int_add(
+                    sizeof_buf_shape,
+                    ctx.builder.build_int_add(sizeof_pdata, alignment, "").unwrap(),
+                    "",
+                )
+                .unwrap();
             // buf = { data: void*, shape: [size_t; ndims]; }
             let buf = ctx.builder.build_array_alloca(llvm_i8, sizeof_buf, "rpc.arg").unwrap();
             let buf = ArraySliceValue::from_ptr_val(buf, sizeof_buf, Some("rpc.arg"));
@@ -528,12 +536,46 @@ fn format_rpc_arg<'ctx>(
             // Write to `buf->data`
             let carray_data = carray.load_data(ctx);
             let carray_data = ctx.builder.build_pointer_cast(carray_data, llvm_pi8, "").unwrap();
+            if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+                let dst_size = sizeof_pdata;
+                let src_size = sizeof_pdata;
+                let cmp = ctx
+                    .builder
+                    .build_int_compare(IntPredicate::ULE, src_size, dst_size, "buffer_size_check1")
+                    .unwrap();
+                ctx.make_assert(
+                    generator,
+                    cmp,
+                    "0:AssertionError",
+                    "Buffer overflow risk in RPC data copy: source size {0} exceeds destination size {1}",
+                    [Some(src_size), Some(dst_size), None],
+                    ctx.current_loc,
+                );
+            }
             call_memcpy(ctx, buf_data, carray_data, sizeof_pdata);
 
             // Write to `buf->shape`
             let carray_shape = ndarray.shape().base_ptr(ctx, generator);
             let carray_shape_i8 =
                 ctx.builder.build_pointer_cast(carray_shape, llvm_pi8, "").unwrap();
+            // Safety check for buffer overflow
+            if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+                let dst_size = sizeof_buf_shape;
+                let src_size = sizeof_buf_shape;
+                let cmp = ctx
+                    .builder
+                    .build_int_compare(IntPredicate::ULE, src_size, dst_size, "buffer_size_check2")
+                    .unwrap();
+
+                ctx.make_assert(
+                    generator,
+                    cmp,
+                    "0:AssertionError",
+                    "Buffer overflow risk in RPC shape copy: source size {0} exceeds destination size {1}",
+                    [Some(src_size), Some(dst_size), None],
+                    ctx.current_loc,
+                );
+            }
             call_memcpy(ctx, buf_shape, carray_shape_i8, sizeof_buf_shape);
 
             buf.base_ptr(ctx, generator)
@@ -562,6 +604,7 @@ fn format_rpc_ret<'ctx>(
     generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, '_>,
     ret_ty: Type,
+    is_async: bool,
 ) -> Option<BasicValueEnum<'ctx>> {
     // -- receive value:
     // T result = {
@@ -589,6 +632,7 @@ fn format_rpc_ret<'ctx>(
         return None;
     }
 
+    let stackptr = call_stacksave(ctx, Some("rpc.stack.ret"));
     let prehead_bb = ctx.builder.get_insert_block().unwrap();
     let current_function = prehead_bb.get_parent().unwrap();
     let head_bb = ctx.ctx.append_basic_block(current_function, "rpc.head");
@@ -659,14 +703,9 @@ fn format_rpc_ret<'ctx>(
             let unaligned_buffer_size =
                 ctx.builder.build_int_add(sizeof_ptr, sizeof_shape, "").unwrap();
 
-            let stackptr = call_stacksave(ctx, None);
-            let buffer = type_aligned_alloca(
-                generator,
-                ctx,
-                llvm_i8_8,
-                unaligned_buffer_size,
-                Some("rpc.buffer"),
-            );
+            let stackptr = call_stacksave(ctx, Some("rpc.stack.ret"));
+            let buffer =
+                type_aligned_alloca(generator, ctx, llvm_i8_8, sizeof_ptr, Some("rpc.buffer"));
             let buffer = ArraySliceValue::from_ptr_val(buffer, unaligned_buffer_size, None);
 
             // The first call to `rpc_recv` reads the top-level ndarray object: [pdata, shape]
@@ -817,6 +856,9 @@ fn format_rpc_ret<'ctx>(
         }
     };
 
+    if !is_async && !result.get_type().is_pointer_type() {
+        call_stackrestore(ctx, stackptr);
+    }
     Some(result)
 }
 
@@ -835,13 +877,23 @@ fn rpc_codegen_callback_fn<'ctx>(
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
     let service_id = int32.const_int(fun.1 .0 as u64, false);
+    let stackptr = call_stacksave(ctx, Some("rpc.stack"));
     // -- setup rpc tags
     let mut tag = Vec::new();
     if obj.is_some() {
         tag.push(b'O');
     }
+    // first process argument types
     for arg in &fun.0.args {
         gen_rpc_tag(ctx, arg.ty, &mut tag)?;
+    }
+    tag.push(b'|');
+    // add parameter names for keyword lookup
+    for arg in &fun.0.args {
+        let name_str = arg.name.to_string();
+        let name_bytes = name_str.as_bytes();
+        tag.push(name_bytes.len() as u8);
+        tag.extend_from_slice(name_bytes);
     }
     tag.push(b':');
     gen_rpc_tag(ctx, fun.0.ret, &mut tag)?;
@@ -875,8 +927,96 @@ fn rpc_codegen_callback_fn<'ctx>(
             tag_ptr
         })
         .as_pointer_value();
+    let mut positional_args: Vec<ValueEnum<'ctx>> = Vec::new();
+    let mut keyword_args: Vec<(StrRef, ValueEnum<'ctx>)> = Vec::new();
 
-    let arg_length = args.len() + usize::from(obj.is_some());
+    for (key, value) in args {
+        if let Some(name) = key {
+            keyword_args.push((name, value));
+        } else {
+            positional_args.push(value);
+        }
+    }
+    let mut param_assigned = HashMap::new();
+    for arg in &fun.0.args {
+        param_assigned.insert(arg.name, false);
+    }
+
+    let mut mapping = HashMap::new();
+
+    // process positional arguments
+    let mut pos_idx = 0;
+    let pos_args_iter = positional_args.into_iter();
+
+    for value in pos_args_iter {
+        // skip parameters assigned by keyword
+        while pos_idx < fun.0.args.len() {
+            let param_name = &fun.0.args[pos_idx].name;
+            if keyword_args.iter().any(|(name, _)| name == param_name) {
+                pos_idx += 1;
+                continue;
+            }
+            break;
+        }
+        if pos_idx >= fun.0.args.len() {
+            call_stackrestore(ctx, stackptr);
+            return Err("Too many positional arguments for RPC call".to_string());
+        }
+        let param_name = &fun.0.args[pos_idx].name;
+        mapping.insert(*param_name, value);
+        param_assigned.insert(*param_name, true);
+        pos_idx += 1;
+    }
+
+    // process keyword arguments
+    for (name, value) in keyword_args {
+        // check the parameter exists
+        if !fun.0.args.iter().any(|arg| arg.name == name) {
+            call_stackrestore(ctx, stackptr);
+            return Err(format!("Unknown parameter name '{name}' in RPC call"));
+        }
+        // check for duplicate assignment
+        if param_assigned[&name] {
+            call_stackrestore(ctx, stackptr);
+            return Err(format!("Parameter '{name}' specified multiple times in RPC call"));
+        }
+        mapping.insert(name, value);
+        param_assigned.insert(name, true);
+    }
+
+    // if default values for unassigned parameters
+    for arg in &fun.0.args {
+        if !param_assigned[&arg.name] {
+            if let Some(default_value) = &arg.default_value {
+                mapping
+                    .insert(arg.name, ctx.gen_symbol_val(generator, default_value, arg.ty).into());
+            } else {
+                call_stackrestore(ctx, stackptr);
+                return Err(format!("Missing required argument '{}' in RPC call", arg.name));
+            }
+        }
+    }
+
+    // arrange param for funsignature
+    let mut real_params = Vec::new();
+
+    for arg in &fun.0.args {
+        let value = mapping.get(&arg.name).unwrap().clone();
+        let llvm_val = value.to_basic_value_enum(ctx, generator, arg.ty)?;
+        real_params.push((llvm_val, arg.ty));
+    }
+
+    if let Some(obj) = obj {
+        if let ValueEnum::Static(obj_val) = obj.1 {
+            real_params.insert(0, (obj_val.get_const_obj(ctx, generator), obj.0));
+        } else {
+            // should be an error here...
+            panic!("only host object is allowed");
+        }
+    }
+
+    // encode kwwarg
+    let arg_length = real_params.len();
 
     let stackptr = call_stacksave(ctx, Some("rpc.stack"));
     let args_ptr = ctx
@@ -887,39 +1027,6 @@ fn rpc_codegen_callback_fn<'ctx>(
             "argptr",
         )
         .unwrap();
-
-    // -- rpc args handling
-    let mut keys = fun.0.args.clone();
-    let mut mapping = HashMap::new();
-    for (key, value) in args {
-        mapping.insert(key.unwrap_or_else(|| keys.remove(0).name), value);
-    }
-    // default value handling
-    for k in keys {
-        mapping
-            .insert(k.name, ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty).into());
-    }
-    // reorder the parameters
-    let mut real_params = fun
-        .0
-        .args
-        .iter()
-        .map(|arg| {
-            mapping
-                .remove(&arg.name)
-                .unwrap()
-                .to_basic_value_enum(ctx, generator, arg.ty)
-                .map(|llvm_val| (llvm_val, arg.ty))
-        })
-        .collect::<Result<Vec<(_, _)>, _>>()?;
-    if let Some(obj) = obj {
-        if let ValueEnum::Static(obj_val) = obj.1 {
-            real_params.insert(0, (obj_val.get_const_obj(ctx, generator), obj.0));
-        } else {
-            // should be an error here...
-            panic!("only host object is allowed");
-        }
-    }
 
     for (i, (arg, arg_ty)) in real_params.iter().enumerate() {
         let arg_slot = format_rpc_arg(generator, ctx, (*arg, *arg_ty, i));
@@ -933,7 +1040,6 @@ fn rpc_codegen_callback_fn<'ctx>(
         .unwrap();
         ctx.builder.build_store(arg_ptr, arg_slot).unwrap();
     }
-
     // call
     infer_and_call_function(
         ctx,
@@ -951,10 +1057,10 @@ fn rpc_codegen_callback_fn<'ctx>(
         // async RPCs do not return any values
         Ok(None)
     } else {
-        let result = format_rpc_ret(generator, ctx, fun.0.ret);
-
-        if !result.is_some_and(|res| res.get_type().is_pointer_type()) {
-            // An RPC returning an NDArray would not touch here.
+        // An RPC returning an NDArray would not touch here.
+        let result = format_rpc_ret(generator, ctx, fun.0.ret, is_async);
+        let is_pointer = result.is_some_and(|val| val.get_type().is_pointer_type());
+        if !is_pointer {
             call_stackrestore(ctx, stackptr);
         }
 
@@ -1560,3 +1666,4 @@ pub fn gen_rtio_log<'ctx>(
 
     call_rtio_log_impl(ctx, generator, channel_arg, (value_ty, value_arg))
 }
+
