@@ -820,69 +820,6 @@ fn format_rpc_ret<'ctx>(
     Some(result)
 }
 
-pub fn process_rpc_args<'ctx>(
-    fun: &FunSignature,
-    provided_args: Vec<(Option<String>, ValueEnum<'ctx>)>,
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    generator: &mut dyn crate::codegen::CodeGenerator,
-) -> Result<Vec<(nac3core::inkwell::values::BasicValueEnum<'ctx>, Type)>, String> {
-    // Build a map from parameter name to value.
-    let mut mapping: HashMap<String, ValueEnum<'ctx>> = HashMap::new();
-    // Create an iterator for the parameters (for positional arguments)
-    let mut pos_params = fun.args.iter();
-    
-    // Process the provided arguments.
-    for (maybe_key, value) in provided_args {
-        if let Some(key) = maybe_key {
-            // A keyword argument: check that this key exists in the signature.
-            if !fun.args.iter().any(|p| p.name == key) {
-                return Err(format!("Unknown keyword argument: {}", key));
-            }
-            // Also ensure that we don’t assign twice.
-            if mapping.contains_key(&key) {
-                return Err(format!("Multiple values for argument '{}'", key));
-            }
-            mapping.insert(key, value);
-        } else {
-            // A positional argument: use the next parameter in the signature.
-            if let Some(param) = pos_params.next() {
-                if mapping.contains_key(&param.name) {
-                    return Err(format!("Multiple values for parameter '{}'", param.name));
-                }
-                mapping.insert(param.name.clone(), value);
-            } else {
-                return Err("Too many positional arguments for the function".into());
-            }
-        }
-    }
-    
-    // Now, for every parameter in the signature that was not provided,
-    // insert its default value if available.
-    for param in &fun.args {
-        if !mapping.contains_key(&param.name) {
-            if let Some(ref default_expr) = param.default_value {
-                let default_value = ctx.gen_symbol_val(generator, default_expr, param.ty)
-                    .map_err(|e| format!("Error generating default for {}: {}", param.name, e))?;
-                mapping.insert(param.name.clone(), default_value);
-            } else {
-                return Err(format!("Missing required argument: {}", param.name));
-            }
-        }
-    }
-    
-    // Finally, reorder the arguments into a vector matching the function signature.
-    let mut result = Vec::with_capacity(fun.args.len());
-    for param in &fun.args {
-        let value_enum = mapping.remove(&param.name)
-            .ok_or_else(|| format!("No value for parameter '{}'", param.name))?;
-        let llvm_val = value_enum.to_basic_value_enum(ctx, generator, param.ty)
-            .map_err(|e| format!("Error converting parameter {}: {}", param.name, e))?;
-        result.push((llvm_val, param.ty));
-    }
-    
-    Ok(result)
-}
-
 fn rpc_codegen_callback_fn<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     obj: Option<(Type, ValueEnum<'ctx>)>,
@@ -891,17 +828,14 @@ fn rpc_codegen_callback_fn<'ctx>(
     generator: &mut dyn CodeGenerator,
     is_async: bool,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-    // Set up our basic LLVM types.
     let int8 = ctx.ctx.i8_type();
     let int32 = ctx.ctx.i32_type();
     let size_type = ctx.get_size_type();
     let ptr_type = int8.ptr_type(AddressSpace::default());
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
-    // Create the service id from the DefinitionId (casting to u64 as needed).
     let service_id = int32.const_int(fun.1 .0 as u64, false);
-
-    // -- setup RPC tags (unchanged)
+    // -- setup rpc tags
     let mut tag = Vec::new();
     if obj.is_some() {
         tag.push(b'O');
@@ -926,9 +860,7 @@ fn rpc_codegen_callback_fn<'ctx>(
                 format!("tagptr{}", fun.1 .0).as_str(),
             );
             tag_arr_ptr.set_initializer(&int8.const_array(
-                &tag.iter()
-                    .map(|v| int8.const_int(u64::from(*v), false))
-                    .collect::<Vec<_>>(),
+                &tag.iter().map(|v| int8.const_int(u64::from(*v), false)).collect::<Vec<_>>(),
             ));
             tag_arr_ptr.set_linkage(Linkage::Private);
             let tag_ptr = ctx.module.add_global(tag_ptr_type, None, &hash);
@@ -944,27 +876,8 @@ fn rpc_codegen_callback_fn<'ctx>(
         })
         .as_pointer_value();
 
-    // --- Process RPC arguments using our helper.
-    // We first convert our incoming keys (Option<StrRef>) to Option<String>
-    let provided_args: Vec<(Option<String>, ValueEnum<'ctx>)> = args
-        .into_iter()
-        .map(|(opt_key, value)| (opt_key.map(|s| s.to_string()), value))
-        .collect();
+    let arg_length = args.len() + usize::from(obj.is_some());
 
-    // Call the helper to get the vector of (LLVM value, type) pairs in signature order.
-    let mut real_params = process_rpc_args(fun.0, provided_args, ctx, generator)?;
-
-    // If a host object was provided, insert it as the first argument.
-    if let Some(obj) = obj {
-        if let ValueEnum::Static(obj_val) = obj.1 {
-            real_params.insert(0, (obj_val.get_const_obj(ctx, generator), obj.0));
-        } else {
-            return Err("only host object is allowed".into());
-        }
-    }
-
-    // Now allocate space for the argument pointer array.
-    let arg_length = real_params.len();
     let stackptr = call_stacksave(ctx, Some("rpc.stack"));
     let args_ptr = ctx
         .builder
@@ -975,9 +888,41 @@ fn rpc_codegen_callback_fn<'ctx>(
         )
         .unwrap();
 
-    // For each argument in order, store its pointer value into the array.
-    for (i, (llvm_val, arg_ty)) in real_params.iter().enumerate() {
-        let arg_slot = format_rpc_arg(generator, ctx, (*llvm_val, *arg_ty, i));
+    // -- rpc args handling
+    let mut keys = fun.0.args.clone();
+    let mut mapping = HashMap::new();
+    for (key, value) in args {
+        mapping.insert(key.unwrap_or_else(|| keys.remove(0).name), value);
+    }
+    // default value handling
+    for k in keys {
+        mapping
+            .insert(k.name, ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty).into());
+    }
+    // reorder the parameters
+    let mut real_params = fun
+        .0
+        .args
+        .iter()
+        .map(|arg| {
+            mapping
+                .remove(&arg.name)
+                .unwrap()
+                .to_basic_value_enum(ctx, generator, arg.ty)
+                .map(|llvm_val| (llvm_val, arg.ty))
+        })
+        .collect::<Result<Vec<(_, _)>, _>>()?;
+    if let Some(obj) = obj {
+        if let ValueEnum::Static(obj_val) = obj.1 {
+            real_params.insert(0, (obj_val.get_const_obj(ctx, generator), obj.0));
+        } else {
+            // should be an error here...
+            panic!("only host object is allowed");
+        }
+    }
+
+    for (i, (arg, arg_ty)) in real_params.iter().enumerate() {
+        let arg_slot = format_rpc_arg(generator, ctx, (*arg, *arg_ty, i));
         let arg_ptr = unsafe {
             ctx.builder.build_gep(
                 args_ptr,
@@ -989,7 +934,7 @@ fn rpc_codegen_callback_fn<'ctx>(
         ctx.builder.build_store(arg_ptr, arg_slot).unwrap();
     }
 
-    // Now perform the RPC call.
+    // call
     infer_and_call_function(
         ctx,
         if is_async { "rpc_send_async" } else { "rpc_send" },
@@ -999,18 +944,20 @@ fn rpc_codegen_callback_fn<'ctx>(
         None,
     );
 
-    // Reclaim stack space used for the arguments.
+    // reclaim stack space used by arguments
     call_stackrestore(ctx, stackptr);
 
     if is_async {
-        // For asynchronous RPCs, no return value is expected.
+        // async RPCs do not return any values
         Ok(None)
     } else {
         let result = format_rpc_ret(generator, ctx, fun.0.ret);
+
         if !result.is_some_and(|res| res.get_type().is_pointer_type()) {
-            // For RPCs not returning a pointer (e.g. non-NDArray values), reclaim the stack space.
+            // An RPC returning an NDArray would not touch here.
             call_stackrestore(ctx, stackptr);
         }
+
         Ok(result)
     }
 }
