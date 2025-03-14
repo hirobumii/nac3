@@ -50,6 +50,7 @@ in rec {
       cd llvm
       # build of llvm-lto fails and -DLLVM_BUILD_TOOLS=OFF does not disable it reliably because cmake
       rm -rf tools/lto
+      rm -rf tools/sancov
       '';
     configurePhase =
       ''
