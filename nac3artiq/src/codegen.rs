@@ -877,42 +877,47 @@ fn rpc_codegen_callback_fn<'ctx>(
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
     let service_id = int32.const_int(fun.1 .0 as u64, false);
-    let stackptr = call_stacksave(ctx, Some("rpc.stack"));
-    // -- setup rpc tags
+    // build the RPC tag with keyword
     let mut tag = Vec::new();
+
+    //if there is an object (self), mark it
     if obj.is_some() {
         tag.push(b'O');
     }
-    // first process argument types
+    //for each parameter
     for arg in &fun.0.args {
         gen_rpc_tag(ctx, arg.ty, &mut tag)?;
     }
     tag.push(b'|');
-    // add parameter names for keyword lookup
     for arg in &fun.0.args {
-        let name_str = arg.name.to_string();
-        let name_bytes = name_str.as_bytes();
+        let name_string = arg.name.to_string();
+        let name_bytes = name_string.as_bytes();
+        if name_bytes.len() > 255 {
+            return Err(format!("Parameter name too long: '{}'", arg.name));
+        }
         tag.push(name_bytes.len() as u8);
         tag.extend_from_slice(name_bytes);
     }
     tag.push(b':');
     gen_rpc_tag(ctx, fun.0.ret, &mut tag)?;
 
+    //show the constructed RPC tag.
+    println!("Constructed RPC tag: {tag:?}");
+
     let mut hasher = DefaultHasher::new();
     tag.hash(&mut hasher);
     let hash = format!("{}", hasher.finish());
-
     let tag_ptr = ctx
         .module
-        .get_global(hash.as_str())
+        .get_global(&hash)
         .unwrap_or_else(|| {
             let tag_arr_ptr = ctx.module.add_global(
                 int8.array_type(tag.len() as u32),
                 None,
-                format!("tagptr{}", fun.1 .0).as_str(),
+                &format!("tag_array_{hash}"),
             );
             tag_arr_ptr.set_initializer(&int8.const_array(
-                &tag.iter().map(|v| int8.const_int(u64::from(*v), false)).collect::<Vec<_>>(),
+                &tag.iter().map(|&b| int8.const_int(b as u64, false)).collect::<Vec<_>>(),
             ));
             tag_arr_ptr.set_linkage(Linkage::Private);
             let tag_ptr = ctx.module.add_global(tag_ptr_type, None, &hash);
@@ -927,97 +932,8 @@ fn rpc_codegen_callback_fn<'ctx>(
             tag_ptr
         })
         .as_pointer_value();
-    let mut positional_args: Vec<ValueEnum<'ctx>> = Vec::new();
-    let mut keyword_args: Vec<(StrRef, ValueEnum<'ctx>)> = Vec::new();
 
-    for (key, value) in args {
-        if let Some(name) = key {
-            keyword_args.push((name, value));
-        } else {
-            positional_args.push(value);
-        }
-    }
-    let mut param_assigned = HashMap::new();
-    for arg in &fun.0.args {
-        param_assigned.insert(arg.name, false);
-    }
-
-    let mut mapping = HashMap::new();
-
-    // process positional arguments
-    let mut pos_idx = 0;
-    let pos_args_iter = positional_args.into_iter();
-
-    for value in pos_args_iter {
-        // skip parameters assigned by keyword
-        while pos_idx < fun.0.args.len() {
-            let param_name = &fun.0.args[pos_idx].name;
-            if keyword_args.iter().any(|(name, _)| name == param_name) {
-                pos_idx += 1;
-                continue;
-            }
-            break;
-        }
-        if pos_idx >= fun.0.args.len() {
-            call_stackrestore(ctx, stackptr);
-            return Err("Too many positional arguments for RPC call".to_string());
-        }
-        let param_name = &fun.0.args[pos_idx].name;
-        mapping.insert(*param_name, value);
-        param_assigned.insert(*param_name, true);
-        pos_idx += 1;
-    }
-
-    // process keyword arguments
-    for (name, value) in keyword_args {
-        // check the parameter exists
-        if !fun.0.args.iter().any(|arg| arg.name == name) {
-            call_stackrestore(ctx, stackptr);
-            return Err(format!("Unknown parameter name '{name}' in RPC call"));
-        }
-        // check for duplicate assignment
-        if param_assigned[&name] {
-            call_stackrestore(ctx, stackptr);
-            return Err(format!("Parameter '{name}' specified multiple times in RPC call"));
-        }
-        mapping.insert(name, value);
-        param_assigned.insert(name, true);
-    }
-
-    // if default values for unassigned parameters
-    for arg in &fun.0.args {
-        if !param_assigned[&arg.name] {
-            if let Some(default_value) = &arg.default_value {
-                mapping
-                    .insert(arg.name, ctx.gen_symbol_val(generator, default_value, arg.ty).into());
-            } else {
-                call_stackrestore(ctx, stackptr);
-                return Err(format!("Missing required argument '{}' in RPC call", arg.name));
-            }
-        }
-    }
-
-    // arrange param for funsignature
-    let mut real_params = Vec::new();
-
-    for arg in &fun.0.args {
-        let value = mapping.get(&arg.name).unwrap().clone();
-        let llvm_val = value.to_basic_value_enum(ctx, generator, arg.ty)?;
-        real_params.push((llvm_val, arg.ty));
-    }
-
-    if let Some(obj) = obj {
-        if let ValueEnum::Static(obj_val) = obj.1 {
-            real_params.insert(0, (obj_val.get_const_obj(ctx, generator), obj.0));
-        } else {
-            // should be an error here...
-            panic!("only host object is allowed");
-        }
-    }
-
-    // encode kwwarg
-    let arg_length = real_params.len();
-
+    let arg_length = args.len() + usize::from(obj.is_some());
     let stackptr = call_stacksave(ctx, Some("rpc.stack"));
     let args_ptr = ctx
         .builder
@@ -1028,6 +944,40 @@ fn rpc_codegen_callback_fn<'ctx>(
         )
         .unwrap();
 
+    let mut keys = fun.0.args.clone();
+    let mut mapping = HashMap::new();
+    for (maybe_key, value) in args {
+        let param_name = match maybe_key {
+            Some(k) => {
+                keys.retain(|p| p.name != k);
+                k
+            }
+            None => keys.remove(0).name,
+        };
+        mapping.insert(param_name, value);
+    }
+    for k in keys {
+        mapping.insert(
+            k.name,
+            ctx.gen_symbol_val(generator, k.default_value.as_ref().unwrap(), k.ty).into(),
+        );
+    }
+
+    let mut real_params = Vec::new();
+    for arg in &fun.0.args {
+        let value = mapping.remove(&arg.name).unwrap_or_else(|| {
+            ctx.gen_symbol_val(generator, arg.default_value.as_ref().unwrap(), arg.ty).into()
+        });
+        let llvm_val = value.to_basic_value_enum(ctx, generator, arg.ty)?;
+        real_params.push((llvm_val, arg.ty));
+    }
+    if let Some(obj) = obj {
+        if let ValueEnum::Static(obj_val) = obj.1 {
+            real_params.insert(0, (obj_val.get_const_obj(ctx, generator), obj.0));
+        } else {
+            panic!("Only host objects are allowed for 'self'");
+        }
+    }
     for (i, (arg, arg_ty)) in real_params.iter().enumerate() {
         let arg_slot = format_rpc_arg(generator, ctx, (*arg, *arg_ty, i));
         let arg_ptr = unsafe {
@@ -1040,7 +990,6 @@ fn rpc_codegen_callback_fn<'ctx>(
         .unwrap();
         ctx.builder.build_store(arg_ptr, arg_slot).unwrap();
     }
-    // call
     infer_and_call_function(
         ctx,
         if is_async { "rpc_send_async" } else { "rpc_send" },
@@ -1050,20 +999,15 @@ fn rpc_codegen_callback_fn<'ctx>(
         None,
     );
 
-    // reclaim stack space used by arguments
     call_stackrestore(ctx, stackptr);
 
     if is_async {
-        // async RPCs do not return any values
         Ok(None)
     } else {
-        // An RPC returning an NDArray would not touch here.
-        let result = format_rpc_ret(generator, ctx, fun.0.ret, is_async);
-        let is_pointer = result.is_some_and(|val| val.get_type().is_pointer_type());
-        if !is_pointer {
+        let result = format_rpc_ret(generator, ctx, fun.0.ret, false);
+        if !result.is_some_and(|res| res.get_type().is_pointer_type()) {
             call_stackrestore(ctx, stackptr);
         }
-
         Ok(result)
     }
 }
@@ -1666,4 +1610,3 @@ pub fn gen_rtio_log<'ctx>(
 
     call_rtio_log_impl(ctx, generator, channel_arg, (value_ty, value_arg))
 }
-
