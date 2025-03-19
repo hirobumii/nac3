@@ -880,11 +880,9 @@ fn rpc_codegen_callback_fn<'ctx>(
     // build the RPC tag with keyword
     let mut tag = Vec::new();
 
-    //if there is an object (self), mark it
     if obj.is_some() {
         tag.push(b'O');
     }
-    //for each parameter
     for arg in &fun.0.args {
         gen_rpc_tag(ctx, arg.ty, &mut tag)?;
     }
@@ -901,8 +899,14 @@ fn rpc_codegen_callback_fn<'ctx>(
     tag.push(b':');
     gen_rpc_tag(ctx, fun.0.ret, &mut tag)?;
 
-    //show the constructed RPC tag.
+    let marker = b'K';
+    if obj.is_some() {
+        tag.insert(1, marker);
+    } else {
+        tag.insert(0, marker);
+    }
     println!("Constructed RPC tag: {tag:?}");
+    io::stdout().flush().unwrap();
 
     let mut hasher = DefaultHasher::new();
     tag.hash(&mut hasher);
@@ -917,7 +921,7 @@ fn rpc_codegen_callback_fn<'ctx>(
                 &format!("tag_array_{hash}"),
             );
             tag_arr_ptr.set_initializer(&int8.const_array(
-                &tag.iter().map(|&b| int8.const_int(b as u64, false)).collect::<Vec<_>>(),
+                &tag.iter().map(|&b| int8.const_int(u64::from(b), false)).collect::<Vec<_>>(),
             ));
             tag_arr_ptr.set_linkage(Linkage::Private);
             let tag_ptr = ctx.module.add_global(tag_ptr_type, None, &hash);
@@ -945,40 +949,66 @@ fn rpc_codegen_callback_fn<'ctx>(
         .unwrap();
 
     let mut keys = fun.0.args.clone();
+    println!(
+        "Initial parameter keys: {:#?}",
+        keys.iter().map(|p| p.name.to_string()).collect::<Vec<_>>()
+    );
     let mut mapping = HashMap::new();
     for (maybe_key, value) in args {
-        let param_name = match maybe_key {
-            Some(k) => {
-                keys.retain(|p| p.name != k);
-                k
-            }
-            None => keys.remove(0).name,
+        let key_str = if let Some(k) = maybe_key {
+            let s = k.to_string();
+            println!("Received keyword argument: {s}");
+            keys.retain(|p| p.name.to_string() != s);
+            s
+        } else {
+            let removed = keys.remove(0).name.to_string();
+            println!("Received positional argument; assigned to parameter: {removed}");
+            removed
         };
-        mapping.insert(param_name, value);
+        println!("Mapping parameter {key_str} to value <value>");
+        mapping.insert(key_str, value);
     }
     for k in keys {
-        mapping.insert(
-            k.name,
-            ctx.gen_symbol_val(generator, k.default_value.as_ref().unwrap(), k.ty).into(),
-        );
+        let key_str = k.name.to_string();
+        println!("No argument provided for parameter {key_str}; using default");
+        if let Some(default_val) = k.default_value.as_ref() {
+            mapping.insert(key_str, ctx.gen_symbol_val(generator, default_val, k.ty).into());
+        } else {
+            return Err(format!(
+                "No argument provided for parameter '{}' and no default value exists",
+                k.name
+            ));
+        }
     }
-
     let mut real_params = Vec::new();
     for arg in &fun.0.args {
-        let value = mapping.remove(&arg.name).unwrap_or_else(|| {
-            ctx.gen_symbol_val(generator, arg.default_value.as_ref().unwrap(), arg.ty).into()
-        });
+        let key_str = arg.name.to_string();
+        println!("Looking up parameter: {key_str}");
+        let value = if let Some(val) = mapping.remove(&key_str) {
+            println!("Parameter {key_str} mapped to value: <value>");
+            val
+        } else if let Some(default_val) = arg.default_value.as_ref() {
+            println!("Parameter {key_str} not found; using default");
+            ctx.gen_symbol_val(generator, default_val, arg.ty).into()
+        } else {
+            return Err(format!(
+                "No argument provided for parameter '{}' and no default value exists",
+                arg.name
+            ));
+        };
         let llvm_val = value.to_basic_value_enum(ctx, generator, arg.ty)?;
         real_params.push((llvm_val, arg.ty));
     }
     if let Some(obj) = obj {
+        println!("Inserting object parameter");
         if let ValueEnum::Static(obj_val) = obj.1 {
             real_params.insert(0, (obj_val.get_const_obj(ctx, generator), obj.0));
         } else {
-            panic!("Only host objects are allowed for 'self'");
+            return Err("Only host objects are allowed for 'self'".into());
         }
     }
     for (i, (arg, arg_ty)) in real_params.iter().enumerate() {
+        println!("Storing parameter {i}: type <type>, value <value>");
         let arg_slot = format_rpc_arg(generator, ctx, (*arg, *arg_ty, i));
         let arg_ptr = unsafe {
             ctx.builder.build_gep(
@@ -1004,7 +1034,11 @@ fn rpc_codegen_callback_fn<'ctx>(
     if is_async {
         Ok(None)
     } else {
-        let result = format_rpc_ret(generator, ctx, fun.0.ret, false);
+        let result = format_rpc_ret(generator, ctx, fun.0.ret);
+        println!(
+            "Computed RPC return: {}",
+            result.as_ref().map_or("<None>".to_string(), ToString::to_string)
+        );
         if !result.is_some_and(|res| res.get_type().is_pointer_type()) {
             call_stackrestore(ctx, stackptr);
         }
