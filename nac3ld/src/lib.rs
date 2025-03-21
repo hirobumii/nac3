@@ -237,6 +237,11 @@ impl<'a> Linker<'a> {
         }
 
         for reloc in relocs {
+            // Skip NONE type relocations. It is 0 across all targets.
+            if reloc.type_info() == 0 {
+                continue;
+            }
+
             let sym = match reloc.sym_info() as usize {
                 STN_UNDEF => None,
                 sym_index => {
@@ -678,6 +683,9 @@ impl<'a> Linker<'a> {
                             rela_dyn_sym_indices.push(reloc.sym_info());
                         }
                     }
+
+                    // Discard NONE relocations
+                    (Isa::CortexA9, R_ARM_NONE) | (Isa::RiscV32, R_RISCV_NONE) => (),
 
                     _ => {
                         println!("Relocation type 0x{:X?} is not supported", reloc.type_info());
