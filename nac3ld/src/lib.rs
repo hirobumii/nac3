@@ -1226,8 +1226,6 @@ impl<'a> Linker<'a> {
         let dynamic_elf_index =
             linker.load_section(&dynamic_shdr, ".dynamic", from_struct_slice(&dyn_entries));
 
-        let last_w_sec_elf_index = linker.elf_shdrs.len() - 1;
-
         // Load all other A-flag non-PROGBITS sections (ARM: non-ARM_EXIDX as well)
         // .bss sections (i.e. .sbss, .sbss.*, .bss & .bss.*) will be loaded later
         let mut bss_index_vec = Vec::new();
@@ -1241,11 +1239,7 @@ impl<'a> Linker<'a> {
                     .map_err(|_| "failed to load section name")?;
                 let section_name =
                     str::from_utf8(section_name_slice).map_err(|_| "cannot parse section name")?;
-                if section_name == ".bss"
-                    || section_name == ".sbss"
-                    || section_name.starts_with(".bss.")
-                    || section_name.starts_with(".sbss.")
-                {
+                if shdr.sh_type as usize == SHT_NOBITS {
                     bss_index_vec.push((i, section_name));
                 } else {
                     let elf_shdrs_index = linker.load_section(
@@ -1258,6 +1252,8 @@ impl<'a> Linker<'a> {
                 }
             }
         }
+
+        let last_w_sec_elf_index = linker.elf_shdrs.len() - 1;
 
         macro_rules! update_dynsym_record {
             ($sym_name: expr, $st_value: expr, $st_shndx: expr) => {
@@ -1461,14 +1457,19 @@ impl<'a> Linker<'a> {
             let first_w_shdr = linker.elf_shdrs[first_writable_sec_elf_index].shdr;
             let first_w_addr = first_w_shdr.sh_offset;
             let last_w_shdr = linker.elf_shdrs[last_w_sec_elf_index].shdr;
-            let w_size = last_w_shdr.sh_offset + last_w_shdr.sh_size - first_w_addr;
+            // According to the specification, regarding PT_LOAD program header when filesz < memsz:
+            // The ``extra`` bytes are defined to hold the value 0 and to follow the segment's initialized area.
+            //
+            // We use this specified behavior to handle NOBITS.
+            let w_fsize = last_w_shdr.sh_offset + last_w_shdr.sh_size - first_w_addr;
+            let w_msize = end_load_addr - first_w_addr;
             phdr_slice[2] = Elf32_Phdr {
                 p_type: PT_LOAD,
                 p_offset: first_w_addr as Elf32_Off,
                 p_vaddr: first_w_addr as Elf32_Addr,
                 p_paddr: first_w_addr as Elf32_Addr,
-                p_filesz: w_size,
-                p_memsz: w_size,
+                p_filesz: w_fsize,
+                p_memsz: w_msize,
                 p_flags: (PF_R | PF_W) as Elf32_Word,
                 p_align: 0x1000,
             };
