@@ -265,7 +265,7 @@ impl<'a> Linker<'a> {
             };
 
             let classify = |reloc: &R, sym_option: Option<&Elf32_Sym>| -> Option<RelocInfo<R>> {
-                let defined_val = sym_option.map_or(true, |sym| {
+                let defined_val = sym_option.is_none_or(|sym| {
                     sym.st_shndx != SHN_UNDEF || ELF32_ST_BIND(sym.st_info) == STB_LOCAL
                 });
                 match self.isa {

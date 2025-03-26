@@ -2879,7 +2879,7 @@ pub fn ELF32_R_TYPE(info: Elf32_Word) -> u8 {
     info as u8
 }
 pub fn ELF32_R_INFO(sym: Elf32_Word, ty: u8) -> Elf32_Word {
-    sym << 8 | ty as Elf32_Word
+    (sym << 8) | ty as Elf32_Word
 }
 
 pub fn ELF32_ST_BIND(info: u8) -> u8 {

@@ -73,7 +73,7 @@ pub fn get_subst_key(
         })
         .unwrap_or_default();
     vars.extend(fun_vars);
-    let sorted = vars.keys().filter(|id| filter.map_or(true, |v| v.contains(id))).sorted();
+    let sorted = vars.keys().filter(|id| filter.is_none_or(|v| v.contains(id))).sorted();
     sorted
         .map(|id| {
             unifier.internal_stringify(
@@ -1573,7 +1573,6 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 vec![(None, right_val.into())],
             )
             .map(Option::unwrap)
-            .map(BasicValueEnum::into)
     }
 }
 
@@ -3035,9 +3034,8 @@ pub fn create_and_call_function<'ctx>(
     value_name: Option<&str>,
     configure: Option<&dyn Fn(&FunctionValue<'ctx>)>,
 ) -> Option<BasicValueEnum<'ctx>> {
-    let param_tys = params.iter().map(|(ty, _)| ty).copied().map(BasicTypeEnum::into).collect_vec();
-    let arg_values =
-        params.iter().map(|(_, value)| value).copied().map(BasicValueEnum::into).collect_vec();
+    let param_tys = params.iter().map(|(ty, _)| ty).copied().collect_vec();
+    let arg_values = params.iter().map(|(_, value)| value).copied().collect_vec();
 
     create_fn_and_call(
         ctx,

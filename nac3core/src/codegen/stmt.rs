@@ -1468,7 +1468,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     ctx.outer_catch_clauses = old_clauses;
     ctx.unwind_target = old_unwind;
     ctx.return_target = old_return;
-    ctx.loop_target = old_loop_target.or(ctx.loop_target).take();
+    ctx.loop_target = old_loop_target.or(ctx.loop_target);
 
     let old_unwind = if finalbody.is_empty() {
         None
@@ -1592,7 +1592,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     }
 
     ctx.unwind_target = old_unwind;
-    ctx.loop_target = old_loop_target.or(ctx.loop_target).take();
+    ctx.loop_target = old_loop_target.or(ctx.loop_target);
     ctx.return_target = old_return;
 
     ctx.builder.position_at_end(landingpad);
@@ -1828,7 +1828,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     // reset old_unwind
     ctx.unwind_target = old_unwind;
     ctx.return_target = old_return;
-    ctx.loop_target = old_loop_target.or(ctx.loop_target).take();
+    ctx.loop_target = old_loop_target.or(ctx.loop_target);
 
     let final_landingpad = ctx.ctx.append_basic_block(current_fun, "with.catch.final");
     ctx.builder.position_at_end(final_landingpad);
@@ -1882,7 +1882,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     let old_return = Some(return_target);
 
     ctx.unwind_target = old_unwind;
-    ctx.loop_target = old_loop_target.or(ctx.loop_target).take();
+    ctx.loop_target = old_loop_target.or(ctx.loop_target);
     ctx.return_target = old_return;
 
     ctx.builder.position_at_end(landingpad);

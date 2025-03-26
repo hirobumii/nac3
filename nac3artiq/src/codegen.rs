@@ -1167,7 +1167,7 @@ fn polymorphic_print<'ctx>(
             if as_rtio { "rtio_log" } else { "core_log" },
             if as_rtio { None } else { Some(llvm_i32.into()) },
             &[llvm_pi8.into()],
-            &once(fmt.into()).chain(args).map(BasicValueEnum::into).collect_vec(),
+            &once(fmt.into()).chain(args).collect_vec(),
             true,
             None,
             None,
