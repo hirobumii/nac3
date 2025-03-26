@@ -9,7 +9,7 @@ use std::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use pyo3::{
-    PyAny, PyErr, PyObject, PyResult, Python,
+    IntoPy, PyAny, PyErr, PyObject, PyResult, Python,
     types::{PyDict, PyTuple},
 };
 
@@ -73,15 +73,16 @@ impl DeferredEvaluationStore {
 /// A class field as stored in the [`InnerResolver`], represented by the ID and name of the
 /// associated [`PythonValue`].
 type ResolverField = (u64, StrRef);
-/// A class field as stored in Python, represented by the `id()` and [`PyObject`] of the field.
-type PyFieldHandle = (u64, PyObject);
+
+/// A value as stored in Python, represented by the `id()` and [`PyObject`] of the value.
+type PyValueHandle = (u64, Arc<PyObject>);
 
 pub struct InnerResolver {
     pub id_to_type: RwLock<HashMap<StrRef, Type>>,
     pub id_to_def: RwLock<HashMap<StrRef, DefinitionId>>,
-    pub id_to_pyval: RwLock<HashMap<StrRef, (u64, PyObject)>>,
+    pub id_to_pyval: RwLock<HashMap<StrRef, PyValueHandle>>,
     pub id_to_primitive: RwLock<HashMap<u64, PrimitiveValue>>,
-    pub field_to_val: RwLock<HashMap<ResolverField, Option<PyFieldHandle>>>,
+    pub field_to_val: RwLock<HashMap<ResolverField, Option<PyValueHandle>>>,
     pub global_value_ids: Arc<RwLock<HashMap<u64, PyObject>>>,
     pub pyid_to_def: Arc<RwLock<HashMap<u64, DefinitionId>>>,
     pub pyid_to_type: Arc<RwLock<HashMap<u64, Type>>>,
@@ -92,26 +93,26 @@ pub struct InnerResolver {
     pub deferred_eval_store: DeferredEvaluationStore,
     // module specific
     pub name_to_pyid: HashMap<StrRef, u64>,
-    pub module: PyObject,
+    pub module: Arc<PyObject>,
 }
 
 pub struct Resolver(pub Arc<InnerResolver>);
 
 #[derive(Clone)]
 pub struct PythonHelper {
-    pub type_fn: PyObject,
-    pub len_fn: PyObject,
-    pub id_fn: PyObject,
-    pub origin_ty_fn: PyObject,
-    pub args_ty_fn: PyObject,
-    pub store_obj: PyObject,
-    pub store_str: PyObject,
+    pub type_fn: Arc<PyObject>,
+    pub len_fn: Arc<PyObject>,
+    pub id_fn: Arc<PyObject>,
+    pub origin_ty_fn: Arc<PyObject>,
+    pub args_ty_fn: Arc<PyObject>,
+    pub store_obj: Arc<PyObject>,
+    pub store_str: Arc<PyObject>,
 }
 
 struct PythonValue {
     id: u64,
-    value: PyObject,
-    store_obj: PyObject,
+    value: Arc<PyObject>,
+    store_obj: Arc<PyObject>,
     resolver: Arc<InnerResolver>,
 }
 
@@ -128,7 +129,7 @@ impl StaticValue for PythonValue {
         ctx.module.get_global(format!("{}_const", self.id).as_str()).map_or_else(
             || {
                 Python::with_gil(|py| -> PyResult<BasicValueEnum<'ctx>> {
-                    let id: u32 = self.store_obj.call1(py, (self.value.clone(),))?.extract(py)?;
+                    let id: u32 = self.store_obj.call1(py, (&*self.value,))?.extract(py)?;
                     let struct_type = ctx.ctx.struct_type(&[ctx.ctx.i32_type().into()], false);
                     let global = ctx.module.add_global(
                         struct_type,
@@ -177,7 +178,7 @@ impl StaticValue for PythonValue {
 
         Python::with_gil(|py| -> PyResult<BasicValueEnum<'ctx>> {
             self.resolver
-                .get_obj_value(py, self.value.as_ref(py), ctx, generator, expected_ty)
+                .get_obj_value(py, (*self.value).as_ref(py), ctx, generator, expected_ty)
                 .map(Option::unwrap)
         })
         .map_err(|e| e.to_string())
@@ -190,17 +191,17 @@ impl StaticValue for PythonValue {
     ) -> Option<ValueEnum<'ctx>> {
         {
             let field_to_val = self.resolver.field_to_val.read();
-            Python::with_gil(|_| field_to_val.get(&(self.id, name)).cloned())
+            field_to_val.get(&(self.id, name)).cloned()
         }
         .unwrap_or_else(|| {
-            Python::with_gil(|py| -> PyResult<Option<(u64, PyObject)>> {
+            Python::with_gil(|py| -> PyResult<Option<PyValueHandle>> {
                 let helper = &self.resolver.helper;
-                let ty = helper.type_fn.call1(py, (&self.value,))?;
+                let ty = helper.type_fn.call1(py, (&*self.value,))?;
                 let ty_id: u64 = helper.id_fn.call1(py, (ty,))?.extract(py)?;
                 // for optimizing unwrap KernelInvariant
                 if ty_id == self.resolver.primitive_ids.option && name == "_nac3_option".into() {
-                    let obj = self.value.getattr(py, name.to_string().as_str())?;
-                    let id = self.resolver.helper.id_fn.call1(py, (&obj,))?.extract(py)?;
+                    let obj = Arc::new(self.value.getattr(py, name.to_string().as_str())?);
+                    let id = self.resolver.helper.id_fn.call1(py, (&*obj,))?.extract(py)?;
                     return if self.id == self.resolver.primitive_ids.none {
                         Ok(None)
                     } else {
@@ -221,8 +222,8 @@ impl StaticValue for PythonValue {
                 let result = if mutable {
                     None
                 } else {
-                    let obj = self.value.getattr(py, name.to_string().as_str())?;
-                    let id = self.resolver.helper.id_fn.call1(py, (&obj,))?.extract(py)?;
+                    let obj = Arc::new(self.value.getattr(py, name.to_string().as_str())?);
+                    let id = self.resolver.helper.id_fn.call1(py, (&*obj,))?.extract(py)?;
                     Some((id, obj))
                 };
                 self.resolver.field_to_val.write().insert((self.id, name), result.clone());
@@ -243,15 +244,15 @@ impl StaticValue for PythonValue {
     }
 
     fn get_tuple_element<'ctx>(&self, index: u32) -> Option<ValueEnum<'ctx>> {
-        Python::with_gil(|py| -> PyResult<Option<(u64, PyObject)>> {
+        Python::with_gil(|py| -> PyResult<Option<PyValueHandle>> {
             let helper = &self.resolver.helper;
-            let ty = helper.type_fn.call1(py, (&self.value,))?;
+            let ty = helper.type_fn.call1(py, (&*self.value,))?;
             let ty_id: u64 = helper.id_fn.call1(py, (ty,))?.extract(py)?;
             assert_eq!(ty_id, self.resolver.primitive_ids.tuple);
             let tup: &PyTuple = self.value.extract(py)?;
-            let elem = tup.get_item(index as usize)?;
-            let id = self.resolver.helper.id_fn.call1(py, (elem,))?.extract(py)?;
-            Ok(Some((id, elem.into())))
+            let elem = Arc::new(tup.get_item(index as usize)?.into_py(py));
+            let id = self.resolver.helper.id_fn.call1(py, (&*elem,))?.extract(py)?;
+            Ok(Some((id, elem)))
         })
         .unwrap()
         .map(|(id, obj)| {
@@ -652,7 +653,7 @@ impl InnerResolver {
         defs: &[Arc<RwLock<TopLevelDef>>],
         primitives: &PrimitiveStore,
     ) -> PyResult<Result<Type, String>> {
-        let ty = self.helper.type_fn.call1(py, (obj,)).unwrap();
+        let ty = Arc::new(self.helper.type_fn.call1(py, (obj,)).unwrap());
         let py_obj_id: u64 = self.helper.id_fn.call1(py, (obj,))?.extract(py)?;
         if let Some(ty) = self.pyid_to_type.read().get(&py_obj_id) {
             return Ok(Ok(*ty));
@@ -678,8 +679,7 @@ impl InnerResolver {
         });
 
         // check if obj is module
-        if self.helper.id_fn.call1(py, (ty.clone(),))?.extract::<u64>(py)?
-            == self.primitive_ids.module
+        if self.helper.id_fn.call1(py, (&*ty,))?.extract::<u64>(py)? == self.primitive_ids.module
             && self.pyid_to_def.read().contains_key(&py_obj_id)
         {
             let def_id = self.pyid_to_def.read()[&py_obj_id];
@@ -732,11 +732,11 @@ impl InnerResolver {
                     self.primitive_ids.generic_alias.0,
                     self.primitive_ids.generic_alias.1,
                 ]
-                .contains(&self.helper.id_fn.call1(py, (ty.clone(),))?.extract::<u64>(py)?)
+                .contains(&self.helper.id_fn.call1(py, (&*ty,))?.extract::<u64>(py)?)
                 {
                     obj
                 } else {
-                    ty.as_ref(py)
+                    (*ty).as_ref(py)
                 }
             },
             unifier,
@@ -1675,7 +1675,7 @@ impl SymbolResolver for Resolver {
             if matches!(&*top_levels[def_id.0].read(), TopLevelDef::Variable { .. }) {
                 let module_val = &self.0.module;
                 let ret = Python::with_gil(|py| -> PyResult<Result<BasicValueEnum, String>> {
-                    let module_val = module_val.as_ref(py);
+                    let module_val = (**module_val).as_ref(py);
 
                     let ty = self.0.get_obj_type(
                         py,
@@ -1713,18 +1713,18 @@ impl SymbolResolver for Resolver {
 
         let sym_value = {
             let id_to_val = self.0.id_to_pyval.read();
-            Python::with_gil(|_| id_to_val.get(&id).cloned())
+            id_to_val.get(&id).cloned()
         }
         .or_else(|| {
-            Python::with_gil(|py| -> PyResult<Option<(u64, PyObject)>> {
+            Python::with_gil(|py| -> PyResult<Option<PyValueHandle>> {
                 let obj: &PyAny = self.0.module.extract(py)?;
-                let mut sym_value: Option<(u64, PyObject)> = None;
+                let mut sym_value: Option<PyValueHandle> = None;
                 let members: &PyDict = obj.getattr("__dict__").unwrap().downcast().unwrap();
                 for (key, val) in members {
                     let key: &str = key.extract()?;
                     if key == id.to_string() {
                         let id = self.0.helper.id_fn.call1(py, (val,))?.extract(py)?;
-                        sym_value = Some((id, val.extract()?));
+                        sym_value = Some((id, Arc::new(val.extract()?)));
                         break;
                     }
                 }

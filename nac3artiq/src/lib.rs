@@ -173,7 +173,10 @@ pub struct SpecialPythonId {
     sequential: u64,
 }
 
-type TopLevelComponent = (Stmt, String, PyObject);
+/// An [`IndexMap`] storing the `id()` of values, mapped to a handle of the value itself.
+type PyValueMap = IndexMap<u64, Arc<PyObject>>;
+
+type TopLevelComponent = (Stmt, String, Arc<PyObject>);
 
 // TopLevelComposer is unsendable as it holds the unification table, which is
 // unsendable due to Rc. Arc would cause a performance hit.
@@ -200,7 +203,7 @@ create_exception!(nac3artiq, CompileError, exceptions::PyException);
 impl Nac3 {
     fn register_module(
         &mut self,
-        module: &PyObject,
+        module: &Arc<PyObject>,
         registered_class_ids: &HashSet<u64>,
     ) -> PyResult<()> {
         let (module_name, source_file, source) =
@@ -456,19 +459,19 @@ impl Nac3 {
         let id_fn = builtins.getattr("id")?;
         let issubclass = builtins.getattr("issubclass")?;
         let exn_class = builtins.getattr("Exception")?;
-        let store_obj = embedding_map.getattr("store_object").unwrap().to_object(py);
-        let store_str = embedding_map.getattr("store_str").unwrap().to_object(py);
+        let store_obj = embedding_map.getattr("store_object").unwrap();
+        let store_str = embedding_map.getattr("store_str").unwrap();
         let store_fun = embedding_map.getattr("store_function").unwrap().to_object(py);
         let host_attributes = embedding_map.getattr("attributes_writeback").unwrap().to_object(py);
         let global_value_ids: Arc<RwLock<HashMap<_, _>>> = Arc::new(RwLock::new(HashMap::new()));
         let helper = PythonHelper {
-            id_fn: builtins.getattr("id").unwrap().to_object(py),
-            len_fn: builtins.getattr("len").unwrap().to_object(py),
-            type_fn: builtins.getattr("type").unwrap().to_object(py),
-            origin_ty_fn: typings.getattr("get_origin").unwrap().to_object(py),
-            args_ty_fn: typings.getattr("get_args").unwrap().to_object(py),
-            store_obj: store_obj.clone(),
-            store_str,
+            id_fn: Arc::new(builtins.getattr("id").unwrap().to_object(py)),
+            len_fn: Arc::new(builtins.getattr("len").unwrap().to_object(py)),
+            type_fn: Arc::new(builtins.getattr("type").unwrap().to_object(py)),
+            origin_ty_fn: Arc::new(typings.getattr("get_origin").unwrap().to_object(py)),
+            args_ty_fn: Arc::new(typings.getattr("get_args").unwrap().to_object(py)),
+            store_obj: Arc::new(store_obj.to_object(py)),
+            store_str: Arc::new(store_str.to_object(py)),
         };
 
         let pyid_to_type = Arc::new(RwLock::new(HashMap::<u64, Type>::new()));
@@ -558,7 +561,7 @@ impl Nac3 {
             if let Some(class_obj) = class_obj {
                 self.exception_ids
                     .write()
-                    .insert(def_id.0, store_obj.call1(py, (class_obj,))?.extract(py)?);
+                    .insert(def_id.0, store_obj.call1((class_obj,))?.extract()?);
             }
 
             match &stmt.node {
@@ -596,7 +599,7 @@ impl Nac3 {
                 }
                 StmtKind::ClassDef { name, body, .. } => {
                     let class_name = name.to_string();
-                    let class_obj = module.getattr(py, class_name.as_str()).unwrap();
+                    let class_obj = Arc::new(module.getattr(py, class_name.as_str()).unwrap());
                     for stmt in body {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
                             for decorator in decorator_list {
@@ -693,7 +696,7 @@ impl Nac3 {
             id_to_primitive: RwLock::default(),
             field_to_val: RwLock::default(),
             name_to_pyid,
-            module: module.to_object(py),
+            module: Arc::new(module.to_object(py)),
             helper: helper.clone(),
             string_store: self.string_store.clone(),
             exception_ids: self.exception_ids.clone(),
@@ -1246,8 +1249,8 @@ impl Nac3 {
         content_modules: &PySet,
     ) -> PyResult<()> {
         let (modules, class_ids) =
-            Python::with_gil(|py| -> PyResult<(IndexMap<u64, PyObject>, HashSet<u64>)> {
-                let mut modules: IndexMap<u64, PyObject> = IndexMap::new();
+            Python::with_gil(|py| -> PyResult<(PyValueMap, HashSet<u64>)> {
+                let mut modules: IndexMap<u64, Arc<PyObject>> = IndexMap::new();
                 let mut class_ids: HashSet<u64> = HashSet::new();
 
                 let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
@@ -1256,19 +1259,19 @@ impl Nac3 {
                 for function in functions {
                     let module: PyObject = getmodule_fn.call1((function,))?.extract()?;
                     if !module.is_none(py) {
-                        modules.insert(id_fn.call1((&module,))?.extract()?, module);
+                        modules.insert(id_fn.call1((&module,))?.extract()?, Arc::new(module));
                     }
                 }
                 for class in classes {
                     let module: PyObject = getmodule_fn.call1((class,))?.extract()?;
                     if !module.is_none(py) {
-                        modules.insert(id_fn.call1((&module,))?.extract()?, module);
+                        modules.insert(id_fn.call1((&module,))?.extract()?, Arc::new(module));
                     }
                     class_ids.insert(id_fn.call1((class,))?.extract()?);
                 }
                 for module in content_modules {
                     let module: PyObject = module.extract()?;
-                    modules.insert(id_fn.call1((&module,))?.extract()?, module);
+                    modules.insert(id_fn.call1((&module,))?.extract()?, Arc::new(module));
                 }
                 Ok((modules, class_ids))
             })?;
