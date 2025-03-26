@@ -6,13 +6,13 @@ use itertools::Itertools;
 
 use nac3parser::ast::Location;
 
-use super::{structure::StructProxyValue, ProxyValue, StringValue};
+use super::{ProxyValue, StringValue, structure::StructProxyValue};
 use crate::codegen::{
-    types::{
-        structure::{StructField, StructProxyType},
-        ExceptionType,
-    },
     CodeGenContext, CodeGenerator,
+    types::{
+        ExceptionType,
+        structure::{StructField, StructProxyType},
+    },
 };
 
 /// Proxy type for accessing an `Exception` value in LLVM.

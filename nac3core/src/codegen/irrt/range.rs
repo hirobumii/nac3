@@ -1,9 +1,9 @@
 use inkwell::{
-    values::{BasicValueEnum, IntValue},
     IntPredicate,
+    values::{BasicValueEnum, IntValue},
 };
 
-use crate::codegen::{expr::infer_and_call_function, CodeGenContext, CodeGenerator};
+use crate::codegen::{CodeGenContext, CodeGenerator, expr::infer_and_call_function};
 
 /// Invokes the `__nac3_range_slice_len` in IRRT.
 ///

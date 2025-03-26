@@ -1,7 +1,7 @@
 use inkwell::values::{BasicValueEnum, PointerValue, StructValue};
 
 use super::ProxyValue;
-use crate::codegen::{types::structure::StructProxyType, CodeGenContext};
+use crate::codegen::{CodeGenContext, types::structure::StructProxyType};
 
 /// An LLVM value that is used to represent a corresponding structure-like value in NAC3.
 pub trait StructProxyValue<'ctx>:

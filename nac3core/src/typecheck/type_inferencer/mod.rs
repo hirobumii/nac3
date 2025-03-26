@@ -7,29 +7,28 @@ use std::{
     sync::Arc,
 };
 
-use itertools::{izip, Itertools};
+use itertools::{Itertools, izip};
 
 use nac3parser::ast::{
-    self,
+    self, Arguments, Comprehension, ExprContext, ExprKind, Ident, Located, Location, StrRef,
     fold::{self, Fold},
-    Arguments, Comprehension, ExprContext, ExprKind, Ident, Located, Location, StrRef,
 };
 
 use super::{
     magic_methods::*,
     type_error::{TypeError, TypeErrorKind},
     typedef::{
-        into_var_map, iter_type_vars, Call, CallId, FunSignature, FuncArg, Mapping, OperatorInfo,
-        RecordField, RecordKey, Type, TypeEnum, TypeVar, Unifier, VarMap,
+        Call, CallId, FunSignature, FuncArg, Mapping, OperatorInfo, RecordField, RecordKey, Type,
+        TypeEnum, TypeVar, Unifier, VarMap, into_var_map, iter_type_vars,
     },
 };
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
-        helper::{arraylike_flatten_element_type, arraylike_get_ndims, PrimDef},
+        TopLevelContext, TopLevelDef,
+        helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
-        TopLevelContext, TopLevelDef,
     },
 };
 
@@ -1018,13 +1017,11 @@ impl Inferencer<'_> {
                     // This means the user is passing an expression of type `List`,
                     // but it is done so indirectly (like putting a variable referencing a `List`)
                     // rather than writing a List literal. We need to report an error.
-                    return Err(HashSet::from([
-                        format!(
-                            "Expected list literal, tuple, or int32 for argument {arg_num} of {id} at {location}. Input argument is of type list but not a list literal.",
-                            arg_num = arg_index + 1,
-                            location = shape.location
-                        )
-                    ]));
+                    return Err(HashSet::from([format!(
+                        "Expected list literal, tuple, or int32 for argument {arg_num} of {id} at {location}. Input argument is of type list but not a list literal.",
+                        arg_num = arg_index + 1,
+                        location = shape.location
+                    )]));
                 }
             }
             TypeEnum::TTuple { ty: tuple_element_types, .. } => {
@@ -1143,7 +1140,7 @@ impl Inferencer<'_> {
                         )
                         .as_str(),
                         obj.location,
-                    )
+                    );
                 }
             }
 
@@ -2277,7 +2274,7 @@ impl Inferencer<'_> {
                         targets.len() - 1,
                         rhs_tys.len()
                     ),
-                    *target_list_location
+                    *target_list_location,
                 );
             }
 
@@ -2335,7 +2332,7 @@ impl Inferencer<'_> {
                         targets.len() - 1,
                         rhs_tys.len()
                     ),
-                    *target_list_location
+                    *target_list_location,
                 );
             }
 
@@ -2562,7 +2559,9 @@ impl Inferencer<'_> {
 
             if new_ndims_values.iter().any(|v| *v == 0) {
                 // TODO: Difficult to implement since now the return may both be a scalar type, or an ndarray type.
-                unimplemented!("Inference for ndarray subscript operator with Literal[0, ...] bound unimplemented")
+                unimplemented!(
+                    "Inference for ndarray subscript operator with Literal[0, ...] bound unimplemented"
+                )
             }
 
             let new_ndarray_ty =

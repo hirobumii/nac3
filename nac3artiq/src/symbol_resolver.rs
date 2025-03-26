@@ -1,41 +1,41 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, Ordering::Relaxed},
         Arc,
+        atomic::{AtomicBool, Ordering::Relaxed},
     },
 };
 
 use itertools::Itertools;
 use parking_lot::RwLock;
 use pyo3::{
-    types::{PyDict, PyTuple},
     PyAny, PyErr, PyObject, PyResult, Python,
+    types::{PyDict, PyTuple},
 };
 
 use super::PrimitivePythonId;
 use nac3core::{
     codegen::{
-        types::{ndarray::NDArrayType, structure::StructProxyType, ProxyType},
-        values::ndarray::make_contiguous_strides,
         CodeGenContext, CodeGenerator,
+        types::{ProxyType, ndarray::NDArrayType, structure::StructProxyType},
+        values::ndarray::make_contiguous_strides,
     },
     inkwell::{
+        AddressSpace,
         module::Linkage,
         types::{BasicType, BasicTypeEnum},
         values::{BasicValue, BasicValueEnum},
-        AddressSpace,
     },
     nac3parser::ast::{self, StrRef},
     symbol_resolver::{StaticValue, SymbolResolver, SymbolValue, ValueEnum},
     toplevel::{
+        DefinitionId, TopLevelDef,
         helper::PrimDef,
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
-        DefinitionId, TopLevelDef,
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{into_var_map, iter_type_vars, Type, TypeEnum, TypeVar, Unifier, VarMap},
+        typedef::{Type, TypeEnum, TypeVar, Unifier, VarMap, into_var_map, iter_type_vars},
     },
 };
 
@@ -290,7 +290,7 @@ impl InnerResolver {
                     return Ok(Err(format!(
                         "inhomogeneous type ({}) at element #{i} of the list",
                         e.to_display(unifier)
-                    )))
+                    )));
                 }
             };
         }
@@ -469,7 +469,7 @@ impl InnerResolver {
                 match self.get_pyty_obj_type(py, origin.as_ref(py), unifier, defs, primitives)? {
                     Ok((ty, false)) => ty,
                     Ok((_, true)) => {
-                        return Ok(Err("instantiated type does not take type parameters".into()))
+                        return Ok(Err("instantiated type does not take type parameters".into()));
                     }
                     Err(err) => return Ok(Err(err)),
                 };
@@ -884,7 +884,7 @@ impl InnerResolver {
                     Err(e) => {
                         return Ok(Err(format!(
                             "error when getting type of the option object ({e})"
-                        )))
+                        )));
                     }
                 };
                 let new_var_map: VarMap = params.iter().map(|(id, _)| (*id, ty)).collect();
@@ -907,7 +907,7 @@ impl InnerResolver {
                     // loop through non-function fields of the class to get the instantiated value
                     for field in fields {
                         let name: String = (*field.0).into();
-                        if let TypeEnum::TFunc(..) = &*unifier.get_ty(field.1 .0) {
+                        if let TypeEnum::TFunc(..) = &*unifier.get_ty(field.1.0) {
                             continue;
                         }
                         let field_data = match obj.getattr(name.as_str()) {
@@ -920,10 +920,10 @@ impl InnerResolver {
                                 Err(e) => {
                                     return Ok(Err(format!(
                                         "error when getting type of field `{name}` ({e})"
-                                    )))
+                                    )));
                                 }
                             };
-                        let field_ty = unifier.subst(field.1 .0, &var_map).unwrap_or(field.1 .0);
+                        let field_ty = unifier.subst(field.1.0, &var_map).unwrap_or(field.1.0);
                         if let Err(e) = unifier.unify(ty, field_ty) {
                             // field type mismatch
                             return Ok(Err(format!(
@@ -1445,7 +1445,7 @@ impl InnerResolver {
                 attributes
                     .iter()
                     .filter_map(|f| {
-                        let definition = top_level_defs.get(f.1 .0).unwrap().read();
+                        let definition = top_level_defs.get(f.1.0).unwrap().read();
                         if let TopLevelDef::Variable { ty, .. } = &*definition {
                             Some((f.0, *ty))
                         } else {

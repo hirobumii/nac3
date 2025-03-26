@@ -1,6 +1,7 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(
+    unsafe_op_in_unsafe_fn,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::enum_glob_use,
@@ -30,17 +31,17 @@ use tempfile::{self, TempDir};
 
 use nac3core::{
     codegen::{
-        concrete_type::ConcreteTypeStore, gen_func_impl, irrt::load_irrt, CodeGenLLVMOptions,
-        CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator, WithCall, WorkerRegistry,
+        CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator, WithCall,
+        WorkerRegistry, concrete_type::ConcreteTypeStore, gen_func_impl, irrt::load_irrt,
     },
     inkwell::{
+        OptimizationLevel,
         context::Context,
         memory_buffer::MemoryBuffer,
         module::{FlagBehavior, Linkage, Module},
         passes::PassBuilderOptions,
         support::is_multithreaded,
         targets::*,
-        OptimizationLevel,
     },
     nac3parser::{
         ast::{self, Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
@@ -48,19 +49,19 @@ use nac3core::{
     },
     symbol_resolver::SymbolResolver,
     toplevel::{
+        DefinitionId, GenCall, TopLevelDef,
         builtins::get_exn_constructor,
         composer::{BuiltinFuncCreator, BuiltinFuncSpec, ComposerConfig, TopLevelComposer},
-        DefinitionId, GenCall, TopLevelDef,
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{into_var_map, FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
+        typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
     },
 };
 use nac3ld::Linker;
 
 use codegen::{
-    attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback, ArtiqCodeGenerator,
+    ArtiqCodeGenerator, attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback,
 };
 use symbol_resolver::{DeferredEvaluationStore, InnerResolver, PythonHelper, Resolver};
 use timeline::TimeFns;
@@ -321,7 +322,7 @@ impl Nac3 {
                 None => {
                     return Some(format!(
                         "object launching kernel does not have method `{method_name}`"
-                    ))
+                    ));
                 }
             }
         } else {
@@ -342,7 +343,7 @@ impl Nac3 {
                     None if default_value.is_none() => {
                         return Some(format!(
                             "argument `{name}` not provided when launching kernel function"
-                        ))
+                        ));
                     }
                     _ => break,
                 };
@@ -356,7 +357,7 @@ impl Nac3 {
                     Err(e) => {
                         return Some(format!(
                             "type error ({e}) at parameter #{i} when calling kernel function"
-                        ))
+                        ));
                     }
                 };
                 if let Err(e) = unifier.unify(in_ty, *ty) {
@@ -582,9 +583,10 @@ impl Nac3 {
                                 && decorator_str != "extern"
                             {
                                 return Err(CompileError::new_err(format!(
-                                "compilation failed\n----------\nDecorator {} is not supported (at {})",
-                                decorator_id_string(decorator).unwrap(), stmt.location
-                            )));
+                                    "compilation failed\n----------\nDecorator {} is not supported (at {})",
+                                    decorator_id_string(decorator).unwrap(),
+                                    stmt.location
+                                )));
                             }
                         }
                     }
@@ -618,7 +620,8 @@ impl Nac3 {
                                     {
                                         return Err(CompileError::new_err(format!(
                                             "compilation failed\n----------\nDecorator {} is not supported (at {})",
-                                            decorator_id_string(decorator).unwrap(), stmt.location
+                                            decorator_id_string(decorator).unwrap(),
+                                            stmt.location
                                         )));
                                     }
                                 }
@@ -774,7 +777,7 @@ impl Nac3 {
                     TopLevelDef::Variable { .. } => {
                         return Err(CompileError::new_err(String::from(
                             "Unsupported @rpc annotation on global variable",
-                        )))
+                        )));
                     }
                     TopLevelDef::Module { .. } => {
                         unreachable!("Type module cannot be decorated with @rpc")
@@ -1384,7 +1387,7 @@ impl Nac3 {
 }
 
 #[cfg(feature = "init-llvm-profile")]
-extern "C" {
+unsafe extern "C" {
     fn __llvm_profile_initialize();
 }
 

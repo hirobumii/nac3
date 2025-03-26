@@ -1,8 +1,8 @@
 use inkwell::{
+    AddressSpace,
     context::Context,
     types::{AnyTypeEnum, ArrayType, BasicType, BasicTypeEnum, IntType, PointerType},
     values::{ArrayValue, PointerValue},
-    AddressSpace,
 };
 
 use super::ProxyType;

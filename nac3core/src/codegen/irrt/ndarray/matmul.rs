@@ -1,8 +1,8 @@
 use inkwell::values::IntValue;
 
 use crate::codegen::{
-    expr::infer_and_call_function, irrt::get_usize_dependent_function_name,
-    values::TypedArrayLikeAccessor, CodeGenContext, CodeGenerator,
+    CodeGenContext, CodeGenerator, expr::infer_and_call_function,
+    irrt::get_usize_dependent_function_name, values::TypedArrayLikeAccessor,
 };
 
 /// Generates a call to `__nac3_ndarray_matmul_calculate_shapes`.

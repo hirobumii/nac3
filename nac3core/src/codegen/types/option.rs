@@ -1,14 +1,14 @@
 use inkwell::{
+    AddressSpace,
     context::Context,
     types::{BasicType, BasicTypeEnum, IntType, PointerType},
     values::{BasicValue, BasicValueEnum, PointerValue},
-    AddressSpace,
 };
 
 use super::ProxyType;
 use crate::{
-    codegen::{values::OptionValue, CodeGenContext, CodeGenerator},
-    typecheck::typedef::{iter_type_vars, Type, TypeEnum},
+    codegen::{CodeGenContext, CodeGenerator, values::OptionValue},
+    typecheck::typedef::{Type, TypeEnum, iter_type_vars},
 };
 
 /// Proxy type for an `Option` type in LLVM.

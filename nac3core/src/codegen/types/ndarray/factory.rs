@@ -1,12 +1,12 @@
 use inkwell::{
-    values::{BasicValueEnum, IntValue},
     IntPredicate,
+    values::{BasicValueEnum, IntValue},
 };
 
 use super::NDArrayType;
 use crate::{
     codegen::{
-        irrt, types::ProxyType, values::TypedArrayLikeAccessor, CodeGenContext, CodeGenerator,
+        CodeGenContext, CodeGenerator, irrt, types::ProxyType, values::TypedArrayLikeAccessor,
     },
     typecheck::typedef::Type,
 };

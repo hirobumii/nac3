@@ -108,7 +108,10 @@ impl Display for DisplayTypeError<'_> {
                     let expected_count = expected_min_count; // or expected_max_count
                     write!(f, "Too many arguments. Expected {expected_count} but got {got_count}")
                 } else {
-                    write!(f, "Too many arguments. Expected {expected_min_count} to {expected_max_count} arguments but got {got_count}")
+                    write!(
+                        f,
+                        "Too many arguments. Expected {expected_min_count} to {expected_max_count} arguments but got {got_count}"
+                    )
                 }
             }
             MissingArgs { missing_arg_names } => {
@@ -123,7 +126,10 @@ impl Display for DisplayTypeError<'_> {
                 let expected_rhs_type_str =
                     self.unifier.stringify_with_notes(*expected_rhs_type, &mut notes);
 
-                write!(f, "Unsupported operand type(s) for {op_symbol}: '{lhs_type_str}' and '{rhs_type_str}' (right operand should have type {expected_rhs_type_str})")
+                write!(
+                    f,
+                    "Unsupported operand type(s) for {op_symbol}: '{lhs_type_str}' and '{rhs_type_str}' (right operand should have type {expected_rhs_type_str})"
+                )
             }
             UnsupportedComparsionOpTypes { operator, lhs_type, rhs_type, expected_rhs_type } => {
                 let op_symbol = operator.op_info().symbol;
@@ -133,7 +139,10 @@ impl Display for DisplayTypeError<'_> {
                 let expected_rhs_type_str =
                     self.unifier.stringify_with_notes(*expected_rhs_type, &mut notes);
 
-                write!(f, "'{op_symbol}' not supported between instances of '{lhs_type_str}' and '{rhs_type_str}' (right operand should have type {expected_rhs_type_str})")
+                write!(
+                    f,
+                    "'{op_symbol}' not supported between instances of '{lhs_type_str}' and '{rhs_type_str}' (right operand should have type {expected_rhs_type_str})"
+                )
             }
             UnknownArgName(name) => {
                 write!(f, "Unknown argument name: {name}")
@@ -141,7 +150,10 @@ impl Display for DisplayTypeError<'_> {
             IncorrectArgType { name, expected, got } => {
                 let expected = self.unifier.stringify_with_notes(*expected, &mut notes);
                 let got = self.unifier.stringify_with_notes(*got, &mut notes);
-                write!(f, "Incorrect argument type for parameter {name}. Expected {expected}, but got {got}")
+                write!(
+                    f,
+                    "Incorrect argument type for parameter {name}. Expected {expected}, but got {got}"
+                )
             }
             FieldUnificationError { field, types, loc } => {
                 let lhs = self.unifier.stringify_with_notes(types.0, &mut notes);

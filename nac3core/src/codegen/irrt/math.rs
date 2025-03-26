@@ -1,6 +1,6 @@
 use inkwell::{
-    values::{BasicValueEnum, FloatValue, IntValue},
     IntPredicate,
+    values::{BasicValueEnum, FloatValue, IntValue},
 };
 
 use crate::codegen::{

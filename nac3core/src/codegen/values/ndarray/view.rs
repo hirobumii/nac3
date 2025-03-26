@@ -4,14 +4,13 @@ use inkwell::values::{IntValue, PointerValue};
 use itertools::Itertools;
 
 use crate::codegen::{
-    irrt,
+    CodeGenContext, CodeGenerator, irrt,
     stmt::gen_if_callback,
     types::ndarray::NDArrayType,
     values::{
-        ndarray::{NDArrayValue, RustNDIndex},
         ArrayLikeValue, ArraySliceValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
+        ndarray::{NDArrayValue, RustNDIndex},
     },
-    CodeGenContext, CodeGenerator,
 };
 
 impl<'ctx> NDArrayValue<'ctx> {

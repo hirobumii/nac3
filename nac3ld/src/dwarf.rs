@@ -192,11 +192,7 @@ fn read_encoded_pointer_with_pc(reader: &mut DwarfReader, encoding: u8) -> Resul
 
 #[inline]
 fn round_up(unrounded: usize, align: usize) -> Result<usize, ()> {
-    if align.is_power_of_two() {
-        Ok((unrounded + align - 1) & !(align - 1))
-    } else {
-        Err(())
-    }
+    if align.is_power_of_two() { Ok((unrounded + align - 1) & !(align - 1)) } else { Err(()) }
 }
 
 /// Minimalistic structure to store everything needed for parsing FDEs to synthesize `.eh_frame_hdr`

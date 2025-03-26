@@ -357,7 +357,7 @@ fn test_invalid_unification(
         pairs.push((t1, t2));
     }
     let (t1, t2) =
-        (env.parse(erroneous_pair.0 .0, &mapping), env.parse(erroneous_pair.0 .1, &mapping));
+        (env.parse(erroneous_pair.0.0, &mapping), env.parse(erroneous_pair.0.1, &mapping));
     for (a, b) in pairs {
         env.unifier.unify(a, b).unwrap();
     }

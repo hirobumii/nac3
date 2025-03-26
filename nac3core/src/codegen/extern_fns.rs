@@ -3,7 +3,7 @@ use inkwell::{
     values::{BasicValueEnum, FloatValue},
 };
 
-use super::{expr::infer_and_call_function, CodeGenContext};
+use super::{CodeGenContext, expr::infer_and_call_function};
 
 /// Macro to generate extern function
 /// Both function return type and function parameter type are `FloatValue`

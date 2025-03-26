@@ -1,8 +1,8 @@
 use nac3core::{
     codegen::types::structure::StructField,
     inkwell::{
-        values::{IntValue, PointerValue},
         AddressSpace,
+        values::{IntValue, PointerValue},
     },
 };
 use nac3core_derive::StructFields;

@@ -15,12 +15,12 @@ use parking_lot::{Mutex, RwLock};
 
 use nac3core::{
     codegen::{
-        concrete_type::ConcreteTypeStore, irrt::load_irrt, CodeGenLLVMOptions,
-        CodeGenTargetMachineOptions, CodeGenTask, DefaultCodeGenerator, WithCall, WorkerRegistry,
+        CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, DefaultCodeGenerator,
+        WithCall, WorkerRegistry, concrete_type::ConcreteTypeStore, irrt::load_irrt,
     },
     inkwell::{
-        memory_buffer::MemoryBuffer, module::Linkage, passes::PassBuilderOptions,
-        support::is_multithreaded, targets::*, OptimizationLevel,
+        OptimizationLevel, memory_buffer::MemoryBuffer, module::Linkage,
+        passes::PassBuilderOptions, support::is_multithreaded, targets::*,
     },
     nac3parser::{
         ast::{Constant, Expr, ExprKind, StmtKind, StrRef},
@@ -28,10 +28,10 @@ use nac3core::{
     },
     symbol_resolver::SymbolResolver,
     toplevel::{
+        TopLevelDef,
         composer::{ComposerConfig, TopLevelComposer},
         helper::parse_parameter_default_value,
         type_annotation::*,
-        TopLevelDef,
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
@@ -201,9 +201,9 @@ fn handle_assignment_pattern(
                     internal_resolver.add_id_def(name, def_id);
                     Ok(())
                 } else {
-                    Err(format!("fails to evaluate this expression `{:?}` as a constant or generic parameter at {}",
-                        target.node,
-                        target.location,
+                    Err(format!(
+                        "fails to evaluate this expression `{:?}` as a constant or generic parameter at {}",
+                        target.node, target.location,
                     ))
                 }
             }
@@ -295,7 +295,9 @@ fn main() {
         }
     } else {
         if threads != 1 {
-            println!("Warning: Number of threads specified in command-line but multithreading is disabled in LLVM at build time! Defaulting to single-threaded compilation");
+            println!(
+                "Warning: Number of threads specified in command-line but multithreading is disabled in LLVM at build time! Defaulting to single-threaded compilation"
+            );
         }
         1
     };

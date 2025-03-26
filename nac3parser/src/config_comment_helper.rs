@@ -17,12 +17,10 @@ pub fn make_config_comment(
         return Err(ParseError::User {
             error: LexicalError {
                 location: com_loc,
-                error: LexicalErrorType::OtherError(
-                    format!(
-                        "config comment at top must have the same indentation with what it applies (comment at {com_loc}, statement at {stmt_loc})",
-                    )
-                )
-            }
+                error: LexicalErrorType::OtherError(format!(
+                    "config comment at top must have the same indentation with what it applies (comment at {com_loc}, statement at {stmt_loc})",
+                )),
+            },
         });
     };
     Ok(nac3com_above
@@ -42,14 +40,11 @@ pub fn handle_small_stmt<U>(
         return Err(ParseError::User {
             error: LexicalError {
                 location: com_above_loc,
-                error: LexicalErrorType::OtherError(
-                    format!(
-                        "config comment at top must have the same indentation with what it applies (comment at {}, statement at {})",
-                        com_above_loc,
-                        stmts[0].location,
-                    )
-                )
-            }
+                error: LexicalErrorType::OtherError(format!(
+                    "config comment at top must have the same indentation with what it applies (comment at {}, statement at {})",
+                    com_above_loc, stmts[0].location,
+                )),
+            },
         });
     }
     apply_config_comments(&mut stmts[0], nac3com_above.into_iter().map(|(com, _)| com).collect());

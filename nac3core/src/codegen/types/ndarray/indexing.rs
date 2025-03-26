@@ -1,23 +1,23 @@
 use inkwell::{
+    AddressSpace,
     context::{AsContextRef, Context},
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{IntValue, PointerValue, StructValue},
-    AddressSpace,
 };
 use itertools::Itertools;
 
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     types::{
-        structure::{check_struct_type_matches_fields, StructField, StructFields, StructProxyType},
         ProxyType,
+        structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
     },
     values::{
-        ndarray::{NDIndexValue, RustNDIndex},
         ArrayLikeIndexer, ArraySliceValue,
+        ndarray::{NDIndexValue, RustNDIndex},
     },
-    CodeGenContext, CodeGenerator,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

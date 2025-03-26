@@ -3,7 +3,7 @@ use inkwell::{
     values::{BasicValueEnum, FloatValue, IntValue},
 };
 
-use crate::codegen::{expr::infer_and_call_function, CodeGenContext};
+use crate::codegen::{CodeGenContext, expr::infer_and_call_function};
 
 /// Generates a call to [`isinf`](https://en.cppreference.com/w/c/numeric/math/isinf) in IR. Returns
 /// an `i1` representing the result.

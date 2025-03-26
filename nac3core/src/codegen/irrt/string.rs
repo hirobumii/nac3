@@ -1,7 +1,7 @@
 use inkwell::values::{BasicValueEnum, IntValue};
 
 use super::get_usize_dependent_function_name;
-use crate::codegen::{expr::infer_and_call_function, values::StringValue, CodeGenContext};
+use crate::codegen::{CodeGenContext, expr::infer_and_call_function, values::StringValue};
 
 /// Generates a call to string equality comparison. Returns an `i1` representing whether the strings are equal.
 pub fn call_string_eq<'ctx>(

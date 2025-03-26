@@ -6,7 +6,7 @@ pub use crate::location::Location;
 use fxhash::FxBuildHasher;
 use parking_lot::{Mutex, MutexGuard};
 use std::{cell::RefCell, collections::HashMap, fmt, sync::LazyLock};
-use string_interner::{symbol::SymbolU32, DefaultBackend, StringInterner};
+use string_interner::{DefaultBackend, StringInterner, symbol::SymbolU32};
 
 pub type Interner = StringInterner<DefaultBackend, FxBuildHasher>;
 static INTERNER: LazyLock<Mutex<Interner>> =

@@ -1,10 +1,10 @@
-use inkwell::{values::IntValue, AddressSpace};
+use inkwell::{AddressSpace, values::IntValue};
 
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     expr::infer_and_call_function,
     irrt::get_usize_dependent_function_name,
-    values::{ndarray::NDArrayValue, ProxyValue, TypedArrayLikeAccessor},
-    CodeGenContext, CodeGenerator,
+    values::{ProxyValue, TypedArrayLikeAccessor, ndarray::NDArrayValue},
 };
 
 /// Generates a call to `__nac3_ndarray_transpose`.

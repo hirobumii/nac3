@@ -2,7 +2,7 @@
 name = "nac3ast"
 version = "0.1.0"
 authors = ["RustPython Team", "M-Labs"]
-edition = "2021"
+edition = "2024"
 
 [features]
 default = ["constant-optimization", "fold"]

@@ -2,16 +2,16 @@ use inkwell::{types::BasicTypeEnum, values::BasicValueEnum};
 use itertools::Itertools;
 
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     stmt::gen_for_callback,
     types::{
-        ndarray::{NDArrayType, NDIterType},
         ProxyType,
+        ndarray::{NDArrayType, NDIterType},
     },
     values::{
-        ndarray::{NDArrayOut, NDArrayValue, ScalarOrNDArray},
         ArrayLikeValue, ProxyValue,
+        ndarray::{NDArrayOut, NDArrayValue, ScalarOrNDArray},
     },
-    CodeGenContext, CodeGenerator,
 };
 
 impl<'ctx> NDArrayType<'ctx> {

@@ -37,10 +37,10 @@ impl InputMatrix {
 /// # Safety
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn np_linalg_cholesky(mat1: *mut InputMatrix, out: *mut InputMatrix) {
-    let mat1 = mat1.as_mut().unwrap();
-    let out = out.as_mut().unwrap();
+    let mat1 = unsafe { mat1.as_mut().unwrap() };
+    let out = unsafe { out.as_mut().unwrap() };
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
@@ -80,15 +80,15 @@ pub unsafe extern "C" fn np_linalg_cholesky(mat1: *mut InputMatrix, out: *mut In
 /// # Safety
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn np_linalg_qr(
     mat1: *mut InputMatrix,
     out_q: *mut InputMatrix,
     out_r: *mut InputMatrix,
 ) {
-    let mat1 = mat1.as_mut().unwrap();
-    let out_q = out_q.as_mut().unwrap();
-    let out_r = out_r.as_mut().unwrap();
+    let mat1 = unsafe { mat1.as_mut().unwrap() };
+    let out_q = unsafe { out_q.as_mut().unwrap() };
+    let out_r = unsafe { out_r.as_mut().unwrap() };
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
@@ -117,17 +117,17 @@ pub unsafe extern "C" fn np_linalg_qr(
 /// # Safety
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn np_linalg_svd(
     mat1: *mut InputMatrix,
     outu: *mut InputMatrix,
     outs: *mut InputMatrix,
     outvh: *mut InputMatrix,
 ) {
-    let mat1 = mat1.as_mut().unwrap();
-    let outu = outu.as_mut().unwrap();
-    let outs = outs.as_mut().unwrap();
-    let outvh = outvh.as_mut().unwrap();
+    let mat1 = unsafe { mat1.as_mut().unwrap() };
+    let outu = unsafe { outu.as_mut().unwrap() };
+    let outs = unsafe { outs.as_mut().unwrap() };
+    let outvh = unsafe { outvh.as_mut().unwrap() };
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
@@ -155,10 +155,10 @@ pub unsafe extern "C" fn np_linalg_svd(
 /// # Safety
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn np_linalg_inv(mat1: *mut InputMatrix, out: *mut InputMatrix) {
-    let mat1 = mat1.as_mut().unwrap();
-    let out = out.as_mut().unwrap();
+    let mat1 = unsafe { mat1.as_mut().unwrap() };
+    let out = unsafe { out.as_mut().unwrap() };
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
@@ -194,10 +194,10 @@ pub unsafe extern "C" fn np_linalg_inv(mat1: *mut InputMatrix, out: *mut InputMa
 /// # Safety
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn np_linalg_pinv(mat1: *mut InputMatrix, out: *mut InputMatrix) {
-    let mat1 = mat1.as_mut().unwrap();
-    let out = out.as_mut().unwrap();
+    let mat1 = unsafe { mat1.as_mut().unwrap() };
+    let out = unsafe { out.as_mut().unwrap() };
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
@@ -225,15 +225,15 @@ pub unsafe extern "C" fn np_linalg_pinv(mat1: *mut InputMatrix, out: *mut InputM
 /// # Safety
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn np_linalg_matrix_power(
     mat1: *mut InputMatrix,
     mat2: *mut InputMatrix,
     out: *mut InputMatrix,
 ) {
-    let mat1 = mat1.as_mut().unwrap();
-    let mat2 = mat2.as_mut().unwrap();
-    let out = out.as_mut().unwrap();
+    let mat1 = unsafe { mat1.as_mut().unwrap() };
+    let mat2 = unsafe { mat2.as_mut().unwrap() };
+    let out = unsafe { out.as_mut().unwrap() };
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D", mat1.ndims);
@@ -270,10 +270,10 @@ pub unsafe extern "C" fn np_linalg_matrix_power(
 /// # Safety
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn np_linalg_det(mat1: *mut InputMatrix, out: *mut InputMatrix) {
-    let mat1 = mat1.as_mut().unwrap();
-    let out = out.as_mut().unwrap();
+    let mat1 = unsafe { mat1.as_mut().unwrap() };
+    let out = unsafe { out.as_mut().unwrap() };
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
@@ -295,15 +295,15 @@ pub unsafe extern "C" fn np_linalg_det(mat1: *mut InputMatrix, out: *mut InputMa
 /// # Safety
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn sp_linalg_lu(
     mat1: *mut InputMatrix,
     out_l: *mut InputMatrix,
     out_u: *mut InputMatrix,
 ) {
-    let mat1 = mat1.as_mut().unwrap();
-    let out_l = out_l.as_mut().unwrap();
-    let out_u = out_u.as_mut().unwrap();
+    let mat1 = unsafe { mat1.as_mut().unwrap() };
+    let out_l = unsafe { out_l.as_mut().unwrap() };
+    let out_u = unsafe { out_u.as_mut().unwrap() };
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
@@ -328,15 +328,15 @@ pub unsafe extern "C" fn sp_linalg_lu(
 /// # Safety
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn sp_linalg_schur(
     mat1: *mut InputMatrix,
     out_t: *mut InputMatrix,
     out_z: *mut InputMatrix,
 ) {
-    let mat1 = mat1.as_mut().unwrap();
-    let out_t = out_t.as_mut().unwrap();
-    let out_z = out_z.as_mut().unwrap();
+    let mat1 = unsafe { mat1.as_mut().unwrap() };
+    let out_t = unsafe { out_t.as_mut().unwrap() };
+    let out_z = unsafe { out_z.as_mut().unwrap() };
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);
@@ -368,15 +368,15 @@ pub unsafe extern "C" fn sp_linalg_schur(
 /// # Safety
 ///
 /// `mat1` should point to a valid 2DArray of `f64` floats in row-major order
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn sp_linalg_hessenberg(
     mat1: *mut InputMatrix,
     out_h: *mut InputMatrix,
     out_q: *mut InputMatrix,
 ) {
-    let mat1 = mat1.as_mut().unwrap();
-    let out_h = out_h.as_mut().unwrap();
-    let out_q = out_q.as_mut().unwrap();
+    let mat1 = unsafe { mat1.as_mut().unwrap() };
+    let out_h = unsafe { out_h.as_mut().unwrap() };
+    let out_q = unsafe { out_q.as_mut().unwrap() };
 
     if mat1.ndims != 2 {
         let err_msg = format!("expected 2D Vector Input, but received {}D input", mat1.ndims);

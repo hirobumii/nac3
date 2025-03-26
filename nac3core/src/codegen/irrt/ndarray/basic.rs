@@ -1,13 +1,13 @@
 use inkwell::{
-    values::{BasicValueEnum, IntValue, PointerValue},
     AddressSpace,
+    values::{BasicValueEnum, IntValue, PointerValue},
 };
 
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     expr::infer_and_call_function,
     irrt::get_usize_dependent_function_name,
-    values::{ndarray::NDArrayValue, ProxyValue, TypedArrayLikeAccessor},
-    CodeGenContext, CodeGenerator,
+    values::{ProxyValue, TypedArrayLikeAccessor, ndarray::NDArrayValue},
 };
 
 /// Generates a call to `__nac3_ndarray_util_assert_shape_no_negative`.

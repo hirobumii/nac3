@@ -8,7 +8,7 @@ use nac3parser::ast::{Constant, ExprKind, Location};
 use super::{numpy::unpack_ndarray_var_tys, *};
 use crate::{
     symbol_resolver::SymbolValue,
-    typecheck::typedef::{into_var_map, iter_type_vars, Mapping, TypeVarId, VarMap},
+    typecheck::typedef::{Mapping, TypeVarId, VarMap, into_var_map, iter_type_vars},
 };
 
 /// All primitive types and functions in nac3core.
@@ -757,7 +757,7 @@ impl TopLevelComposer {
                     return Err(HashSet::from([format!(
                         "redundant type annotation for class fields at {}",
                         s.location
-                    )]))
+                    )]));
                 }
                 ast::StmtKind::Assign { targets, .. } => {
                     for t in targets {
@@ -1038,7 +1038,10 @@ impl TopLevelComposer {
                 }
                 ast::ExprKind::Name { .. } | ast::ExprKind::Subscript { .. } => {
                     if has_base {
-                        return Err(HashSet::from([format!("a class definition can only have at most one base class declaration and one generic declaration (at {})", b.location )]));
+                        return Err(HashSet::from([format!(
+                            "a class definition can only have at most one base class declaration and one generic declaration (at {})",
+                            b.location
+                        )]));
                     }
                     has_base = true;
                     // the function parse_ast_to make sure that no type var occurred in
@@ -1233,7 +1236,9 @@ pub fn arraylike_get_ndims(unifier: &mut Unifier, ty: Type) -> u64 {
             };
 
             if values.len() > 1 {
-                todo!("Getting num of dimensions for ndarray with more than one ndim bound is unimplemented")
+                todo!(
+                    "Getting num of dimensions for ndarray with more than one ndim bound is unimplemented"
+                )
             }
 
             u64::try_from(values[0].clone()).unwrap()

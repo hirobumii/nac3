@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use indexmap::IndexMap;
-use nac3parser::ast::{fold::Fold, ExprKind, Ident};
+use nac3parser::ast::{ExprKind, Ident, fold::Fold};
 
 use super::*;
 use crate::{
@@ -265,8 +265,7 @@ impl TopLevelComposer {
                 if self.keyword_list.contains(class_name) {
                     return Err(format!(
                         "cannot use keyword `{}` as a class name (at {})",
-                        class_name,
-                        ast.location
+                        class_name, ast.location
                     ));
                 }
                 let fully_qualified_class_name = if mod_path.is_empty() {
@@ -277,8 +276,7 @@ impl TopLevelComposer {
                 if !defined_names.insert(fully_qualified_class_name.into()) {
                     return Err(format!(
                         "duplicate definition of class `{}` (at {})",
-                        class_name,
-                        ast.location
+                        class_name, ast.location
                     ));
                 }
 
@@ -294,7 +292,7 @@ impl TopLevelComposer {
                         resolver.clone(),
                         fully_qualified_class_name,
                         Some(constructor_ty),
-                        Some(ast.location)
+                        Some(ast.location),
                     ))),
                     None,
                 );
@@ -321,8 +319,7 @@ impl TopLevelComposer {
                         if self.keyword_list.contains(method_name) {
                             return Err(format!(
                                 "cannot use keyword `{}` as a method name (at {})",
-                                method_name,
-                                b.location
+                                method_name, b.location
                             ));
                         }
                         let global_class_method_name = Self::make_class_method_name(
@@ -332,8 +329,7 @@ impl TopLevelComposer {
                         if !defined_names.insert(global_class_method_name.clone()) {
                             return Err(format!(
                                 "class method `{}` defined twice (at {})",
-                                global_class_method_name,
-                                b.location
+                                global_class_method_name, b.location
                             ));
                         }
                         let method_def_id = self.definition_ast_list.len() + {
@@ -380,7 +376,11 @@ impl TopLevelComposer {
                     self.definition_ast_list.push((def, Some(ast)));
                 }
 
-                let result_ty = if allow_no_constructor || contains_constructor { Some(constructor_ty) } else { None };
+                let result_ty = if allow_no_constructor || contains_constructor {
+                    Some(constructor_ty)
+                } else {
+                    None
+                };
                 Ok((class_name, DefinitionId(class_def_id), result_ty))
             }
 
@@ -393,8 +393,7 @@ impl TopLevelComposer {
                 if !defined_names.insert(global_fun_name.clone()) {
                     return Err(format!(
                         "top level function `{}` defined twice (at {})",
-                        global_fun_name,
-                        ast.location
+                        global_fun_name, ast.location
                     ));
                 }
 
@@ -408,7 +407,7 @@ impl TopLevelComposer {
                         // dummy here, unify with correct type later
                         ty_to_be_unified,
                         resolver,
-                        Some(ast.location)
+                        Some(ast.location),
                     ))
                     .into(),
                     Some(ast),
@@ -432,7 +431,10 @@ impl TopLevelComposer {
                 // Make callers use `register_top_level_var` instead, as it provides more
                 // fine-grained control over which symbols to register, while also simplifying the
                 // usage of this function.
-                panic!("Registration of top-level Assign statements must use TopLevelComposer::register_top_level_var (at {})", ast.location);
+                panic!(
+                    "Registration of top-level Assign statements must use TopLevelComposer::register_top_level_var (at {})",
+                    ast.location
+                );
             }
 
             ast::StmtKind::AnnAssign { target, annotation, .. } => {
@@ -1405,14 +1407,14 @@ impl TopLevelComposer {
                     );
                 if !ok {
                     return Err(HashSet::from([format!(
-                        "method {class_method_name} has same name as ancestors' method, but incompatible type"),
-                    ]));
+                        "method {class_method_name} has same name as ancestors' method, but incompatible type"
+                    )]));
                 }
             }
         }
         class_methods_def.clear();
         class_methods_def
-            .extend(new_child_methods.iter().map(|f| (*f.0, f.1 .0, f.1 .1)).collect_vec());
+            .extend(new_child_methods.iter().map(|f| (*f.0, f.1.0, f.1.1)).collect_vec());
 
         // handle class fields
         let mut new_child_fields: IndexMap<StrRef, (Type, bool)> =
@@ -1441,10 +1443,10 @@ impl TopLevelComposer {
 
         class_fields_def.clear();
         class_fields_def
-            .extend(new_child_fields.iter().map(|f| (*f.0, f.1 .0, f.1 .1)).collect_vec());
+            .extend(new_child_fields.iter().map(|f| (*f.0, f.1.0, f.1.1)).collect_vec());
         class_attribute_def.clear();
         class_attribute_def.extend(
-            new_child_attributes.iter().map(|f| (*f.0, f.1 .0, f.1 .1.clone())).collect_vec(),
+            new_child_attributes.iter().map(|f| (*f.0, f.1.0, f.1.1.clone())).collect_vec(),
         );
         Ok(())
     }
@@ -1621,14 +1623,10 @@ impl TopLevelComposer {
                         )?;
                         for (f, _, _) in fields {
                             if !all_inited.contains(f) {
-                                return Err(HashSet::from([
-                                    format!(
-                                        "fields `{}` of class `{}` not fully initialized in the initializer (at {})",
-                                        f,
-                                        class_name,
-                                        body[0].location,
-                                    ),
-                                ]));
+                                return Err(HashSet::from([format!(
+                                    "fields `{}` of class `{}` not fully initialized in the initializer (at {})",
+                                    f, class_name, body[0].location,
+                                )]));
                             }
                         }
                     }
@@ -1900,8 +1898,8 @@ impl TopLevelComposer {
                                 let base_repr = inferencer.unifier.stringify(*base);
                                 let subtype_repr = inferencer.unifier.stringify(*subtype);
                                 return Err(HashSet::from([format!(
-                                    "Expected a subtype of {base_repr}, but got {subtype_repr} (at {loc})"),
-                                ]));
+                                    "Expected a subtype of {base_repr}, but got {subtype_repr} (at {loc})"
+                                )]));
                             }
                         };
                         let subtype_entry = defs[subtype_id.0].read();
@@ -1915,8 +1913,8 @@ impl TopLevelComposer {
                             let base_repr = inferencer.unifier.stringify(*base);
                             let subtype_repr = inferencer.unifier.stringify(*subtype);
                             return Err(HashSet::from([format!(
-                                "Expected a subtype of {base_repr}, but got {subtype_repr} (at {loc})"),
-                            ]));
+                                "Expected a subtype of {base_repr}, but got {subtype_repr} (at {loc})"
+                            )]));
                         }
                     }
                 }

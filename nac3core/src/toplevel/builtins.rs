@@ -1,13 +1,13 @@
 use std::iter::once;
 
 use indexmap::IndexMap;
-use inkwell::{values::BasicValue, IntPredicate};
+use inkwell::{IntPredicate, values::BasicValue};
 use strum::IntoEnumIterator;
 
 use super::{
     helper::{
-        arraylike_flatten_element_type, debug_assert_prim_is_allowed, extract_ndims,
-        make_exception_fields, PrimDef, PrimDefDetails,
+        PrimDef, PrimDefDetails, arraylike_flatten_element_type, debug_assert_prim_is_allowed,
+        extract_ndims, make_exception_fields,
     },
     numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
     *,
@@ -17,14 +17,14 @@ use crate::{
         builtin_fns,
         numpy::*,
         stmt::{exn_constructor, gen_if_callback},
-        types::{ndarray::NDArrayType, RangeType},
+        types::{RangeType, ndarray::NDArrayType},
         values::{
-            ndarray::{shape::parse_numpy_int_sequence, ScalarOrNDArray},
             ProxyValue,
+            ndarray::{ScalarOrNDArray, shape::parse_numpy_int_sequence},
         },
     },
     symbol_resolver::SymbolValue,
-    typecheck::typedef::{into_var_map, iter_type_vars, TypeVar, VarMap},
+    typecheck::typedef::{TypeVar, VarMap, into_var_map, iter_type_vars},
 };
 
 type BuiltinInfo = Vec<(Arc<RwLock<TopLevelDef>>, Option<Stmt>)>;
@@ -479,7 +479,9 @@ impl<'a> BuiltinBuilder<'a> {
                     assert_eq!(simple_name, &exp_simple_name.into());
                 }
                 _ => {
-                    panic!("Class/function variant of the constructed TopLevelDef of PrimDef {prim:?} is different than what is defined by {prim:?}")
+                    panic!(
+                        "Class/function variant of the constructed TopLevelDef of PrimDef {prim:?} is different than what is defined by {prim:?}"
+                    )
                 }
             }
         }

@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
     iter::once,
     mem,
@@ -8,42 +8,42 @@ use std::{
 
 use itertools::Itertools;
 use pyo3::{
-    types::{PyDict, PyList},
     PyObject, PyResult, Python,
+    types::{PyDict, PyList},
 };
 
-use super::{symbol_resolver::InnerResolver, timeline::TimeFns, SpecialPythonId};
+use super::{SpecialPythonId, symbol_resolver::InnerResolver, timeline::TimeFns};
 use nac3core::{
     codegen::{
+        CodeGenContext, CodeGenerator,
         expr::{create_fn_and_call, destructure_range, gen_call, infer_and_call_function},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_alloca,
-        types::{ndarray::NDArrayType, RangeType},
+        types::{RangeType, ndarray::NDArrayType},
         values::{
             ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ListValue, ProxyValue,
             UntypedArrayLikeAccessor,
         },
-        CodeGenContext, CodeGenerator,
     },
     inkwell::{
+        AddressSpace, IntPredicate, OptimizationLevel,
         context::Context,
         module::Linkage,
         targets::TargetMachine,
         types::{BasicType, IntType},
         values::{BasicValueEnum, IntValue, PointerValue, StructValue},
-        AddressSpace, IntPredicate, OptimizationLevel,
     },
     nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef},
     symbol_resolver::ValueEnum,
     toplevel::{
-        helper::{extract_ndims, PrimDef},
-        numpy::unpack_ndarray_var_tys,
         DefinitionId, GenCall,
+        helper::{PrimDef, extract_ndims},
+        numpy::unpack_ndarray_var_tys,
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{iter_type_vars, FunSignature, FuncArg, Type, TypeEnum, VarMap},
+        typedef::{FunSignature, FuncArg, Type, TypeEnum, VarMap, iter_type_vars},
     },
 };
 
@@ -189,11 +189,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
     }
 
     fn get_size_type<'ctx>(&self, ctx: &'ctx Context) -> IntType<'ctx> {
-        if self.size_t == 32 {
-            ctx.i32_type()
-        } else {
-            ctx.i64_type()
-        }
+        if self.size_t == 32 { ctx.i32_type() } else { ctx.i64_type() }
     }
 
     fn gen_block<'ctx, 'a, 'c, I: Iterator<Item = &'c Stmt<Option<Type>>>>(
@@ -452,7 +448,10 @@ fn gen_rpc_tag(
                     &*ctx.unifier.get_ty_immutable(ndarray_ndims)
                 {
                     if values.len() != 1 {
-                        return Err(format!("NDArray types with multiple literal bounds for ndims is not supported: {}", ctx.unifier.stringify(ty)));
+                        return Err(format!(
+                            "NDArray types with multiple literal bounds for ndims is not supported: {}",
+                            ctx.unifier.stringify(ty)
+                        ));
                     }
 
                     let value = values[0].clone();
@@ -834,7 +833,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     let ptr_type = int8.ptr_type(AddressSpace::default());
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
-    let service_id = int32.const_int(fun.1 .0 as u64, false);
+    let service_id = int32.const_int(fun.1.0 as u64, false);
     // -- setup rpc tags
     let mut tag = Vec::new();
     if obj.is_some() {
@@ -857,7 +856,7 @@ fn rpc_codegen_callback_fn<'ctx>(
             let tag_arr_ptr = ctx.module.add_global(
                 int8.array_type(tag.len() as u32),
                 None,
-                format!("tagptr{}", fun.1 .0).as_str(),
+                format!("tagptr{}", fun.1.0).as_str(),
             );
             tag_arr_ptr.set_initializer(&int8.const_array(
                 &tag.iter().map(|v| int8.const_int(u64::from(*v), false)).collect::<Vec<_>>(),

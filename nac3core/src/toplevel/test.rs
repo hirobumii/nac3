@@ -5,11 +5,11 @@ use parking_lot::Mutex;
 use test_case::test_case;
 
 use nac3parser::{
-    ast::{fold::Fold, FileName},
+    ast::{FileName, fold::Fold},
     parser::parse_program,
 };
 
-use super::{helper::PrimDef, DefinitionId, *};
+use super::{DefinitionId, helper::PrimDef, *};
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::{SymbolResolver, ValueEnum},

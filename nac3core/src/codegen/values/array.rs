@@ -1,7 +1,7 @@
 use inkwell::{
+    IntPredicate,
     types::AnyTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue},
-    IntPredicate,
 };
 
 use crate::codegen::{CodeGenContext, CodeGenerator};

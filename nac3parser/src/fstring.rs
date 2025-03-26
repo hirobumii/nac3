@@ -161,14 +161,16 @@ impl<'a> FStringParser<'a> {
                         return Err(EmptyExpression);
                     }
                     let ret = if pred_expression_text.is_empty() {
-                        vec![self.expr(ExprKind::FormattedValue {
-                            value: Box::new(
-                                parse_fstring_expr(&expression)
-                                    .map_err(|e| InvalidExpression(Box::new(e.error)))?,
-                            ),
-                            conversion,
-                            format_spec: spec,
-                        })]
+                        vec![
+                            self.expr(ExprKind::FormattedValue {
+                                value: Box::new(
+                                    parse_fstring_expr(&expression)
+                                        .map_err(|e| InvalidExpression(Box::new(e.error)))?,
+                                ),
+                                conversion,
+                                format_spec: spec,
+                            }),
+                        ]
                     } else {
                         vec![
                             self.expr(ExprKind::Constant {

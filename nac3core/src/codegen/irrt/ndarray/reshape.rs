@@ -1,10 +1,10 @@
 use inkwell::values::IntValue;
 
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     expr::infer_and_call_function,
     irrt::get_usize_dependent_function_name,
     values::{ArrayLikeValue, ArraySliceValue},
-    CodeGenContext, CodeGenerator,
 };
 
 /// Generates a call to `__nac3_ndarray_reshape_resolve_and_check_new_shape`.

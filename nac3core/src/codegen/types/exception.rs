@@ -1,19 +1,19 @@
 use inkwell::{
+    AddressSpace,
     context::{AsContextRef, Context},
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{IntValue, PointerValue, StructValue},
-    AddressSpace,
 };
 use itertools::Itertools;
 
 use nac3core_derive::StructFields;
 
 use super::{
-    structure::{check_struct_type_matches_fields, StructField, StructFields, StructProxyType},
     ProxyType,
+    structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
 };
 use crate::{
-    codegen::{values::ExceptionValue, CodeGenContext, CodeGenerator},
+    codegen::{CodeGenContext, CodeGenerator, values::ExceptionValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 

@@ -1,19 +1,18 @@
 use inkwell::{
+    AddressSpace,
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue},
-    AddressSpace,
 };
 
 use crate::{
     codegen::{
-        irrt,
+        CodeGenContext, CodeGenerator, irrt,
         stmt::gen_if_else_expr_callback,
-        types::{ndarray::NDArrayType, ListType, ProxyType},
+        types::{ListType, ProxyType, ndarray::NDArrayType},
         values::{
-            ndarray::NDArrayValue, ArrayLikeValue, ArraySliceValue, ListValue, ProxyValue,
-            TypedArrayLikeAdapter, TypedArrayLikeMutator,
+            ArrayLikeValue, ArraySliceValue, ListValue, ProxyValue, TypedArrayLikeAdapter,
+            TypedArrayLikeMutator, ndarray::NDArrayValue,
         },
-        CodeGenContext, CodeGenerator,
     },
     toplevel::helper::{arraylike_flatten_element_type, arraylike_get_ndims},
     typecheck::typedef::{Type, TypeEnum},

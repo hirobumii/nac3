@@ -1,8 +1,8 @@
 use inkwell::{
+    AddressSpace, IntPredicate, OptimizationLevel,
     context::Context,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{IntValue, PointerValue, StructValue},
-    AddressSpace, IntPredicate, OptimizationLevel,
 };
 use itertools::Itertools;
 
@@ -11,14 +11,14 @@ use nac3core_derive::StructFields;
 use super::ProxyType;
 use crate::{
     codegen::{
+        CodeGenContext, CodeGenerator,
         types::structure::{
-            check_struct_type_matches_fields, FieldIndexCounter, StructField, StructFields,
-            StructProxyType,
+            FieldIndexCounter, StructField, StructFields, StructProxyType,
+            check_struct_type_matches_fields,
         },
         values::ListValue,
-        CodeGenContext, CodeGenerator,
     },
-    typecheck::typedef::{iter_type_vars, Type, TypeEnum},
+    typecheck::typedef::{Type, TypeEnum, iter_type_vars},
 };
 
 /// Proxy type for a `list` type in LLVM.

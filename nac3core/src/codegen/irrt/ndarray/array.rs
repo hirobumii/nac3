@@ -1,10 +1,10 @@
 use inkwell::{types::BasicTypeEnum, values::IntValue};
 
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     expr::infer_and_call_function,
     irrt::get_usize_dependent_function_name,
-    values::{ndarray::NDArrayValue, ListValue, ProxyValue, TypedArrayLikeAccessor},
-    CodeGenContext, CodeGenerator,
+    values::{ListValue, ProxyValue, TypedArrayLikeAccessor, ndarray::NDArrayValue},
 };
 
 /// Generates a call to `__nac3_ndarray_array_set_and_validate_list_shape`.

@@ -4,7 +4,7 @@ use inkwell::{
 };
 
 use super::ProxyValue;
-use crate::codegen::{types::RangeType, CodeGenContext, CodeGenerator};
+use crate::codegen::{CodeGenContext, CodeGenerator, types::RangeType};
 
 /// Proxy type for accessing a `range` value in LLVM.
 #[derive(Copy, Clone)]

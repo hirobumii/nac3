@@ -4,9 +4,9 @@ use inkwell::{
 };
 
 use crate::codegen::{
-    types::{structure::StructField, StringType},
-    values::ProxyValue,
     CodeGenContext,
+    types::{StringType, structure::StructField},
+    values::ProxyValue,
 };
 
 /// Proxy type for accessing a `str` value in LLVM.

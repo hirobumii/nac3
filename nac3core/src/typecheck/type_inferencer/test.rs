@@ -11,7 +11,7 @@ use super::*;
 use crate::{
     codegen::{CodeGenContext, CodeGenerator},
     symbol_resolver::ValueEnum,
-    toplevel::{helper::PrimDef, DefinitionId, TopLevelDef},
+    toplevel::{DefinitionId, TopLevelDef, helper::PrimDef},
     typecheck::{magic_methods::with_fields, typedef::*},
 };
 

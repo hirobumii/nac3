@@ -2,7 +2,7 @@
 name = "nac3ld"
 version = "0.1.0"
 authors = ["M-Labs"]
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 byteorder = { version = "1.5", default-features = false }

@@ -281,7 +281,7 @@ where
                     return Err(LexicalError {
                         error: LexicalErrorType::OtherError(format!("{e:?}")),
                         location: start_pos,
-                    })
+                    });
                 }
             },
         };
@@ -380,11 +380,7 @@ where
     fn take_number(&mut self, radix: u32) -> Option<char> {
         let take_char = Lexer::<T>::is_digit_of_radix(self.chr0, radix);
 
-        if take_char {
-            Some(self.next_char().unwrap())
-        } else {
-            None
-        }
+        if take_char { Some(self.next_char().unwrap()) } else { None }
     }
 
     /// Test if a digit is of a certain radix.
@@ -490,7 +486,7 @@ where
                 return Err(LexicalError {
                     error: LexicalErrorType::StringError,
                     location: start_pos,
-                })
+                });
             }
         }
         let start_pos = self.get_pos();
@@ -503,7 +499,7 @@ where
                     return Err(LexicalError {
                         error: LexicalErrorType::StringError,
                         location: self.get_pos(),
-                    })
+                    });
                 }
             }
         }
@@ -1269,9 +1265,7 @@ where
         let token = self.inner_next();
         trace!(
             "Lex token {:?}, nesting={:?}, indent stack: {:?}",
-            token,
-            self.nesting,
-            self.indentation_stack
+            token, self.nesting, self.indentation_stack
         );
 
         match token {
@@ -1283,7 +1277,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{make_tokenizer, NewlineHandler, Tok};
+    use super::{NewlineHandler, Tok, make_tokenizer};
     use nac3ast::FileName;
 
     const WINDOWS_EOL: &str = "\r\n";

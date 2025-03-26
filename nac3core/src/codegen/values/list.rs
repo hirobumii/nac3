@@ -1,17 +1,17 @@
 use inkwell::{
+    AddressSpace, IntPredicate,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType},
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
-    AddressSpace, IntPredicate,
 };
 
 use super::{
-    structure::StructProxyValue, ArrayLikeIndexer, ArrayLikeValue, ProxyValue,
-    UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
+    ArrayLikeIndexer, ArrayLikeValue, ProxyValue, UntypedArrayLikeAccessor,
+    UntypedArrayLikeMutator, structure::StructProxyValue,
 };
 use crate::codegen::{
     types::{
-        structure::{StructField, StructProxyType},
         ListType, ProxyType,
+        structure::{StructField, StructProxyType},
     },
     {CodeGenContext, CodeGenerator},
 };

@@ -1,23 +1,23 @@
 use inkwell::{
-    values::{BasicValue, BasicValueEnum, PointerValue},
     IntPredicate,
+    values::{BasicValue, BasicValueEnum, PointerValue},
 };
 
 use nac3parser::ast::StrRef;
 
 use super::{
+    CodeGenContext, CodeGenerator,
     macros::codegen_unreachable,
     stmt::gen_for_callback,
     types::ndarray::{NDArrayType, NDIterType},
-    values::{ndarray::shape::parse_numpy_int_sequence, ProxyValue},
-    CodeGenContext, CodeGenerator,
+    values::{ProxyValue, ndarray::shape::parse_numpy_int_sequence},
 };
 use crate::{
     symbol_resolver::ValueEnum,
     toplevel::{
+        DefinitionId,
         helper::{arraylike_flatten_element_type, extract_ndims},
         numpy::unpack_ndarray_var_tys,
-        DefinitionId,
     },
     typecheck::typedef::{FunSignature, Type},
 };

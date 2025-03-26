@@ -7,7 +7,7 @@ use itertools::Itertools;
 
 use super::ProxyType;
 use crate::{
-    codegen::{values::TupleValue, CodeGenContext, CodeGenerator},
+    codegen::{CodeGenContext, CodeGenerator, values::TupleValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -110,7 +110,7 @@ impl<'ctx> TupleType<'ctx> {
     /// The caller must ensure that the index is valid.
     #[must_use]
     pub unsafe fn type_at_index_unchecked(&self, index: u32) -> BasicTypeEnum<'ctx> {
-        self.ty.get_field_type_at_index_unchecked(index)
+        unsafe { self.ty.get_field_type_at_index_unchecked(index) }
     }
 
     /// Constructs a [`TupleValue`] from this type by zero-initializing the tuple value.
@@ -131,10 +131,11 @@ impl<'ctx> TupleType<'ctx> {
         let values = objects.into_iter().collect_vec();
 
         assert_eq!(values.len(), self.num_elements() as usize);
-        assert!(values
-            .iter()
-            .enumerate()
-            .all(|(i, v)| { v.get_type() == unsafe { self.type_at_index_unchecked(i as u32) } }));
+        assert!(
+            values.iter().enumerate().all(|(i, v)| {
+                v.get_type() == unsafe { self.type_at_index_unchecked(i as u32) }
+            })
+        );
 
         let mut value = self.construct(name);
         for (i, val) in values.into_iter().enumerate() {

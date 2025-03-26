@@ -4,7 +4,7 @@ use inkwell::{
 };
 
 use super::ProxyValue;
-use crate::codegen::{types::TupleType, CodeGenContext};
+use crate::codegen::{CodeGenContext, types::TupleType};
 
 #[derive(Copy, Clone)]
 pub struct TupleValue<'ctx> {

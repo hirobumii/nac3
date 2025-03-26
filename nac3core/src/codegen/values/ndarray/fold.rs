@@ -2,9 +2,9 @@ use inkwell::values::{BasicValue, BasicValueEnum};
 
 use super::{NDArrayValue, NDIterValue, ScalarOrNDArray};
 use crate::codegen::{
-    stmt::{gen_for_callback, BreakContinueHooks},
-    types::ndarray::NDIterType,
     CodeGenContext, CodeGenerator,
+    stmt::{BreakContinueHooks, gen_for_callback},
+    types::ndarray::NDIterType,
 };
 
 impl<'ctx> NDArrayValue<'ctx> {

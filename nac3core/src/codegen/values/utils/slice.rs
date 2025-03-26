@@ -7,12 +7,12 @@ use nac3parser::ast::Expr;
 
 use crate::{
     codegen::{
+        CodeGenContext, CodeGenerator,
         types::{
             structure::{StructField, StructProxyType},
             utils::SliceType,
         },
-        values::{structure::StructProxyValue, ProxyValue},
-        CodeGenContext, CodeGenerator,
+        values::{ProxyValue, structure::StructProxyValue},
     },
     typecheck::typedef::Type,
 };

@@ -4,7 +4,7 @@ use inkwell::{
 };
 
 use super::ProxyValue;
-use crate::codegen::{types::OptionType, CodeGenContext};
+use crate::codegen::{CodeGenContext, types::OptionType};
 
 /// Proxy type for accessing a `Option` value in LLVM.
 #[derive(Copy, Clone)]

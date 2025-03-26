@@ -1,29 +1,28 @@
 use std::iter::repeat_n;
 
 use inkwell::{
+    AddressSpace, IntPredicate,
     types::{AnyType, AnyTypeEnum, BasicType, BasicTypeEnum, IntType},
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
-    AddressSpace, IntPredicate,
 };
 use itertools::Itertools;
 
 use super::{
-    structure::StructProxyValue, ArrayLikeIndexer, ArrayLikeValue, ProxyValue, TupleValue,
-    TypedArrayLikeAccessor, TypedArrayLikeAdapter, TypedArrayLikeMutator, UntypedArrayLikeAccessor,
-    UntypedArrayLikeMutator,
+    ArrayLikeIndexer, ArrayLikeValue, ProxyValue, TupleValue, TypedArrayLikeAccessor,
+    TypedArrayLikeAdapter, TypedArrayLikeMutator, UntypedArrayLikeAccessor,
+    UntypedArrayLikeMutator, structure::StructProxyValue,
 };
 use crate::{
     codegen::{
-        irrt,
+        CodeGenContext, CodeGenerator, irrt,
         llvm_intrinsics::{call_int_umin, call_memcpy_generic_array},
         stmt::gen_for_callback_incrementing,
         type_aligned_alloca,
         types::{
+            TupleType,
             ndarray::NDArrayType,
             structure::{StructField, StructProxyType},
-            TupleType,
         },
-        CodeGenContext, CodeGenerator,
     },
     typecheck::typedef::{Type, TypeEnum},
 };

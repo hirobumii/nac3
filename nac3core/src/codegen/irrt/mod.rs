@@ -1,10 +1,10 @@
 use inkwell::{
+    IntPredicate,
     attributes::{Attribute, AttributeLoc},
     context::Context,
     memory_buffer::MemoryBuffer,
     module::Module,
     values::{BasicValue, BasicValueEnum, IntValue},
-    IntPredicate,
 };
 
 use nac3parser::ast::Expr;

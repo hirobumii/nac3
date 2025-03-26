@@ -1,8 +1,8 @@
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     expr::infer_and_call_function,
     irrt::get_usize_dependent_function_name,
-    values::{ndarray::NDArrayValue, ArrayLikeValue, ArraySliceValue, ProxyValue},
-    CodeGenContext, CodeGenerator,
+    values::{ArrayLikeValue, ArraySliceValue, ProxyValue, ndarray::NDArrayValue},
 };
 
 /// Generates a call to `__nac3_ndarray_index`.

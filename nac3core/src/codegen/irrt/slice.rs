@@ -3,7 +3,7 @@ use inkwell::values::{BasicValueEnum, IntValue};
 use nac3parser::ast::Expr;
 
 use crate::{
-    codegen::{expr::infer_and_call_function, CodeGenContext, CodeGenerator},
+    codegen::{CodeGenContext, CodeGenerator, expr::infer_and_call_function},
     typecheck::typedef::Type,
 };
 

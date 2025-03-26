@@ -5,6 +5,7 @@ use nac3parser::ast::Operator;
 use super::{NDArrayOut, NDArrayValue, RustNDIndex};
 use crate::{
     codegen::{
+        CodeGenContext, CodeGenerator,
         expr::gen_binop_expr_with_values,
         irrt,
         stmt::gen_for_callback_incrementing,
@@ -13,7 +14,6 @@ use crate::{
             ArrayLikeValue, ArraySliceValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
             UntypedArrayLikeAccessor, UntypedArrayLikeMutator,
         },
-        CodeGenContext, CodeGenerator,
     },
     toplevel::helper::arraylike_flatten_element_type,
     typecheck::{magic_methods::Binop, typedef::Type},

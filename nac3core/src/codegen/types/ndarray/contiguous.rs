@@ -1,8 +1,8 @@
 use inkwell::{
+    AddressSpace,
     context::Context,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{IntValue, PointerValue, StructValue},
-    AddressSpace,
 };
 use itertools::Itertools;
 
@@ -10,15 +10,15 @@ use nac3core_derive::StructFields;
 
 use crate::{
     codegen::{
+        CodeGenContext, CodeGenerator,
         types::{
-            structure::{
-                check_struct_type_matches_fields, FieldIndexCounter, StructField, StructFields,
-                StructProxyType,
-            },
             ProxyType,
+            structure::{
+                FieldIndexCounter, StructField, StructFields, StructProxyType,
+                check_struct_type_matches_fields,
+            },
         },
         values::ndarray::ContiguousNDArrayValue,
-        CodeGenContext, CodeGenerator,
     },
     toplevel::numpy::unpack_ndarray_var_tys,
     typecheck::typedef::Type,

@@ -1,18 +1,18 @@
 use std::{cmp::max, collections::HashMap, rc::Rc};
 
-use itertools::{iproduct, Itertools};
+use itertools::{Itertools, iproduct};
 use strum::IntoEnumIterator;
 
 use nac3parser::ast::{Cmpop, Operator, StrRef, Unaryop};
 
 use super::{
     type_inferencer::*,
-    typedef::{into_var_map, FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
+    typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
 };
 use crate::{
     symbol_resolver::SymbolValue,
     toplevel::{
-        helper::{extract_ndims, PrimDef},
+        helper::{PrimDef, extract_ndims},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
     },
 };
@@ -498,11 +498,7 @@ pub fn typeof_binop(
                     ));
                 }
 
-                if is_left_list {
-                    lhs
-                } else {
-                    rhs
-                }
+                if is_left_list { lhs } else { rhs }
             } else if is_left_ndarray || is_right_ndarray {
                 typeof_ndarray_broadcast(unifier, primitives, lhs, rhs)?
             } else if unifier.unioned(lhs, rhs) {
@@ -526,7 +522,9 @@ pub fn typeof_binop(
                 _ => {
                     let lhs_str = unifier.stringify(lhs);
                     let rhs_str = unifier.stringify(rhs);
-                    return Err(format!("ndarray.__matmul__ only accepts ndarray operands, but left operand has type {lhs_str}, and right operand has type {rhs_str}"));
+                    return Err(format!(
+                        "ndarray.__matmul__ only accepts ndarray operands, but left operand has type {lhs_str}, and right operand has type {rhs_str}"
+                    ));
                 }
             }
 
@@ -552,7 +550,7 @@ pub fn typeof_binop(
                 (0, _) | (_, 0) => {
                     return Err(
                         "ndarray.__matmul__ does not allow unsized ndarray input".to_string()
-                    )
+                    );
                 }
                 (1, 1) => 0,
                 (1, _) => rhs_ndims - 1,

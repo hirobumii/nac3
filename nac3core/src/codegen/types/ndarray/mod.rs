@@ -1,20 +1,20 @@
 use inkwell::{
+    AddressSpace,
     context::{AsContextRef, Context},
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{BasicValue, IntValue, PointerValue, StructValue},
-    AddressSpace,
 };
 use itertools::Itertools;
 
 use nac3core_derive::StructFields;
 
 use super::{
-    structure::{check_struct_type_matches_fields, StructField, StructFields, StructProxyType},
     ProxyType,
+    structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
 };
 use crate::{
     codegen::{
-        values::{ndarray::NDArrayValue, TypedArrayLikeMutator},
+        values::{TypedArrayLikeMutator, ndarray::NDArrayValue},
         {CodeGenContext, CodeGenerator},
     },
     toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},

@@ -1,6 +1,6 @@
 use nac3core::{
-    codegen::{expr::infer_and_call_function, CodeGenContext},
-    inkwell::{values::BasicValueEnum, AddressSpace, AtomicOrdering},
+    codegen::{CodeGenContext, expr::infer_and_call_function},
+    inkwell::{AddressSpace, AtomicOrdering, values::BasicValueEnum},
 };
 
 /// Functions for manipulating the timeline.

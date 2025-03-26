@@ -7,26 +7,26 @@ use function_name::named;
 use indexmap::IndexMap;
 use indoc::indoc;
 use inkwell::{
-    targets::{InitializationConfig, Target},
     OptimizationLevel,
+    targets::{InitializationConfig, Target},
 };
 use nac3parser::{
-    ast::{fold::Fold, FileName, StrRef},
+    ast::{FileName, StrRef, fold::Fold},
     parser::parse_program,
 };
 use parking_lot::RwLock;
 
 use super::{
-    concrete_type::ConcreteTypeStore,
-    types::{ndarray::NDArrayType, ListType, ProxyType, RangeType},
     CodeGenContext, CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator,
     DefaultCodeGenerator, WithCall, WorkerRegistry,
+    concrete_type::ConcreteTypeStore,
+    types::{ListType, ProxyType, RangeType, ndarray::NDArrayType},
 };
 use crate::{
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
-        composer::{ComposerConfig, TopLevelComposer},
         DefinitionId, FunInstance, TopLevelContext, TopLevelDef,
+        composer::{ComposerConfig, TopLevelComposer},
     },
     typecheck::{
         type_inferencer::{FunctionData, IdentifierInfo, Inferencer, PrimitiveStore},

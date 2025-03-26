@@ -1,6 +1,6 @@
 use inkwell::{types::IntType, values::BasicValue};
 
-use super::{types::ProxyType, CodeGenContext};
+use super::{CodeGenContext, types::ProxyType};
 pub use array::*;
 pub use exception::*;
 pub use list::*;

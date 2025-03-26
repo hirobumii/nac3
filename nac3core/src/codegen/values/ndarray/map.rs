@@ -1,11 +1,11 @@
 use inkwell::{types::BasicTypeEnum, values::BasicValueEnum};
 
 use crate::codegen::{
-    values::{
-        ndarray::{NDArrayOut, NDArrayValue, ScalarOrNDArray},
-        ProxyValue,
-    },
     CodeGenContext, CodeGenerator,
+    values::{
+        ProxyValue,
+        ndarray::{NDArrayOut, NDArrayValue, ScalarOrNDArray},
+    },
 };
 
 impl<'ctx> NDArrayValue<'ctx> {

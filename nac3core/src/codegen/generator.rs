@@ -7,7 +7,7 @@ use inkwell::{
 
 use nac3parser::ast::{Expr, Stmt, StrRef};
 
-use super::{bool_to_int_type, expr::*, stmt::*, values::ArraySliceValue, CodeGenContext};
+use super::{CodeGenContext, bool_to_int_type, expr::*, stmt::*, values::ArraySliceValue};
 use crate::{
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},
@@ -308,10 +308,6 @@ impl CodeGenerator for DefaultCodeGenerator {
     fn get_size_type<'ctx>(&self, ctx: &'ctx Context) -> IntType<'ctx> {
         // it should be unsigned, but we don't really need unsigned and this could save us from
         // having to do a bit cast...
-        if self.size_t == 32 {
-            ctx.i32_type()
-        } else {
-            ctx.i64_type()
-        }
+        if self.size_t == 32 { ctx.i32_type() } else { ctx.i64_type() }
     }
 }

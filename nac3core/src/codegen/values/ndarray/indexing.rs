@@ -1,7 +1,7 @@
 use inkwell::{
+    AddressSpace,
     types::IntType,
     values::{IntValue, PointerValue, StructValue},
-    AddressSpace,
 };
 use itertools::Itertools;
 
@@ -9,16 +9,15 @@ use nac3parser::ast::{Expr, ExprKind};
 
 use crate::{
     codegen::{
-        irrt,
+        CodeGenContext, CodeGenerator, irrt,
         types::{
             ndarray::{NDArrayType, NDIndexType},
             structure::{StructField, StructProxyType},
             utils::SliceType,
         },
         values::{
-            ndarray::NDArrayValue, structure::StructProxyValue, utils::RustSlice, ProxyValue,
+            ProxyValue, ndarray::NDArrayValue, structure::StructProxyValue, utils::RustSlice,
         },
-        CodeGenContext, CodeGenerator,
     },
     typecheck::typedef::Type,
 };

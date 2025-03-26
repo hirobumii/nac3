@@ -139,7 +139,7 @@ impl Inferencer<'_> {
                             return Err(HashSet::from([format!(
                                 "type error at identifier `{}` ({}) at {}",
                                 id, e, expr.location
-                            )]))
+                            )]));
                         }
                     }
                 }
@@ -376,13 +376,11 @@ impl Inferencer<'_> {
                         }
 
                         if !self.check_return_value_ty(ret_ty) {
-                            return Err(HashSet::from([
-                                format!(
-                                    "return value of type {} must be a primitive or a tuple of primitives at {}",
-                                    self.unifier.stringify(ret_ty),
-                                    value.location,
-                                ),
-                            ]));
+                            return Err(HashSet::from([format!(
+                                "return value of type {} must be a primitive or a tuple of primitives at {}",
+                                self.unifier.stringify(ret_ty),
+                                value.location,
+                            )]));
                         }
                     }
                 }
@@ -425,7 +423,7 @@ impl Inferencer<'_> {
                             return Err(HashSet::from([format!(
                                 "type error at identifier `{}` ({}) at {}",
                                 id, e, stmt.location
-                            )]))
+                            )]));
                         }
                     }
                 }

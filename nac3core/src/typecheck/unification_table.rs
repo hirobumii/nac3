@@ -121,7 +121,7 @@ impl<V> UnificationTable<V> {
         let (log_len, generation) = snapshot;
         assert!(self.log.len() >= log_len, "snapshot restoration error");
         assert!(
-            matches!(self.log[log_len - 1], Action::Marker { generation: gen } if gen == generation),
+            matches!(self.log[log_len - 1], Action::Marker { generation: r#gen } if r#gen == generation),
             "snapshot restoration error"
         );
         for action in self.log.drain(log_len - 1..).rev() {
@@ -144,7 +144,7 @@ impl<V> UnificationTable<V> {
         let (log_len, generation) = snapshot;
         assert!(self.log.len() >= log_len, "snapshot discard error");
         assert!(
-            matches!(self.log[log_len - 1], Action::Marker { generation: gen } if gen == generation),
+            matches!(self.log[log_len - 1], Action::Marker { generation: r#gen } if r#gen == generation),
             "snapshot discard error"
         );
         self.log.clear();

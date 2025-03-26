@@ -2,14 +2,15 @@ use std::{
     cell::OnceCell,
     collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     thread,
 };
 
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam::channel::{Receiver, Sender, unbounded};
 use inkwell::{
+    AddressSpace, IntPredicate, OptimizationLevel,
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
     builder::Builder,
@@ -22,7 +23,6 @@ use inkwell::{
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{AnyType, BasicType, BasicTypeEnum, IntType},
     values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue},
-    AddressSpace, IntPredicate, OptimizationLevel,
 };
 use itertools::Itertools;
 use parking_lot::{Condvar, Mutex};
@@ -32,9 +32,9 @@ use nac3parser::ast::{Location, Stmt, StrRef};
 use crate::{
     symbol_resolver::{StaticValue, SymbolResolver},
     toplevel::{
-        helper::{extract_ndims, PrimDef},
-        numpy::unpack_ndarray_var_tys,
         TopLevelContext, TopLevelDef,
+        helper::{PrimDef, extract_ndims},
+        numpy::unpack_ndarray_var_tys,
     },
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
@@ -44,8 +44,8 @@ use crate::{
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
 use types::{
-    ndarray::NDArrayType, ExceptionType, ListType, OptionType, ProxyType, RangeType, StringType,
-    TupleType,
+    ExceptionType, ListType, OptionType, ProxyType, RangeType, StringType, TupleType,
+    ndarray::NDArrayType,
 };
 
 pub mod builtin_fns;
@@ -1028,8 +1028,7 @@ pub fn gen_func_impl<
     );
     let generator_llvm_usize = generator.get_size_type(context);
     assert_eq!(
-        generator_llvm_usize,
-        target_llvm_usize,
+        generator_llvm_usize, target_llvm_usize,
         "CodeGenerator (size_t = {generator_llvm_usize}) is not compatible with CodeGen Target (size_t = {target_llvm_usize})",
     );
 

@@ -1,35 +1,35 @@
 use inkwell::{
+    IntPredicate,
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
     builder::Builder,
     types::{BasicType, BasicTypeEnum},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
-    IntPredicate,
 };
-use itertools::{izip, Itertools};
+use itertools::{Itertools, izip};
 
 use nac3parser::ast::{
     Constant, ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKind, StrRef,
 };
 
 use super::{
+    CodeGenContext, CodeGenerator,
     expr::{destructure_range, gen_binop_expr},
     gen_in_range_check,
     irrt::{handle_slice_indices, list_slice_assignment},
     macros::codegen_unreachable,
-    types::{ndarray::NDArrayType, ExceptionType, RangeType},
+    types::{ExceptionType, RangeType, ndarray::NDArrayType},
     values::{
-        ndarray::{RustNDIndex, ScalarOrNDArray},
         ArrayLikeIndexer, ArraySliceValue, ExceptionValue, ListValue, ProxyValue,
+        ndarray::{RustNDIndex, ScalarOrNDArray},
     },
-    CodeGenContext, CodeGenerator,
 };
 use crate::{
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::{
         magic_methods::Binop,
-        typedef::{iter_type_vars, FunSignature, Type, TypeEnum},
+        typedef::{FunSignature, Type, TypeEnum, iter_type_vars},
     },
 };
 
@@ -234,7 +234,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
 
         let a = starred_target_index; // Number of RHS values before the starred target
         let b = tuple_tys.len() - (targets.len() - 1 - starred_target_index); // Number of RHS values after the starred target
-                                                                              // Thus `tuple[a..b]` is assigned to the starred target.
+        // Thus `tuple[a..b]` is assigned to the starred target.
 
         // Handle assignment before the starred target
         for (target, val, val_ty) in

@@ -5,18 +5,17 @@ use inkwell::{
 use itertools::Itertools;
 
 use crate::codegen::{
-    irrt,
+    CodeGenContext, CodeGenerator, irrt,
     types::{
+        ProxyType,
         ndarray::{NDArrayType, ShapeEntryType},
         structure::{StructField, StructProxyType},
-        ProxyType,
     },
     values::{
-        ndarray::NDArrayValue, structure::StructProxyValue, ArrayLikeIndexer, ArrayLikeValue,
-        ArraySliceValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
-        TypedArrayLikeMutator,
+        ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ProxyValue, TypedArrayLikeAccessor,
+        TypedArrayLikeAdapter, TypedArrayLikeMutator, ndarray::NDArrayValue,
+        structure::StructProxyValue,
     },
-    CodeGenContext, CodeGenerator,
 };
 
 #[derive(Copy, Clone)]
@@ -168,9 +167,11 @@ fn broadcast_shapes<'ctx, G, Shape>(
     let llvm_usize = ctx.get_size_type();
     let llvm_shape_ty = ShapeEntryType::new(ctx);
 
-    assert!(in_shape_entries
-        .iter()
-        .all(|entry| entry.0.element_type(ctx, generator) == llvm_usize.into()));
+    assert!(
+        in_shape_entries
+            .iter()
+            .all(|entry| entry.0.element_type(ctx, generator) == llvm_usize.into())
+    );
     assert_eq!(broadcast_shape.element_type(ctx, generator), llvm_usize.into());
 
     // Prepare input shape entries to be passed to `call_nac3_ndarray_broadcast_shapes`.

@@ -10,7 +10,7 @@ use crate::{
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{
-            into_var_map, FunSignature, FuncArg, Type, TypeEnum, TypeVar, TypeVarId, Unifier,
+            FunSignature, FuncArg, Type, TypeEnum, TypeVar, TypeVarId, Unifier, into_var_map,
         },
     },
 };

@@ -1,18 +1,18 @@
 use inkwell::{
+    AddressSpace,
     context::Context,
     types::{BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{GlobalValue, IntValue, PointerValue, StructValue},
-    AddressSpace,
 };
 use itertools::Itertools;
 
 use nac3core_derive::StructFields;
 
 use super::{
-    structure::{check_struct_type_matches_fields, StructField, StructFields},
     ProxyType,
+    structure::{StructField, StructFields, check_struct_type_matches_fields},
 };
-use crate::codegen::{values::StringValue, CodeGenContext, CodeGenerator};
+use crate::codegen::{CodeGenContext, CodeGenerator, values::StringValue};
 
 /// Proxy type for a `str` type in LLVM.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

@@ -1,8 +1,8 @@
 use inkwell::{
+    AddressSpace,
     intrinsics::Intrinsic,
     types::AnyTypeEnum::IntType,
     values::{BasicValueEnum, CallSiteValue, FloatValue, IntValue, PointerValue},
-    AddressSpace,
 };
 use itertools::Either;
 

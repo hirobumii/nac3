@@ -21,7 +21,7 @@ use super::{
 };
 use crate::{
     symbol_resolver::SymbolValue,
-    toplevel::{helper::PrimDef, DefinitionId, TopLevelContext, TopLevelDef},
+    toplevel::{DefinitionId, TopLevelContext, TopLevelDef, helper::PrimDef},
 };
 
 #[cfg(test)]
@@ -410,11 +410,7 @@ impl Unifier {
 
     pub fn get_call_signature(&mut self, id: CallId) -> Option<FunSignature> {
         let fun = self.calls.get(id.0).unwrap().fun.borrow().unwrap();
-        if let TypeEnum::TFunc(sign) = &*self.get_ty(fun) {
-            Some(sign.clone())
-        } else {
-            None
-        }
+        if let TypeEnum::TFunc(sign) = &*self.get_ty(fun) { Some(sign.clone()) } else { None }
     }
 
     #[must_use]
@@ -1224,7 +1220,7 @@ impl Unifier {
                                 return Err(TypeError::new(
                                     TypeErrorKind::NoSuchField(*k, b),
                                     field.loc,
-                                ))
+                                ));
                             }
                         }
                     }

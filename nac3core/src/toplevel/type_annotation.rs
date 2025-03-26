@@ -43,11 +43,7 @@ impl TypeAnnotation {
                 format!("{}{}", class_name, {
                     let param_list =
                         params.iter().map(|p| p.stringify(unifier)).collect_vec().join(", ");
-                    if param_list.is_empty() {
-                        String::new()
-                    } else {
-                        format!("[{param_list}]")
-                    }
+                    if param_list.is_empty() { String::new() } else { format!("[{param_list}]") }
                 })
             }
             Literal(values) => {
@@ -214,12 +210,10 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                 if no_type_var {
                     result
                 } else {
-                    return Err(HashSet::from([
-                        format!(
-                            "application of type vars to generic class is not currently supported (at {})",
-                            params_ast[0].location
-                        ),
-                    ]));
+                    return Err(HashSet::from([format!(
+                        "application of type vars to generic class is not currently supported (at {})",
+                        params_ast[0].location
+                    )]));
                 }
             };
             Ok(TypeAnnotation::CustomClass { id: obj_id, params: param_type_infos })

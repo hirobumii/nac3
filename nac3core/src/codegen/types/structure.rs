@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
 use inkwell::{
+    AddressSpace,
     context::AsContextRef,
     types::{BasicTypeEnum, IntType, PointerType, StructType},
     values::{AggregateValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
-    AddressSpace,
 };
 use itertools::Itertools;
 

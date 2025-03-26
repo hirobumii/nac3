@@ -1,13 +1,13 @@
 use inkwell::values::{BasicValueEnum, IntValue};
 
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     expr::infer_and_call_function,
     irrt::get_usize_dependent_function_name,
     values::{
-        ndarray::{NDArrayValue, NDIterValue},
         ProxyValue, TypedArrayLikeAccessor,
+        ndarray::{NDArrayValue, NDIterValue},
     },
-    CodeGenContext, CodeGenerator,
 };
 
 /// Generates a call to `__nac3_nditer_initialize`.

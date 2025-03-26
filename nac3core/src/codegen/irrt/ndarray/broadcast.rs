@@ -1,14 +1,14 @@
 use inkwell::values::IntValue;
 
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     expr::infer_and_call_function,
     irrt::get_usize_dependent_function_name,
-    types::{ndarray::ShapeEntryType, ProxyType},
+    types::{ProxyType, ndarray::ShapeEntryType},
     values::{
-        ndarray::NDArrayValue, ArrayLikeValue, ArraySliceValue, ProxyValue, TypedArrayLikeAccessor,
-        TypedArrayLikeMutator,
+        ArrayLikeValue, ArraySliceValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeMutator,
+        ndarray::NDArrayValue,
     },
-    CodeGenContext, CodeGenerator,
 };
 
 /// Generates a call to `__nac3_ndarray_broadcast_to`.
@@ -55,11 +55,13 @@ pub fn call_nac3_ndarray_broadcast_shapes<'ctx, G, Shape>(
     let llvm_usize = ctx.get_size_type();
 
     assert_eq!(num_shape_entries.get_type(), llvm_usize);
-    assert!(ShapeEntryType::is_representable(
-        shape_entries.base_ptr(ctx, generator).get_type(),
-        llvm_usize,
-    )
-    .is_ok());
+    assert!(
+        ShapeEntryType::is_representable(
+            shape_entries.base_ptr(ctx, generator).get_type(),
+            llvm_usize,
+        )
+        .is_ok()
+    );
     assert_eq!(dst_ndims.get_type(), llvm_usize);
     assert_eq!(dst_shape.element_type(ctx, generator), llvm_usize.into());
 

@@ -1,26 +1,26 @@
 use inkwell::{
+    FloatPredicate, IntPredicate, OptimizationLevel,
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue},
-    FloatPredicate, IntPredicate, OptimizationLevel,
 };
 use itertools::Itertools;
 
 use super::{
+    CodeGenContext, CodeGenerator,
     expr::destructure_range,
     extern_fns, irrt,
     irrt::calculate_len_for_slice_range,
     llvm_intrinsics,
     macros::codegen_unreachable,
-    types::{ndarray::NDArrayType, ListType, RangeType, TupleType},
+    types::{ListType, RangeType, TupleType, ndarray::NDArrayType},
     values::{
-        ndarray::{NDArrayOut, NDArrayValue, ScalarOrNDArray},
         ProxyValue, TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
+        ndarray::{NDArrayOut, NDArrayValue, ScalarOrNDArray},
     },
-    CodeGenContext, CodeGenerator,
 };
 use crate::{
     toplevel::{
-        helper::{arraylike_flatten_element_type, extract_ndims, PrimDef},
+        helper::{PrimDef, arraylike_flatten_element_type, extract_ndims},
         numpy::unpack_ndarray_var_tys,
     },
     typecheck::typedef::{Type, TypeEnum},
@@ -99,17 +99,21 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::IntValue(n) if n.get_type().get_bit_width() == 32 => {
-            debug_assert!([ctx.primitives.int32, ctx.primitives.uint32,]
-                .iter()
-                .any(|ty| ctx.unifier.unioned(n_ty, *ty)));
+            debug_assert!(
+                [ctx.primitives.int32, ctx.primitives.uint32,]
+                    .iter()
+                    .any(|ty| ctx.unifier.unioned(n_ty, *ty))
+            );
 
             n.into()
         }
 
         BasicValueEnum::IntValue(n) if n.get_type().get_bit_width() == 64 => {
-            debug_assert!([ctx.primitives.int64, ctx.primitives.uint64,]
-                .iter()
-                .any(|ty| ctx.unifier.unioned(n_ty, *ty)));
+            debug_assert!(
+                [ctx.primitives.int64, ctx.primitives.uint64,]
+                    .iter()
+                    .any(|ty| ctx.unifier.unioned(n_ty, *ty))
+            );
 
             ctx.builder.build_int_truncate(n, llvm_i32, "trunc").map(Into::into).unwrap()
         }
@@ -155,9 +159,11 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
 
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8 | 32) => {
-            debug_assert!([ctx.primitives.bool, ctx.primitives.int32, ctx.primitives.uint32,]
-                .iter()
-                .any(|ty| ctx.unifier.unioned(n_ty, *ty)));
+            debug_assert!(
+                [ctx.primitives.bool, ctx.primitives.int32, ctx.primitives.uint32,]
+                    .iter()
+                    .any(|ty| ctx.unifier.unioned(n_ty, *ty))
+            );
 
             if ctx.unifier.unioned(n_ty, ctx.primitives.int32) {
                 ctx.builder.build_int_s_extend(n, llvm_i64, "sext").map(Into::into).unwrap()
@@ -167,9 +173,11 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::IntValue(n) if n.get_type().get_bit_width() == 64 => {
-            debug_assert!([ctx.primitives.int64, ctx.primitives.uint64,]
-                .iter()
-                .any(|ty| ctx.unifier.unioned(n_ty, *ty)));
+            debug_assert!(
+                [ctx.primitives.int64, ctx.primitives.uint64,]
+                    .iter()
+                    .any(|ty| ctx.unifier.unioned(n_ty, *ty))
+            );
 
             n.into()
         }
@@ -222,9 +230,11 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::IntValue(n) if n.get_type().get_bit_width() == 32 => {
-            debug_assert!([ctx.primitives.int32, ctx.primitives.uint32,]
-                .iter()
-                .any(|ty| ctx.unifier.unioned(n_ty, *ty)));
+            debug_assert!(
+                [ctx.primitives.int32, ctx.primitives.uint32,]
+                    .iter()
+                    .any(|ty| ctx.unifier.unioned(n_ty, *ty))
+            );
 
             n.into()
         }
@@ -293,9 +303,11 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
 
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8 | 32) => {
-            debug_assert!([ctx.primitives.bool, ctx.primitives.int32, ctx.primitives.uint32,]
-                .iter()
-                .any(|ty| ctx.unifier.unioned(n_ty, *ty)));
+            debug_assert!(
+                [ctx.primitives.bool, ctx.primitives.int32, ctx.primitives.uint32,]
+                    .iter()
+                    .any(|ty| ctx.unifier.unioned(n_ty, *ty))
+            );
 
             if ctx.unifier.unioned(n_ty, ctx.primitives.int32) {
                 ctx.builder.build_int_s_extend(n, llvm_i64, "sext").map(Into::into).unwrap()
@@ -305,9 +317,11 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::IntValue(n) if n.get_type().get_bit_width() == 64 => {
-            debug_assert!([ctx.primitives.int64, ctx.primitives.uint64,]
-                .iter()
-                .any(|ty| ctx.unifier.unioned(n_ty, *ty)));
+            debug_assert!(
+                [ctx.primitives.int64, ctx.primitives.uint64,]
+                    .iter()
+                    .any(|ty| ctx.unifier.unioned(n_ty, *ty))
+            );
 
             n.into()
         }
@@ -359,15 +373,17 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
 
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8 | 32 | 64) => {
-            debug_assert!([
-                ctx.primitives.bool,
-                ctx.primitives.int32,
-                ctx.primitives.uint32,
-                ctx.primitives.int64,
-                ctx.primitives.uint64,
-            ]
-            .iter()
-            .any(|ty| ctx.unifier.unioned(n_ty, *ty)));
+            debug_assert!(
+                [
+                    ctx.primitives.bool,
+                    ctx.primitives.int32,
+                    ctx.primitives.uint32,
+                    ctx.primitives.int64,
+                    ctx.primitives.uint64,
+                ]
+                .iter()
+                .any(|ty| ctx.unifier.unioned(n_ty, *ty))
+            );
 
             if [ctx.primitives.bool, ctx.primitives.int32, ctx.primitives.int64]
                 .iter()
@@ -515,14 +531,16 @@ pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
         }
 
         BasicValueEnum::IntValue(n) => {
-            debug_assert!([
-                ctx.primitives.int32,
-                ctx.primitives.uint32,
-                ctx.primitives.int64,
-                ctx.primitives.uint64,
-            ]
-            .iter()
-            .any(|ty| ctx.unifier.unioned(n_ty, *ty)));
+            debug_assert!(
+                [
+                    ctx.primitives.int32,
+                    ctx.primitives.uint32,
+                    ctx.primitives.int64,
+                    ctx.primitives.uint64,
+                ]
+                .iter()
+                .any(|ty| ctx.unifier.unioned(n_ty, *ty))
+            );
 
             ctx.builder
                 .build_int_compare(IntPredicate::NE, n, n.get_type().const_zero(), FN_NAME)
@@ -683,15 +701,17 @@ pub fn call_min<'ctx>(
 
     match (m, n) {
         (BasicValueEnum::IntValue(m), BasicValueEnum::IntValue(n)) => {
-            debug_assert!([
-                ctx.primitives.bool,
-                ctx.primitives.int32,
-                ctx.primitives.uint32,
-                ctx.primitives.int64,
-                ctx.primitives.uint64,
-            ]
-            .iter()
-            .any(|ty| ctx.unifier.unioned(common_ty, *ty)));
+            debug_assert!(
+                [
+                    ctx.primitives.bool,
+                    ctx.primitives.int32,
+                    ctx.primitives.uint32,
+                    ctx.primitives.int64,
+                    ctx.primitives.uint64,
+                ]
+                .iter()
+                .any(|ty| ctx.unifier.unioned(common_ty, *ty))
+            );
 
             if [ctx.primitives.int32, ctx.primitives.int64]
                 .iter()
@@ -726,16 +746,18 @@ pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
 
     Ok(match (x1, x2) {
         (BasicValueEnum::IntValue(x1), BasicValueEnum::IntValue(x2)) => {
-            debug_assert!([
-                ctx.primitives.bool,
-                ctx.primitives.int32,
-                ctx.primitives.uint32,
-                ctx.primitives.int64,
-                ctx.primitives.uint64,
-                ctx.primitives.float,
-            ]
-            .iter()
-            .any(|ty| ctx.unifier.unioned(common_ty.unwrap(), *ty)));
+            debug_assert!(
+                [
+                    ctx.primitives.bool,
+                    ctx.primitives.int32,
+                    ctx.primitives.uint32,
+                    ctx.primitives.int64,
+                    ctx.primitives.uint64,
+                    ctx.primitives.float,
+                ]
+                .iter()
+                .any(|ty| ctx.unifier.unioned(common_ty.unwrap(), *ty))
+            );
 
             call_min(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))
         }
@@ -800,15 +822,17 @@ pub fn call_max<'ctx>(
 
     match (m, n) {
         (BasicValueEnum::IntValue(m), BasicValueEnum::IntValue(n)) => {
-            debug_assert!([
-                ctx.primitives.bool,
-                ctx.primitives.int32,
-                ctx.primitives.uint32,
-                ctx.primitives.int64,
-                ctx.primitives.uint64,
-            ]
-            .iter()
-            .any(|ty| ctx.unifier.unioned(common_ty, *ty)));
+            debug_assert!(
+                [
+                    ctx.primitives.bool,
+                    ctx.primitives.int32,
+                    ctx.primitives.uint32,
+                    ctx.primitives.int64,
+                    ctx.primitives.uint64,
+                ]
+                .iter()
+                .any(|ty| ctx.unifier.unioned(common_ty, *ty))
+            );
 
             if [ctx.primitives.int32, ctx.primitives.int64]
                 .iter()
@@ -845,16 +869,18 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
 
     Ok(match a {
         BasicValueEnum::IntValue(_) | BasicValueEnum::FloatValue(_) => {
-            debug_assert!([
-                ctx.primitives.bool,
-                ctx.primitives.int32,
-                ctx.primitives.uint32,
-                ctx.primitives.int64,
-                ctx.primitives.uint64,
-                ctx.primitives.float,
-            ]
-            .iter()
-            .any(|ty| ctx.unifier.unioned(a_ty, *ty)));
+            debug_assert!(
+                [
+                    ctx.primitives.bool,
+                    ctx.primitives.int32,
+                    ctx.primitives.uint32,
+                    ctx.primitives.int64,
+                    ctx.primitives.uint64,
+                    ctx.primitives.float,
+                ]
+                .iter()
+                .any(|ty| ctx.unifier.unioned(a_ty, *ty))
+            );
 
             match fn_name {
                 "np_argmin" | "np_argmax" => llvm_int64.const_zero().into(),
@@ -986,16 +1012,18 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
 
     Ok(match (x1, x2) {
         (BasicValueEnum::IntValue(x1), BasicValueEnum::IntValue(x2)) => {
-            debug_assert!([
-                ctx.primitives.bool,
-                ctx.primitives.int32,
-                ctx.primitives.uint32,
-                ctx.primitives.int64,
-                ctx.primitives.uint64,
-                ctx.primitives.float,
-            ]
-            .iter()
-            .any(|ty| ctx.unifier.unioned(common_ty.unwrap(), *ty)));
+            debug_assert!(
+                [
+                    ctx.primitives.bool,
+                    ctx.primitives.int32,
+                    ctx.primitives.uint32,
+                    ctx.primitives.int64,
+                    ctx.primitives.uint64,
+                    ctx.primitives.float,
+                ]
+                .iter()
+                .any(|ty| ctx.unifier.unioned(common_ty.unwrap(), *ty))
+            );
 
             call_max(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))
         }
@@ -1101,15 +1129,17 @@ pub fn call_abs<'ctx, G: CodeGenerator + ?Sized>(
         &|_ctx, elem_ty| elem_ty,
         &|_generator, ctx, val_ty, val| match val {
             BasicValueEnum::IntValue(n) => Some({
-                debug_assert!([
-                    ctx.primitives.bool,
-                    ctx.primitives.int32,
-                    ctx.primitives.uint32,
-                    ctx.primitives.int64,
-                    ctx.primitives.uint64,
-                ]
-                .iter()
-                .any(|ty| ctx.unifier.unioned(val_ty, *ty)));
+                debug_assert!(
+                    [
+                        ctx.primitives.bool,
+                        ctx.primitives.int32,
+                        ctx.primitives.uint32,
+                        ctx.primitives.int64,
+                        ctx.primitives.uint64,
+                    ]
+                    .iter()
+                    .any(|ty| ctx.unifier.unioned(val_ty, *ty))
+                );
 
                 if [ctx.primitives.int32, ctx.primitives.int64]
                     .iter()

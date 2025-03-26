@@ -6,14 +6,14 @@ use std::{
 };
 
 use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue};
-use itertools::{izip, Itertools};
+use itertools::{Itertools, izip};
 use parking_lot::RwLock;
 
 use nac3parser::ast::{Constant, Expr, Location, StrRef};
 
 use crate::{
     codegen::{CodeGenContext, CodeGenerator},
-    toplevel::{type_annotation::TypeAnnotation, DefinitionId, TopLevelDef},
+    toplevel::{DefinitionId, TopLevelDef, type_annotation::TypeAnnotation},
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{Type, TypeEnum, Unifier, VarMap},

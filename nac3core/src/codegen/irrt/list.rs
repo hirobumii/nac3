@@ -1,16 +1,16 @@
 use inkwell::{
+    AddressSpace, IntPredicate,
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue},
-    AddressSpace, IntPredicate,
 };
 
 use super::calculate_len_for_slice_range;
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     expr::infer_and_call_function,
     macros::codegen_unreachable,
     stmt::gen_if_callback,
     values::{ArrayLikeValue, ListValue},
-    CodeGenContext, CodeGenerator,
 };
 
 /// This function handles 'end' **inclusively**.

@@ -6,12 +6,12 @@ use std::{
 };
 
 use inkwell::{
+    AddressSpace, IntPredicate, OptimizationLevel,
     attributes::{Attribute, AttributeLoc},
     types::{AnyType, BasicType, BasicTypeEnum},
     values::{BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue, StructValue},
-    AddressSpace, IntPredicate, OptimizationLevel,
 };
-use itertools::{izip, Either, Itertools};
+use itertools::{Either, Itertools, izip};
 
 use nac3parser::ast::{
     self, Boolop, Cmpop, Comprehension, Constant, Expr, ExprKind, Location, Operator, StrRef,
@@ -19,6 +19,7 @@ use nac3parser::ast::{
 };
 
 use super::{
+    CodeGenContext, CodeGenTask, CodeGenerator,
     concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
     gen_in_range_check, get_llvm_abi_type, get_llvm_type, get_va_count_arg_name,
     irrt::*,
@@ -33,21 +34,20 @@ use super::{
         gen_var,
     },
     types::{
-        ndarray::NDArrayType, ExceptionType, ListType, OptionType, RangeType, StringType, TupleType,
+        ExceptionType, ListType, OptionType, RangeType, StringType, TupleType, ndarray::NDArrayType,
     },
     values::{
-        ndarray::{NDArrayOut, RustNDIndex, ScalarOrNDArray},
         ArrayLikeIndexer, ArrayLikeValue, ListValue, ProxyValue, RangeValue,
         UntypedArrayLikeAccessor,
+        ndarray::{NDArrayOut, RustNDIndex, ScalarOrNDArray},
     },
-    CodeGenContext, CodeGenTask, CodeGenerator,
 };
 use crate::{
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
-        helper::{arraylike_flatten_element_type, extract_ndims, PrimDef},
-        numpy::unpack_ndarray_var_tys,
         DefinitionId, TopLevelDef,
+        helper::{PrimDef, arraylike_flatten_element_type, extract_ndims},
+        numpy::unpack_ndarray_var_tys,
     },
     typecheck::{
         magic_methods::{Binop, BinopVariant, HasOpInfo},
@@ -137,7 +137,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 (field_index.0, None)
             } else {
                 let attribute_index = attributes.iter().find_position(|x| x.0 == attr).unwrap();
-                (attribute_index.0, Some(attribute_index.1 .2.clone()))
+                (attribute_index.0, Some(attribute_index.1.2.clone()))
             }
         } else if let TopLevelDef::Module { attributes, .. } = &*def.read() {
             (attributes.iter().find_position(|x| x.0 == attr).unwrap().0, None)
@@ -782,7 +782,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
     let llvm_usize = ctx.get_size_type();
 
-    let definition = ctx.top_level.definitions.read().get(fun.1 .0).cloned().unwrap();
+    let definition = ctx.top_level.definitions.read().get(fun.1.0).cloned().unwrap();
     let id;
     let key;
     let param_vals;
@@ -865,9 +865,10 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                     } else {
                         mapping.insert(
                             k.name,
-                            vec![ctx
-                                .gen_symbol_val(generator, &k.default_value.unwrap(), k.ty)
-                                .into()],
+                            vec![
+                                ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty)
+                                    .into(),
+                            ],
                         );
                     }
                 }
@@ -937,7 +938,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                 instance_to_symbol.get(&key).cloned().ok_or_else(String::new)
             }
             TopLevelDef::Class { .. } => {
-                return Ok(Some(generator.gen_constructor(ctx, fun.0, &def, params)?))
+                return Ok(Some(generator.gen_constructor(ctx, fun.0, &def, params)?));
             }
             TopLevelDef::Variable { .. } | TopLevelDef::Module { .. } => unreachable!(),
         }
@@ -2590,7 +2591,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
         }
         ExprKind::UnaryOp { op, operand } => return gen_unaryop_expr(generator, ctx, *op, operand),
         ExprKind::Compare { left, ops, comparators } => {
-            return gen_cmpop_expr(generator, ctx, left, ops, comparators)
+            return gen_cmpop_expr(generator, ctx, left, ops, comparators);
         }
         ExprKind::IfExp { test, body, orelse } => {
             let test = match generator.gen_expr(ctx, test)? {

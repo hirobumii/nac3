@@ -1,18 +1,18 @@
 use inkwell::{
+    AddressSpace,
     types::{BasicType, BasicTypeEnum, IntType},
     values::{IntValue, PointerValue, StructValue},
-    AddressSpace,
 };
 
 use super::NDArrayValue;
 use crate::codegen::{
+    CodeGenContext, CodeGenerator,
     stmt::gen_if_callback,
     types::{
         ndarray::{ContiguousNDArrayType, NDArrayType},
         structure::{StructField, StructProxyType},
     },
-    values::{structure::StructProxyValue, ArrayLikeValue, ProxyValue},
-    CodeGenContext, CodeGenerator,
+    values::{ArrayLikeValue, ProxyValue, structure::StructProxyValue},
 };
 
 #[derive(Copy, Clone)]

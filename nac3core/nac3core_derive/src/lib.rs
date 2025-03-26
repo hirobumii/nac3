@@ -2,8 +2,8 @@ use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
 use syn::{
-    parse_macro_input, spanned::Spanned, Data, DataStruct, Expr, ExprField, ExprMethodCall,
-    ExprPath, GenericArgument, Ident, LitStr, Path, PathArguments, Type, TypePath,
+    Data, DataStruct, Expr, ExprField, ExprMethodCall, ExprPath, GenericArgument, Ident, LitStr,
+    Path, PathArguments, Type, TypePath, parse_macro_input, spanned::Spanned,
 };
 
 /// Extracts all generic arguments of a [`Type`] into a [`Vec`].
@@ -59,11 +59,7 @@ fn replace_top_level_receiver(expr: &mut Expr, ident: Ident) -> Option<&mut Expr
     | Expr::Field(ExprField { base: operand, .. }) = expr
     {
         return if extract_dot_operand(operand).is_some() {
-            if replace_top_level_receiver(operand, ident).is_some() {
-                Some(expr)
-            } else {
-                None
-            }
+            if replace_top_level_receiver(operand, ident).is_some() { Some(expr) } else { None }
         } else {
             *operand = Box::new(Expr::Path(ExprPath {
                 attrs: Vec::default(),
@@ -105,7 +101,7 @@ fn normalize_value_expr(expr: &Expr) -> proc_macro2::TokenStream {
                 abort!(
                     path,
                     format!(
-                        "Expected one of `size_t`, `usize`, or an implicit call expression in #[value_type(...)], found {}", 
+                        "Expected one of `size_t`, `usize`, or an implicit call expression in #[value_type(...)], found {}",
                         quote!(#expr).to_string(),
                     )
                 )
@@ -154,7 +150,7 @@ fn normalize_value_expr(expr: &Expr) -> proc_macro2::TokenStream {
             abort!(
                 expr,
                 format!(
-                    "Expected one of `size_t`, `usize`, or an implicit call expression in #[value_type(...)], found {}", 
+                    "Expected one of `size_t`, `usize`, or an implicit call expression in #[value_type(...)], found {}",
                     quote!(#expr).to_string(),
                 )
             )
@@ -224,10 +220,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let Data::Struct(DataStruct { fields, .. }) = &input.data else {
         abort!(input, "Only structs with named fields are supported");
     };
-    if let Err(err_span) =
-        fields
-            .iter()
-            .try_for_each(|field| if field.ident.is_some() { Ok(()) } else { Err(field.span()) })
+    if let Err(err_span) = fields
+        .iter()
+        .try_for_each(|field| if field.ident.is_some() { Ok(()) } else { Err(field.span()) })
     {
         abort!(err_span, "Only structs with named fields are supported");
     };
