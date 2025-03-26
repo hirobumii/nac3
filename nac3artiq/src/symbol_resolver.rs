@@ -190,7 +190,7 @@ impl StaticValue for PythonValue {
     ) -> Option<ValueEnum<'ctx>> {
         {
             let field_to_val = self.resolver.field_to_val.read();
-            field_to_val.get(&(self.id, name)).cloned()
+            Python::with_gil(|_| field_to_val.get(&(self.id, name)).cloned())
         }
         .unwrap_or_else(|| {
             Python::with_gil(|py| -> PyResult<Option<(u64, PyObject)>> {
@@ -231,12 +231,14 @@ impl StaticValue for PythonValue {
             .unwrap()
         })
         .map(|(id, obj)| {
-            ValueEnum::Static(Arc::new(PythonValue {
-                id,
-                value: obj,
-                store_obj: self.store_obj.clone(),
-                resolver: self.resolver.clone(),
-            }))
+            Python::with_gil(|_| {
+                ValueEnum::Static(Arc::new(PythonValue {
+                    id,
+                    value: obj,
+                    store_obj: self.store_obj.clone(),
+                    resolver: self.resolver.clone(),
+                }))
+            })
         })
     }
 
@@ -1711,7 +1713,7 @@ impl SymbolResolver for Resolver {
 
         let sym_value = {
             let id_to_val = self.0.id_to_pyval.read();
-            id_to_val.get(&id).cloned()
+            Python::with_gil(|_| id_to_val.get(&id).cloned())
         }
         .or_else(|| {
             Python::with_gil(|py| -> PyResult<Option<(u64, PyObject)>> {
@@ -1734,12 +1736,14 @@ impl SymbolResolver for Resolver {
             .unwrap()
         });
         sym_value.map(|(id, v)| {
-            ValueEnum::Static(Arc::new(PythonValue {
-                id,
-                value: v,
-                store_obj: self.0.helper.store_obj.clone(),
-                resolver: self.0.clone(),
-            }))
+            Python::with_gil(|_| {
+                ValueEnum::Static(Arc::new(PythonValue {
+                    id,
+                    value: v,
+                    store_obj: self.0.helper.store_obj.clone(),
+                    resolver: self.0.clone(),
+                }))
+            })
         })
     }
 
