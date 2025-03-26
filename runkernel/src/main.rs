@@ -1,6 +1,5 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
 #![warn(clippy::pedantic)]
-#![allow(clippy::semicolon_if_nothing_returned, clippy::uninlined_format_args)]
 
 use std::env;
 

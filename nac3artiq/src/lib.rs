@@ -1,7 +1,6 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(
-    unsafe_op_in_unsafe_fn,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::enum_glob_use,

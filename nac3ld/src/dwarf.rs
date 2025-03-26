@@ -209,8 +209,8 @@ pub struct EH_Frame<'a> {
 }
 
 impl<'a> EH_Frame<'a> {
-    /// Creates an [EH_Frame] using the bytes in the `.eh_frame` section and its address in the ELF
-    /// file.
+    /// Creates an [`EH_Frame`] using the bytes in the `.eh_frame` section and its address in the
+    /// ELF file.
     pub fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> EH_Frame {
         EH_Frame { reader: DwarfReader::new(eh_frame_slice, eh_frame_addr) }
     }
@@ -307,7 +307,7 @@ impl<'a> CFI_Record<'a> {
         Ok(CFI_Record { fde_pointer_encoding, fde_reader })
     }
 
-    /// Returns a [DwarfReader] initialized to the first Frame Description Entry (FDE) of this CFI
+    /// Returns a [`DwarfReader`] initialized to the first Frame Description Entry (FDE) of this CFI
     /// record.
     pub fn get_fde_reader(&self) -> DwarfReader<'a> {
         self.fde_reader.clone()
@@ -424,7 +424,8 @@ pub struct EH_Frame_Hdr<'a> {
 }
 
 impl EH_Frame_Hdr<'_> {
-    /// Create a [EH_Frame_Hdr] object, and write out the fixed fields of `.eh_frame_hdr` to memory.
+    /// Create a [`EH_Frame_Hdr`] object, and write out the fixed fields of `.eh_frame_hdr` to
+    /// memory.
     ///
     /// Load address is not known at this point.
     pub fn new(
