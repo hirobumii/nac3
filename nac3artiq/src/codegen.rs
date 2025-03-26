@@ -1022,7 +1022,7 @@ pub fn attributes_writeback<'ctx>(
                         }
                     }
                     if !attributes.is_empty() {
-                        let pydict = PyDict::new_bound(py);
+                        let pydict = PyDict::new(py);
                         pydict.set_item("obj", val)?;
                         pydict.set_item("fields", attributes)?;
                         host_attributes.append(pydict)?;
@@ -1032,7 +1032,7 @@ pub fn attributes_writeback<'ctx>(
                     let elem_ty = iter_type_vars(params).next().unwrap().ty;
 
                     if gen_rpc_tag(ctx, elem_ty, &mut scratch_buffer).is_ok() {
-                        let pydict = PyDict::new_bound(py);
+                        let pydict = PyDict::new(py);
                         pydict.set_item("obj", val)?;
                         host_attributes.append(pydict)?;
                         values.push((
@@ -1063,7 +1063,7 @@ pub fn attributes_writeback<'ctx>(
                         }
                     }
                     if !fields.is_empty() {
-                        let pydict = PyDict::new_bound(py);
+                        let pydict = PyDict::new(py);
                         pydict.set_item("obj", val)?;
                         pydict.set_item("fields", fields)?;
                         host_attributes.append(pydict)?;

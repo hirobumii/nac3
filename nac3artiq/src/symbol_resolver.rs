@@ -9,7 +9,7 @@ use std::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use pyo3::{
-    IntoPy, PyAny, PyErr, PyObject, PyResult, Python,
+    IntoPyObjectExt, PyAny, PyErr, PyObject, PyResult, Python,
     prelude::*,
     types::{PyDict, PyTuple},
 };
@@ -251,7 +251,7 @@ impl StaticValue for PythonValue {
             let ty_id: u64 = helper.id_fn.bind(py).call1((ty,))?.extract()?;
             assert_eq!(ty_id, self.resolver.primitive_ids.tuple);
             let tup = self.value.bind(py).downcast::<PyTuple>()?;
-            let elem = Arc::new(tup.get_item(index as usize)?.into_py(py));
+            let elem = Arc::new(tup.get_item(index as usize)?.into_py_any(py)?);
             let id = self.resolver.helper.id_fn.bind(py).call1((&*elem,))?.extract()?;
             Ok(Some((id, elem)))
         })
@@ -424,7 +424,7 @@ impl InnerResolver {
                             result.push(unifier.get_dummy_var().ty);
                         } else {
                             result.push({
-                                match self.get_pyty_obj_type(py, constr.into(), unifier, defs, primitives)? {
+                                match self.get_pyty_obj_type(py, constr, unifier, defs, primitives)? {
                                     Ok((ty, _)) => {
                                         if unifier.is_concrete(ty, &[]) {
                                             ty
@@ -644,7 +644,7 @@ impl InnerResolver {
                 false,
             )))
         } else {
-            let str_fn = PyModule::import_bound(py, "builtins").unwrap().getattr("repr").unwrap();
+            let str_fn = PyModule::import(py, "builtins").unwrap().getattr("repr").unwrap();
             let str_repr: String = str_fn.call1((pyty,)).unwrap().extract().unwrap();
             Ok(Err(format!("{str_repr} is not registered with NAC3 (@nac3 decorator missing?)")))
         }
@@ -887,15 +887,14 @@ impl InnerResolver {
                     return Ok(Ok(unifier.subst(primitives.option, &var_map).unwrap()));
                 }
 
-                let ty =
-                    match self.get_obj_type(py, field_data.into(), unifier, defs, primitives)? {
-                        Ok(t) => t,
-                        Err(e) => {
-                            return Ok(Err(format!(
-                                "error when getting type of the option object ({e})"
-                            )));
-                        }
-                    };
+                let ty = match self.get_obj_type(py, field_data, unifier, defs, primitives)? {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return Ok(Err(format!(
+                            "error when getting type of the option object ({e})"
+                        )));
+                    }
+                };
                 let new_var_map: VarMap = params.iter().map(|(id, _)| (*id, ty)).collect();
                 let res = unifier.subst(extracted_ty, &new_var_map).unwrap_or(extracted_ty);
                 Ok(Ok(res))
@@ -923,20 +922,15 @@ impl InnerResolver {
                             Ok(d) => d,
                             Err(e) => return Ok(Err(format!("{e}"))),
                         };
-                        let ty = match self.get_obj_type(
-                            py,
-                            field_data.into(),
-                            unifier,
-                            defs,
-                            primitives,
-                        )? {
-                            Ok(t) => t,
-                            Err(e) => {
-                                return Ok(Err(format!(
-                                    "error when getting type of field `{name}` ({e})"
-                                )));
-                            }
-                        };
+                        let ty =
+                            match self.get_obj_type(py, field_data, unifier, defs, primitives)? {
+                                Ok(t) => t,
+                                Err(e) => {
+                                    return Ok(Err(format!(
+                                        "error when getting type of field `{name}` ({e})"
+                                    )));
+                                }
+                            };
                         let field_ty = unifier.subst(field.1.0, &var_map).unwrap_or(field.1.0);
                         if let Err(e) = unifier.unify(ty, field_ty) {
                             // field type mismatch
@@ -1087,7 +1081,7 @@ impl InnerResolver {
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
-                self.global_value_ids.write().insert(id, obj.as_unbound().into_py(py));
+                self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
 
             let arr: Result<Option<Vec<_>>, _> = (0..len)
@@ -1171,7 +1165,7 @@ impl InnerResolver {
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
-                self.global_value_ids.write().insert(id, obj.as_unbound().into_py(py));
+                self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
 
             let ndims = llvm_ndarray.ndims();
@@ -1417,7 +1411,9 @@ impl InnerResolver {
                                     });
                                 return Ok(Some(global.as_pointer_value().into()));
                             }
-                            self.global_value_ids.write().insert(id, obj.as_unbound().into_py(py));
+                            self.global_value_ids
+                                .write()
+                                .insert(id, obj.as_unbound().into_py_any(py)?);
                         }
                         let global = ctx.module.add_global(
                             v.get_type(),
@@ -1454,7 +1450,7 @@ impl InnerResolver {
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
-                self.global_value_ids.write().insert(id, obj.as_unbound().into_py(py));
+                self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
 
             let fields = {
@@ -1524,7 +1520,7 @@ impl InnerResolver {
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
-                self.global_value_ids.write().insert(id, obj.as_unbound().into_py(py));
+                self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
             // should be classes
             let definition =
@@ -1747,7 +1743,7 @@ impl SymbolResolver for Resolver {
                     let key: &str = key.extract()?;
                     if key == id.to_string() {
                         let id = self.0.helper.id_fn.bind(py).call1((&val,))?.extract()?;
-                        sym_value = Some((id, Arc::new(val.as_unbound().into_py(py))));
+                        sym_value = Some((id, Arc::new(val.as_unbound().into_py_any(py)?)));
                         break;
                     }
                 }
@@ -1817,13 +1813,7 @@ impl SymbolResolver for Resolver {
                     let constraints = constraints.bind(py);
                     for (i, var) in variables.iter().enumerate() {
                         if let Ok(constr) = &constraints.get_item(i) {
-                            match self.0.get_pyty_obj_type(
-                                py,
-                                constr.into(),
-                                unifier,
-                                defs,
-                                primitives,
-                            )? {
+                            match self.0.get_pyty_obj_type(py, constr, unifier, defs, primitives)? {
                                 Ok((ty, _)) => {
                                     if !unifier.is_concrete(ty, &[]) {
                                         return Ok(Err(format!(

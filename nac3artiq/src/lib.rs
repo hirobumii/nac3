@@ -1,14 +1,11 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(
-    unexpected_cfgs,
-    unsafe_op_in_unsafe_fn,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::enum_glob_use,
     clippy::similar_names,
     clippy::too_many_lines,
-    clippy::useless_conversion,
     clippy::wildcard_imports
 )]
 
@@ -25,7 +22,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock};
 use pyo3::{
-    create_exception, exceptions,
+    IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
     types::{PyBytes, PyDict, PyNone, PySet},
 };
@@ -223,10 +220,7 @@ impl Nac3 {
                     // kernels submitted by content have no file
                     // but still can provide source by StringLoader
                     let get_src_fn = module.getattr("__loader__")?.getattr("get_source")?;
-                    (
-                        String::from("<expcontent>"),
-                        get_src_fn.call1((PyNone::get_bound(py),))?.extract()?,
-                    )
+                    (String::from("<expcontent>"), get_src_fn.call1((PyNone::get(py),))?.extract()?)
                 };
                 Ok((module.getattr("__name__")?.extract()?, source_file, source))
             })?;
@@ -250,7 +244,7 @@ impl Nac3 {
                     // Drop unregistered (i.e. host-only) base classes.
                     bases.retain(|base| {
                         Python::with_gil(|py| -> PyResult<bool> {
-                            let id_fn = PyModule::import_bound(py, "builtins")?.getattr("id")?;
+                            let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
                             match &base.node {
                                 ExprKind::Name { id, .. } => {
                                     if *id == "Exception".into() {
@@ -453,24 +447,25 @@ impl Nac3 {
             size_t,
         );
 
-        let builtins = PyModule::import_bound(py, "builtins")?;
-        let typings = PyModule::import_bound(py, "typing")?;
+        let builtins = PyModule::import(py, "builtins")?;
+        let typings = PyModule::import(py, "typing")?;
         let id_fn = builtins.getattr("id")?;
         let issubclass = builtins.getattr("issubclass")?;
         let exn_class = builtins.getattr("Exception")?;
         let store_obj = embedding_map.getattr("store_object").unwrap();
         let store_str = embedding_map.getattr("store_str").unwrap();
-        let store_fun = embedding_map.getattr("store_function").unwrap().to_object(py);
-        let host_attributes = embedding_map.getattr("attributes_writeback").unwrap().to_object(py);
+        let store_fun = embedding_map.getattr("store_function").unwrap().into_py_any(py)?;
+        let host_attributes =
+            embedding_map.getattr("attributes_writeback").unwrap().into_py_any(py)?;
         let global_value_ids: Arc<RwLock<HashMap<_, _>>> = Arc::new(RwLock::new(HashMap::new()));
         let helper = PythonHelper {
-            id_fn: Arc::new(builtins.getattr("id").unwrap().to_object(py)),
-            len_fn: Arc::new(builtins.getattr("len").unwrap().to_object(py)),
-            type_fn: Arc::new(builtins.getattr("type").unwrap().to_object(py)),
-            origin_ty_fn: Arc::new(typings.getattr("get_origin").unwrap().to_object(py)),
-            args_ty_fn: Arc::new(typings.getattr("get_args").unwrap().to_object(py)),
-            store_obj: Arc::new(store_obj.to_object(py)),
-            store_str: Arc::new(store_str.to_object(py)),
+            id_fn: Arc::new(builtins.getattr("id").unwrap().into_py_any(py)?),
+            len_fn: Arc::new(builtins.getattr("len").unwrap().into_py_any(py)?),
+            type_fn: Arc::new(builtins.getattr("type").unwrap().into_py_any(py)?),
+            origin_ty_fn: Arc::new(typings.getattr("get_origin").unwrap().into_py_any(py)?),
+            args_ty_fn: Arc::new(typings.getattr("get_args").unwrap().into_py_any(py)?),
+            store_obj: Arc::new(store_obj.clone().into_py_any(py)?),
+            store_str: Arc::new(store_str.into_py_any(py)?),
         };
 
         let pyid_to_type = Arc::new(RwLock::new(HashMap::<u64, Type>::new()));
@@ -572,7 +567,7 @@ impl Nac3 {
                                     .call1(
                                         py,
                                         (
-                                            def_id.0.into_py(py),
+                                            def_id.0.into_py_any(py)?,
                                             module.getattr(py, name.to_string().as_str()).unwrap(),
                                         ),
                                     )
@@ -665,9 +660,9 @@ impl Nac3 {
             self.pyid_to_def.write().insert(module_id, def_id);
         }
 
-        let id_fun = PyModule::import_bound(py, "builtins")?.getattr("id")?;
+        let id_fun = PyModule::import(py, "builtins")?.getattr("id")?;
         let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
-        let module = PyModule::new_bound(py, "tmp")?;
+        let module = PyModule::new(py, "tmp")?;
         module.add("base", obj)?;
         name_to_pyid.insert("base".into(), id_fun.call1((obj,))?.extract()?);
         let mut arg_names = vec![];
@@ -695,7 +690,7 @@ impl Nac3 {
             id_to_primitive: RwLock::default(),
             field_to_val: RwLock::default(),
             name_to_pyid,
-            module: Arc::new(module.to_object(py)),
+            module: Arc::new(module.into_py_any(py)?),
             helper: helper.clone(),
             string_store: self.string_store.clone(),
             exception_ids: self.exception_ids.clone(),
@@ -769,7 +764,7 @@ impl Nac3 {
                                     .call1(
                                         py,
                                         (
-                                            id.0.into_py(py),
+                                            id.0.into_py_any(py)?,
                                             class_def
                                                 .getattr(py, name.to_string().as_str())
                                                 .unwrap(),
@@ -1136,11 +1131,11 @@ impl Nac3 {
             ),
         ];
 
-        let builtins_mod = PyModule::import_bound(py, "builtins").unwrap();
+        let builtins_mod = PyModule::import(py, "builtins").unwrap();
         let id_fn = builtins_mod.getattr("id").unwrap();
-        let numpy_mod = PyModule::import_bound(py, "numpy").unwrap();
-        let typing_mod = PyModule::import_bound(py, "typing").unwrap();
-        let types_mod = PyModule::import_bound(py, "types").unwrap();
+        let numpy_mod = PyModule::import(py, "numpy").unwrap();
+        let typing_mod = PyModule::import(py, "typing").unwrap();
+        let types_mod = PyModule::import(py, "types").unwrap();
 
         let get_id = |x: &Bound<PyAny>| id_fn.call1((x,)).and_then(|id| id.extract()).unwrap();
         let get_attr_id = |obj: &Bound<PyModule>, attr| {
@@ -1253,15 +1248,15 @@ impl Nac3 {
                 let mut modules: IndexMap<u64, Arc<PyObject>> = IndexMap::new();
                 let mut class_ids: HashSet<u64> = HashSet::new();
 
-                let id_fn = PyModule::import_bound(py, "builtins")?.getattr("id")?;
-                let getmodule_fn = PyModule::import_bound(py, "inspect")?.getattr("getmodule")?;
+                let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
+                let getmodule_fn = PyModule::import(py, "inspect")?.getattr("getmodule")?;
 
                 for function in functions {
                     let module = getmodule_fn.call1((&function,))?;
                     if !module.is_none() {
                         modules.insert(
                             id_fn.call1((&module,))?.extract()?,
-                            Arc::new(module.to_object(py)),
+                            Arc::new(module.into_py_any(py)?),
                         );
                     }
                 }
@@ -1270,7 +1265,7 @@ impl Nac3 {
                     if !module.is_none() {
                         modules.insert(
                             id_fn.call1((&module,))?.extract()?,
-                            Arc::new(module.to_object(py)),
+                            Arc::new(module.into_py_any(py)?),
                         );
                     }
                     class_ids.insert(id_fn.call1((&class,))?.extract()?);
@@ -1278,7 +1273,7 @@ impl Nac3 {
                 for module in content_modules {
                     modules.insert(
                         id_fn.call1((&module,))?.extract()?,
-                        Arc::new(module.to_object(py)),
+                        Arc::new(module.into_py_any(py)?),
                     );
                 }
                 Ok((modules, class_ids))
@@ -1379,7 +1374,7 @@ impl Nac3 {
                     working_directory.join("module.o").to_string_lossy().to_string(),
                 )?;
 
-                Ok(PyBytes::new_bound(py, &fs::read(filename).unwrap()).into())
+                Ok(PyBytes::new(py, &fs::read(filename).unwrap()).into())
             };
 
             self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)
@@ -1389,7 +1384,7 @@ impl Nac3 {
                     .write_to_memory_buffer(module, FileType::Object)
                     .expect("couldn't write module to object file buffer");
                 if let Ok(dyn_lib) = Linker::ld(object_mem.as_slice()) {
-                    Ok(PyBytes::new_bound(py, &dyn_lib).into())
+                    Ok(PyBytes::new(py, &dyn_lib).into())
                 } else {
                     Err(CompileError::new_err("linker failed to process object file"))
                 }
@@ -1413,7 +1408,7 @@ fn nac3artiq<'py>(py: Python<'py>, m: &Bound<'py, PyModule>) -> PyResult<()> {
     }
 
     Target::initialize_all(&InitializationConfig::default());
-    m.add("CompileError", py.get_type_bound::<CompileError>())?;
+    m.add("CompileError", py.get_type::<CompileError>())?;
     m.add_class::<Nac3>()?;
     Ok(())
 }
