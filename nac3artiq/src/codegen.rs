@@ -987,7 +987,7 @@ pub fn attributes_writeback<'ctx>(
             let val = val.bind(py);
             let ty = inner_resolver.get_obj_type(
                 py,
-                val.as_gil_ref(),
+                val,
                 &mut ctx.unifier,
                 &top_levels,
                 &ctx.primitives,
@@ -1003,9 +1003,7 @@ pub fn attributes_writeback<'ctx>(
                     // we only care about primitive attributes
                     // for non-primitive attributes, they should be in another global
                     let mut attributes = Vec::new();
-                    let obj = inner_resolver
-                        .get_obj_value(py, val.as_gil_ref(), ctx, generator, ty)?
-                        .unwrap();
+                    let obj = inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap();
                     for (name, (field_ty, is_mutable)) in fields {
                         if !is_mutable {
                             continue;
@@ -1039,17 +1037,13 @@ pub fn attributes_writeback<'ctx>(
                         host_attributes.append(pydict)?;
                         values.push((
                             ty,
-                            inner_resolver
-                                .get_obj_value(py, val.as_gil_ref(), ctx, generator, ty)?
-                                .unwrap(),
+                            inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap(),
                         ));
                     }
                 }
                 TypeEnum::TModule { attributes, .. } => {
                     let mut fields = Vec::new();
-                    let obj = inner_resolver
-                        .get_obj_value(py, val.as_gil_ref(), ctx, generator, ty)?
-                        .unwrap();
+                    let obj = inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap();
 
                     for (name, (field_ty, is_method)) in attributes {
                         if *is_method {

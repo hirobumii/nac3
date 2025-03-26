@@ -207,12 +207,12 @@ impl Nac3 {
     ) -> PyResult<()> {
         let (module_name, source_file, source) =
             Python::with_gil(|py| -> PyResult<(String, String, String)> {
-                let module: &PyAny = module.extract(py)?;
+                let module = module.bind(py);
                 let source_file = module.getattr("__file__");
                 let (source_file, source) = if let Ok(source_file) = source_file {
-                    let source_file = source_file.extract()?;
+                    let source_file = source_file.extract::<&str>()?;
                     (
-                        source_file,
+                        source_file.to_string(),
                         fs::read_to_string(source_file).map_err(|e| {
                             exceptions::PyIOError::new_err(format!(
                                 "failed to read input file: {e}"
@@ -222,13 +222,13 @@ impl Nac3 {
                 } else {
                     // kernels submitted by content have no file
                     // but still can provide source by StringLoader
-                    let get_src_fn = module
-                        .getattr("__loader__")?
-                        .extract::<PyObject>()?
-                        .getattr(py, "get_source")?;
-                    ("<expcontent>", get_src_fn.call1(py, (PyNone::get_bound(py),))?.extract(py)?)
+                    let get_src_fn = module.getattr("__loader__")?.getattr("get_source")?;
+                    (
+                        String::from("<expcontent>"),
+                        get_src_fn.call1((PyNone::get_bound(py),))?.extract()?,
+                    )
                 };
-                Ok((module.getattr("__name__")?.extract()?, source_file.to_string(), source))
+                Ok((module.getattr("__name__")?.extract()?, source_file, source))
             })?;
 
         let parser_result = parse_program(&source, source_file.into())
@@ -257,7 +257,7 @@ impl Nac3 {
                                         Ok(true)
                                     } else {
                                         let base_obj =
-                                            module.getattr(py, id.to_string().as_str())?;
+                                            module.bind(py).getattr(id.to_string().as_str())?;
                                         let base_id = id_fn.call1((base_obj,))?.extract()?;
                                         Ok(registered_class_ids.contains(&base_id))
                                     }
@@ -493,14 +493,14 @@ impl Nac3 {
 
         let mut rpc_ids = vec![];
         for (stmt, path, module) in &self.top_levels {
-            let py_module: &PyAny = module.extract(py)?;
+            let py_module = module.bind(py);
             let module_id: u64 = id_fn.call1((py_module,))?.extract()?;
             let module_name: String = py_module.getattr("__name__")?.extract()?;
             let helper = helper.clone();
             let class_obj;
             if let StmtKind::ClassDef { name, .. } = &stmt.node {
                 let class = py_module.getattr(name.to_string().as_str()).unwrap();
-                if issubclass.call1((class, &exn_class)).unwrap().extract().unwrap()
+                if issubclass.call1((&class, &exn_class)).unwrap().extract().unwrap()
                     && class.getattr("artiq_builtin").is_err()
                 {
                     class_obj = Some(class);
@@ -513,8 +513,8 @@ impl Nac3 {
             let (name_to_pyid, resolver, _, _) =
                 module_to_resolver_cache.get(&module_id).cloned().unwrap_or_else(|| {
                     let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
-                    let members: &PyDict =
-                        py_module.getattr("__dict__").unwrap().downcast().unwrap();
+                    let members = py_module.getattr("__dict__").unwrap();
+                    let members = members.downcast::<PyDict>().unwrap();
                     for (key, val) in members {
                         let key: &str = key.extract().unwrap();
                         let val = id_fn.call1((val,)).unwrap().extract().unwrap();
@@ -960,7 +960,8 @@ impl Nac3 {
             let mut string_store_vec = string_store.iter().collect::<Vec<_>>();
             string_store_vec.sort_by(|(_s1, key1), (_s2, key2)| key1.cmp(key2));
             for (s, key) in string_store_vec {
-                let embed_key: i32 = helper.store_str.call1(py, (s,)).unwrap().extract(py).unwrap();
+                let embed_key: i32 =
+                    helper.store_str.bind(py).call1((s,)).unwrap().extract().unwrap();
                 assert_eq!(
                     embed_key, *key,
                     "string {s} is out of sync between embedding map (key={embed_key}) and \
@@ -1256,21 +1257,29 @@ impl Nac3 {
                 let getmodule_fn = PyModule::import_bound(py, "inspect")?.getattr("getmodule")?;
 
                 for function in functions {
-                    let module: PyObject = getmodule_fn.call1((&function,))?.extract()?;
-                    if !module.is_none(py) {
-                        modules.insert(id_fn.call1((&module,))?.extract()?, Arc::new(module));
+                    let module = getmodule_fn.call1((&function,))?;
+                    if !module.is_none() {
+                        modules.insert(
+                            id_fn.call1((&module,))?.extract()?,
+                            Arc::new(module.to_object(py)),
+                        );
                     }
                 }
                 for class in classes {
-                    let module: PyObject = getmodule_fn.call1((&class,))?.extract()?;
-                    if !module.is_none(py) {
-                        modules.insert(id_fn.call1((&module,))?.extract()?, Arc::new(module));
+                    let module = getmodule_fn.call1((&class,))?;
+                    if !module.is_none() {
+                        modules.insert(
+                            id_fn.call1((&module,))?.extract()?,
+                            Arc::new(module.to_object(py)),
+                        );
                     }
                     class_ids.insert(id_fn.call1((&class,))?.extract()?);
                 }
                 for module in content_modules {
-                    let module: PyObject = module.extract()?;
-                    modules.insert(id_fn.call1((&module,))?.extract()?, Arc::new(module));
+                    modules.insert(
+                        id_fn.call1((&module,))?.extract()?,
+                        Arc::new(module.to_object(py)),
+                    );
                 }
                 Ok((modules, class_ids))
             })?;
