@@ -12,7 +12,7 @@ no-escape-analysis = []
 [dependencies]
 itertools = "0.14"
 crossbeam = "0.8"
-indexmap = "2.7"
+indexmap = "2.8"
 parking_lot = "0.12"
 nac3core_derive = { path = "nac3core_derive", optional = true }
 nac3parser = { path = "../nac3parser" }

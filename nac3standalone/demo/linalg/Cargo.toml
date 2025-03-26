@@ -7,7 +7,6 @@ edition = "2021"
 crate-type = ["staticlib"]
 
 [dependencies]
-nalgebra = {version = "0.32.6", default-features = false, features = ["libm", "alloc"]}
-cslice = "0.3.0"
+nalgebra = { version = "0.33", default-features = false, features = ["libm", "alloc"] }
 
 [workspace]

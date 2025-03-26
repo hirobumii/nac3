@@ -9,11 +9,11 @@ name = "nac3artiq"
 crate-type = ["cdylib"]
 
 [dependencies]
-indexmap = "2.7"
+indexmap = "2.8"
 itertools = "0.14"
 pyo3 = { version = "0.21", features = ["extension-module", "gil-refs"] }
 parking_lot = "0.12"
-tempfile = "3.16"
+tempfile = "3.19"
 nac3core = { path = "../nac3core" }
 nac3ld = { path = "../nac3ld" }
 
