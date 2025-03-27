@@ -286,9 +286,15 @@ impl Nac3 {
                         }
                     })
                 }
-                // Allow global variable declaration with `Kernel` type annotation
+                // Allow global variable declaration with `Kernel` or `KernelInvariant` type annotation
                 StmtKind::AnnAssign { ref annotation, .. } => {
-                    matches!(&annotation.node, ExprKind::Subscript { value, .. } if matches!(&value.node, ExprKind::Name {id, ..} if id == &"Kernel".into()))
+                    matches!(
+                        &annotation.node,
+                        ExprKind::Subscript { value, .. } if matches!(
+                            &value.node,
+                            ExprKind::Name { id, .. } if ["Kernel".into(), "KernelInvariant".into()].contains(id),
+                        )
+                    )
                 }
                 _ => false,
             };
