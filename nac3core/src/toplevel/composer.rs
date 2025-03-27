@@ -1999,13 +1999,15 @@ impl TopLevelComposer {
                     ExprKind::Subscript { value, slice, .. }
                         if matches!(
                             &value.node,
-                            ast::ExprKind::Name { id, .. } if self.core_config.kernel_ann.is_some_and(|c| id == &c.into())
+                            ast::ExprKind::Name { id, .. } if self.core_config.kernel_ann.is_some_and(|c| id == &c.into()) || id == &self.core_config.kernel_invariant_ann.into()
                         ) =>
                     {
                         slice
                     }
                     _ if self.core_config.kernel_ann.is_none() => ty_decl,
-                    _ => unreachable!("Global variables should be annotated with Kernel[]"), // ignore fields annotated otherwise
+                    _ => unreachable!(
+                        "Global variables should be annotated with Kernel[] or KernelInvariant[]"
+                    ), // ignore fields annotated otherwise
                 };
 
                 let ty_annotation = parse_ast_to_type_annotation_kinds(
