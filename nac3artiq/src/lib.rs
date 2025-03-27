@@ -437,13 +437,13 @@ impl Nac3 {
         ]
     }
 
-    fn compile_method<T>(
+    fn compile_method<'py, T>(
         &self,
-        obj: &PyAny,
+        obj: &Bound<'py, PyAny>,
         method_name: &str,
-        args: Vec<&PyAny>,
-        embedding_map: &PyAny,
-        py: Python,
+        args: Vec<Bound<'py, PyAny>>,
+        embedding_map: &Bound<'py, PyAny>,
+        py: Python<'py>,
         link_fn: &dyn Fn(&Module) -> PyResult<T>,
     ) -> PyResult<T> {
         let size_t = self.isa.get_size_type(&Context::create());
@@ -674,7 +674,7 @@ impl Nac3 {
         let mut arg_names = vec![];
         for (i, arg) in args.into_iter().enumerate() {
             let name = format!("tmp{i}");
-            module.add(&name, arg)?;
+            module.add(&name, &arg)?;
             name_to_pyid.insert(name.clone().into(), id_fun.call1((arg,))?.extract()?);
             arg_names.push(name);
         }
@@ -1071,7 +1071,7 @@ fn add_exceptions(
 #[pymethods]
 impl Nac3 {
     #[new]
-    fn new(isa: &str, artiq_builtins: &PyDict, py: Python) -> PyResult<Self> {
+    fn new<'py>(isa: &str, artiq_builtins: &Bound<'py, PyDict>, py: Python<'py>) -> PyResult<Self> {
         let isa = match isa {
             "host" => Isa::Host,
             "rv32g" => Isa::RiscV32G,
@@ -1142,20 +1142,22 @@ impl Nac3 {
         let typing_mod = PyModule::import(py, "typing").unwrap();
         let types_mod = PyModule::import(py, "types").unwrap();
 
-        let get_id = |x: &PyAny| id_fn.call1((x,)).and_then(PyAny::extract).unwrap();
+        let get_id = |x: &PyObject| id_fn.call1((x,)).and_then(PyAny::extract).unwrap();
         let get_attr_id = |obj: &PyModule, attr| {
             id_fn.call1((obj.getattr(attr).unwrap(),)).unwrap().extract().unwrap()
         };
         let primitive_ids = PrimitivePythonId {
-            virtual_id: get_id(artiq_builtins.get_item("virtual").ok().flatten().unwrap()),
+            virtual_id: get_id(
+                artiq_builtins.get_item("virtual").ok().flatten().unwrap().as_unbound(),
+            ),
             generic_alias: (
                 get_attr_id(typing_mod, "_GenericAlias"),
                 get_attr_id(types_mod, "GenericAlias"),
             ),
-            none: get_id(artiq_builtins.get_item("none").ok().flatten().unwrap()),
+            none: get_id(artiq_builtins.get_item("none").ok().flatten().unwrap().as_unbound()),
             typevar: get_attr_id(typing_mod, "TypeVar"),
             const_generic_marker: get_id(
-                artiq_builtins.get_item("_ConstGenericMarker").ok().flatten().unwrap(),
+                artiq_builtins.get_item("_ConstGenericMarker").ok().flatten().unwrap().as_unbound(),
             ),
             int: get_attr_id(builtins_mod, "int"),
             int32: get_attr_id(numpy_mod, "int32"),
@@ -1172,7 +1174,7 @@ impl Nac3 {
             ndarray: get_attr_id(numpy_mod, "ndarray"),
             tuple: get_attr_id(builtins_mod, "tuple"),
             exception: get_attr_id(builtins_mod, "Exception"),
-            option: get_id(artiq_builtins.get_item("Option").ok().flatten().unwrap()),
+            option: get_id(artiq_builtins.get_item("Option").ok().flatten().unwrap().as_unbound()),
             module: get_attr_id(types_mod, "ModuleType"),
         };
 
@@ -1241,12 +1243,12 @@ impl Nac3 {
         })
     }
 
-    fn analyze(
+    fn analyze<'py>(
         &mut self,
-        functions: &PySet,
-        classes: &PySet,
-        special_ids: &PyDict,
-        content_modules: &PySet,
+        functions: &Bound<'py, PySet>,
+        classes: &Bound<'py, PySet>,
+        special_ids: &Bound<'py, PyDict>,
+        content_modules: &Bound<'py, PySet>,
     ) -> PyResult<()> {
         let (modules, class_ids) =
             Python::with_gil(|py| -> PyResult<(PyValueMap, HashSet<u64>)> {
@@ -1263,7 +1265,7 @@ impl Nac3 {
                     }
                 }
                 for class in classes {
-                    let module: PyObject = getmodule_fn.call1((class,))?.extract()?;
+                    let module: PyObject = getmodule_fn.call1((&class,))?.extract()?;
                     if !module.is_none(py) {
                         modules.insert(id_fn.call1((&module,))?.extract()?, Arc::new(module));
                     }
@@ -1301,14 +1303,14 @@ impl Nac3 {
         Ok(())
     }
 
-    fn compile_method_to_file(
+    fn compile_method_to_file<'py>(
         &mut self,
-        obj: &PyAny,
+        obj: &Bound<'py, PyAny>,
         method_name: &str,
-        args: Vec<&PyAny>,
+        args: Vec<Bound<'py, PyAny>>,
         filename: &str,
-        embedding_map: &PyAny,
-        py: Python,
+        embedding_map: &Bound<'py, PyAny>,
+        py: Python<'py>,
     ) -> PyResult<()> {
         let target_machine = self.get_llvm_target_machine();
 
@@ -1347,13 +1349,13 @@ impl Nac3 {
         }
     }
 
-    fn compile_method_to_mem(
+    fn compile_method_to_mem<'py>(
         &mut self,
-        obj: &PyAny,
+        obj: &Bound<'py, PyAny>,
         method_name: &str,
-        args: Vec<&PyAny>,
-        embedding_map: &PyAny,
-        py: Python,
+        args: Vec<Bound<'py, PyAny>>,
+        embedding_map: &Bound<'py, PyAny>,
+        py: Python<'py>,
     ) -> PyResult<PyObject> {
         let target_machine = self.get_llvm_target_machine();
 
@@ -1398,7 +1400,7 @@ unsafe extern "C" {
 }
 
 #[pymodule]
-fn nac3artiq(py: Python, m: &PyModule) -> PyResult<()> {
+fn nac3artiq<'py>(py: Python<'py>, m: &Bound<'py, PyModule>) -> PyResult<()> {
     #[cfg(feature = "init-llvm-profile")]
     unsafe {
         __llvm_profile_initialize();
