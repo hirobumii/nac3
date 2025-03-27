@@ -206,8 +206,10 @@ impl StaticValue for PythonValue {
         .unwrap_or_else(|| {
             Python::with_gil(|py| -> PyResult<Option<PyValueHandle>> {
                 let helper = &self.resolver.helper;
+                let id = helper.id_fn.bind(py).call1((&*self.value,))?.extract::<u64>()?;
                 let ty = helper.type_fn.bind(py).call1((&*self.value,))?;
                 let ty_id: u64 = helper.id_fn.bind(py).call1((ty,))?.extract()?;
+
                 // for optimizing unwrap KernelInvariant
                 if ty_id == self.resolver.primitive_ids.option && name == "_nac3_option".into() {
                     let obj = self.value.bind(py).getattr(name.to_string().as_str())?;
@@ -219,25 +221,50 @@ impl StaticValue for PythonValue {
                         Ok(Some((id, obj)))
                     };
                 }
-                let def_id = { *self.resolver.pyid_to_def.read().get(&ty_id).unwrap() };
-                let mut mutable = true;
-                let defs = ctx.top_level.definitions.read();
-                if let TopLevelDef::Class { fields, .. } = &*defs[def_id.0].read() {
-                    for (field_name, _, is_mutable) in fields {
-                        if field_name == &name {
-                            mutable = *is_mutable;
-                            break;
+
+                let result = if let Some(def_id) =
+                    self.resolver.pyid_to_def.read().get(&ty_id).copied()
+                {
+                    let mut mutable = true;
+                    let defs = ctx.top_level.definitions.read();
+                    if let TopLevelDef::Class { fields, .. } = &*defs[def_id.0].read() {
+                        for (field_name, _, is_mutable) in fields {
+                            if field_name == &name {
+                                mutable = *is_mutable;
+                                break;
+                            }
                         }
                     }
-                }
-                let result = if mutable {
-                    None
+
+                    if mutable {
+                        None
+                    } else {
+                        let obj = self.value.bind(py).getattr(name.to_string().as_str())?;
+                        let id = self.resolver.helper.id_fn.bind(py).call1((&obj,))?.extract()?;
+                        let obj = Arc::new(obj.into_py_any(py)?);
+                        Some((id, obj))
+                    }
+                } else if let Some(def_id) = self.resolver.pyid_to_def.read().get(&id).copied() {
+                    // Check if self.value is a module
+                    let in_mod_ctx = ctx
+                        .top_level
+                        .definitions
+                        .read()
+                        .get(def_id.0)
+                        .is_some_and(|def| matches!(&*def.read(), TopLevelDef::Module { .. }));
+
+                    if in_mod_ctx {
+                        let obj = self.value.bind(py).getattr(name.to_string().as_str())?;
+                        let id = self.resolver.helper.id_fn.bind(py).call1((&obj,))?.extract()?;
+                        let obj = Arc::new(obj.into_py_any(py)?);
+                        Some((id, obj))
+                    } else {
+                        None
+                    }
                 } else {
-                    let obj = self.value.bind(py).getattr(name.to_string().as_str())?;
-                    let id = self.resolver.helper.id_fn.bind(py).call1((&obj,))?.extract()?;
-                    let obj = Arc::new(obj.into_py_any(py)?);
-                    Some((id, obj))
+                    None
                 };
+
                 self.resolver.field_to_val.write().insert((self.id, name), result.clone());
                 Ok(result)
             })
