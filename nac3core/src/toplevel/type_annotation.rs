@@ -60,6 +60,171 @@ impl TypeAnnotation {
     }
 }
 
+/// Converts a [`DefinitionId`] representing a [`TopLevelDef::Class`] and its type arguments into a
+/// [`TypeAnnotation`].
+#[allow(clippy::too_many_arguments)]
+fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
+    resolver: &(dyn SymbolResolver + Send + Sync),
+    top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+    unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
+    mut locked: HashMap<DefinitionId, Vec<Type>, S>,
+    id: StrRef,
+    (obj_id, type_args): (DefinitionId, Option<&Expr<T>>),
+    location: &Location,
+) -> Result<TypeAnnotation, HashSet<String>> {
+    let Some(top_level_def) = top_level_defs.get(obj_id.0) else {
+        return Err(HashSet::from([format!(
+            "NameError: name '{id}' is not defined (at {location})",
+        )]));
+    };
+
+    let type_vars = if let TopLevelDef::Class { type_vars, .. } = &*top_level_def.read() {
+        type_vars.clone()
+    } else {
+        unreachable!("must be class here")
+    };
+
+    let param_type_infos = if let Some(slice) = type_args {
+        // we do not check whether the application of type variables are compatible here
+        let params_ast = if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
+            elts.iter().collect_vec()
+        } else {
+            vec![slice]
+        };
+
+        if type_vars.len() != params_ast.len() {
+            return Err(HashSet::from([format!(
+                "expect {} type parameters but got {} (at {})",
+                type_vars.len(),
+                params_ast.len(),
+                params_ast[0].location,
+            )]));
+        }
+
+        let result = params_ast
+            .iter()
+            .map(|x| {
+                parse_ast_to_type_annotation_kinds(
+                    resolver,
+                    top_level_defs,
+                    unifier,
+                    primitives,
+                    x,
+                    {
+                        locked.insert(obj_id, type_vars.clone());
+                        locked.clone()
+                    },
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // make sure the result do not contain any type vars
+        let no_type_var =
+            result.iter().all(|x| get_type_var_contained_in_type_annotation(x).is_empty());
+        if no_type_var {
+            result
+        } else {
+            return Err(HashSet::from([format!(
+                "application of type vars to generic class is not currently supported (at {})",
+                params_ast[0].location
+            )]));
+        }
+    } else {
+        // check param number here
+        if !type_vars.is_empty() {
+            return Err(HashSet::from([format!(
+                "expect {} type variable parameter but got 0 (at {location})",
+                type_vars.len(),
+            )]));
+        }
+
+        Vec::new()
+    };
+
+    Ok(TypeAnnotation::CustomClass { id: obj_id, params: param_type_infos })
+}
+
+/// Parses the `id` of a [`ast::ExprKind::Name`] expression as a [`TypeAnnotation`].
+fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
+    resolver: &(dyn SymbolResolver + Send + Sync),
+    top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+    unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
+    locked: HashMap<DefinitionId, Vec<Type>, S>,
+    id: StrRef,
+    location: &Location,
+) -> Result<TypeAnnotation, HashSet<String>> {
+    if id == "int32".into() {
+        Ok(TypeAnnotation::Primitive(primitives.int32))
+    } else if id == "int64".into() {
+        Ok(TypeAnnotation::Primitive(primitives.int64))
+    } else if id == "uint32".into() {
+        Ok(TypeAnnotation::Primitive(primitives.uint32))
+    } else if id == "uint64".into() {
+        Ok(TypeAnnotation::Primitive(primitives.uint64))
+    } else if id == "float".into() {
+        Ok(TypeAnnotation::Primitive(primitives.float))
+    } else if id == "bool".into() {
+        Ok(TypeAnnotation::Primitive(primitives.bool))
+    } else if id == "str".into() {
+        Ok(TypeAnnotation::Primitive(primitives.str))
+    } else if id == "Exception".into() {
+        Ok(TypeAnnotation::CustomClass { id: PrimDef::Exception.id(), params: Vec::default() })
+    } else if let Ok(obj_id) = resolver.get_identifier_def(id) {
+        class_def_id_to_type_annotation(
+            resolver,
+            top_level_defs,
+            unifier,
+            primitives,
+            locked,
+            id,
+            (obj_id, None as Option<&Expr<T>>),
+            location,
+        )
+    } else if let Ok(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, id) {
+        if let TypeEnum::TVar { .. } = unifier.get_ty(ty).as_ref() {
+            let var = unifier.get_fresh_var(Some(id), Some(*location)).ty;
+            unifier.unify(var, ty).unwrap();
+            Ok(TypeAnnotation::TypeVar(ty))
+        } else {
+            Err(HashSet::from([format!("`{id}` is not a valid type annotation (at {location})",)]))
+        }
+    } else {
+        Err(HashSet::from([format!("`{id}` is not a valid type annotation (at {location})",)]))
+    }
+}
+
+/// Parses the `id` and generic arguments of a class as a [`TypeAnnotation`].
+#[allow(clippy::too_many_arguments)]
+fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
+    resolver: &(dyn SymbolResolver + Send + Sync),
+    top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+    unifier: &mut Unifier,
+    primitives: &PrimitiveStore,
+    locked: HashMap<DefinitionId, Vec<Type>, S>,
+    id: StrRef,
+    slice: &Expr<T>,
+    location: &Location,
+) -> Result<TypeAnnotation, HashSet<String>> {
+    if ["virtual".into(), "Generic".into(), "tuple".into(), "Option".into()].contains(&id) {
+        return Err(HashSet::from([format!("keywords cannot be class name (at {location})")]));
+    }
+
+    let obj_id = resolver.get_identifier_def(id)?;
+
+    class_def_id_to_type_annotation(
+        resolver,
+        top_level_defs,
+        unifier,
+        primitives,
+        locked,
+        id,
+        (obj_id, Some(slice)),
+        location,
+    )
+}
+
 /// Parses an AST expression `expr` into a [`TypeAnnotation`].
 ///
 /// * `locked` - A [`HashMap`] containing the IDs of known definitions, mapped to a [`Vec`] of all
@@ -75,152 +240,17 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
     // the key stores the type_var of this topleveldef::class, we only need this field here
     locked: HashMap<DefinitionId, Vec<Type>, S>,
 ) -> Result<TypeAnnotation, HashSet<String>> {
-    let name_handle = |id: &StrRef,
-                       unifier: &mut Unifier,
-                       locked: HashMap<DefinitionId, Vec<Type>, S>| {
-        if id == &"int32".into() {
-            Ok(TypeAnnotation::Primitive(primitives.int32))
-        } else if id == &"int64".into() {
-            Ok(TypeAnnotation::Primitive(primitives.int64))
-        } else if id == &"uint32".into() {
-            Ok(TypeAnnotation::Primitive(primitives.uint32))
-        } else if id == &"uint64".into() {
-            Ok(TypeAnnotation::Primitive(primitives.uint64))
-        } else if id == &"float".into() {
-            Ok(TypeAnnotation::Primitive(primitives.float))
-        } else if id == &"bool".into() {
-            Ok(TypeAnnotation::Primitive(primitives.bool))
-        } else if id == &"str".into() {
-            Ok(TypeAnnotation::Primitive(primitives.str))
-        } else if id == &"Exception".into() {
-            Ok(TypeAnnotation::CustomClass { id: PrimDef::Exception.id(), params: Vec::default() })
-        } else if let Ok(obj_id) = resolver.get_identifier_def(*id) {
-            let type_vars = {
-                let Some(top_level_def) = top_level_defs.get(obj_id.0) else {
-                    return Err(HashSet::from([format!(
-                        "NameError: name '{id}' is not defined (at {})",
-                        expr.location
-                    )]));
-                };
-                let def_read = top_level_def.try_read();
-                if let Some(def_read) = def_read {
-                    if let TopLevelDef::Class { type_vars, .. } = &*def_read {
-                        type_vars.clone()
-                    } else {
-                        return Err(HashSet::from([format!(
-                            "function cannot be used as a type (at {})",
-                            expr.location
-                        )]));
-                    }
-                } else {
-                    locked.get(&obj_id).unwrap().clone()
-                }
-            };
-            // check param number here
-            if !type_vars.is_empty() {
-                return Err(HashSet::from([format!(
-                    "expect {} type variable parameter but got 0 (at {})",
-                    type_vars.len(),
-                    expr.location,
-                )]));
-            }
-            Ok(TypeAnnotation::CustomClass { id: obj_id, params: vec![] })
-        } else if let Ok(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id) {
-            if let TypeEnum::TVar { .. } = unifier.get_ty(ty).as_ref() {
-                let var = unifier.get_fresh_var(Some(*id), Some(expr.location)).ty;
-                unifier.unify(var, ty).unwrap();
-                Ok(TypeAnnotation::TypeVar(ty))
-            } else {
-                Err(HashSet::from([format!(
-                    "`{}` is not a valid type annotation (at {})",
-                    id, expr.location
-                )]))
-            }
-        } else {
-            Err(HashSet::from([format!(
-                "`{}` is not a valid type annotation (at {})",
-                id, expr.location
-            )]))
-        }
-    };
-
-    let class_name_handle =
-        |id: &StrRef,
-         slice: &ast::Expr<T>,
-         unifier: &mut Unifier,
-         mut locked: HashMap<DefinitionId, Vec<Type>, S>| {
-            if ["virtual".into(), "Generic".into(), "tuple".into(), "Option".into()].contains(id) {
-                return Err(HashSet::from([format!(
-                    "keywords cannot be class name (at {})",
-                    expr.location
-                )]));
-            }
-            let obj_id = resolver.get_identifier_def(*id)?;
-            let type_vars = {
-                let Some(top_level_def) = top_level_defs.get(obj_id.0) else {
-                    return Err(HashSet::from([format!(
-                        "NameError: name '{id}' is not defined (at {})",
-                        expr.location
-                    )]));
-                };
-                let def_read = top_level_def.try_read();
-                if let Some(def_read) = def_read {
-                    let TopLevelDef::Class { type_vars, .. } = &*def_read else {
-                        unreachable!("must be class here")
-                    };
-                    type_vars.clone()
-                } else {
-                    locked.get(&obj_id).unwrap().clone()
-                }
-            };
-            // we do not check whether the application of type variables are compatible here
-            let param_type_infos = {
-                let params_ast = if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
-                    elts.iter().collect_vec()
-                } else {
-                    vec![slice]
-                };
-                if type_vars.len() != params_ast.len() {
-                    return Err(HashSet::from([format!(
-                        "expect {} type parameters but got {} (at {})",
-                        type_vars.len(),
-                        params_ast.len(),
-                        params_ast[0].location,
-                    )]));
-                }
-                let result = params_ast
-                    .iter()
-                    .map(|x| {
-                        parse_ast_to_type_annotation_kinds(
-                            resolver,
-                            top_level_defs,
-                            unifier,
-                            primitives,
-                            x,
-                            {
-                                locked.insert(obj_id, type_vars.clone());
-                                locked.clone()
-                            },
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                // make sure the result do not contain any type vars
-                let no_type_var =
-                    result.iter().all(|x| get_type_var_contained_in_type_annotation(x).is_empty());
-                if no_type_var {
-                    result
-                } else {
-                    return Err(HashSet::from([format!(
-                        "application of type vars to generic class is not currently supported (at {})",
-                        params_ast[0].location
-                    )]));
-                }
-            };
-            Ok(TypeAnnotation::CustomClass { id: obj_id, params: param_type_infos })
-        };
-
     match &expr.node {
-        ast::ExprKind::Name { id, .. } => name_handle(id, unifier, locked),
+        ast::ExprKind::Name { id, .. } => parse_name_as_type_annotation::<T, S>(
+            resolver,
+            top_level_defs,
+            unifier,
+            primitives,
+            locked,
+            *id,
+            &expr.location,
+        ),
+
         // virtual
         ast::ExprKind::Subscript { value, slice, .. }
             if {
@@ -342,7 +372,16 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
         // custom class
         ast::ExprKind::Subscript { value, slice, .. } => {
             if let ast::ExprKind::Name { id, .. } = &value.node {
-                class_name_handle(id, slice, unifier, locked)
+                parse_class_id_as_type_annotation(
+                    resolver,
+                    top_level_defs,
+                    unifier,
+                    primitives,
+                    locked,
+                    *id,
+                    slice,
+                    &expr.location,
+                )
             } else {
                 Err(HashSet::from([format!(
                     "unsupported expression type for class name (at {})",
