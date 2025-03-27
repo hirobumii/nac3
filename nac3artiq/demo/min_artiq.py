@@ -152,9 +152,9 @@ def nac3(cls):
     return cls
 
 
-ms = 1e-3
-us = 1e-6
-ns = 1e-9
+ms: KernelInvariant[float] = 1e-3
+us: KernelInvariant[float] = 1e-6
+ns: KernelInvariant[float] = 1e-9
 
 @extern
 def rtio_init():
@@ -335,9 +335,9 @@ class UnwrapNoneError(Exception):
     """raised when unwrapping a none value"""
     artiq_builtin = True
 
-parallel = KernelContextManager()
-legacy_parallel = KernelContextManager()
-sequential = KernelContextManager()
+parallel: KernelInvariant[KernelContextManager] = KernelContextManager()
+legacy_parallel: KernelInvariant[KernelContextManager] = KernelContextManager()
+sequential: KernelInvariant[KernelContextManager] = KernelContextManager()
 
 special_ids = {
     "parallel": id(parallel),
