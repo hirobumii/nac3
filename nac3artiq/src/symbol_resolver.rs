@@ -13,7 +13,6 @@ use pyo3::{
     types::{PyDict, PyTuple},
 };
 
-use super::PrimitivePythonId;
 use nac3core::{
     codegen::{
         CodeGenContext, CodeGenerator,
@@ -38,6 +37,8 @@ use nac3core::{
         typedef::{Type, TypeEnum, TypeVar, Unifier, VarMap, into_var_map, iter_type_vars},
     },
 };
+
+use super::PrimitivePythonId;
 
 pub enum PrimitiveValue {
     I32(i32),

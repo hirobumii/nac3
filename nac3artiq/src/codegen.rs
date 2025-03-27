@@ -12,7 +12,6 @@ use pyo3::{
     types::{PyDict, PyList},
 };
 
-use super::{SpecialPythonId, symbol_resolver::InnerResolver, timeline::TimeFns};
 use nac3core::{
     codegen::{
         CodeGenContext, CodeGenerator,
@@ -46,6 +45,8 @@ use nac3core::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, VarMap, iter_type_vars},
     },
 };
+
+use super::{SpecialPythonId, symbol_resolver::InnerResolver, timeline::TimeFns};
 
 /// The parallelism mode within a block.
 #[derive(Copy, Clone, Eq, PartialEq)]
