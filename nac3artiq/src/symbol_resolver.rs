@@ -10,6 +10,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use pyo3::{
     IntoPy, PyAny, PyErr, PyObject, PyResult, Python,
+    prelude::*,
     types::{PyDict, PyTuple},
 };
 
@@ -178,7 +179,7 @@ impl StaticValue for PythonValue {
 
         Python::with_gil(|py| -> PyResult<BasicValueEnum<'ctx>> {
             self.resolver
-                .get_obj_value(py, (*self.value).as_ref(py), ctx, generator, expected_ty)
+                .get_obj_value(py, (*self.value).bind(py).as_gil_ref(), ctx, generator, expected_ty)
                 .map(Option::unwrap)
         })
         .map_err(|e| e.to_string())
@@ -468,22 +469,27 @@ impl InnerResolver {
         {
             let origin = self.helper.origin_ty_fn.call1(py, (pyty,))?;
             let args = self.helper.args_ty_fn.call1(py, (pyty,))?;
-            let args: &PyTuple = args.downcast(py)?;
-            let origin_ty =
-                match self.get_pyty_obj_type(py, origin.as_ref(py), unifier, defs, primitives)? {
-                    Ok((ty, false)) => ty,
-                    Ok((_, true)) => {
-                        return Ok(Err("instantiated type does not take type parameters".into()));
-                    }
-                    Err(err) => return Ok(Err(err)),
-                };
+            let args = args.downcast_bound::<PyTuple>(py)?;
+            let origin_ty = match self.get_pyty_obj_type(
+                py,
+                origin.bind(py).as_gil_ref(),
+                unifier,
+                defs,
+                primitives,
+            )? {
+                Ok((ty, false)) => ty,
+                Ok((_, true)) => {
+                    return Ok(Err("instantiated type does not take type parameters".into()));
+                }
+                Err(err) => return Ok(Err(err)),
+            };
 
             match &*unifier.get_ty(origin_ty) {
                 TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
                     if args.len() == 1 {
                         let ty = match self.get_pyty_obj_type(
                             py,
-                            args.get_item(0)?,
+                            args.get_item(0)?.as_gil_ref(),
                             unifier,
                             defs,
                             primitives,
@@ -529,9 +535,15 @@ impl InnerResolver {
                     // npt.NDArray[T] == np.ndarray[Any, np.dtype[T]]
                     let ndarray_dtype_pyty =
                         self.helper.args_ty_fn.call1(py, (args.get_item(1)?,))?;
-                    let dtype = ndarray_dtype_pyty.downcast::<PyTuple>(py)?.get_item(0)?;
+                    let dtype = ndarray_dtype_pyty.downcast_bound::<PyTuple>(py)?.get_item(0)?;
 
-                    let ty = match self.get_pyty_obj_type(py, dtype, unifier, defs, primitives)? {
+                    let ty = match self.get_pyty_obj_type(
+                        py,
+                        dtype.as_gil_ref(),
+                        unifier,
+                        defs,
+                        primitives,
+                    )? {
                         Ok(ty) => ty,
                         Err(err) => return Ok(Err(err)),
                     };
@@ -547,7 +559,7 @@ impl InnerResolver {
                 TypeEnum::TTuple { .. } => {
                     let args = match args
                         .iter()
-                        .map(|x| self.get_pyty_obj_type(py, x, unifier, defs, primitives))
+                        .map(|x| self.get_pyty_obj_type(py, x.as_gil_ref(), unifier, defs, primitives))
                         .collect::<Result<Vec<_>, _>>()?
                         .into_iter()
                         .collect::<Result<Vec<_>, _>>() {
@@ -580,7 +592,7 @@ impl InnerResolver {
                         }
                         let args = match args
                             .iter()
-                            .map(|x| self.get_pyty_obj_type(py, x, unifier, defs, primitives))
+                            .map(|x| self.get_pyty_obj_type(py, x.as_gil_ref(), unifier, defs, primitives))
                             .collect::<Result<Vec<_>, _>>()?
                             .into_iter()
                             .collect::<Result<Vec<_>, _>>() {
@@ -607,7 +619,7 @@ impl InnerResolver {
                     if args.len() == 1 {
                         let ty = match self.get_pyty_obj_type(
                             py,
-                            args.get_item(0)?,
+                            args.get_item(0)?.as_gil_ref(),
                             unifier,
                             defs,
                             primitives,
@@ -638,8 +650,7 @@ impl InnerResolver {
                 false,
             )))
         } else {
-            let str_fn =
-                pyo3::types::PyModule::import(py, "builtins").unwrap().getattr("repr").unwrap();
+            let str_fn = PyModule::import_bound(py, "builtins").unwrap().getattr("repr").unwrap();
             let str_repr: String = str_fn.call1((pyty,)).unwrap().extract().unwrap();
             Ok(Err(format!("{str_repr} is not registered with NAC3 (@nac3 decorator missing?)")))
         }
@@ -736,7 +747,7 @@ impl InnerResolver {
                 {
                     obj
                 } else {
-                    (*ty).as_ref(py)
+                    (*ty).bind(py).as_gil_ref()
                 }
             },
             unifier,
@@ -1675,11 +1686,11 @@ impl SymbolResolver for Resolver {
             if matches!(&*top_levels[def_id.0].read(), TopLevelDef::Variable { .. }) {
                 let module_val = &self.0.module;
                 let ret = Python::with_gil(|py| -> PyResult<Result<BasicValueEnum, String>> {
-                    let module_val = (**module_val).as_ref(py);
+                    let module_val = (**module_val).bind(py);
 
                     let ty = self.0.get_obj_type(
                         py,
-                        module_val,
+                        module_val.as_gil_ref(),
                         &mut ctx.unifier,
                         &top_levels,
                         &ctx.primitives,
@@ -1688,7 +1699,10 @@ impl SymbolResolver for Resolver {
                         return Ok(Err(ty));
                     }
                     let ty = ty.unwrap();
-                    let obj = self.0.get_obj_value(py, module_val, ctx, generator, ty)?.unwrap();
+                    let obj = self
+                        .0
+                        .get_obj_value(py, module_val.as_gil_ref(), ctx, generator, ty)?
+                        .unwrap();
                     let (idx, _) = ctx.get_attr_index(ty, id);
                     let ret = unsafe {
                         ctx.builder.build_gep(
@@ -1791,10 +1805,16 @@ impl SymbolResolver for Resolver {
             let store = self.0.deferred_eval_store.store.read();
             Python::with_gil(|py| -> PyResult<Result<(), String>> {
                 for (variables, constraints, name) in store.iter() {
-                    let constraints: &PyAny = constraints.as_ref(py);
+                    let constraints = constraints.bind(py);
                     for (i, var) in variables.iter().enumerate() {
                         if let Ok(constr) = constraints.get_item(i) {
-                            match self.0.get_pyty_obj_type(py, constr, unifier, defs, primitives)? {
+                            match self.0.get_pyty_obj_type(
+                                py,
+                                constr.as_gil_ref(),
+                                unifier,
+                                defs,
+                                primitives,
+                            )? {
                                 Ok((ty, _)) => {
                                     if !unifier.is_concrete(ty, &[]) {
                                         return Ok(Err(format!(

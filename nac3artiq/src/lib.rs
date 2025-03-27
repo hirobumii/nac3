@@ -1,7 +1,6 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(
-    deprecated,
     unexpected_cfgs,
     unsafe_op_in_unsafe_fn,
     clippy::cast_possible_truncation,
@@ -227,7 +226,7 @@ impl Nac3 {
                         .getattr("__loader__")?
                         .extract::<PyObject>()?
                         .getattr(py, "get_source")?;
-                    ("<expcontent>", get_src_fn.call1(py, (PyNone::get(py),))?.extract(py)?)
+                    ("<expcontent>", get_src_fn.call1(py, (PyNone::get_bound(py),))?.extract(py)?)
                 };
                 Ok((module.getattr("__name__")?.extract()?, source_file.to_string(), source))
             })?;
@@ -251,7 +250,7 @@ impl Nac3 {
                     // Drop unregistered (i.e. host-only) base classes.
                     bases.retain(|base| {
                         Python::with_gil(|py| -> PyResult<bool> {
-                            let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
+                            let id_fn = PyModule::import_bound(py, "builtins")?.getattr("id")?;
                             match &base.node {
                                 ExprKind::Name { id, .. } => {
                                     if *id == "Exception".into() {
@@ -454,8 +453,8 @@ impl Nac3 {
             size_t,
         );
 
-        let builtins = PyModule::import(py, "builtins")?;
-        let typings = PyModule::import(py, "typing")?;
+        let builtins = PyModule::import_bound(py, "builtins")?;
+        let typings = PyModule::import_bound(py, "typing")?;
         let id_fn = builtins.getattr("id")?;
         let issubclass = builtins.getattr("issubclass")?;
         let exn_class = builtins.getattr("Exception")?;
@@ -501,7 +500,7 @@ impl Nac3 {
             let class_obj;
             if let StmtKind::ClassDef { name, .. } = &stmt.node {
                 let class = py_module.getattr(name.to_string().as_str()).unwrap();
-                if issubclass.call1((class, exn_class)).unwrap().extract().unwrap()
+                if issubclass.call1((class, &exn_class)).unwrap().extract().unwrap()
                     && class.getattr("artiq_builtin").is_err()
                 {
                     class_obj = Some(class);
@@ -666,15 +665,15 @@ impl Nac3 {
             self.pyid_to_def.write().insert(module_id, def_id);
         }
 
-        let id_fun = PyModule::import(py, "builtins")?.getattr("id")?;
+        let id_fun = PyModule::import_bound(py, "builtins")?.getattr("id")?;
         let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
-        let module = PyModule::new(py, "tmp")?;
+        let module = PyModule::new_bound(py, "tmp")?;
         module.add("base", obj)?;
         name_to_pyid.insert("base".into(), id_fun.call1((obj,))?.extract()?);
         let mut arg_names = vec![];
         for (i, arg) in args.into_iter().enumerate() {
             let name = format!("tmp{i}");
-            module.add(&name, &arg)?;
+            module.add(&*name, &arg)?;
             name_to_pyid.insert(name.clone().into(), id_fun.call1((arg,))?.extract()?);
             arg_names.push(name);
         }
@@ -1136,46 +1135,44 @@ impl Nac3 {
             ),
         ];
 
-        let builtins_mod = PyModule::import(py, "builtins").unwrap();
+        let builtins_mod = PyModule::import_bound(py, "builtins").unwrap();
         let id_fn = builtins_mod.getattr("id").unwrap();
-        let numpy_mod = PyModule::import(py, "numpy").unwrap();
-        let typing_mod = PyModule::import(py, "typing").unwrap();
-        let types_mod = PyModule::import(py, "types").unwrap();
+        let numpy_mod = PyModule::import_bound(py, "numpy").unwrap();
+        let typing_mod = PyModule::import_bound(py, "typing").unwrap();
+        let types_mod = PyModule::import_bound(py, "types").unwrap();
 
-        let get_id = |x: &PyObject| id_fn.call1((x,)).and_then(PyAny::extract).unwrap();
-        let get_attr_id = |obj: &PyModule, attr| {
+        let get_id = |x: &Bound<PyAny>| id_fn.call1((x,)).and_then(|id| id.extract()).unwrap();
+        let get_attr_id = |obj: &Bound<PyModule>, attr| {
             id_fn.call1((obj.getattr(attr).unwrap(),)).unwrap().extract().unwrap()
         };
         let primitive_ids = PrimitivePythonId {
-            virtual_id: get_id(
-                artiq_builtins.get_item("virtual").ok().flatten().unwrap().as_unbound(),
-            ),
+            virtual_id: get_id(&artiq_builtins.get_item("virtual").ok().flatten().unwrap()),
             generic_alias: (
-                get_attr_id(typing_mod, "_GenericAlias"),
-                get_attr_id(types_mod, "GenericAlias"),
+                get_attr_id(&typing_mod, "_GenericAlias"),
+                get_attr_id(&types_mod, "GenericAlias"),
             ),
-            none: get_id(artiq_builtins.get_item("none").ok().flatten().unwrap().as_unbound()),
-            typevar: get_attr_id(typing_mod, "TypeVar"),
+            none: get_id(&artiq_builtins.get_item("none").ok().flatten().unwrap()),
+            typevar: get_attr_id(&typing_mod, "TypeVar"),
             const_generic_marker: get_id(
-                artiq_builtins.get_item("_ConstGenericMarker").ok().flatten().unwrap().as_unbound(),
+                &artiq_builtins.get_item("_ConstGenericMarker").ok().flatten().unwrap(),
             ),
-            int: get_attr_id(builtins_mod, "int"),
-            int32: get_attr_id(numpy_mod, "int32"),
-            int64: get_attr_id(numpy_mod, "int64"),
-            uint32: get_attr_id(numpy_mod, "uint32"),
-            uint64: get_attr_id(numpy_mod, "uint64"),
-            bool: get_attr_id(builtins_mod, "bool"),
-            np_bool_: get_attr_id(numpy_mod, "bool_"),
-            string: get_attr_id(builtins_mod, "str"),
-            np_str_: get_attr_id(numpy_mod, "str_"),
-            float: get_attr_id(builtins_mod, "float"),
-            float64: get_attr_id(numpy_mod, "float64"),
-            list: get_attr_id(builtins_mod, "list"),
-            ndarray: get_attr_id(numpy_mod, "ndarray"),
-            tuple: get_attr_id(builtins_mod, "tuple"),
-            exception: get_attr_id(builtins_mod, "Exception"),
-            option: get_id(artiq_builtins.get_item("Option").ok().flatten().unwrap().as_unbound()),
-            module: get_attr_id(types_mod, "ModuleType"),
+            int: get_attr_id(&builtins_mod, "int"),
+            int32: get_attr_id(&numpy_mod, "int32"),
+            int64: get_attr_id(&numpy_mod, "int64"),
+            uint32: get_attr_id(&numpy_mod, "uint32"),
+            uint64: get_attr_id(&numpy_mod, "uint64"),
+            bool: get_attr_id(&builtins_mod, "bool"),
+            np_bool_: get_attr_id(&numpy_mod, "bool_"),
+            string: get_attr_id(&builtins_mod, "str"),
+            np_str_: get_attr_id(&numpy_mod, "str_"),
+            float: get_attr_id(&builtins_mod, "float"),
+            float64: get_attr_id(&numpy_mod, "float64"),
+            list: get_attr_id(&builtins_mod, "list"),
+            ndarray: get_attr_id(&numpy_mod, "ndarray"),
+            tuple: get_attr_id(&builtins_mod, "tuple"),
+            exception: get_attr_id(&builtins_mod, "Exception"),
+            option: get_id(&artiq_builtins.get_item("Option").ok().flatten().unwrap()),
+            module: get_attr_id(&types_mod, "ModuleType"),
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
@@ -1255,11 +1252,11 @@ impl Nac3 {
                 let mut modules: IndexMap<u64, Arc<PyObject>> = IndexMap::new();
                 let mut class_ids: HashSet<u64> = HashSet::new();
 
-                let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
-                let getmodule_fn = PyModule::import(py, "inspect")?.getattr("getmodule")?;
+                let id_fn = PyModule::import_bound(py, "builtins")?.getattr("id")?;
+                let getmodule_fn = PyModule::import_bound(py, "inspect")?.getattr("getmodule")?;
 
                 for function in functions {
-                    let module: PyObject = getmodule_fn.call1((function,))?.extract()?;
+                    let module: PyObject = getmodule_fn.call1((&function,))?.extract()?;
                     if !module.is_none(py) {
                         modules.insert(id_fn.call1((&module,))?.extract()?, Arc::new(module));
                     }
@@ -1269,7 +1266,7 @@ impl Nac3 {
                     if !module.is_none(py) {
                         modules.insert(id_fn.call1((&module,))?.extract()?, Arc::new(module));
                     }
-                    class_ids.insert(id_fn.call1((class,))?.extract()?);
+                    class_ids.insert(id_fn.call1((&class,))?.extract()?);
                 }
                 for module in content_modules {
                     let module: PyObject = module.extract()?;
@@ -1373,7 +1370,7 @@ impl Nac3 {
                     working_directory.join("module.o").to_string_lossy().to_string(),
                 )?;
 
-                Ok(PyBytes::new(py, &fs::read(filename).unwrap()).into())
+                Ok(PyBytes::new_bound(py, &fs::read(filename).unwrap()).into())
             };
 
             self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)
@@ -1383,7 +1380,7 @@ impl Nac3 {
                     .write_to_memory_buffer(module, FileType::Object)
                     .expect("couldn't write module to object file buffer");
                 if let Ok(dyn_lib) = Linker::ld(object_mem.as_slice()) {
-                    Ok(PyBytes::new(py, &dyn_lib).into())
+                    Ok(PyBytes::new_bound(py, &dyn_lib).into())
                 } else {
                     Err(CompileError::new_err("linker failed to process object file"))
                 }
@@ -1407,7 +1404,7 @@ fn nac3artiq<'py>(py: Python<'py>, m: &Bound<'py, PyModule>) -> PyResult<()> {
     }
 
     Target::initialize_all(&InitializationConfig::default());
-    m.add("CompileError", py.get_type::<CompileError>())?;
+    m.add("CompileError", py.get_type_bound::<CompileError>())?;
     m.add_class::<Nac3>()?;
     Ok(())
 }

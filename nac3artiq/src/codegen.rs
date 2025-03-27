@@ -9,6 +9,7 @@ use std::{
 use itertools::Itertools;
 use pyo3::{
     PyObject, PyResult, Python,
+    prelude::*,
     types::{PyDict, PyList},
 };
 
@@ -970,7 +971,7 @@ pub fn attributes_writeback<'ctx>(
     return_obj: Option<(Type, ValueEnum<'ctx>)>,
 ) -> Result<(), String> {
     Python::with_gil(|py| -> PyResult<Result<(), String>> {
-        let host_attributes: &PyList = host_attributes.downcast(py)?;
+        let host_attributes = host_attributes.downcast_bound::<PyList>(py)?;
         let top_levels = ctx.top_level.definitions.read();
         let globals = inner_resolver.global_value_ids.read();
         let int32 = ctx.ctx.i32_type();
@@ -983,10 +984,10 @@ pub fn attributes_writeback<'ctx>(
         }
 
         for val in (*globals).values() {
-            let val = val.as_ref(py);
+            let val = val.bind(py);
             let ty = inner_resolver.get_obj_type(
                 py,
-                val,
+                val.as_gil_ref(),
                 &mut ctx.unifier,
                 &top_levels,
                 &ctx.primitives,
@@ -1002,7 +1003,9 @@ pub fn attributes_writeback<'ctx>(
                     // we only care about primitive attributes
                     // for non-primitive attributes, they should be in another global
                     let mut attributes = Vec::new();
-                    let obj = inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap();
+                    let obj = inner_resolver
+                        .get_obj_value(py, val.as_gil_ref(), ctx, generator, ty)?
+                        .unwrap();
                     for (name, (field_ty, is_mutable)) in fields {
                         if !is_mutable {
                             continue;
@@ -1021,7 +1024,7 @@ pub fn attributes_writeback<'ctx>(
                         }
                     }
                     if !attributes.is_empty() {
-                        let pydict = PyDict::new(py);
+                        let pydict = PyDict::new_bound(py);
                         pydict.set_item("obj", val)?;
                         pydict.set_item("fields", attributes)?;
                         host_attributes.append(pydict)?;
@@ -1031,18 +1034,22 @@ pub fn attributes_writeback<'ctx>(
                     let elem_ty = iter_type_vars(params).next().unwrap().ty;
 
                     if gen_rpc_tag(ctx, elem_ty, &mut scratch_buffer).is_ok() {
-                        let pydict = PyDict::new(py);
+                        let pydict = PyDict::new_bound(py);
                         pydict.set_item("obj", val)?;
                         host_attributes.append(pydict)?;
                         values.push((
                             ty,
-                            inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap(),
+                            inner_resolver
+                                .get_obj_value(py, val.as_gil_ref(), ctx, generator, ty)?
+                                .unwrap(),
                         ));
                     }
                 }
                 TypeEnum::TModule { attributes, .. } => {
                     let mut fields = Vec::new();
-                    let obj = inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap();
+                    let obj = inner_resolver
+                        .get_obj_value(py, val.as_gil_ref(), ctx, generator, ty)?
+                        .unwrap();
 
                     for (name, (field_ty, is_method)) in attributes {
                         if *is_method {
@@ -1062,7 +1069,7 @@ pub fn attributes_writeback<'ctx>(
                         }
                     }
                     if !fields.is_empty() {
-                        let pydict = PyDict::new(py);
+                        let pydict = PyDict::new_bound(py);
                         pydict.set_item("obj", val)?;
                         pydict.set_item("fields", fields)?;
                         host_attributes.append(pydict)?;
