@@ -1751,7 +1751,7 @@ impl SymbolResolver for Resolver {
                             obj.into_pointer_value(),
                             &[
                                 ctx.ctx.i32_type().const_zero(),
-                                ctx.ctx.i32_type().const_int(idx as u64, false),
+                                ctx.ctx.i32_type().const_int(idx.unwrap() as u64, false),
                             ],
                             id.to_string().as_str(),
                         )

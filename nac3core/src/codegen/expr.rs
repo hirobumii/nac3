@@ -124,7 +124,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
 
     /// Checks the field and attributes of classes
     /// Returns the index of attr in class fields otherwise returns the attribute value
-    pub fn get_attr_index(&mut self, ty: Type, attr: StrRef) -> (usize, Option<Constant>) {
+    pub fn get_attr_index(&mut self, ty: Type, attr: StrRef) -> (Option<usize>, Option<Constant>) {
         let obj_id = match &*self.unifier.get_ty(ty) {
             TypeEnum::TObj { obj_id, .. } => *obj_id,
             TypeEnum::TModule { module_id, .. } => *module_id,
@@ -134,13 +134,16 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         let def = &self.top_level.definitions.read()[obj_id.0];
         let (index, value) = if let TopLevelDef::Class { fields, attributes, .. } = &*def.read() {
             if let Some(field_index) = fields.iter().find_position(|x| x.0 == attr) {
-                (field_index.0, None)
+                (Some(field_index.0), None)
             } else {
-                let attribute_index = attributes.iter().find_position(|x| x.0 == attr).unwrap();
-                (attribute_index.0, Some(attribute_index.1.2.clone()))
+                let attribute_index = attributes.iter().find_position(|x| x.0 == attr);
+                (
+                    attribute_index.map(|(idx, _)| idx),
+                    attribute_index.map(|(_, (_, _, k))| k.clone()),
+                )
             }
         } else if let TopLevelDef::Module { attributes, .. } = &*def.read() {
-            (attributes.iter().find_position(|x| x.0 == attr).unwrap().0, None)
+            (attributes.iter().find_position(|x| x.0 == attr).map(|(idx, _)| idx), None)
         } else {
             codegen_unreachable!(self)
         };
@@ -2461,7 +2464,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         let (index, _) = ctx.get_attr_index(value.custom.unwrap(), *attr);
                         Ok(ValueEnum::Dynamic(ctx.build_gep_and_load(
                             v.into_pointer_value(),
-                            &[zero, int32.const_int(index as u64, false)],
+                            &[zero, int32.const_int(index.unwrap() as u64, false)],
                             None,
                         ))) as Result<_, String>
                     },
@@ -2478,7 +2481,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     }
                     ValueEnum::Dynamic(ctx.build_gep_and_load(
                         v.into_pointer_value(),
-                        &[zero, int32.const_int(index as u64, false)],
+                        &[zero, int32.const_int(index.unwrap() as u64, false)],
                         None,
                     ))
                 }

@@ -1015,7 +1015,7 @@ pub fn attributes_writeback<'ctx>(
                                 *field_ty,
                                 ctx.build_gep_and_load(
                                     obj.into_pointer_value(),
-                                    &[zero, int32.const_int(index as u64, false)],
+                                    &[zero, int32.const_int(index.unwrap() as u64, false)],
                                     None,
                                 ),
                             ));
@@ -1056,7 +1056,7 @@ pub fn attributes_writeback<'ctx>(
                                 *field_ty,
                                 ctx.build_gep_and_load(
                                     obj.into_pointer_value(),
-                                    &[zero, int32.const_int(index as u64, false)],
+                                    &[zero, int32.const_int(index.unwrap() as u64, false)],
                                     None,
                                 ),
                             ));

@@ -133,7 +133,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                     ptr,
                     &[
                         ctx.ctx.i32_type().const_zero(),
-                        ctx.ctx.i32_type().const_int(index as u64, false),
+                        ctx.ctx.i32_type().const_int(index.unwrap() as u64, false),
                     ],
                     name.unwrap_or(""),
                 )
