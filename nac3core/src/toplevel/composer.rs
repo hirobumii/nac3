@@ -463,9 +463,9 @@ impl TopLevelComposer {
 
     /// Registers a top-level variable with the given `name` into the composer.
     ///
-    /// `annotation` - The type annotation of the top-level variable, or [`None`] if no type
-    /// annotation is provided.
-    /// `location` - The location of the top-level variable.
+    /// - `annotation` - The type annotation of the top-level variable, or [`None`] if no type
+    ///   annotation is provided.
+    /// - `location` - The location of the top-level variable.
     pub fn register_top_level_var(
         &mut self,
         name: Ident,
