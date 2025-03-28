@@ -201,8 +201,9 @@ impl StaticValue for PythonValue {
                 let ty_id: u64 = helper.id_fn.bind(py).call1((ty,))?.extract()?;
                 // for optimizing unwrap KernelInvariant
                 if ty_id == self.resolver.primitive_ids.option && name == "_nac3_option".into() {
-                    let obj = Arc::new(self.value.getattr(py, name.to_string().as_str())?);
-                    let id = self.resolver.helper.id_fn.bind(py).call1((&*obj,))?.extract()?;
+                    let obj = self.value.bind(py).getattr(name.to_string().as_str())?;
+                    let id = self.resolver.helper.id_fn.bind(py).call1((&obj,))?.extract()?;
+                    let obj = Arc::new(obj.into_py_any(py)?);
                     return if self.id == self.resolver.primitive_ids.none {
                         Ok(None)
                     } else {
@@ -223,8 +224,9 @@ impl StaticValue for PythonValue {
                 let result = if mutable {
                     None
                 } else {
-                    let obj = Arc::new(self.value.getattr(py, name.to_string().as_str())?);
-                    let id = self.resolver.helper.id_fn.bind(py).call1((&*obj,))?.extract()?;
+                    let obj = self.value.bind(py).getattr(name.to_string().as_str())?;
+                    let id = self.resolver.helper.id_fn.bind(py).call1((&obj,))?.extract()?;
+                    let obj = Arc::new(obj.into_py_any(py)?);
                     Some((id, obj))
                 };
                 self.resolver.field_to_val.write().insert((self.id, name), result.clone());
