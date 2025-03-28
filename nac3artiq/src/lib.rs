@@ -568,7 +568,10 @@ impl Nac3 {
                                         py,
                                         (
                                             def_id.0.into_py_any(py)?,
-                                            module.getattr(py, name.to_string().as_str()).unwrap(),
+                                            module
+                                                .bind(py)
+                                                .getattr(name.to_string().as_str())
+                                                .unwrap(),
                                         ),
                                     )
                                     .unwrap();
@@ -593,7 +596,7 @@ impl Nac3 {
                 }
                 StmtKind::ClassDef { name, body, .. } => {
                     let class_name = name.to_string();
-                    let class_obj = Arc::new(module.getattr(py, class_name.as_str()).unwrap());
+                    let class_obj = module.bind(py).getattr(class_name.as_str()).unwrap();
                     for stmt in body {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
                             for decorator in decorator_list {
@@ -765,9 +768,7 @@ impl Nac3 {
                                         py,
                                         (
                                             id.0.into_py_any(py)?,
-                                            class_def
-                                                .getattr(py, name.to_string().as_str())
-                                                .unwrap(),
+                                            class_def.getattr(name.to_string().as_str()).unwrap(),
                                         ),
                                     )
                                     .unwrap();
