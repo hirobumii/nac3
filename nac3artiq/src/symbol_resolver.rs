@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Debug,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering::Relaxed},
@@ -41,6 +42,7 @@ use nac3core::{
 
 use super::PrimitivePythonId;
 
+#[derive(Debug)]
 pub enum PrimitiveValue {
     I32(i32),
     I64(i64),
@@ -73,10 +75,10 @@ impl DeferredEvaluationStore {
 
 /// A class field as stored in the [`InnerResolver`], represented by the ID and name of the
 /// associated [`PythonValue`].
-type ResolverField = (u64, StrRef);
+pub(crate) type ResolverField = (u64, StrRef);
 
 /// A value as stored in Python, represented by the `id()` and [`PyObject`] of the value.
-type PyValueHandle = (u64, Arc<PyObject>);
+pub(crate) type PyValueHandle = (u64, Arc<PyObject>);
 
 pub struct InnerResolver {
     pub id_to_type: RwLock<HashMap<StrRef, Type>>,
@@ -97,6 +99,13 @@ pub struct InnerResolver {
     pub module: Arc<PyObject>,
 }
 
+impl Debug for InnerResolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.debug_str(None, &None))
+    }
+}
+
+#[derive(Debug)]
 pub struct Resolver(pub Arc<InnerResolver>);
 
 #[derive(Clone)]

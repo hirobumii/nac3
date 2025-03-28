@@ -66,6 +66,7 @@ use symbol_resolver::{DeferredEvaluationStore, InnerResolver, PythonHelper, Reso
 use timeline::TimeFns;
 
 mod codegen;
+mod debug;
 mod symbol_resolver;
 mod timeline;
 
