@@ -1728,42 +1728,60 @@ impl SymbolResolver for Resolver {
     ) -> Option<ValueEnum<'ctx>> {
         if let Some(def_id) = self.0.id_to_def.read().get(&id) {
             let top_levels = ctx.top_level.definitions.read();
-            if matches!(&*top_levels[def_id.0].read(), TopLevelDef::Variable { .. }) {
+            if let TopLevelDef::Variable { resolver, .. } = &*top_levels[def_id.0].read() {
                 let module_val = &self.0.module;
-                let ret = Python::with_gil(|py| -> PyResult<Result<BasicValueEnum, String>> {
-                    let module_val = (**module_val).bind(py);
+                let Ok((obj, idx)) = Python::with_gil(
+                    |py| -> PyResult<Result<(BasicValueEnum<'ctx>, Option<usize>), String>> {
+                        let module_val = (**module_val).bind(py);
 
-                    let ty = self.0.get_obj_type(
-                        py,
-                        module_val,
-                        &mut ctx.unifier,
-                        &top_levels,
-                        &ctx.primitives,
-                    )?;
-                    if let Err(ty) = ty {
-                        return Ok(Err(ty));
-                    }
-                    let ty = ty.unwrap();
-                    let obj = self.0.get_obj_value(py, module_val, ctx, generator, ty)?.unwrap();
-                    let (idx, _) = ctx.get_attr_index(ty, id);
-                    let ret = unsafe {
-                        ctx.builder.build_gep(
-                            obj.into_pointer_value(),
-                            &[
-                                ctx.ctx.i32_type().const_zero(),
-                                ctx.ctx.i32_type().const_int(idx.unwrap() as u64, false),
-                            ],
-                            id.to_string().as_str(),
-                        )
-                    }
-                    .unwrap();
-                    Ok(Ok(ret.as_basic_value_enum()))
-                })
-                .unwrap();
-                if ret.is_err() {
+                        let ty = self.0.get_obj_type(
+                            py,
+                            module_val,
+                            &mut ctx.unifier,
+                            &top_levels,
+                            &ctx.primitives,
+                        )?;
+                        if let Err(ty) = ty {
+                            return Ok(Err(ty));
+                        }
+                        let ty = ty.unwrap();
+                        let obj =
+                            self.0.get_obj_value(py, module_val, ctx, generator, ty)?.unwrap();
+                        let (idx, _) = ctx.get_attr_index(ty, id);
+
+                        Ok(Ok((obj, idx)))
+                    },
+                )
+                .unwrap() else {
                     return None;
+                };
+
+                let Some(idx) = idx else {
+                    // `idx` not found in the current resolver - try the resolver of the variable
+                    return resolver.as_ref().and_then(|resolver| {
+                        let resolver = &**resolver;
+
+                        // TODO: Can we assume that if get_identifier_def returns a result,
+                        //       get_symbol_value will also return a value?
+                        resolver
+                            .get_identifier_def(id)
+                            .ok()
+                            .and_then(|_| resolver.get_symbol_value(id, ctx, generator))
+                    });
+                };
+
+                let ret = unsafe {
+                    ctx.builder.build_gep(
+                        obj.into_pointer_value(),
+                        &[
+                            ctx.ctx.i32_type().const_zero(),
+                            ctx.ctx.i32_type().const_int(idx as u64, false),
+                        ],
+                        id.to_string().as_str(),
+                    )
                 }
-                return Some(ret.unwrap().into());
+                .unwrap();
+                return Some(ret.as_basic_value_enum().into());
             }
         }
 
