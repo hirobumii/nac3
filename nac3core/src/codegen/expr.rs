@@ -786,7 +786,6 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
     let id;
     let key;
     let param_vals;
-    let is_extern;
     let vararg_arg;
 
     // Ensure that the function object only contains up to 1 vararg parameter
@@ -805,7 +804,6 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                 if let Some(callback) = codegen_callback {
                     return callback.run(ctx, obj, fun, params, generator);
                 }
-                is_extern = instance_to_stmt.is_empty();
                 vararg_arg = fun.0.args.iter().find(|arg| arg.is_vararg);
                 let old_key = ctx.get_subst_key(obj.as_ref().map(|a| a.0), fun.0, None);
                 let mut keys = fun.0.args.clone();
@@ -960,21 +958,10 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
             Some(ctx.get_llvm_abi_type(generator, fun.0.ret))
         };
         let has_sret = ret_type.is_some_and(|ret_type| need_sret(ret_type));
-        let mut byrefs = Vec::new();
         let mut params = args
             .iter()
-            .enumerate()
-            .filter(|(_, arg)| !arg.is_vararg)
-            .map(|(i, arg)| {
-                match ctx.get_llvm_abi_type(generator, arg.ty) {
-                    BasicTypeEnum::StructType(ty) if is_extern => {
-                        byrefs.push((i, ty));
-                        ty.ptr_type(AddressSpace::default()).into()
-                    }
-                    x => x,
-                }
-                .into()
-            })
+            .filter(|arg| !arg.is_vararg)
+            .map(|arg| ctx.get_llvm_abi_type(generator, arg.ty).into())
             .collect_vec();
         if has_sret {
             params.insert(0, ret_type.unwrap().ptr_type(AddressSpace::default()).into());
@@ -988,7 +975,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
             _ => ctx.ctx.void_type().fn_type(&params, is_vararg),
         };
         let fun_val = ctx.module.add_function(&symbol, fun_ty, None);
-        let offset = if has_sret {
+        if has_sret {
             fun_val.add_attribute(
                 AttributeLoc::Param(0),
                 ctx.ctx.create_type_attribute(
@@ -996,23 +983,8 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                     ret_type.unwrap().as_any_type_enum(),
                 ),
             );
-            1
-        } else {
-            0
-        };
-
-        // The attribute ID used to mark arguments of a structure type.
-        // Structure-Typed parameters of extern functions must **not** be marked as `byval`, as
-        // `byval` explicitly specifies that the argument is to be passed on the stack, which breaks
-        // on most ABIs where the first several arguments are expected to be passed in registers.
-        let passing_attr_id =
-            Attribute::get_named_enum_kind_id(if is_extern { "byref" } else { "byval" });
-        for (i, ty) in byrefs {
-            fun_val.add_attribute(
-                AttributeLoc::Param((i as u32) + offset),
-                ctx.ctx.create_type_attribute(passing_attr_id, ty.as_any_type_enum()),
-            );
         }
+
         fun_val
     });
 
