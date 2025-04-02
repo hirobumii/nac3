@@ -80,20 +80,20 @@ void output_int32_list(struct cslice* slice) {
     putchar('\n');
 }
 
-void output_str(struct cslice* slice) {
-    const char* data = (const char*)slice->data;
+void output_str(struct cslice slice) {
+    const char* data = (const char*)slice.data;
 
-    for (size_t i = 0; i < slice->len; ++i) {
+    for (size_t i = 0; i < slice.len; ++i) {
         putchar(data[i]);
     }
 }
 
-void output_strln(struct cslice* slice) {
+void output_strln(struct cslice slice) {
     output_str(slice);
     putchar('\n');
 }
 
-uint64_t dbg_stack_address(__attribute__((unused)) struct cslice* slice) {
+uint64_t dbg_stack_address(__attribute__((unused)) struct cslice slice) {
     int i;
     void* ptr = (void*)&i;
     return (uintptr_t)ptr;
