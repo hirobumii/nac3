@@ -874,9 +874,8 @@ fn rpc_codegen_callback_fn<'ctx>(
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
     let service_id = int32.const_int(fun.1 .0 as u64, false);
-    // build the RPC tag with keyword
+    // -- setup rpc tags
     let mut tag = Vec::new();
-
     if obj.is_some() {
         tag.push(b'O');
     }
@@ -906,6 +905,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     let mut hasher = DefaultHasher::new();
     tag.hash(&mut hasher);
     let hash = format!("{}", hasher.finish());
+
     let tag_ptr = ctx
         .module
         .get_global(&hash)
@@ -933,6 +933,7 @@ fn rpc_codegen_callback_fn<'ctx>(
         .as_pointer_value();
 
     let arg_length = args.len() + usize::from(obj.is_some());
+
     let stackptr = call_stacksave(ctx, Some("rpc.stack"));
     let args_ptr = ctx
         .builder
@@ -943,6 +944,7 @@ fn rpc_codegen_callback_fn<'ctx>(
         )
         .unwrap();
 
+    // -- rpc args handling
     let mut keys = fun.0.args.clone();
     let mut mapping = HashMap::new();
     for (maybe_key, value) in args {
@@ -1009,6 +1011,7 @@ fn rpc_codegen_callback_fn<'ctx>(
         Some("rpc.send"),
         None,
     );
+
     // reclaim stack space used by arguments
     call_stackrestore(ctx, stackptr);
 
@@ -1017,6 +1020,7 @@ fn rpc_codegen_callback_fn<'ctx>(
         Ok(None)
     } else {
         let result = format_rpc_ret(generator, ctx, fun.0.ret, is_async);
+        
         if !result.is_some_and(|res| res.get_type().is_pointer_type()) {
             // An RPC returning an NDArray would not touch here.
             call_stackrestore(ctx, stackptr);
