@@ -896,7 +896,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     tag.push(b':');
     gen_rpc_tag(ctx, fun.0.ret, &mut tag)?;
 
-    let marker = b'K';
+    let marker = b'k';
     if obj.is_some() {
         tag.insert(1, marker);
     } else {
