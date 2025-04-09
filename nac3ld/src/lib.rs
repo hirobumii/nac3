@@ -1302,8 +1302,7 @@ impl<'a> Linker<'a> {
                 let bss_elf_index = linker.load_section(
                     shdr,
                     section_name,
-                    data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize]
-                        .to_vec(),
+                    vec![0; 0], // NOBITS section has no data
                 );
                 linker.section_map.insert(bss_section_index, bss_elf_index);
 
@@ -1401,10 +1400,12 @@ impl<'a> Linker<'a> {
             linker.implement_eh_frame_hdr()?;
         }
 
-        // Load all section data into the image
+        // Load all non-NOBITS section data into the image
         for rec in &linker.elf_shdrs[1..] {
-            linker.image.extend(vec![0; (rec.shdr.sh_offset as usize) - linker.image.len()]);
-            linker.image.extend(&rec.data);
+            if rec.shdr.sh_type as usize != SHT_NOBITS {
+                linker.image.extend(vec![0; (rec.shdr.sh_offset as usize) - linker.image.len()]);
+                linker.image.extend(&rec.data);
+            }
         }
 
         // Load all section headers to the image
