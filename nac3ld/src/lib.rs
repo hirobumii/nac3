@@ -178,6 +178,7 @@ pub struct Linker<'a> {
     section_map: HashMap<usize, usize>,
     image: Vec<u8>,
     load_offset: u32,
+    image_offset: u32,
     rela_dyn_relas: Vec<Elf32_Rela>,
 }
 
@@ -196,15 +197,26 @@ impl<'a> Linker<'a> {
 
         // Maintain alignment requirement specified in sh_addralign
         let align = shdr.sh_addralign;
-        let padding = (align - (self.load_offset % align)) % align;
-        self.load_offset += padding;
+        let load_padding = (align - (self.load_offset % align)) % align;
+        let image_padding = (align - (self.image_offset % align)) % align;
 
-        elf_shdr.sh_addr =
-            if (shdr.sh_flags as usize & SHF_ALLOC) == SHF_ALLOC { self.load_offset } else { 0 };
-        elf_shdr.sh_offset = self.load_offset;
+        let section_load_offset = if (shdr.sh_flags as usize & SHF_ALLOC) == SHF_ALLOC {
+            self.load_offset + load_padding
+        } else {
+            0
+        };
+        let section_image_offset = self.image_offset + image_padding;
+
+        elf_shdr.sh_addr = section_load_offset;
+        elf_shdr.sh_offset = section_image_offset;
         self.elf_shdrs.push(SectionRecord { shdr: elf_shdr, name: sh_name_str, data });
 
-        self.load_offset += shdr.sh_size;
+        if (shdr.sh_flags as usize & SHF_ALLOC) == SHF_ALLOC {
+            self.load_offset = section_load_offset + shdr.sh_size;
+        }
+        if shdr.sh_type as usize != SHT_NOBITS {
+            self.image_offset = section_image_offset + shdr.sh_size;
+        }
 
         self.elf_shdrs.len() - 1
     }
@@ -754,6 +766,7 @@ impl<'a> Linker<'a> {
             section_map,
             image,
             load_offset: elf_sh_data_off as u32,
+            image_offset: elf_sh_data_off as u32,
             rela_dyn_relas,
         };
 
