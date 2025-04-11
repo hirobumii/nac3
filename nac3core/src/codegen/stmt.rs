@@ -1471,7 +1471,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     ctx.loop_target = old_loop_target.or(ctx.loop_target);
 
     let old_unwind = if finalbody.is_empty() {
-        None
+        old_unwind
     } else {
         let final_landingpad = ctx.ctx.append_basic_block(current_fun, "try.catch.final");
         ctx.builder.position_at_end(final_landingpad);
