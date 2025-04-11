@@ -259,7 +259,18 @@ impl Inferencer<'_> {
                 ]
                 .iter()
                 .any(|allowed_ty| self.unifier.unioned(ret_ty, *allowed_ty)),
-                TypeEnum::TTuple { ty, .. } => ty.iter().all(|t| self.check_return_value_ty(*t)),
+                TypeEnum::TTuple { ty, .. } => {
+                    for &elem_ty in ty {
+                        if let TypeEnum::TObj { obj_id, .. } =
+                            &*self.unifier.get_ty_immutable(elem_ty)
+                        {
+                            if *obj_id == PrimDef::List.id() || *obj_id == PrimDef::NDArray.id() {
+                                return false;
+                            }
+                        }
+                    }
+                    ty.iter().all(|t| self.check_return_value_ty(*t))
+                }
                 _ => false,
             }
         }
