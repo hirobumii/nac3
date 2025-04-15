@@ -19,8 +19,12 @@ use nac3core::{
         WithCall, WorkerRegistry, concrete_type::ConcreteTypeStore, irrt::load_irrt,
     },
     inkwell::{
-        OptimizationLevel, memory_buffer::MemoryBuffer, module::Linkage,
-        passes::PassBuilderOptions, support::is_multithreaded, targets::*,
+        OptimizationLevel,
+        memory_buffer::MemoryBuffer,
+        module::{Linkage, Module},
+        passes::PassBuilderOptions,
+        support::is_multithreaded,
+        targets::*,
     },
     nac3parser::{
         ast::{Constant, Expr, ExprKind, StmtKind, StrRef},
@@ -59,11 +63,13 @@ struct CommandLineArgs {
     #[arg(short = 'O', default_value_t = 2, value_parser = clap::value_parser!(u32).range(0..=3))]
     opt_level: u32,
 
-    /// Whether to emit LLVM IR at the end of every module.
-    ///
-    /// If multithreaded compilation is also enabled, each thread will emit its own module.
+    /// Whether to emit LLVM bitcode at the end of every module.
     #[arg(long, default_value_t = false)]
-    emit_llvm: bool,
+    emit_llvm_bc: bool,
+
+    /// Whether to emit LLVM IR text at the end of every module.
+    #[arg(long, default_value_t = false)]
+    emit_llvm_ir: bool,
 
     /// The target triple to compile for.
     #[arg(long)]
@@ -276,8 +282,16 @@ fn handle_global_var(
 
 fn main() {
     let cli = CommandLineArgs::parse();
-    let CommandLineArgs { file_name, threads, opt_level, emit_llvm, triple, mcpu, target_features } =
-        cli;
+    let CommandLineArgs {
+        file_name,
+        threads,
+        opt_level,
+        emit_llvm_bc,
+        emit_llvm_ir,
+        triple,
+        mcpu,
+        target_features,
+    } = cli;
 
     Target::initialize_all(&InitializationConfig::default());
 
@@ -346,11 +360,18 @@ fn main() {
     let resolver =
         Arc::new(Resolver(internal_resolver.clone())) as Arc<dyn SymbolResolver + Send + Sync>;
 
+    let emit_llvm = |module: &Module<'_>, filename: &str| {
+        if emit_llvm_bc {
+            module.write_bitcode_to_path(Path::new(format!("{filename}.bc").as_str()));
+        }
+        if emit_llvm_ir {
+            module.print_to_file(Path::new(format!("{filename}.ll").as_str())).unwrap();
+        }
+    };
+
     // Process IRRT
     let irrt = load_irrt(&context, resolver.as_ref());
-    if emit_llvm {
-        irrt.write_bitcode_to_path(Path::new("irrt.bc"));
-    }
+    emit_llvm(&irrt, "irrt");
 
     // Process the Python script
     let parser_result = parser::parse_program(&program, file_name.into()).unwrap();
@@ -475,23 +496,19 @@ fn main() {
     let main = context
         .create_module_from_ir(MemoryBuffer::create_from_memory_range(&buffers[0], "main"))
         .unwrap();
-    if emit_llvm {
-        main.write_bitcode_to_path(Path::new("main.bc"));
-    }
+    emit_llvm(&main, "main");
 
-    for (idx, buffer) in buffers.iter().skip(1).enumerate() {
+    for buffer in buffers.iter().skip(1) {
         let other = context
             .create_module_from_ir(MemoryBuffer::create_from_memory_range(buffer, "main"))
             .unwrap();
 
-        if emit_llvm {
-            other.write_bitcode_to_path(Path::new(&format!("module{idx}.bc")));
-        }
-
         main.link_in_module(other).unwrap();
     }
+    emit_llvm(&main, "main.merged");
 
     main.link_in_module(irrt).unwrap();
+    emit_llvm(&main, "main.fat");
 
     // Private all functions except "run"
     let mut function_iter = main.get_first_function();
@@ -502,6 +519,8 @@ fn main() {
         function_iter = func.get_next_function();
     }
 
+    emit_llvm(&main, "main.pre-opt");
+
     // Optimize `main`
     let pass_options = PassBuilderOptions::create();
     pass_options.set_merge_functions(true);
@@ -510,6 +529,8 @@ fn main() {
     if let Err(err) = result {
         panic!("Failed to run optimization for module `main`: {}", err.to_string());
     }
+
+    emit_llvm(&main, "main.post-opt");
 
     // Write output
     target_machine
