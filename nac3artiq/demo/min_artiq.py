@@ -1,9 +1,9 @@
 from inspect import getfullargspec
 from functools import wraps
-from types import SimpleNamespace
-from numpy import int32, int64
-from typing import Generic, TypeVar
 from math import floor, ceil
+from numpy import int32, int64, uint32, uint64, float64, bool_, str_, ndarray
+from types import GenericAlias, ModuleType, SimpleNamespace
+from typing import _GenericAlias, Generic, TypeVar
 
 import nac3artiq
 
@@ -40,10 +40,10 @@ class Option(Generic[T]):
 
     def is_none(self):
         return self._nac3_option is None
-    
+
     def is_some(self):
         return not self.is_none()
-    
+
     def unwrap(self):
         if self.is_none():
             raise UnwrapNoneError()
@@ -54,7 +54,7 @@ class Option(Generic[T]):
             return "none"
         else:
             return "Some({})".format(repr(self._nac3_option))
-    
+
     def __str__(self) -> str:
         if self.is_none():
             return "none"
@@ -85,13 +85,46 @@ def ceil64(x):
 import device_db
 core_arguments = device_db.device_db["core"]["arguments"]
 
-artiq_builtins = {
-    "none": none,
-    "virtual": virtual,
-    "_ConstGenericMarker": _ConstGenericMarker,
-    "Option": Option,
+builtins = {
+    int.__name__: int,
+    float.__name__: float,
+    bool.__name__: bool,
+    str.__name__: str,
+    list.__name__: list,
+    tuple.__name__: tuple,
+    Exception.__name__: Exception,
+
+    "types": {
+        GenericAlias.__name__: GenericAlias,
+        ModuleType.__name__: ModuleType,
+    },
+
+    "typing": {
+        _GenericAlias.__name__: _GenericAlias,
+        TypeVar.__name__: TypeVar,
+    },
+
+    "numpy": {
+        int32.__name__: int32,
+        int64.__name__: int64,
+        uint32.__name__: uint32,
+        uint64.__name__: uint64,
+        float64.__name__: float64,
+        bool_.__name__: bool_,
+        str_.__name__: str_,
+        ndarray.__name__: ndarray,
+    },
+
+    "artiq": {
+        Kernel.__name__: Kernel,
+        KernelInvariant.__name__: KernelInvariant,
+        _ConstGenericMarker.__name__: _ConstGenericMarker,
+        "none": none,
+        virtual.__name__: virtual,
+        Option.__name__: Option,
+    },
 }
-compiler = nac3artiq.NAC3(core_arguments["target"], artiq_builtins)
+compiler = nac3artiq.NAC3(core_arguments["target"], builtins)
 allow_registration = True
 # Delay NAC3 analysis until all referenced variables are supposed to exist on the CPython side.
 registered_functions = set()
