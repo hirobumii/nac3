@@ -1360,9 +1360,8 @@ impl Nac3 {
         py: Python<'py>,
     ) -> PyResult<()> {
         let target_machine = self.get_llvm_target_machine();
-
-        if self.isa == Isa::Host {
-            let link_fn = |module: &Module| {
+        let link_fn = |module: &Module| {
+            if self.isa == Isa::Host {
                 let working_directory = self.working_directory.path().to_owned();
                 target_machine
                     .write_to_file(module, FileType::Object, &working_directory.join("module.o"))
@@ -1372,11 +1371,7 @@ impl Nac3 {
                     working_directory.join("module.o").to_string_lossy().to_string(),
                 )?;
                 Ok(())
-            };
-
-            self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)
-        } else {
-            let link_fn = |module: &Module| {
+            } else {
                 let object_mem = target_machine
                     .write_to_memory_buffer(module, FileType::Object)
                     .expect("couldn't write module to object file buffer");
@@ -1390,10 +1385,10 @@ impl Nac3 {
                 } else {
                     Err(CompileError::new_err("linker failed to process object file"))
                 }
-            };
+            }
+        };
 
-            self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)
-        }
+        self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)
     }
 
     fn compile_method_to_mem<'py>(
@@ -1405,9 +1400,8 @@ impl Nac3 {
         py: Python<'py>,
     ) -> PyResult<PyObject> {
         let target_machine = self.get_llvm_target_machine();
-
-        if self.isa == Isa::Host {
-            let link_fn = |module: &Module| {
+        let link_fn = |module: &Module| {
+            if self.isa == Isa::Host {
                 let working_directory = self.working_directory.path().to_owned();
                 target_machine
                     .write_to_file(module, FileType::Object, &working_directory.join("module.o"))
@@ -1421,11 +1415,7 @@ impl Nac3 {
                 )?;
 
                 Ok(PyBytes::new(py, &fs::read(filename).unwrap()).into())
-            };
-
-            self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)
-        } else {
-            let link_fn = |module: &Module| {
+            } else {
                 let object_mem = target_machine
                     .write_to_memory_buffer(module, FileType::Object)
                     .expect("couldn't write module to object file buffer");
@@ -1434,10 +1424,10 @@ impl Nac3 {
                 } else {
                     Err(CompileError::new_err("linker failed to process object file"))
                 }
-            };
+            }
+        };
 
-            self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)
-        }
+        self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)
     }
 }
 
