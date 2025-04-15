@@ -10,6 +10,7 @@
 )]
 
 use std::{
+    cell::LazyCell,
     collections::{HashMap, HashSet},
     fs,
     io::Write,
@@ -161,6 +162,8 @@ pub struct PrimitivePythonId {
     virtual_id: u64,
     option: u64,
     module: u64,
+    kernel: u64,
+    kernel_invariant: u64,
 }
 
 #[derive(Clone, Default)]
@@ -229,6 +232,17 @@ impl Nac3 {
         let parser_result = parse_program(&source, source_file.into())
             .map_err(|e| exceptions::PySyntaxError::new_err(format!("parse error: {e}")))?;
 
+        let id_fn = LazyCell::new(|| {
+            Python::with_gil(|py| {
+                PyModule::import(py, "builtins").unwrap().getattr("id").unwrap().unbind()
+            })
+        });
+        let get_type_hints_fn = LazyCell::new(|| {
+            Python::with_gil(|py| {
+                PyModule::import(py, "typing").unwrap().getattr("get_type_hints").unwrap().unbind()
+            })
+        });
+
         for mut stmt in parser_result {
             let include = match stmt.node {
                 StmtKind::ClassDef { ref decorator_list, ref mut body, ref mut bases, .. } => {
@@ -245,7 +259,6 @@ impl Nac3 {
                     // Drop unregistered (i.e. host-only) base classes.
                     bases.retain(|base| {
                         Python::with_gil(|py| -> PyResult<bool> {
-                            let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
                             match &base.node {
                                 ExprKind::Name { id, .. } => {
                                     if *id == "Exception".into() {
@@ -253,7 +266,8 @@ impl Nac3 {
                                     } else {
                                         let base_obj =
                                             module.bind(py).getattr(id.to_string().as_str())?;
-                                        let base_id = id_fn.call1((base_obj,))?.extract()?;
+                                        let base_id =
+                                            id_fn.bind(py).call1((base_obj,))?.extract()?;
                                         Ok(registered_class_ids.contains(&base_id))
                                     }
                                 }
@@ -286,16 +300,28 @@ impl Nac3 {
                         }
                     })
                 }
+
                 // Allow global variable declaration with `Kernel` or `KernelInvariant` type annotation
-                StmtKind::AnnAssign { ref annotation, .. } => {
-                    matches!(
-                        &annotation.node,
-                        ExprKind::Subscript { value, .. } if matches!(
-                            &value.node,
-                            ExprKind::Name { id, .. } if ["Kernel".into(), "KernelInvariant".into()].contains(id),
-                        )
-                    )
-                }
+                StmtKind::AnnAssign { ref target, .. } => match &target.node {
+                    ExprKind::Name { id, .. } => Python::with_gil(|py| {
+                        let py_type_hints =
+                            get_type_hints_fn.bind(py).call1((module.bind(py),)).unwrap();
+                        let py_type_hints = py_type_hints.downcast::<PyDict>().unwrap();
+                        let var_type_hint =
+                            py_type_hints.get_item(id.to_string().as_str()).unwrap().unwrap();
+                        let var_type = var_type_hint.getattr_opt("__origin__").unwrap();
+                        if let Some(var_type) = var_type {
+                            let var_type_id = id_fn.bind(py).call1((var_type,)).unwrap();
+                            let var_type_id = var_type_id.extract::<u64>().unwrap();
+
+                            [self.primitive_ids.kernel, self.primitive_ids.kernel_invariant]
+                                .contains(&var_type_id)
+                        } else {
+                            false
+                        }
+                    }),
+                    _ => false,
+                },
                 _ => false,
             };
 
