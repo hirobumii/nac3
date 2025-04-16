@@ -14,6 +14,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     io::Write,
+    path::Path,
     process::Command,
     rc::Rc,
     sync::Arc,
@@ -70,6 +71,9 @@ mod codegen;
 mod debug;
 mod symbol_resolver;
 mod timeline;
+
+const ENV_NAC3_EMIT_LLVM_BC: &str = "NAC3_EMIT_LLVM_BC";
+const ENV_NAC3_EMIT_LLVM_LL: &str = "NAC3_EMIT_LLVM_LL";
 
 #[derive(PartialEq, Clone, Copy)]
 enum Isa {
@@ -935,6 +939,18 @@ impl Nac3 {
 
         embedding_map.setattr("expects_return", has_return).unwrap();
 
+        let emit_llvm_bc = std::env::var(ENV_NAC3_EMIT_LLVM_BC).is_ok();
+        let emit_llvm_ll = std::env::var(ENV_NAC3_EMIT_LLVM_LL).is_ok();
+
+        let emit_llvm = |module: &Module<'_>, filename: &str| {
+            if emit_llvm_bc {
+                module.write_bitcode_to_path(Path::new(format!("{filename}.bc").as_str()));
+            }
+            if emit_llvm_ll {
+                module.print_to_file(Path::new(format!("{filename}.ll").as_str())).unwrap();
+            }
+        };
+
         // Link all modules into `main`.
         let buffers = membuffers.lock();
         let main = context
@@ -943,6 +959,8 @@ impl Nac3 {
                 "main",
             ))
             .unwrap();
+        emit_llvm(&main, "main");
+
         for buffer in buffers.iter().rev().skip(1) {
             let other = context
                 .create_module_from_ir(MemoryBuffer::create_from_memory_range(buffer, "main"))
@@ -950,7 +968,10 @@ impl Nac3 {
 
             main.link_in_module(other).map_err(|err| CompileError::new_err(err.to_string()))?;
         }
+        emit_llvm(&main, "main.merged");
+
         main.link_in_module(irrt).map_err(|err| CompileError::new_err(err.to_string()))?;
+        emit_llvm(&main, "main.fat");
 
         let mut function_iter = main.get_first_function();
         while let Some(func) = function_iter {
@@ -970,6 +991,8 @@ impl Nac3 {
             global_option = global.get_next_global();
         }
 
+        emit_llvm(&main, "main.pre-opt");
+
         let target_machine = self
             .llvm_options
             .target
@@ -983,6 +1006,8 @@ impl Nac3 {
         if let Err(err) = result {
             panic!("Failed to run optimization for module `main`: {}", err.to_string());
         }
+
+        emit_llvm(&main, "main.post-opt");
 
         Python::with_gil(|py| {
             let string_store = self.string_store.read();
