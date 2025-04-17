@@ -83,7 +83,7 @@ impl Isa {
         match self {
             Isa::Host => TargetMachine::get_default_triple(),
             Isa::RiscV32G | Isa::RiscV32IMA => TargetTriple::create("riscv32-unknown-linux"),
-            Isa::CortexA9 => TargetTriple::create("armv7-unknown-linux-gnueabihf"),
+            Isa::CortexA9 => TargetTriple::create("armv7-unknown-linux-eabihf"),
         }
     }
 
