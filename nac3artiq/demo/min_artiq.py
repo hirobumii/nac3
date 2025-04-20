@@ -86,42 +86,42 @@ import device_db
 core_arguments = device_db.device_db["core"]["arguments"]
 
 builtins = {
-    int.__name__: int,
-    float.__name__: float,
-    bool.__name__: bool,
-    str.__name__: str,
-    list.__name__: list,
-    tuple.__name__: tuple,
-    Exception.__name__: Exception,
+    "int": int,
+    "float": float,
+    "bool": bool,
+    "str": str,
+    "list": list,
+    "tuple": tuple,
+    "Exception": Exception,
 
     "types": {
-        GenericAlias.__name__: GenericAlias,
-        ModuleType.__name__: ModuleType,
+        "GenericAlias": GenericAlias,
+        "ModuleType": ModuleType,
     },
 
     "typing": {
-        _GenericAlias.__name__: _GenericAlias,
-        TypeVar.__name__: TypeVar,
+        "_GenericAlias": _GenericAlias,
+        "TypeVar": TypeVar,
     },
 
     "numpy": {
-        int32.__name__: int32,
-        int64.__name__: int64,
-        uint32.__name__: uint32,
-        uint64.__name__: uint64,
-        float64.__name__: float64,
-        bool_.__name__: bool_,
-        str_.__name__: str_,
-        ndarray.__name__: ndarray,
+        "int32": int32,
+        "int64": int64,
+        "uint32": uint32,
+        "uint64": uint64,
+        "float64": float64,
+        "bool_": bool_,
+        "str_": str_,
+        "ndarray": ndarray,
     },
 
     "artiq": {
-        Kernel.__name__: Kernel,
-        KernelInvariant.__name__: KernelInvariant,
-        _ConstGenericMarker.__name__: _ConstGenericMarker,
+        "Kernel": Kernel,
+        "KernelInvariant": KernelInvariant,
+        "_ConstGenericMarker": _ConstGenericMarker,
         "none": none,
-        virtual.__name__: virtual,
-        Option.__name__: Option,
+        "virtual": virtual,
+        "Option": Option,
     },
 }
 compiler = nac3artiq.NAC3(core_arguments["target"], builtins)
