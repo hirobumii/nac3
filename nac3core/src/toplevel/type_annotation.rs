@@ -79,10 +79,21 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
         )]));
     };
 
-    let type_vars = if let TopLevelDef::Class { type_vars, .. } = &*top_level_def.read() {
-        type_vars.clone()
+    // We need to use `try_read` here, since the composer may be processing our class right now,
+    // which requires exclusive access to modify the class internals.
+    //
+    // `locked` is guaranteed to hold a k-v pair of the composer-processing class, so fallback
+    // to it if the `top_level_def` is already locked for mutation.
+    let type_vars = if let Some(def_read) = top_level_def.try_read() {
+        if let TopLevelDef::Class { type_vars, .. } = &*def_read {
+            type_vars.clone()
+        } else {
+            return Err(HashSet::from([format!(
+                "function cannot be used as a type (at {location})",
+            )]));
+        }
     } else {
-        unreachable!("must be class here")
+        locked.get(&obj_id).unwrap().clone()
     };
 
     let param_type_infos = if let Some(slice) = type_args {
