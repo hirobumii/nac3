@@ -1202,7 +1202,7 @@ impl Nac3 {
             uint32: get_id(&get_artiq_builtin(Some("numpy"), "uint32")),
             uint64: get_id(&get_artiq_builtin(Some("numpy"), "uint64")),
             bool: get_id(&get_artiq_builtin(None, "bool")),
-            np_bool_: get_id(&get_artiq_builtin(Some("numpy"), "bool")),
+            np_bool_: get_id(&get_artiq_builtin(Some("numpy"), "bool_")),
             string: get_id(&get_artiq_builtin(None, "str")),
             np_str_: get_id(&get_artiq_builtin(Some("numpy"), "str_")),
             float: get_id(&get_artiq_builtin(None, "float")),
@@ -1212,7 +1212,7 @@ impl Nac3 {
             tuple: get_id(&get_artiq_builtin(None, "tuple")),
             exception: get_id(&get_artiq_builtin(None, "Exception")),
             option: get_id(&get_artiq_builtin(Some("artiq"), "Option")),
-            module: get_id(&get_artiq_builtin(Some("types"), "module")),
+            module: get_id(&get_artiq_builtin(Some("types"), "ModuleType")),
             kernel: get_id(&get_artiq_builtin(Some("artiq"), "Kernel")),
             kernel_invariant: get_id(&get_artiq_builtin(Some("artiq"), "KernelInvariant")),
         };
