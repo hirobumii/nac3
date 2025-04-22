@@ -1181,9 +1181,14 @@ impl Nac3 {
                     .unwrap()
                     .get_item(name)
                     .unwrap()
-                    .unwrap()
+                    .unwrap_or_else(|| {
+                        panic!("no key '{name}' present in artiq_builtins.{mod_name}")
+                    })
             } else {
-                artiq_builtins.get_item(name).ok().flatten().unwrap()
+                artiq_builtins
+                    .get_item(name)
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("no key '{name}' present in artiq_builtins"))
             }
         };
 
