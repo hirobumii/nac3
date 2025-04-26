@@ -2,7 +2,7 @@ from min_artiq import *
 from numpy import int32
 
 
-@nac3
+@compile
 class EmptyList:
     core: KernelInvariant[Core]
 

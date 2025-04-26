@@ -2,7 +2,7 @@ from min_artiq import *
 from numpy import ndarray, zeros as np_zeros
 
 
-@nac3
+@compile
 class StrFail:
     core: KernelInvariant[Core]
 

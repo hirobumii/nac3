@@ -2,7 +2,7 @@ from min_artiq import kernel, KernelInvariant, nac3
 import min_artiq as artiq
 
 
-@nac3
+@compile
 class Demo:
     core: KernelInvariant[artiq.Core]
     led0: KernelInvariant[artiq.TTLOut]

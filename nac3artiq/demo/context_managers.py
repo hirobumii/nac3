@@ -1,7 +1,7 @@
 from numpy import int32
 from min_artiq import *
 
-@nac3
+@compile
 class PassContextManager:
     @kernel
     def __init__(self):
@@ -15,7 +15,7 @@ class PassContextManager:
     def __exit__(self):
         pass
 
-@nac3
+@compile
 class CustomDataContextManager:
     a: Kernel[int32]
     b: Kernel[int32]
@@ -35,7 +35,7 @@ class CustomDataContextManager:
         self.b += 1
         print_int32(self.b)
 
-@nac3
+@compile
 class WithAsContextManager:
     a: Kernel[int32]
 
@@ -52,7 +52,7 @@ class WithAsContextManager:
     def __exit__(self):
         print_int32(self.a)
 
-@nac3
+@compile
 class CtxMgrTest:
     core: KernelInvariant[Core]
 

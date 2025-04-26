@@ -10,7 +10,7 @@ def display_X():
     print_int32(X)
 
 # TopLevel Class Definition
-@nac3
+@compile
 class A:    
     @kernel
     def __init__(self):

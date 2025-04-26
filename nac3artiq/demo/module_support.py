@@ -1,7 +1,7 @@
 from min_artiq import *
 import module as module_definition
 
-@nac3
+@compile
 class TestModuleSupport:
     core: KernelInvariant[Core]
 

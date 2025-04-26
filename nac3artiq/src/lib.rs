@@ -252,7 +252,7 @@ impl Nac3 {
                 StmtKind::ClassDef { ref decorator_list, ref mut body, ref mut bases, .. } => {
                     let nac3_class = decorator_list.iter().any(|decorator| {
                         if let ExprKind::Name { id, .. } = decorator.node {
-                            id.to_string() == "nac3"
+                            id.to_string() == "compile"
                         } else {
                             false
                         }

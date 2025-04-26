@@ -684,7 +684,7 @@ impl InnerResolver {
         } else {
             let str_fn = PyModule::import(py, "builtins").unwrap().getattr("repr").unwrap();
             let str_repr: String = str_fn.call1((pyty,)).unwrap().extract().unwrap();
-            Ok(Err(format!("{str_repr} is not registered with NAC3 (@nac3 decorator missing?)")))
+            Ok(Err(format!("{str_repr} is not registered with the compiler (@compile decorator missing?)")))
         }
     }
 
@@ -1835,7 +1835,7 @@ impl SymbolResolver for Resolver {
                 .ok_or_else(|| HashSet::from([format!("Undefined identifier `{id}`")]))?;
             let result = self.0.pyid_to_def.read().get(py_id).copied().ok_or_else(|| {
                 HashSet::from([format!(
-                    "`{id}` is not registered with NAC3 (@nac3 decorator missing?)"
+                    "`{id}` is not registered with the compiler (@compile decorator missing?)"
                 )])
             })?;
             self.0.id_to_def.write().insert(id, result);

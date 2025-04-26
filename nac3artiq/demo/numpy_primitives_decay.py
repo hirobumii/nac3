@@ -3,7 +3,7 @@ import numpy
 from numpy import int32
 
 
-@nac3
+@compile
 class NumpyBoolDecay:
     core: KernelInvariant[Core]
     np_true: KernelInvariant[bool]

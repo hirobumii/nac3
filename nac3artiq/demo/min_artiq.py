@@ -12,7 +12,7 @@ __all__ = [
     "Kernel", "KernelInvariant", "virtual", "ConstGeneric",
     "Option", "Some", "none", "UnwrapNoneError",
     "round64", "floor64", "ceil64",
-    "extern", "kernel", "portable", "nac3",
+    "extern", "kernel", "portable", "compile",
     "rpc", "ms", "us", "ns",
     "print_int32", "print_int64",
     "Core", "TTLOut",
@@ -176,9 +176,9 @@ def portable(function):
     return function
 
 
-def nac3(cls):
+def compile(cls):
     """
-    Decorates a class to be analyzed by NAC3.
+    Registers a class to be compiled by ARTIQ.
     All classes containing kernels or portable methods must use this decorator.
     """
     register_class(cls)
@@ -265,7 +265,7 @@ class EmbeddingMap:
         return self.string_map[key]
 
 
-@nac3
+@compile
 class Core:
     ref_period: KernelInvariant[float]
 
@@ -314,7 +314,7 @@ class Core:
         delay_mu(self.seconds_to_mu(dt))
 
 
-@nac3
+@compile
 class TTLOut:
     core: KernelInvariant[Core]
     channel: KernelInvariant[int32]
@@ -353,7 +353,7 @@ class TTLOut:
         self.core.delay(duration)
         self.off()
 
-@nac3
+@compile
 class KernelContextManager:
     @kernel
     def __enter__(self):
@@ -363,7 +363,7 @@ class KernelContextManager:
     def __exit__(self):
         pass
 
-@nac3
+@compile
 class UnwrapNoneError(Exception):
     """raised when unwrapping a none value"""
     artiq_builtin = True

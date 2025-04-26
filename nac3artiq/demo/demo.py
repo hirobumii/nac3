@@ -1,7 +1,7 @@
 from min_artiq import *
 
 
-@nac3
+@compile
 class Demo:
     core: KernelInvariant[Core]
     led0: KernelInvariant[TTLOut]
