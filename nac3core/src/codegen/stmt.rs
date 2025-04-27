@@ -3,7 +3,7 @@ use inkwell::{
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
     builder::Builder,
-    types::{BasicType, BasicTypeEnum},
+    types::{BasicType, BasicTypeEnum, BasicMetadataTypeEnum},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
 };
 use itertools::{Itertools, izip};
@@ -1966,10 +1966,10 @@ pub fn gen_return<G: CodeGenerator>(
         let expected_ty = if ctx.need_sret {
             func.get_type().get_param_types()[0]
         } else {
-            func.get_type().get_return_type().unwrap()
+            func.get_type().get_return_type().unwrap().into()
         };
 
-        if matches!(expected_ty, BasicTypeEnum::IntType(ty) if ty.get_bit_width() == 1) {
+        if matches!(expected_ty, BasicMetadataTypeEnum::IntType(ty) if ty.get_bit_width() == 1) {
             generator.bool_to_i1(ctx, ret_val.into_int_value()).into()
         } else {
             ret_val

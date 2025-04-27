@@ -20,8 +20,7 @@ strum = "0.27"
 strum_macros = "0.27"
 
 [dependencies.inkwell]
-git = "https://github.com/Derppening/inkwell"
-tag = "0.5.0_llvm15-typed-ptr"
+version = "0.6.0"
 default-features = false
 features = ["llvm16-0-prefer-dynamic", "target-x86", "target-arm", "target-riscv", "no-libffi-linking", "typed-pointers"]
 

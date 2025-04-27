@@ -1165,6 +1165,7 @@ pub fn get_type_alignment<'ctx>(ty: impl Into<BasicTypeEnum<'ctx>>) -> IntValue<
         BasicTypeEnum::PointerType(ty) => ty.get_alignment(),
         BasicTypeEnum::StructType(ty) => ty.get_alignment(),
         BasicTypeEnum::VectorType(ty) => ty.get_alignment(),
+        BasicTypeEnum::ScalableVectorType(ty) => ty.get_alignment(),
     }
 }
 

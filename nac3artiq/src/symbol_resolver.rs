@@ -1291,7 +1291,7 @@ impl InnerResolver {
                     ty.const_array(&data.map(BasicValueEnum::into_struct_value).collect_vec())
                 }
 
-                BasicTypeEnum::VectorType(_) => unreachable!(),
+                BasicTypeEnum::VectorType(_) | BasicTypeEnum::ScalableVectorType(_) => unreachable!(),
             };
 
             // create a global for ndarray.data and initialize it using the elements
