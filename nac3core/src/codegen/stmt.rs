@@ -3,7 +3,7 @@ use inkwell::{
     attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
     builder::Builder,
-    types::{BasicType, BasicTypeEnum, BasicMetadataTypeEnum},
+    types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
 };
 use itertools::{Itertools, izip};

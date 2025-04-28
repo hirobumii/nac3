@@ -684,7 +684,9 @@ impl InnerResolver {
         } else {
             let str_fn = PyModule::import(py, "builtins").unwrap().getattr("repr").unwrap();
             let str_repr: String = str_fn.call1((pyty,)).unwrap().extract().unwrap();
-            Ok(Err(format!("{str_repr} is not registered with the compiler (@compile decorator missing?)")))
+            Ok(Err(format!(
+                "{str_repr} is not registered with the compiler (@compile decorator missing?)"
+            )))
         }
     }
 
@@ -1291,7 +1293,9 @@ impl InnerResolver {
                     ty.const_array(&data.map(BasicValueEnum::into_struct_value).collect_vec())
                 }
 
-                BasicTypeEnum::VectorType(_) | BasicTypeEnum::ScalableVectorType(_) => unreachable!(),
+                BasicTypeEnum::VectorType(_) | BasicTypeEnum::ScalableVectorType(_) => {
+                    unreachable!()
+                }
             };
 
             // create a global for ndarray.data and initialize it using the elements

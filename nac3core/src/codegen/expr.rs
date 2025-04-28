@@ -8,7 +8,7 @@ use std::{
 use inkwell::{
     AddressSpace, IntPredicate, OptimizationLevel,
     attributes::{Attribute, AttributeLoc},
-    types::{AnyType, BasicType, BasicTypeEnum, BasicMetadataTypeEnum},
+    types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum},
     values::{BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue, StructValue},
 };
 use itertools::{Either, Itertools, izip};
@@ -522,12 +522,14 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             .chain(repeat(None))
             .zip(params.iter())
             .map(|(ty, val)| match (ty, val.get_type()) {
-                (Some(BasicMetadataTypeEnum::PointerType(arg_ty)), BasicTypeEnum::PointerType(val_ty))
-                    if {
-                        ty.unwrap() != val.get_type().into()
-                            && arg_ty.get_element_type().is_struct_type()
-                            && val_ty.get_element_type().is_struct_type()
-                    } =>
+                (
+                    Some(BasicMetadataTypeEnum::PointerType(arg_ty)),
+                    BasicTypeEnum::PointerType(val_ty),
+                ) if {
+                    ty.unwrap() != val.get_type().into()
+                        && arg_ty.get_element_type().is_struct_type()
+                        && val_ty.get_element_type().is_struct_type()
+                } =>
                 {
                     self.builder.build_bit_cast(*val, arg_ty, "call_arg_cast").unwrap()
                 }
