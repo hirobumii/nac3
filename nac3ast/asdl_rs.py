@@ -303,7 +303,10 @@ class FoldImplVisitor(TypeInfoEmitVisitor):
         self.emit("match node {", depth + 1)
         for cons in sum.types:
             fields_pattern = self.make_pattern(cons.fields)
-            self.emit(f"{enumname}::{cons.name} {{ {fields_pattern} }} => {{", depth + 2)
+            if len(fields_pattern) > 0:
+                self.emit(f"{enumname}::{cons.name} {{ {fields_pattern} }} => {{", depth + 2)
+            else:
+                self.emit(f"{enumname}::{cons.name} => {{", depth + 2)
             self.gen_construction(f"{enumname}::{cons.name}", cons.fields, depth + 3)
             self.emit("}", depth + 2)
         self.emit("}", depth + 1)

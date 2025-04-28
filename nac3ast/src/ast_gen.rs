@@ -909,9 +909,9 @@ pub mod fold {
         node: ExprContext,
     ) -> Result<ExprContext, F::Error> {
         match node {
-            ExprContext::Load {} => Ok(ExprContext::Load {}),
-            ExprContext::Store {} => Ok(ExprContext::Store {}),
-            ExprContext::Del {} => Ok(ExprContext::Del {}),
+            ExprContext::Load => Ok(ExprContext::Load {}),
+            ExprContext::Store => Ok(ExprContext::Store {}),
+            ExprContext::Del => Ok(ExprContext::Del {}),
         }
     }
     impl<T, U> Foldable<T, U> for Boolop {
@@ -928,8 +928,8 @@ pub mod fold {
         node: Boolop,
     ) -> Result<Boolop, F::Error> {
         match node {
-            Boolop::And {} => Ok(Boolop::And {}),
-            Boolop::Or {} => Ok(Boolop::Or {}),
+            Boolop::And => Ok(Boolop::And {}),
+            Boolop::Or => Ok(Boolop::Or {}),
         }
     }
     impl<T, U> Foldable<T, U> for Operator {
@@ -946,19 +946,19 @@ pub mod fold {
         node: Operator,
     ) -> Result<Operator, F::Error> {
         match node {
-            Operator::Add {} => Ok(Operator::Add {}),
-            Operator::Sub {} => Ok(Operator::Sub {}),
-            Operator::Mult {} => Ok(Operator::Mult {}),
-            Operator::MatMult {} => Ok(Operator::MatMult {}),
-            Operator::Div {} => Ok(Operator::Div {}),
-            Operator::Mod {} => Ok(Operator::Mod {}),
-            Operator::Pow {} => Ok(Operator::Pow {}),
-            Operator::LShift {} => Ok(Operator::LShift {}),
-            Operator::RShift {} => Ok(Operator::RShift {}),
-            Operator::BitOr {} => Ok(Operator::BitOr {}),
-            Operator::BitXor {} => Ok(Operator::BitXor {}),
-            Operator::BitAnd {} => Ok(Operator::BitAnd {}),
-            Operator::FloorDiv {} => Ok(Operator::FloorDiv {}),
+            Operator::Add => Ok(Operator::Add {}),
+            Operator::Sub => Ok(Operator::Sub {}),
+            Operator::Mult => Ok(Operator::Mult {}),
+            Operator::MatMult => Ok(Operator::MatMult {}),
+            Operator::Div => Ok(Operator::Div {}),
+            Operator::Mod => Ok(Operator::Mod {}),
+            Operator::Pow => Ok(Operator::Pow {}),
+            Operator::LShift => Ok(Operator::LShift {}),
+            Operator::RShift => Ok(Operator::RShift {}),
+            Operator::BitOr => Ok(Operator::BitOr {}),
+            Operator::BitXor => Ok(Operator::BitXor {}),
+            Operator::BitAnd => Ok(Operator::BitAnd {}),
+            Operator::FloorDiv => Ok(Operator::FloorDiv {}),
         }
     }
     impl<T, U> Foldable<T, U> for Unaryop {
@@ -975,10 +975,10 @@ pub mod fold {
         node: Unaryop,
     ) -> Result<Unaryop, F::Error> {
         match node {
-            Unaryop::Invert {} => Ok(Unaryop::Invert {}),
-            Unaryop::Not {} => Ok(Unaryop::Not {}),
-            Unaryop::UAdd {} => Ok(Unaryop::UAdd {}),
-            Unaryop::USub {} => Ok(Unaryop::USub {}),
+            Unaryop::Invert => Ok(Unaryop::Invert {}),
+            Unaryop::Not => Ok(Unaryop::Not {}),
+            Unaryop::UAdd => Ok(Unaryop::UAdd {}),
+            Unaryop::USub => Ok(Unaryop::USub {}),
         }
     }
     impl<T, U> Foldable<T, U> for Cmpop {
@@ -995,16 +995,16 @@ pub mod fold {
         node: Cmpop,
     ) -> Result<Cmpop, F::Error> {
         match node {
-            Cmpop::Eq {} => Ok(Cmpop::Eq {}),
-            Cmpop::NotEq {} => Ok(Cmpop::NotEq {}),
-            Cmpop::Lt {} => Ok(Cmpop::Lt {}),
-            Cmpop::LtE {} => Ok(Cmpop::LtE {}),
-            Cmpop::Gt {} => Ok(Cmpop::Gt {}),
-            Cmpop::GtE {} => Ok(Cmpop::GtE {}),
-            Cmpop::Is {} => Ok(Cmpop::Is {}),
-            Cmpop::IsNot {} => Ok(Cmpop::IsNot {}),
-            Cmpop::In {} => Ok(Cmpop::In {}),
-            Cmpop::NotIn {} => Ok(Cmpop::NotIn {}),
+            Cmpop::Eq => Ok(Cmpop::Eq {}),
+            Cmpop::NotEq => Ok(Cmpop::NotEq {}),
+            Cmpop::Lt => Ok(Cmpop::Lt {}),
+            Cmpop::LtE => Ok(Cmpop::LtE {}),
+            Cmpop::Gt => Ok(Cmpop::Gt {}),
+            Cmpop::GtE => Ok(Cmpop::GtE {}),
+            Cmpop::Is => Ok(Cmpop::Is {}),
+            Cmpop::IsNot => Ok(Cmpop::IsNot {}),
+            Cmpop::In => Ok(Cmpop::In {}),
+            Cmpop::NotIn => Ok(Cmpop::NotIn {}),
         }
     }
     impl<T, U> Foldable<T, U> for Comprehension<T> {
