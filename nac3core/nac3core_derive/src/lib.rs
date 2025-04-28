@@ -1,3 +1,6 @@
+#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
+#![warn(clippy::pedantic)]
+
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
@@ -18,7 +21,7 @@ fn extract_generic_args(expected_ty_name: &'static str, ty: &Type) -> Option<Vec
     let segments = &path.segments;
     if segments.len() != 1 {
         return None;
-    };
+    }
 
     let segment = segments.iter().next().unwrap();
     if segment.ident != expected_ty_name {
@@ -225,7 +228,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         .try_for_each(|field| if field.ident.is_some() { Ok(()) } else { Err(field.span()) })
     {
         abort!(err_span, "Only structs with named fields are supported");
-    };
+    }
 
     // Check if struct<'ctx>
     if input.generics.params.len() != 1 {

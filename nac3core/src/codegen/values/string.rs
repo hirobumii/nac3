@@ -14,6 +14,7 @@ use crate::codegen::{
 pub struct StringValue<'ctx> {
     value: StructValue<'ctx>,
     llvm_usize: IntType<'ctx>,
+    #[allow(dead_code)]
     name: Option<&'ctx str>,
 }
 

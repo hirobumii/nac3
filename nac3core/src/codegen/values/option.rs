@@ -46,7 +46,7 @@ impl<'ctx> OptionValue<'ctx> {
     /// The caller must ensure that this `option` value [contains a value][Self::is_some].
     #[must_use]
     pub unsafe fn load(&self, ctx: &CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
-        ctx.builder.build_load(self.value, "").unwrap()
+        ctx.builder.build_load(self.value, self.name.unwrap_or_default()).unwrap()
     }
 }
 

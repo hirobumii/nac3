@@ -39,15 +39,7 @@ pub mod lexer;
 pub mod mode;
 pub mod parser;
 lalrpop_mod!(
-    #[allow(
-        future_incompatible,
-        let_underscore,
-        nonstandard_style,
-        unused,
-        clippy::all,
-        clippy::pedantic
-    )]
-    #[warn(rust_2024_compatibility)]
+    #[allow(unused, clippy::all, clippy::pedantic)]
     python
 );
 pub mod config_comment_helper;
