@@ -8,11 +8,11 @@ use itertools::Itertools;
 
 use nac3core_derive::StructFields;
 
-use super::ProxyType;
 use crate::codegen::{
     CodeGenContext, CodeGenerator, irrt,
-    types::structure::{
-        StructField, StructFields, StructProxyType, check_struct_type_matches_fields,
+    types::{
+        ProxyType,
+        structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
     },
     values::{
         ArrayLikeValue, ArraySliceValue, ProxyValue, TypedArrayLikeAdapter,

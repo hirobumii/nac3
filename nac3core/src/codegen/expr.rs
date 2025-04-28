@@ -22,7 +22,10 @@ use super::{
     CodeGenContext, CodeGenTask, CodeGenerator,
     concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
     gen_in_range_check, get_llvm_abi_type, get_llvm_type, get_va_count_arg_name,
-    irrt::*,
+    irrt::{
+        calculate_len_for_slice_range, call_string_eq, handle_slice_indices, integer_power,
+        list_slice_assignment,
+    },
     llvm_intrinsics::{
         call_expect, call_float_floor, call_float_pow, call_float_powi, call_int_smax,
         call_memcpy_generic,

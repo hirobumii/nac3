@@ -1,15 +1,27 @@
-use std::rc::Rc;
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+    sync::Arc,
+};
 
 use indexmap::IndexMap;
-use nac3parser::ast::{ExprKind, Ident, fold::Fold};
+use itertools::Itertools;
+use parking_lot::RwLock;
 
-use super::*;
+use nac3parser::ast::{self, Expr, ExprKind, Ident, StrRef, fold::Fold};
+
+use super::{
+    DefinitionId, FunInstance, GenCall, Location, builtins, get_type_from_type_annotation_kinds,
+    get_type_var_contained_in_type_annotation, make_self_type_annotation,
+    parse_ast_to_type_annotation_kinds, type_annotation::TypeAnnotation,
+};
 use crate::{
     codegen::{expr::get_subst_key, stmt::exn_constructor},
     symbol_resolver::SymbolValue,
+    toplevel::{Stmt, SymbolResolver, TopLevelContext, TopLevelDef},
     typecheck::{
-        type_inferencer::{FunctionData, IdentifierInfo, Inferencer},
-        typedef::{TypeVar, VarMap},
+        type_inferencer::{CodeLocation, FunctionData, IdentifierInfo, Inferencer, PrimitiveStore},
+        typedef::{CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
 
@@ -522,7 +534,7 @@ impl TopLevelComposer {
     /// Checks for class type variables and ancestors adding them to the `TopLevelDef` list
     fn analyze_top_level_class_definition(&mut self) -> Result<(), HashSet<String>> {
         let def_list = &self.definition_ast_list;
-        let unifier = self.unifier.borrow_mut();
+        let unifier = &mut self.unifier;
         let primitives_store = &self.primitives_ty;
         let mut errors = HashSet::new();
 
@@ -600,7 +612,7 @@ impl TopLevelComposer {
 
         let def_list = &self.definition_ast_list;
         let temp_def_list = self.extract_def_list();
-        let unifier = self.unifier.borrow_mut();
+        let unifier = &mut self.unifier;
         let primitives_store = &self.primitives_ty;
 
         let mut errors: HashSet<String> = HashSet::new();
@@ -714,7 +726,7 @@ impl TopLevelComposer {
         let def_list = &self.definition_ast_list;
         let keyword_list = &self.keyword_list;
         let temp_def_list = self.extract_def_list();
-        let unifier = self.unifier.borrow_mut();
+        let unifier = &mut self.unifier;
         let primitives_store = &self.primitives_ty;
 
         let mut analyze = |function_def: &Arc<RwLock<TopLevelDef>>, function_ast: &Option<Stmt>| {

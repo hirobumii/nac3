@@ -2,7 +2,7 @@ use itertools::Itertools;
 
 use nac3core::{toplevel::TopLevelDef, typecheck::typedef::Unifier};
 
-use super::{InnerResolver, symbol_resolver::PyValueHandle};
+use super::symbol_resolver::{InnerResolver, PyValueHandle};
 
 impl InnerResolver {
     pub fn debug_str(&self, tld: Option<&[TopLevelDef]>, unifier: &Option<&mut Unifier>) -> String {

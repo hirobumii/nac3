@@ -12,7 +12,7 @@ use crate::{
     codegen::{CodeGenContext, CodeGenerator},
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef, helper::PrimDef},
-    typecheck::{magic_methods::with_fields, typedef::*},
+    typecheck::magic_methods::{set_primitives_magic_methods, with_fields},
 };
 
 struct Resolver {

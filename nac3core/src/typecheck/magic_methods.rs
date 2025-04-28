@@ -6,7 +6,7 @@ use strum::IntoEnumIterator;
 use nac3parser::ast::{Cmpop, Operator, StrRef, Unaryop};
 
 use super::{
-    type_inferencer::*,
+    type_inferencer::PrimitiveStore,
     typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
 };
 use crate::{

@@ -691,6 +691,7 @@ fn need_sret(ty: BasicTypeEnum) -> bool {
 }
 
 /// Returns the [`BasicTypeEnum`] representing a `va_list` struct for variadic arguments.
+#[allow(dead_code)]
 fn get_llvm_valist_type<'ctx>(ctx: &'ctx Context, triple: &TargetTriple) -> BasicTypeEnum<'ctx> {
     let triple = TargetMachine::normalize_triple(triple);
     let triple = triple.as_str().to_str().unwrap();

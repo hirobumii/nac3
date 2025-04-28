@@ -1,6 +1,6 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
 #![warn(clippy::pedantic)]
-#![allow(clippy::too_many_lines, clippy::wildcard_imports)]
+#![allow(clippy::too_many_lines)]
 
 use std::{
     collections::{HashMap, HashSet},
@@ -24,7 +24,7 @@ use nac3core::{
         module::{Linkage, Module},
         passes::PassBuilderOptions,
         support::is_multithreaded,
-        targets::*,
+        targets::{FileType, InitializationConfig, RelocMode, Target},
     },
     nac3parser::{
         ast::{Constant, Expr, ExprKind, StmtKind, StrRef},
@@ -35,7 +35,9 @@ use nac3core::{
         TopLevelDef,
         composer::{ComposerConfig, TopLevelComposer},
         helper::parse_parameter_default_value,
-        type_annotation::*,
+        type_annotation::{
+            get_type_from_type_annotation_kinds, parse_ast_to_type_annotation_kinds,
+        },
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
@@ -43,7 +45,7 @@ use nac3core::{
     },
 };
 
-use basic_symbol_resolver::*;
+use basic_symbol_resolver::{Resolver, ResolverInternal};
 
 mod basic_symbol_resolver;
 

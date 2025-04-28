@@ -22,9 +22,7 @@
     clippy::fn_params_excessive_bools,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::module_name_repetitions,
-    clippy::too_many_lines,
-    clippy::wildcard_imports
+    clippy::too_many_lines
 )]
 
 #[macro_use]

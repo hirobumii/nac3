@@ -7,7 +7,15 @@ use inkwell::{
 
 use nac3parser::ast::{Expr, Stmt, StrRef};
 
-use super::{CodeGenContext, bool_to_int_type, expr::*, stmt::*, values::ArraySliceValue};
+use super::{
+    CodeGenContext, bool_to_int_type,
+    expr::{gen_call, gen_constructor, gen_expr, gen_func_instance},
+    stmt::{
+        gen_array_var, gen_assign, gen_assign_target_list, gen_block, gen_for, gen_if, gen_setitem,
+        gen_stmt, gen_store_target, gen_var, gen_while, gen_with,
+    },
+    values::ArraySliceValue,
+};
 use crate::{
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},

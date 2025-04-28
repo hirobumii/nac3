@@ -1,12 +1,25 @@
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
+use itertools::Itertools;
+use parking_lot::RwLock;
 use strum::IntoEnumIterator;
 
-use nac3parser::ast::Constant;
+use nac3parser::ast::{self, Constant, Expr, Location, StrRef};
 
 use super::{
+    DefinitionId, TopLevelDef,
     helper::{PrimDef, PrimDefDetails},
-    *,
 };
-use crate::{symbol_resolver::SymbolValue, typecheck::typedef::VarMap};
+use crate::{
+    symbol_resolver::{SymbolResolver, SymbolValue},
+    typecheck::{
+        type_inferencer::PrimitiveStore,
+        typedef::{Type, TypeEnum, Unifier, VarMap},
+    },
+};
 
 #[derive(Clone, Debug)]
 pub enum TypeAnnotation {

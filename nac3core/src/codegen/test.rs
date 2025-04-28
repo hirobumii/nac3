@@ -10,11 +10,12 @@ use inkwell::{
     OptimizationLevel,
     targets::{InitializationConfig, Target},
 };
+use parking_lot::RwLock;
+
 use nac3parser::{
     ast::{FileName, StrRef, fold::Fold},
     parser::parse_program,
 };
-use parking_lot::RwLock;
 
 use super::{
     CodeGenContext, CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator,

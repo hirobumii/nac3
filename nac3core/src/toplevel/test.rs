@@ -1,17 +1,25 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use indoc::indoc;
-use parking_lot::Mutex;
+use itertools::Itertools;
+use parking_lot::{Mutex, RwLock};
 use test_case::test_case;
 
 use nac3parser::{
-    ast::{FileName, fold::Fold},
+    ast::{self, FileName, StrRef, fold::Fold},
     parser::parse_program,
 };
 
-use super::{DefinitionId, helper::PrimDef, *};
+use super::{
+    DefinitionId, TopLevelDef,
+    composer::{ComposerConfig, TopLevelComposer},
+    helper::PrimDef,
+};
 use crate::{
-    codegen::CodeGenContext,
+    codegen::{CodeGenContext, CodeGenerator},
     symbol_resolver::{SymbolResolver, ValueEnum},
     typecheck::{
         type_inferencer::PrimitiveStore,
@@ -586,7 +594,7 @@ fn test_analyze(source: &[&str], res: &[&str], case_name: &str) {
         let mut res_vec: Vec<String> = Vec::new();
         for (def, _) in composer.definition_ast_list.iter().skip(composer.builtin_num) {
             let def = &*def.read();
-            res_vec.push(format!("{}\n", def.to_string(composer.unifier.borrow_mut())));
+            res_vec.push(format!("{}\n", def.to_string(&mut composer.unifier)));
         }
         insta::with_settings!({ snapshot_suffix => case_name.replace(' ', "_") }, {
             insta::assert_debug_snapshot!(res_vec);

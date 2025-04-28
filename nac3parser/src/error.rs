@@ -1,7 +1,6 @@
 //! Define internal parse error types
 //! The goal is to provide a matching and a safe error API, maksing errors from LALR
-use std::error::Error;
-use std::fmt;
+use std::{error::Error, fmt};
 
 use lalrpop_util::ParseError as LalrpopError;
 

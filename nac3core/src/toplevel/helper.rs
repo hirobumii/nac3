@@ -1,14 +1,33 @@
-use std::convert::TryInto;
+use std::{
+    collections::{HashMap, HashSet},
+    convert::TryInto,
+    sync::Arc,
+};
 
+use itertools::Itertools;
+use parking_lot::RwLock;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use nac3parser::ast::{Constant, ExprKind, Location};
+use nac3parser::ast::{self, Constant, Expr, ExprKind, Location, Stmt, StrRef};
 
-use super::{numpy::unpack_ndarray_var_tys, *};
+use super::{
+    DefinitionId, TopLevelDef, check_overload_type_annotation_compatible,
+    composer::{DefAst, TopLevelComposer},
+    make_self_type_annotation,
+    numpy::unpack_ndarray_var_tys,
+    parse_ast_to_type_annotation_kinds,
+    type_annotation::TypeAnnotation,
+};
 use crate::{
-    symbol_resolver::SymbolValue,
-    typecheck::typedef::{Mapping, TypeVarId, VarMap, into_var_map, iter_type_vars},
+    symbol_resolver::{SymbolResolver, SymbolValue},
+    typecheck::{
+        type_inferencer::PrimitiveStore,
+        typedef::{
+            FunSignature, FuncArg, Mapping, Type, TypeEnum, TypeVarId, Unifier, VarMap,
+            into_var_map, iter_type_vars,
+        },
+    },
 };
 
 /// All primitive types and functions in nac3core.

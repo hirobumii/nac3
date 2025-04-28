@@ -1,7 +1,7 @@
 //! Datatypes to support source location information.
-use crate::ast_gen::StrRef;
-use std::cmp::Ordering;
-use std::fmt;
+use std::{cmp::Ordering, fmt};
+
+use crate::StrRef;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FileName(pub StrRef);

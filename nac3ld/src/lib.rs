@@ -7,18 +7,16 @@
     clippy::enum_glob_use,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
-    clippy::module_name_repetitions,
     clippy::similar_names,
-    clippy::struct_field_names,
-    clippy::too_many_lines,
-    clippy::wildcard_imports
+    clippy::too_many_lines
 )]
 
 use std::{collections::HashMap, mem, ptr, slice, str};
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use dwarf::*;
+use dwarf::{EH_Frame, EH_Frame_Hdr};
+#[allow(clippy::wildcard_imports)]
 use elf::*;
 
 mod dwarf;

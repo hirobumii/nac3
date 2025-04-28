@@ -1,13 +1,6 @@
-use std::{
-    borrow::BorrowMut,
-    collections::{HashMap, HashSet},
-    fmt::Debug,
-    iter::FromIterator,
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use inkwell::values::BasicValueEnum;
-use itertools::Itertools;
 use parking_lot::RwLock;
 
 use nac3parser::ast::{self, Expr, Location, Stmt, StrRef};
@@ -17,14 +10,14 @@ use crate::{
     symbol_resolver::{SymbolResolver, ValueEnum},
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
-        typedef::{
-            CallId, FunSignature, FuncArg, SharedUnifier, Type, TypeEnum, TypeVarId, Unifier,
-            VarMap,
-        },
+        typedef::{CallId, FunSignature, SharedUnifier, Type, TypeVarId, VarMap},
     },
 };
-use composer::*;
-use type_annotation::*;
+use type_annotation::{
+    TypeAnnotation, check_overload_type_annotation_compatible, get_type_from_type_annotation_kinds,
+    get_type_var_contained_in_type_annotation, make_self_type_annotation,
+    parse_ast_to_type_annotation_kinds,
+};
 
 pub mod builtins;
 pub mod composer;

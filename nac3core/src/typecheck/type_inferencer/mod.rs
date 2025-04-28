@@ -15,7 +15,10 @@ use nac3parser::ast::{
 };
 
 use super::{
-    magic_methods::*,
+    magic_methods::{
+        Binop, BinopVariant, HasOpInfo, OpInfo, typeof_binop, typeof_cmpop,
+        typeof_ndarray_broadcast, typeof_unaryop,
+    },
     type_error::{TypeError, TypeErrorKind},
     typedef::{
         Call, CallId, FunSignature, FuncArg, Mapping, OperatorInfo, RecordField, RecordKey, Type,

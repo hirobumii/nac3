@@ -1,21 +1,34 @@
-use std::iter::once;
+use std::{collections::HashMap, iter::once, sync::Arc};
 
 use indexmap::IndexMap;
-use inkwell::{IntPredicate, values::BasicValue};
+use inkwell::{
+    IntPredicate,
+    values::{BasicValue, BasicValueEnum},
+};
+use itertools::Itertools;
+use parking_lot::RwLock;
 use strum::IntoEnumIterator;
 
+use nac3parser::ast::{Stmt, StrRef};
+
 use super::{
+    DefinitionId, GenCall, GenCallCallback, TopLevelDef,
+    composer::TopLevelComposer,
     helper::{
         PrimDef, PrimDefDetails, arraylike_flatten_element_type, debug_assert_prim_is_allowed,
         extract_ndims, make_exception_fields,
     },
     numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
-    *,
+    type_annotation::TypeAnnotation,
 };
 use crate::{
     codegen::{
         builtin_fns,
-        numpy::*,
+        numpy::{
+            gen_ndarray_array, gen_ndarray_copy, gen_ndarray_empty, gen_ndarray_eye,
+            gen_ndarray_fill, gen_ndarray_full, gen_ndarray_identity, gen_ndarray_ones,
+            gen_ndarray_zeros, ndarray_dot,
+        },
         stmt::{exn_constructor, gen_if_callback},
         types::{RangeType, ndarray::NDArrayType},
         values::{
@@ -24,7 +37,13 @@ use crate::{
         },
     },
     symbol_resolver::SymbolValue,
-    typecheck::typedef::{TypeVar, VarMap, into_var_map, iter_type_vars},
+    typecheck::{
+        type_inferencer::PrimitiveStore,
+        typedef::{
+            FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap, into_var_map,
+            iter_type_vars,
+        },
+    },
 };
 
 type BuiltinInfo = Vec<(Arc<RwLock<TopLevelDef>>, Option<Stmt>)>;

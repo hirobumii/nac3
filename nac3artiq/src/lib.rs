@@ -41,7 +41,7 @@ use nac3core::{
         module::{FlagBehavior, Linkage, Module},
         passes::PassBuilderOptions,
         support::is_multithreaded,
-        targets::*,
+        targets::{FileType, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple},
     },
     nac3parser::{
         ast::{self, Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
