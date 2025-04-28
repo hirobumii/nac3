@@ -22,7 +22,7 @@ pub fn make_config_comment(
                 )),
             },
         });
-    };
+    }
     Ok(nac3com_above
         .into_iter()
         .map(|(com, _)| com)

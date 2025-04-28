@@ -787,7 +787,7 @@ where
                     }
                 }
             }
-        };
+        }
 
         if let Some(comment) = eat_result.1 {
             self.emit(comment);
@@ -852,7 +852,7 @@ where
             '#' => {
                 if let Some(c) = self.lex_comment() {
                     self.emit(c);
-                };
+                }
             }
             '"' | '\'' => {
                 let string = self.lex_string(false, false, false, false)?;
