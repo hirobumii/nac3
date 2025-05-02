@@ -580,7 +580,7 @@ impl<'a> TopLevelComposer<'a> {
         location: Location,
     ) -> Result<(StrRef, DefinitionId, Option<Type>), String> {
         if self.keyword_list.contains(&name) {
-            return Err(format!("cannot use keyword `{name}` as a class name (at {location})"));
+            return Err(format!("cannot use keyword `{name}` as a variable name (at {location})"));
         }
 
         let global_var_name =
