@@ -1,4 +1,4 @@
-from min_artiq import kernel, KernelInvariant, nac3
+from min_artiq import kernel, KernelInvariant, compile
 import min_artiq as artiq
 
 
