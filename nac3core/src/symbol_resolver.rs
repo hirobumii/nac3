@@ -16,7 +16,7 @@ use crate::{
     toplevel::{DefinitionId, TopLevelDef, type_annotation::TypeAnnotation},
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, TypeEnum, Unifier, VarMap},
+        typedef::{AttrKind, Type, TypeEnum, Unifier, VarMap},
     },
 };
 
@@ -454,8 +454,8 @@ pub fn parse_type_annotation<T>(
                     }
                     let fields = fields
                         .iter()
-                        .map(|(k, v, m)| (*k, (*v, *m)))
-                        .chain(methods.iter().map(|(k, v, _)| (*k, (*v, false))))
+                        .map(|(k, v, m)| (*k, (*v, AttrKind::Field { mutable: *m })))
+                        .chain(methods.iter().map(|(k, v, _)| (*k, (*v, AttrKind::Method))))
                         .collect();
                     Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: VarMap::default() }))
                 } else {
@@ -548,12 +548,12 @@ pub fn parse_type_annotation<T>(
                     .iter()
                     .map(|(attr, ty, is_mutable)| {
                         let ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
-                        (*attr, (ty, *is_mutable))
+                        (*attr, (ty, AttrKind::Field { mutable: *is_mutable }))
                     })
                     .collect::<HashMap<_, _>>();
                 fields.extend(methods.iter().map(|(attr, ty, _)| {
                     let ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
-                    (*attr, (ty, false))
+                    (*attr, (ty, AttrKind::Method))
                 }));
                 Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: subst }))
             } else {

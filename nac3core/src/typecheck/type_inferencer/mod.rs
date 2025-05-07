@@ -21,8 +21,8 @@ use super::{
     },
     type_error::{TypeError, TypeErrorKind},
     typedef::{
-        Call, CallId, FunSignature, FuncArg, Mapping, OperatorInfo, RecordField, RecordKey, Type,
-        TypeEnum, TypeVar, Unifier, VarMap, into_var_map, iter_type_vars,
+        AttrKind, Call, CallId, FunSignature, FuncArg, Mapping, OperatorInfo, RecordField,
+        RecordKey, Type, TypeEnum, TypeVar, Unifier, VarMap, into_var_map, iter_type_vars,
     },
 };
 use crate::{
@@ -2009,8 +2009,10 @@ impl Inferencer<'_> {
                 ) =>
             {
                 match (fields.get(&attr), ctx == ExprContext::Load) {
-                    (Some((ty, _)), true) | (Some((ty, false)), false) => Ok(*ty),
-                    (Some((ty, true)), false) => report_type_error(
+                    (Some((ty, AttrKind::Field { mutable: true })), _) | (Some((ty, _)), false) => {
+                        Ok(*ty)
+                    }
+                    (Some((ty, _)), true) => report_type_error(
                         TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
                         Some(value.location),
                         self.unifier,
@@ -2053,8 +2055,10 @@ impl Inferencer<'_> {
             TypeEnum::TObj { obj_id, fields, .. } => {
                 // just a fast path
                 match (fields.get(&attr), ctx == ExprContext::Store) {
-                    (Some((ty, true)), _) | (Some((ty, false)), false) => Ok(*ty),
-                    (Some((ty, false)), true) => report_type_error(
+                    (Some((ty, AttrKind::Field { mutable: true })), _) | (Some((ty, _)), false) => {
+                        Ok(*ty)
+                    }
+                    (Some((ty, _)), true) => report_type_error(
                         TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
                         Some(value.location),
                         self.unifier,

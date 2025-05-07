@@ -17,7 +17,7 @@ use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, TypeEnum, Unifier, VarMap},
+        typedef::{AttrKind, Type, TypeEnum, Unifier, VarMap},
     },
 };
 
@@ -650,12 +650,12 @@ pub fn get_type_from_type_annotation_kinds(
                     .map(|(name, ty, _)| {
                         let subst_ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
                         // methods are immutable
-                        (*name, (subst_ty, false))
+                        (*name, (subst_ty, AttrKind::Method))
                     })
                     .collect::<HashMap<_, _>>();
                 tobj_fields.extend(fields.iter().map(|(name, ty, mutability)| {
                     let subst_ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
-                    (*name, (subst_ty, *mutability))
+                    (*name, (subst_ty, AttrKind::Field { mutable: *mutability }))
                 }));
                 let need_subst = !subst.is_empty();
                 let ty = unifier.add_ty(TypeEnum::TObj {

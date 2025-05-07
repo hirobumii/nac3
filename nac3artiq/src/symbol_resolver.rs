@@ -36,7 +36,9 @@ use nac3core::{
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
-        typedef::{Type, TypeEnum, TypeVar, Unifier, VarMap, into_var_map, iter_type_vars},
+        typedef::{
+            AttrKind, Type, TypeEnum, TypeVar, Unifier, VarMap, into_var_map, iter_type_vars,
+        },
     },
 };
 
@@ -431,9 +433,14 @@ impl InnerResolver {
                     fields: {
                         let mut res = methods
                             .iter()
-                            .map(|(iden, ty, _)| (*iden, (*ty, false)))
+                            .map(|(iden, ty, _)| (*iden, (*ty, AttrKind::Method)))
                             .collect::<HashMap<_, _>>();
-                        res.extend(fields.clone().into_iter().map(|x| (x.0, (x.1, x.2))));
+                        res.extend(
+                            fields
+                                .clone()
+                                .into_iter()
+                                .map(|x| (x.0, (x.1, AttrKind::Field { mutable: x.2 }))),
+                        );
                         res
                     },
                 };
@@ -748,7 +755,7 @@ impl InnerResolver {
                 let class_obj = obj.getattr(name.to_string().as_str())?;
                 let class_ty = self.get_obj_type(py, &class_obj, unifier, defs, primitives)?;
                 if let Ok(class_ty) = class_ty {
-                    module_attributes.insert(*name, (class_ty, true));
+                    module_attributes.insert(*name, (class_ty, AttrKind::Class));
                 } else {
                     return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
                 }
@@ -758,18 +765,19 @@ impl InnerResolver {
                 let method_obj = obj.getattr(name.to_string().as_str())?;
                 let method_ty = self.get_obj_type(py, &method_obj, unifier, defs, primitives)?;
                 if let Ok(method_ty) = method_ty {
-                    module_attributes.insert(*name, (method_ty, true));
+                    module_attributes.insert(*name, (method_ty, AttrKind::Method));
                 } else {
                     return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
                 }
             }
 
-            for (name, _) in attributes {
+            for (name, _, mutable) in attributes {
                 let attribute_obj = obj.getattr(name.to_string().as_str())?;
                 let attribute_ty =
                     self.get_obj_type(py, &attribute_obj, unifier, defs, primitives)?;
                 if let Ok(attribute_ty) = attribute_ty {
-                    module_attributes.insert(*name, (attribute_ty, false));
+                    module_attributes
+                        .insert(*name, (attribute_ty, AttrKind::Field { mutable: *mutable }));
                 } else {
                     return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
                 }

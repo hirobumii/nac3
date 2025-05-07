@@ -1017,8 +1017,8 @@ pub fn attributes_writeback<'ctx>(
                     // for non-primitive attributes, they should be in another global
                     let mut attributes = Vec::new();
                     let obj = inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap();
-                    for (name, (field_ty, is_mutable)) in fields {
-                        if !is_mutable {
+                    for (name, (field_ty, attr_kind)) in fields {
+                        if !attr_kind.is_mutable() {
                             continue;
                         }
                         if gen_rpc_tag(ctx, *field_ty, &mut scratch_buffer).is_ok() {

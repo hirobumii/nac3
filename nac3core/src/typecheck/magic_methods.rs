@@ -7,7 +7,7 @@ use nac3parser::ast::{Cmpop, Operator, StrRef, Unaryop};
 
 use super::{
     type_inferencer::PrimitiveStore,
-    typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
+    typedef::{AttrKind, FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
 };
 use crate::{
     symbol_resolver::SymbolValue,
@@ -151,7 +151,7 @@ impl HasOpInfo for Unaryop {
 
 pub(super) fn with_fields<F>(unifier: &mut Unifier, ty: Type, f: F)
 where
-    F: FnOnce(&mut Unifier, &mut HashMap<StrRef, (Type, bool)>),
+    F: FnOnce(&mut Unifier, &mut HashMap<StrRef, (Type, AttrKind)>),
 {
     let (id, mut fields, params) =
         if let TypeEnum::TObj { obj_id, fields, params } = &*unifier.get_ty(ty) {
@@ -193,7 +193,7 @@ pub fn impl_binop(
                             is_vararg: false,
                         }],
                     })),
-                    false,
+                    AttrKind::Method,
                 )
             });
         }
@@ -213,7 +213,7 @@ pub fn impl_unaryop(unifier: &mut Unifier, ty: Type, ret_ty: Option<Type>, ops: 
                         vars: VarMap::new(),
                         args: vec![],
                     })),
-                    false,
+                    AttrKind::Method,
                 ),
             );
         }
@@ -258,7 +258,7 @@ pub fn impl_cmpop(
                             is_vararg: false,
                         }],
                     })),
-                    false,
+                    AttrKind::Method,
                 ),
             );
         }

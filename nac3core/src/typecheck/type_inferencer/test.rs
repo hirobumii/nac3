@@ -12,7 +12,10 @@ use crate::{
     codegen::{CodeGenContext, CodeGenerator},
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef, helper::PrimDef},
-    typecheck::magic_methods::{set_primitives_magic_methods, with_fields},
+    typecheck::{
+        magic_methods::{set_primitives_magic_methods, with_fields},
+        typedef::AttrKind,
+    },
 };
 
 struct Resolver {
@@ -94,7 +97,7 @@ impl TestEnvironment {
                 ret: int32,
                 vars: VarMap::new(),
             }));
-            fields.insert("__add__".into(), (add_ty, false));
+            fields.insert("__add__".into(), (add_ty, AttrKind::Method));
         });
         let int64 = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Int64.id(),
@@ -239,7 +242,7 @@ impl TestEnvironment {
                 ret: int32,
                 vars: VarMap::new(),
             }));
-            fields.insert("__add__".into(), (add_ty, false));
+            fields.insert("__add__".into(), (add_ty, AttrKind::Method));
         });
         let int64 = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Int64.id(),
@@ -363,7 +366,7 @@ impl TestEnvironment {
 
         let foo_ty = unifier.add_ty(TypeEnum::TObj {
             obj_id: DefinitionId(defs + 1),
-            fields: [("a".into(), (tvar.ty, true))].into(),
+            fields: [("a".into(), (tvar.ty, AttrKind::Field { mutable: true }))].into(),
             params: into_var_map([tvar]),
         });
         top_level_defs.push(
@@ -399,7 +402,11 @@ impl TestEnvironment {
         }));
         let bar = unifier.add_ty(TypeEnum::TObj {
             obj_id: DefinitionId(defs + 2),
-            fields: [("a".into(), (int32, true)), ("b".into(), (fun, true))].into(),
+            fields: [
+                ("a".into(), (int32, AttrKind::Field { mutable: true })),
+                ("b".into(), (fun, AttrKind::Method)),
+            ]
+            .into(),
             params: IndexMap::default(),
         });
         top_level_defs.push(
@@ -429,7 +436,11 @@ impl TestEnvironment {
 
         let bar2 = unifier.add_ty(TypeEnum::TObj {
             obj_id: DefinitionId(defs + 3),
-            fields: [("a".into(), (bool, true)), ("b".into(), (fun, false))].into(),
+            fields: [
+                ("a".into(), (bool, AttrKind::Field { mutable: true })),
+                ("b".into(), (fun, AttrKind::Method)),
+            ]
+            .into(),
             params: IndexMap::default(),
         });
         top_level_defs.push(

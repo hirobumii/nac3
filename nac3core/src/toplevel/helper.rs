@@ -24,7 +24,7 @@ use crate::{
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{
-            FunSignature, FuncArg, Mapping, Type, TypeEnum, TypeVarId, Unifier, VarMap,
+            AttrKind, FunSignature, FuncArg, Mapping, Type, TypeEnum, TypeVarId, Unifier, VarMap,
             into_var_map, iter_type_vars,
         },
     },
@@ -399,7 +399,7 @@ impl TopLevelDef {
                 format!(
                     "Module {{\nname: {:?},\nattributes: {:?}\nmethods: {:?}\n}}",
                     name,
-                    attributes.iter().map(|(n, _)| n.to_string()).collect_vec(),
+                    attributes.iter().map(|(n, _, _)| n.to_string()).collect_vec(),
                     functions.iter().map(|(n, _)| n.to_string()).collect_vec()
                 )
             }
@@ -480,9 +480,9 @@ impl TopLevelComposer<'_> {
         let range = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Range.id(),
             fields: [
-                ("start".into(), (int32, true)),
-                ("stop".into(), (int32, true)),
-                ("step".into(), (int32, true)),
+                ("start".into(), (int32, AttrKind::Field { mutable: false })),
+                ("stop".into(), (int32, AttrKind::Field { mutable: false })),
+                ("step".into(), (int32, AttrKind::Field { mutable: false })),
             ]
             .into_iter()
             .collect(),
@@ -497,7 +497,7 @@ impl TopLevelComposer<'_> {
             obj_id: PrimDef::Exception.id(),
             fields: make_exception_fields(int32, int64, str)
                 .into_iter()
-                .map(|(name, ty, mutable)| (name, (ty, mutable)))
+                .map(|(name, ty, mutable)| (name, (ty, AttrKind::Field { mutable })))
                 .collect(),
             params: VarMap::new(),
         });
@@ -526,9 +526,15 @@ impl TopLevelComposer<'_> {
         let option = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Option.id(),
             fields: vec![
-                (PrimDef::FunOptionIsSome.simple_name().into(), (is_some_type_fun_ty, true)),
-                (PrimDef::FunOptionIsNone.simple_name().into(), (is_some_type_fun_ty, true)),
-                (PrimDef::FunOptionUnwrap.simple_name().into(), (unwrap_fun_ty, true)),
+                (
+                    PrimDef::FunOptionIsSome.simple_name().into(),
+                    (is_some_type_fun_ty, AttrKind::Method),
+                ),
+                (
+                    PrimDef::FunOptionIsNone.simple_name().into(),
+                    (is_some_type_fun_ty, AttrKind::Method),
+                ),
+                (PrimDef::FunOptionUnwrap.simple_name().into(), (unwrap_fun_ty, AttrKind::Method)),
             ]
             .into_iter()
             .collect::<HashMap<_, _>>(),
@@ -570,8 +576,14 @@ impl TopLevelComposer<'_> {
         let ndarray = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::NDArray.id(),
             fields: Mapping::from([
-                (PrimDef::FunNDArrayCopy.simple_name().into(), (ndarray_copy_fun_ty, true)),
-                (PrimDef::FunNDArrayFill.simple_name().into(), (ndarray_fill_fun_ty, true)),
+                (
+                    PrimDef::FunNDArrayCopy.simple_name().into(),
+                    (ndarray_copy_fun_ty, AttrKind::Method),
+                ),
+                (
+                    PrimDef::FunNDArrayFill.simple_name().into(),
+                    (ndarray_fill_fun_ty, AttrKind::Method),
+                ),
             ]),
             params: into_var_map([ndarray_dtype_tvar, ndarray_ndims_tvar]),
         });

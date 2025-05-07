@@ -206,6 +206,31 @@ impl RecordField {
     }
 }
 
+/// The type of a class or module attribute.
+#[derive(Debug, Clone, Copy)]
+pub enum AttrKind {
+    Class,
+    Method,
+    Field {
+        /// Whether the value of this field is mutable.
+        mutable: bool,
+    },
+}
+
+impl AttrKind {
+    /// Whether this attribute is mutable.
+    ///
+    /// [Classes][AttrKind::Class] and [Methods][AttrKind::Method] are always immutable, whereas
+    /// [fields][AttrKind::Field] can be mutable depending on how they are declared.
+    #[must_use]
+    pub fn is_mutable(&self) -> bool {
+        match self {
+            AttrKind::Class | AttrKind::Method => false,
+            AttrKind::Field { mutable } => *mutable,
+        }
+    }
+}
+
 /// Category of variable and value types.
 #[derive(Debug, Clone)]
 pub enum TypeEnum {
@@ -255,9 +280,9 @@ pub enum TypeEnum {
         /// The fields present in this object type.
         ///
         /// The key of the [Mapping] is the identifier of the field, while the value is a tuple
-        /// containing the [Type] of the field, and a `bool` indicating whether the field is a
-        /// variable (as opposed to a function).
-        fields: Mapping<StrRef, (Type, bool)>,
+        /// containing the [Type] of the field, and an [`AttrKind`] indicating the properties of
+        /// this field.
+        fields: Mapping<StrRef, (Type, AttrKind)>,
 
         /// Mapping between the ID of type variables and the [Type] representing the type variables
         /// of this object type.
@@ -1143,13 +1168,13 @@ impl Unifier {
                 for (k, field) in map {
                     match *k {
                         RecordKey::Str(s) => {
-                            let (ty, mutable) = fields.get(&s).copied().ok_or_else(|| {
+                            let (ty, attr_kind) = fields.get(&s).copied().ok_or_else(|| {
                                 TypeError::new(TypeErrorKind::NoSuchField(*k, b), field.loc)
                             })?;
                             // typevar represents the usage of the variable
                             // it is OK to have immutable usage for mutable fields
                             // but cannot have mutable usage for immutable fields
-                            if field.mutable && !mutable {
+                            if field.mutable && !attr_kind.is_mutable() {
                                 return Err(TypeError::new(
                                     TypeErrorKind::MutationError(*k, b),
                                     field.loc,
@@ -1619,20 +1644,20 @@ impl Unifier {
 
     fn subst_map2<K>(
         &mut self,
-        map: &Mapping<K, (Type, bool)>,
+        map: &Mapping<K, (Type, AttrKind)>,
         mapping: &VarMap,
         cache: &mut HashMap<Type, Option<Type>>,
-    ) -> Option<Mapping<K, (Type, bool)>>
+    ) -> Option<Mapping<K, (Type, AttrKind)>>
     where
         K: std::hash::Hash + Eq + Clone,
     {
         let mut map2 = None;
-        for (k, (v, mutability)) in map {
+        for (k, (v, attr_kind)) in map {
             if let Some(v1) = self.subst_impl(*v, mapping, cache) {
                 if map2.is_none() {
                     map2 = Some(map.clone());
                 }
-                *map2.as_mut().unwrap().get_mut(k).unwrap() = (v1, *mutability);
+                *map2.as_mut().unwrap().get_mut(k).unwrap() = (v1, *attr_kind);
             }
         }
         map2

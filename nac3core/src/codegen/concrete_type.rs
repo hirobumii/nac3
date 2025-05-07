@@ -10,7 +10,8 @@ use crate::{
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{
-            FunSignature, FuncArg, Type, TypeEnum, TypeVar, TypeVarId, Unifier, into_var_map,
+            AttrKind, FunSignature, FuncArg, Type, TypeEnum, TypeVar, TypeVarId, Unifier,
+            into_var_map,
         },
     },
 };
@@ -53,7 +54,7 @@ pub enum ConcreteTypeEnum {
     },
     TObj {
         obj_id: DefinitionId,
-        fields: HashMap<StrRef, (ConcreteType, bool)>,
+        fields: HashMap<StrRef, (ConcreteType, AttrKind)>,
         params: IndexMap<TypeVarId, ConcreteType>,
     },
     TVirtual {

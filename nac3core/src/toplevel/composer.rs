@@ -309,7 +309,7 @@ impl<'a> TopLevelComposer<'a> {
     ) -> Result<DefinitionId, String> {
         let mut classes: HashMap<StrRef, DefinitionId> = HashMap::new();
         let mut methods: HashMap<StrRef, DefinitionId> = HashMap::new();
-        let mut attributes: Vec<(StrRef, DefinitionId)> = Vec::new();
+        let mut attributes: Vec<(StrRef, DefinitionId, bool)> = Vec::new();
 
         for (name, _) in name_to_pyid.iter() {
             if let Ok(def_id) = resolver.get_identifier_def(*name) {
@@ -322,7 +322,19 @@ impl<'a> TopLevelComposer<'a> {
                         TopLevelDef::Function { .. } => {
                             methods.insert(*name, def_id);
                         }
-                        _ => attributes.push((*name, def_id)),
+                        TopLevelDef::Variable { ty_decl, .. } => {
+                            let mutable = ty_decl
+                                .as_ref()
+                                .map(|ty_decl| {
+                                    self.core_config.has_kernel_ann(*name, None, ty_decl)
+                                })
+                                .transpose()?
+                                .flatten()
+                                .unwrap_or_default();
+
+                            attributes.push((*name, def_id, mutable));
+                        }
+                        TopLevelDef::Module { .. } => attributes.push((*name, def_id, true)),
                     }
                 }
             }

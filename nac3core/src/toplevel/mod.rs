@@ -96,8 +96,9 @@ pub enum TopLevelDef {
         classes: Vec<(StrRef, DefinitionId)>,
         /// [`DefinitionId`] of [`TopLevelDef::Function`] within the module
         functions: Vec<(StrRef, DefinitionId)>,
-        /// [`DefinitionId`] of [`TopLevelDef::Variable`] within the module
-        attributes: Vec<(StrRef, DefinitionId)>,
+        /// [`DefinitionId`] of [`TopLevelDef::Variable`] within the module, and whether the
+        /// attribute is mutable.
+        attributes: Vec<(StrRef, DefinitionId, bool)>,
         /// Symbol resolver of the module defined the class.
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
         /// Definition location.

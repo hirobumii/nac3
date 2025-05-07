@@ -40,8 +40,8 @@ use crate::{
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{
-            FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap, into_var_map,
-            iter_type_vars,
+            AttrKind, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap,
+            into_var_map, iter_type_vars,
         },
     },
 };
@@ -88,7 +88,7 @@ pub fn get_exn_constructor(
         fields: exception_fields
             .clone()
             .into_iter()
-            .map(|(name, ty, mutable)| (name, (ty, mutable)))
+            .map(|(name, ty, mutable)| (name, (ty, AttrKind::Field { mutable })))
             .collect(),
         params: VarMap::default(),
     });
@@ -199,16 +199,16 @@ struct BuiltinBuilder<'a> {
     unifier: &'a mut Unifier,
     primitives: &'a PrimitiveStore,
 
-    is_some_ty: (Type, bool),
-    unwrap_ty: (Type, bool),
+    is_some_ty: Type,
+    unwrap_ty: Type,
     option_tvar: TypeVar,
 
     list_tvar: TypeVar,
 
     ndarray_dtype_tvar: TypeVar,
     ndarray_ndims_tvar: TypeVar,
-    ndarray_copy_ty: (Type, bool),
-    ndarray_fill_ty: (Type, bool),
+    ndarray_copy_ty: Type,
+    ndarray_fill_ty: Type,
 
     list_int32: Type,
 
@@ -243,7 +243,7 @@ impl<'a> BuiltinBuilder<'a> {
         } = *primitives;
 
         // Option-related
-        let (is_some_ty, unwrap_ty, option_tvar) =
+        let ((is_some_ty, _), (unwrap_ty, _), option_tvar) =
             if let TypeEnum::TObj { fields, params, .. } = unifier.get_ty(option).as_ref() {
                 (
                     *fields.get(&PrimDef::FunOptionIsSome.simple_name().into()).unwrap(),
@@ -261,9 +261,9 @@ impl<'a> BuiltinBuilder<'a> {
         };
         let ndarray_dtype_tvar = iter_type_vars(ndarray_params).next().unwrap();
         let ndarray_ndims_tvar = iter_type_vars(ndarray_params).nth(1).unwrap();
-        let ndarray_copy_ty =
+        let (ndarray_copy_ty, _) =
             *ndarray_fields.get(&PrimDef::FunNDArrayCopy.simple_name().into()).unwrap();
-        let ndarray_fill_ty =
+        let (ndarray_fill_ty, _) =
             *ndarray_fields.get(&PrimDef::FunNDArrayFill.simple_name().into()).unwrap();
 
         let num_ty = unifier.get_fresh_var_with_range(
@@ -754,9 +754,9 @@ impl<'a> BuiltinBuilder<'a> {
                 fields: Vec::default(),
                 attributes: Vec::default(),
                 methods: vec![
-                    Self::create_method(PrimDef::FunOptionIsSome, self.is_some_ty.0),
-                    Self::create_method(PrimDef::FunOptionIsNone, self.is_some_ty.0),
-                    Self::create_method(PrimDef::FunOptionUnwrap, self.unwrap_ty.0),
+                    Self::create_method(PrimDef::FunOptionIsSome, self.is_some_ty),
+                    Self::create_method(PrimDef::FunOptionIsNone, self.is_some_ty),
+                    Self::create_method(PrimDef::FunOptionUnwrap, self.unwrap_ty),
                 ],
                 ancestors: vec![TypeAnnotation::CustomClass {
                     id: prim.id(),
@@ -770,7 +770,7 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::FunOptionUnwrap => TopLevelDef::Function {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
-                signature: self.unwrap_ty.0,
+                signature: self.unwrap_ty,
                 var_id: vec![self.option_tvar.id],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
@@ -784,7 +784,7 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::FunOptionIsNone | PrimDef::FunOptionIsSome => TopLevelDef::Function {
                 name: prim.name().to_string(),
                 simple_name: prim.simple_name().into(),
-                signature: self.is_some_ty.0,
+                signature: self.is_some_ty,
                 var_id: vec![self.option_tvar.id],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
@@ -900,8 +900,8 @@ impl<'a> BuiltinBuilder<'a> {
                 fields: Vec::default(),
                 attributes: Vec::default(),
                 methods: vec![
-                    Self::create_method(PrimDef::FunNDArrayCopy, self.ndarray_copy_ty.0),
-                    Self::create_method(PrimDef::FunNDArrayFill, self.ndarray_fill_ty.0),
+                    Self::create_method(PrimDef::FunNDArrayCopy, self.ndarray_copy_ty),
+                    Self::create_method(PrimDef::FunNDArrayFill, self.ndarray_fill_ty),
                 ],
                 ancestors: Vec::default(),
                 constructor: None,
@@ -912,7 +912,7 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::FunNDArrayCopy => TopLevelDef::Function {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
-                signature: self.ndarray_copy_ty.0,
+                signature: self.ndarray_copy_ty,
                 var_id: vec![self.ndarray_dtype_tvar.id, self.ndarray_ndims_tvar.id],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
@@ -929,7 +929,7 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::FunNDArrayFill => TopLevelDef::Function {
                 name: prim.name().into(),
                 simple_name: prim.simple_name().into(),
-                signature: self.ndarray_fill_ty.0,
+                signature: self.ndarray_fill_ty,
                 var_id: vec![self.ndarray_dtype_tvar.id, self.ndarray_ndims_tvar.id],
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),

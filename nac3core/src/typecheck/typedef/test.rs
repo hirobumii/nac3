@@ -117,7 +117,7 @@ impl TestEnvironment {
             "Foo".into(),
             unifier.add_ty(TypeEnum::TObj {
                 obj_id: DefinitionId(3),
-                fields: [("a".into(), (tvar.ty, true))].into(),
+                fields: [("a".into(), (tvar.ty, AttrKind::Field { mutable: true }))].into(),
                 params: into_var_map([tvar]),
             }),
         );
@@ -371,7 +371,7 @@ fn test_recursive_subst() {
     let foo_id = *env.type_mapping.get("Foo").unwrap();
     let foo_ty = env.unifier.get_ty(foo_id);
     with_fields(&mut env.unifier, foo_id, |_unifier, fields| {
-        fields.insert("rec".into(), (foo_id, true));
+        fields.insert("rec".into(), (foo_id, AttrKind::Field { mutable: true }));
     });
     let TypeEnum::TObj { params, .. } = &*foo_ty else { unreachable!() };
     let mapping = params.iter().map(|(id, _)| (*id, int)).collect();
@@ -394,7 +394,11 @@ fn test_virtual() {
     }));
     let bar = env.unifier.add_ty(TypeEnum::TObj {
         obj_id: DefinitionId(5),
-        fields: [("f".into(), (fun, false)), ("a".into(), (int, false))].into(),
+        fields: [
+            ("f".into(), (fun, AttrKind::Method)),
+            ("a".into(), (int, AttrKind::Field { mutable: false })),
+        ]
+        .into(),
         params: VarMap::new(),
     });
     let v0 = env.unifier.get_dummy_var().ty;
