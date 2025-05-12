@@ -1277,6 +1277,7 @@ impl Nac3 {
             "0:ZeroDivisionError",
             "0:LinAlgError",
             "UnwrapNoneError",
+            "CXPError",
         ];
 
         // Preallocate runtime exception names
