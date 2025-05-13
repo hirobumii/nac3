@@ -2076,7 +2076,7 @@ impl Inferencer<'_> {
                     None => self.infer_general_attribute(value, attr, ctx),
                 }
             }
-            TypeEnum::TModule { attributes, .. } => {
+            TypeEnum::TModule { module_id, attributes } => {
                 match (attributes.get(&attr), ctx == ExprContext::Load) {
                     (Some((ty, _)), true) | (Some((ty, false)), false) => Ok(*ty),
                     (Some((ty, true)), false) => report_type_error(
@@ -2084,11 +2084,39 @@ impl Inferencer<'_> {
                         Some(value.location),
                         self.unifier,
                     ),
-                    (None, _) => report_type_error(
-                        TypeErrorKind::NoSuchField(RecordKey::Str(attr), ty),
-                        Some(value.location),
-                        self.unifier,
-                    ),
+                    (None, _) => {
+                        // `attr` may not be present in the module attributes list because it is
+                        // not annotated `Kernel`. Try to fallback to the module symbol resolver
+                        // to lookup the symbol type.
+
+                        let top_level_defs =
+                            self.top_level.definitions.read().iter().cloned().collect_vec();
+
+                        let tld = &top_level_defs[module_id.0];
+                        let TopLevelDef::Module { resolver, .. } = &*tld.read() else {
+                            unreachable!(
+                                "Expected TopLevelDef[{}] to be a TModule, but got {tld:?}",
+                                module_id.0
+                            );
+                        };
+
+                        if let Some(resolver) = resolver {
+                            resolver
+                                .get_symbol_type(
+                                    self.unifier,
+                                    &top_level_defs,
+                                    self.primitives,
+                                    attr,
+                                )
+                                .map_err(|err| HashSet::from([err]))
+                        } else {
+                            report_type_error(
+                                TypeErrorKind::NoSuchField(RecordKey::Str(attr), ty),
+                                Some(value.location),
+                                self.unifier,
+                            )
+                        }
+                    }
                 }
             }
             _ => self.infer_general_attribute(value, attr, ctx),
