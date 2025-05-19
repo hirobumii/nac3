@@ -1266,29 +1266,23 @@ fn is_decor_fn_same(
     Ok(decor_fn_ids.contains(&fn_id))
 }
 
-fn link_with_lld(elf_filename: String, obj_filename: String) -> PyResult<()> {
-    let linker_args = vec![
-        "-shared".to_string(),
-        "--eh-frame-hdr".to_string(),
-        "-x".to_string(),
-        "-o".to_string(),
-        elf_filename,
-        obj_filename,
-    ];
+fn link_with_lld(elf_filename: &str, obj_filename: &str) -> PyResult<()> {
+    let linker_args = ["-shared", "--eh-frame-hdr", "-x", "-o", elf_filename, obj_filename];
 
     #[cfg(not(windows))]
     let lld_command = "ld.lld";
     #[cfg(windows)]
     let lld_command = "ld.lld.exe";
-    if let Ok(linker_status) = Command::new(lld_command).args(linker_args).status() {
-        if !linker_status.success() {
-            return Err(CompileError::new_err("failed to start linker"));
+    match Command::new(lld_command).args(linker_args).status() {
+        Ok(linker_status) => {
+            if linker_status.success() {
+                Ok(())
+            } else {
+                Err(CompileError::new_err("linker returned non-zero status code"))
+            }
         }
-    } else {
-        return Err(CompileError::new_err("linker returned non-zero status code"));
+        Err(err) => Err(CompileError::new_err(format!("failed to start linker: {err}"))),
     }
-
-    Ok(())
 }
 
 fn add_exceptions(
@@ -1600,8 +1594,8 @@ impl Nac3 {
                     .write_to_file(module, FileType::Object, &working_directory.join("module.o"))
                     .expect("couldn't write module to file");
                 link_with_lld(
-                    filename.to_string(),
-                    working_directory.join("module.o").to_string_lossy().to_string(),
+                    filename,
+                    working_directory.join("module.o").to_string_lossy().to_string().as_str(),
                 )?;
                 Ok(())
             } else {
@@ -1643,8 +1637,8 @@ impl Nac3 {
                 let filename_path = self.working_directory.path().join("module.elf");
                 let filename = filename_path.to_str().unwrap();
                 link_with_lld(
-                    filename.to_string(),
-                    working_directory.join("module.o").to_string_lossy().to_string(),
+                    filename,
+                    working_directory.join("module.o").to_string_lossy().to_string().as_str(),
                 )?;
 
                 Ok(PyBytes::new(py, &fs::read(filename).unwrap()).into())
