@@ -44,7 +44,7 @@ use nac3core::{
         targets::{FileType, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple},
     },
     nac3parser::{
-        ast::{self, Constant, ExprKind, Located, Stmt, StmtKind, StrRef},
+        ast::{self, Constant, ExprKind, FileName, Located, Stmt, StmtKind, StrRef},
         parser::parse_program,
     },
     symbol_resolver::SymbolResolver,
@@ -240,11 +240,6 @@ impl Nac3 {
                 PyModule::import(py, "builtins").unwrap().getattr("id").unwrap().unbind()
             })
         });
-        let get_type_hints_fn = LazyCell::new(|| {
-            Python::with_gil(|py| {
-                PyModule::import(py, "typing").unwrap().getattr("get_type_hints").unwrap().unbind()
-            })
-        });
 
         for mut stmt in parser_result {
             let include = match stmt.node {
@@ -306,23 +301,14 @@ impl Nac3 {
 
                 // Allow global variable declaration with `Kernel` or `KernelInvariant` type annotation
                 StmtKind::AnnAssign { ref target, .. } => match &target.node {
-                    ExprKind::Name { id, .. } => Python::with_gil(|py| {
-                        let py_type_hints =
-                            get_type_hints_fn.bind(py).call1((module.bind(py),)).unwrap();
-                        let py_type_hints = py_type_hints.downcast::<PyDict>().unwrap();
-                        let var_type_hint =
-                            py_type_hints.get_item(id.to_string().as_str()).unwrap().unwrap();
-                        let var_type = var_type_hint.getattr_opt("__origin__").unwrap();
-                        if let Some(var_type) = var_type {
-                            let var_type_id = id_fn.bind(py).call1((var_type,)).unwrap();
-                            let var_type_id = var_type_id.extract::<u64>().unwrap();
-
-                            [self.primitive_ids.kernel, self.primitive_ids.kernel_invariant]
-                                .contains(&var_type_id)
-                        } else {
-                            false
-                        }
-                    }),
+                    ExprKind::Name { id, .. } => Python::with_gil(|py| -> PyResult<bool> {
+                        is_attr_ann_same(
+                            *id,
+                            module.bind(py).downcast()?,
+                            None,
+                            self.primitive_ids.kernel,
+                        )
+                    })?,
                     _ => false,
                 },
                 _ => false,
@@ -476,27 +462,56 @@ impl Nac3 {
         link_fn: &dyn Fn(&Module) -> PyResult<T>,
     ) -> PyResult<T> {
         let size_t = self.isa.get_size_type(&Context::create());
+
+        // Cache all imported modules indexed by their path for symbol resolution context; We assume
+        // that the set of imported modules is constant during method compilation.
+        let modules_by_path = LazyCell::new(|| {
+            let sys = PyModule::import(py, "sys").unwrap();
+
+            let sys_modules = sys
+                .getattr("modules")
+                .and_then(|modules| Ok(modules.downcast_into::<PyDict>()?))
+                .and_then(|modules| modules.extract::<HashMap<String, PyObject>>())
+                .unwrap();
+
+            sys_modules
+                .into_values()
+                .filter_map(|module| {
+                    module.bind(py).getattr_opt("__file__").unwrap().map(|file| {
+                        (
+                            FileName::from(file.extract::<String>().unwrap()),
+                            module.bind(py).clone().downcast_into::<PyModule>().unwrap().unbind(),
+                        )
+                    })
+                })
+                .collect::<HashMap<_, _>>()
+        });
+
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
             self.builtins.clone(),
             Self::get_lateinit_builtins(),
             ComposerConfig {
-                has_kernel_ann_fn: Some(Box::new(|_, _, ann| {
-                    Ok(matches!(
-                        &ann.node,
-                        ExprKind::Subscript { value, .. } if matches!(
-                            &value.node,
-                            ExprKind::Name { id, .. } if id == &"Kernel".into()
+                has_kernel_ann_fn: Some(Box::new(|attr, class_tld, ann| {
+                    Python::with_gil(|py| {
+                        is_attr_ann_same(
+                            attr,
+                            modules_by_path[&ann.location.file].bind(py),
+                            class_tld,
+                            self.primitive_ids.kernel,
                         )
-                    ))
+                    })
+                    .map_err(|e| e.to_string())
                 })),
-                has_invariant_ann_fn: Box::new(|_, _, ann| {
-                    Ok(matches!(
-                        &ann.node,
-                        ExprKind::Subscript { value, .. } if matches!(
-                            &value.node,
-                            ExprKind::Name { id, .. } if id == &"KernelInvariant".into()
+                has_invariant_ann_fn: Box::new(|attr, class_tld, ann| {
+                    Python::with_gil(|py| {
+                        is_attr_ann_same(
+                            attr,
+                            modules_by_path[&ann.location.file].bind(py),
+                            class_tld,
+                            self.primitive_ids.kernel_invariant,
                         )
-                    ))
+                    })
+                    .map_err(|e| e.to_string())
                 }),
             },
             size_t,
@@ -1085,6 +1100,43 @@ fn decorator_get_flags(decorator: &Located<ExprKind>) -> Vec<Constant> {
         }
     }
     flags
+}
+
+/// Returns the original type of a type hint for a given `attr` in the `ctx` context.
+fn get_attr_type_hint<'py>(
+    attr: StrRef,
+    ctx: &Bound<'py, PyAny>,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    ctx.getattr("__annotations__")?
+        .downcast_into::<PyDict>()?
+        .get_item(attr.to_string())?
+        .map_or(Ok(None), |ann| ann.getattr_opt("__origin__"))
+}
+
+/// Checks whether the type hint for `{module}{.class_tld}.{attr}` refers to the same class as the
+/// one with the given `class_id`.
+fn is_attr_ann_same(
+    attr: StrRef,
+    module: &Bound<'_, PyModule>,
+    class_tld: Option<&TopLevelDef>,
+    class_id: u64,
+) -> PyResult<bool> {
+    let id_ctx = if let Some(class_tld) = class_tld {
+        let TopLevelDef::Class { simple_name, .. } = class_tld else { unreachable!() };
+
+        module.getattr(simple_name)?
+    } else {
+        module.clone().into_any()
+    };
+
+    get_attr_type_hint(attr, &id_ctx)?.map_or(Ok(false), |var_type| -> PyResult<bool> {
+        let id_fn = PyModule::import(module.py(), "builtins")?.getattr("id")?;
+
+        let var_type_id = id_fn.call1((var_type,))?;
+        let var_type_id = var_type_id.extract::<u64>()?;
+
+        Ok(var_type_id == class_id)
+    })
 }
 
 fn link_with_lld(elf_filename: String, obj_filename: String) -> PyResult<()> {

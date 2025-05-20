@@ -3,7 +3,7 @@ use std::{cmp::Ordering, fmt};
 
 use crate::StrRef;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FileName(pub StrRef);
 impl Default for FileName {
     fn default() -> Self {

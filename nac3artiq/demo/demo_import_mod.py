@@ -1,12 +1,12 @@
-from min_artiq import kernel, KernelInvariant, compile
+from min_artiq import kernel, compile
 import min_artiq as artiq
 
 
 @compile
 class Demo:
-    core: KernelInvariant[artiq.Core]
-    led0: KernelInvariant[artiq.TTLOut]
-    led1: KernelInvariant[artiq.TTLOut]
+    core: artiq.KernelInvariant[artiq.Core]
+    led0: artiq.KernelInvariant[artiq.TTLOut]
+    led1: artiq.KernelInvariant[artiq.TTLOut]
 
     def __init__(self):
         self.core = artiq.Core()
