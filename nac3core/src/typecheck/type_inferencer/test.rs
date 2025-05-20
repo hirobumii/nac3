@@ -324,6 +324,7 @@ impl TestEnvironment {
             top_level_defs.push(
                 RwLock::new(TopLevelDef::Class {
                     name: (*name).into(),
+                    simple_name: (*name).to_string(),
                     object_id: DefinitionId(i),
                     type_vars: Vec::default(),
                     fields: Vec::default(),
@@ -368,6 +369,7 @@ impl TestEnvironment {
         top_level_defs.push(
             RwLock::new(TopLevelDef::Class {
                 name: "Foo".into(),
+                simple_name: "Foo".to_string(),
                 object_id: DefinitionId(defs + 1),
                 type_vars: vec![tvar.ty],
                 fields: [("a".into(), tvar.ty, true)].into(),
@@ -403,6 +405,7 @@ impl TestEnvironment {
         top_level_defs.push(
             RwLock::new(TopLevelDef::Class {
                 name: "Bar".into(),
+                simple_name: "Bar".to_string(),
                 object_id: DefinitionId(defs + 2),
                 type_vars: Vec::default(),
                 fields: [("a".into(), int32, true), ("b".into(), fun, true)].into(),
@@ -432,6 +435,7 @@ impl TestEnvironment {
         top_level_defs.push(
             RwLock::new(TopLevelDef::Class {
                 name: "Bar2".into(),
+                simple_name: "Bar2".to_string(),
                 object_id: DefinitionId(defs + 3),
                 type_vars: Vec::default(),
                 fields: [("a".into(), bool, true), ("b".into(), fun, false)].into(),

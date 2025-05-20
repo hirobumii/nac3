@@ -241,6 +241,10 @@ impl TopLevelComposer {
         }
         let module_def = TopLevelDef::Module {
             name: module_name.to_string().into(),
+            simple_name: module_name
+                .rsplit_once('.')
+                .map_or(module_name, |(_, nme)| nme)
+                .to_string(),
             module_id: DefinitionId(self.definition_ast_list.len()),
             methods,
             attributes,

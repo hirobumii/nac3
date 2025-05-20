@@ -110,6 +110,7 @@ pub fn get_exn_constructor(
     };
     let class_def = TopLevelDef::Class {
         name: name.into(),
+        simple_name: name.rsplit_once('.').map_or(name, |(_, nme)| nme).to_string(),
         object_id: DefinitionId(class_id),
         type_vars: Vec::default(),
         fields: exception_fields,
@@ -571,6 +572,11 @@ impl<'a> BuiltinBuilder<'a> {
 
                 TopLevelDef::Class {
                     name: prim.name().into(),
+                    simple_name: prim
+                        .name()
+                        .rsplit_once('.')
+                        .map_or(prim.name(), |(_, nme)| nme)
+                        .to_string(),
                     object_id: prim.id(),
                     type_vars: Vec::default(),
                     fields,
@@ -703,6 +709,11 @@ impl<'a> BuiltinBuilder<'a> {
         match prim {
             PrimDef::Exception => TopLevelDef::Class {
                 name: prim.name().into(),
+                simple_name: prim
+                    .name()
+                    .rsplit_once('.')
+                    .map_or(prim.name(), |(_, nme)| nme)
+                    .to_string(),
                 object_id: prim.id(),
                 type_vars: Vec::default(),
                 fields: make_exception_fields(int32, int64, str),
@@ -733,6 +744,11 @@ impl<'a> BuiltinBuilder<'a> {
         match prim {
             PrimDef::Option => TopLevelDef::Class {
                 name: prim.name().into(),
+                simple_name: prim
+                    .name()
+                    .rsplit_once('.')
+                    .map_or(prim.name(), |(_, nme)| nme)
+                    .to_string(),
                 object_id: prim.id(),
                 type_vars: vec![self.option_tvar.ty],
                 fields: Vec::default(),
@@ -844,6 +860,11 @@ impl<'a> BuiltinBuilder<'a> {
         match prim {
             PrimDef::List => TopLevelDef::Class {
                 name: prim.name().into(),
+                simple_name: prim
+                    .name()
+                    .rsplit_once('.')
+                    .map_or(prim.name(), |(_, nme)| nme)
+                    .to_string(),
                 object_id: prim.id(),
                 type_vars: vec![self.list_tvar.ty],
                 fields: Vec::default(),
@@ -869,6 +890,11 @@ impl<'a> BuiltinBuilder<'a> {
         match prim {
             PrimDef::NDArray => TopLevelDef::Class {
                 name: prim.name().into(),
+                simple_name: prim
+                    .name()
+                    .rsplit_once('.')
+                    .map_or(prim.name(), |(_, nme)| nme)
+                    .to_string(),
                 object_id: prim.id(),
                 type_vars: vec![self.ndarray_dtype_tvar.ty, self.ndarray_ndims_tvar.ty],
                 fields: Vec::default(),

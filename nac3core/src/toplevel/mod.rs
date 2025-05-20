@@ -88,6 +88,8 @@ pub enum TopLevelDef {
     Module {
         /// Name of the module
         name: StrRef,
+        /// Simple name of the module.
+        simple_name: String,
         /// Module ID used for [`TypeEnum`]
         module_id: DefinitionId,
         /// `DefinitionId` of `TopLevelDef::{Class, Function}` within the module
@@ -102,6 +104,8 @@ pub enum TopLevelDef {
     Class {
         /// Name for error messages and symbols.
         name: StrRef,
+        /// Simple name of the module.
+        simple_name: String,
         /// Object ID used for [`TypeEnum`].
         object_id: DefinitionId,
         /// type variables bounded to the class.

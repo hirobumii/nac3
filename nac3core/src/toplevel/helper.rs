@@ -614,6 +614,10 @@ impl TopLevelComposer {
     ) -> TopLevelDef {
         TopLevelDef::Class {
             name,
+            simple_name: {
+                let name = name.to_string();
+                name.rsplit_once('.').map(|(_, nme)| nme.to_string()).unwrap_or(name)
+            },
             object_id: obj_id,
             type_vars: Vec::default(),
             fields: Vec::default(),
