@@ -2073,11 +2073,7 @@ impl<'a> TopLevelComposer<'a> {
                             .core_config
                             .has_kernel_ann(*simple_name, None, ty_decl)
                             .map_err(|err| HashSet::from([err]))?
-                            .unwrap_or_default()
-                            || self
-                                .core_config
-                                .has_invariant_ann(*simple_name, None, ty_decl)
-                                .map_err(|err| HashSet::from([err]))? =>
+                            .unwrap_or_default() =>
                     {
                         slice
                     }

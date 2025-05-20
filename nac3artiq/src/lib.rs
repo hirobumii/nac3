@@ -299,7 +299,7 @@ impl Nac3 {
                     })
                 }
 
-                // Allow global variable declaration with `Kernel` or `KernelInvariant` type annotation
+                // Allow global variable declaration with `Kernel` type annotation
                 StmtKind::AnnAssign { ref target, .. } => match &target.node {
                     ExprKind::Name { id, .. } => Python::with_gil(|py| -> PyResult<bool> {
                         is_attr_ann_same(
