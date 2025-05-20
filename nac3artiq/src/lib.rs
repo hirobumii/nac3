@@ -479,7 +479,26 @@ impl Nac3 {
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
             self.builtins.clone(),
             Self::get_lateinit_builtins(),
-            ComposerConfig { kernel_ann: Some("Kernel"), kernel_invariant_ann: "KernelInvariant" },
+            ComposerConfig {
+                has_kernel_ann_fn: Some(Box::new(|_, _, ann| {
+                    Ok(matches!(
+                        &ann.node,
+                        ExprKind::Subscript { value, .. } if matches!(
+                            &value.node,
+                            ExprKind::Name { id, .. } if id == &"Kernel".into()
+                        )
+                    ))
+                })),
+                has_invariant_ann_fn: Box::new(|_, _, ann| {
+                    Ok(matches!(
+                        &ann.node,
+                        ExprKind::Subscript { value, .. } if matches!(
+                            &value.node,
+                            ExprKind::Name { id, .. } if id == &"KernelInvariant".into()
+                        )
+                    ))
+                }),
+            },
             size_t,
         );
 

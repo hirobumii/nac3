@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use parking_lot::RwLock;
 
-use nac3parser::ast::{self, Expr, ExprKind, Ident, StrRef, fold::Fold};
+use nac3parser::ast::{self, Expr, ExprKind, Ident, Located, StrRef, fold::Fold};
 
 use super::{
     DefinitionId, FunInstance, GenCall, Location, builtins, get_type_from_type_annotation_kinds,
@@ -25,19 +25,77 @@ use crate::{
     },
 };
 
-pub struct ComposerConfig {
-    pub kernel_ann: Option<&'static str>,
-    pub kernel_invariant_ann: &'static str,
+/// Function type to check if a (possibly nested) symbol is annotated with a given type.
+type IsSymbolAnnotatedFn<'a> =
+    dyn Fn(StrRef, Option<&TopLevelDef>, &Located<ExprKind>) -> Result<bool, String> + 'a;
+
+pub struct ComposerConfig<'a> {
+    /// A function that checks whether a symbol is annotated with a class that indicates a variable
+    /// should be located on-device and mutable, or [`None`] if such a class is not supported.
+    ///
+    /// See [`ComposerConfig::has_kernel_ann`].
+    pub has_kernel_ann_fn: Option<Box<IsSymbolAnnotatedFn<'a>>>,
+
+    /// A function that checks whether a symbol is annotated with a class that indicates a variable
+    /// should be located on-device and immutable.
+    ///
+    /// See [`ComposerConfig::has_invariant_ann`].
+    pub has_invariant_ann_fn: Box<IsSymbolAnnotatedFn<'a>>,
 }
 
-impl Default for ComposerConfig {
+impl ComposerConfig<'_> {
+    /// Checks whether the attribute with `attr_name` with type hint `type_ann` is annotated with a
+    /// class that indicates a variable should be located on-device and mutable, usually
+    /// `Kernel[T]`.
+    ///
+    /// The `attr_name` is resolved within the class `class_ctx` if it is provided, otherwise it is
+    /// resolved in module context.
+    ///
+    /// Returns `Ok(None)` if this functionality is not supported.
+    pub fn has_kernel_ann(
+        &self,
+        attr_name: StrRef,
+        class_ctx: Option<&TopLevelDef>,
+        type_ann: &Located<ExprKind>,
+    ) -> Result<Option<bool>, String> {
+        self.has_kernel_ann_fn.as_ref().map(|f| f(attr_name, class_ctx, type_ann)).transpose()
+    }
+
+    /// Checks whether the attribute with `attr_name` with type hint `type_ann` is annotated with a
+    /// class that indicates a variable should be located on-device and immutable, usually
+    /// `KernelInvariant[T]`.
+    ///
+    /// The `attr_name` is resolved within the class `class_ctx` if it is provided, otherwise it is
+    /// resolved in module context.
+    pub fn has_invariant_ann(
+        &self,
+        attr_name: StrRef,
+        class_ctx: Option<&TopLevelDef>,
+        type_ann: &Located<ExprKind>,
+    ) -> Result<bool, String> {
+        (*self.has_invariant_ann_fn)(attr_name, class_ctx, type_ann)
+    }
+}
+
+impl Default for ComposerConfig<'_> {
     fn default() -> Self {
-        ComposerConfig { kernel_ann: None, kernel_invariant_ann: "Invariant" }
+        ComposerConfig {
+            has_kernel_ann_fn: None,
+            has_invariant_ann_fn: Box::new(|_, _, ann| {
+                Ok(matches!(
+                    &ann.node,
+                    ExprKind::Subscript { value, .. } if matches!(
+                        &value.node,
+                        ExprKind::Name { id, .. } if id == &"KernelInvariant".into()
+                    )
+                ))
+            }),
+        }
     }
 }
 
 pub type DefAst = (Arc<RwLock<TopLevelDef>>, Option<Stmt<()>>);
-pub struct TopLevelComposer {
+pub struct TopLevelComposer<'a> {
     // list of top level definitions, same as top level context
     pub definition_ast_list: Vec<DefAst>,
     // start as a primitive unifier, will add more top_level defs inside
@@ -52,7 +110,7 @@ pub struct TopLevelComposer {
     pub method_class: HashMap<DefinitionId, DefinitionId>,
     // number of built-in function and classes in the definition list, later skip
     pub builtin_num: usize,
-    pub core_config: ComposerConfig,
+    pub core_config: ComposerConfig<'a>,
     /// The size of a native word on the target platform.
     pub size_t: u32,
 }
@@ -65,7 +123,7 @@ pub type BuiltinFuncSpec = (StrRef, FunSignature, Arc<GenCall>);
 /// [`Unifier`].
 pub type BuiltinFuncCreator = dyn Fn(&PrimitiveStore, &mut Unifier) -> BuiltinFuncSpec;
 
-impl TopLevelComposer {
+impl<'a> TopLevelComposer<'a> {
     /// return a composer and things to make a "primitive" symbol resolver, so that the symbol
     /// resolver can later figure out primitive tye definitions when passed a primitive type name
     ///
@@ -78,7 +136,7 @@ impl TopLevelComposer {
     pub fn new(
         builtins: Vec<BuiltinFuncSpec>,
         lateinit_builtins: Vec<Box<BuiltinFuncCreator>>,
-        core_config: ComposerConfig,
+        core_config: ComposerConfig<'a>,
         size_t: u32,
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
         let (primitives_ty, mut unifier) = Self::make_primitives(size_t);
@@ -1033,6 +1091,10 @@ impl TopLevelComposer {
         core_info: (&HashSet<StrRef>, &ComposerConfig),
     ) -> Result<(), HashSet<String>> {
         let (keyword_list, core_config) = core_info;
+
+        // Clone the Class TLD
+        let class_def_tld = class_def.read().clone();
+
         let mut class_def = class_def.write();
         let TopLevelDef::Class {
             object_id,
@@ -1241,23 +1303,17 @@ impl TopLevelComposer {
                                 None => {
                                     // handle Kernel[T], KernelInvariant[T]
                                     let (annotation, mutable) = match &annotation.node {
-                                        ExprKind::Subscript { value, slice, .. }
-                                            if matches!(
-                                                &value.node,
-                                                ast::ExprKind::Name { id, .. } if id == &core_config.kernel_invariant_ann.into()
-                                            ) =>
+                                            ExprKind::Subscript { slice, .. }
+                                        if core_config.has_invariant_ann(*attr, Some(&class_def_tld), annotation).map_err(|err| HashSet::from([err]))? =>
                                         {
                                             (slice, false)
                                         }
-                                        ExprKind::Subscript { value, slice, .. }
-                                            if matches!(
-                                                &value.node,
-                                                ast::ExprKind::Name { id, .. } if core_config.kernel_ann.is_some_and(|c| id == &c.into())
-                                            ) =>
+                                        ExprKind::Subscript { slice, .. }
+                                            if core_config.has_kernel_ann(*attr, Some(&class_def_tld), annotation).map_err(|err| HashSet::from([err]))?.unwrap_or_default() =>
                                         {
                                             (slice, true)
                                         }
-                                        _ if core_config.kernel_ann.is_none() => (annotation, true),
+                                        _ if core_config.has_kernel_ann_fn.is_none() => (annotation, true),
                                         _ => continue, // ignore fields annotated otherwise
                                     };
                                     class_fields_def.push((*attr, dummy_field_type, mutable));
@@ -1268,7 +1324,7 @@ impl TopLevelComposer {
                                     // Class attributes are set as immutable regardless
                                     let (annotation, _) = match &annotation.node {
                                         ExprKind::Subscript { slice, .. } => (slice, false),
-                                        _ if core_config.kernel_ann.is_none() => (annotation, false),
+                                        _ if core_config.has_kernel_ann_fn.is_none() => (annotation, false),
                                         _ => continue,
                                     };
 
@@ -2001,7 +2057,7 @@ impl TopLevelComposer {
         let primitives_store = &self.primitives_ty;
 
         let mut analyze = |variable_def: &Arc<RwLock<TopLevelDef>>| -> Result<_, HashSet<String>> {
-            let TopLevelDef::Variable { ty: dummy_ty, ty_decl, resolver, loc, .. } =
+            let TopLevelDef::Variable { simple_name, ty: dummy_ty, ty_decl, resolver, loc, .. } =
                 &*variable_def.read()
             else {
                 // not top level variable def, skip
@@ -2012,18 +2068,20 @@ impl TopLevelComposer {
 
             if let Some(ty_decl) = ty_decl {
                 let ty_decl = match &ty_decl.node {
-                    ExprKind::Subscript { value, slice, .. }
-                        if matches!(
-                            &value.node,
-                            ast::ExprKind::Name { id, .. } if self.core_config.kernel_ann.is_some_and(|c| id == &c.into()) || id == &self.core_config.kernel_invariant_ann.into()
-                        ) =>
+                    ExprKind::Subscript { slice, .. }
+                        if self
+                            .core_config
+                            .has_kernel_ann(*simple_name, None, ty_decl)
+                            .map_err(|err| HashSet::from([err]))?
+                            .unwrap_or_default()
+                            || self
+                                .core_config
+                                .has_invariant_ann(*simple_name, None, ty_decl)
+                                .map_err(|err| HashSet::from([err]))? =>
                     {
                         slice
                     }
-                    _ if self.core_config.kernel_ann.is_none() => ty_decl,
-                    _ => unreachable!(
-                        "Global variables should be annotated with Kernel[] or KernelInvariant[]"
-                    ), // ignore fields annotated otherwise
+                    _ => ty_decl,
                 };
 
                 let ty_annotation = parse_ast_to_type_annotation_kinds(

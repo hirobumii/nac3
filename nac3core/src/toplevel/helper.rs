@@ -451,7 +451,7 @@ impl TopLevelDef {
     }
 }
 
-impl TopLevelComposer {
+impl TopLevelComposer<'_> {
     #[must_use]
     pub fn make_primitives(size_t: u32) -> (PrimitiveStore, Unifier) {
         let mut unifier = Unifier::new();
