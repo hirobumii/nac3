@@ -1384,63 +1384,57 @@ impl Nac3 {
         let builtins_mod = PyModule::import(py, "builtins").unwrap();
         let id_fn = builtins_mod.getattr("id").unwrap();
 
-        let get_id = |x: &Bound<PyAny>| id_fn.call1((x,)).and_then(|id| id.extract()).unwrap();
-        let get_artiq_builtin = |mod_name: Option<&str>, name: &str| -> Bound<PyAny> {
-            if let Some(mod_name) = mod_name {
+        let get_artiq_builtin_id = |mod_name: Option<&str>, name: &str| -> PyResult<u64> {
+            let dict = if let Some(mod_name) = mod_name {
                 artiq_builtins
-                    .get_item(mod_name)
-                    .unwrap()
+                    .get_item(mod_name)?
                     .unwrap_or_else(|| {
                         panic!("no module key '{mod_name}' present in artiq_builtins")
                     })
-                    .downcast::<PyDict>()
-                    .unwrap()
-                    .get_item(name)
-                    .unwrap()
-                    .unwrap_or_else(|| {
-                        panic!("no key '{name}' present in artiq_builtins.{mod_name}")
-                    })
+                    .downcast_into::<PyDict>()?
             } else {
-                artiq_builtins
-                    .get_item(name)
-                    .unwrap()
-                    .unwrap_or_else(|| panic!("no key '{name}' present in artiq_builtins"))
-            }
+                artiq_builtins.clone()
+            };
+
+            let builtin = dict
+                .get_item(name)?
+                .unwrap_or_else(|| panic!("no key '{name}' present in artiq_builtins"));
+            Ok(id_fn.call1((builtin,)).and_then(|id| id.extract()).unwrap())
         };
 
         let primitive_ids = PrimitivePythonId {
-            virtual_id: get_id(&get_artiq_builtin(Some("artiq"), "virtual")),
+            virtual_id: get_artiq_builtin_id(Some("artiq"), "virtual")?,
             generic_alias: (
-                get_id(&get_artiq_builtin(Some("typing"), "_GenericAlias")),
-                get_id(&get_artiq_builtin(Some("types"), "GenericAlias")),
+                get_artiq_builtin_id(Some("typing"), "_GenericAlias")?,
+                get_artiq_builtin_id(Some("types"), "GenericAlias")?,
             ),
-            none: get_id(&get_artiq_builtin(Some("artiq"), "none")),
-            typevar: get_id(&get_artiq_builtin(Some("typing"), "TypeVar")),
-            const_generic_marker: get_id(&get_artiq_builtin(Some("artiq"), "_ConstGenericMarker")),
-            int: get_id(&get_artiq_builtin(None, "int")),
-            int32: get_id(&get_artiq_builtin(Some("numpy"), "int32")),
-            int64: get_id(&get_artiq_builtin(Some("numpy"), "int64")),
-            uint32: get_id(&get_artiq_builtin(Some("numpy"), "uint32")),
-            uint64: get_id(&get_artiq_builtin(Some("numpy"), "uint64")),
-            bool: get_id(&get_artiq_builtin(None, "bool")),
-            np_bool_: get_id(&get_artiq_builtin(Some("numpy"), "bool_")),
-            string: get_id(&get_artiq_builtin(None, "str")),
-            np_str_: get_id(&get_artiq_builtin(Some("numpy"), "str_")),
-            float: get_id(&get_artiq_builtin(None, "float")),
-            float64: get_id(&get_artiq_builtin(Some("numpy"), "float64")),
-            list: get_id(&get_artiq_builtin(None, "list")),
-            ndarray: get_id(&get_artiq_builtin(Some("numpy"), "ndarray")),
-            tuple: get_id(&get_artiq_builtin(None, "tuple")),
-            exception: get_id(&get_artiq_builtin(None, "Exception")),
-            option: get_id(&get_artiq_builtin(Some("artiq"), "Option")),
-            module: get_id(&get_artiq_builtin(Some("types"), "ModuleType")),
-            kernel: get_id(&get_artiq_builtin(Some("artiq"), "Kernel")),
-            kernel_invariant: get_id(&get_artiq_builtin(Some("artiq"), "KernelInvariant")),
-            compile_decorator: get_id(&get_artiq_builtin(Some("artiq"), "compile")),
-            extern_decorator: get_id(&get_artiq_builtin(Some("artiq"), "extern")),
-            kernel_decorator: get_id(&get_artiq_builtin(Some("artiq"), "kernel")),
-            portable_decorator: get_id(&get_artiq_builtin(Some("artiq"), "portable")),
-            rpc_decorator: get_id(&get_artiq_builtin(Some("artiq"), "rpc")),
+            none: get_artiq_builtin_id(Some("artiq"), "none")?,
+            typevar: get_artiq_builtin_id(Some("typing"), "TypeVar")?,
+            const_generic_marker: get_artiq_builtin_id(Some("artiq"), "_ConstGenericMarker")?,
+            int: get_artiq_builtin_id(None, "int")?,
+            int32: get_artiq_builtin_id(Some("numpy"), "int32")?,
+            int64: get_artiq_builtin_id(Some("numpy"), "int64")?,
+            uint32: get_artiq_builtin_id(Some("numpy"), "uint32")?,
+            uint64: get_artiq_builtin_id(Some("numpy"), "uint64")?,
+            bool: get_artiq_builtin_id(None, "bool")?,
+            np_bool_: get_artiq_builtin_id(Some("numpy"), "bool_")?,
+            string: get_artiq_builtin_id(None, "str")?,
+            np_str_: get_artiq_builtin_id(Some("numpy"), "str_")?,
+            float: get_artiq_builtin_id(None, "float")?,
+            float64: get_artiq_builtin_id(Some("numpy"), "float64")?,
+            list: get_artiq_builtin_id(None, "list")?,
+            ndarray: get_artiq_builtin_id(Some("numpy"), "ndarray")?,
+            tuple: get_artiq_builtin_id(None, "tuple")?,
+            exception: get_artiq_builtin_id(None, "Exception")?,
+            option: get_artiq_builtin_id(Some("artiq"), "Option")?,
+            module: get_artiq_builtin_id(Some("types"), "ModuleType")?,
+            kernel: get_artiq_builtin_id(Some("artiq"), "Kernel")?,
+            kernel_invariant: get_artiq_builtin_id(Some("artiq"), "KernelInvariant")?,
+            compile_decorator: get_artiq_builtin_id(Some("artiq"), "compile")?,
+            extern_decorator: get_artiq_builtin_id(Some("artiq"), "extern")?,
+            kernel_decorator: get_artiq_builtin_id(Some("artiq"), "kernel")?,
+            portable_decorator: get_artiq_builtin_id(Some("artiq"), "portable")?,
+            rpc_decorator: get_artiq_builtin_id(Some("artiq"), "rpc")?,
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
@@ -1556,22 +1550,13 @@ impl Nac3 {
             self.register_module(&module, &class_ids)?;
         }
 
+        let get_special_ids =
+            |name: &str| -> PyResult<u64> { special_ids.get_item(name)?.unwrap().extract::<u64>() };
+
         self.special_ids = SpecialPythonId {
-            parallel: special_ids.get_item("parallel").ok().flatten().unwrap().extract().unwrap(),
-            legacy_parallel: special_ids
-                .get_item("legacy_parallel")
-                .ok()
-                .flatten()
-                .unwrap()
-                .extract()
-                .unwrap(),
-            sequential: special_ids
-                .get_item("sequential")
-                .ok()
-                .flatten()
-                .unwrap()
-                .extract()
-                .unwrap(),
+            parallel: get_special_ids("parallel")?,
+            legacy_parallel: get_special_ids("legacy_parallel")?,
+            sequential: get_special_ids("sequential")?,
         };
 
         Ok(())
