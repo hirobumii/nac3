@@ -13,6 +13,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     io::Write,
+    iter::once,
     path::Path,
     process::Command,
     rc::Rc,
@@ -254,26 +255,24 @@ impl Nac3 {
                     if !nac3_class {
                         continue;
                     }
+
                     // Drop unregistered (i.e. host-only) base classes.
                     bases.retain(|base| {
                         Python::with_gil(|py| -> PyResult<bool> {
-                            match &base.node {
-                                ExprKind::Name { id, .. } => {
-                                    if *id == "Exception".into() {
-                                        Ok(true)
-                                    } else {
-                                        let base_obj =
-                                            module.bind(py).getattr(id.to_string().as_str())?;
-                                        let base_id =
-                                            id_fn.bind(py).call1((base_obj,))?.extract()?;
-                                        Ok(registered_class_ids.contains(&base_id))
-                                    }
-                                }
-                                _ => Ok(true),
-                            }
+                            let Some((path, id)) = class_expr_id_path(base) else {
+                                return Ok(true);
+                            };
+
+                            let module = module.bind(py).downcast::<PyModule>().unwrap();
+                            let base_obj = resolve_qname((path, id), module)?;
+                            let base_id = id_fn.bind(py).call1((base_obj,))?.extract()?;
+
+                            Ok(base_id == self.primitive_ids.exception
+                                || registered_class_ids.contains(&base_id))
                         })
                         .unwrap()
                     });
+
                     body.retain(|stmt| {
                         if let StmtKind::FunctionDef { ref decorator_list, .. } = stmt.node {
                             decorator_list.iter().any(|decorator| {
@@ -1067,6 +1066,22 @@ impl Nac3 {
     }
 }
 
+/// Returns the (possibly qualified) path of a class name expression, or [`None`] if the class name
+/// is not composed of a path.
+///
+/// The returned tuple contains the prefix path and the simple identifier of the class respectively.
+fn class_expr_id_path(class_expr: &Located<ExprKind>) -> Option<(Vec<StrRef>, StrRef)> {
+    match &class_expr.node {
+        ExprKind::Name { id, .. } => Some((Vec::default(), *id)),
+        ExprKind::Attribute { value, attr, .. } => {
+            class_expr_id_path(value).map(|(prefix_path, prefix_attr)| {
+                (prefix_path.into_iter().chain(once(prefix_attr)).collect(), *attr)
+            })
+        }
+        _ => None,
+    }
+}
+
 /// Retrieves the Name.id from a decorator, supports decorators with arguments.
 fn decorator_id_string(decorator: &Located<ExprKind>) -> Option<String> {
     if let ExprKind::Name { id, .. } = decorator.node {
@@ -1100,6 +1115,27 @@ fn decorator_get_flags(decorator: &Located<ExprKind>) -> Vec<Constant> {
         }
     }
     flags
+}
+
+/// Resolves a possibly-qualified name consisting of the prefix `path` and identifier `id` in the
+/// given context `ctx`.
+fn resolve_qname<'py>(
+    (path, id): (Vec<StrRef>, StrRef),
+    ctx: &Bound<'py, PyModule>,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    let resolve_ctx = |(path, id): (&[StrRef], StrRef), ctx: &Bound<'py, PyModule>| {
+        let mut resolution_ctx = ctx.as_any().clone();
+        for id in path {
+            resolution_ctx = resolution_ctx.getattr(id.to_string())?;
+        }
+
+        resolution_ctx.getattr_opt(id.to_string())
+    };
+
+    resolve_ctx((&path, id), ctx)?.map_or_else(
+        || resolve_ctx((&path, id), &PyModule::import(ctx.py(), "builtins")?),
+        |attr| Ok(Some(attr)),
+    )
 }
 
 /// Returns the original type of a type hint for a given `attr` in the `ctx` context.
