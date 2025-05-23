@@ -183,9 +183,9 @@ pub struct SpecialPythonId {
 }
 
 /// An [`IndexMap`] storing the `id()` of values, mapped to a handle of the value itself.
-type PyValueMap = IndexMap<u64, Arc<PyObject>>;
+type PyValueMap = IndexMap<u64, Arc<Py<PyModule>>>;
 
-type TopLevelComponent = (Stmt, String, Arc<PyObject>);
+type TopLevelComponent = (Stmt, String, Arc<Py<PyModule>>);
 
 // TopLevelComposer is unsendable as it holds the unification table, which is
 // unsendable due to Rc. Arc would cause a performance hit.
@@ -212,7 +212,7 @@ create_exception!(nac3artiq, CompileError, exceptions::PyException);
 impl Nac3 {
     fn register_module(
         &mut self,
-        module: &Arc<PyObject>,
+        module: &Arc<Py<PyModule>>,
         registered_class_ids: &HashSet<u64>,
     ) -> PyResult<()> {
         let (module_name, source_file, source) =
@@ -255,7 +255,7 @@ impl Nac3 {
                 StmtKind::ClassDef { ref decorator_list, ref mut body, ref mut bases, .. } => {
                     // Check if the class is a NAC3 class by looking for `compile` decorator
                     let nac3_class = Python::with_gil(|py| {
-                        let module = module.bind(py).downcast::<PyModule>().unwrap();
+                        let module = module.bind(py);
 
                         decorator_list.iter().any(|decorator| {
                             is_decor_fn_same(
@@ -278,7 +278,7 @@ impl Nac3 {
                                 return Ok(true);
                             };
 
-                            let module = module.bind(py).downcast::<PyModule>().unwrap();
+                            let module = module.bind(py);
                             let base_obj = resolve_qname((path, id), module)?;
                             let base_id = id_fn.bind(py).call1((base_obj,))?.extract()?;
 
@@ -291,7 +291,7 @@ impl Nac3 {
                     body.retain(|stmt| {
                         if let StmtKind::FunctionDef { ref decorator_list, .. } = stmt.node {
                             Python::with_gil(|py| {
-                                let module = module.bind(py).downcast::<PyModule>().unwrap();
+                                let module = module.bind(py);
 
                                 // Keep all class functions decorated with `kernel`, `portable`, or `rpc` decorator
                                 decorator_list.iter().any(|decorator| {
@@ -316,7 +316,7 @@ impl Nac3 {
                 }
                 StmtKind::FunctionDef { ref decorator_list, .. } => {
                     Python::with_gil(|py| {
-                        let module = module.bind(py).downcast::<PyModule>().unwrap();
+                        let module = module.bind(py);
 
                         // Keep all top-level functions decorated with `extern`, `kernel`, `portable`, or `rpc` decorator
                         decorator_list.iter().any(|decorator| {
@@ -815,7 +815,7 @@ impl Nac3 {
             id_to_primitive: RwLock::default(),
             field_to_val: RwLock::default(),
             name_to_pyid,
-            module: Arc::new(module.into_py_any(py)?),
+            module: Arc::new(module.unbind()),
             helper: helper.clone(),
             string_store: self.string_store.clone(),
             exception_ids: self.exception_ids.clone(),
@@ -1518,7 +1518,7 @@ impl Nac3 {
     ) -> PyResult<()> {
         let (modules, class_ids) =
             Python::with_gil(|py| -> PyResult<(PyValueMap, HashSet<u64>)> {
-                let mut modules: IndexMap<u64, Arc<PyObject>> = IndexMap::new();
+                let mut modules: IndexMap<u64, Arc<Py<PyModule>>> = IndexMap::new();
                 let mut class_ids: HashSet<u64> = HashSet::new();
 
                 let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
@@ -1529,7 +1529,7 @@ impl Nac3 {
                     if !module.is_none() {
                         modules.insert(
                             id_fn.call1((&module,))?.extract()?,
-                            Arc::new(module.into_py_any(py)?),
+                            Arc::new(module.downcast_into()?.unbind()),
                         );
                     }
                 }
@@ -1538,7 +1538,7 @@ impl Nac3 {
                     if !module.is_none() {
                         modules.insert(
                             id_fn.call1((&module,))?.extract()?,
-                            Arc::new(module.into_py_any(py)?),
+                            Arc::new(module.downcast_into()?.unbind()),
                         );
                     }
                     class_ids.insert(id_fn.call1((&class,))?.extract()?);
@@ -1546,7 +1546,7 @@ impl Nac3 {
                 for module in content_modules {
                     modules.insert(
                         id_fn.call1((&module,))?.extract()?,
-                        Arc::new(module.into_py_any(py)?),
+                        Arc::new(module.downcast_into()?.unbind()),
                     );
                 }
                 Ok((modules, class_ids))

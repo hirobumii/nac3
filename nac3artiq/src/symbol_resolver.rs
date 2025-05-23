@@ -98,7 +98,7 @@ pub struct InnerResolver {
     pub deferred_eval_store: DeferredEvaluationStore,
     // module specific
     pub name_to_pyid: HashMap<StrRef, u64>,
-    pub module: Arc<PyObject>,
+    pub module: Arc<Py<PyModule>>,
 }
 
 impl Debug for InnerResolver {
