@@ -26,7 +26,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyBytes, PyDict, PyNone, PySet},
+    types::{PyBytes, PyDict, PyFunction, PyNone, PySet},
 };
 use tempfile::{self, TempDir};
 
@@ -168,6 +168,11 @@ pub struct PrimitivePythonId {
     module: u64,
     kernel: u64,
     kernel_invariant: u64,
+    compile_decorator: u64,
+    extern_decorator: u64,
+    kernel_decorator: u64,
+    portable_decorator: u64,
+    rpc_decorator: u64,
 }
 
 #[derive(Clone, Default)]
@@ -238,20 +243,30 @@ impl Nac3 {
 
         let id_fn = LazyCell::new(|| {
             Python::with_gil(|py| {
-                PyModule::import(py, "builtins").unwrap().getattr("id").unwrap().unbind()
+                PyModule::import(py, "builtins")
+                    .and_then(|builtins| builtins.getattr("id"))
+                    .unwrap()
+                    .unbind()
             })
         });
 
         for mut stmt in parser_result {
             let include = match stmt.node {
                 StmtKind::ClassDef { ref decorator_list, ref mut body, ref mut bases, .. } => {
-                    let nac3_class = decorator_list.iter().any(|decorator| {
-                        if let ExprKind::Name { id, .. } = decorator.node {
-                            id.to_string() == "compile"
-                        } else {
-                            false
-                        }
+                    // Check if the class is a NAC3 class by looking for `compile` decorator
+                    let nac3_class = Python::with_gil(|py| {
+                        let module = module.bind(py).downcast::<PyModule>().unwrap();
+
+                        decorator_list.iter().any(|decorator| {
+                            is_decor_fn_same(
+                                decorator,
+                                module,
+                                &[self.primitive_ids.compile_decorator],
+                            )
+                            .unwrap()
+                        })
                     });
+
                     if !nac3_class {
                         continue;
                     }
@@ -275,26 +290,48 @@ impl Nac3 {
 
                     body.retain(|stmt| {
                         if let StmtKind::FunctionDef { ref decorator_list, .. } = stmt.node {
-                            decorator_list.iter().any(|decorator| {
-                                if let Some(id) = decorator_id_string(decorator) {
-                                    id == "kernel" || id == "portable" || id == "rpc"
-                                } else {
-                                    false
-                                }
+                            Python::with_gil(|py| {
+                                let module = module.bind(py).downcast::<PyModule>().unwrap();
+
+                                // Keep all class functions decorated with `kernel`, `portable`, or `rpc` decorator
+                                decorator_list.iter().any(|decorator| {
+                                    is_decor_fn_same(
+                                        decorator,
+                                        module,
+                                        &[
+                                            self.primitive_ids.kernel_decorator,
+                                            self.primitive_ids.portable_decorator,
+                                            self.primitive_ids.rpc_decorator,
+                                        ],
+                                    )
+                                    .unwrap()
+                                })
                             })
                         } else {
                             true
                         }
                     });
+
                     true
                 }
                 StmtKind::FunctionDef { ref decorator_list, .. } => {
-                    decorator_list.iter().any(|decorator| {
-                        if let Some(id) = decorator_id_string(decorator) {
-                            id == "extern" || id == "kernel" || id == "portable" || id == "rpc"
-                        } else {
-                            false
-                        }
+                    Python::with_gil(|py| {
+                        let module = module.bind(py).downcast::<PyModule>().unwrap();
+
+                        // Keep all top-level functions decorated with `extern`, `kernel`, `portable`, or `rpc` decorator
+                        decorator_list.iter().any(|decorator| {
+                            is_decor_fn_same(
+                                decorator,
+                                module,
+                                &[
+                                    self.primitive_ids.extern_decorator,
+                                    self.primitive_ids.kernel_decorator,
+                                    self.primitive_ids.portable_decorator,
+                                    self.primitive_ids.rpc_decorator,
+                                ],
+                            )
+                            .unwrap()
+                        })
                     })
                 }
 
@@ -512,6 +549,26 @@ impl Nac3 {
                     })
                     .map_err(|e| e.to_string())
                 }),
+                is_extern_decorator_fn: Box::new(|decorator| {
+                    Python::with_gil(|py| -> PyResult<bool> {
+                        is_decor_fn_same(
+                            decorator,
+                            modules_by_path[&decorator.location.file].bind(py),
+                            &[self.primitive_ids.extern_decorator],
+                        )
+                    })
+                    .map_err(|e| e.to_string())
+                }),
+                is_rpc_decorator_fn: Box::new(|decorator| {
+                    Python::with_gil(|py| -> PyResult<bool> {
+                        is_decor_fn_same(
+                            decorator,
+                            modules_by_path[&decorator.location.file].bind(py),
+                            &[self.primitive_ids.rpc_decorator],
+                        )
+                    })
+                    .map_err(|e| e.to_string())
+                }),
             },
             size_t,
         );
@@ -557,7 +614,7 @@ impl Nac3 {
 
         let mut rpc_ids = vec![];
         for (stmt, path, module) in &self.top_levels {
-            let py_module = module.bind(py);
+            let py_module = module.bind(py).downcast::<PyModule>()?;
             let module_id: u64 = id_fn.call1((py_module,))?.extract()?;
             let module_name: String = py_module.getattr("__name__")?.extract()?;
             let helper = helper.clone();
@@ -630,72 +687,87 @@ impl Nac3 {
             match &stmt.node {
                 StmtKind::FunctionDef { decorator_list, .. } => {
                     for decorator in decorator_list {
-                        if let Some(decorator_str) = decorator_id_string(decorator) {
-                            if decorator_str == "rpc" {
-                                store_fun
-                                    .call1(
-                                        py,
-                                        (
-                                            def_id.0.into_py_any(py)?,
-                                            module
-                                                .bind(py)
-                                                .getattr(name.to_string().as_str())
-                                                .unwrap(),
-                                        ),
-                                    )
-                                    .unwrap();
-                                let is_async = decorator_list.iter().any(|decorator| {
-                                    decorator_get_flags(decorator)
-                                        .iter()
-                                        .any(|constant| *constant == Constant::Str("async".into()))
-                                });
-                                rpc_ids.push((None, def_id, is_async));
-                            } else if decorator_str != "kernel"
-                                && decorator_str != "portable"
-                                && decorator_str != "extern"
-                            {
-                                return Err(CompileError::new_err(format!(
-                                    "compilation failed\n----------\nDecorator {} is not supported (at {})",
-                                    decorator_id_string(decorator).unwrap(),
-                                    stmt.location
-                                )));
-                            }
+                        let decor_fn = get_decorator_fn(decorator, py_module)?;
+                        let decor_fn_id =
+                            id_fn.call1((decor_fn,)).and_then(|id| id.extract::<u64>()).unwrap();
+
+                        if decor_fn_id == self.primitive_ids.rpc_decorator {
+                            store_fun
+                                .call1(
+                                    py,
+                                    (
+                                        def_id.0.into_py_any(py)?,
+                                        py_module.getattr(name.to_string()).unwrap(),
+                                    ),
+                                )
+                                .unwrap();
+                            let is_async = decorator_list
+                                .iter()
+                                .flat_map(decorator_get_flags)
+                                .any(|constant| constant == Constant::Str("async".into()));
+                            rpc_ids.push((None, def_id, is_async));
+                        } else if ![
+                            self.primitive_ids.kernel_decorator,
+                            self.primitive_ids.portable_decorator,
+                            self.primitive_ids.extern_decorator,
+                        ]
+                        .contains(&decor_fn_id)
+                        {
+                            return Err(CompileError::new_err(format!(
+                                "compilation failed\n----------\nDecorator {} is not supported (at {})",
+                                decor_expr_id_path(decorator)
+                                    .map(|(path, id)| path.iter().chain(once(&id)).join("."))
+                                    .unwrap(),
+                                stmt.location
+                            )));
                         }
                     }
                 }
                 StmtKind::ClassDef { name, body, .. } => {
                     let class_name = name.to_string();
-                    let class_obj = module.bind(py).getattr(class_name.as_str()).unwrap();
+                    let class_obj = py_module.getattr(class_name.as_str()).unwrap();
                     for stmt in body {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
                             for decorator in decorator_list {
-                                if let Some(decorator_str) = decorator_id_string(decorator) {
-                                    if decorator_str == "rpc" {
-                                        let is_async = decorator_list.iter().any(|decorator| {
-                                            decorator_get_flags(decorator).iter().any(|constant| {
-                                                *constant == Constant::Str("async".into())
-                                            })
-                                        });
-                                        if name == &"__init__".into() {
-                                            return Err(CompileError::new_err(format!(
-                                                "compilation failed\n----------\nThe constructor of class {} should not be decorated with rpc decorator (at {})",
-                                                class_name, stmt.location
-                                            )));
-                                        }
-                                        rpc_ids.push((
-                                            Some((class_obj.clone(), *name)),
-                                            def_id,
-                                            is_async,
-                                        ));
-                                    } else if decorator_str != "kernel"
-                                        && decorator_str != "portable"
-                                    {
+                                let decor_fn = get_decorator_fn(decorator, py_module)?;
+                                let decor_fn_id = id_fn
+                                    .call1((decor_fn,))
+                                    .and_then(|id| id.extract::<u64>())
+                                    .unwrap();
+
+                                if decor_fn_id == self.primitive_ids.rpc_decorator {
+                                    if name == &"__init__".into() {
                                         return Err(CompileError::new_err(format!(
-                                            "compilation failed\n----------\nDecorator {} is not supported (at {})",
-                                            decorator_id_string(decorator).unwrap(),
-                                            stmt.location
+                                            "compilation failed\n----------\nThe constructor of class {} should not be decorated with rpc decorator (at {})",
+                                            class_name, stmt.location
                                         )));
                                     }
+
+                                    let is_async = decorator_list
+                                        .iter()
+                                        .flat_map(decorator_get_flags)
+                                        .any(|constant| constant == Constant::Str("async".into()));
+                                    rpc_ids.push((
+                                        Some((class_obj.clone(), *name)),
+                                        def_id,
+                                        is_async,
+                                    ));
+                                } else if ![
+                                    self.primitive_ids.kernel_decorator,
+                                    self.primitive_ids.portable_decorator,
+                                ]
+                                .contains(&decor_fn_id)
+                                {
+                                    return Err(CompileError::new_err(format!(
+                                        "compilation failed\n----------\nDecorator {} is not supported (at {})",
+                                        decor_expr_id_path(decorator)
+                                            .map(|(path, id)| path
+                                                .iter()
+                                                .chain(once(&id))
+                                                .join("."))
+                                            .unwrap(),
+                                        stmt.location
+                                    )));
                                 }
                             }
                         }
@@ -1082,19 +1154,30 @@ fn class_expr_id_path(class_expr: &Located<ExprKind>) -> Option<(Vec<StrRef>, St
     }
 }
 
-/// Retrieves the Name.id from a decorator, supports decorators with arguments.
-fn decorator_id_string(decorator: &Located<ExprKind>) -> Option<String> {
-    if let ExprKind::Name { id, .. } = decorator.node {
-        // Bare decorator
-        return Some(id.to_string());
-    } else if let ExprKind::Call { func, .. } = &decorator.node {
-        // Decorators that are calls (e.g. "@rpc()") have Call for the node,
-        // need to extract the id from within.
-        if let ExprKind::Name { id, .. } = func.node {
-            return Some(id.to_string());
+/// Returns the (possibly qualified) path of a decorator function, or [`None`] if the decorator is
+/// not composed of a path.
+///
+/// The returned tuple contains the prefix path and the simple identifier of the decorator
+/// respectively.
+fn decor_expr_id_path(decor_expr: &Located<ExprKind>) -> Option<(Vec<StrRef>, StrRef)> {
+    match &decor_expr.node {
+        ExprKind::Name { id, .. } => {
+            // Bare decorator
+            Some((Vec::default(), *id))
         }
+        ExprKind::Attribute { value, attr, .. } => {
+            // Path-qualified decorator
+            decor_expr_id_path(value).map(|(prefix_path, prefix_attr)| {
+                (prefix_path.into_iter().chain(once(prefix_attr)).collect(), *attr)
+            })
+        }
+        ExprKind::Call { func, .. } => {
+            // Decorators that are calls (e.g. "@rpc()") have Call for the node,
+            // need to extract the id from within.
+            decor_expr_id_path(func)
+        }
+        _ => None,
     }
-    None
 }
 
 /// Retrieves flags from a decorator, if any.
@@ -1138,6 +1221,18 @@ fn resolve_qname<'py>(
     )
 }
 
+/// Returns the original function of the given `decorator` in the `ctx` context.
+fn get_decorator_fn<'py>(
+    decorator: &Located<ExprKind>,
+    ctx: &Bound<'py, PyModule>,
+) -> PyResult<Option<Bound<'py, PyFunction>>> {
+    let Some((path, id)) = decor_expr_id_path(decorator) else {
+        return Ok(None);
+    };
+
+    resolve_qname((path, id), ctx)?.map(|decor_fn| Ok(decor_fn.downcast_into()?)).transpose()
+}
+
 /// Returns the original type of a type hint for a given `attr` in the `ctx` context.
 fn get_attr_type_hint<'py>(
     attr: StrRef,
@@ -1173,6 +1268,21 @@ fn is_attr_ann_same(
 
         Ok(var_type_id == class_id)
     })
+}
+
+/// Checks whether the decorator expression in the `module` context refers to the same function
+/// as any function in `decor_fn_ids`.
+fn is_decor_fn_same(
+    decorator: &Located<ExprKind>,
+    module: &Bound<'_, PyModule>,
+    decor_fn_ids: &[u64],
+) -> PyResult<bool> {
+    let id_fn = PyModule::import(module.py(), "builtins")?.getattr("id")?;
+
+    let decor_fn = get_decorator_fn(decorator, module)?;
+    let fn_id = id_fn.call1((decor_fn,))?.extract::<u64>()?;
+
+    Ok(decor_fn_ids.contains(&fn_id))
 }
 
 fn link_with_lld(elf_filename: String, obj_filename: String) -> PyResult<()> {
@@ -1351,6 +1461,11 @@ impl Nac3 {
             module: get_id(&get_artiq_builtin(Some("types"), "ModuleType")),
             kernel: get_id(&get_artiq_builtin(Some("artiq"), "Kernel")),
             kernel_invariant: get_id(&get_artiq_builtin(Some("artiq"), "KernelInvariant")),
+            compile_decorator: get_id(&get_artiq_builtin(Some("artiq"), "compile")),
+            extern_decorator: get_id(&get_artiq_builtin(Some("artiq"), "extern")),
+            kernel_decorator: get_id(&get_artiq_builtin(Some("artiq"), "kernel")),
+            portable_decorator: get_id(&get_artiq_builtin(Some("artiq"), "portable")),
+            rpc_decorator: get_id(&get_artiq_builtin(Some("artiq"), "rpc")),
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();

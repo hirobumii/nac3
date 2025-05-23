@@ -82,50 +82,6 @@ def ceil64(x):
     return ceil(x)
 
 
-import device_db
-core_arguments = device_db.device_db["core"]["arguments"]
-
-builtins = {
-    "int": int,
-    "float": float,
-    "bool": bool,
-    "str": str,
-    "list": list,
-    "tuple": tuple,
-    "Exception": Exception,
-
-    "types": {
-        "GenericAlias": GenericAlias,
-        "ModuleType": ModuleType,
-    },
-
-    "typing": {
-        "_GenericAlias": _GenericAlias,
-        "TypeVar": TypeVar,
-    },
-
-    "numpy": {
-        "int32": int32,
-        "int64": int64,
-        "uint32": uint32,
-        "uint64": uint64,
-        "float64": float64,
-        "bool_": bool_,
-        "str_": str_,
-        "ndarray": ndarray,
-    },
-
-    "artiq": {
-        "Kernel": Kernel,
-        "KernelInvariant": KernelInvariant,
-        "_ConstGenericMarker": _ConstGenericMarker,
-        "none": none,
-        "virtual": virtual,
-        "Option": Option,
-    },
-}
-compiler = nac3artiq.NAC3(core_arguments["target"], builtins)
-allow_registration = True
 # Delay NAC3 analysis until all referenced variables are supposed to exist on the CPython side.
 registered_functions = set()
 registered_classes = set()
@@ -183,6 +139,60 @@ def compile(cls):
     """
     register_class(cls)
     return cls
+
+
+import device_db
+core_arguments = device_db.device_db["core"]["arguments"]
+
+builtins = {
+    "int": int,
+    "float": float,
+    "bool": bool,
+    "str": str,
+    "list": list,
+    "tuple": tuple,
+    "Exception": Exception,
+
+    "types": {
+        "GenericAlias": GenericAlias,
+        "ModuleType": ModuleType,
+    },
+
+    "typing": {
+        "_GenericAlias": _GenericAlias,
+        "TypeVar": TypeVar,
+    },
+
+    "numpy": {
+        "int32": int32,
+        "int64": int64,
+        "uint32": uint32,
+        "uint64": uint64,
+        "float64": float64,
+        "bool_": bool_,
+        "str_": str_,
+        "ndarray": ndarray,
+    },
+
+    "artiq": {
+        "Kernel": Kernel,
+        "KernelInvariant": KernelInvariant,
+        "_ConstGenericMarker": _ConstGenericMarker,
+        "none": none,
+        "virtual": virtual,
+        "Option": Option,
+
+        # Decorator functions
+        "compile": compile,
+        "extern": extern,
+        "kernel": kernel,
+        "portable": portable,
+        "rpc": rpc,
+    },
+}
+
+compiler = nac3artiq.NAC3(core_arguments["target"], builtins)
+allow_registration = True
 
 
 ms = 1e-3

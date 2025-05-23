@@ -1,8 +1,7 @@
-from min_artiq import kernel, compile
 import min_artiq as artiq
 
 
-@compile
+@artiq.compile
 class Demo:
     core: artiq.KernelInvariant[artiq.Core]
     led0: artiq.KernelInvariant[artiq.TTLOut]
@@ -13,7 +12,7 @@ class Demo:
         self.led0 = artiq.TTLOut(self.core, 18)
         self.led1 = artiq.TTLOut(self.core, 19)
 
-    @kernel
+    @artiq.kernel
     def run(self):
         self.core.reset()
         while True:
