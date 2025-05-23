@@ -69,6 +69,7 @@ use timeline::TimeFns;
 
 mod codegen;
 mod debug;
+mod py_interp;
 mod symbol_resolver;
 mod timeline;
 
@@ -182,9 +183,6 @@ pub struct SpecialPythonId {
     sequential: u64,
 }
 
-/// An [`IndexMap`] storing the `id()` of values, mapped to a handle of the value itself.
-type PyValueMap = IndexMap<u64, Arc<Py<PyModule>>>;
-
 type TopLevelComponent = (Stmt, String, Arc<Py<PyModule>>);
 
 // TopLevelComposer is unsendable as it holds the unification table, which is
@@ -241,15 +239,6 @@ impl Nac3 {
         let parser_result = parse_program(&source, source_file.into())
             .map_err(|e| exceptions::PySyntaxError::new_err(format!("parse error: {e}")))?;
 
-        let id_fn = LazyCell::new(|| {
-            Python::with_gil(|py| {
-                PyModule::import(py, "builtins")
-                    .and_then(|builtins| builtins.getattr("id"))
-                    .unwrap()
-                    .unbind()
-            })
-        });
-
         for mut stmt in parser_result {
             let include = match stmt.node {
                 StmtKind::ClassDef { ref decorator_list, ref mut body, ref mut bases, .. } => {
@@ -279,8 +268,10 @@ impl Nac3 {
                             };
 
                             let module = module.bind(py);
-                            let base_obj = resolve_qname((path, id), module)?;
-                            let base_id = id_fn.bind(py).call1((base_obj,))?.extract()?;
+                            let Some(base_obj) = resolve_qname((path, id), module)? else {
+                                return Ok(false);
+                            };
+                            let base_id = py_interp::extract_id(&base_obj)?;
 
                             Ok(base_id == self.primitive_ids.exception
                                 || registered_class_ids.contains(&base_id))
@@ -490,15 +481,8 @@ impl Nac3 {
         // Cache all imported modules indexed by their path for symbol resolution context; We assume
         // that the set of imported modules is constant during method compilation.
         let modules_by_path = LazyCell::new(|| {
-            let sys = PyModule::import(py, "sys").unwrap();
-
-            let sys_modules = sys
-                .getattr("modules")
-                .and_then(|modules| Ok(modules.downcast_into::<PyDict>()?))
-                .and_then(|modules| modules.extract::<HashMap<String, PyObject>>())
-                .unwrap();
-
-            sys_modules
+            py_interp::sys::extract_modules(py)
+                .unwrap()
                 .into_values()
                 .filter_map(|module| {
                     module.bind(py).getattr_opt("__file__").unwrap().map(|file| {
@@ -554,11 +538,6 @@ impl Nac3 {
             size_t,
         );
 
-        let builtins = PyModule::import(py, "builtins")?;
-        let typings = PyModule::import(py, "typing")?;
-        let id_fn = builtins.getattr("id")?;
-        let issubclass = builtins.getattr("issubclass")?;
-        let exn_class = builtins.getattr("Exception")?;
         let store_obj = embedding_map.getattr("store_object").unwrap();
         let store_str = embedding_map.getattr("store_str").unwrap();
         let store_fun = embedding_map.getattr("store_function").unwrap().into_py_any(py)?;
@@ -566,11 +545,6 @@ impl Nac3 {
             embedding_map.getattr("attributes_writeback").unwrap().into_py_any(py)?;
         let global_value_ids: Arc<RwLock<HashMap<_, _>>> = Arc::new(RwLock::new(HashMap::new()));
         let helper = PythonHelper {
-            id_fn: Arc::new(builtins.getattr("id").unwrap().into_py_any(py)?),
-            len_fn: Arc::new(builtins.getattr("len").unwrap().into_py_any(py)?),
-            type_fn: Arc::new(builtins.getattr("type").unwrap().into_py_any(py)?),
-            origin_ty_fn: Arc::new(typings.getattr("get_origin").unwrap().into_py_any(py)?),
-            args_ty_fn: Arc::new(typings.getattr("get_args").unwrap().into_py_any(py)?),
             store_obj: Arc::new(store_obj.clone().into_py_any(py)?),
             store_str: Arc::new(store_str.into_py_any(py)?),
         };
@@ -596,13 +570,13 @@ impl Nac3 {
         let mut rpc_ids = vec![];
         for (stmt, path, module) in &self.top_levels {
             let py_module = module.bind(py).downcast::<PyModule>()?;
-            let module_id: u64 = id_fn.call1((py_module,))?.extract()?;
+            let module_id = py_interp::extract_id(py_module)?;
             let module_name: String = py_module.getattr("__name__")?.extract()?;
             let helper = helper.clone();
             let class_obj;
             if let StmtKind::ClassDef { name, .. } = &stmt.node {
                 let class = py_module.getattr(name.to_string().as_str()).unwrap();
-                if issubclass.call1((&class, &exn_class)).unwrap().extract().unwrap()
+                if py_interp::extract_issubclass(&class, py_interp::get_exception_class(py)?)?
                     && class.getattr("artiq_builtin").is_err()
                 {
                     class_obj = Some(class);
@@ -619,7 +593,7 @@ impl Nac3 {
                     let members = members.downcast::<PyDict>().unwrap();
                     for (key, val) in members {
                         let key: &str = key.extract().unwrap();
-                        let val = id_fn.call1((val,)).unwrap().extract().unwrap();
+                        let val = py_interp::extract_id(&val).unwrap();
                         name_to_pyid.insert(key.into(), val);
                     }
                     let resolver = Arc::new(Resolver(Arc::new(InnerResolver {
@@ -669,8 +643,7 @@ impl Nac3 {
                 StmtKind::FunctionDef { decorator_list, .. } => {
                     for decorator in decorator_list {
                         let decor_fn = get_decorator_fn(decorator, py_module)?;
-                        let decor_fn_id =
-                            id_fn.call1((decor_fn,)).and_then(|id| id.extract::<u64>()).unwrap();
+                        let decor_fn_id = py_interp::extract_id(&decor_fn.into_pyobject(py)?)?;
 
                         if decor_fn_id == self.primitive_ids.rpc_decorator {
                             store_fun
@@ -711,10 +684,7 @@ impl Nac3 {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
                             for decorator in decorator_list {
                                 let decor_fn = get_decorator_fn(decorator, py_module)?;
-                                let decor_fn_id = id_fn
-                                    .call1((decor_fn,))
-                                    .and_then(|id| id.extract::<u64>())
-                                    .unwrap();
+                                let decor_fn_id = py_interp::extract_id(&decor_fn.into_pyobject(py)?)?;
 
                                 if decor_fn_id == self.primitive_ids.rpc_decorator {
                                     if name == &"__init__".into() {
@@ -785,16 +755,15 @@ impl Nac3 {
             self.pyid_to_def.write().insert(module_id, def_id);
         }
 
-        let id_fun = PyModule::import(py, "builtins")?.getattr("id")?;
         let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
         let module = PyModule::new(py, "tmp")?;
         module.add("base", obj)?;
-        name_to_pyid.insert("base".into(), id_fun.call1((obj,))?.extract()?);
+        name_to_pyid.insert("base".into(), py_interp::extract_id(obj)?);
         let mut arg_names = vec![];
         for (i, arg) in args.into_iter().enumerate() {
             let name = format!("tmp{i}");
             module.add(&*name, &arg)?;
-            name_to_pyid.insert(name.clone().into(), id_fun.call1((arg,))?.extract()?);
+            name_to_pyid.insert(name.clone().into(), py_interp::extract_id(&arg)?);
             arg_names.push(name);
         }
         let synthesized = if method_name.is_empty() {
@@ -1197,7 +1166,7 @@ fn resolve_qname<'py>(
     };
 
     resolve_ctx((&path, id), ctx)?.map_or_else(
-        || resolve_ctx((&path, id), &PyModule::import(ctx.py(), "builtins")?),
+        || resolve_ctx((&path, id), py_interp::builtins::module(ctx.py())?),
         |attr| Ok(Some(attr)),
     )
 }
@@ -1242,10 +1211,7 @@ fn is_attr_ann_same(
     };
 
     get_attr_type_hint(attr, &id_ctx)?.map_or(Ok(false), |var_type| -> PyResult<bool> {
-        let id_fn = PyModule::import(module.py(), "builtins")?.getattr("id")?;
-
-        let var_type_id = id_fn.call1((var_type,))?;
-        let var_type_id = var_type_id.extract::<u64>()?;
+        let var_type_id = py_interp::extract_id(&var_type)?;
 
         Ok(var_type_id == class_id)
     })
@@ -1258,10 +1224,8 @@ fn is_decor_fn_same(
     module: &Bound<'_, PyModule>,
     decor_fn_ids: &[u64],
 ) -> PyResult<bool> {
-    let id_fn = PyModule::import(module.py(), "builtins")?.getattr("id")?;
-
     let decor_fn = get_decorator_fn(decorator, module)?;
-    let fn_id = id_fn.call1((decor_fn,))?.extract::<u64>()?;
+    let fn_id = py_interp::extract_id(&decor_fn.into_pyobject(module.py())?)?;
 
     Ok(decor_fn_ids.contains(&fn_id))
 }
@@ -1316,7 +1280,7 @@ fn add_exceptions(
 #[pymethods]
 impl Nac3 {
     #[new]
-    fn new<'py>(isa: &str, artiq_builtins: &Bound<'py, PyDict>, py: Python<'py>) -> PyResult<Self> {
+    fn new(isa: &str, artiq_builtins: &Bound<'_, PyDict>) -> PyResult<Self> {
         let isa = match isa {
             "host" => Isa::Host,
             "rv32g" => Isa::RiscV32G,
@@ -1381,9 +1345,6 @@ impl Nac3 {
             ),
         ];
 
-        let builtins_mod = PyModule::import(py, "builtins").unwrap();
-        let id_fn = builtins_mod.getattr("id").unwrap();
-
         let get_artiq_builtin_id = |mod_name: Option<&str>, name: &str| -> PyResult<u64> {
             let dict = if let Some(mod_name) = mod_name {
                 artiq_builtins
@@ -1399,7 +1360,7 @@ impl Nac3 {
             let builtin = dict
                 .get_item(name)?
                 .unwrap_or_else(|| panic!("no key '{name}' present in artiq_builtins"));
-            Ok(id_fn.call1((builtin,)).and_then(|id| id.extract()).unwrap())
+            py_interp::extract_id(&builtin)
         };
 
         let primitive_ids = PrimitivePythonId {
@@ -1510,41 +1471,32 @@ impl Nac3 {
         special_ids: &Bound<'py, PyDict>,
         content_modules: &Bound<'py, PySet>,
     ) -> PyResult<()> {
-        let (modules, class_ids) =
-            Python::with_gil(|py| -> PyResult<(PyValueMap, HashSet<u64>)> {
-                let mut modules: IndexMap<u64, Arc<Py<PyModule>>> = IndexMap::new();
-                let mut class_ids: HashSet<u64> = HashSet::new();
+        let (modules, class_ids) = {
+            let mut modules: IndexMap<u64, Arc<Py<PyModule>>> = IndexMap::new();
+            let mut class_ids: HashSet<u64> = HashSet::new();
 
-                let id_fn = PyModule::import(py, "builtins")?.getattr("id")?;
-                let getmodule_fn = PyModule::import(py, "inspect")?.getattr("getmodule")?;
+            for function in functions {
+                let module = py_interp::inspect::call_getmodule(&function)?;
+                if !module.is_none() {
+                    modules.insert(py_interp::extract_id(&module)?, Arc::new(module.unbind()));
+                }
+            }
+            for class in classes {
+                let module = py_interp::inspect::call_getmodule(&class)?;
+                if !module.is_none() {
+                    modules.insert(py_interp::extract_id(&module)?, Arc::new(module.unbind()));
+                }
+                class_ids.insert(py_interp::extract_id(&class)?);
+            }
+            for module in content_modules {
+                modules.insert(
+                    py_interp::extract_id(&module)?,
+                    Arc::new(module.downcast_into()?.unbind()),
+                );
+            }
 
-                for function in functions {
-                    let module = getmodule_fn.call1((&function,))?;
-                    if !module.is_none() {
-                        modules.insert(
-                            id_fn.call1((&module,))?.extract()?,
-                            Arc::new(module.downcast_into()?.unbind()),
-                        );
-                    }
-                }
-                for class in classes {
-                    let module = getmodule_fn.call1((&class,))?;
-                    if !module.is_none() {
-                        modules.insert(
-                            id_fn.call1((&module,))?.extract()?,
-                            Arc::new(module.downcast_into()?.unbind()),
-                        );
-                    }
-                    class_ids.insert(id_fn.call1((&class,))?.extract()?);
-                }
-                for module in content_modules {
-                    modules.insert(
-                        id_fn.call1((&module,))?.extract()?,
-                        Arc::new(module.downcast_into()?.unbind()),
-                    );
-                }
-                Ok((modules, class_ids))
-            })?;
+            (modules, class_ids)
+        };
 
         for module in modules.into_values() {
             self.register_module(&module, &class_ids)?;
