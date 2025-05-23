@@ -800,7 +800,7 @@ impl Nac3 {
         let synthesized = if method_name.is_empty() {
             format!("def __modinit__():\n    base({})", arg_names.join(", "))
         } else {
-            format!("def __modinit__():\n    base.{}({})", method_name, arg_names.join(", "))
+            format!("def __modinit__():\n    base.{method_name}({})", arg_names.join(", "))
         };
         let mut synthesized =
             parse_program(&synthesized, "<nac3_synthesized_modinit>".to_string().into()).unwrap();
