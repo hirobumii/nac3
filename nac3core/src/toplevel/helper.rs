@@ -369,13 +369,10 @@ impl PrimDef {
 /// Like `debug_assert!`, this statements of this function are only
 /// enabled if `cfg!(debug_assertions)` is true.
 pub fn debug_assert_prim_is_allowed(prim: PrimDef, allowlist: &[PrimDef]) {
-    if cfg!(debug_assertions) {
-        let allowed = allowlist.iter().any(|p| *p == prim);
-        assert!(
-            allowed,
-            "Disallowed primitive definition. Got {prim:?}, but expects it to be in {allowlist:?}"
-        );
-    }
+    debug_assert!(
+        allowlist.contains(&prim),
+        "Disallowed primitive definition. Got {prim:?}, but expects it to be in {allowlist:?}"
+    );
 }
 
 /// Construct the fields of class `Exception`

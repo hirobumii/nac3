@@ -862,7 +862,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
     (a_ty, a): (Type, BasicValueEnum<'ctx>),
     fn_name: &str,
 ) -> Result<BasicValueEnum<'ctx>, String> {
-    debug_assert!(["np_argmin", "np_argmax", "np_max", "np_min"].iter().any(|f| *f == fn_name));
+    debug_assert!(["np_argmin", "np_argmax", "np_max", "np_min"].contains(&fn_name));
 
     let llvm_int64 = ctx.ctx.i64_type();
     let llvm_usize = ctx.get_size_type();

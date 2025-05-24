@@ -325,7 +325,7 @@ impl<'a> TopLevelComposer<'a> {
                         _ => attributes.push((*name, def_id)),
                     }
                 }
-            };
+            }
         }
         let module_def = TopLevelDef::Module {
             name: module_name.to_string().into(),
@@ -744,7 +744,7 @@ impl<'a> TopLevelComposer<'a> {
                             &mut type_var_to_concrete_def,
                         ) {
                             errors.extend(e);
-                        };
+                        }
                     }
                 }
 
@@ -1024,7 +1024,7 @@ impl<'a> TopLevelComposer<'a> {
 
             if let Some(vararg) = vararg {
                 arg_types.push(vararg);
-            };
+            }
 
             let arg_types = arg_types;
 

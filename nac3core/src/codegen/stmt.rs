@@ -191,7 +191,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
 
             ctx.builder.build_store(ptr, val).unwrap();
         }
-    };
+    }
     Ok(())
 }
 
@@ -1179,7 +1179,7 @@ pub fn gen_if<G: CodeGenerator>(
         ctx.builder
             .build_conditional_branch(generator.bool_to_i1(ctx, test), body_bb, orelse_bb)
             .unwrap();
-    };
+    }
     ctx.builder.position_at_end(body_bb);
     generator.gen_block(ctx, body.iter())?;
     for (k, (_, _, counter)) in &var_assignment {
@@ -2146,7 +2146,7 @@ pub fn gen_stmt<G: CodeGenerator>(
             }
         }
         _ => unimplemented!(),
-    };
+    }
     Ok(())
 }
 

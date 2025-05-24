@@ -1234,14 +1234,14 @@ impl Unifier {
                 for (x, y) in zip(tv1, tv2) {
                     if self.unify_impl(*x, *y, false).is_err() {
                         return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
-                    };
+                    }
                 }
                 self.set_a_to_b(a, b);
             }
             (TVirtual { ty: ty1 }, TVirtual { ty: ty2 }) => {
                 if self.unify_impl(*ty1, *ty2, false).is_err() {
                     return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
-                };
+                }
                 self.set_a_to_b(a, b);
             }
             (TCall(calls1), TCall(calls2)) => {
@@ -1272,11 +1272,11 @@ impl Unifier {
                     }
                     if self.unify_impl(x.ty, y.ty, false).is_err() {
                         return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
-                    };
+                    }
                 }
                 if self.unify_impl(sign1.ret, sign2.ret, false).is_err() {
                     return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
-                };
+                }
                 self.set_a_to_b(a, b);
             }
             (TVar { fields: Some(fields), .. }, _) => {
@@ -1375,7 +1375,7 @@ impl Unifier {
                             .join(", ")
                     );
                     notes.as_mut().unwrap().insert(*id, body);
-                };
+                }
                 n
             }
             TypeEnum::TLiteral { values, .. } => {

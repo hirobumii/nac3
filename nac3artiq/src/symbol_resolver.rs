@@ -1714,7 +1714,8 @@ impl SymbolResolver for Resolver {
             let Some(id) = self.0.name_to_pyid.get(&str) else {
                 return Err(format!("cannot find symbol `{str}`"));
             };
-            let result = if let Some(t) = {
+
+            if let Some(t) = {
                 let pyid_to_type = self.0.pyid_to_type.read();
                 pyid_to_type.get(id).copied()
             } {
@@ -1740,8 +1741,7 @@ impl SymbolResolver for Resolver {
                     Ok(sym_ty)
                 })
                 .unwrap()
-            };
-            result
+            }
         }
     }
 

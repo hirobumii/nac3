@@ -543,7 +543,7 @@ impl Fold<()> for Inferencer<'_> {
                 }
             }
             _ => return report_error("Unsupported statement type", stmt.location),
-        };
+        }
         Ok(stmt)
     }
 
@@ -1789,25 +1789,18 @@ impl Inferencer<'_> {
         let defs = self.top_level.definitions.read();
         let res = {
             if let TopLevelDef::Class { ancestors, .. } = &*defs[obj_id.0].read() {
-                let res = ancestors.iter().find_map(|f| {
+                ancestors.iter().find_map(|f| {
                     let TypeAnnotation::CustomClass { id, .. } = f else { unreachable!() };
-                    let TopLevelDef::Class { name, methods, .. } = &*defs[id.0].read() else {
+                    let TopLevelDef::Class { simple_name, methods, .. } = &*defs[id.0].read()
+                    else {
                         unreachable!()
                     };
                     // Class names are stored as `__module__.class`
-                    let name = name.to_string();
-                    let (_, name) = name.rsplit_once('.').unwrap();
-                    if name == class_name.to_string() {
-                        return methods.iter().find_map(|f| {
-                            if f.0 == *method_name {
-                                return Some(*f);
-                            }
-                            None
-                        });
+                    if simple_name == &class_name.to_string() {
+                        return methods.iter().find(|f| f.0 == *method_name).copied();
                     }
                     None
-                });
-                res
+                })
             } else {
                 None
             }
@@ -2407,7 +2400,7 @@ impl Inferencer<'_> {
                         // Re-assigning to an existing variable name.
                         self.constrain(rhs_ty, *expected_rhs_ty, &target.location)?;
                     }
-                };
+                }
                 Ok(Located {
                     location: target.location,
                     node: ExprKind::Name { id, ctx: ExprContext::Store },
@@ -2593,7 +2586,7 @@ impl Inferencer<'_> {
         } else {
             // The subscripted ndarray is not unsized / may not be unsized. (i.e., may or may not have indexed into a single element)
 
-            if new_ndims_values.iter().any(|v| *v == 0) {
+            if new_ndims_values.contains(&0) {
                 // TODO: Difficult to implement since now the return may both be a scalar type, or an ndarray type.
                 unimplemented!(
                     "Inference for ndarray subscript operator with Literal[0, ...] bound unimplemented"
