@@ -997,6 +997,19 @@ pub fn attributes_writeback<'ctx>(
             }
             let ty = ty.unwrap();
             match &*ctx.unifier.get_ty(ty) {
+                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                    let elem_ty = iter_type_vars(params).next().unwrap().ty;
+
+                    if gen_rpc_tag(ctx, elem_ty, &mut scratch_buffer).is_ok() {
+                        let pydict = PyDict::new(py);
+                        pydict.set_item("obj", val)?;
+                        host_attributes.append(pydict)?;
+                        values.push((
+                            ty,
+                            inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap(),
+                        ));
+                    }
+                }
                 TypeEnum::TObj { fields, obj_id, .. }
                     if *obj_id != ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
                 {
@@ -1026,19 +1039,6 @@ pub fn attributes_writeback<'ctx>(
                         pydict.set_item("obj", val)?;
                         pydict.set_item("fields", attributes)?;
                         host_attributes.append(pydict)?;
-                    }
-                }
-                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
-                    let elem_ty = iter_type_vars(params).next().unwrap().ty;
-
-                    if gen_rpc_tag(ctx, elem_ty, &mut scratch_buffer).is_ok() {
-                        let pydict = PyDict::new(py);
-                        pydict.set_item("obj", val)?;
-                        host_attributes.append(pydict)?;
-                        values.push((
-                            ty,
-                            inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap(),
-                        ));
                     }
                 }
                 _ => {}
