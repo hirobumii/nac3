@@ -504,38 +504,6 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
     type_cache.get(&unifier.get_representative(ty)).copied().unwrap_or_else(|| {
         let ty_enum = unifier.get_ty(ty);
         let result = match &*ty_enum {
-            TModule {module_id, attributes} => {
-                let top_level_defs = top_level.definitions.read();
-                let definition = top_level_defs.get(module_id.0).unwrap();
-                let TopLevelDef::Module { name, attributes: attribute_fields, .. } = &*definition.read() else {
-                    unreachable!()
-                };
-                let ty: BasicTypeEnum<'_> = if let Some(t) = module.get_struct_type(&name.to_string()) {
-                    t.ptr_type(AddressSpace::default()).into()
-                } else {
-                    let struct_type = ctx.opaque_struct_type(&name.to_string());
-                    type_cache.insert(
-                        unifier.get_representative(ty),
-                        struct_type.ptr_type(AddressSpace::default()).into(),
-                    );
-                    let module_fields: Vec<BasicTypeEnum<'_>> = attribute_fields.iter()
-                    .map(|f| {
-                        get_llvm_type(
-                            ctx,
-                            module,
-                            generator,
-                            unifier,
-                            top_level,
-                            type_cache,
-                            attributes[&f.0].0,
-                        )
-                    })
-                    .collect_vec();
-                    struct_type.set_body(&module_fields, false);
-                    struct_type.ptr_type(AddressSpace::default()).into()
-                };
-                return ty;
-            },
             TObj { obj_id, fields, .. } => {
                 // check to avoid treating non-class primitives as classes
                 if PrimDef::contains_id(*obj_id) {

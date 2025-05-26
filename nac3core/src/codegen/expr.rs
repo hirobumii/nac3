@@ -68,8 +68,6 @@ pub fn get_subst_key(
         .map(|ty| {
             if let TypeEnum::TObj { params, .. } = &*unifier.get_ty(ty) {
                 params.clone()
-            } else if let TypeEnum::TModule { .. } = &*unifier.get_ty(ty) {
-                indexmap::IndexMap::new()
             } else {
                 unreachable!()
             }
@@ -130,7 +128,6 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     pub fn get_attr_index(&mut self, ty: Type, attr: StrRef) -> (Option<usize>, Option<Constant>) {
         let obj_id = match &*self.unifier.get_ty(ty) {
             TypeEnum::TObj { obj_id, .. } => *obj_id,
-            TypeEnum::TModule { module_id, .. } => *module_id,
             // we cannot have other types, virtual type should be handled by function calls
             _ => codegen_unreachable!(self),
         };
@@ -2681,10 +2678,6 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         &*ctx.unifier.get_ty(value.custom.unwrap())
                     {
                         *obj_id
-                    } else if let TypeEnum::TModule { module_id, .. } =
-                        &*ctx.unifier.get_ty(value.custom.unwrap())
-                    {
-                        *module_id
                     } else {
                         codegen_unreachable!(ctx)
                     };

@@ -775,8 +775,11 @@ impl InnerResolver {
                 }
             }
 
-            let module_ty =
-                TypeEnum::TModule { module_id: *module_id, attributes: module_attributes };
+            let module_ty = TypeEnum::TObj {
+                obj_id: *module_id,
+                fields: module_attributes,
+                params: VarMap::new(),
+            };
 
             let ty = unifier.add_ty(module_ty);
             return Ok(Ok(ty));
