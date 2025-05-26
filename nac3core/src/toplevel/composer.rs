@@ -320,6 +320,7 @@ impl<'a> TopLevelComposer<'a> {
         resolver: Arc<dyn SymbolResolver + Send + Sync>,
         location: Option<Location>,
     ) -> Result<DefinitionId, String> {
+        let mut classes: HashMap<StrRef, DefinitionId> = HashMap::new();
         let mut methods: HashMap<StrRef, DefinitionId> = HashMap::new();
         let mut attributes: Vec<(StrRef, DefinitionId)> = Vec::new();
 
@@ -328,7 +329,10 @@ impl<'a> TopLevelComposer<'a> {
                 // Avoid repeated attribute instances resulting from multiple imports of same module
                 if self.defined_names.contains(&format!("{module_name}.{name}")) {
                     match &*self.definition_ast_list[def_id.0].0.read() {
-                        TopLevelDef::Class { .. } | TopLevelDef::Function { .. } => {
+                        TopLevelDef::Class { .. } => {
+                            classes.insert(*name, def_id);
+                        }
+                        TopLevelDef::Function { .. } => {
                             methods.insert(*name, def_id);
                         }
                         _ => attributes.push((*name, def_id)),
@@ -343,7 +347,8 @@ impl<'a> TopLevelComposer<'a> {
                 .map_or(module_name, |(_, nme)| nme)
                 .to_string(),
             module_id: DefinitionId(self.definition_ast_list.len()),
-            methods,
+            classes: classes.into_iter().collect(),
+            functions: methods.into_iter().collect(),
             attributes,
             resolver: Some(resolver),
             loc: location,

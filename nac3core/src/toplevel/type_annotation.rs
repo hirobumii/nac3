@@ -417,12 +417,13 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                             )]));
                         };
 
-                        let matching_attr =
-                            if let TopLevelDef::Module { methods, .. } = &*mod_tld.read() {
-                                methods.get(attr).copied()
-                            } else {
-                                unreachable!("must be module here")
-                            };
+                        let matching_attr = if let TopLevelDef::Module { classes, .. } =
+                            &*mod_tld.read()
+                        {
+                            classes.iter().find(|(name, _)| name == attr).map(|(_, def_id)| *def_id)
+                        } else {
+                            unreachable!("must be module here")
+                        };
 
                         let Some(def_id) = matching_attr else {
                             return Err(HashSet::from([format!(
@@ -469,8 +470,8 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                     )]));
                 };
 
-                let matching_attr = if let TopLevelDef::Module { methods, .. } = &*mod_tld.read() {
-                    methods.get(attr).copied()
+                let matching_attr = if let TopLevelDef::Module { classes, .. } = &*mod_tld.read() {
+                    classes.iter().find(|(name, _)| name == attr).map(|(_, def_id)| *def_id)
                 } else {
                     unreachable!("must be module here")
                 };

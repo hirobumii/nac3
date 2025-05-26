@@ -2697,8 +2697,8 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         let obj_def = defs.get(id.0).unwrap().read();
                         if let TopLevelDef::Class { methods, .. } = &*obj_def {
                             methods.iter().find(|method| method.0 == *attr).unwrap().2
-                        } else if let TopLevelDef::Module { methods, .. } = &*obj_def {
-                            *methods.iter().find(|method| method.0 == attr).unwrap().1
+                        } else if let TopLevelDef::Module { functions, .. } = &*obj_def {
+                            functions.iter().find(|method| method.0 == *attr).unwrap().1
                         } else {
                             codegen_unreachable!(ctx)
                         }

@@ -92,9 +92,11 @@ pub enum TopLevelDef {
         simple_name: String,
         /// Module ID used for [`TypeEnum`]
         module_id: DefinitionId,
-        /// `DefinitionId` of `TopLevelDef::{Class, Function}` within the module
-        methods: HashMap<StrRef, DefinitionId>,
-        /// `DefinitionId` of `TopLevelDef::{Variable}` within the module
+        /// [`DefinitionId`] of [`TopLevelDef::Class`] within the module
+        classes: Vec<(StrRef, DefinitionId)>,
+        /// [`DefinitionId`] of [`TopLevelDef::Function`] within the module
+        functions: Vec<(StrRef, DefinitionId)>,
+        /// [`DefinitionId`] of [`TopLevelDef::Variable`] within the module
         attributes: Vec<(StrRef, DefinitionId)>,
         /// Symbol resolver of the module defined the class.
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
@@ -112,7 +114,7 @@ pub enum TopLevelDef {
         type_vars: Vec<Type>,
         /// Class fields.
         ///
-        /// Name and type is mutable.
+        /// Name, type, and whether the field is mutable.
         fields: Vec<(StrRef, Type, bool)>,
         /// Class Attributes.
         ///

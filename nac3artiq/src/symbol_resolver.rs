@@ -729,29 +729,47 @@ impl InnerResolver {
         {
             let def_id = self.pyid_to_def.read()[&py_obj_id];
             let def = defs[def_id.0].read();
-            let TopLevelDef::Module { name: module_name, module_id, attributes, methods, .. } =
-                &*def
+            let TopLevelDef::Module {
+                name: module_name,
+                module_id,
+                classes,
+                attributes,
+                functions,
+                ..
+            } = &*def
             else {
                 unreachable!("must be a module here");
             };
-            // Construct the module return type
+
+            // Construct the module type
             let mut module_attributes = HashMap::new();
+
+            for name in classes.iter().map(|(nm, _)| nm) {
+                let class_obj = obj.getattr(name.to_string().as_str())?;
+                let class_ty = self.get_obj_type(py, &class_obj, unifier, defs, primitives)?;
+                if let Ok(class_ty) = class_ty {
+                    module_attributes.insert(*name, (class_ty, true));
+                } else {
+                    return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
+                }
+            }
+
+            for name in functions.iter().map(|(nm, _)| nm) {
+                let method_obj = obj.getattr(name.to_string().as_str())?;
+                let method_ty = self.get_obj_type(py, &method_obj, unifier, defs, primitives)?;
+                if let Ok(method_ty) = method_ty {
+                    module_attributes.insert(*name, (method_ty, true));
+                } else {
+                    return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
+                }
+            }
+
             for (name, _) in attributes {
                 let attribute_obj = obj.getattr(name.to_string().as_str())?;
                 let attribute_ty =
                     self.get_obj_type(py, &attribute_obj, unifier, defs, primitives)?;
                 if let Ok(attribute_ty) = attribute_ty {
                     module_attributes.insert(*name, (attribute_ty, false));
-                } else {
-                    return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
-                }
-            }
-
-            for name in methods.keys() {
-                let method_obj = obj.getattr(name.to_string().as_str())?;
-                let method_ty = self.get_obj_type(py, &method_obj, unifier, defs, primitives)?;
-                if let Ok(method_ty) = method_ty {
-                    module_attributes.insert(*name, (method_ty, true));
                 } else {
                     return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
                 }
