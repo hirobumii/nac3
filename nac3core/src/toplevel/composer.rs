@@ -2090,7 +2090,7 @@ impl<'a> TopLevelComposer<'a> {
         let primitives_store = &self.primitives_ty;
 
         let mut analyze = |variable_def: &Arc<RwLock<TopLevelDef>>| -> Result<_, HashSet<String>> {
-            let TopLevelDef::Variable { simple_name, ty: dummy_ty, ty_decl, resolver, loc, .. } =
+            let TopLevelDef::Variable { ty: dummy_ty, ty_decl, resolver, loc, .. } =
                 &*variable_def.read()
             else {
                 // not top level variable def, skip
@@ -2100,19 +2100,6 @@ impl<'a> TopLevelComposer<'a> {
             let resolver = &**resolver.as_ref().unwrap();
 
             if let Some(ty_decl) = ty_decl {
-                let ty_decl = match &ty_decl.node {
-                    ExprKind::Subscript { slice, .. }
-                        if self
-                            .core_config
-                            .has_kernel_ann(*simple_name, None, ty_decl)
-                            .map_err(|err| HashSet::from([err]))?
-                            .unwrap_or_default() =>
-                    {
-                        slice
-                    }
-                    _ => ty_decl,
-                };
-
                 let ty_annotation = parse_ast_to_type_annotation_kinds(
                     resolver,
                     &temp_def_list,
