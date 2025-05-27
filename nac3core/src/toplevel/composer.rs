@@ -33,29 +33,24 @@ type IsSymbolAnnotatedFn<'a> =
 type IsDecoratorFn<'a> = dyn Fn(&Located<ExprKind>) -> Result<bool, String> + 'a;
 
 pub struct ComposerConfig<'a> {
-    /// A function that checks whether a symbol is annotated with a class that indicates a variable
-    /// should be located on-device and mutable, or [`None`] if such a class is not supported.
+    /// A function that checks whether a symbol is annotated with a class that indicates a class
+    /// variable should be mutable, or [`None`] if such a class is not supported.
     ///
     /// See [`ComposerConfig::has_kernel_ann`].
     pub has_kernel_ann_fn: Option<Box<IsSymbolAnnotatedFn<'a>>>,
 
-    /// A function that checks whether a symbol is annotated with a class that indicates a variable
-    /// should be located on-device and immutable.
+    /// A function that checks whether a symbol is annotated with a class that indicates a class
+    /// variable should be immutable.
     ///
     /// See [`ComposerConfig::has_invariant_ann`].
     pub has_invariant_ann_fn: Box<IsSymbolAnnotatedFn<'a>>,
 
     /// A function that checks whether a decorator indicates that the function should be treated as
-    /// `extern`, i.e. defined as a native function.
+    /// `extern`, i.e. defined not as part of the compiled Python binary and hence does not contain
+    /// a function body.
     ///
     /// See [`ComposerConfig::is_extern_decorator`].
     pub is_extern_decorator_fn: Box<IsDecoratorFn<'a>>,
-
-    /// A function that checks whether a decorator indicates that the function should be treated as
-    /// `rpc`, i.e. the function should be executed on the host.
-    ///
-    /// See [`ComposerConfig::is_rpc_decorator`].
-    pub is_rpc_decorator_fn: Box<IsDecoratorFn<'a>>,
 }
 
 impl ComposerConfig<'_> {
@@ -93,14 +88,12 @@ impl ComposerConfig<'_> {
 
     /// Checks whether the `decorator` indicates that the function should be an `extern` function,
     /// usually `@extern`.
+    ///
+    /// An `extern` function is a function that is only declared in the compiled Python binary and
+    /// whose implementation is defined elsewhere, such as compiler builtins or functions that are
+    /// executed on the host interpreter.
     pub fn is_extern_decorator(&self, decorator: &Located<ExprKind>) -> Result<bool, String> {
         (*self.is_extern_decorator_fn)(decorator)
-    }
-
-    /// Checks whether the `decorator` indicates that the function should be an `rpc` function,
-    /// usually `@rpc`.
-    pub fn is_rpc_decorator(&self, decorator: &Located<ExprKind>) -> Result<bool, String> {
-        (*self.is_rpc_decorator_fn)(decorator)
     }
 }
 
@@ -121,12 +114,6 @@ impl Default for ComposerConfig<'_> {
                 Ok(matches!(
                     &decorator.node,
                     ExprKind::Name { id, .. } if id == &"extern".into()
-                ))
-            }),
-            is_rpc_decorator_fn: Box::new(|decorator| {
-                Ok(matches!(
-                    &decorator.node,
-                    ExprKind::Name { id, .. } if id == &"rpc".into()
                 ))
             }),
         }
@@ -1952,32 +1939,16 @@ impl<'a> TopLevelComposer<'a> {
                     unreachable!("must be function def ast")
                 };
 
-                if !decorator_list.is_empty() {
-                    if self
-                        .core_config
-                        .is_extern_decorator(&decorator_list[0])
-                        .map_err(|err| HashSet::from([err]))?
-                    {
-                        let TopLevelDef::Function { instance_to_symbol, .. } = &mut *def.write()
-                        else {
-                            unreachable!()
-                        };
-                        instance_to_symbol.insert(String::new(), simple_name.to_string());
-                        continue;
-                    }
-
-                    if self
-                        .core_config
-                        .is_rpc_decorator(&decorator_list[0])
-                        .map_err(|err| HashSet::from([err]))?
-                    {
-                        let TopLevelDef::Function { instance_to_symbol, .. } = &mut *def.write()
-                        else {
-                            unreachable!()
-                        };
-                        instance_to_symbol.insert(String::new(), simple_name.to_string());
-                        continue;
-                    }
+                if decorator_list.first().map_or(Ok(false), |decorator| {
+                    self.core_config
+                        .is_extern_decorator(decorator)
+                        .map_err(|err| HashSet::from([err]))
+                })? {
+                    let TopLevelDef::Function { instance_to_symbol, .. } = &mut *def.write() else {
+                        unreachable!()
+                    };
+                    instance_to_symbol.insert(String::new(), simple_name.to_string());
+                    continue;
                 }
 
                 let fun_body =

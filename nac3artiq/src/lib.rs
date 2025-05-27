@@ -542,17 +542,10 @@ impl Nac3 {
                         is_decor_fn_same(
                             decorator,
                             modules_by_path[&decorator.location.file].bind(py),
-                            &[self.primitive_ids.extern_decorator],
-                        )
-                    })
-                    .map_err(|e| e.to_string())
-                }),
-                is_rpc_decorator_fn: Box::new(|decorator| {
-                    Python::with_gil(|py| -> PyResult<bool> {
-                        is_decor_fn_same(
-                            decorator,
-                            modules_by_path[&decorator.location.file].bind(py),
-                            &[self.primitive_ids.rpc_decorator],
+                            &[
+                                self.primitive_ids.extern_decorator,
+                                self.primitive_ids.rpc_decorator,
+                            ],
                         )
                     })
                     .map_err(|e| e.to_string())
