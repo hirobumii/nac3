@@ -23,7 +23,7 @@ pub use builtins::*;
 /// consistency with Python.
 pub mod builtins {
     use pyo3::{
-        Bound, Py, PyAny, PyResult, Python,
+        prelude::*,
         sync::GILOnceCell,
         types::{PyAnyMethods, PyBool, PyCFunction, PyInt, PyModule, PyString, PyType},
     };
@@ -124,9 +124,9 @@ pub mod builtins {
 /// The `inspect` module.
 pub mod inspect {
     use pyo3::{
-        Bound, Py, PyAny, PyResult, Python,
+        prelude::*,
         sync::GILOnceCell,
-        types::{PyAnyMethods, PyFunction, PyModule},
+        types::{PyAnyMethods, PyDict, PyFunction, PyMapping, PyModule},
     };
 
     /// Returns a reference to this module.
@@ -154,6 +154,31 @@ pub mod inspect {
     pub fn call_getmodule<'py>(object: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyModule>> {
         Ok(getmodule_fn(object.py())?.call1((object,))?.downcast_into()?)
     }
+
+    /// Returns a reference to the
+    /// [`inspect.get_annotations`](https://docs.python.org/3/library/inspect.html#inspect.get_annotations)
+    /// function.
+    pub fn get_annotations_fn(py: Python<'_>) -> PyResult<&Bound<'_, PyFunction>> {
+        static GET_ANNOTATIONS_FN: GILOnceCell<Py<PyFunction>> = GILOnceCell::new();
+
+        GET_ANNOTATIONS_FN.import(py, "inspect", "get_annotations")
+    }
+
+    /// Invokes [`inspect.get_annotations(obj, globals, locals, eval)`](get_annotations_fn),
+    /// returning a [`PyDict`] representing the result.
+    pub fn call_get_annotations<'py>(
+        obj: &Bound<'py, PyAny>,
+        globals: Option<&Bound<'py, PyDict>>,
+        locals: Option<&Bound<'py, PyMapping>>,
+        eval_str: bool,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let kwargs = PyDict::new(obj.py());
+        kwargs.set_item("globals", globals)?;
+        kwargs.set_item("locals", locals)?;
+        kwargs.set_item("eval_str", eval_str)?;
+
+        Ok(get_annotations_fn(obj.py())?.call((obj,), Some(&kwargs))?.downcast_into()?)
+    }
 }
 
 /// The `sys` module.
@@ -161,7 +186,7 @@ pub mod sys {
     use std::collections::HashMap;
 
     use pyo3::{
-        Bound, Py, PyObject, PyResult, Python,
+        prelude::*,
         sync::GILOnceCell,
         types::{PyAnyMethods, PyDict, PyModule},
     };
@@ -196,7 +221,7 @@ pub mod sys {
 /// The `typing` module.
 pub mod typing {
     use pyo3::{
-        Bound, Py, PyAny, PyResult, Python,
+        prelude::*,
         sync::GILOnceCell,
         types::{PyAnyMethods, PyFunction, PyModule, PyTuple},
     };

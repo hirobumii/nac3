@@ -1194,7 +1194,17 @@ fn get_attr_type_hint<'py>(
     ctx.getattr("__annotations__")?
         .downcast_into::<PyDict>()?
         .get_item(attr.to_string())?
-        .map_or(Ok(None), |ann| ann.getattr_opt("__origin__"))
+        .map_or(Ok(None), |ann| ann.getattr_opt("__origin__"))?
+        .map_or_else(
+            || {
+                // The annotation may be a `str` - Try to use `inspect.get_annotations` to evaluate
+                // the strings to their respective symbol
+                py_interp::inspect::call_get_annotations(ctx, None, None, true)?
+                    .get_item(attr.to_string())?
+                    .map_or(Ok(None), |ann| ann.getattr_opt("__origin__"))
+            },
+            |type_hint| Ok(Some(type_hint)),
+        )
 }
 
 /// Checks whether the type hint for `{module}{.class_tld}.{attr}` refers to the same class as the
