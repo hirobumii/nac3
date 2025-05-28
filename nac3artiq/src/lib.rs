@@ -26,7 +26,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyBytes, PyDict, PyFunction, PyNone, PySet},
+    types::{PyBytes, PyDict, PyNone, PySet},
 };
 use tempfile::{self, TempDir};
 
@@ -684,7 +684,8 @@ impl Nac3 {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
                             for decorator in decorator_list {
                                 let decor_fn = get_decorator_fn(decorator, py_module)?;
-                                let decor_fn_id = py_interp::extract_id(&decor_fn.into_pyobject(py)?)?;
+                                let decor_fn_id =
+                                    py_interp::extract_id(&decor_fn.into_pyobject(py)?)?;
 
                                 if decor_fn_id == self.primitive_ids.rpc_decorator {
                                     if name == &"__init__".into() {
@@ -1175,12 +1176,14 @@ fn resolve_qname<'py>(
 fn get_decorator_fn<'py>(
     decorator: &Located<ExprKind>,
     ctx: &Bound<'py, PyModule>,
-) -> PyResult<Option<Bound<'py, PyFunction>>> {
+) -> PyResult<Option<Bound<'py, PyAny>>> {
     let Some((path, id)) = decor_expr_id_path(decorator) else {
         return Ok(None);
     };
 
-    resolve_qname((path, id), ctx)?.map(|decor_fn| Ok(decor_fn.downcast_into()?)).transpose()
+    resolve_qname((path, id), ctx).inspect(|decorator| {
+        assert!(decorator.as_ref().is_none_or(PyAnyMethods::is_callable));
+    })
 }
 
 /// Returns the original type of a type hint for a given `attr` in the `ctx` context.
