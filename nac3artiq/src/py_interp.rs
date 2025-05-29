@@ -126,7 +126,7 @@ pub mod inspect {
     use pyo3::{
         prelude::*,
         sync::GILOnceCell,
-        types::{PyAnyMethods, PyDict, PyFunction, PyMapping, PyModule},
+        types::{PyAnyMethods, PyFunction, PyModule},
     };
 
     /// Returns a reference to this module.
@@ -153,31 +153,6 @@ pub mod inspect {
     /// Invokes [`inspect.getmodule(object)`](getmodule_fn), returning a [`PyModule`] representing the result.
     pub fn call_getmodule<'py>(object: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyModule>> {
         Ok(getmodule_fn(object.py())?.call1((object,))?.downcast_into()?)
-    }
-
-    /// Returns a reference to the
-    /// [`inspect.get_annotations`](https://docs.python.org/3/library/inspect.html#inspect.get_annotations)
-    /// function.
-    pub fn get_annotations_fn(py: Python<'_>) -> PyResult<&Bound<'_, PyFunction>> {
-        static GET_ANNOTATIONS_FN: GILOnceCell<Py<PyFunction>> = GILOnceCell::new();
-
-        GET_ANNOTATIONS_FN.import(py, "inspect", "get_annotations")
-    }
-
-    /// Invokes [`inspect.get_annotations(obj, globals, locals, eval)`](get_annotations_fn),
-    /// returning a [`PyDict`] representing the result.
-    pub fn call_get_annotations<'py>(
-        obj: &Bound<'py, PyAny>,
-        globals: Option<&Bound<'py, PyDict>>,
-        locals: Option<&Bound<'py, PyMapping>>,
-        eval_str: bool,
-    ) -> PyResult<Bound<'py, PyDict>> {
-        let kwargs = PyDict::new(obj.py());
-        kwargs.set_item("globals", globals)?;
-        kwargs.set_item("locals", locals)?;
-        kwargs.set_item("eval_str", eval_str)?;
-
-        Ok(get_annotations_fn(obj.py())?.call((obj,), Some(&kwargs))?.downcast_into()?)
     }
 }
 

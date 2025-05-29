@@ -26,7 +26,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyBytes, PyDict, PyNone, PySet},
+    types::{PyAnyMethods, PyBytes, PyDict, PyNone, PySet, PyType},
 };
 use tempfile::{self, TempDir};
 
@@ -499,23 +499,21 @@ impl Nac3 {
             self.builtins.clone(),
             Self::get_lateinit_builtins(),
             ComposerConfig {
-                has_kernel_ann_fn: Some(Box::new(|attr, class_tld, ann| {
+                has_kernel_ann_fn: Some(Box::new(|_, _, ann| {
                     Python::with_gil(|py| {
-                        is_attr_ann_same(
-                            attr,
+                        is_class_ann_same(
+                            ann,
                             modules_by_path[&ann.location.file].bind(py),
-                            class_tld,
                             self.primitive_ids.kernel,
                         )
                     })
                     .map_err(|e| e.to_string())
                 })),
-                has_invariant_ann_fn: Box::new(|attr, class_tld, ann| {
+                has_invariant_ann_fn: Box::new(|_, _, ann| {
                     Python::with_gil(|py| {
-                        is_attr_ann_same(
-                            attr,
+                        is_class_ann_same(
+                            ann,
                             modules_by_path[&ann.location.file].bind(py),
-                            class_tld,
                             self.primitive_ids.kernel_invariant,
                         )
                     })
@@ -1101,6 +1099,7 @@ fn class_expr_id_path(class_expr: &Located<ExprKind>) -> Option<(Vec<StrRef>, St
                 (prefix_path.into_iter().chain(once(prefix_attr)).collect(), *attr)
             })
         }
+        ExprKind::Subscript { value, .. } => class_expr_id_path(value),
         _ => None,
     }
 }
@@ -1152,7 +1151,7 @@ fn decorator_get_flags(decorator: &Located<ExprKind>) -> Vec<Constant> {
 }
 
 /// Resolves a possibly-qualified name consisting of the prefix `path` and identifier `id` in the
-/// given context `ctx`.
+/// given global context `ctx`.
 fn resolve_qname<'py>(
     (path, id): (Vec<StrRef>, StrRef),
     ctx: &Bound<'py, PyModule>,
@@ -1172,7 +1171,18 @@ fn resolve_qname<'py>(
     )
 }
 
-/// Returns the original function of the given `decorator` in the `ctx` context.
+fn get_class_type<'py>(
+    type_hint: &Located<ExprKind>,
+    ctx: &Bound<'py, PyModule>,
+) -> PyResult<Option<Bound<'py, PyType>>> {
+    let Some((path, id)) = class_expr_id_path(type_hint) else {
+        return Ok(None);
+    };
+
+    Ok(resolve_qname((path, id), ctx)?.map(PyAnyMethods::downcast_into).transpose()?)
+}
+
+/// Returns the original function of the given `decorator` in the `ctx` global context.
 fn get_decorator_fn<'py>(
     decorator: &Located<ExprKind>,
     ctx: &Bound<'py, PyModule>,
@@ -1186,48 +1196,15 @@ fn get_decorator_fn<'py>(
     })
 }
 
-/// Returns the original type of a type hint for a given `attr` in the `ctx` context.
-fn get_attr_type_hint<'py>(
-    attr: StrRef,
-    ctx: &Bound<'py, PyAny>,
-) -> PyResult<Option<Bound<'py, PyAny>>> {
-    ctx.getattr("__annotations__")?
-        .downcast_into::<PyDict>()?
-        .get_item(attr.to_string())?
-        .map_or(Ok(None), |ann| ann.getattr_opt("__origin__"))?
-        .map_or_else(
-            || {
-                // The annotation may be a `str` - Try to use `inspect.get_annotations` to evaluate
-                // the strings to their respective symbol
-                py_interp::inspect::call_get_annotations(ctx, None, None, true)?
-                    .get_item(attr.to_string())?
-                    .map_or(Ok(None), |ann| ann.getattr_opt("__origin__"))
-            },
-            |type_hint| Ok(Some(type_hint)),
-        )
-}
-
-/// Checks whether the type hint for `{module}{.class_tld}.{attr}` refers to the same class as the
-/// one with the given `class_id`.
-fn is_attr_ann_same(
-    attr: StrRef,
+fn is_class_ann_same(
+    type_hint: &Located<ExprKind>,
     module: &Bound<'_, PyModule>,
-    class_tld: Option<&TopLevelDef>,
-    class_id: u64,
+    ann_class_id: u64,
 ) -> PyResult<bool> {
-    let id_ctx = if let Some(class_tld) = class_tld {
-        let TopLevelDef::Class { simple_name, .. } = class_tld else { unreachable!() };
+    let class_obj = get_class_type(type_hint, module)?;
+    let class_id = py_interp::extract_id(&class_obj.into_pyobject(module.py())?)?;
 
-        module.getattr(simple_name)?
-    } else {
-        module.clone().into_any()
-    };
-
-    get_attr_type_hint(attr, &id_ctx)?.map_or(Ok(false), |var_type| -> PyResult<bool> {
-        let var_type_id = py_interp::extract_id(&var_type)?;
-
-        Ok(var_type_id == class_id)
-    })
+    Ok(class_id == ann_class_id)
 }
 
 /// Checks whether the decorator expression in the `module` context refers to the same function
