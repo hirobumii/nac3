@@ -121,41 +121,6 @@ pub mod builtins {
     }
 }
 
-/// The `inspect` module.
-pub mod inspect {
-    use pyo3::{
-        prelude::*,
-        sync::GILOnceCell,
-        types::{PyAnyMethods, PyFunction, PyModule},
-    };
-
-    /// Returns a reference to this module.
-    #[allow(dead_code, reason = "For API consistency between all `py_interp` modules.")]
-    pub fn module(py: Python<'_>) -> PyResult<&Bound<'_, PyModule>> {
-        static MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
-
-        MODULE
-            .get_or_try_init(py, || {
-                let module = PyModule::import(py, "inspect")?;
-                Ok(module.unbind())
-            })
-            .map(|module| module.bind(py))
-    }
-
-    /// Returns a reference to the
-    /// [`inspect.getmodule`](https://docs.python.org/3/library/inspect.html#inspect.getmodule) function.
-    pub fn getmodule_fn(py: Python<'_>) -> PyResult<&Bound<'_, PyFunction>> {
-        static GETMODULE_FN: GILOnceCell<Py<PyFunction>> = GILOnceCell::new();
-
-        GETMODULE_FN.import(py, "inspect", "getmodule")
-    }
-
-    /// Invokes [`inspect.getmodule(object)`](getmodule_fn), returning a [`PyModule`] representing the result.
-    pub fn call_getmodule<'py>(object: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyModule>> {
-        Ok(getmodule_fn(object.py())?.call1((object,))?.downcast_into()?)
-    }
-}
-
 /// The `sys` module.
 pub mod sys {
     use std::collections::HashMap;
@@ -178,18 +143,23 @@ pub mod sys {
             .map(|module| module.bind(py))
     }
 
-    /// Extracts [`sys.modules`][get_modules] into a [`HashMap`].
-    pub fn extract_modules(py: Python<'_>) -> PyResult<HashMap<String, PyObject>> {
+    /// Returns a copy of the
+    /// [`sys.modules`](https://docs.python.org/3/library/sys.html#sys.modules) [`PyDict`].
+    pub fn get_modules(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
         // Perform a `copy` on `sys.modules` as recommended by the documentation:
         //
         // > If you want to iterate over this global dictionary always use `sys.modules.copy()` or
         // > `tuple(sys.modules)` to avoid exceptions as its size may change during iteration as a
         // > side effect of code or activity in other threads.
-        module(py)?
+        Ok(module(py)?
             .getattr("modules")?
             .call_method("copy", (), None)?
-            .downcast_into::<PyDict>()?
-            .extract()
+            .downcast_into::<PyDict>()?)
+    }
+
+    /// Extracts [`sys.modules`][get_modules] into a [`HashMap`].
+    pub fn extract_modules(py: Python<'_>) -> PyResult<HashMap<String, PyObject>> {
+        get_modules(py)?.extract()
     }
 }
 

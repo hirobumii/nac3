@@ -26,7 +26,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyAnyMethods, PyBytes, PyDict, PyNone, PySet, PyType},
+    types::{PyAnyMethods, PyBytes, PyDict, PyNone, PySet, PyString, PyType},
 };
 use tempfile::{self, TempDir};
 
@@ -1465,15 +1465,29 @@ impl Nac3 {
             let mut modules: IndexMap<u64, Arc<Py<PyModule>>> = IndexMap::new();
             let mut class_ids: HashSet<u64> = HashSet::new();
 
+            let get_module = |object: &Bound<'py, PyAny>| -> PyResult<_> {
+                // sys.modules[object.__module__]
+                Ok(object
+                    .getattr_opt("__module__")?
+                    .map(|module| -> PyResult<_> {
+                        py_interp::sys::get_modules(module.py())?
+                            .get_item(module.downcast_into::<PyString>()?)
+                    })
+                    .transpose()?
+                    .flatten()
+                    .map(PyAnyMethods::downcast_into::<PyModule>)
+                    .transpose()?)
+            };
+
             for function in functions {
-                let module = py_interp::inspect::call_getmodule(&function)?;
-                if !module.is_none() {
+                let module = get_module(&function)?;
+                if let Some(module) = module {
                     modules.insert(py_interp::extract_id(&module)?, Arc::new(module.unbind()));
                 }
             }
             for class in classes {
-                let module = py_interp::inspect::call_getmodule(&class)?;
-                if !module.is_none() {
+                let module = get_module(&class)?;
+                if let Some(module) = module {
                     modules.insert(py_interp::extract_id(&module)?, Arc::new(module.unbind()));
                 }
                 class_ids.insert(py_interp::extract_id(&class)?);
