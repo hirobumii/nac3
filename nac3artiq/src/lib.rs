@@ -499,7 +499,7 @@ impl Nac3 {
             self.builtins.clone(),
             Self::get_lateinit_builtins(),
             ComposerConfig {
-                has_kernel_ann_fn: Some(Box::new(|_, _, ann| {
+                has_kernel_ann_fn: Some(Box::new(|ann| {
                     Python::with_gil(|py| {
                         is_class_ann_same(
                             ann,
@@ -509,7 +509,7 @@ impl Nac3 {
                     })
                     .map_err(|e| e.to_string())
                 })),
-                has_invariant_ann_fn: Box::new(|_, _, ann| {
+                has_invariant_ann_fn: Box::new(|ann| {
                     Python::with_gil(|py| {
                         is_class_ann_same(
                             ann,

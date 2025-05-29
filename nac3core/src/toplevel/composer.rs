@@ -25,25 +25,26 @@ use crate::{
     },
 };
 
-/// Function type to check if a (possibly nested) symbol is annotated with a given type.
-type IsSymbolAnnotatedFn<'a> =
-    dyn Fn(StrRef, Option<&TopLevelDef>, &Located<ExprKind>) -> Result<bool, String> + 'a;
+/// Function type to check if a type annotation class references a specific class in global
+/// context.
+type IsAnnClassFn<'a> = dyn Fn(&Located<ExprKind>) -> Result<bool, String> + 'a;
 
-/// Function type to check if a decorator references a specific decorator function.
+/// Function type to check if a decorator references a specific decorator function in global
+/// context.
 type IsDecoratorFn<'a> = dyn Fn(&Located<ExprKind>) -> Result<bool, String> + 'a;
 
 pub struct ComposerConfig<'a> {
-    /// A function that checks whether a symbol is annotated with a class that indicates a class
-    /// variable should be mutable, or [`None`] if such a class is not supported.
+    /// A function that checks whether an annotation class indicates a class variable should be
+    /// mutable, or [`None`] if such a class is not supported.
     ///
     /// See [`ComposerConfig::has_kernel_ann`].
-    pub has_kernel_ann_fn: Option<Box<IsSymbolAnnotatedFn<'a>>>,
+    pub has_kernel_ann_fn: Option<Box<IsAnnClassFn<'a>>>,
 
-    /// A function that checks whether a symbol is annotated with a class that indicates a class
-    /// variable should be immutable.
+    /// A function that checks whether an annotation class indicates a class variable should be
+    /// immutable.
     ///
     /// See [`ComposerConfig::has_invariant_ann`].
-    pub has_invariant_ann_fn: Box<IsSymbolAnnotatedFn<'a>>,
+    pub has_invariant_ann_fn: Box<IsAnnClassFn<'a>>,
 
     /// A function that checks whether a decorator indicates that the function should be treated as
     /// `extern`, i.e. defined not as part of the compiled Python binary and hence does not contain
@@ -54,36 +55,22 @@ pub struct ComposerConfig<'a> {
 }
 
 impl ComposerConfig<'_> {
-    /// Checks whether the attribute with `attr_name` with type hint `type_ann` is annotated with a
-    /// class that indicates a variable should be located on-device and mutable, usually
-    /// `Kernel[T]`.
+    /// Checks whether the type annotation expression `type_ann` indicates that the variable is
+    /// mutable, usually `Kernel[T]`.
     ///
-    /// The `attr_name` is resolved within the class `class_ctx` if it is provided, otherwise it is
-    /// resolved in module context.
+    /// The type annotation is resolved in the decorator's global module context.
     ///
     /// Returns `Ok(None)` if this functionality is not supported.
-    pub fn has_kernel_ann(
-        &self,
-        attr_name: StrRef,
-        class_ctx: Option<&TopLevelDef>,
-        type_ann: &Located<ExprKind>,
-    ) -> Result<Option<bool>, String> {
-        self.has_kernel_ann_fn.as_ref().map(|f| f(attr_name, class_ctx, type_ann)).transpose()
+    pub fn has_kernel_ann(&self, type_ann: &Located<ExprKind>) -> Result<Option<bool>, String> {
+        self.has_kernel_ann_fn.as_ref().map(|f| f(type_ann)).transpose()
     }
 
-    /// Checks whether the attribute with `attr_name` with type hint `type_ann` is annotated with a
-    /// class that indicates a variable should be located on-device and immutable, usually
-    /// `KernelInvariant[T]`.
+    /// Checks whether the type annotation expression `type_ann` indicates that the variable is
+    /// immutable, usually `KernelInvariant[T]`.
     ///
-    /// The `attr_name` is resolved within the class `class_ctx` if it is provided, otherwise it is
-    /// resolved in module context.
-    pub fn has_invariant_ann(
-        &self,
-        attr_name: StrRef,
-        class_ctx: Option<&TopLevelDef>,
-        type_ann: &Located<ExprKind>,
-    ) -> Result<bool, String> {
-        (*self.has_invariant_ann_fn)(attr_name, class_ctx, type_ann)
+    /// The type annotation is resolved in the decorator's global module context.
+    pub fn has_invariant_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, String> {
+        (*self.has_invariant_ann_fn)(type_ann)
     }
 
     /// Checks whether the `decorator` indicates that the function should be an `extern` function,
@@ -92,6 +79,8 @@ impl ComposerConfig<'_> {
     /// An `extern` function is a function that is only declared in the compiled Python binary and
     /// whose implementation is defined elsewhere, such as compiler builtins or functions that are
     /// executed on the host interpreter.
+    ///
+    /// The decorator is resolved in the decorator's global module context.
     pub fn is_extern_decorator(&self, decorator: &Located<ExprKind>) -> Result<bool, String> {
         (*self.is_extern_decorator_fn)(decorator)
     }
@@ -101,7 +90,7 @@ impl Default for ComposerConfig<'_> {
     fn default() -> Self {
         ComposerConfig {
             has_kernel_ann_fn: None,
-            has_invariant_ann_fn: Box::new(|_, _, ann| {
+            has_invariant_ann_fn: Box::new(|ann| {
                 Ok(matches!(
                     &ann.node,
                     ExprKind::Subscript { value, .. } if matches!(
@@ -325,9 +314,7 @@ impl<'a> TopLevelComposer<'a> {
                         TopLevelDef::Variable { ty_decl, .. } => {
                             let mutable = ty_decl
                                 .as_ref()
-                                .map(|ty_decl| {
-                                    self.core_config.has_kernel_ann(*name, None, ty_decl)
-                                })
+                                .map(|ty_decl| self.core_config.has_kernel_ann(ty_decl))
                                 .transpose()?
                                 .flatten()
                                 .unwrap_or_default();
@@ -1135,9 +1122,6 @@ impl<'a> TopLevelComposer<'a> {
     ) -> Result<(), HashSet<String>> {
         let (keyword_list, core_config) = core_info;
 
-        // Clone the Class TLD
-        let class_def_tld = class_def.read().clone();
-
         let mut class_def = class_def.write();
         let TopLevelDef::Class {
             object_id,
@@ -1347,12 +1331,12 @@ impl<'a> TopLevelComposer<'a> {
                                     // handle Kernel[T], KernelInvariant[T]
                                     let (annotation, mutable) = match &annotation.node {
                                             ExprKind::Subscript { slice, .. }
-                                        if core_config.has_invariant_ann(*attr, Some(&class_def_tld), annotation).map_err(|err| HashSet::from([err]))? =>
+                                        if core_config.has_invariant_ann(annotation).map_err(|err| HashSet::from([err]))? =>
                                         {
                                             (slice, false)
                                         }
                                         ExprKind::Subscript { slice, .. }
-                                            if core_config.has_kernel_ann(*attr, Some(&class_def_tld), annotation).map_err(|err| HashSet::from([err]))?.unwrap_or_default() =>
+                                            if core_config.has_kernel_ann(annotation).map_err(|err| HashSet::from([err]))?.unwrap_or_default() =>
                                         {
                                             (slice, true)
                                         }
