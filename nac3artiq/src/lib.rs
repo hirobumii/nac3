@@ -493,20 +493,12 @@ impl Nac3 {
     ) -> PyResult<T> {
         let size_t = self.isa.get_size_type(&Context::create());
 
-        // Cache all imported modules indexed by their path for symbol resolution context; We assume
-        // that the set of imported modules is constant during method compilation.
+        // Cache all imported modules indexed by their path for symbol resolution context
         let modules_by_path = LazyCell::new(|| {
-            py_interp::sys::extract_modules(py)
-                .unwrap()
-                .into_values()
-                .filter_map(|module| {
-                    module.bind(py).getattr_opt("__file__").unwrap().map(|file| {
-                        (
-                            FileName::from(file.extract::<String>().unwrap()),
-                            module.bind(py).clone().downcast_into::<PyModule>().unwrap().unbind(),
-                        )
-                    })
-                })
+            self.modules
+                .read()
+                .iter()
+                .map(|mod_info| (mod_info.file, mod_info.module.clone()))
                 .collect::<HashMap<_, _>>()
         });
 
