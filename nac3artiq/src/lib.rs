@@ -185,6 +185,15 @@ pub struct SpecialPythonId {
 
 type TopLevelComponent = (Stmt, String, Arc<Py<PyModule>>);
 
+/// A Python module and some information needed for compilation.
+struct ModuleInfo {
+    /// Handle to the [`PyModule`].
+    module: Arc<Py<PyModule>>,
+    /// The file from which the module was loaded from, corresponding to `module.__file__`, or
+    /// `<expcontent>` if it is submitted to NAC3 by content.
+    file: FileName,
+}
+
 // TopLevelComposer is unsendable as it holds the unification table, which is
 // unsendable due to Rc. Arc would cause a performance hit.
 #[pyclass(unsendable, name = "NAC3")]
@@ -201,6 +210,8 @@ struct Nac3 {
     exception_ids: Arc<RwLock<HashMap<usize, usize>>>,
     deferred_eval_store: DeferredEvaluationStore,
     special_ids: SpecialPythonId,
+    /// Modules registered with NAC3.
+    modules: Arc<RwLock<Vec<ModuleInfo>>>,
     /// LLVM-related options for code generation.
     llvm_options: CodeGenLLVMOptions,
 }
@@ -213,30 +224,31 @@ impl Nac3 {
         module: &Arc<Py<PyModule>>,
         registered_class_ids: &HashSet<u64>,
     ) -> PyResult<()> {
-        let (module_name, source_file, source) =
-            Python::with_gil(|py| -> PyResult<(String, String, String)> {
-                let module = module.bind(py);
-                let source_file = module.getattr("__file__");
-                let (source_file, source) = if let Ok(source_file) = source_file {
-                    let source_file = source_file.extract::<&str>()?;
-                    (
-                        source_file.to_string(),
-                        fs::read_to_string(source_file).map_err(|e| {
-                            exceptions::PyIOError::new_err(format!(
-                                "failed to read input file: {e}"
-                            ))
-                        })?,
-                    )
-                } else {
-                    // kernels submitted by content have no file
-                    // but still can provide source by StringLoader
-                    let get_src_fn = module.getattr("__loader__")?.getattr("get_source")?;
-                    (String::from("<expcontent>"), get_src_fn.call1((PyNone::get(py),))?.extract()?)
-                };
-                Ok((module.getattr("__name__")?.extract()?, source_file, source))
-            })?;
+        let (module_name, source_file, source) = Python::with_gil(|py| -> PyResult<_> {
+            let module = module.bind(py);
+            let source_file = module.getattr("__file__");
+            let (source_file, source) = if let Ok(source_file) = source_file {
+                let source_file = source_file.extract::<&str>()?;
+                (
+                    source_file.to_string(),
+                    fs::read_to_string(source_file).map_err(|e| {
+                        exceptions::PyIOError::new_err(format!("failed to read input file: {e}"))
+                    })?,
+                )
+            } else {
+                // kernels submitted by content have no file
+                // but still can provide source by StringLoader
+                let get_src_fn = module.getattr("__loader__")?.getattr("get_source")?;
+                (String::from("<expcontent>"), get_src_fn.call1((PyNone::get(py),))?.extract()?)
+            };
+            Ok((
+                module.getattr("__name__")?.extract::<String>()?,
+                FileName::from(source_file),
+                source,
+            ))
+        })?;
 
-        let parser_result = parse_program(&source, source_file.into())
+        let parser_result = parse_program(&source, source_file)
             .map_err(|e| exceptions::PySyntaxError::new_err(format!("parse error: {e}")))?;
 
         for mut stmt in parser_result {
@@ -333,6 +345,9 @@ impl Nac3 {
                 self.top_levels.push((stmt, module_name.clone(), module.clone()));
             }
         }
+
+        self.modules.write().push(ModuleInfo { module: module.clone(), file: source_file });
+
         Ok(())
     }
 
@@ -1447,6 +1462,7 @@ impl Nac3 {
             exception_ids: Arc::default(),
             deferred_eval_store: DeferredEvaluationStore::new(),
             special_ids: SpecialPythonId::default(),
+            modules: Arc::default(),
             llvm_options: CodeGenLLVMOptions {
                 opt_level: OptimizationLevel::Default,
                 target: isa.get_llvm_target_options(),
