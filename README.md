@@ -69,3 +69,16 @@ Several things to note:
 
 - If `cargo fmt` or `cargo clippy` returns an error, the pre-commit hook will fail. You should fix all errors before trying to commit again.
 - If `cargo fmt` reformats some files, the pre-commit hook will also fail. You should review the changes and, if satisfied, try to commit again.
+
+### Use Mold Linker
+
+The [Mold linker](https://github.com/rui314/mold) is available when using the Nix Flakes system, and can be enabled by adding the following to `.cargo/config.toml`:
+
+```
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+```
+
+Replace `x86_64-unknown-linux-gnu` with the target triple of your development platform.
+
+**Note: The use of Mold linker is experimental and should be used for development purposes only.**

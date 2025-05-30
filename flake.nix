@@ -41,9 +41,9 @@
               lockFile = ./Cargo.lock;
             };
             passthru.cargoLock = cargoLock;
-            nativeBuildInputs = [ pkgs.python3 (pkgs.wrapClangMulti pkgs.llvmPackages_16.clang) llvm-tools-irrt pkgs.llvmPackages_16.llvm.out pkgs.llvmPackages_16.bintools llvm-nac3 ];
-            buildInputs = [ pkgs.python3 llvm-nac3 ];
-            checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ps.scipy ])) ];
+            nativeBuildInputs = [ pkgs.python3 pkgs.mold-wrapped (pkgs.wrapClangMulti pkgs.llvmPackages_16.clang) llvm-tools-irrt pkgs.llvmPackages_16.llvm.out pkgs.llvmPackages_16.bintools llvm-nac3 ];
+            buildInputs = [ pkgs.python3 pkgs.mold-wrapped llvm-nac3 ];
+            checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ps.scipy ])) pkgs.mold-wrapped ];
             checkPhase =
               ''
               echo "Checking nac3standalone demos..."
@@ -68,6 +68,7 @@
               mkdir -p $standalone/bin
               cp target/x86_64-unknown-linux-gnu/release/nac3standalone $standalone/bin
               '';
+            stdenv = [ pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv ];
           }
         );
         python3-mimalloc = pkgs.python3 // rec {
@@ -86,7 +87,7 @@
             src = self;
             inherit (nac3artiq) cargoLock;
             nativeBuildInputs = [ pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_16.bintools llvm-nac3-instrumented ];
-            buildInputs = [ pkgs.python3 llvm-nac3-instrumented ];
+            buildInputs = [ pkgs.python3 pkgs.mold-wrapped llvm-nac3-instrumented ];
             cargoBuildFlags = [ "--package" "nac3artiq" "--features" "init-llvm-profile" ];
             doCheck = false;
             configurePhase =
@@ -99,6 +100,7 @@
               mkdir -p $TARGET_DIR
               cp target/x86_64-unknown-linux-gnu/release/libnac3artiq.so $TARGET_DIR/nac3artiq.so
               '';
+            stdenv = [ pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv ];
           }
         );
         nac3artiq-profile = pkgs.stdenvNoCC.mkDerivation {
@@ -149,7 +151,7 @@
             src = self;
             inherit (nac3artiq) cargoLock;
             nativeBuildInputs = [ pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_16.bintools llvm-nac3-pgo ];
-            buildInputs = [ pkgs.python3 llvm-nac3-pgo ];
+            buildInputs = [ pkgs.python3 pkgs.mold-wrapped llvm-nac3-pgo ];
             cargoBuildFlags = [ "--package" "nac3artiq" ];
             cargoTestFlags = [ "--package" "nac3ast" "--package" "nac3parser" "--package" "nac3core" "--package" "nac3artiq" ];
             installPhase =
@@ -158,6 +160,7 @@
               mkdir -p $TARGET_DIR
               cp target/x86_64-unknown-linux-gnu/release/libnac3artiq.so $TARGET_DIR/nac3artiq.so
               '';
+            stdenv = [ pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv ];
           }
         );
       };
@@ -173,6 +176,7 @@
           packages.x86_64-linux.llvm-tools-irrt
           cargo
           rustc
+          mold-wrapped
           # runtime dependencies
           lld_16                           # for running kernels on the host
           (packages.x86_64-linux.python3-mimalloc.withPackages(ps: [ ps.numpy ps.scipy ]))
@@ -187,6 +191,7 @@
           export DEMO_LINALG_STUB=${packages.x86_64-linux.demo-linalg-stub}/lib/liblinalg.a
           export DEMO_LINALG_STUB32=${packages.x86_64-linux.demo-linalg-stub32}/lib/liblinalg.a
           '';
+        stdenv = [ pkgs.stdenvAdapters.useMoldLinker pkgs.stdenv ];
       };
       devShells.x86_64-linux.msys2 = pkgs.mkShell {
         name = "nac3-dev-shell-msys2";
