@@ -1,4 +1,4 @@
-from inspect import getfullargspec
+from inspect import getfullargspec, getmodule
 from functools import wraps
 from math import floor, ceil
 from numpy import int32, int64, uint32, uint64, float64, bool_, str_, ndarray
@@ -83,16 +83,16 @@ def ceil64(x):
 
 
 # Delay NAC3 analysis until all referenced variables are supposed to exist on the CPython side.
-registered_functions = set()
-registered_classes = set()
+registered_functions = dict()
+registered_classes = dict()
 
 def register_function(fun):
     assert allow_registration
-    registered_functions.add(fun)
+    registered_functions[fun] = getmodule(fun)
 
 def register_class(cls):
     assert allow_registration
-    registered_classes.add(cls)
+    registered_classes[cls] = getmodule(cls)
 
 
 def extern(function):

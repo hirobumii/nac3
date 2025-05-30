@@ -26,7 +26,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyAnyMethods, PyBytes, PyDict, PyNone, PySet, PyString, PyType},
+    types::{PyAnyMethods, PyBytes, PyDict, PyNone, PySet, PyType},
 };
 use tempfile::{self, TempDir};
 
@@ -1456,8 +1456,8 @@ impl Nac3 {
 
     fn analyze<'py>(
         &mut self,
-        functions: &Bound<'py, PySet>,
-        classes: &Bound<'py, PySet>,
+        functions: &Bound<'py, PyDict>,
+        classes: &Bound<'py, PyDict>,
         special_ids: &Bound<'py, PyDict>,
         content_modules: &Bound<'py, PySet>,
     ) -> PyResult<()> {
@@ -1465,36 +1465,28 @@ impl Nac3 {
             let mut modules: IndexMap<u64, Arc<Py<PyModule>>> = IndexMap::new();
             let mut class_ids: HashSet<u64> = HashSet::new();
 
-            let get_module = |object: &Bound<'py, PyAny>| -> PyResult<_> {
-                // sys.modules[object.__module__]
-                Ok(object
-                    .getattr_opt("__module__")?
-                    .map(|module| -> PyResult<_> {
-                        py_interp::sys::get_modules(module.py())?
-                            .get_item(module.downcast_into::<PyString>()?)
-                    })
-                    .transpose()?
-                    .flatten()
-                    .map(PyAnyMethods::downcast_into::<PyModule>)
-                    .transpose()?)
-            };
-
-            for function in functions {
-                let module = get_module(&function)?;
-                if let Some(module) = module {
-                    modules.insert(py_interp::extract_id(&module)?, Arc::new(module.unbind()));
+            for (_, module) in functions {
+                if !module.is_none() {
+                    modules.insert(
+                        py_interp::extract_id(module.downcast::<PyModule>()?)?,
+                        Arc::new(module.downcast_into::<PyModule>()?.unbind()),
+                    );
                 }
             }
-            for class in classes {
-                let module = get_module(&class)?;
-                if let Some(module) = module {
-                    modules.insert(py_interp::extract_id(&module)?, Arc::new(module.unbind()));
+
+            for (class, module) in classes {
+                if !module.is_none() {
+                    modules.insert(
+                        py_interp::extract_id(module.downcast::<PyModule>()?)?,
+                        Arc::new(module.downcast_into::<PyModule>()?.unbind()),
+                    );
                 }
                 class_ids.insert(py_interp::extract_id(&class)?);
             }
+
             for module in content_modules {
                 modules.insert(
-                    py_interp::extract_id(&module)?,
+                    py_interp::extract_id(module.downcast::<PyModule>()?)?,
                     Arc::new(module.downcast_into()?.unbind()),
                 );
             }
