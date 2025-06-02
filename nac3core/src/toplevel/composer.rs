@@ -321,7 +321,9 @@ impl<'a> TopLevelComposer<'a> {
 
                             attributes.push((*name, def_id, mutable));
                         }
-                        TopLevelDef::Module { .. } => attributes.push((*name, def_id, true)),
+                        TopLevelDef::Module { .. } => {
+                            unreachable!("modules cannot be nested inside another module")
+                        }
                     }
                 }
             }
