@@ -4,13 +4,9 @@ from min_artiq import *
 @compile
 class Demo:
     core: KernelInvariant[Core]
-    led0: KernelInvariant[TTLOut]
-    led1: KernelInvariant[TTLOut]
 
     def __init__(self):
         self.core = Core()
-        self.led0 = TTLOut(self.core, 18)
-        self.led1 = TTLOut(self.core, 19)
 
     @subkernel(destination=1)
     def simple_sk(self):
@@ -19,12 +15,9 @@ class Demo:
     @kernel
     def run(self):
         self.core.reset()
+        subkernel_preload(self.simple_sk)
         self.simple_sk()
-        while True:
-            with parallel:
-                self.led0.pulse(100.*ms)
-                self.led1.pulse(100.*ms)
-            self.core.delay(100.*ms)
+        subkernel_await(self.simple_sk)
 
 
 if __name__ == "__main__":

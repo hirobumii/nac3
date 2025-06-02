@@ -249,14 +249,15 @@ def print_int64(x: int64):
 
 
 class EmbeddingMap:
-    def __init__(self):
+    def __init__(self, subkernel_map={}, current_destination=0):
         self.object_inverse_map = {}
         self.object_map = {}
         self.string_map = {}
         self.string_reverse_map = {}
         self.function_map = {}
-        self.subkernel_map = {}
+        self.subkernel_map = subkernel_map
         self.attributes_writeback = []
+        self.current_destination = current_destination
 
     def store_function(self, key, fun):
         self.function_map[key] = fun
@@ -320,6 +321,12 @@ class Core:
             name = ""
 
         compiler.compile_method_to_file(obj, name, args, "module.elf", embedding)
+
+        subkernel_map = embedding.subkernel_map
+        for sk_id, subkernel in subkernel_map.items():
+            embedding = EmbeddingMap(subkernel_map, subkernel._destination)
+            compiler.compile_method_to_file(obj, name, args, "module{}.elf".format(sk_id), embedding)
+            subkernel_map = embedding.subkernel_map
 
     @kernel
     def reset(self):

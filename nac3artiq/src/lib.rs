@@ -48,7 +48,7 @@ use nac3core::{
         ast::{self, Constant, ExprKind, FileName, Located, Stmt, StmtKind, StrRef},
         parser::parse_program,
     },
-    symbol_resolver::SymbolResolver,
+    symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         DefinitionId, GenCall, TopLevelDef,
         builtins::get_exn_constructor,
@@ -63,7 +63,7 @@ use nac3ld::Linker;
 
 use codegen::{
     ArtiqCodeGenerator, attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback,
-    subkernel_call_codegen_callback,
+    subkernel_call_codegen_callback, gen_subkernel_await, gen_subkernel_preload
 };
 use symbol_resolver::{DeferredEvaluationStore, InnerResolver, PythonHelper, Resolver};
 use timeline::TimeFns;
@@ -486,6 +486,74 @@ impl Nac3 {
         ]
     }
 
+    // Returns a [`Vec`] of subkernel related builtins that need embedding_map
+    fn get_subkernel_builtins<'py>(retrieve_subk: Py<PyAny>, py: Python<'py>) -> Vec<Box<BuiltinFuncCreator>> {
+        vec![
+            Box::new(|primitives, unifier| {
+                let ret_ty = unifier.get_fresh_var(Some("R".into()), None);
+                let arg_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature { 
+                    args: vec![],
+                    ret: ret_ty.ty,
+                    vars: VarMap::new(),
+                }));
+
+                (
+                    "subkernel_await".into(),
+                    FunSignature {
+                        args: vec![
+                            FuncArg {
+                                name: "fn".into(),
+                                ty: arg_ty, // any function, will check in GenCall
+                                default_value: None,
+                                is_vararg: false,
+                            },
+                            FuncArg {
+                                name: "timeout".into(),
+                                ty: primitives.int32,
+                                default_value: Some(SymbolValue::I32(-1)), // default timeout -1 (infinite)
+                                is_vararg: false,
+                            },
+                        ],
+                        ret: ret_ty.ty, // this depends on the subkernel return type
+                        vars: into_var_map([ret_ty]),
+                    },
+                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
+                        gen_subkernel_await(ctx, obj.as_ref(), fun, &args, generator)?;
+
+                        Ok(None)
+                    }))),
+                )
+            }),
+            Box::new(|primitives, unifier|{
+                let ret_ty = unifier.get_dummy_var();
+                let arg_ty = unifier.add_ty(TypeEnum::TFunc(FunSignature { 
+                    args: vec![],
+                    ret: ret_ty.ty,
+                    vars: VarMap::new(),
+                }));
+                (
+                    "subkernel_preload".into(),
+                    FunSignature {
+                        args: vec![
+                            FuncArg {
+                                name: "fn".into(),
+                                ty: arg_ty, // any function, will check in GenCall
+                                default_value: None,
+                                is_vararg: false,
+                            },
+                        ],
+                        ret: primitives.none,
+                        vars: VarMap::new(),
+                    },
+                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
+                        gen_subkernel_preload(ctx, obj.as_ref(), fun, &args, generator)?;
+                        Ok(None)
+                    }))),
+                )
+            })
+        ]
+    }
+
     fn compile_method<'py, T>(
         &self,
         obj: &Bound<'py, PyAny>,
@@ -506,9 +574,14 @@ impl Nac3 {
                 .collect::<HashMap<_, _>>()
         });
 
+        let retrieve_subk = embedding_map.getattr("retrieve_subkernel").unwrap().into_py_any(py)?;
+        
+        let mut lateinit_builtins = Self::get_lateinit_builtins();
+        lateinit_builtins.append(&mut Self::get_subkernel_builtins(retrieve_subk, py));
+
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
             self.builtins.clone(),
-            Self::get_lateinit_builtins(),
+            lateinit_builtins,
             ComposerConfig {
                 has_kernel_ann_fn: Some(Box::new(|ann| {
                     Python::with_gil(|py| {
@@ -551,6 +624,7 @@ impl Nac3 {
         let store_str = embedding_map.getattr("store_str").unwrap();
         let store_fun = embedding_map.getattr("store_function").unwrap().into_py_any(py)?;
         let store_subk = embedding_map.getattr("store_subkernel").unwrap().into_py_any(py)?;
+        let current_destination: i128 = embedding_map.getattr("current_destination").unwrap().extract()?;
         let host_attributes =
             embedding_map.getattr("attributes_writeback").unwrap().into_py_any(py)?;
         let global_value_ids: Arc<RwLock<HashMap<_, _>>> = Arc::new(RwLock::new(HashMap::new()));
@@ -675,18 +749,20 @@ impl Nac3 {
                             if let Some(Constant::Int(dest)) =
                                 decorator_get_destination(decorator_list)
                             {
-                                store_subk
-                                    .call1(
-                                        py,
-                                        (
-                                            def_id.0.into_py_any(py)?,
-                                            module
-                                                .getattr(py, name.to_string().as_str())
-                                                .unwrap(),
-                                        ),
-                                    )
-                                    .unwrap();
-                                subkernel_ids.push((None, def_id, dest));
+                                if dest != current_destination {
+                                    store_subk
+                                        .call1(
+                                            py,
+                                            (
+                                                def_id.0.into_py_any(py)?,
+                                                module
+                                                    .getattr(py, name.to_string().as_str())
+                                                    .unwrap(),
+                                            ),
+                                        )
+                                        .unwrap();
+                                    subkernel_ids.push((None, def_id, dest));
+                                }
                             }
                         } else if ![
                             self.primitive_ids.kernel_decorator,
@@ -732,7 +808,7 @@ impl Nac3 {
                                         def_id,
                                         is_async,
                                     ));
-                                } else if decorator_fn_id == self.primitive_ids.subkernel_decorator {
+                                } else if decor_fn_id == self.primitive_ids.subkernel_decorator {
                                         if name == &"__init__".into() {
                                             return Err(CompileError::new_err(format!(
                                                 "compilation failed\n----------\nThe constructor of class {} should not be decorated with subkernel decorator (at {})",
@@ -742,11 +818,14 @@ impl Nac3 {
                                         if let Some(Constant::Int(dest)) =
                                             decorator_get_destination(decorator_list)
                                         {
-                                            subkernel_ids.push((
-                                                Some((class_obj.clone(), *name)),
-                                                def_id,
-                                                dest,
-                                            ));
+                                            if dest != current_destination {
+                                                subkernel_ids.push((
+                                                    Some((class_obj.clone(), *name)),
+                                                    def_id,
+                                                    dest,
+                                                ));
+                                            }
+                                        }
                                 } else if ![
                                     self.primitive_ids.kernel_decorator,
                                     self.primitive_ids.portable_decorator,
@@ -809,6 +888,12 @@ impl Nac3 {
             module.add(&*name, &arg)?;
             name_to_pyid.insert(name.clone().into(), py_interp::extract_id(&arg)?);
             arg_names.push(name);
+        }
+        if current_destination != 0 {
+            // subkernel:
+            // figure out how to get args from the function signature to use subkernel_await_message on
+            // from args, only ``self`` should be passed by the compile call
+            // remembering that arguments can be optional
         }
         let synthesized = if method_name.is_empty() {
             format!("def __modinit__():\n    base({})", arg_names.join(", "))
@@ -933,7 +1018,7 @@ impl Nac3 {
                             {
                                 *codegen_callback =
                                     Some(subkernel_call_codegen_callback(*destination as u8));
-                                store_fun
+                                store_subk
                                     .call1(
                                         py,
                                         (
@@ -1484,7 +1569,7 @@ impl Nac3 {
             kernel_decorator: get_artiq_builtin_id(Some("artiq"), "kernel")?,
             portable_decorator: get_artiq_builtin_id(Some("artiq"), "portable")?,
             rpc_decorator: get_artiq_builtin_id(Some("artiq"), "rpc")?,
-            subkernel_decorator: get_artiq_builtin(Some("artiq"), "subkernel")?,
+            subkernel_decorator: get_artiq_builtin_id(Some("artiq"), "subkernel")?,
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();

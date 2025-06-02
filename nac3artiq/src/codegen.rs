@@ -1128,7 +1128,7 @@ fn subkernel_call_codegen_callback_fn<'ctx>(
                     subkernel_id.into(),
                     bool_type.const_zero().into(),
                     destination.into(),
-                    int32.const_int(real_params.len() as u64, false).into(),
+                    int8.const_int(real_params.len() as u64, false).into(),
                     tag_ptr.into(),
                     args_ptr.into(),
                 ],
@@ -1721,4 +1721,49 @@ pub fn gen_rtio_log<'ctx>(
     let value_arg = args[1].1.clone().to_basic_value_enum(ctx, generator, value_ty)?;
 
     call_rtio_log_impl(ctx, generator, channel_arg, (value_ty, value_arg))
+}
+
+pub fn gen_subkernel_await<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    obj: Option<&(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+    retrieve_subk: Py<PyAny>,
+    py: Python<'_>
+) -> Result<(), String> {
+    assert!(obj.is_none());
+    assert_eq!(args.len(), 2);
+
+    let fn_ty = fun.0.args[0].ty;
+    let fn_arg = args[0].1.clone().to_basic_value_enum(ctx, generator, fn_ty)?;
+
+    let timeout_ty = fun.0.args[1].ty;
+    let timeout_arg = args[1].1.clone().to_basic_value_enum(ctx, generator, timeout_ty)?;
+
+    // call_subkernel_await_impl(ctx, generator, (fn_ty, fn_arg), (timeout_ty, timeout_arg))
+    Ok(())
+}
+
+pub fn gen_subkernel_preload<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    obj: Option<&(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+    retrieve_subk: Py<PyAny>,
+    py: Python<'_>
+) -> Result<(), String> {
+    assert!(obj.is_none());
+    assert_eq!(args.len(), 1);
+
+    let fn_ty = fun.0.args[0].ty;
+    let fn_arg = args[0].1.clone().to_basic_value_enum(ctx, generator, fn_ty)?;
+
+    // if let BasicValueEnum::FunctionValue(func) = func_value {
+
+    // } else {
+    //     return Err("preload argument must be a function");
+    // }
+    Ok(())
 }
