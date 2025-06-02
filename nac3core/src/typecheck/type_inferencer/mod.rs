@@ -155,15 +155,11 @@ impl Fold<()> for NaiveFolder {
 }
 
 fn report_error<T>(msg: &str, location: Location) -> Result<T, InferenceError> {
-    Err(HashSet::from([format!("{msg} at {location}")]))
+    Err(HashSet::from([format!("{msg} (at {location})")]))
 }
 
-fn report_type_error<T>(
-    kind: TypeErrorKind,
-    loc: Option<Location>,
-    unifier: &Unifier,
-) -> Result<T, InferenceError> {
-    Err(HashSet::from([TypeError::new(kind, loc).to_display(unifier).to_string()]))
+fn report_type_error<T>(err: TypeError, unifier: &Unifier) -> Result<T, InferenceError> {
+    Err(HashSet::from([err.to_display(unifier).to_string()]))
 }
 
 /// Traverse through a LHS expression in an assignment and set [`ExprContext`] to [`ExprContext::Store`]
@@ -267,11 +263,8 @@ impl Fold<()> for Inferencer<'_> {
                                 self.defined_identifiers.entry(name).or_default();
                                 if let Some(old_typ) = self.variable_mapping.insert(name, typ) {
                                     let loc = handler.location;
-                                    self.unifier.unify(old_typ, typ).map_err(|e| {
-                                        HashSet::from([e
-                                            .at(Some(loc))
-                                            .to_display(self.unifier)
-                                            .to_string()])
+                                    self.unifier.unify(old_typ, typ).or_else(|e| {
+                                        report_type_error(e.at(Some(loc)), self.unifier)
                                     })?;
                                 }
                             }
@@ -339,7 +332,7 @@ impl Fold<()> for Inferencer<'_> {
                             let iter_ty = iter.custom.unwrap();
                             let iter_ty_str = self.unifier.stringify(iter_ty);
                             return report_error(
-                                format!("'{iter_ty_str}' object is not iterable").as_str(),
+                                &format!("'{iter_ty_str}' object is not iterable"),
                                 iter.location,
                             );
                         }
@@ -667,9 +660,7 @@ impl Inferencer<'_> {
     }
 
     fn unify(&mut self, a: Type, b: Type, location: &Location) -> Result<(), InferenceError> {
-        self.unifier.unify(a, b).map_err(|e| {
-            HashSet::from([e.at(Some(*location)).to_display(self.unifier).to_string()])
-        })
+        self.unifier.unify(a, b).or_else(|e| report_type_error(e.at(Some(*location)), self.unifier))
     }
 
     fn infer_pattern<T>(&mut self, pattern: &ast::Expr<T>) -> Result<(), InferenceError> {
@@ -733,11 +724,8 @@ impl Inferencer<'_> {
                                     })
                                     .unwrap();
                             }
-                            self.unifier.unify_call(&call, ty, sign).map_err(|e| {
-                                HashSet::from([e
-                                    .at(Some(location))
-                                    .to_display(self.unifier)
-                                    .to_string()])
+                            self.unifier.unify_call(&call, ty, sign).or_else(|e| {
+                                report_type_error(e.at(Some(location)), self.unifier)
                             })?;
                             return Ok(sign.ret);
                         }
@@ -1004,12 +992,9 @@ impl Inferencer<'_> {
                 let ty = iter_type_vars(params).nth(0).unwrap().ty;
 
                 // Typecheck
-                self.unifier.unify(ty, self.primitives.int32).map_err(|err| {
-                    HashSet::from([err
-                        .at(Some(shape.location))
-                        .to_display(self.unifier)
-                        .to_string()])
-                })?;
+                self.unifier
+                    .unify(ty, self.primitives.int32)
+                    .or_else(|err| report_type_error(err.at(Some(shape.location)), self.unifier))?;
 
                 // Special handling for (1. A python `List` (all `int32s`)).
                 // Read the doc above this function to see what is going on here.
@@ -1020,11 +1005,13 @@ impl Inferencer<'_> {
                     // This means the user is passing an expression of type `List`,
                     // but it is done so indirectly (like putting a variable referencing a `List`)
                     // rather than writing a List literal. We need to report an error.
-                    return Err(HashSet::from([format!(
-                        "Expected list literal, tuple, or int32 for argument {arg_num} of {id} at {location}. Input argument is of type list but not a list literal.",
-                        arg_num = arg_index + 1,
-                        location = shape.location
-                    )]));
+                    return report_error(
+                        &format!(
+                            "Expected list literal, tuple, or int32 for argument {arg_num} of {id}. Input argument is of type list but not a list literal.",
+                            arg_num = arg_index + 1
+                        ),
+                        shape.location,
+                    );
                 }
             }
             TypeEnum::TTuple { ty: tuple_element_types, .. } => {
@@ -1036,12 +1023,9 @@ impl Inferencer<'_> {
                     ty: tuple_element_types.iter().map(|_| self.primitives.int32).collect_vec(),
                     is_vararg_ctx: false,
                 });
-                self.unifier.unify(shape_ty, expected_ty).map_err(|err| {
-                    HashSet::from([err
-                        .at(Some(shape.location))
-                        .to_display(self.unifier)
-                        .to_string()])
-                })?;
+                self.unifier
+                    .unify(shape_ty, expected_ty)
+                    .or_else(|err| report_type_error(err.at(Some(shape.location)), self.unifier))?;
 
                 // `ndims` can be deduced statically from the inferred Tuple type.
                 tuple_element_types.len() as u64
@@ -1703,7 +1687,7 @@ impl Inferencer<'_> {
                 match &ndmin_kw.node.value.node {
                     ExprKind::Constant { value, .. } => match value {
                         ast::Constant::Int(value) => max(*value as u64, arg0_ndims),
-                        _ => return Err(HashSet::from(["Expected uint64 for ndims".to_string()])),
+                        _ => return report_error("Expected uint64 for ndims", *func_location),
                     },
 
                     _ => arg0_ndims,
@@ -1875,9 +1859,9 @@ impl Inferencer<'_> {
                     loc: Some(location),
                     operator_info: None,
                 };
-                self.unifier.unify_call(&call, func.custom.unwrap(), sign).map_err(|e| {
-                    HashSet::from([e.at(Some(location)).to_display(self.unifier).to_string()])
-                })?;
+                self.unifier
+                    .unify_call(&call, func.custom.unwrap(), sign)
+                    .or_else(|e| report_type_error(e.at(Some(location)), self.unifier))?;
                 return Ok(Located {
                     location,
                     custom: Some(sign.ret),
@@ -2013,8 +1997,10 @@ impl Inferencer<'_> {
                         Ok(*ty)
                     }
                     (Some((ty, _)), true) => report_type_error(
-                        TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
-                        Some(value.location),
+                        TypeError::new(
+                            TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
+                            Some(value.location),
+                        ),
                         self.unifier,
                     ),
                     (None, _) => {
@@ -2041,11 +2027,13 @@ impl Inferencer<'_> {
                                     self.primitives,
                                     attr,
                                 )
-                                .map_err(|err| HashSet::from([err]))
+                                .or_else(|err| report_error(&err, value.location))
                         } else {
                             report_type_error(
-                                TypeErrorKind::NoSuchField(RecordKey::Str(attr), ty),
-                                Some(value.location),
+                                TypeError::new(
+                                    TypeErrorKind::NoSuchField(RecordKey::Str(attr), ty),
+                                    Some(value.location),
+                                ),
                                 self.unifier,
                             )
                         }
@@ -2059,8 +2047,10 @@ impl Inferencer<'_> {
                         Ok(*ty)
                     }
                     (Some((ty, _)), true) => report_type_error(
-                        TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
-                        Some(value.location),
+                        TypeError::new(
+                            TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
+                            Some(value.location),
+                        ),
                         self.unifier,
                     ),
                     (None, mutable) => {
@@ -2085,8 +2075,10 @@ impl Inferencer<'_> {
                                 value.location,
                             ),
                             None => report_type_error(
-                                TypeErrorKind::NoSuchField(RecordKey::Str(attr), ty),
-                                Some(value.location),
+                                TypeError::new(
+                                    TypeErrorKind::NoSuchField(RecordKey::Str(attr), ty),
+                                    Some(value.location),
+                                ),
                                 self.unifier,
                             ),
                         }
@@ -2164,7 +2156,7 @@ impl Inferencer<'_> {
         let ret = match op.variant {
             BinopVariant::Normal => {
                 typeof_binop(self.unifier, self.primitives, op.base, left_ty, right_ty)
-                    .map_err(|e| HashSet::from([format!("{e} (at {location})")]))?
+                    .or_else(|e| report_error(&e, location))?
             }
             BinopVariant::AugAssign => {
                 // The type of augmented assignment operator should never change
@@ -2191,7 +2183,7 @@ impl Inferencer<'_> {
         let method = op.op_info().method_name.into();
 
         let ret = typeof_unaryop(self.unifier, self.primitives, op, operand.custom.unwrap())
-            .map_err(|e| HashSet::from([format!("{e} (at {location})")]))?;
+            .or_else(|e| report_error(&e, location))?;
 
         self.build_method_call(
             location,
@@ -2218,15 +2210,20 @@ impl Inferencer<'_> {
                     .is_some_and(|id| id == PrimDef::NDArray.id())
             })
         {
-            return Err(HashSet::from([String::from(
-                "Comparator chaining with ndarray types not supported",
-            )]));
+            return report_error("Comparator chaining with ndarray types not supported", location);
         }
 
         let mut res = None;
         for (a, b, c) in izip!(once(left).chain(comparators), comparators, ops) {
             if !OpInfo::supports_cmpop(*c) {
-                return Err(HashSet::from(["unsupported comparator".to_string()]));
+                let name = match *c {
+                    ast::Cmpop::Is => "is",
+                    ast::Cmpop::IsNot => "is not",
+                    ast::Cmpop::In => "in",
+                    ast::Cmpop::NotIn => "not in",
+                    _ => unreachable!("unknown unsupported cmpop"),
+                };
+                return report_error(&format!("Comparator `{name}` is not supported"), location);
             }
 
             let method = c.op_info().method_name.into();
@@ -2238,7 +2235,7 @@ impl Inferencer<'_> {
                 a.custom.unwrap(),
                 b.custom.unwrap(),
             )
-            .map_err(|e| HashSet::from([format!("{e} (at {})", b.location)]))?;
+            .or_else(|e| report_error(&e, b.location))?;
 
             res.replace(self.build_method_call(
                 location,
@@ -2509,6 +2506,7 @@ impl Inferencer<'_> {
     /// `dims_to_subtract` can be set to `0` if you only want to check if `ndims` is valid.
     fn check_ndarray_ndims_and_subtract(
         &mut self,
+        location: Location,
         target_ty: Type,
         ndims: Type,
         dims_to_subtract: i128,
@@ -2526,11 +2524,11 @@ impl Inferencer<'_> {
             .iter()
             .map(|ndim| u64::try_from(ndim.clone()).map_err(|()| ndim.clone()))
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|val| {
-                HashSet::from([format!(
+            .or_else(|val| {
+                report_error(&format!(
                     "Expected non-negative literal for ndarray.ndims, got {}",
                     i128::try_from(val).unwrap()
-                )])
+                ), location)
             })?;
 
         // Infer the new `ndims` after indexing the ndarray with `slice`.
@@ -2542,11 +2540,11 @@ impl Inferencer<'_> {
                 u64::try_from(v)
             })
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| {
-                HashSet::from([format!(
+            .or_else(|_| {
+                report_error(&format!(
                     "Cannot subscript {} by {dims_to_subtract} dimension(s)",
                     self.unifier.stringify(target_ty),
-                )])
+                ), location)
             })?;
 
         let new_ndims_ty = self
@@ -2569,7 +2567,7 @@ impl Inferencer<'_> {
 
         let dims_to_substract = self.fold_ndarray_subscript_slice(slice)?;
         let new_ndims =
-            self.check_ndarray_ndims_and_subtract(ndarray_ty, ndims, dims_to_substract)?;
+            self.check_ndarray_ndims_and_subtract(slice.location, ndarray_ty, ndims, dims_to_substract)?;
 
         // Now we need extra work to check `new_ndims` to see if the user has indexed into a single element.
 
@@ -2643,7 +2641,7 @@ impl Inferencer<'_> {
         mutable: bool,
     ) -> InferenceResult {
         let Ok(index) = i32::try_from(index) else {
-            return Err(HashSet::from(["Index must be int32".to_string()]));
+            return report_error("Index must be int32", target.location);
         };
 
         let item_ty = self.unifier.get_dummy_var().ty; // To be resolved by the unifier
