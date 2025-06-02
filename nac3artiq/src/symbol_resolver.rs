@@ -25,7 +25,7 @@ use nac3core::{
         AddressSpace,
         module::Linkage,
         types::{BasicType, BasicTypeEnum},
-        values::{BasicValue, BasicValueEnum},
+        values::BasicValueEnum,
     },
     nac3parser::ast::{self, StrRef},
     symbol_resolver::{StaticValue, SymbolResolver, SymbolValue, ValueEnum},
@@ -1472,77 +1472,6 @@ impl InnerResolver {
                     None => Ok(None),
                 }
             }
-        } else if ty_id == self.primitive_ids.module {
-            let id_str = id.to_string();
-
-            if let Some(global) = ctx.module.get_global(&id_str) {
-                return Ok(Some(global.as_pointer_value().into()));
-            }
-
-            let top_level_defs = ctx.top_level.definitions.read();
-            let ty = self
-                .get_obj_type(py, obj, &mut ctx.unifier, &top_level_defs, &ctx.primitives)?
-                .unwrap();
-            let ty = ctx
-                .get_llvm_type(generator, ty)
-                .into_pointer_type()
-                .get_element_type()
-                .into_struct_type();
-
-            {
-                if self.global_value_ids.read().contains_key(&id) {
-                    let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
-                    });
-                    return Ok(Some(global.as_pointer_value().into()));
-                }
-                self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
-            }
-
-            let fields = {
-                let definition =
-                    top_level_defs.get(self.pyid_to_def.read().get(&id).unwrap().0).unwrap().read();
-                let TopLevelDef::Module { attributes, .. } = &*definition else { unreachable!() };
-                attributes
-                    .iter()
-                    .filter_map(|f| {
-                        let definition = top_level_defs.get(f.1.0).unwrap().read();
-                        if let TopLevelDef::Variable { ty, .. } = &*definition {
-                            Some((f.0, *ty))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect_vec()
-            };
-
-            let values: Result<Option<Vec<_>>, _> = fields
-                .iter()
-                .map(|(name, ty)| {
-                    self.get_obj_value(
-                        py,
-                        &obj.getattr(name.to_string().as_str())?,
-                        ctx,
-                        generator,
-                        *ty,
-                    )
-                    .map_err(|e| {
-                        super::CompileError::new_err(format!("Error getting field {name}: {e}"))
-                    })
-                })
-                .collect();
-            let values = values?;
-
-            if let Some(values) = values {
-                let val = ty.const_named_struct(&values);
-                let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                    ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
-                });
-                global.set_initializer(&val);
-                Ok(Some(global.as_pointer_value().into()))
-            } else {
-                Ok(None)
-            }
         } else {
             let id_str = id.to_string();
 
@@ -1725,68 +1654,9 @@ impl SymbolResolver for Resolver {
     fn get_symbol_value<'ctx>(
         &self,
         id: StrRef,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
+        _: &mut CodeGenContext<'ctx, '_>,
+        _: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
-        if let Some(def_id) = self.0.id_to_def.read().get(&id) {
-            let top_levels = ctx.top_level.definitions.read();
-            if let TopLevelDef::Variable { resolver, .. } = &*top_levels[def_id.0].read() {
-                let module_val = &self.0.module;
-                let Ok((obj, idx)) = Python::with_gil(
-                    |py| -> PyResult<Result<(BasicValueEnum<'ctx>, Option<usize>), String>> {
-                        let module_val = (**module_val).bind(py);
-
-                        let ty = self.0.get_obj_type(
-                            py,
-                            module_val,
-                            &mut ctx.unifier,
-                            &top_levels,
-                            &ctx.primitives,
-                        )?;
-                        if let Err(ty) = ty {
-                            return Ok(Err(ty));
-                        }
-                        let ty = ty.unwrap();
-                        let obj =
-                            self.0.get_obj_value(py, module_val, ctx, generator, ty)?.unwrap();
-                        let (idx, _) = ctx.get_attr_index(ty, id);
-
-                        Ok(Ok((obj, idx)))
-                    },
-                )
-                .unwrap() else {
-                    return None;
-                };
-
-                let Some(idx) = idx else {
-                    // `idx` not found in the current resolver - try the resolver of the variable
-                    return resolver.as_ref().and_then(|resolver| {
-                        let resolver = &**resolver;
-
-                        // TODO: Can we assume that if get_identifier_def returns a result,
-                        //       get_symbol_value will also return a value?
-                        resolver
-                            .get_identifier_def(id)
-                            .ok()
-                            .and_then(|_| resolver.get_symbol_value(id, ctx, generator))
-                    });
-                };
-
-                let ret = unsafe {
-                    ctx.builder.build_gep(
-                        obj.into_pointer_value(),
-                        &[
-                            ctx.ctx.i32_type().const_zero(),
-                            ctx.ctx.i32_type().const_int(idx as u64, false),
-                        ],
-                        id.to_string().as_str(),
-                    )
-                }
-                .unwrap();
-                return Some(ret.as_basic_value_enum().into());
-            }
-        }
-
         let sym_value = {
             let id_to_val = self.0.id_to_pyval.read();
             id_to_val.get(&id).cloned()
