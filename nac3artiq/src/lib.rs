@@ -570,7 +570,7 @@ impl Nac3 {
         add_exceptions(&mut composer, &mut builtins_def, &mut builtins_ty, &exception_names);
 
         // Stores a mapping from module id to attributes
-        let mut module_to_resolver_cache: HashMap<u64, _> = HashMap::new();
+        let mut module_cache: HashMap<u64, _> = HashMap::new();
 
         let mut rpc_ids = vec![];
         for (stmt, path, module) in &self.top_levels {
@@ -592,7 +592,7 @@ impl Nac3 {
                 class_obj = None;
             }
             let (name_to_pyid, resolver, _, _) =
-                module_to_resolver_cache.get(&module_id).cloned().unwrap_or_else(|| {
+                module_cache.get(&module_id).cloned().unwrap_or_else(|| {
                     let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
                     let members = py_module.getattr("__dict__").unwrap();
                     let members = members.downcast::<PyDict>().unwrap();
@@ -621,7 +621,7 @@ impl Nac3 {
                         as Arc<dyn SymbolResolver + Send + Sync>;
                     let name_to_pyid = Rc::new(name_to_pyid);
                     let module_location = ast::Location::new(1, 1, stmt.location.file);
-                    module_to_resolver_cache.insert(
+                    module_cache.insert(
                         module_id,
                         (
                             name_to_pyid.clone(),
@@ -745,7 +745,7 @@ impl Nac3 {
 
         // Adding top level module definitions
         for (module_id, (module_name_to_pyid, module_resolver, module_name, module_location)) in
-            module_to_resolver_cache
+            module_cache
         {
             let def_id = composer
                 .register_top_level_module(
