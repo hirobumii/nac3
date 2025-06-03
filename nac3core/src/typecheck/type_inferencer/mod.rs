@@ -2506,10 +2506,10 @@ impl Inferencer<'_> {
     /// `dims_to_subtract` can be set to `0` if you only want to check if `ndims` is valid.
     fn check_ndarray_ndims_and_subtract(
         &mut self,
-        location: Location,
         target_ty: Type,
         ndims: Type,
         dims_to_subtract: i128,
+        location: Location,
     ) -> Result<Type, InferenceError> {
         // Typecheck `ndims`.
         let TypeEnum::TLiteral { values: ndims, .. } = &*self.unifier.get_ty_immutable(ndims)
@@ -2525,10 +2525,13 @@ impl Inferencer<'_> {
             .map(|ndim| u64::try_from(ndim.clone()).map_err(|()| ndim.clone()))
             .collect::<Result<Vec<_>, _>>()
             .or_else(|val| {
-                report_error(&format!(
-                    "Expected non-negative literal for ndarray.ndims, got {}",
-                    i128::try_from(val).unwrap()
-                ), location)
+                report_error(
+                    &format!(
+                        "Expected non-negative literal for ndarray.ndims, got {}",
+                        i128::try_from(val).unwrap()
+                    ),
+                    location,
+                )
             })?;
 
         // Infer the new `ndims` after indexing the ndarray with `slice`.
@@ -2541,10 +2544,13 @@ impl Inferencer<'_> {
             })
             .collect::<Result<Vec<_>, _>>()
             .or_else(|_| {
-                report_error(&format!(
-                    "Cannot subscript {} by {dims_to_subtract} dimension(s)",
-                    self.unifier.stringify(target_ty),
-                ), location)
+                report_error(
+                    &format!(
+                        "Cannot subscript {} by {dims_to_subtract} dimension(s)",
+                        self.unifier.stringify(target_ty),
+                    ),
+                    location,
+                )
             })?;
 
         let new_ndims_ty = self
@@ -2566,8 +2572,12 @@ impl Inferencer<'_> {
         let (dtype, ndims) = unpack_ndarray_var_tys(self.unifier, ndarray_ty);
 
         let dims_to_substract = self.fold_ndarray_subscript_slice(slice)?;
-        let new_ndims =
-            self.check_ndarray_ndims_and_subtract(slice.location, ndarray_ty, ndims, dims_to_substract)?;
+        let new_ndims = self.check_ndarray_ndims_and_subtract(
+            ndarray_ty,
+            ndims,
+            dims_to_substract,
+            slice.location,
+        )?;
 
         // Now we need extra work to check `new_ndims` to see if the user has indexed into a single element.
 
