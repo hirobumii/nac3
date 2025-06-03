@@ -2208,116 +2208,166 @@ impl Inferencer<'_> {
         rhs_ty: Type,
     ) -> Result<Vec<ast::Expr<Option<Type>>>, InferenceError> {
         // TODO: Allow bidirectional typechecking? Currently RHS's type has to be resolved.
-        let TypeEnum::TTuple { ty: rhs_tys, .. } = &*self.unifier.get_ty(rhs_ty) else {
-            // TODO: Allow RHS AST-aware error reporting
-            return report_error(
+        // let TypeEnum::TTuple { ty: rhs_tys, .. } = &*self.unifier.get_ty(rhs_ty) else {
+        // TODO: Allow RHS AST-aware error reporting
+        //    return report_error(
+        //        &format!("LHS target list pattern requires RHS: {:?} to be a tuple type", rhs_ty),
+        //        *target_list_location,
+        //    );
+        // };
+
+        let binding = self.unifier.get_ty(rhs_ty);
+        match &*binding {
+            TypeEnum::TTuple { ty: rhs_tys, .. } => {
+                // Find the starred target if it exists.
+                let mut starred_target_index: Option<usize> = None; // Index of the "starred" target. If it exists, there may only be one.
+                for (i, target) in targets.iter().enumerate() {
+                    if matches!(target.node, ExprKind::Starred { .. }) {
+                        if starred_target_index.is_none() {
+                            // First "starred" target found.
+                            starred_target_index = Some(i);
+                        } else {
+                            // Second "starred" targets found. This is an error.
+                            return report_error(
+                                "there can only be one starred target, but found another one",
+                                target.location,
+                            );
+                        }
+                    }
+                }
+
+                let mut folded_targets: Vec<ast::Expr<Option<Type>>> = Vec::new();
+                if let Some(starred_target_index) = starred_target_index {
+                    if rhs_tys.len() < targets.len() - 1 {
+                        /*
+                        Rules:
+                        ```
+                        (x, *ys, z) = (1,) # error
+                        (x, *ys, z) = (1, 2) # ok, ys = ()
+                        (x, *ys, z) = (1, 2, 3) # ok, ys = (2,)
+                        ```
+                        */
+                        return report_error(
+                            &format!(
+                                "Target list pattern requires RHS tuple type have to at least {} element(s), but RHS only has {} element(s)",
+                                targets.len() - 1,
+                                rhs_tys.len()
+                            ),
+                            *target_list_location,
+                        );
+                    }
+
+                    /*
+                    (a, b, c, ..., *xs, ..., x, y, z)
+                    before ^^^^^^^^^^^^  ^^^  ^^^^^^^^^^^^ after
+                    starred
+                    */
+
+                    let targets_after = targets.drain(starred_target_index + 1..).collect_vec();
+                    let target_starred = targets.pop().unwrap();
+                    let targets_before = targets;
+
+                    let a = targets_before.len();
+                    let b = rhs_tys.len() - targets_after.len();
+
+                    let rhs_tys_before = &rhs_tys[..a];
+                    let rhs_tys_starred = &rhs_tys[a..b];
+                    let rhs_tys_after = &rhs_tys[b..];
+
+                    // Fold before the starred target
+                    for (target, rhs_ty) in izip!(targets_before, rhs_tys_before) {
+                        folded_targets.push(self.fold_assign_target(target, *rhs_ty)?);
+                    }
+
+                    // Fold the starred target
+                    if let ExprKind::Starred { value: target, .. } = target_starred.node {
+                        let ty = self.unifier.add_ty(TypeEnum::TTuple {
+                            ty: rhs_tys_starred.to_vec(),
+                            is_vararg_ctx: false,
+                        });
+                        let folded_target = self.fold_assign_target(*target, ty)?;
+                        folded_targets.push(Located {
+                            location: target_starred.location,
+                            node: ExprKind::Starred {
+                                value: Box::new(folded_target),
+                                ctx: ExprContext::Store,
+                            },
+                            custom: None,
+                        });
+                    } else {
+                        unreachable!()
+                    }
+
+                    // Fold after the starred target
+                    for (target, rhs_ty) in izip!(targets_after, rhs_tys_after) {
+                        folded_targets.push(self.fold_assign_target(target, *rhs_ty)?);
+                    }
+                } else {
+                    // Fold target list without a "starred" target.
+                    if rhs_tys.len() != targets.len() {
+                        return report_error(
+                            &format!(
+                                "Target list pattern requires RHS tuple type have to {} element(s), but RHS only has {} element(s)",
+                                targets.len() - 1,
+                                rhs_tys.len()
+                            ),
+                            *target_list_location,
+                        );
+                    }
+
+                    for (target, rhs_ty) in izip!(targets, rhs_tys) {
+                        folded_targets.push(self.fold_assign_target(target, *rhs_ty)?);
+                    }
+                }
+
+                Ok(folded_targets)
+            }
+            TypeEnum::TObj { obj_id, params, .. } => {
+                let obj = &self.top_level.definitions.read()[obj_id.0];
+                if let TopLevelDef::Class { name, .. } = *obj.read() {
+                    if name == "list".into() {
+                        let encoutered_starred = false;
+                        let mut folded_targets: Vec<ast::Expr<Option<Type>>> = Vec::new();
+                        let typ = iter_type_vars(params).nth(0).unwrap().ty; // Lists elements are all the same type
+                        // Length of the list is unknow so we can't perform the same checks as for tuples.
+                        for target in targets {
+                            if let ExprKind::Starred { value: inner, .. } = target.node {
+                                if encoutered_starred {
+                                    return report_error(
+                                        "Only one starred term per list assignment is allowed",
+                                        target.location,
+                                    );
+                                }
+
+                                // For the starred element is a list of `typ` type, the rhs is also
+                                // a list of `typ` type so we just assign it that type.
+                                let folded_target = self.fold_assign_target(*inner, rhs_ty)?;
+                                folded_targets.push(Located {
+                                    location: folded_target.location,
+                                    node: ExprKind::Starred {
+                                        value: Box::new(folded_target),
+                                        ctx: ExprContext::Store,
+                                    },
+                                    custom: None,
+                                });
+                                continue;
+                            }
+
+                            folded_targets.push(self.fold_assign_target(target, typ)?);
+                        }
+                        return Ok(folded_targets);
+                    }
+                }
+                report_error(
+                    "LHS target list pattern requires RHS to be a list type",
+                    *target_list_location,
+                )
+            }
+            _ => report_error(
                 "LHS target list pattern requires RHS to be a tuple type",
                 *target_list_location,
-            );
-        };
-
-        // Find the starred target if it exists.
-        let mut starred_target_index: Option<usize> = None; // Index of the "starred" target. If it exists, there may only be one.
-        for (i, target) in targets.iter().enumerate() {
-            if matches!(target.node, ExprKind::Starred { .. }) {
-                if starred_target_index.is_none() {
-                    // First "starred" target found.
-                    starred_target_index = Some(i);
-                } else {
-                    // Second "starred" targets found. This is an error.
-                    return report_error(
-                        "there can only be one starred target, but found another one",
-                        target.location,
-                    );
-                }
-            }
+            ),
         }
-
-        let mut folded_targets: Vec<ast::Expr<Option<Type>>> = Vec::new();
-        if let Some(starred_target_index) = starred_target_index {
-            if rhs_tys.len() < targets.len() - 1 {
-                /*
-                    Rules:
-                    ```
-                    (x, *ys, z) = (1,) # error
-                    (x, *ys, z) = (1, 2) # ok, ys = ()
-                    (x, *ys, z) = (1, 2, 3) # ok, ys = (2,)
-                    ```
-                */
-                return report_error(
-                    &format!(
-                        "Target list pattern requires RHS tuple type have to at least {} element(s), but RHS only has {} element(s)",
-                        targets.len() - 1,
-                        rhs_tys.len()
-                    ),
-                    *target_list_location,
-                );
-            }
-
-            /*
-                      (a, b, c, ..., *xs, ..., x, y, z)
-                before ^^^^^^^^^^^^  ^^^  ^^^^^^^^^^^^ after
-                                   starred
-            */
-
-            let targets_after = targets.drain(starred_target_index + 1..).collect_vec();
-            let target_starred = targets.pop().unwrap();
-            let targets_before = targets;
-
-            let a = targets_before.len();
-            let b = rhs_tys.len() - targets_after.len();
-
-            let rhs_tys_before = &rhs_tys[..a];
-            let rhs_tys_starred = &rhs_tys[a..b];
-            let rhs_tys_after = &rhs_tys[b..];
-
-            // Fold before the starred target
-            for (target, rhs_ty) in izip!(targets_before, rhs_tys_before) {
-                folded_targets.push(self.fold_assign_target(target, *rhs_ty)?);
-            }
-
-            // Fold the starred target
-            if let ExprKind::Starred { value: target, .. } = target_starred.node {
-                let ty = self.unifier.add_ty(TypeEnum::TTuple {
-                    ty: rhs_tys_starred.to_vec(),
-                    is_vararg_ctx: false,
-                });
-                let folded_target = self.fold_assign_target(*target, ty)?;
-                folded_targets.push(Located {
-                    location: target_starred.location,
-                    node: ExprKind::Starred {
-                        value: Box::new(folded_target),
-                        ctx: ExprContext::Store,
-                    },
-                    custom: None,
-                });
-            } else {
-                unreachable!()
-            }
-
-            // Fold after the starred target
-            for (target, rhs_ty) in izip!(targets_after, rhs_tys_after) {
-                folded_targets.push(self.fold_assign_target(target, *rhs_ty)?);
-            }
-        } else {
-            // Fold target list without a "starred" target.
-            if rhs_tys.len() != targets.len() {
-                return report_error(
-                    &format!(
-                        "Target list pattern requires RHS tuple type have to {} element(s), but RHS only has {} element(s)",
-                        targets.len() - 1,
-                        rhs_tys.len()
-                    ),
-                    *target_list_location,
-                );
-            }
-
-            for (target, rhs_ty) in izip!(targets, rhs_tys) {
-                folded_targets.push(self.fold_assign_target(target, *rhs_ty)?);
-            }
-        }
-
-        Ok(folded_targets)
     }
 
     /// Fold an assignment "target" recursively, and check RHS's type.
