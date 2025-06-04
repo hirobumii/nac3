@@ -1993,10 +1993,10 @@ impl Inferencer<'_> {
                 ) =>
             {
                 match (fields.get(&attr), ctx == ExprContext::Load) {
-                    (Some((ty, AttrKind::Field { mutable: true })), _) | (Some((ty, _)), false) => {
+                    (Some((ty, AttrKind::Field { mutable: true })), _) | (Some((ty, _)), true) => {
                         Ok(*ty)
                     }
-                    (Some((ty, _)), true) => report_type_error(
+                    (Some((ty, _)), false) => report_type_error(
                         TypeError::new(
                             TypeErrorKind::MutationError(RecordKey::Str(attr), *ty),
                             Some(value.location),
