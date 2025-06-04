@@ -159,7 +159,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
             generator.gen_setitem(ctx, target, key, value, value_ty)?;
         }
         ExprKind::Tuple { elts, .. } | ExprKind::List { elts, .. } => {
-            // Fold on `"[" [target_list] "]"` and `"(" [target_list] ")"`
+            // Fold on `"[" [target_list] "]"` or `"(" [target_list] ")`
             generator.gen_assign_target_list(ctx, elts, value, value_ty)?;
         }
         _ => {
@@ -195,7 +195,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
     Ok(())
 }
 
-/// See [`CodeGenerator::gen_assign_target_list`].
+/// See [`CodeGenerator::gen_assign_target_tuple`].
 pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -203,91 +203,144 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     value: ValueEnum<'ctx>,
     value_ty: Type,
 ) -> Result<(), String> {
-    // Deconstruct the tuple `value`
-    let BasicValueEnum::StructValue(tuple) = value.to_basic_value_enum(ctx, generator, value_ty)?
-    else {
-        codegen_unreachable!(ctx)
-    };
+    match &*ctx.unifier.get_ty(value_ty) {
+        TypeEnum::TTuple { ty: tuple_tys, .. } => {
+            // Deconstruct the tuple `value`
+            let BasicValueEnum::StructValue(tuple) =
+                value.to_basic_value_enum(ctx, generator, value_ty)?
+            else {
+                codegen_unreachable!(ctx)
+            };
 
-    // NOTE: Currently, RHS's type is forced to be a Tuple by the type inferencer.
-    let TypeEnum::TTuple { ty: tuple_tys, .. } = &*ctx.unifier.get_ty(value_ty) else {
-        codegen_unreachable!(ctx);
-    };
+            assert_eq!(tuple.get_type().count_fields() as usize, tuple_tys.len());
 
-    assert_eq!(tuple.get_type().count_fields() as usize, tuple_tys.len());
+            let tuple = (0..tuple.get_type().count_fields())
+                .map(|i| ctx.builder.build_extract_value(tuple, i, "item").unwrap())
+                .collect_vec();
 
-    let tuple = (0..tuple.get_type().count_fields())
-        .map(|i| ctx.builder.build_extract_value(tuple, i, "item").unwrap())
-        .collect_vec();
-
-    // Find the starred target if it exists.
-    let mut starred_target_index: Option<usize> = None; // Index of the "starred" target. If it exists, there may only be one.
-    for (i, target) in targets.iter().enumerate() {
-        if matches!(target.node, ExprKind::Starred { .. }) {
-            assert!(starred_target_index.is_none()); // The typechecker ensures this
-            starred_target_index = Some(i);
-        }
-    }
-
-    if let Some(starred_target_index) = starred_target_index {
-        assert!(tuple_tys.len() >= targets.len() - 1); // The typechecker ensures this
-
-        let a = starred_target_index; // Number of RHS values before the starred target
-        let b = tuple_tys.len() - (targets.len() - 1 - starred_target_index); // Number of RHS values after the starred target
-        // Thus `tuple[a..b]` is assigned to the starred target.
-
-        // Handle assignment before the starred target
-        for (target, val, val_ty) in
-            izip!(&targets[..starred_target_index], &tuple[..a], &tuple_tys[..a])
-        {
-            generator.gen_assign(ctx, target, ValueEnum::Dynamic(*val), *val_ty)?;
-        }
-
-        // Handle assignment to the starred target
-        if let ExprKind::Starred { value: target, .. } = &targets[starred_target_index].node {
-            let vals = &tuple[a..b];
-            let val_tys = &tuple_tys[a..b];
-
-            // Create a sub-tuple from `value` for the starred target.
-            let sub_tuple_ty = ctx
-                .ctx
-                .struct_type(&vals.iter().map(BasicValueEnum::get_type).collect_vec(), false);
-            let psub_tuple_val =
-                ctx.builder.build_alloca(sub_tuple_ty, "starred_target_value_ptr").unwrap();
-            for (i, val) in vals.iter().enumerate() {
-                let pitem = ctx
-                    .builder
-                    .build_struct_gep(psub_tuple_val, i as u32, "starred_target_value_item")
-                    .unwrap();
-                ctx.builder.build_store(pitem, *val).unwrap();
+            // Find the starred target if it exists.
+            let mut starred_target_index: Option<usize> = None; // Index of the "starred" target. If it exists, there may only be one.
+            for (i, target) in targets.iter().enumerate() {
+                if matches!(target.node, ExprKind::Starred { .. }) {
+                    assert!(starred_target_index.is_none()); // The typechecker ensures this
+                    starred_target_index = Some(i);
+                }
             }
-            let sub_tuple_val =
-                ctx.builder.build_load(psub_tuple_val, "starred_target_value").unwrap();
 
-            // Create the typechecker type of the sub-tuple
-            let sub_tuple_ty =
-                ctx.unifier.add_ty(TypeEnum::TTuple { ty: val_tys.to_vec(), is_vararg_ctx: false });
+            if let Some(starred_target_index) = starred_target_index {
+                assert!(tuple_tys.len() >= targets.len() - 1); // The typechecker ensures this
 
-            // Now assign with that sub-tuple to the starred target.
-            generator.gen_assign(ctx, target, ValueEnum::Dynamic(sub_tuple_val), sub_tuple_ty)?;
-        } else {
-            codegen_unreachable!(ctx) // The typechecker ensures this
+                let a = starred_target_index; // Number of RHS values before the starred target
+                let b = tuple_tys.len() - (targets.len() - 1 - starred_target_index); // Number of RHS values after the starred target
+                // Thus `tuple[a..b]` is assigned to the starred target.
+
+                // Handle assignment before the starred target
+                for (target, val, val_ty) in
+                    izip!(&targets[..starred_target_index], &tuple[..a], &tuple_tys[..a])
+                {
+                    generator.gen_assign(ctx, target, ValueEnum::Dynamic(*val), *val_ty)?;
+                }
+
+                // Handle assignment to the starred target
+                if let ExprKind::Starred { value: target, .. } = &targets[starred_target_index].node
+                {
+                    let vals = &tuple[a..b];
+                    let val_tys = &tuple_tys[a..b];
+
+                    // Create a sub-tuple from `value` for the starred target.
+                    let sub_tuple_ty = ctx.ctx.struct_type(
+                        &vals.iter().map(BasicValueEnum::get_type).collect_vec(),
+                        false,
+                    );
+                    let psub_tuple_val =
+                        ctx.builder.build_alloca(sub_tuple_ty, "starred_target_value_ptr").unwrap();
+                    for (i, val) in vals.iter().enumerate() {
+                        let pitem = ctx
+                            .builder
+                            .build_struct_gep(psub_tuple_val, i as u32, "starred_target_value_item")
+                            .unwrap();
+                        ctx.builder.build_store(pitem, *val).unwrap();
+                    }
+                    let sub_tuple_val =
+                        ctx.builder.build_load(psub_tuple_val, "starred_target_value").unwrap();
+
+                    // Create the typechecker type of the sub-tuple
+                    let sub_tuple_ty = ctx
+                        .unifier
+                        .add_ty(TypeEnum::TTuple { ty: val_tys.to_vec(), is_vararg_ctx: false });
+
+                    // Now assign with that sub-tuple to the starred target.
+                    generator.gen_assign(
+                        ctx,
+                        target,
+                        ValueEnum::Dynamic(sub_tuple_val),
+                        sub_tuple_ty,
+                    )?;
+                } else {
+                    codegen_unreachable!(ctx) // The typechecker ensures this
+                }
+
+                // Handle assignment after the starred target
+                for (target, val, val_ty) in
+                    izip!(&targets[starred_target_index + 1..], &tuple[b..], &tuple_tys[b..])
+                {
+                    generator.gen_assign(ctx, target, ValueEnum::Dynamic(*val), *val_ty)?;
+                }
+            } else {
+                assert_eq!(tuple_tys.len(), targets.len()); // The typechecker ensures this
+
+                for (target, val, val_ty) in izip!(targets, tuple, tuple_tys) {
+                    generator.gen_assign(ctx, target, ValueEnum::Dynamic(val), *val_ty)?;
+                }
+            }
+            Ok(())
         }
+        TypeEnum::TObj { .. } => {
+            let BasicValueEnum::PointerValue(list_ptr) =
+                value.to_basic_value_enum(ctx, generator, value_ty)?
+            else {
+                codegen_unreachable!(ctx);
+            };
 
-        // Handle assignment after the starred target
-        for (target, val, val_ty) in
-            izip!(&targets[starred_target_index + 1..], &tuple[b..], &tuple_tys[b..])
-        {
-            generator.gen_assign(ctx, target, ValueEnum::Dynamic(*val), *val_ty)?;
-        }
-    } else {
-        assert_eq!(tuple_tys.len(), targets.len()); // The typechecker ensures this
+            let list = ListValue::from_pointer_value(list_ptr, ctx.get_size_type(), None);
 
-        for (target, val, val_ty) in izip!(targets, tuple, tuple_tys) {
-            generator.gen_assign(ctx, target, ValueEnum::Dynamic(val), *val_ty)?;
+            let lhs_size = targets.len() as u64;
+            let rhs_size = list.load_size(ctx, None);
+
+            ctx.make_assert(
+                generator,
+                ctx.builder
+                    .build_int_compare(
+                        IntPredicate::EQ,
+                        rhs_size,
+                        ctx.ctx.i64_type().const_int(lhs_size, false),
+                        "list_size_check",
+                    )
+                    .unwrap(),
+                "ValueError",
+                "too many values to unpack (expected {0})",
+                [Some(rhs_size), Some(ctx.ctx.i64_type().const_int(lhs_size, false)), None],
+                Location::default(),
+            );
+
+            for (i, target) in targets.iter().enumerate() {
+                let target_ptr =
+                    generator.gen_store_target(ctx, target, Some("list_target.addr"))?.unwrap();
+
+                let item_ptr = list.data().ptr_offset(
+                    ctx,
+                    generator,
+                    &ctx.ctx.i64_type().const_int(i as u64, false),
+                    Some("item_ptr"),
+                );
+                let item_val = ctx.builder.build_load(item_ptr, "item_val").unwrap();
+                ctx.builder.build_store(target_ptr, item_val).unwrap();
+            }
+
+            Ok(())
         }
+        _ => codegen_unreachable!(ctx), // The typechecker ensures this
     }
-    Ok(())
 }
 
 /// See [`CodeGenerator::gen_setitem`].
