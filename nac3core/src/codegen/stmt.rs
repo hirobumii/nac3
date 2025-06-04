@@ -140,7 +140,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             }
             .unwrap()
         }
-        _ => codegen_unreachable!(ctx),
+        a => panic!("{:#?}", a), // codegen_unreachable!(ctx),
     }))
 }
 
@@ -293,9 +293,8 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     generator.gen_assign(ctx, target, ValueEnum::Dynamic(val), *val_ty)?;
                 }
             }
-            Ok(())
         }
-        TypeEnum::TObj { .. } => {
+        TypeEnum::TObj { params, .. } => {
             let BasicValueEnum::PointerValue(list_ptr) =
                 value.to_basic_value_enum(ctx, generator, value_ty)?
             else {
@@ -303,44 +302,120 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             };
 
             let list = ListValue::from_pointer_value(list_ptr, ctx.get_size_type(), None);
-
-            let lhs_size = targets.len() as u64;
             let rhs_size = list.load_size(ctx, None);
+            let starred_idx =
+                targets.iter().position(|t| matches!(t.node, ExprKind::Starred { .. }));
 
-            ctx.make_assert(
-                generator,
-                ctx.builder
-                    .build_int_compare(
-                        IntPredicate::EQ,
-                        rhs_size,
-                        ctx.ctx.i64_type().const_int(lhs_size, false),
-                        "list_size_check",
-                    )
-                    .unwrap(),
-                "ValueError",
-                "too many values to unpack (expected {0})",
-                [Some(rhs_size), Some(ctx.ctx.i64_type().const_int(lhs_size, false)), None],
-                Location::default(),
-            );
-
-            for (i, target) in targets.iter().enumerate() {
-                let target_ptr =
-                    generator.gen_store_target(ctx, target, Some("list_target.addr"))?.unwrap();
-
-                let item_ptr = list.data().ptr_offset(
-                    ctx,
+            if let Some(starred_idx) = starred_idx {
+                let before = targets.iter().enumerate().take(starred_idx);
+                let after = targets.iter().skip(starred_idx + 1).rev().enumerate();
+                let unstarred_size =
+                    ctx.ctx.i64_type().const_int(before.len() as u64 + after.len() as u64, false);
+                ctx.make_assert(
                     generator,
-                    &ctx.ctx.i64_type().const_int(i as u64, false),
-                    Some("item_ptr"),
+                    ctx.builder
+                        .build_int_compare(
+                            IntPredicate::ULT,
+                            unstarred_size,
+                            rhs_size,
+                            "list_size_check",
+                        )
+                        .unwrap(),
+                    "ValueError",
+                    "too few values to unpack (expected at least {1}, got {0})",
+                    [Some(rhs_size), Some(unstarred_size), None],
+                    Location::default(),
                 );
-                let item_val = ctx.builder.build_load(item_ptr, "item_val").unwrap();
-                ctx.builder.build_store(target_ptr, item_val).unwrap();
-            }
 
-            Ok(())
+                for (i, target) in before {
+                    let target_ptr =
+                        generator.gen_store_target(ctx, target, Some("list_target.addr"))?.unwrap();
+
+                    let item_ptr = list.data().ptr_offset(
+                        ctx,
+                        generator,
+                        &ctx.ctx.i64_type().const_int(i as u64, false),
+                        Some("item_ptr"),
+                    );
+                    let item_val = ctx.builder.build_load(item_ptr, "item_val").unwrap();
+                    ctx.builder.build_store(target_ptr, item_val).unwrap();
+                }
+
+                for (i, target) in after {
+                    let target_ptr = generator
+                        .gen_store_target(ctx, target, Some("list_target.addr2"))?
+                        .unwrap();
+
+                    // rhs_size isn't constant so we need to generate the pointer arithemetic
+                    let idx = ctx
+                        .builder
+                        .build_int_sub(
+                            rhs_size,
+                            ctx.ctx.i64_type().const_int((i + 1) as u64, false),
+                            "",
+                        )
+                        .unwrap();
+
+                    let item_ptr = list.data().ptr_offset(ctx, generator, &idx, Some("item_ptr"));
+                    let item_val = ctx.builder.build_load(item_ptr, "item_val").unwrap();
+                    ctx.builder.build_store(target_ptr, item_val).unwrap();
+                }
+
+                // let Some((_, ty)) = params.first() else {
+                //     codegen_unreachable!(ctx) // The typechecker ensures this
+                // };
+
+                // ctx.build_call_or_invoke(, params, call_name);
+                // let starred_size = ctx.ctx.i64_type().const_int(targets.len() as u64, false);
+                // panic!("{:#?}", starred_size);
+                // let basic_type = ctx.get_llvm_type(generator, *ty);
+                // let array = ctx.builder.build_array_alloca(basic_type, starred_size, "");
+                // let starred_start = list.data().ptr_offset(
+                //     ctx,
+                //     generator,
+                //     &ctx.ctx.i64_type().const_int(starred_idx as u64, false),
+                //     Some("starred_start"),
+                // );
+                // let starred =
+                //     ctx.builder.build_memcpy(array.unwrap(), 1, starred_start, 1, starred_size);
+                // let starred = ctx.builder.build_load(starred.unwrap(), "");
+                // let ExprKind::Starred { value: inner, .. } = &targets[starred_idx].node else {
+                //     codegen_unreachable!(ctx) // The typechecker ensures this
+                // };
+                // let starred_target =
+                //     generator.gen_store_target(ctx, inner, Some("starred_target"))?.unwrap();
+                // ctx.builder.build_store(starred_target, starred.unwrap()).unwrap();
+            } else {
+                let lhs_size = ctx.ctx.i64_type().const_int(targets.len() as u64, false);
+                ctx.make_assert(
+                    generator,
+                    ctx.builder
+                        .build_int_compare(IntPredicate::EQ, rhs_size, lhs_size, "list_size_check")
+                        .unwrap(),
+                    "ValueError",
+                    "incorrect number of values to unpack (expected {1})",
+                    [Some(rhs_size), Some(lhs_size), None],
+                    Location::default(),
+                );
+
+                for (i, target) in targets.iter().enumerate() {
+                    let target_ptr =
+                        generator.gen_store_target(ctx, target, Some("list_target.addr"))?.unwrap();
+
+                    let item_ptr = list.data().ptr_offset(
+                        ctx,
+                        generator,
+                        &ctx.ctx.i64_type().const_int(i as u64, false),
+                        Some("item_ptr"),
+                    );
+                    let item_val = ctx.builder.build_load(item_ptr, "item_val").unwrap();
+                    ctx.builder.build_store(target_ptr, item_val).unwrap();
+                }
+            }
         }
         _ => codegen_unreachable!(ctx), // The typechecker ensures this
     }
+    Ok(())
 }
 
 /// See [`CodeGenerator::gen_setitem`].
