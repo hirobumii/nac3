@@ -66,6 +66,15 @@ def example6():
     output_int32(ws[1])
     output_int32(ws[2])
 
+def example7():
+    x, [y, z] = 1, [2, 3]
+    (a, b) = (4, 5)
+    output_int32(x)
+    output_int32(y)
+    output_int32(z)
+    output_int32(a)
+    output_int32(b)
+
 def run() -> int32:
     example1()
     example2()
@@ -73,4 +82,5 @@ def run() -> int32:
     example4()
     example5()
     example6()
+    example7()
     return 0
