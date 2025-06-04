@@ -77,6 +77,12 @@ impl Relocatable for Elf32_Rela {
     }
 }
 
+// NONE type relocations. It is 0 across all targets.
+//
+// LLVM generates such dummy relocations with the symbol
+// `__aeabi_unwind_cpp_pr0` in exception-throwing code.
+const R_TYPE_NONE: u8 = 0;
+
 struct SectionRecord<'a> {
     shdr: Elf32_Shdr,
     name: &'a str,
@@ -237,6 +243,10 @@ impl<'a> Linker<'a> {
         }
 
         for reloc in relocs {
+            if reloc.type_info() == R_TYPE_NONE {
+                continue;
+            }
+
             let sym = match reloc.sym_info() as usize {
                 STN_UNDEF => None,
                 sym_index => {
@@ -627,6 +637,9 @@ impl<'a> Linker<'a> {
             let mut alloc_size = 0;
             let mut rela_dyn_sym_indices = Vec::new();
             for reloc in relocs {
+                if reloc.type_info() == R_TYPE_NONE {
+                    continue;
+                }
                 if reloc.sym_info() as usize == STN_UNDEF {
                     continue;
                 }
