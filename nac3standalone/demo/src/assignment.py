@@ -90,6 +90,9 @@ def example8():
     output_int32(w[1])
     output_int32(w[2])
 
+    f, *g = [1]
+    output_int32(len(g))  # Should be 0, since g is empty
+
 def run() -> int32:
     example1()
     example2()
