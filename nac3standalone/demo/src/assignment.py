@@ -65,7 +65,7 @@ def example6():
     output_int32(ws[0])
     output_int32(ws[1])
     output_int32(ws[2])
-
+ 
 def example7():
     x, [y, z] = 1, [2, 3]
     (a, b) = (4, 5)
@@ -75,6 +75,21 @@ def example7():
     output_int32(a)
     output_int32(b)
 
+def example8():
+    (a, *b, c) = [1, 2, 3, 4, 5]
+    output_int32(a)
+    for val in b:
+        output_int32(val)
+    output_int32(c)
+
+    (*xs, y, z) = [x for x in range(100)]
+    output_bool(len(xs) == 98)
+
+    (u, v, *w) = [1, 2, 3, 4, 5]
+    output_int32(w[0])
+    output_int32(w[1])
+    output_int32(w[2])
+
 def run() -> int32:
     example1()
     example2()
@@ -83,4 +98,5 @@ def run() -> int32:
     example5()
     example6()
     example7()
+    example8()
     return 0

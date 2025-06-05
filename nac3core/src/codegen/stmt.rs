@@ -18,13 +18,15 @@ use super::{
     gen_in_range_check,
     irrt::{handle_slice_indices, list_slice_assignment},
     macros::codegen_unreachable,
-    types::{ExceptionType, RangeType, ndarray::NDArrayType},
+    types::{ExceptionType, ListType, RangeType, ndarray::NDArrayType},
     values::{
-        ArrayLikeIndexer, ArraySliceValue, ExceptionValue, ListValue, ProxyValue,
+        ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ExceptionValue, ListValue, ProxyValue,
         ndarray::{RustNDIndex, ScalarOrNDArray},
+        structure::StructProxyValue,
     },
 };
 use crate::{
+    codegen::llvm_intrinsics::call_memcpy_generic_array,
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::{
@@ -301,14 +303,16 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 codegen_unreachable!(ctx);
             };
 
-            let list = ListValue::from_pointer_value(list_ptr, ctx.get_size_type(), None);
-            let rhs_size = list.load_size(ctx, None);
+            let list =
+                ListValue::from_pointer_value(list_ptr, ctx.get_size_type(), Some("rhs_list"));
+            let rhs_size = list.load_size(ctx, Some("rhs_size"));
             let starred_idx =
                 targets.iter().position(|t| matches!(t.node, ExprKind::Starred { .. }));
 
             if let Some(starred_idx) = starred_idx {
                 let before = targets.iter().enumerate().take(starred_idx);
-                let after = targets.iter().skip(starred_idx + 1).rev().enumerate();
+                let after = targets.iter().skip(starred_idx + 1).rev();
+
                 let unstarred_size =
                     ctx.ctx.i64_type().const_int(before.len() as u64 + after.len() as u64, false);
                 ctx.make_assert(
@@ -341,50 +345,66 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     ctx.builder.build_store(target_ptr, item_val).unwrap();
                 }
 
-                for (i, target) in after {
+                let mut idx = rhs_size;
+                for target in after {
                     let target_ptr = generator
                         .gen_store_target(ctx, target, Some("list_target.addr2"))?
                         .unwrap();
 
                     // rhs_size isn't constant so we need to generate the pointer arithemetic
-                    let idx = ctx
+                    idx = ctx
                         .builder
-                        .build_int_sub(
-                            rhs_size,
-                            ctx.ctx.i64_type().const_int((i + 1) as u64, false),
-                            "",
-                        )
+                        .build_int_sub(idx, ctx.ctx.i64_type().const_int(1, false), "")
                         .unwrap();
 
-                    let item_ptr = list.data().ptr_offset(ctx, generator, &idx, Some("item_ptr"));
-                    let item_val = ctx.builder.build_load(item_ptr, "item_val").unwrap();
+                    let item_ptr = list.data().ptr_offset(ctx, generator, &idx, Some("item_ptr2"));
+                    let item_val = ctx.builder.build_load(item_ptr, "item_val2").unwrap();
                     ctx.builder.build_store(target_ptr, item_val).unwrap();
                 }
 
-                // let Some((_, ty)) = params.first() else {
-                //     codegen_unreachable!(ctx) // The typechecker ensures this
-                // };
+                let Some((_, ty)) = params.first() else {
+                    codegen_unreachable!(ctx) // Lists are always typed; the typechecker ensures this
+                };
 
-                // ctx.build_call_or_invoke(, params, call_name);
-                // let starred_size = ctx.ctx.i64_type().const_int(targets.len() as u64, false);
-                // panic!("{:#?}", starred_size);
-                // let basic_type = ctx.get_llvm_type(generator, *ty);
-                // let array = ctx.builder.build_array_alloca(basic_type, starred_size, "");
-                // let starred_start = list.data().ptr_offset(
-                //     ctx,
-                //     generator,
-                //     &ctx.ctx.i64_type().const_int(starred_idx as u64, false),
-                //     Some("starred_start"),
-                // );
-                // let starred =
-                //     ctx.builder.build_memcpy(array.unwrap(), 1, starred_start, 1, starred_size);
-                // let starred = ctx.builder.build_load(starred.unwrap(), "");
-                // let ExprKind::Starred { value: inner, .. } = &targets[starred_idx].node else {
-                //     codegen_unreachable!(ctx) // The typechecker ensures this
-                // };
-                // let starred_target =
-                //     generator.gen_store_target(ctx, inner, Some("starred_target"))?.unwrap();
-                // ctx.builder.build_store(starred_target, starred.unwrap()).unwrap();
+                // Get the start pointer, end index, and size of the section of the list corresponding
+                // to the starred target
+                let start_ptr = list.data().ptr_offset(
+                    ctx,
+                    generator,
+                    &ctx.ctx.i64_type().const_int(starred_idx as u64, false),
+                    Some("start_ptr"),
+                );
+                let starred_size = ctx
+                    .builder
+                    .build_int_sub(
+                        idx,
+                        ctx.ctx.i64_type().const_int(starred_idx as u64, false),
+                        "starred_size",
+                    )
+                    .unwrap();
+
+                // Allocate a new list for the starred target and copy the data into it
+                let llvm_array_ty = ctx.get_llvm_type(generator, *ty);
+                let new_list = ListType::new(ctx, &llvm_array_ty).construct(
+                    generator,
+                    ctx,
+                    starred_size,
+                    Some("new_list"),
+                );
+                call_memcpy_generic_array(
+                    ctx,
+                    new_list.data().base_ptr(ctx, generator),
+                    start_ptr,
+                    starred_size,
+                );
+
+                // Store the new list in the starred target
+                let ExprKind::Starred { value: target, .. } = &targets[starred_idx].node else {
+                    codegen_unreachable!(ctx)
+                };
+                let target_ptr =
+                    generator.gen_store_target(ctx, target, Some("list_target.addr3"))?.unwrap();
+                ctx.builder.build_store(target_ptr, new_list.get_pointer_value(ctx)).unwrap();
             } else {
                 let lhs_size = ctx.ctx.i64_type().const_int(targets.len() as u64, false);
                 ctx.make_assert(
