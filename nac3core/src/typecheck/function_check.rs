@@ -392,44 +392,10 @@ impl Inferencer<'_> {
                 }
                 Ok(true)
             }
-            StmtKind::Global { names, .. } => {
-                for id in names {
-                    if let Some(id_info) = defined_identifiers.get(id) {
-                        if id_info.source == DeclarationSource::Local {
-                            return Err(HashSet::from([format!(
-                                "name '{id}' is referenced prior to global declaration at {}",
-                                stmt.location,
-                            )]));
-                        }
-
-                        continue;
-                    }
-
-                    match self.function_data.resolver.get_symbol_type(
-                        self.unifier,
-                        &self.top_level.definitions.read(),
-                        self.primitives,
-                        *id,
-                    ) {
-                        Ok(_) => {
-                            defined_identifiers.insert(
-                                *id,
-                                IdentifierInfo {
-                                    source: DeclarationSource::Global { is_explicit: Some(true) },
-                                },
-                            );
-                        }
-                        Err(e) => {
-                            return Err(HashSet::from([format!(
-                                "type error at identifier `{}` ({}) at {}",
-                                id, e, stmt.location
-                            )]));
-                        }
-                    }
-                }
-
-                Ok(false)
-            }
+            StmtKind::Global { .. } => Err(HashSet::from([format!(
+                "global statement is not supported at {}",
+                stmt.location
+            )])),
             // break, raise, etc.
             _ => Ok(false),
         }
