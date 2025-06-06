@@ -93,6 +93,11 @@ def example8():
     f, *g = [1]
     output_int32(len(g))  # Should be 0, since g is empty
 
+    [m, *n, o] = [1, 3]
+    output_int32(m)
+    output_int32(len(n))  # Should be 0, since n is empty
+    output_int32(o)
+
 def run() -> int32:
     example1()
     example2()

@@ -2262,13 +2262,7 @@ impl Inferencer<'_> {
         rhs_ty: Type,
     ) -> Result<Vec<ast::Expr<Option<Type>>>, InferenceError> {
         // TODO: Allow bidirectional typechecking? Currently RHS's type has to be resolved.
-        // let TypeEnum::TTuple { ty: rhs_tys, .. } = &*self.unifier.get_ty(rhs_ty) else {
         // TODO: Allow RHS AST-aware error reporting
-        //    return report_error(
-        //        &format!("LHS target list pattern requires RHS: {:?} to be a tuple type", rhs_ty),
-        //        *target_list_location,
-        //    );
-        // };
 
         let binding = self.unifier.get_ty(rhs_ty);
         match &*binding {
@@ -2377,12 +2371,14 @@ impl Inferencer<'_> {
                 Ok(folded_targets)
             }
             TypeEnum::TObj { obj_id, params, .. } => {
+                // If the RHS is a list, we can fold the targets as well.
                 let obj = &self.top_level.definitions.read()[obj_id.0];
                 if let TopLevelDef::Class { name, .. } = *obj.read() {
                     if name == "list".into() {
                         let encoutered_starred = false;
                         let mut folded_targets: Vec<ast::Expr<Option<Type>>> = Vec::new();
                         let typ = iter_type_vars(params).nth(0).unwrap().ty; // Lists elements are all the same type
+
                         // Length of the list is unknow so we can't perform the same checks as for tuples.
                         for target in targets {
                             if let ExprKind::Starred { value: inner, .. } = target.node {
@@ -2393,8 +2389,8 @@ impl Inferencer<'_> {
                                     );
                                 }
 
-                                // For the starred element is a list of `typ` type, the rhs is also
-                                // a list of `typ` type so we just assign it that type.
+                                // The starred element is a list of `typ` type, the rhs is also a
+                                // list of `typ` type so we just assign it that type.
                                 let folded_target = self.fold_assign_target(*inner, rhs_ty)?;
                                 folded_targets.push(Located {
                                     location: folded_target.location,

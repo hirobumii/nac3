@@ -142,7 +142,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             }
             .unwrap()
         }
-        a => panic!("{:#?}", a), // codegen_unreachable!(ctx),
+        _ => codegen_unreachable!(ctx),
     }))
 }
 
@@ -197,7 +197,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
     Ok(())
 }
 
-/// See [`CodeGenerator::gen_assign_target_tuple`].
+/// See [`CodeGenerator::gen_assign_target_list`].
 pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -303,13 +303,15 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 codegen_unreachable!(ctx);
             };
 
-            let list =
+            let rhs_list =
                 ListValue::from_pointer_value(list_ptr, ctx.get_size_type(), Some("rhs_list"));
-            let rhs_size = list.load_size(ctx, Some("rhs_size"));
+            let rhs_size = rhs_list.load_size(ctx, Some("rhs_size"));
             let starred_idx =
                 targets.iter().position(|t| matches!(t.node, ExprKind::Starred { .. }));
 
+            // Check if the lhs targets contain a starred target
             if let Some(starred_idx) = starred_idx {
+                // Get the targets before and after the starred target
                 let before = targets.iter().enumerate().take(starred_idx);
                 let after = targets.iter().skip(starred_idx + 1).rev();
 
@@ -319,23 +321,24 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     generator,
                     ctx.builder
                         .build_int_compare(
-                            IntPredicate::ULT,
+                            IntPredicate::ULE,
                             unstarred_size,
                             rhs_size,
                             "list_size_check",
                         )
                         .unwrap(),
                     "ValueError",
-                    "too few values to unpack (expected at least {1}, got {0})",
-                    [Some(rhs_size), Some(unstarred_size), None],
-                    Location::default(),
+                    "too few values to unpack (expected at least {0}, got {1})",
+                    [Some(unstarred_size), Some(rhs_size), None],
+                    targets[0].location,
                 );
 
+                // Assign the first n values to the n targets before the starred target
                 for (i, target) in before {
                     let target_ptr =
                         generator.gen_store_target(ctx, target, Some("list_target.addr"))?.unwrap();
 
-                    let item_ptr = list.data().ptr_offset(
+                    let item_ptr = rhs_list.data().ptr_offset(
                         ctx,
                         generator,
                         &ctx.ctx.i64_type().const_int(i as u64, false),
@@ -345,6 +348,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     ctx.builder.build_store(target_ptr, item_val).unwrap();
                 }
 
+                // Iterate backwards to assign the last m values to the m targets after the starred target
                 let mut idx = rhs_size;
                 for target in after {
                     let target_ptr = generator
@@ -357,23 +361,18 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                         .build_int_sub(idx, ctx.ctx.i64_type().const_int(1, false), "")
                         .unwrap();
 
-                    let item_ptr = list.data().ptr_offset(ctx, generator, &idx, Some("item_ptr2"));
+                    let item_ptr =
+                        rhs_list.data().ptr_offset(ctx, generator, &idx, Some("item_ptr2"));
                     let item_val = ctx.builder.build_load(item_ptr, "item_val2").unwrap();
                     ctx.builder.build_store(target_ptr, item_val).unwrap();
                 }
 
+                // Get the type of the list items
                 let Some((_, ty)) = params.first() else {
                     codegen_unreachable!(ctx) // Lists are always typed; the typechecker ensures this
                 };
 
-                // Get the start pointer, end index, and size of the section of the list corresponding
-                // to the starred target
-                let start_ptr = list.data().ptr_offset(
-                    ctx,
-                    generator,
-                    &ctx.ctx.i64_type().const_int(starred_idx as u64, false),
-                    Some("start_ptr"),
-                );
+                // Get the number of values to be stored in the starred target
                 let starred_size = ctx
                     .builder
                     .build_int_sub(
@@ -383,7 +382,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     )
                     .unwrap();
 
-                // Allocate a new list for the starred target and copy the data into it
+                // Allocate a new list for the starred target and copy the data from the rhs list into it
                 let llvm_array_ty = ctx.get_llvm_type(generator, *ty);
                 let new_list = ListType::new(ctx, &llvm_array_ty).construct(
                     generator,
@@ -391,12 +390,43 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     starred_size,
                     Some("new_list"),
                 );
+
+                let cur_bb = ctx.builder.get_insert_block().unwrap();
+                let then_bb = ctx.ctx.insert_basic_block_after(cur_bb, "if.star");
+                let after_bb = ctx.ctx.insert_basic_block_after(then_bb, "after.star");
+
+                // Check if starred_size is not zero
+                let cond = ctx
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::EQ,
+                        starred_size,
+                        ctx.ctx.i64_type().const_zero(),
+                        "is_starred_empty",
+                    )
+                    .unwrap();
+
+                ctx.builder.build_conditional_branch(cond, after_bb, then_bb).unwrap();
+
+                ctx.builder.position_at_end(then_bb);
+
+                // Get the pointer for where the values to be stored in the starred target begin
+                let rest_start_ptr = rhs_list.data().ptr_offset(
+                    ctx,
+                    generator,
+                    &ctx.ctx.i64_type().const_int(starred_idx as u64, false),
+                    Some("start_ptr"),
+                );
                 call_memcpy_generic_array(
                     ctx,
                     new_list.data().base_ptr(ctx, generator),
-                    start_ptr,
+                    rest_start_ptr,
                     starred_size,
                 );
+
+                ctx.builder.build_unconditional_branch(after_bb).unwrap();
+
+                ctx.builder.position_at_end(after_bb);
 
                 // Store the new list in the starred target
                 let ExprKind::Starred { value: target, .. } = &targets[starred_idx].node else {
@@ -406,6 +436,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     generator.gen_store_target(ctx, target, Some("list_target.addr3"))?.unwrap();
                 ctx.builder.build_store(target_ptr, new_list.get_pointer_value(ctx)).unwrap();
             } else {
+                // If no starred target, make sure the number of targets matches the number of items in the list
                 let lhs_size = ctx.ctx.i64_type().const_int(targets.len() as u64, false);
                 ctx.make_assert(
                     generator,
@@ -418,11 +449,12 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     Location::default(),
                 );
 
+                // Assign each item in the list to the corresponding target
                 for (i, target) in targets.iter().enumerate() {
                     let target_ptr =
                         generator.gen_store_target(ctx, target, Some("list_target.addr"))?.unwrap();
 
-                    let item_ptr = list.data().ptr_offset(
+                    let item_ptr = rhs_list.data().ptr_offset(
                         ctx,
                         generator,
                         &ctx.ctx.i64_type().const_int(i as u64, false),
