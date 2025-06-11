@@ -46,6 +46,7 @@ pub struct ComposerConfig<'a> {
     /// See [`ComposerConfig::has_invariant_ann`].
     pub has_invariant_ann_fn: Box<IsAnnClassFn<'a>>,
 
+    // REVIEW: I removed the only usage of this function. Keep it in config?
     /// A function that checks whether a decorator indicates that the function should be treated as
     /// `extern`, i.e. defined not as part of the compiled Python binary and hence does not contain
     /// a function body.
@@ -1937,11 +1938,9 @@ impl<'a> TopLevelComposer<'a> {
                     unreachable!("must be function def ast")
                 };
 
-                if decorator_list.first().map_or(Ok(false), |decorator| {
-                    self.core_config
-                        .is_extern_decorator(decorator)
-                        .map_err(|err| HashSet::from([err]))
-                })? {
+                let decorator = decorator_list.first().map(|d| &d.node);
+                if matches!(decorator, Some(&ast::ExprKind::Name { id , .. }) if id == "extern".into())
+                {
                     let TopLevelDef::Function { instance_to_symbol, .. } = &mut *def.write() else {
                         unreachable!()
                     };
@@ -2018,6 +2017,15 @@ impl<'a> TopLevelComposer<'a> {
                         name,
                         ast.as_ref().unwrap().location
                     )]));
+                }
+
+                if matches!(decorator, Some(&ast::ExprKind::Name { id, .. }) if id == "rpc".into())
+                {
+                    let TopLevelDef::Function { instance_to_symbol, .. } = &mut *def.write() else {
+                        unreachable!()
+                    };
+                    instance_to_symbol.insert(String::new(), simple_name.to_string());
+                    continue;
                 }
 
                 let TopLevelDef::Function { instance_to_stmt, .. } = &mut *def.write() else {
