@@ -9,12 +9,12 @@ class NestedTupleList:
         self.core = Core()
 
     @rpc
-    def get_nested_list(self, length: int32) -> list[int32]:
-        return [int32(i) for i in range(length)]
+    def get_nested_list(self, length: int32) -> tuple[int32, list[int32]]:
+        return (length, [int32(i) for i in range(length)])
 
     @kernel
     def run(self):
-        a = self.get_nested_list(3)
+        _, a = self.get_nested_list(3)
         # b = [x for x in a]
         # print_rpc(b)
 
