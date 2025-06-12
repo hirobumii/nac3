@@ -2008,6 +2008,8 @@ impl<'a> TopLevelComposer<'a> {
                     )]));
                 }
 
+                // Check for extern decorators after the body is type checked; prevents type errors
+                // in functions marked as extern with bodies, e.g. returning non primitive types.
                 if decorator_list.first().map_or(Ok(false), |decorator| {
                     self.core_config
                         .is_extern_decorator(decorator)
