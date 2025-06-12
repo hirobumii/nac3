@@ -17,6 +17,7 @@ use super::{
     expr::{destructure_range, gen_binop_expr},
     gen_in_range_check,
     irrt::{handle_slice_indices, list_slice_assignment},
+    llvm_intrinsics::call_memcpy_generic_array,
     macros::codegen_unreachable,
     types::{ExceptionType, ListType, RangeType, ndarray::NDArrayType},
     values::{
@@ -26,7 +27,6 @@ use super::{
     },
 };
 use crate::{
-    codegen::llvm_intrinsics::call_memcpy_generic_array,
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef},
     typecheck::{
@@ -208,46 +208,42 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     match &*ctx.unifier.get_ty(value_ty) {
         TypeEnum::TTuple { ty: tuple_tys, .. } => {
             // Deconstruct the tuple `value`
-            let BasicValueEnum::StructValue(tuple) =
-                value.to_basic_value_enum(ctx, generator, value_ty)?
-            else {
-                codegen_unreachable!(ctx)
-            };
+            let tuple = value.to_basic_value_enum(ctx, generator, value_ty)?.into_struct_value();
 
             assert_eq!(tuple.get_type().count_fields() as usize, tuple_tys.len());
 
             let tuple = (0..tuple.get_type().count_fields())
-                .map(|i| ctx.builder.build_extract_value(tuple, i, "item").unwrap())
+                .map(|i| ctx.builder.build_extract_value(tuple, i, "").unwrap())
                 .collect_vec();
 
             // Find the starred target if it exists.
             let mut starred_target_index: Option<usize> = None; // Index of the "starred" target. If it exists, there may only be one.
             for (i, target) in targets.iter().enumerate() {
                 if matches!(target.node, ExprKind::Starred { .. }) {
-                    assert!(starred_target_index.is_none()); // The typechecker ensures this
-                    starred_target_index = Some(i);
+                    assert!(starred_target_index.replace(i).is_none()); // Ensured by typechecker
                 }
             }
 
             if let Some(starred_target_index) = starred_target_index {
                 assert!(tuple_tys.len() >= targets.len() - 1); // The typechecker ensures this
 
-                let a = starred_target_index; // Number of RHS values before the starred target
-                let b = tuple_tys.len() - (targets.len() - 1 - starred_target_index); // Number of RHS values after the starred target
-                // Thus `tuple[a..b]` is assigned to the starred target.
+                let before_idx = starred_target_index;
+                let after_idx = tuple_tys.len() - (targets.len() - 1 - starred_target_index);
 
                 // Handle assignment before the starred target
-                for (target, val, val_ty) in
-                    izip!(&targets[..starred_target_index], &tuple[..a], &tuple_tys[..a])
-                {
+                for (target, val, val_ty) in izip!(
+                    &targets[..starred_target_index],
+                    &tuple[..before_idx],
+                    &tuple_tys[..before_idx]
+                ) {
                     generator.gen_assign(ctx, target, ValueEnum::Dynamic(*val), *val_ty)?;
                 }
 
                 // Handle assignment to the starred target
                 if let ExprKind::Starred { value: target, .. } = &targets[starred_target_index].node
                 {
-                    let vals = &tuple[a..b];
-                    let val_tys = &tuple_tys[a..b];
+                    let vals = &tuple[before_idx..after_idx];
+                    let val_tys = &tuple_tys[before_idx..after_idx];
 
                     // Create a sub-tuple from `value` for the starred target.
                     let sub_tuple_ty = ctx.ctx.struct_type(
@@ -283,9 +279,11 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 }
 
                 // Handle assignment after the starred target
-                for (target, val, val_ty) in
-                    izip!(&targets[starred_target_index + 1..], &tuple[b..], &tuple_tys[b..])
-                {
+                for (target, val, val_ty) in izip!(
+                    &targets[starred_target_index + 1..],
+                    &tuple[after_idx..],
+                    &tuple_tys[after_idx..]
+                ) {
                     generator.gen_assign(ctx, target, ValueEnum::Dynamic(*val), *val_ty)?;
                 }
             } else {
