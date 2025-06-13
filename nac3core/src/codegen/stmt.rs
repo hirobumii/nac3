@@ -221,7 +221,8 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let mut starred_target_index = None;
             for (i, target) in targets.iter().enumerate() {
                 if matches!(target.node, ExprKind::Starred { .. }) {
-                    assert!(starred_target_index.replace(i).is_none()); // Ensured by typechecker
+                    // Ensured by typechecker
+                    assert!(starred_target_index.replace(i).is_none());
                 }
             }
 
@@ -350,7 +351,8 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
 
                 // Get the type of the list items
                 let Some((_, ty)) = params.first() else {
-                    codegen_unreachable!(ctx) // Lists are always typed; the typechecker ensures this
+                    // Lists are always typed; the typechecker ensures this
+                    codegen_unreachable!(ctx);
                 };
 
                 // Get the number of values to be stored in the starred target
@@ -446,7 +448,8 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 }
             }
         }
-        _ => codegen_unreachable!(ctx), // The typechecker ensures this
+        // The typechecker ensures this
+        _ => codegen_unreachable!(ctx),
     }
     Ok(())
 }
