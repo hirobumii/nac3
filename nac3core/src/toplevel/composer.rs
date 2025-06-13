@@ -52,6 +52,13 @@ pub struct ComposerConfig<'a> {
     ///
     /// See [`ComposerConfig::is_extern_decorator`].
     pub is_extern_decorator_fn: Box<IsDecoratorFn<'a>>,
+
+    /// A function to check whether a decorate indicates that the function is a static method, i.e.
+    /// does not take `self` as the first argument, and can be called without instanciating the
+    /// class.
+    ///
+    /// See [`ComposerConfig::is_static_method_decorator`].
+    pub is_static_method_decorator_fn: Box<IsDecoratorFn<'a>>,
 }
 
 impl ComposerConfig<'_> {
@@ -84,6 +91,18 @@ impl ComposerConfig<'_> {
     pub fn is_extern_decorator(&self, decorator: &Located<ExprKind>) -> Result<bool, String> {
         (*self.is_extern_decorator_fn)(decorator)
     }
+
+    /// Checks whether the `decorator` indicates that the function is a static method, usually the
+    /// default python `@staticmethod` decorator. These are function that do no take `self` as an
+    /// argument, and can be called without instanciating the class.
+    ///
+    /// The decorator is resolved in the decorator's global module context.
+    pub fn is_static_method_decorator(
+        &self,
+        decorator: &Located<ExprKind>,
+    ) -> Result<bool, String> {
+        (*self.is_static_method_decorator_fn)(decorator)
+    }
 }
 
 impl Default for ComposerConfig<'_> {
@@ -103,6 +122,12 @@ impl Default for ComposerConfig<'_> {
                 Ok(matches!(
                     &decorator.node,
                     ExprKind::Name { id, .. } if id == &"extern".into()
+                ))
+            }),
+            is_static_method_decorator_fn: Box::new(|decorator| {
+                Ok(matches!(
+                    &decorator.node,
+                    ExprKind::Name { id, .. } if id == &"staticmethod".into()
                 ))
             }),
         }
@@ -394,6 +419,7 @@ impl<'a> TopLevelComposer<'a> {
                 // module's symbol resolver would not know the name of the class methods,
                 // thus cannot return their definition_id
                 let mut class_method_name_def_ids: Vec<MethodInfo> = Vec::new();
+                let mut static_method_name_def_ids: Vec<MethodInfo> = Vec::new();
                 // we do not push anything to the def list, so we keep track of the index
                 // and then push in the correct order after the for loop
                 let mut class_method_index_offset = 0;
@@ -405,7 +431,10 @@ impl<'a> TopLevelComposer<'a> {
                 let mut contains_constructor = bases
                     .iter().any(|base| matches!(base.node, ast::ExprKind::Name { id, .. } if id == exception_id));
                 for b in body {
-                    if let ast::StmtKind::FunctionDef { name: method_name, .. } = &b.node {
+                    if let ast::StmtKind::FunctionDef {
+                        name: method_name, decorator_list, ..
+                    } = &b.node
+                    {
                         if method_name == &init_id {
                             contains_constructor = true;
                         }
@@ -433,7 +462,14 @@ impl<'a> TopLevelComposer<'a> {
 
                         // dummy method define here
                         let dummy_method_type = self.unifier.get_dummy_var().ty;
-                        class_method_name_def_ids.push((
+                        if decorator_list.iter().any(|d| {
+                            self.core_config.is_static_method_decorator(d).unwrap_or(false)
+                        }) {
+                            &mut static_method_name_def_ids
+                        } else {
+                            &mut class_method_name_def_ids
+                        }
+                        .push((
                             *method_name,
                             RwLock::new(Self::make_top_level_function_def(
                                 global_class_method_name,
@@ -463,9 +499,20 @@ impl<'a> TopLevelComposer<'a> {
                     methods.push((*name, *ty, *id));
                     self.method_class.insert(*id, DefinitionId(class_def_id));
                 }
+                for (name, _, id, ty, ..) in &static_method_name_def_ids {
+                    let mut class_def = class_def_ast.0.write();
+                    let TopLevelDef::Class { static_methods, .. } = &mut *class_def else {
+                        unreachable!()
+                    };
+
+                    static_methods.push((*name, *ty, *id));
+                    self.method_class.insert(*id, DefinitionId(class_def_id));
+                }
                 // now class_def_ast and class_method_def_ast_ids are ok, put them into actual def list in correct order
                 self.definition_ast_list.push(class_def_ast);
-                for (_, def, _, _, ast) in class_method_name_def_ids {
+                for (_, def, _, _, ast) in
+                    class_method_name_def_ids.into_iter().chain(static_method_name_def_ids)
+                {
                     self.definition_ast_list.push((def, Some(ast)));
                 }
 
@@ -1039,6 +1086,7 @@ impl<'a> TopLevelComposer<'a> {
             ancestors,
             fields,
             attributes,
+            static_methods,
             methods,
             resolver,
             type_vars,
@@ -1059,11 +1107,21 @@ impl<'a> TopLevelComposer<'a> {
             _class_ancestor_def,
             class_fields_def,
             class_attributes_def,
+            class_static_methods_def,
             class_methods_def,
             class_type_vars_def,
             class_resolver,
         ) = (
-            *object_id, *name, bases, body, ancestors, fields, attributes, methods, type_vars,
+            *object_id,
+            *name,
+            bases,
+            body,
+            ancestors,
+            fields,
+            attributes,
+            static_methods,
+            methods,
+            type_vars,
             resolver,
         );
 
@@ -1073,11 +1131,20 @@ impl<'a> TopLevelComposer<'a> {
         let mut defined_fields: HashSet<_> = HashSet::new();
         for b in class_body_ast {
             match &b.node {
-                ast::StmtKind::FunctionDef { args, returns, name, .. } => {
+                ast::StmtKind::FunctionDef { args, returns, name, decorator_list, .. } => {
                     let (method_dummy_ty, method_id) =
-                        Self::get_class_method_def_info(class_methods_def, *name)?;
+                        Self::get_class_method_def_info(class_methods_def, *name).or(
+                            Self::get_class_method_def_info(
+                                class_static_methods_def,
+                                *name,
+                            )
+                        )?;
 
                     let mut method_var_map = VarMap::new();
+
+                    let is_static = decorator_list.iter().any(|d| {
+                        core_config.is_static_method_decorator(d).unwrap_or(false)
+                    });
 
                     let arg_types: Vec<FuncArg> = {
                         // Function arguments must have:
@@ -1085,10 +1152,17 @@ impl<'a> TopLevelComposer<'a> {
                         // 2) unique names
                         // 3) names different than keywords
                         match args.args.first() {
-                            Some(id) if id.node.arg == "self".into() => {},
-                            _ => return Err(HashSet::from([format!(
+                            // `self` must be the first argument XOR the function is static
+                            Some(id) if (id.node.arg == "self".into()) ^ is_static => {},
+                            None if is_static => {}
+                            _ if !is_static => return Err(HashSet::from([format!(
                                 "{name} method must have a `self` parameter (at {})", b.location
                             )])),
+                            _ if is_static => return Err(HashSet::from([format!(
+                                "static method {name} cannot have a `self` parameter (at {})",
+                                b.location
+                            )])),
+                            _ => unreachable!("Function must be either static or have `self` as first argument"),
                         }
                         let mut defined_parameter_name: HashSet<_> = HashSet::new();
                         for arg in args.args.iter().skip(1) {
@@ -1101,15 +1175,17 @@ impl<'a> TopLevelComposer<'a> {
                         }
 
                         // `self` must not be provided type annotation or default value
-                        if args.args.len() == args.defaults.len() {
-                            return Err(HashSet::from([format!("`self` cannot have a default value (at {})", b.location)]));
-                        }
-                        if args.args[0].node.annotation.is_some() {
-                            return Err(HashSet::from([format!("`self` cannot have a type annotation (at {})", b.location)]));
+                        if !is_static {
+                            if args.args.len() == args.defaults.len() {
+                                return Err(HashSet::from([format!("`self` cannot have a default value (at {})", b.location)]));
+                            }
+                            if args.args[0].node.annotation.is_some() {
+                                return Err(HashSet::from([format!("`self` cannot have a type annotation (at {})", b.location)]));
+                            }
                         }
                         let mut result = Vec::new();
-                        let no_defaults = args.args.len() - args.defaults.len() - 1;
-                        for (idx, x) in args.args.iter().skip(1).enumerate() {
+                        let no_defaults = args.args.len() - args.defaults.len() - usize::from(!is_static);
+                        for (idx, x) in args.args.iter().skip(usize::from(!is_static)).enumerate() {
                             let type_ann = {
                                 let Some(annotation_expr) = x.node.annotation.as_ref() else {return Err(HashSet::from([format!("type annotation needed for `{}` (at {})", x.node.arg, x.location)]));};
                                 parse_ast_to_type_annotation_kinds(

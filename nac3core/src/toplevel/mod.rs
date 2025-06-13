@@ -118,6 +118,9 @@ pub enum TopLevelDef {
         ///
         /// Name, type, value.
         attributes: Vec<(StrRef, Type, ast::Constant)>,
+        /// Static class methods, pointing to the corresponding function definition. Do not take in
+        /// `self` as the first argument.   
+        static_methods: Vec<(StrRef, Type, DefinitionId)>,
         /// Class methods, pointing to the corresponding function definition.
         methods: Vec<(StrRef, Type, DefinitionId)>,
         /// Ancestor classes, including itself.

@@ -541,6 +541,7 @@ impl Nac3 {
                     })
                     .map_err(|e| e.to_string())
                 }),
+                ..Default::default() // FIXME: just so the compiler doesn't complain for now
             },
             size_t,
         );

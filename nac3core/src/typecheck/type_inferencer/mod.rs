@@ -2036,14 +2036,20 @@ impl Inferencer<'_> {
                 let result = {
                     self.top_level.definitions.read().iter().find_map(|def| {
                         if let Some(rear_guard) = def.try_read() {
-                            if let TopLevelDef::Class { name, attributes, .. } = &*rear_guard {
+                            if let TopLevelDef::Class { name, attributes, static_methods, .. } =
+                                &*rear_guard
+                            {
                                 if name.to_string() == self.unifier.stringify(sign.ret) {
-                                    return attributes.iter().find_map(|f| {
-                                        if f.0 == attr {
-                                            return Some(f.clone().1);
-                                        }
-                                        None
-                                    });
+                                    return attributes
+                                        .iter()
+                                        .map(|(k, v, _)| (k, v))
+                                        .chain(static_methods.iter().map(|(k, v, _)| (k, v)))
+                                        .find_map(|f| {
+                                            if f.0 == &attr {
+                                                return Some(*f.1);
+                                            }
+                                            None
+                                        });
                                 }
                             }
                         }

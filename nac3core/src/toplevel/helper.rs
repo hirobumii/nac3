@@ -627,6 +627,7 @@ impl TopLevelComposer<'_> {
             type_vars: Vec::default(),
             fields: Vec::default(),
             attributes: Vec::default(),
+            static_methods: Vec::default(),
             methods: Vec::default(),
             ancestors: Vec::default(),
             constructor,

@@ -115,6 +115,7 @@ pub fn get_exn_constructor(
         type_vars: Vec::default(),
         fields: exception_fields,
         attributes: Vec::default(),
+        static_methods: Vec::default(),
         methods: vec![("__init__".into(), signature, DefinitionId(cons_id))],
         ancestors: vec![
             TypeAnnotation::CustomClass { id: DefinitionId(class_id), params: Vec::default() },
@@ -581,6 +582,7 @@ impl<'a> BuiltinBuilder<'a> {
                     type_vars: Vec::default(),
                     fields,
                     attributes: Vec::default(),
+                    static_methods: Vec::default(),
                     methods: vec![("__init__".into(), ctor_signature, PrimDef::FunRangeInit.id())],
                     ancestors: Vec::default(),
                     constructor: Some(ctor_signature),
@@ -718,6 +720,7 @@ impl<'a> BuiltinBuilder<'a> {
                 type_vars: Vec::default(),
                 fields: make_exception_fields(int32, int64, str),
                 attributes: Vec::default(),
+                static_methods: Vec::default(),
                 methods: Vec::default(),
                 ancestors: vec![],
                 constructor: None,
@@ -753,6 +756,7 @@ impl<'a> BuiltinBuilder<'a> {
                 type_vars: vec![self.option_tvar.ty],
                 fields: Vec::default(),
                 attributes: Vec::default(),
+                static_methods: Vec::default(),
                 methods: vec![
                     Self::create_method(PrimDef::FunOptionIsSome, self.is_some_ty),
                     Self::create_method(PrimDef::FunOptionIsNone, self.is_some_ty),
@@ -869,6 +873,7 @@ impl<'a> BuiltinBuilder<'a> {
                 type_vars: vec![self.list_tvar.ty],
                 fields: Vec::default(),
                 attributes: Vec::default(),
+                static_methods: Vec::default(),
                 methods: Vec::default(),
                 ancestors: Vec::default(),
                 constructor: None,
@@ -899,6 +904,7 @@ impl<'a> BuiltinBuilder<'a> {
                 type_vars: vec![self.ndarray_dtype_tvar.ty, self.ndarray_ndims_tvar.ty],
                 fields: Vec::default(),
                 attributes: Vec::default(),
+                static_methods: Vec::default(),
                 methods: vec![
                     Self::create_method(PrimDef::FunNDArrayCopy, self.ndarray_copy_ty),
                     Self::create_method(PrimDef::FunNDArrayFill, self.ndarray_fill_ty),
