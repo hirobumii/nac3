@@ -6,7 +6,11 @@ def output_int32(x: int32):
 def output_bool(x: bool):
     ...
 
-def example1():
+@extern
+def output_int32_list(xs: list[int32]):
+    ...
+
+def rhs_tuple_1():
     x, *ys, z = (1, 2, 3, 4, 5)
     output_int32(x)
     output_int32(len(ys))
@@ -15,7 +19,7 @@ def example1():
     output_int32(ys[2])
     output_int32(z)
 
-def example2():
+def rhs_tuple_2():
     x, y, *zs = (1, 2, 3, 4, 5)
     output_int32(x)
     output_int32(y)
@@ -24,7 +28,7 @@ def example2():
     output_int32(zs[1])
     output_int32(zs[2])
 
-def example3():
+def rhs_tuple_3():
     *xs, y, z = (1, 2, 3, 4, 5)
     output_int32(len(xs))
     output_int32(xs[0])
@@ -33,13 +37,13 @@ def example3():
     output_int32(y)
     output_int32(z)
 
-def example4():
+def zero_length_starred_tuple():
     *xs, y, z = (4, 5)
     output_int32(len(xs))
     output_int32(y)
     output_int32(z)
 
-def example5():
+def assignment_order():
     # Example from: https://docs.python.org/3/reference/simple_stmts.html#assignment-statements
     x = [0, 1]
     i = 0
@@ -53,7 +57,7 @@ class A:
     def __init__(self):
         self.value = 1000
 
-def example6():
+def class_field_assignment():
     ws = [88, 7, 8]
     a = A()
     x, [y, *ys, a.value], ws[0], (ws[0],) = 1, (2, False, 4, 5), 99, (6,)
@@ -66,7 +70,7 @@ def example6():
     output_int32(ws[1])
     output_int32(ws[2])
  
-def example7():
+def lhs_mixed_assignment():
     x, [y, z] = 1, [2, 3]
     (a, b) = (4, 5)
     output_int32(x)
@@ -75,20 +79,17 @@ def example7():
     output_int32(a)
     output_int32(b)
 
-def example8():
+def rhs_list_assignment():
     (a, *b, c) = [1, 2, 3, 4, 5]
     output_int32(a)
-    for val in b:
-        output_int32(val)
+    output_int32_list(b)
     output_int32(c)
 
     (*xs, y, z) = [x for x in range(100)]
     output_bool(len(xs) == 98)
 
     (u, v, *w) = [1, 2, 3, 4, 5]
-    output_int32(w[0])
-    output_int32(w[1])
-    output_int32(w[2])
+    output_int32_list(w)
 
     f, *g = [1]
     output_int32(len(g))  # Should be 0, since g is empty
@@ -99,12 +100,12 @@ def example8():
     output_int32(o)
 
 def run() -> int32:
-    example1()
-    example2()
-    example3()
-    example4()
-    example5()
-    example6()
-    example7()
-    example8()
+    rhs_tuple_1()
+    rhs_tuple_2()
+    rhs_tuple_3()
+    zero_length_starred_tuple()
+    assignment_order()
+    class_field_assignment()
+    lhs_mixed_assignment()
+    rhs_list_assignment()
     return 0
