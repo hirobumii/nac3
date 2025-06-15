@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use parking_lot::RwLock;
 
-use nac3parser::ast::{self, Expr, ExprKind, Ident, Located, StrRef, fold::Fold};
+use nac3parser::ast::{self, Expr, ExprKind, Located, StrRef, fold::Fold};
 
 use super::{
     DefinitionId, FunInstance, GenCall, Location, builtins, get_type_from_type_annotation_kinds,
@@ -20,7 +20,7 @@ use crate::{
     symbol_resolver::SymbolValue,
     toplevel::{Stmt, SymbolResolver, TopLevelContext, TopLevelDef},
     typecheck::{
-        type_inferencer::{CodeLocation, FunctionData, IdentifierInfo, Inferencer, PrimitiveStore},
+        type_inferencer::{CodeLocation, FunctionData, Inferencer, PrimitiveStore},
         typedef::{CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap},
     },
 };
@@ -189,8 +189,7 @@ impl<'a> TopLevelComposer<'a> {
                 TopLevelDef::Class { name, .. } | TopLevelDef::Module { name, .. } => {
                     name.to_string()
                 }
-                TopLevelDef::Function { simple_name, .. }
-                | TopLevelDef::Variable { simple_name, .. } => simple_name.to_string(),
+                TopLevelDef::Function { simple_name, .. } => simple_name.to_string(),
             })
             .collect_vec();
 
@@ -298,7 +297,6 @@ impl<'a> TopLevelComposer<'a> {
     ) -> Result<DefinitionId, String> {
         let mut classes: HashMap<StrRef, DefinitionId> = HashMap::new();
         let mut methods: HashMap<StrRef, DefinitionId> = HashMap::new();
-        let mut attributes: Vec<(StrRef, DefinitionId, bool)> = Vec::new();
 
         for (name, _) in name_to_pyid.iter() {
             if let Ok(def_id) = resolver.get_identifier_def(*name) {
@@ -310,16 +308,6 @@ impl<'a> TopLevelComposer<'a> {
                         }
                         TopLevelDef::Function { .. } => {
                             methods.insert(*name, def_id);
-                        }
-                        TopLevelDef::Variable { ty_decl, .. } => {
-                            let mutable = ty_decl
-                                .as_ref()
-                                .map(|ty_decl| self.core_config.has_kernel_ann(ty_decl))
-                                .transpose()?
-                                .flatten()
-                                .unwrap_or_default();
-
-                            attributes.push((*name, def_id, mutable));
                         }
                         TopLevelDef::Module { .. } => {
                             unreachable!("modules cannot be nested inside another module")
@@ -337,7 +325,6 @@ impl<'a> TopLevelComposer<'a> {
             module_id: DefinitionId(self.definition_ast_list.len()),
             classes: classes.into_iter().collect(),
             functions: methods.into_iter().collect(),
-            attributes,
             resolver: Some(resolver),
             loc: location,
         };
@@ -527,88 +514,11 @@ impl<'a> TopLevelComposer<'a> {
                 ))
             }
 
-            ast::StmtKind::Assign { .. } => {
-                // Assignment statements can assign to (and therefore create) more than one
-                // variable, but this function only allows returning one set of symbol information.
-                // We want to avoid changing this to return a `Vec` of symbol info, as this would
-                // require `iter().next().unwrap()` on every variable created from a non-Assign
-                // statement.
-                //
-                // Make callers use `register_top_level_var` instead, as it provides more
-                // fine-grained control over which symbols to register, while also simplifying the
-                // usage of this function.
-                panic!(
-                    "Registration of top-level Assign statements must use TopLevelComposer::register_top_level_var (at {})",
-                    ast.location
-                );
-            }
-
-            ast::StmtKind::AnnAssign { target, annotation, .. } => {
-                let ExprKind::Name { id: name, .. } = target.node else {
-                    return Err(format!(
-                        "global variable declaration must be an identifier (at {})",
-                        target.location
-                    ));
-                };
-
-                self.register_top_level_var(
-                    name,
-                    Some(annotation.as_ref().clone()),
-                    resolver,
-                    mod_path,
-                    target.location,
-                )
-            }
-
             _ => Err(format!(
-                "registrations of constructs other than top level classes/functions/variables are not supported (at {})",
+                "registrations of constructs other than top level classes/functions are not supported (at {})",
                 ast.location
             )),
         }
-    }
-
-    /// Registers a top-level variable with the given `name` into the composer.
-    ///
-    /// - `annotation` - The type annotation of the top-level variable, or [`None`] if no type
-    ///   annotation is provided.
-    /// - `location` - The location of the top-level variable.
-    pub fn register_top_level_var(
-        &mut self,
-        name: Ident,
-        annotation: Option<Expr>,
-        resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
-        mod_path: &str,
-        location: Location,
-    ) -> Result<(StrRef, DefinitionId, Option<Type>), String> {
-        if self.keyword_list.contains(&name) {
-            return Err(format!("cannot use keyword `{name}` as a variable name (at {location})"));
-        }
-
-        let global_var_name =
-            if mod_path.is_empty() { name.to_string() } else { format!("{mod_path}.{name}") };
-
-        if !self.defined_names.insert(global_var_name.clone()) {
-            return Err(format!(
-                "global variable `{global_var_name}` defined twice (at {location})"
-            ));
-        }
-
-        let ty_to_be_unified = self.unifier.get_dummy_var().ty;
-        self.definition_ast_list.push((
-            RwLock::new(Self::make_top_level_variable_def(
-                global_var_name,
-                name,
-                // dummy here, unify with correct type later,
-                ty_to_be_unified,
-                annotation,
-                resolver,
-                Some(location),
-            ))
-            .into(),
-            None,
-        ));
-
-        Ok((name, DefinitionId(self.definition_ast_list.len() - 1), Some(ty_to_be_unified)))
     }
 
     /// Analyze the AST and modify the corresponding `TopLevelDef`
@@ -616,7 +526,6 @@ impl<'a> TopLevelComposer<'a> {
         self.analyze_top_level_class_definition()?;
         self.analyze_top_level_class_fields_methods()?;
         self.analyze_top_level_function()?;
-        self.analyze_top_level_variables()?;
         if inference {
             self.analyze_function_instance()?;
         }
@@ -1552,7 +1461,7 @@ impl<'a> TopLevelComposer<'a> {
         Ok(())
     }
 
-    /// step 5, analyze and call type inferencer to fill the `instance_to_stmt` of
+    /// step 4, analyze and call type inferencer to fill the `instance_to_stmt` of
     /// [`TopLevelDef::Function`]
     fn analyze_function_instance(&mut self) -> Result<(), HashSet<String>> {
         // first get the class constructor type correct for the following type check in function body
@@ -1895,11 +1804,11 @@ impl<'a> TopLevelComposer<'a> {
                     })
                 };
                 let mut identifiers = {
-                    let mut result = HashMap::new();
+                    let mut result = HashSet::new();
                     if self_type.is_some() {
-                        result.insert("self".into(), IdentifierInfo::default());
+                        result.insert("self".into());
                     }
-                    result.extend(inst_args.iter().map(|x| (x.name, IdentifierInfo::default())));
+                    result.extend(inst_args.iter().map(|x| x.name));
                     result
                 };
                 let mut calls: HashMap<CodeLocation, CallId> = HashMap::new();
@@ -2053,61 +1962,6 @@ impl<'a> TopLevelComposer<'a> {
         if !errors.is_empty() {
             return Err(errors);
         }
-        Ok(())
-    }
-
-    /// Step 4. Analyze and populate the types of global variables.
-    fn analyze_top_level_variables(&mut self) -> Result<(), HashSet<String>> {
-        let def_list = &self.definition_ast_list;
-        let temp_def_list = self.extract_def_list();
-        let unifier = &mut self.unifier;
-        let primitives_store = &self.primitives_ty;
-
-        let mut analyze = |variable_def: &Arc<RwLock<TopLevelDef>>| -> Result<_, HashSet<String>> {
-            let TopLevelDef::Variable { ty: dummy_ty, ty_decl, resolver, loc, .. } =
-                &*variable_def.read()
-            else {
-                // not top level variable def, skip
-                return Ok(());
-            };
-
-            let resolver = &**resolver.as_ref().unwrap();
-
-            if let Some(ty_decl) = ty_decl {
-                let ty_annotation = parse_ast_to_type_annotation_kinds(
-                    resolver,
-                    &temp_def_list,
-                    unifier,
-                    primitives_store,
-                    ty_decl,
-                    HashMap::new(),
-                )?;
-                let ty_from_ty_annotation = get_type_from_type_annotation_kinds(
-                    &temp_def_list,
-                    unifier,
-                    primitives_store,
-                    &ty_annotation,
-                    &mut None,
-                )?;
-
-                unifier.unify(*dummy_ty, ty_from_ty_annotation).map_err(|e| {
-                    HashSet::from([e.at(Some(loc.unwrap())).to_display(unifier).to_string()])
-                })?;
-            }
-
-            Ok(())
-        };
-
-        let mut errors = HashSet::new();
-        for (variable_def, _) in def_list.iter().skip(self.builtin_num) {
-            if let Err(e) = analyze(variable_def) {
-                errors.extend(e);
-            }
-        }
-        if !errors.is_empty() {
-            return Err(errors);
-        }
-
         Ok(())
     }
 }

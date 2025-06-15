@@ -23,9 +23,6 @@ impl InnerResolver {
                 TopLevelDef::Function { name, .. } => {
                     format!("TopLevelDef::Function {{ name: {name} }}")
                 }
-                TopLevelDef::Variable { name, .. } => {
-                    format!("TopLevelDef::Variable {{ name: {name} }}")
-                }
             }
         }
 

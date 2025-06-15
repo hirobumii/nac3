@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Debug, sync::Arc};
 use inkwell::values::BasicValueEnum;
 use parking_lot::RwLock;
 
-use nac3parser::ast::{self, Expr, Location, Stmt, StrRef};
+use nac3parser::ast::{self, Location, Stmt, StrRef};
 
 use crate::{
     codegen::{CodeGenContext, CodeGenerator},
@@ -96,9 +96,6 @@ pub enum TopLevelDef {
         classes: Vec<(StrRef, DefinitionId)>,
         /// [`DefinitionId`] of [`TopLevelDef::Function`] within the module
         functions: Vec<(StrRef, DefinitionId)>,
-        /// [`DefinitionId`] of [`TopLevelDef::Variable`] within the module, and whether the
-        /// attribute is mutable.
-        attributes: Vec<(StrRef, DefinitionId, bool)>,
         /// Symbol resolver of the module defined the class.
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
         /// Definition location.
@@ -159,25 +156,6 @@ pub enum TopLevelDef {
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
         /// Custom code generation callback.
         codegen_callback: Option<Arc<GenCall>>,
-        /// Definition location.
-        loc: Option<Location>,
-    },
-    Variable {
-        /// Qualified name of the global variable, should be unique globally.
-        name: String,
-
-        /// Simple name, the same as in method/function definition.
-        simple_name: StrRef,
-
-        /// Type of the global variable.
-        ty: Type,
-
-        /// The declared type of the global variable, or [`None`] if no type annotation is provided.
-        ty_decl: Option<Expr>,
-
-        /// Symbol resolver of the module defined the class.
-        resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
-
         /// Definition location.
         loc: Option<Location>,
     },
