@@ -26,7 +26,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyAnyMethods, PyBytes, PyDict, PyNone, PySet, PyType},
+    types::{PyAnyMethods, PyBytes, PyDict, PyNone, PyType},
 };
 use tempfile::{self, TempDir};
 
@@ -1467,7 +1467,6 @@ impl Nac3 {
         functions: &Bound<'py, PyDict>,
         classes: &Bound<'py, PyDict>,
         special_ids: &Bound<'py, PyDict>,
-        content_modules: &Bound<'py, PySet>,
     ) -> PyResult<()> {
         let (modules, class_ids) = {
             let mut modules: IndexMap<u64, Arc<Py<PyModule>>> = IndexMap::new();
@@ -1490,13 +1489,6 @@ impl Nac3 {
                     );
                 }
                 class_ids.insert(py_interp::extract_id(&class)?);
-            }
-
-            for module in content_modules {
-                modules.insert(
-                    py_interp::extract_id(module.downcast::<PyModule>()?)?,
-                    Arc::new(module.downcast_into()?.unbind()),
-                );
             }
 
             (modules, class_ids)
