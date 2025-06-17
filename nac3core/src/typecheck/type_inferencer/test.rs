@@ -531,7 +531,7 @@ impl TestEnvironment {
             primitives: &mut self.primitives,
             virtual_checks: &mut self.virtual_checks,
             calls: &mut self.calls,
-            defined_identifiers: HashMap::default(),
+            defined_identifiers: HashSet::default(),
             in_handler: false,
         }
     }
@@ -607,9 +607,8 @@ fn test_basic(source: &str, mapping: &HashMap<&str, &str>, virtuals: &[(&str, &s
     println!("source:\n{source}");
     let mut env = TestEnvironment::new();
     let id_to_name = std::mem::take(&mut env.id_to_name);
-    let mut defined_identifiers: HashMap<_, _> =
-        env.identifier_mapping.keys().copied().map(|id| (id, IdentifierInfo::default())).collect();
-    defined_identifiers.insert("virtual".into(), IdentifierInfo::default());
+    let mut defined_identifiers: HashSet<_, _> = env.identifier_mapping.keys().copied().collect();
+    defined_identifiers.insert("virtual".into());
     let mut inferencer = env.get_inferencer();
     inferencer.defined_identifiers.clone_from(&defined_identifiers);
     let statements = parse_program(source, FileName::default()).unwrap();
@@ -754,9 +753,8 @@ fn test_primitive_magic_methods(source: &str, mapping: &HashMap<&str, &str>) {
     println!("source:\n{source}");
     let mut env = TestEnvironment::basic_test_env();
     let id_to_name = std::mem::take(&mut env.id_to_name);
-    let mut defined_identifiers: HashMap<_, _> =
-        env.identifier_mapping.keys().copied().map(|id| (id, IdentifierInfo::default())).collect();
-    defined_identifiers.insert("virtual".into(), IdentifierInfo::default());
+    let mut defined_identifiers: HashSet<_, _> = env.identifier_mapping.keys().copied().collect();
+    defined_identifiers.insert("virtual".into());
     let mut inferencer = env.get_inferencer();
     inferencer.defined_identifiers.clone_from(&defined_identifiers);
     let statements = parse_program(source, FileName::default()).unwrap();

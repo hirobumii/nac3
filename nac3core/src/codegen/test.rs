@@ -30,7 +30,7 @@ use crate::{
         composer::{ComposerConfig, TopLevelComposer},
     },
     typecheck::{
-        type_inferencer::{FunctionData, IdentifierInfo, Inferencer, PrimitiveStore},
+        type_inferencer::{FunctionData, Inferencer, PrimitiveStore},
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
     },
 };
@@ -143,8 +143,7 @@ fn test_primitives() {
     };
     let mut virtual_checks = Vec::new();
     let mut calls = HashMap::new();
-    let mut identifiers: HashMap<_, _> =
-        ["a".into(), "b".into()].map(|id| (id, IdentifierInfo::default())).into();
+    let mut identifiers: HashSet<_, _> = ["a".into(), "b".into()].into();
     let mut inferencer = Inferencer {
         top_level: &top_level,
         function_data: &mut function_data,
@@ -271,8 +270,7 @@ fn test_simple_call() {
     };
     let mut virtual_checks = Vec::new();
     let mut calls = HashMap::new();
-    let mut identifiers: HashMap<_, _> =
-        ["a".into(), "foo".into()].map(|id| (id, IdentifierInfo::default())).into();
+    let mut identifiers: HashSet<_, _> = ["a".into(), "foo".into()].into();
     let mut inferencer = Inferencer {
         top_level: &top_level,
         function_data: &mut function_data,

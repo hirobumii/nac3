@@ -10,7 +10,7 @@ use std::{
 use itertools::{Itertools, izip};
 
 use nac3parser::ast::{
-    self, Arguments, Comprehension, ExprContext, ExprKind, Ident, Located, Location, StrRef,
+    self, Arguments, Comprehension, ExprContext, ExprKind, Located, Location, StrRef,
     fold::{self, Fold},
 };
 
@@ -90,40 +90,6 @@ impl PrimitiveStore {
     }
 }
 
-/// The location where an identifier declaration refers to.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DeclarationSource {
-    /// Local scope.
-    Local,
-
-    /// Global scope.
-    Global {
-        /// Whether the identifier is declared by the use of `global` statement. This field is
-        /// [`None`] if the identifier does not refer to a variable.
-        is_explicit: Option<bool>,
-    },
-}
-
-/// Information regarding a defined identifier.
-#[derive(Clone, Copy, Debug)]
-pub struct IdentifierInfo {
-    /// Whether this identifier refers to a global variable.
-    pub source: DeclarationSource,
-}
-
-impl Default for IdentifierInfo {
-    fn default() -> Self {
-        IdentifierInfo { source: DeclarationSource::Local }
-    }
-}
-
-impl IdentifierInfo {
-    #[must_use]
-    pub fn new() -> IdentifierInfo {
-        IdentifierInfo::default()
-    }
-}
-
 pub struct FunctionData {
     pub resolver: Arc<dyn SymbolResolver + Send + Sync>,
     pub return_type: Option<Type>,
@@ -132,7 +98,7 @@ pub struct FunctionData {
 
 pub struct Inferencer<'a> {
     pub top_level: &'a TopLevelContext,
-    pub defined_identifiers: HashMap<StrRef, IdentifierInfo>,
+    pub defined_identifiers: HashSet<StrRef>,
     pub function_data: &'a mut FunctionData,
     pub unifier: &'a mut Unifier,
     pub primitives: &'a PrimitiveStore,
@@ -260,7 +226,7 @@ impl Fold<()> for Inferencer<'_> {
                                 handler.location,
                             ));
                             if let Some(name) = name {
-                                self.defined_identifiers.entry(name).or_default();
+                                self.defined_identifiers.insert(name);
                                 if let Some(old_typ) = self.variable_mapping.insert(name, typ) {
                                     let loc = handler.location;
                                     self.unifier.unify(old_typ, typ).or_else(|e| {
@@ -409,7 +375,6 @@ impl Fold<()> for Inferencer<'_> {
             | ast::StmtKind::Continue { .. }
             | ast::StmtKind::Expr { .. }
             | ast::StmtKind::For { .. }
-            | ast::StmtKind::Global { .. }
             | ast::StmtKind::Pass { .. }
             | ast::StmtKind::Try { .. } => {}
             ast::StmtKind::If { test, .. } | ast::StmtKind::While { test, .. } => {
@@ -580,7 +545,7 @@ impl Fold<()> for Inferencer<'_> {
                         unreachable!("must be tobj")
                     }
                 } else {
-                    if !self.defined_identifiers.contains_key(id) {
+                    if !self.defined_identifiers.contains(id) {
                         match self.function_data.resolver.get_symbol_type(
                             self.unifier,
                             &self.top_level.definitions.read(),
@@ -588,22 +553,7 @@ impl Fold<()> for Inferencer<'_> {
                             *id,
                         ) {
                             Ok(_) => {
-                                let is_global = self.is_id_global(*id);
-
-                                self.defined_identifiers.insert(
-                                    *id,
-                                    IdentifierInfo {
-                                        source: match is_global {
-                                            Some(true) => DeclarationSource::Global {
-                                                is_explicit: Some(false),
-                                            },
-                                            Some(false) => {
-                                                DeclarationSource::Global { is_explicit: None }
-                                            }
-                                            None => DeclarationSource::Local,
-                                        },
-                                    },
-                                );
+                                self.defined_identifiers.insert(*id);
                             }
                             Err(e) => {
                                 return report_error(
@@ -666,9 +616,7 @@ impl Inferencer<'_> {
     fn infer_pattern<T>(&mut self, pattern: &ast::Expr<T>) -> Result<(), InferenceError> {
         match &pattern.node {
             ExprKind::Name { id, .. } => {
-                if !self.defined_identifiers.contains_key(id) {
-                    self.defined_identifiers.insert(*id, IdentifierInfo::default());
-                }
+                self.defined_identifiers.insert(*id);
                 Ok(())
             }
             ExprKind::Tuple { elts, .. } => {
@@ -773,9 +721,7 @@ impl Inferencer<'_> {
         let mut defined_identifiers = self.defined_identifiers.clone();
         for arg in &args.args {
             let name = &arg.node.arg;
-            if !defined_identifiers.contains_key(name) {
-                defined_identifiers.insert(*name, IdentifierInfo::default());
-            }
+            defined_identifiers.insert(*name);
         }
         let fn_args: Vec<_> = args
             .args
@@ -2780,23 +2726,5 @@ impl Inferencer<'_> {
         self.constrain(test.custom.unwrap(), self.primitives.bool, &test.location)?;
         self.constrain(body.custom.unwrap(), orelse.custom.unwrap(), &body.location)?;
         Ok(body.custom.unwrap())
-    }
-
-    /// Determines whether the given `id` refers to a global symbol.
-    ///
-    /// Returns `Some(true)` if `id` refers to a global variable, `Some(false)` if `id` refers to a
-    /// class/function, and `None` if `id` refers to a local symbol.
-    pub(super) fn is_id_global(&self, id: Ident) -> Option<bool> {
-        self.top_level
-            .definitions
-            .read()
-            .iter()
-            .map(|def| match *def.read() {
-                TopLevelDef::Class { name, .. } | TopLevelDef::Module { name, .. } => (name, false),
-                TopLevelDef::Function { simple_name, .. } => (simple_name, false),
-                TopLevelDef::Variable { simple_name, .. } => (simple_name, true),
-            })
-            .find(|(global, _)| global == &id)
-            .map(|(_, has_explicit_prop)| has_explicit_prop)
     }
 }

@@ -872,11 +872,6 @@ impl Nac3 {
                             }
                         }
                     }
-                    TopLevelDef::Variable { .. } => {
-                        return Err(CompileError::new_err(String::from(
-                            "Unsupported @rpc annotation on global variable",
-                        )));
-                    }
                     TopLevelDef::Module { .. } => {
                         unreachable!("Type module cannot be decorated with @rpc")
                     }

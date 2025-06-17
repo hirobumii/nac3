@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use nac3parser::ast::{self, Constant, Expr, ExprKind, Location, Stmt, StrRef};
+use nac3parser::ast::{self, Constant, ExprKind, Location, Stmt, StrRef};
 
 use super::{
     DefinitionId, TopLevelDef, check_overload_type_annotation_compatible,
@@ -395,11 +395,10 @@ pub fn make_exception_fields(int32: Type, int64: Type, str: Type) -> Vec<(StrRef
 impl TopLevelDef {
     pub fn to_string(&self, unifier: &mut Unifier) -> String {
         match self {
-            TopLevelDef::Module { name, attributes, functions, .. } => {
+            TopLevelDef::Module { name, functions, .. } => {
                 format!(
-                    "Module {{\nname: {:?},\nattributes: {:?}\nmethods: {:?}\n}}",
+                    "Module {{\nname: {:?},\nmethods: {:?}\n}}",
                     name,
-                    attributes.iter().map(|(n, _, _)| n.to_string()).collect_vec(),
                     functions.iter().map(|(n, _)| n.to_string()).collect_vec()
                 )
             }
@@ -441,9 +440,6 @@ impl TopLevelDef {
                     r
                 }
             ),
-            TopLevelDef::Variable { name, ty, .. } => {
-                format!("Variable {{ name: {name:?}, ty: {:?} }}", unifier.stringify(*ty),)
-            }
         }
     }
 }
@@ -659,18 +655,6 @@ impl TopLevelComposer<'_> {
             codegen_callback: None,
             loc,
         }
-    }
-
-    #[must_use]
-    pub fn make_top_level_variable_def(
-        name: String,
-        simple_name: StrRef,
-        ty: Type,
-        ty_decl: Option<Expr>,
-        resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
-        loc: Option<Location>,
-    ) -> TopLevelDef {
-        TopLevelDef::Variable { name, simple_name, ty, ty_decl, resolver, loc }
     }
 
     #[must_use]

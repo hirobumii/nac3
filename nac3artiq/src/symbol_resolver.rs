@@ -717,14 +717,8 @@ impl InnerResolver {
         {
             let def_id = self.pyid_to_def.read()[&py_obj_id];
             let def = defs[def_id.0].read();
-            let TopLevelDef::Module {
-                name: module_name,
-                module_id,
-                classes,
-                attributes,
-                functions,
-                ..
-            } = &*def
+            let TopLevelDef::Module { name: module_name, module_id, classes, functions, .. } =
+                &*def
             else {
                 unreachable!("must be a module here");
             };
@@ -747,18 +741,6 @@ impl InnerResolver {
                 let method_ty = self.get_obj_type(py, &method_obj, unifier, defs, primitives)?;
                 if let Ok(method_ty) = method_ty {
                     module_attributes.insert(*name, (method_ty, AttrKind::Method));
-                } else {
-                    return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
-                }
-            }
-
-            for (name, _, mutable) in attributes {
-                let attribute_obj = obj.getattr(name.to_string().as_str())?;
-                let attribute_ty =
-                    self.get_obj_type(py, &attribute_obj, unifier, defs, primitives)?;
-                if let Ok(attribute_ty) = attribute_ty {
-                    module_attributes
-                        .insert(*name, (attribute_ty, AttrKind::Field { mutable: *mutable }));
                 } else {
                     return Ok(Err(format!("Unable to resolve {module_name}.{name}")));
                 }

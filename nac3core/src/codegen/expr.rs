@@ -938,7 +938,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
             TopLevelDef::Class { .. } => {
                 return Ok(Some(generator.gen_constructor(ctx, fun.0, &def, params)?));
             }
-            TopLevelDef::Variable { .. } | TopLevelDef::Module { .. } => unreachable!(),
+            TopLevelDef::Module { .. } => unreachable!(),
         }
     }
     .or_else(|_: String| {
@@ -2273,31 +2273,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             Some((_, Some(static_value), _)) => ValueEnum::Static(static_value.clone()),
             None => {
                 let resolver = ctx.resolver.clone();
-                let value = resolver.get_symbol_value(*id, ctx, generator).unwrap();
-
-                let globals = ctx
-                    .top_level
-                    .definitions
-                    .read()
-                    .iter()
-                    .filter_map(|def| {
-                        if let TopLevelDef::Variable { simple_name, ty, .. } = &*def.read() {
-                            Some((*simple_name, *ty))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect_vec();
-
-                if let Some((_, ty)) = globals.iter().find(|(name, _)| name == id) {
-                    let ptr = value
-                        .to_basic_value_enum(ctx, generator, *ty)
-                        .map(BasicValueEnum::into_pointer_value)?;
-
-                    ctx.builder.build_load(ptr, id.to_string().as_str()).map(Into::into).unwrap()
-                } else {
-                    value
-                }
+                resolver.get_symbol_value(*id, ctx, generator).unwrap()
             }
         },
         ExprKind::List { elts, .. } => {
