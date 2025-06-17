@@ -19,7 +19,8 @@ class C:
         return a + b
 
 def run() -> int32:
-    output_int32(A(1).add(2))
+    a = A(1)
+    output_int32(a.add(2))
     output_int32(B.val)
     output_int32(C.static_add(1, 2))
 

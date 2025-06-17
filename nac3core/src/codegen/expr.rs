@@ -2465,17 +2465,21 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         .map(Into::into));
                 }
                 ExprKind::Attribute { value, attr, .. } => {
-                    let Some(val) = generator.gen_expr(ctx, value)? else { return Ok(None) };
-
                     // Handle Class Method calls
                     // The attribute will be `DefinitionId` of the method if the call is to one of the parent methods
                     let func_id = attr.to_string().parse::<usize>();
 
-                    let id = if let TypeEnum::TObj { obj_id, .. } =
+                    // For a static method the constructor hasn't been called, so we get the class
+                    // UnificationKey from the return type of the constructor signature
+                    let (key, is_static) = if let TypeEnum::TFunc(sign) =
                         &*ctx.unifier.get_ty(value.custom.unwrap())
                     {
-                        *obj_id
+                        (sign.ret, true)
                     } else {
+                        (value.custom.unwrap(), false)
+                    };
+
+                    let TypeEnum::TObj { obj_id: id, .. } = &*ctx.unifier.get_ty(key) else {
                         codegen_unreachable!(ctx)
                     };
 
@@ -2485,18 +2489,33 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     } else {
                         let defs = ctx.top_level.definitions.read();
                         let obj_def = defs.get(id.0).unwrap().read();
-                        if let TopLevelDef::Class { methods, .. } = &*obj_def {
-                            methods.iter().find(|method| method.0 == *attr).unwrap().2
+                        if let TopLevelDef::Class { methods, static_methods, .. } = &*obj_def {
+                            if is_static { static_methods } else { methods }
+                                .iter()
+                                .find(|method| method.0 == *attr)
+                                .unwrap()
+                                .2
                         } else if let TopLevelDef::Module { functions, .. } = &*obj_def {
                             functions.iter().find(|method| method.0 == *attr).unwrap().1
                         } else {
                             codegen_unreachable!(ctx)
                         }
                     };
+
+                    // If the function is static, we can call it directly
+                    if is_static {
+                        ctx.current_loc = expr.location;
+                        return Ok(generator
+                            .gen_call(ctx, None, (&signature, fun_id), params)?
+                            .map(Into::into));
+                    }
+
+                    let Some(val) = generator.gen_expr(ctx, value)? else { return Ok(None) };
+
                     // directly generate code for option.unwrap
                     // since it needs to return static value to optimize for kernel invariant
                     if attr == &"unwrap".into()
-                        && id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap()
+                        && *id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap()
                     {
                         match val {
                             ValueEnum::Static(v) => {
@@ -2529,7 +2548,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                         );
                                         ctx.builder.position_at_end(unreachable_block);
                                         let ptr = ctx
-                                            .get_llvm_type(generator, value.custom.unwrap())
+                                            .get_llvm_type(generator, key)
                                             .into_pointer_type()
                                             .const_null();
                                         Ok(Some(
@@ -2569,12 +2588,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     ctx.current_loc = expr.location;
 
                     return Ok(generator
-                        .gen_call(
-                            ctx,
-                            Some((value.custom.unwrap(), val)),
-                            (&signature, fun_id),
-                            params,
-                        )?
+                        .gen_call(ctx, Some((key, val)), (&signature, fun_id), params)?
                         .map(Into::into));
                 }
                 _ => unimplemented!(),

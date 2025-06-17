@@ -1142,8 +1142,8 @@ impl<'a> TopLevelComposer<'a> {
 
                     let mut method_var_map = VarMap::new();
 
-                    let is_static = decorator_list.iter().any(|d| {
-                        core_config.is_static_method_decorator(d).unwrap_or(false)
+                    let is_static = decorator_list.iter().any(|def| {
+                        core_config.is_static_method_decorator(def).unwrap_or(false)
                     });
 
                     let arg_types: Vec<FuncArg> = {
