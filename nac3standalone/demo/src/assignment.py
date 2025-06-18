@@ -10,6 +10,10 @@ def output_bool(x: bool):
 def output_int32_list(xs: list[int32]):
     ...
 
+@extern
+def output_str(s: str):
+    ...
+
 def rhs_tuple_1():
     x, *ys, z = (1, 2, 3, 4, 5)
     output_int32(x)
@@ -37,6 +41,15 @@ def rhs_tuple_3():
     output_int32(y)
     output_int32(z)
 
+def many_type_tuple():
+    # Tuples can contain mixed types as long as the portion corresponding to the starred expression is homogeneous.
+    x, y, z, *xs = (1, True, "hello", 3, 4, 5)
+    output_int32(x)
+    output_bool(y)
+    output_str(z)
+    output_int32(len(xs))
+    output_int32_list(xs)
+
 def zero_length_starred_tuple():
     *xs, y, z = (4, 5)
     output_int32(len(xs))
@@ -60,10 +73,10 @@ class A:
 def class_field_assignment():
     ws = [88, 7, 8]
     a = A()
-    x, [y, *ys, a.value], ws[0], (ws[0],) = 1, (2, False, 4, 5), 99, (6,)
+    x, [y, *ys, a.value], ws[0], (ws[0],) = 1, (2, 3, 4, 5), 99, (6,)
     output_int32(x)
     output_int32(y)
-    output_bool(ys[0])
+    output_int32(ys[0])
     output_int32(ys[1])
     output_int32(a.value)
     output_int32(ws[0])
@@ -100,12 +113,21 @@ def rhs_list_assignment():
     output_int32(o)
 
 def run() -> int32:
+    output_str("Running assignment tests\n")
+    output_str("\nTuple Tests\n")
     rhs_tuple_1()
     rhs_tuple_2()
     rhs_tuple_3()
+    output_str("\nMany Type Tuple Test\n")
+    many_type_tuple()
+    output_str("\nZero Length Starred Tuple Test\n")
     zero_length_starred_tuple()
+    output_str("\nAssignment Order Test\n")
     assignment_order()
+    output_str("\nClass Field Assignment Test\n")
     class_field_assignment()
+    output_str("\nMixed Assignment Test\n")
     lhs_mixed_assignment()
+    output_str("\nList Assignment Test\n")
     rhs_list_assignment()
     return 0
