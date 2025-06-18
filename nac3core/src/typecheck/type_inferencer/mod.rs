@@ -2252,10 +2252,10 @@ impl Inferencer<'_> {
                     }
 
                     /*
-                    (a, b, c, ..., *xs, ..., x, y, z)
-                    before ^^^^^^^^^^^^  ^^^  ^^^^^^^^^^^^ after
-                    starred
-                    */
+                     *       (a, b, c, ..., *xs, ..., x, y, z)
+                     * before ^^^^^^^^^^^^  ^^^  ^^^^^^^^^^^^ after
+                     *                    starred
+                     */
 
                     let targets_after = targets.drain(starred_target_index + 1..).collect_vec();
                     let target_starred = targets.pop().unwrap();
@@ -2273,24 +2273,57 @@ impl Inferencer<'_> {
                         folded_targets.push(self.fold_assign_target(target, *rhs_ty)?);
                     }
 
-                    // Fold the starred target
-                    if let ExprKind::Starred { value: target, .. } = target_starred.node {
-                        let ty = self.unifier.add_ty(TypeEnum::TTuple {
-                            ty: rhs_tys_starred.to_vec(),
-                            is_vararg_ctx: false,
-                        });
-                        let folded_target = self.fold_assign_target(*target, ty)?;
-                        folded_targets.push(Located {
-                            location: target_starred.location,
-                            node: ExprKind::Starred {
-                                value: Box::new(folded_target),
-                                ctx: ExprContext::Store,
-                            },
-                            custom: None,
-                        });
+                    // Ensure all elements in the starred target are of the same type. If they're
+                    // not then throw an error. If they are give it a type of list of that type
+                    let ExprKind::Starred { value: target, .. } = target_starred.node else {
+                        unreachable!()
+                    };
+
+                    // Get the element type and ensure that all the elements in the sublist
+                    // corresponding to the starred target are of the same type.
+                    let elem_ty = if rhs_tys_starred.is_empty() {
+                        // REVIEW: Is there a good option for the default value of a list?
+                        // none isn't supported
+                        self.primitives.int64
+                    } else {
+                        // If the starred target is not empty, we need to ensure all elements are of the same type.
+                        let mut iter = rhs_tys_starred.iter();
+                        let first_ty = iter.next().unwrap();
+                        for ty in iter {
+                            self.constrain(*ty, *first_ty, &target_starred.location)?;
+                        }
+                        *first_ty
+                    };
+
+                    // Get the type variable for the list type.
+                    let list_tvars = if let TypeEnum::TObj { obj_id, params, .. } =
+                        &*self.unifier.get_ty_immutable(self.primitives.list)
+                    {
+                        assert_eq!(*obj_id, PrimDef::List.id());
+                        iter_type_vars(params).nth(0).unwrap()
                     } else {
                         unreachable!()
-                    }
+                    };
+
+                    // Create a list type with the element type.
+                    let list_ty = self
+                        .unifier
+                        .subst(
+                            self.primitives.list,
+                            &into_var_map([TypeVar { id: list_tvars.id, ty: elem_ty }]),
+                        )
+                        .unwrap();
+
+                    // Fold the starred target
+                    let folded_target = self.fold_assign_target(*target, list_ty)?;
+                    folded_targets.push(Located {
+                        location: target_starred.location,
+                        node: ExprKind::Starred {
+                            value: Box::new(folded_target),
+                            ctx: ExprContext::Store,
+                        },
+                        custom: None,
+                    });
 
                     // Fold after the starred target
                     for (target, rhs_ty) in izip!(targets_after, rhs_tys_after) {
@@ -2319,8 +2352,8 @@ impl Inferencer<'_> {
             TypeEnum::TObj { obj_id, params, .. } => {
                 // If the RHS is a list, we can fold the targets as well.
                 let obj = &self.top_level.definitions.read()[obj_id.0];
-                if let TopLevelDef::Class { name, .. } = *obj.read() {
-                    if name == "list".into() {
+                if let TopLevelDef::Class { object_id, .. } = *obj.read() {
+                    if object_id == PrimDef::List.id() {
                         let encoutered_starred = false;
                         let mut folded_targets: Vec<ast::Expr<Option<Type>>> = Vec::new();
                         let typ = iter_type_vars(params).nth(0).unwrap().ty; // Lists elements are all the same type

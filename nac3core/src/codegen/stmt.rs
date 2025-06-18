@@ -19,7 +19,7 @@ use super::{
     irrt::{handle_slice_indices, list_slice_assignment},
     llvm_intrinsics::call_memcpy_generic_array,
     macros::codegen_unreachable,
-    types::{ExceptionType, ListType, RangeType, TupleType, ndarray::NDArrayType},
+    types::{ExceptionType, ListType, RangeType, ndarray::NDArrayType},
     values::{
         ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ExceptionValue, ListValue, ProxyValue,
         ndarray::{RustNDIndex, ScalarOrNDArray},
@@ -250,24 +250,42 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 return Ok(());
             };
 
-            // Create a tuple containing the rest of the elements captured by the starred target
-            let tys =
-                &tuple[before_idx..after_idx].iter().map(BasicValueEnum::get_type).collect_vec();
-            let mut starred_tuple =
-                TupleType::new(ctx, tys.as_slice()).construct(Some("starred_target_value"));
+            // nac3 lists can only contain one type, hence starred targets can only contain one type
+            let ty = if after_idx == before_idx {
+                // REVIEW: Is there a better default value for this?
+                BasicTypeEnum::IntType(ctx.ctx.i64_type())
+            } else {
+                tuple[before_idx].get_type()
+            };
 
-            // Insert the elements of the tuple into the new tuple
-            for (i, elem) in tuple[before_idx..after_idx].iter().enumerate() {
-                starred_tuple.insert_element(ctx, i as u32, *elem);
+            // This is previously checked by the typechecker
+            debug_assert!(
+                tuple_tys[before_idx..after_idx]
+                    .iter()
+                    .all(|t| ctx.unifier.unioned(*t, tuple_tys[before_idx])),
+                "Starred target must have same type for all items"
+            );
+
+            let starred_list = ListType::new(ctx, &ty).construct(
+                generator,
+                ctx,
+                ctx.ctx.i64_type().const_int((after_idx - before_idx) as u64, false),
+                Some("starred_list"),
+            );
+
+            for (i, val) in tuple[before_idx..after_idx].iter().enumerate() {
+                let ptr = starred_list.data().ptr_offset(
+                    ctx,
+                    generator,
+                    &ctx.ctx.i64_type().const_int(i as u64, false),
+                    None,
+                );
+                ctx.builder.build_store(ptr, *val).unwrap();
             }
 
-            // Store the sub-tuple value in the starred target
-            generator.gen_assign(
-                ctx,
-                target,
-                ValueEnum::Dynamic(starred_tuple.as_base_value().as_basic_value_enum()),
-                target.custom.unwrap(),
-            )?;
+            let target_ptr =
+                generator.gen_store_target(ctx, target, Some("starred_target.addr"))?.unwrap();
+            ctx.builder.build_store(target_ptr, starred_list.get_pointer_value(ctx)).unwrap();
 
             // Handle assignment after the starred target
             for (target, val, val_ty) in izip!(
