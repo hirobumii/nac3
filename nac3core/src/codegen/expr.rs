@@ -132,12 +132,14 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             _ => codegen_unreachable!(self),
         };
         let def = &self.top_level.definitions.read()[obj_id.0];
-        let (index, value) = if let TopLevelDef::Class { fields, attributes, .. } = &*def.read() {
+        let (index, value) = if let TopLevelDef::Class { fields, attributes, methods, .. } = &*def.read() {
             if let Some(field_index) = fields.iter().find_position(|x| x.0 == attr) {
                 (field_index.0, None)
-            } else {
-                let attribute_index = attributes.iter().find_position(|x| x.0 == attr).unwrap();
+            } else if let Some(attribute_index) = attributes.iter().find_position(|x| x.0 == attr) {
                 (attribute_index.0, Some(attribute_index.1.2.clone()))
+            } else {
+                let method_index = methods.iter().find_position(|x| x.0 == attr).unwrap();
+                (method_index.0, None)
             }
         } else {
             codegen_unreachable!(self)
