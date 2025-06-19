@@ -50,8 +50,8 @@ def many_type_tuple():
     output_int32(len(xs))
     output_int32_list(xs)
 
-def zero_length_starred_tuple():
-    *xs, y, z = (4, 5)
+def zero_length_starred_list():
+    *xs, y, z = [4, 5] # Zero length starred targets are allowed for lists on the right-hand side.
     output_int32(len(xs))
     output_int32(y)
     output_int32(z)
@@ -120,8 +120,8 @@ def run() -> int32:
     rhs_tuple_3()
     output_str("\nMany Type Tuple Test\n")
     many_type_tuple()
-    output_str("\nZero Length Starred Tuple Test\n")
-    zero_length_starred_tuple()
+    output_str("\nZero Length Starred Target List Test\n")
+    zero_length_starred_list()
     output_str("\nAssignment Order Test\n")
     assignment_order()
     output_str("\nClass Field Assignment Test\n")

@@ -2333,22 +2333,6 @@ impl Inferencer<'_> {
                         unreachable!()
                     };
 
-                    // Get the element type and ensure that all the elements in the sublist
-                    // corresponding to the starred target are of the same type.
-                    let elem_ty = if rhs_tys_starred.is_empty() {
-                        // REVIEW: Is there a good option for the default value of a list?
-                        // none isn't supported
-                        self.primitives.int64
-                    } else {
-                        // If the starred target is not empty, we need to ensure all elements are of the same type.
-                        let mut iter = rhs_tys_starred.iter();
-                        let first_ty = iter.next().unwrap();
-                        for ty in iter {
-                            self.constrain(*ty, *first_ty, &target_starred.location)?;
-                        }
-                        *first_ty
-                    };
-
                     // Get the type variable for the list type.
                     let list_tvars = if let TypeEnum::TObj { obj_id, params, .. } =
                         &*self.unifier.get_ty_immutable(self.primitives.list)
@@ -2359,14 +2343,28 @@ impl Inferencer<'_> {
                         unreachable!()
                     };
 
+                    // Get the element type and ensure that all the elements in the sublist
+                    // corresponding to the starred target are of the same type.
+                    let elem_ty = match rhs_tys_starred.first() {
+                        Some(ty) if rhs_tys_starred.iter().all(|&t| t == *ty) => {
+                            TypeVar { id: list_tvars.id, ty: *ty }
+                        }
+                        Some(_) => {
+                            return report_error(
+                                "All elements in the starred target must be of the same type",
+                                target_starred.location,
+                            );
+                        }
+                        // If there are no elements in the starred target, we can create a fresh type variable.
+                        None => TypeVar { id: list_tvars.id, ty: self.primitives.int64 },
+                        // self.unifier.get_fresh_var(None, Some(target_starred.location)),
+                    };
+
                     // Create a list type with the element type.
                     let list_ty = self
                         .unifier
-                        .subst(
-                            self.primitives.list,
-                            &into_var_map([TypeVar { id: list_tvars.id, ty: elem_ty }]),
-                        )
-                        .unwrap();
+                        .subst(self.primitives.list, &into_var_map([elem_ty]))
+                        .unwrap_or(self.primitives.list);
 
                     // Fold the starred target
                     let folded_target = self.fold_assign_target(*target, list_ty)?;
