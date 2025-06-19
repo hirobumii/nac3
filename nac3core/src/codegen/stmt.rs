@@ -226,8 +226,15 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 }
             }
 
-            // The starred target can consume 0 values, so if present we ignore it in this assertion
-            assert!(tuple_tys.len() >= targets.len() - usize::from(starred_target_index.is_some()));
+            // Unlike in python we require the starred target to consume one or more items when the
+            // RHS is a tuple. Otherwise, it would be impossible type the starred target.
+            if tuple_tys.len() < targets.len() {
+                return Err(format!(
+                    "Tuple unpacking requires at least as many values as targets including the starred target, but got {} values and {} targets",
+                    tuple_tys.len(),
+                    targets.len()
+                ));
+            }
 
             // tuple[before_idx..after_idx] is assigned to the starred target
             let starred_target_index = starred_target_index.unwrap_or(tuple_tys.len());
@@ -250,14 +257,9 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 return Ok(());
             };
 
-            // nac3 lists can only contain one type, hence starred targets can only contain one type
-            let ty = if after_idx == before_idx {
-                // REVIEW: Is there a better default value for this?
-                BasicTypeEnum::IntType(ctx.ctx.i64_type())
-            } else {
-                tuple[before_idx].get_type()
-            };
+            let ty = tuple[before_idx].get_type();
 
+            // nac3 lists can only contain one type, hence starred targets can only contain one type
             // This is previously checked by the typechecker
             debug_assert!(
                 tuple_tys[before_idx..after_idx]
