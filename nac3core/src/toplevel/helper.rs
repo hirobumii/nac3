@@ -12,7 +12,7 @@ use strum_macros::EnumIter;
 use nac3parser::ast::{self, Constant, ExprKind, Located, Location, Stmt, StrRef};
 
 use super::{
-    DefinitionId, TopLevelDef, check_overload_type_annotation_compatible,
+    DefinitionId, FunAttribute, TopLevelDef, check_overload_type_annotation_compatible,
     composer::{DefAst, TopLevelComposer},
     make_self_type_annotation,
     numpy::unpack_ndarray_var_tys,
@@ -627,7 +627,6 @@ impl TopLevelComposer<'_> {
             type_vars: Vec::default(),
             fields: Vec::default(),
             attributes: Vec::default(),
-            static_methods: Vec::default(),
             methods: Vec::default(),
             ancestors: Vec::default(),
             constructor,
@@ -642,6 +641,7 @@ impl TopLevelComposer<'_> {
         name: String,
         simple_name: StrRef,
         ty: Type,
+        attributes: Vec<FunAttribute>,
         resolver: Option<Arc<dyn SymbolResolver + Send + Sync>>,
         loc: Option<Location>,
     ) -> TopLevelDef {
@@ -650,6 +650,7 @@ impl TopLevelComposer<'_> {
             simple_name,
             signature: ty,
             var_id: Vec::default(),
+            attributes,
             instance_to_symbol: HashMap::default(),
             instance_to_stmt: HashMap::default(),
             resolver,

@@ -83,6 +83,11 @@ pub struct FunInstance {
     pub unifier_id: usize,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunAttribute {
+    StaticMethod,
+}
+
 #[derive(Debug, Clone)]
 pub enum TopLevelDef {
     Module {
@@ -118,9 +123,6 @@ pub enum TopLevelDef {
         ///
         /// Name, type, value.
         attributes: Vec<(StrRef, Type, ast::Constant)>,
-        /// Static class methods, pointing to the corresponding function definition. Do not take in
-        /// `self` as the first argument.   
-        static_methods: Vec<(StrRef, Type, DefinitionId)>,
         /// Class methods, pointing to the corresponding function definition.
         methods: Vec<(StrRef, Type, DefinitionId)>,
         /// Ancestor classes, including itself.
@@ -141,6 +143,8 @@ pub enum TopLevelDef {
         signature: Type,
         /// Instantiated type variable IDs.
         var_id: Vec<TypeVarId>,
+        /// Attributes of the function, e.g. `@staticmethod`
+        attributes: Vec<FunAttribute>,
         /// Function instance to symbol mapping
         ///
         /// * Key: String representation of type variable values, sorted by variable ID in ascending

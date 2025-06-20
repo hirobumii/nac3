@@ -265,6 +265,7 @@ impl<'a> TopLevelComposer<'a> {
                     instance_to_stmt: HashMap::default(),
                     instance_to_symbol: HashMap::default(),
                     var_id: Vec::default(),
+                    attributes: Vec::default(),
                     resolver: None,
                     codegen_callback: Some(codegen_callback),
                     loc: None,
@@ -419,7 +420,6 @@ impl<'a> TopLevelComposer<'a> {
                 // module's symbol resolver would not know the name of the class methods,
                 // thus cannot return their definition_id
                 let mut class_method_name_def_ids: Vec<MethodInfo> = Vec::new();
-                let mut static_method_name_def_ids: Vec<MethodInfo> = Vec::new();
                 // we do not push anything to the def list, so we keep track of the index
                 // and then push in the correct order after the for loop
                 let mut class_method_index_offset = 0;
@@ -462,20 +462,20 @@ impl<'a> TopLevelComposer<'a> {
 
                         // dummy method define here
                         let dummy_method_type = self.unifier.get_dummy_var().ty;
+                        let mut attributes = vec![];
                         if decorator_list.iter().any(|d| {
                             self.core_config.is_static_method_decorator(d).unwrap_or(false)
                         }) {
-                            &mut static_method_name_def_ids
-                        } else {
-                            &mut class_method_name_def_ids
+                            attributes.push(super::FunAttribute::StaticMethod);
                         }
-                        .push((
+                        class_method_name_def_ids.push((
                             *method_name,
                             RwLock::new(Self::make_top_level_function_def(
                                 global_class_method_name,
                                 *method_name,
                                 // later unify with parsed type
                                 dummy_method_type,
+                                attributes,
                                 resolver.clone(),
                                 Some(b.location),
                             ))
@@ -499,20 +499,9 @@ impl<'a> TopLevelComposer<'a> {
                     methods.push((*name, *ty, *id));
                     self.method_class.insert(*id, DefinitionId(class_def_id));
                 }
-                for (name, _, id, ty, ..) in &static_method_name_def_ids {
-                    let mut class_def = class_def_ast.0.write();
-                    let TopLevelDef::Class { static_methods, .. } = &mut *class_def else {
-                        unreachable!()
-                    };
-
-                    static_methods.push((*name, *ty, *id));
-                    self.method_class.insert(*id, DefinitionId(class_def_id));
-                }
                 // now class_def_ast and class_method_def_ast_ids are ok, put them into actual def list in correct order
                 self.definition_ast_list.push(class_def_ast);
-                for (_, def, _, _, ast) in
-                    class_method_name_def_ids.into_iter().chain(static_method_name_def_ids)
-                {
+                for (_, def, _, _, ast) in class_method_name_def_ids {
                     self.definition_ast_list.push((def, Some(ast)));
                 }
 
@@ -546,6 +535,7 @@ impl<'a> TopLevelComposer<'a> {
                         *name,
                         // dummy here, unify with correct type later
                         ty_to_be_unified,
+                        vec![],
                         resolver,
                         Some(ast.location),
                     ))
@@ -1086,7 +1076,6 @@ impl<'a> TopLevelComposer<'a> {
             ancestors,
             fields,
             attributes,
-            static_methods,
             methods,
             resolver,
             type_vars,
@@ -1107,21 +1096,11 @@ impl<'a> TopLevelComposer<'a> {
             _class_ancestor_def,
             class_fields_def,
             class_attributes_def,
-            class_static_methods_def,
             class_methods_def,
             class_type_vars_def,
             class_resolver,
         ) = (
-            *object_id,
-            *name,
-            bases,
-            body,
-            ancestors,
-            fields,
-            attributes,
-            static_methods,
-            methods,
-            type_vars,
+            *object_id, *name, bases, body, ancestors, fields, attributes, methods, type_vars,
             resolver,
         );
 
@@ -1132,13 +1111,7 @@ impl<'a> TopLevelComposer<'a> {
         for b in class_body_ast {
             match &b.node {
                 ast::StmtKind::FunctionDef { args, returns, name, decorator_list, .. } => {
-                    let (method_dummy_ty, method_id) =
-                        Self::get_class_method_def_info(class_methods_def, *name).or(
-                            Self::get_class_method_def_info(
-                                class_static_methods_def,
-                                *name,
-                            )
-                        )?;
+                    let (method_dummy_ty, method_id) = Self::get_class_method_def_info(class_methods_def, *name)?;
 
                     let mut method_var_map = VarMap::new();
 
@@ -1645,6 +1618,7 @@ impl<'a> TopLevelComposer<'a> {
                         simple_name: init_str_id,
                         signature,
                         var_id: Vec::default(),
+                        attributes: Vec::default(),
                         instance_to_symbol: HashMap::default(),
                         instance_to_stmt: HashMap::default(),
                         resolver: None,

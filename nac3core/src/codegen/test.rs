@@ -244,6 +244,7 @@ fn test_simple_call() {
         simple_name: "foo".into(),
         signature: fun_ty,
         var_id: vec![],
+        attributes: Vec::default(),
         instance_to_stmt: HashMap::new(),
         instance_to_symbol: HashMap::new(),
         resolver: None,

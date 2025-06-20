@@ -2489,9 +2489,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     } else {
                         let defs = ctx.top_level.definitions.read();
                         let obj_def = defs.get(id.0).unwrap().read();
-                        if let TopLevelDef::Class { simple_name, methods, static_methods, .. } =
-                            &*obj_def
-                        {
+                        if let TopLevelDef::Class { simple_name, methods, .. } = &*obj_def {
                             // Check that we're calling the static method on the class and not a
                             // function with the signature fn[[], <class>]
                             if matches!(value.node,
@@ -2500,11 +2498,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                 return Err("Function cannot have static methods".into());
                             }
 
-                            if is_static { static_methods } else { methods }
-                                .iter()
-                                .find(|method| method.0 == *attr)
-                                .unwrap()
-                                .2
+                            methods.iter().find(|method| method.0 == *attr).unwrap().2
                         } else if let TopLevelDef::Module { functions, .. } = &*obj_def {
                             functions.iter().find(|method| method.0 == *attr).unwrap().1
                         } else {
