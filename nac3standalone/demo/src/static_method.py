@@ -32,6 +32,7 @@ def run() -> int32:
     output_int32(a.add(2))
     output_int32(A.a)
     output_int32(A.static_add(1, 2))
+    output_int32(a.static_add(2, 1)) # static methods can be called on instances
     output_int32(A.with_attr())
 
     output_int32(non_member_static_method(2))

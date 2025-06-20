@@ -48,7 +48,7 @@ use crate::{
     codegen::llvm_fns::FunctionDecl,
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
-        DefinitionId, TopLevelDef,
+        DefinitionId, FunAttribute, TopLevelDef,
         helper::{PrimDef, arraylike_flatten_element_type, extract_ndims},
         numpy::unpack_ndarray_var_tys,
     },
@@ -2469,13 +2469,15 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     // The attribute will be `DefinitionId` of the method if the call is to one of the parent methods
                     let func_id = attr.to_string().parse::<usize>();
 
-                    // For a static method the constructor hasn't been called, so we get the class
-                    // UnificationKey from the return type of the constructor signature
-                    let (key, is_static) = if let TypeEnum::TFunc(sign) =
+                    // For a static method the constructor hasn't always been called, so we get the
+                    // class UnificationKey from the return type of the constructor signature.
+                    let (key, mut is_static) = if let TypeEnum::TFunc(sign) =
                         &*ctx.unifier.get_ty(value.custom.unwrap())
                     {
+                        // The class is not instantiated yet, so we can assume the method is static
                         (sign.ret, true)
                     } else {
+                        // The class is instantiated meaning the method may or may not be static
                         (value.custom.unwrap(), false)
                     };
 
@@ -2498,7 +2500,20 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                 return Err("Function cannot have static methods".into());
                             }
 
-                            methods.iter().find(|method| method.0 == *attr).unwrap().2
+                            let fun_id = methods.iter().find(|method| method.0 == *attr).unwrap().2;
+
+                            // For a method called on a class instance it could still be static
+                            is_static = is_static || {
+                                if let TopLevelDef::Function { attributes, .. } =
+                                    &*defs[fun_id.0].read()
+                                {
+                                    attributes.contains(&FunAttribute::StaticMethod)
+                                } else {
+                                    false
+                                }
+                            };
+
+                            fun_id
                         } else if let TopLevelDef::Module { functions, .. } = &*obj_def {
                             functions.iter().find(|method| method.0 == *attr).unwrap().1
                         } else {

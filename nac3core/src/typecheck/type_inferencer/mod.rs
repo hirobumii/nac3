@@ -28,7 +28,7 @@ use super::{
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
-        TopLevelContext, TopLevelDef,
+        FunAttribute, TopLevelContext, TopLevelDef,
         helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
@@ -2050,7 +2050,7 @@ impl Inferencer<'_> {
                             else {
                                 unreachable!()
                             };
-                            attributes.contains(&crate::toplevel::FunAttribute::StaticMethod)
+                            attributes.contains(&FunAttribute::StaticMethod)
                         });
                         attributes
                             .iter()
