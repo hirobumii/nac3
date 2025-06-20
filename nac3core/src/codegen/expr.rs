@@ -2477,7 +2477,8 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         // The class is not instantiated yet, so we can assume the method is static
                         (sign.ret, true)
                     } else {
-                        // The class is instantiated meaning the method may or may not be static
+                        // The class is instantiated meaning the method may or may not be static;
+                        // for now assume it is not, but resolve once the method data is available
                         (value.custom.unwrap(), false)
                     };
 
@@ -2495,6 +2496,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             let fun_id = methods.iter().find(|method| method.0 == *attr).unwrap().2;
 
                             // A method call on a class instance could still be to a static method
+                            // so we check if the function has been annotated as static
                             is_static = is_static || {
                                 if let TopLevelDef::Function { attributes, .. } =
                                     &*defs[fun_id.0].read()

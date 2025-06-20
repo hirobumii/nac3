@@ -94,7 +94,7 @@ impl ComposerConfig<'_> {
 
     /// Checks whether the `decorator` indicates that the function is a static method, usually the
     /// default python `@staticmethod` decorator. These are function that do no take `self` as an
-    /// argument, and can be called without instanciating the class.
+    /// argument, and can be called without instantiating the class.
     ///
     /// The decorator is resolved in the decorator's global module context.
     pub fn is_static_method_decorator(
@@ -1128,14 +1128,16 @@ impl<'a> TopLevelComposer<'a> {
                             // `self` must be the first argument XOR the function is static
                             Some(id) if (id.node.arg == "self".into()) ^ is_static => {},
                             None if is_static => {}
-                            _ if !is_static => return Err(HashSet::from([format!(
-                                "{name} method must have a `self` parameter (at {})", b.location
-                            )])),
-                            _ if is_static => return Err(HashSet::from([format!(
-                                "static method {name} cannot have a `self` parameter (at {})",
-                                b.location
-                            )])),
-                            _ => unreachable!("Function must be either static or have `self` as first argument"),
+                            _ => if is_static {
+                                return Err(HashSet::from([format!(
+                                    "static method {name} cannot take `self` as a parameter (at {})",
+                                    b.location
+                                )]));
+                            } else {
+                                return Err(HashSet::from([format!(
+                                    "{name} method must take `self` as a parameter (at {})", b.location
+                                )]));
+                            },
                         }
                         let mut defined_parameter_name: HashSet<_> = HashSet::new();
                         for arg in args.args.iter().skip(1) {
