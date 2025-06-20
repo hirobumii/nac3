@@ -2491,18 +2491,10 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     } else {
                         let defs = ctx.top_level.definitions.read();
                         let obj_def = defs.get(id.0).unwrap().read();
-                        if let TopLevelDef::Class { simple_name, methods, .. } = &*obj_def {
-                            // Check that we're calling the static method on the class and not a
-                            // function with the signature fn[[], <class>]
-                            if matches!(value.node,
-                                ExprKind::Name { id, .. } if is_static && simple_name != &String::from(id)
-                            ) {
-                                return Err("Function cannot have static methods".into());
-                            }
-
+                        if let TopLevelDef::Class { methods, .. } = &*obj_def {
                             let fun_id = methods.iter().find(|method| method.0 == *attr).unwrap().2;
 
-                            // For a method called on a class instance it could still be static
+                            // A method call on a class instance could still be to a static method
                             is_static = is_static || {
                                 if let TopLevelDef::Function { attributes, .. } =
                                     &*defs[fun_id.0].read()
