@@ -1957,7 +1957,6 @@ impl<'a> TopLevelComposer<'a> {
                     if !inferencer.check_return_value_ty(signature.ret)
                         && !inferencer.unifier.unioned(signature.ret, primitives_ty.none)
                     {
-                        println!("{}", inferencer.unifier.stringify(signature.ret));
                         return Err(HashSet::from([format!(
                             "extern function `{}` must have a non-alloca return type (at {})",
                             name,
