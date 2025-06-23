@@ -1142,6 +1142,7 @@ impl Nac3 {
                         generator.gen_expr(ctx, expr)?.map(|value| (expr.custom.unwrap(), value));
                     has_return = return_obj.is_some();
                     registry.wait_tasks_complete(handles);
+                    if current_destination == 0 {
                     attributes_writeback(
                         ctx,
                         generator,
@@ -1149,6 +1150,13 @@ impl Nac3 {
                         &host_attributes,
                         return_obj,
                     )
+                    } else {
+                        subkernel_return(
+                            ctx,
+                            generator,
+                            return_obj,
+                        )
+                    }
                 },
             )
             .unwrap();

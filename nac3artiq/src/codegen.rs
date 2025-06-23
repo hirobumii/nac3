@@ -1334,6 +1334,83 @@ pub fn attributes_writeback<'ctx>(
     Ok(())
 }
 
+pub fn subkernel_return<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    generator: &mut dyn CodeGenerator,
+    return_obj: Option<(Type, ValueEnum<'ctx>)>,
+) -> Result<(), String> {
+
+    if return_obj.is_none() {
+        return Ok(());
+    }
+
+    let (ty, obj) = return_obj.unwrap();
+    let obj = obj.to_basic_value_enum(ctx, generator, ty)?;
+    
+    // Convert the basic value to a pointer
+    let ret_ptr = ctx.builder.build_alloca(obj.get_type(), "subkernel.retval");
+    ctx.builder.build_store(ret_ptr, obj);
+
+    let mut tag = Vec::new();
+    gen_rpc_tag(ctx, &ty, &mut tag)?;
+    tag.push(b':');
+    
+    let tag_ptr = ctx
+        .module
+        .get_global("ret_tag")
+        .unwrap_or_else(|| {
+            let tag_arr_ptr = ctx.module.add_global(
+                int8.array_type(tag.len() as u32),
+                None,
+                "ret_tag",
+            );
+            tag_arr_ptr.set_initializer(&int8.const_array(
+                &tag.iter().map(|v| int8.const_int(u64::from(*v), false)).collect::<Vec<_>>(),
+            ));
+            tag_arr_ptr.set_linkage(Linkage::Private);
+            let tag_ptr = ctx.module.add_global(tag_ptr_type, None, &hash);
+            tag_ptr.set_linkage(Linkage::Private);
+            tag_ptr.set_initializer(&ctx.ctx.const_struct(
+                &[
+                    tag_arr_ptr.as_pointer_value().const_cast(ptr_type).into(),
+                    size_type.const_int(tag.len() as u64, false).into(),
+                ],
+                false,
+            ));
+            tag_ptr
+        })
+        .as_pointer_value();
+
+    let ret_slot = unsafe {
+        ctx.builder.build_gep(
+            ret_array,
+            &[
+                ctx.context.i32_type().const_int(0, false).into(),
+                ctx.context.i32_type().const_int(0, false).into()
+            ],
+            "subkernel.retval"
+        )
+    };
+    ctx.builder.build_store(ret_slot, ret_ptr);
+    
+    infer_and_call_function(
+        ctx,
+        "subkernel_send_message",
+        None,
+        &[
+            ctx.context.i32_type().const_int(0, false).into(),
+            ctx.context.i1_type().const_int(1, false).into(),  // is_return = true
+            ctx.context.i8_type().const_int(0, false).into(),
+            ctx.context.i8_type().const_int(1, false).into(),
+            tag_ptr.into(),
+            ret_ptr.into(),
+        ],
+        Some("subkernel.return"),
+        None,
+    );
+    Ok(())
+}
+
 pub fn rpc_codegen_callback(is_async: bool) -> Arc<GenCall> {
     Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
         rpc_codegen_callback_fn(ctx, obj, fun, args, generator, is_async)
