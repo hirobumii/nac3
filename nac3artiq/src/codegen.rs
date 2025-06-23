@@ -1146,6 +1146,86 @@ fn subkernel_call_codegen_callback_fn<'ctx>(
     Ok(None)
 }
 
+/// Retrieves subkernel args, or returned value
+fn subkernel_retrieve<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    generator: &mut dyn CodeGenerator,
+    arg_types: &[Type],
+    subkernel_id: u32,
+    timeout: u64,
+) -> Result<BasicValueEnum<'ctx>> {
+    let int8 = ctx.ctx.i8_type();
+    let int32 = ctx.ctx.i32_type();
+    let int64 = ctx.ctx.i64_type();
+    let size_type = ctx.get_size_type();
+    let ptr_type = int8.ptr_type(AddressSpace::default());
+    let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
+
+    // -- setup rpc tags
+    let mut tag = Vec::new();
+    for arg_type in arg_types {
+        gen_rpc_tag(ctx, arg_type, &mut tag)?;
+    }
+    tag.push(b':');
+
+    let mut hasher = DefaultHasher::new();
+    tag.hash(&mut hasher);
+    let hash = format!("{}", hasher.finish());
+
+    let tag_ptr = ctx
+        .module
+        .get_global(hash.as_str())
+        .unwrap_or_else(|| {
+            let tag_arr_ptr = ctx.module.add_global(
+                int8.array_type(tag.len() as u32),
+                None,
+                format!("tagptr{}", subkernel_id).as_str(),
+            );
+            tag_arr_ptr.set_initializer(&int8.const_array(
+                &tag.iter().map(|v| int8.const_int(u64::from(*v), false)).collect::<Vec<_>>(),
+            ));
+            tag_arr_ptr.set_linkage(Linkage::Private);
+            let tag_ptr = ctx.module.add_global(tag_ptr_type, None, &hash);
+            tag_ptr.set_linkage(Linkage::Private);
+            tag_ptr.set_initializer(&ctx.ctx.const_struct(
+                &[
+                    tag_arr_ptr.as_pointer_value().const_cast(ptr_type).into(),
+                    size_type.const_int(tag.len() as u64, false).into(),
+                ],
+                false,
+            ));
+            tag_ptr
+        })
+        .as_pointer_value();
+
+    let stackptr = call_stacksave(ctx, Some("subkernel.arg.stack"));
+
+    let min_args = int8.const_int(arg_types.len() as u64, false);
+    let max_args = min_args;  // no support for defaults yet
+    
+    let timeout = int64.const_int(timeout, false);
+    
+    infer_and_call_function(
+        ctx,
+        "subkernel_await_message",
+        None,
+        &[subkernel_id.into(), timeout.into(), tag_ptr.into(), min_args.into(), max_args.into()],
+        Some("subkernel.await"),
+        None,
+    );
+
+    // For each argument type, receive the data using format_rpc_ret
+    let mut results = Vec::with_capacity(arg_types.len());
+    for arg_ty in arg_types {
+        let value = format_rpc_ret(generator, ctx, *arg_ty);
+        results.push(value);
+    }
+
+    call_stackrestore(ctx, stackptr);
+    
+    Ok(results)
+}
+
 pub fn attributes_writeback<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     generator: &mut dyn CodeGenerator,
