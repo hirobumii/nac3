@@ -1937,6 +1937,38 @@ impl<'a> TopLevelComposer<'a> {
                     unreachable!("must be function def ast")
                 };
 
+                // Do not further analyse extern functions as the body may contain non-compilable statements
+                if decorator_list.first().map_or(Ok(false), |decorator| {
+                    self.core_config
+                        .is_extern_decorator(decorator)
+                        .map_err(|err| HashSet::from([err]))
+                })? {
+                    let TopLevelDef::Function { instance_to_symbol, signature, .. } =
+                        &mut *def.write()
+                    else {
+                        unreachable!()
+                    };
+
+                    // Check the function signature to ensure the return type is a non-'alloca'ed
+                    // type. This is to ensure that the value is not freed after the function exits
+                    let TypeEnum::TFunc(signature) = &*inferencer.unifier.get_ty(*signature) else {
+                        unreachable!()
+                    };
+                    if !inferencer.check_return_value_ty(signature.ret)
+                        && !inferencer.unifier.unioned(signature.ret, primitives_ty.none)
+                    {
+                        println!("{}", inferencer.unifier.stringify(signature.ret));
+                        return Err(HashSet::from([format!(
+                            "extern function `{}` must have a non-alloca return type (at {})",
+                            name,
+                            ast.as_ref().unwrap().location
+                        )]));
+                    }
+
+                    instance_to_symbol.insert(String::new(), simple_name.to_string());
+                    continue;
+                }
+
                 let fun_body =
                     body.into_iter()
                         .map(|b| inferencer.fold_stmt(b))
@@ -2006,20 +2038,6 @@ impl<'a> TopLevelComposer<'a> {
                         name,
                         ast.as_ref().unwrap().location
                     )]));
-                }
-
-                // Check for extern decorators after the body is type checked; prevents type errors
-                // in functions marked as extern with bodies, e.g. returning non primitive types.
-                if decorator_list.first().map_or(Ok(false), |decorator| {
-                    self.core_config
-                        .is_extern_decorator(decorator)
-                        .map_err(|err| HashSet::from([err]))
-                })? {
-                    let TopLevelDef::Function { instance_to_symbol, .. } = &mut *def.write() else {
-                        unreachable!()
-                    };
-                    instance_to_symbol.insert(String::new(), simple_name.to_string());
-                    continue;
                 }
 
                 let TopLevelDef::Function { instance_to_stmt, .. } = &mut *def.write() else {

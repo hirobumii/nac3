@@ -244,7 +244,7 @@ impl Inferencer<'_> {
     ///
     /// This is a workaround preventing the caller from using a variable `alloca`-ed in the body, which
     /// is freed when the function returns.
-    fn check_return_value_ty(&mut self, ret_ty: Type) -> bool {
+    pub fn check_return_value_ty(&mut self, ret_ty: Type) -> bool {
         if cfg!(feature = "no-escape-analysis") {
             true
         } else {
