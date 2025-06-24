@@ -1,8 +1,8 @@
 use inkwell::{
     IntPredicate,
-    attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
     builder::Builder,
+    module::Module,
     types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
 };
@@ -27,17 +27,29 @@ use super::{
     },
 };
 use crate::{
+    codegen::llvm_fns::FunctionDecl,
     symbol_resolver::ValueEnum,
-    toplevel::{DefinitionId, TopLevelDef},
+    toplevel::{DefinitionId, TopLevelContext, TopLevelDef},
     typecheck::{
         magic_methods::Binop,
         typedef::{FunSignature, Type, TypeEnum, iter_type_vars},
     },
 };
 
+pub(crate) fn get_personality<'ctx>(
+    top_level: &TopLevelContext,
+    module: &Module<'ctx>,
+) -> Option<FunctionValue<'ctx>> {
+    let sym = top_level.personality_symbol.as_ref()?;
+    // The personality is the only symbol where we do not use our external function ABI handling.
+    Some(module.get_function(sym).unwrap_or_else(|| {
+        module.add_function(sym, module.get_context().i32_type().fn_type(&[], true), None)
+    }))
+}
+
 /// See [`CodeGenerator::gen_var_alloc`].
 pub fn gen_var<'ctx>(
-    ctx: &mut CodeGenContext<'ctx, '_>,
+    ctx: &CodeGenContext<'ctx, '_>,
     ty: BasicTypeEnum<'ctx>,
     name: Option<&str>,
 ) -> Result<PointerValue<'ctx>, String> {
@@ -1415,25 +1427,24 @@ pub fn get_builtins<'ctx, G: CodeGenerator + ?Sized>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     symbol: &str,
-) -> FunctionValue<'ctx> {
-    ctx.module.get_function(symbol).unwrap_or_else(|| {
-        let ty = match symbol {
-            "__nac3_raise" => ctx
-                .ctx
-                .void_type()
-                .fn_type(&[ctx.get_llvm_type(generator, ctx.primitives.exception).into()], false),
-            "__nac3_resume" | "__nac3_end_catch" => ctx.ctx.void_type().fn_type(&[], false),
+) -> FunctionDecl<'ctx> {
+    let raise_arg = [ctx.get_llvm_type(generator, ctx.primitives.exception)];
+    let noreturn = ["noreturn"];
+    ctx.fn_store.declare_external(
+        &ctx.module,
+        symbol,
+        None,
+        match symbol {
+            "__nac3_raise" => &raise_arg,
+            "__nac3_resume" | "__nac3_end_catch" => &[],
             _ => unimplemented!(),
-        };
-        let fun = ctx.module.add_function(symbol, ty, None);
-        if symbol == "__nac3_raise" || symbol == "__nac3_resume" {
-            fun.add_attribute(
-                AttributeLoc::Function,
-                ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id("noreturn"), 0),
-            );
-        }
-        fun
-    })
+        },
+        false,
+        match symbol {
+            "__nac3_raise" | "__nac3_resume" => &noreturn,
+            _ => &[],
+        },
+    )
 }
 
 pub fn exn_constructor<'ctx>(
@@ -1542,11 +1553,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     };
 
     // if we need to generate anything related to exception, we must have personality defined
-    let personality_symbol = ctx.top_level.personality_symbol.as_ref().unwrap();
-    let personality = ctx.module.get_function(personality_symbol).unwrap_or_else(|| {
-        let ty = ctx.ctx.i32_type().fn_type(&[], true);
-        ctx.module.add_function(personality_symbol, ty, None)
-    });
+    let personality = get_personality(ctx.top_level, &ctx.module).unwrap();
     let exception_type = ctx.get_llvm_type(generator, ctx.primitives.exception);
     let ptr_type = ctx.ctx.i8_type().ptr_type(inkwell::AddressSpace::default());
     let current_block = ctx.builder.get_insert_block().unwrap();
@@ -1687,9 +1694,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "try.break");
         let continue_proxy = ctx.ctx.append_basic_block(current_fun, "try.continue");
         ctx.builder.position_at_end(break_proxy);
-        ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
+        ctx.build_call_or_invoke(end_catch, &[], "end_catch");
         ctx.builder.position_at_end(continue_proxy);
-        ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
+        ctx.build_call_or_invoke(end_catch, &[], "end_catch");
         ctx.builder.position_at_end(body);
         redirect(ctx, break_target, break_proxy);
         redirect(ctx, continue_target, continue_proxy);
@@ -1698,7 +1705,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     }
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "try.return");
     ctx.builder.position_at_end(return_proxy);
-    ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
+    ctx.build_call_or_invoke(end_catch, &[], "end_catch");
     let return_target = ctx.return_target.take().unwrap_or_else(|| {
         let doreturn = ctx.ctx.append_basic_block(current_fun, "try.doreturn");
         ctx.builder.position_at_end(doreturn);
@@ -1741,7 +1748,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         // only need to call end catch if not terminated
         // otherwise, we already handled in return/break/continue/raise
         if current.get_terminator().is_none() {
-            ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
+            ctx.build_call_or_invoke(end_catch, &[], "end_catch");
         }
         post_handlers.push(current);
         ctx.builder.position_at_end(dispatcher_end);
@@ -1954,11 +1961,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         };
 
     // copied and trimmed from gen_try, to cover try (setup, enter)..finally (exit)
-    let personality_symbol = ctx.top_level.personality_symbol.as_ref().unwrap();
-    let personality = ctx.module.get_function(personality_symbol).unwrap_or_else(|| {
-        let ty = ctx.ctx.i32_type().fn_type(&[], true);
-        ctx.module.add_function(personality_symbol, ty, None)
-    });
+    let personality = get_personality(ctx.top_level, &ctx.module).unwrap();
     let exception_type = ctx.get_llvm_type(generator, ctx.primitives.exception);
     let ptr_type = ctx.ctx.i8_type().ptr_type(inkwell::AddressSpace::default());
     let current_block = ctx.builder.get_insert_block().unwrap();
@@ -2032,9 +2035,9 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "with.break");
         let continue_proxy = ctx.ctx.append_basic_block(current_fun, "with.continue");
         ctx.builder.position_at_end(break_proxy);
-        ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
+        ctx.build_call_or_invoke(end_catch, &[], "end_catch");
         ctx.builder.position_at_end(continue_proxy);
-        ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
+        ctx.build_call_or_invoke(end_catch, &[], "end_catch");
         ctx.builder.position_at_end(body);
         redirect(ctx, break_target, break_proxy);
         redirect(ctx, continue_target, continue_proxy);
@@ -2043,7 +2046,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     }
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "with.return");
     ctx.builder.position_at_end(return_proxy);
-    ctx.builder.build_call(end_catch, &[], "end_catch").unwrap();
+    ctx.build_call_or_invoke(end_catch, &[], "end_catch");
     let return_target = ctx.return_target.take().unwrap_or_else(|| {
         let doreturn = ctx.ctx.append_basic_block(current_fun, "with.doreturn");
         ctx.builder.position_at_end(doreturn);
@@ -2137,11 +2140,7 @@ pub fn gen_return<G: CodeGenerator>(
     // Remap boolean return type into i1
     let value = value.map(|ret_val| {
         // The "return type" of a sret function is in the first parameter
-        let expected_ty = if ctx.need_sret {
-            func.get_type().get_param_types()[0]
-        } else {
-            func.get_type().get_return_type().unwrap().into()
-        };
+        let expected_ty = func.get_type().get_return_type().unwrap().into();
 
         if matches!(expected_ty, BasicMetadataTypeEnum::IntType(ty) if ty.get_bit_width() == 1) {
             generator.bool_to_i1(ctx, ret_val.into_int_value()).into()
@@ -2155,10 +2154,6 @@ pub fn gen_return<G: CodeGenerator>(
             ctx.builder.build_store(ctx.return_buffer.unwrap(), value).unwrap();
         }
         ctx.builder.build_unconditional_branch(return_target).unwrap();
-    } else if ctx.need_sret {
-        // sret
-        ctx.builder.build_store(ctx.return_buffer.unwrap(), value.unwrap()).unwrap();
-        ctx.builder.build_return(None).unwrap();
     } else {
         let value = value.as_ref().map(|v| v as &dyn BasicValue);
         ctx.builder.build_return(value).unwrap();

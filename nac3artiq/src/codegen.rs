@@ -581,9 +581,14 @@ fn format_rpc_ret<'ctx>(
     let llvm_usize = ctx.get_size_type();
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
-    let rpc_recv = ctx.module.get_function("rpc_recv").unwrap_or_else(|| {
-        ctx.module.add_function("rpc_recv", llvm_i32.fn_type(&[llvm_pi8.into()], false), None)
-    });
+    let rpc_recv = ctx.fn_store.declare_external(
+        &ctx.module,
+        "rpc_recv",
+        Some(llvm_i32.into()),
+        &[llvm_pi8.into()],
+        false,
+        &[],
+    );
 
     if ctx.unifier.unioned(ret_ty, ctx.primitives.none) {
         ctx.build_call_or_invoke(rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv");

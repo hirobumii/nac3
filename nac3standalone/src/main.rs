@@ -408,6 +408,7 @@ fn main() {
     let task = CodeGenTask {
         subst: Vec::default(),
         symbol_name: "run".to_string(),
+        export_symbol: true,
         body: instance.body,
         signature,
         resolver,

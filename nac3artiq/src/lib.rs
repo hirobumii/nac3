@@ -32,8 +32,8 @@ use tempfile::{self, TempDir};
 
 use nac3core::{
     codegen::{
-        CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator, WithCall,
-        WorkerRegistry, concrete_type::ConcreteTypeStore, gen_func_impl, irrt::load_irrt,
+        CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator, FunctionStore,
+        WithCall, WorkerRegistry, concrete_type::ConcreteTypeStore, gen_func_impl, irrt::load_irrt,
     },
     inkwell::{
         OptimizationLevel,
@@ -895,6 +895,7 @@ impl Nac3 {
         let task = CodeGenTask {
             subst: Vec::default(),
             symbol_name: "__modinit__".to_string(),
+            export_symbol: true,
             body: Arc::new(Vec::default()),
             signature,
             resolver,
@@ -943,6 +944,7 @@ impl Nac3 {
                 self.special_ids.clone(),
             );
             let module = context.create_module("main");
+            let fn_store = FunctionStore::default();
             let target_machine = self.llvm_options.create_target_machine().unwrap();
             module.set_data_layout(&target_machine.get_target_data().get_data_layout());
             module.set_triple(&target_machine.get_triple());
@@ -957,12 +959,13 @@ impl Nac3 {
                 context.i32_type().const_int(4, false),
             );
             let builder = context.create_builder();
-            let (_, module, _) = gen_func_impl(
+            let (_, module, _, _) = gen_func_impl(
                 &context,
                 &mut generator,
                 &registry,
                 builder,
                 module,
+                fn_store,
                 task,
                 |generator, ctx| {
                     assert_eq!(instance.body.len(), 1, "toplevel module should have 1 statement");
