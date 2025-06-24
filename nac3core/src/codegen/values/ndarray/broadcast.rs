@@ -63,7 +63,7 @@ impl<'ctx> ShapeEntryValue<'ctx> {
     }
 
     /// Stores the number of dimensions into this value.
-    pub fn store_ndims(&self, ctx: &CodeGenContext<'ctx, '_>, value: IntValue<'ctx>) {
+    pub fn store_ndims(&self, ctx: &mut CodeGenContext<'ctx, '_>, value: IntValue<'ctx>) {
         self.ndims_field().store(ctx, self.value, value, self.name);
     }
 
@@ -72,7 +72,7 @@ impl<'ctx> ShapeEntryValue<'ctx> {
     }
 
     /// Stores the shape into this value.
-    pub fn store_shape(&self, ctx: &CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
+    pub fn store_shape(&self, ctx: &mut CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
         self.shape_field().store(ctx, self.value, value, self.name);
     }
 }

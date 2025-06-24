@@ -62,7 +62,7 @@ impl<'ctx> ContiguousNDArrayValue<'ctx> {
         self.get_type().get_fields().ndims
     }
 
-    pub fn store_ndims(&self, ctx: &CodeGenContext<'ctx, '_>, value: IntValue<'ctx>) {
+    pub fn store_ndims(&self, ctx: &mut CodeGenContext<'ctx, '_>, value: IntValue<'ctx>) {
         self.ndims_field().store(ctx, self.as_abi_value(ctx), value, self.name);
     }
 
@@ -70,11 +70,11 @@ impl<'ctx> ContiguousNDArrayValue<'ctx> {
         self.get_type().get_fields().shape
     }
 
-    pub fn store_shape(&self, ctx: &CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
+    pub fn store_shape(&self, ctx: &mut CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
         self.shape_field().store(ctx, self.as_abi_value(ctx), value, self.name);
     }
 
-    pub fn load_shape(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    pub fn load_shape(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         self.shape_field().load(ctx, self.value, self.name)
     }
 
@@ -82,11 +82,11 @@ impl<'ctx> ContiguousNDArrayValue<'ctx> {
         self.get_type().get_fields().data
     }
 
-    pub fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
+    pub fn store_data(&self, ctx: &mut CodeGenContext<'ctx, '_>, value: PointerValue<'ctx>) {
         self.data_field().store(ctx, self.as_abi_value(ctx), value, self.name);
     }
 
-    pub fn load_data(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    pub fn load_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         self.data_field().load(ctx, self.value, self.name)
     }
 }

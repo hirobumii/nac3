@@ -70,7 +70,7 @@ pub fn load_irrt<'ctx>(ctx: &'ctx Context, symbol_resolver: &dyn SymbolResolver)
 /// - When [`TypeContext::size_type`] is 32-bits, the function name is `fn_name}`.
 /// - When [`TypeContext::size_type`] is 64-bits, the function name is `{fn_name}64`.
 #[must_use]
-pub fn get_usize_dependent_function_name(ctx: &CodeGenContext<'_, '_>, name: &str) -> String {
+pub fn get_usize_dependent_function_name(ctx: &mut CodeGenContext<'_, '_>, name: &str) -> String {
     let mut name = name.to_owned();
     match ctx.get_size_type().get_bit_width() {
         32 => {}

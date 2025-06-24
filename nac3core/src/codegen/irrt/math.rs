@@ -1,10 +1,10 @@
 use inkwell::{
     IntPredicate,
-    values::{BasicValueEnum, FloatValue, IntValue},
+    values::{FloatValue, IntValue},
 };
 
 use crate::codegen::{
-    expr::infer_and_call_function,
+    expr::call_extern,
     macros::codegen_unreachable,
     {CodeGenContext, CodeGenerator},
 };
@@ -47,43 +47,22 @@ pub fn integer_power<'ctx, G: CodeGenerator + ?Sized>(
         ctx.current_loc,
     );
 
-    infer_and_call_function(
-        ctx,
-        symbol,
-        Some(base_type.into()),
-        &[base.into(), exp.into()],
-        Some("call_int_pow"),
-        None,
-    )
-    .map(BasicValueEnum::into_int_value)
-    .unwrap()
+    call_extern!(ctx: base_type "call_int_pow" = symbol(base, exp))
 }
 
 /// Generates a call to `gammaln` in IR. Returns an `f64` representing the result.
-pub fn call_gammaln<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
+pub fn call_gammaln<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    v: FloatValue<'ctx>,
+) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
-
     assert_eq!(v.get_type(), llvm_f64);
-
-    infer_and_call_function(
-        ctx,
-        "__nac3_gammaln",
-        Some(llvm_f64.into()),
-        &[v.into()],
-        Some("gammaln"),
-        None,
-    )
-    .map(BasicValueEnum::into_float_value)
-    .unwrap()
+    call_extern!(ctx: llvm_f64 "gammaln" = "__nac3_gammaln"(v))
 }
 
 /// Generates a call to `j0` in IR. Returns an `f64` representing the result.
-pub fn call_j0<'ctx>(ctx: &CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
+pub fn call_j0<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
-
     assert_eq!(v.get_type(), llvm_f64);
-
-    infer_and_call_function(ctx, "__nac3_j0", Some(llvm_f64.into()), &[v.into()], Some("j0"), None)
-        .map(BasicValueEnum::into_float_value)
-        .unwrap()
+    call_extern!(ctx: llvm_f64 "j0" = "__nac3_j0"(v))
 }

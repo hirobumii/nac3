@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
-    iter::once,
     mem,
     sync::Arc,
 };
@@ -16,7 +15,7 @@ use pyo3::{
 use nac3core::{
     codegen::{
         CodeGenContext, CodeGenerator,
-        expr::{create_fn_and_call, destructure_range, gen_call, infer_and_call_function},
+        expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_alloca,
@@ -940,15 +939,8 @@ fn rpc_codegen_callback_fn<'ctx>(
         ctx.builder.build_store(arg_ptr, arg_slot).unwrap();
     }
 
-    // call
-    infer_and_call_function(
-        ctx,
-        if is_async { "rpc_send_async" } else { "rpc_send" },
-        None,
-        &[service_id.into(), tag_ptr.into(), args_ptr.into()],
-        Some("rpc.send"),
-        None,
-    );
+    call_extern!(ctx: void "rpc.send" =
+        (if is_async { "rpc_send_async" } else { "rpc_send" })(service_id, tag_ptr, args_ptr));
 
     // reclaim stack space used by arguments
     call_stackrestore(ctx, stackptr);
@@ -1135,21 +1127,15 @@ fn polymorphic_print<'ctx>(
         debug_assert_eq!(fmt.as_bytes().last().unwrap(), &0u8);
 
         let llvm_i32 = ctx.ctx.i32_type();
-        let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
 
         let fmt = ctx.gen_string(generator, fmt);
         let fmt = unsafe { fmt.get_field_at_index_unchecked(0) }.into_pointer_value();
 
-        create_fn_and_call(
-            ctx,
-            if as_rtio { "rtio_log" } else { "core_log" },
-            if as_rtio { None } else { Some(llvm_i32.into()) },
-            &[llvm_pi8.into()],
-            &once(fmt.into()).chain(args).collect_vec(),
-            true,
-            None,
-            None,
-        );
+        if as_rtio {
+            call_extern!(ctx: void _ = "rtio_log"(fmt; ...args));
+        } else {
+            call_extern!(ctx: llvm_i32 _ = "core_log"(fmt; ...args));
+        }
     };
 
     let llvm_i32 = ctx.ctx.i32_type();

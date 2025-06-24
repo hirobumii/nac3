@@ -124,7 +124,7 @@ impl<'ctx> TupleType<'ctx> {
     #[must_use]
     pub fn construct_from_objects<I: IntoIterator<Item = BasicValueEnum<'ctx>>>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         objects: I,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
@@ -159,7 +159,7 @@ impl<'ctx> TupleType<'ctx> {
     #[must_use]
     pub fn map_pointer_value(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         value: PointerValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {

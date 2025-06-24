@@ -1,72 +1,18 @@
-use inkwell::{
-    attributes::{Attribute, AttributeLoc},
-    values::{BasicValueEnum, FloatValue},
-};
+use inkwell::values::{BasicValueEnum, FloatValue};
 
-use super::{CodeGenContext, expr::infer_and_call_function};
+use super::CodeGenContext;
+use crate::codegen::expr::call_extern;
 
-/// Macro to generate extern function
-/// Both function return type and function parameter type are `FloatValue`
-///
-/// Arguments:
-/// * `unary/binary`: Whether the extern function requires one (unary) or two (binary) operands
-/// * `$fn_name:ident`: The identifier of the rust function to be generated
-/// * `$extern_fn:literal`: Name of underlying extern function
-///
-/// Optional Arguments:
-/// * `$(,$attributes:literal)*)`: Attributes linked with the extern function.
-///   The default attributes are "mustprogress", "nofree", "nounwind", "willreturn", and "writeonly".
-///   These will be used unless other attributes are specified
-/// * `$(,$args:ident)*`: Operands of the extern function
-///   The data type of these operands will be set to `FloatValue`
-///  
-macro_rules! generate_extern_fn {
-    ("unary", $fn_name:ident, $extern_fn:literal) => {
-        generate_extern_fn!($fn_name, $extern_fn, arg, "mustprogress", "nofree", "nounwind", "willreturn", "writeonly");
-    };
-    ("unary", $fn_name:ident, $extern_fn:literal $(,$attributes:literal)*) => {
-        generate_extern_fn!($fn_name, $extern_fn, arg $(,$attributes)*);
-    };
-    ("binary", $fn_name:ident, $extern_fn:literal) => {
-        generate_extern_fn!($fn_name, $extern_fn, arg1, arg2, "mustprogress", "nofree", "nounwind", "willreturn", "writeonly");
-    };
-    ("binary", $fn_name:ident, $extern_fn:literal $(,$attributes:literal)*) => {
-        generate_extern_fn!($fn_name, $extern_fn, arg1, arg2 $(,$attributes)*);
-    };
-    ($fn_name:ident, $extern_fn:literal $(,$args:ident)* $(,$attributes:literal)*) => {
-        #[doc = concat!("Invokes the [`", stringify!($extern_fn), "`](https://en.cppreference.com/w/c/numeric/math/", stringify!($llvm_name), ") function." )]
-        pub fn $fn_name<'ctx>(
-            ctx: &CodeGenContext<'ctx, '_>,
-            $($args: FloatValue<'ctx>,)*
-            name: Option<&str>,
-        ) -> FloatValue<'ctx> {
-            const FN_NAME: &str = $extern_fn;
-
-            let llvm_f64 = ctx.ctx.f64_type();
-            $(debug_assert_eq!($args.get_type(), llvm_f64);)*
-
-            infer_and_call_function(
-                ctx,
-                FN_NAME,
-                Some(llvm_f64.into()),
-                &[$($args.into()),*],
-                name,
-                Some(&|func| {
-                   for attr in [$($attributes),*] {
-                        func.add_attribute(
-                            AttributeLoc::Function,
-                            ctx.ctx.create_enum_attribute(Attribute::get_named_enum_kind_id(attr), 0),
-                        );
-                    }
-                })
-            )
-            .map(BasicValueEnum::into_float_value)
-            .unwrap()
-        }
-    };
+/// Invokes the [`j1`](https://en.cppreference.com/w/c/numeric/math/j1) function.
+pub fn call_j1<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    arg: FloatValue<'ctx>,
+    name: Option<&str>,
+) -> FloatValue<'ctx> {
+    let llvm_f64 = ctx.ctx.f64_type();
+    debug_assert_eq!(arg.get_type(), llvm_f64);
+    call_extern!(ctx: llvm_f64 name? = ["nounwind"] "j1"(arg))
 }
-
-generate_extern_fn!("unary", call_j1, "j1", "nounwind");
 
 /// Macro to generate `np_linalg` and `sp_linalg` functions
 /// The function takes as input `NDArray` and returns ()
@@ -97,24 +43,7 @@ macro_rules! generate_linalg_extern_fn {
             $($input_matrix: BasicValueEnum<'ctx>,)*
             name: Option<&str>,
         ) {
-            const FN_NAME: &str = stringify!($extern_fn);
-
-            infer_and_call_function(
-                ctx,
-                FN_NAME,
-                None,
-                &[$($input_matrix.into(),)*],
-                name,
-                Some(&|func| {
-                    func.add_attribute(
-                        AttributeLoc::Function,
-                        ctx.ctx.create_enum_attribute(
-                            Attribute::get_named_enum_kind_id("nounwind"),
-                            0,
-                        ),
-                    )
-                }),
-            );
+            call_extern!(ctx: void name? = ["nounwind"] (stringify!($extern_fn))($($input_matrix),*))
         }
     };
 }

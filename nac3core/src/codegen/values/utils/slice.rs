@@ -65,7 +65,7 @@ impl<'ctx> SliceValue<'ctx> {
         self.get_type().get_fields().start_defined
     }
 
-    pub fn load_start_defined(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn load_start_defined(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.start_defined_field().load(ctx, self.value, self.name)
     }
 
@@ -73,11 +73,11 @@ impl<'ctx> SliceValue<'ctx> {
         self.get_type().get_fields().start
     }
 
-    pub fn load_start(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn load_start(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.start_field().load(ctx, self.value, self.name)
     }
 
-    pub fn store_start(&self, ctx: &CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
+    pub fn store_start(&self, ctx: &mut CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
         match value {
             Some(start) => {
                 self.start_defined_field().store(
@@ -102,7 +102,7 @@ impl<'ctx> SliceValue<'ctx> {
         self.get_type().get_fields().stop_defined
     }
 
-    pub fn load_stop_defined(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn load_stop_defined(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.stop_defined_field().load(ctx, self.value, self.name)
     }
 
@@ -110,11 +110,11 @@ impl<'ctx> SliceValue<'ctx> {
         self.get_type().get_fields().stop
     }
 
-    pub fn load_stop(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn load_stop(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.stop_field().load(ctx, self.value, self.name)
     }
 
-    pub fn store_stop(&self, ctx: &CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
+    pub fn store_stop(&self, ctx: &mut CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
         match value {
             Some(stop) => {
                 self.stop_defined_field().store(
@@ -139,7 +139,7 @@ impl<'ctx> SliceValue<'ctx> {
         self.get_type().get_fields().step_defined
     }
 
-    pub fn load_step_defined(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn load_step_defined(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.step_defined_field().load(ctx, self.value, self.name)
     }
 
@@ -147,11 +147,11 @@ impl<'ctx> SliceValue<'ctx> {
         self.get_type().get_fields().step
     }
 
-    pub fn load_step(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn load_step(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.step_field().load(ctx, self.value, self.name)
     }
 
-    pub fn store_step(&self, ctx: &CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
+    pub fn store_step(&self, ctx: &mut CodeGenContext<'ctx, '_>, value: Option<IntValue<'ctx>>) {
         match value {
             Some(step) => {
                 self.step_defined_field().store(
@@ -243,7 +243,11 @@ impl<'ctx> RustSlice<'ctx> {
     }
 
     /// Write the contents to an LLVM [`SliceValue`].
-    pub fn write_to_slice(&self, ctx: &CodeGenContext<'ctx, '_>, dst_slice_ptr: SliceValue<'ctx>) {
+    pub fn write_to_slice(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        dst_slice_ptr: SliceValue<'ctx>,
+    ) {
         assert_eq!(self.int_ty, dst_slice_ptr.int_ty);
 
         dst_slice_ptr.store_start(ctx, self.start);

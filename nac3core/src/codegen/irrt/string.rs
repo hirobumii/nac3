@@ -1,11 +1,11 @@
-use inkwell::values::{BasicValueEnum, IntValue};
+use inkwell::values::IntValue;
 
 use super::get_usize_dependent_function_name;
-use crate::codegen::{CodeGenContext, expr::infer_and_call_function, values::StringValue};
+use crate::codegen::{CodeGenContext, expr::call_extern, values::StringValue};
 
 /// Generates a call to string equality comparison. Returns an `i1` representing whether the strings are equal.
 pub fn call_string_eq<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     str1: StringValue<'ctx>,
     str2: StringValue<'ctx>,
 ) -> IntValue<'ctx> {
@@ -13,19 +13,10 @@ pub fn call_string_eq<'ctx>(
 
     let func_name = get_usize_dependent_function_name(ctx, "nac3_str_eq");
 
-    infer_and_call_function(
-        ctx,
-        &func_name,
-        Some(llvm_i1.into()),
-        &[
-            str1.extract_ptr(ctx).into(),
-            str1.extract_len(ctx).into(),
-            str2.extract_ptr(ctx).into(),
-            str2.extract_len(ctx).into(),
-        ],
-        Some("str_eq_call"),
-        None,
-    )
-    .map(BasicValueEnum::into_int_value)
-    .unwrap()
+    call_extern!(ctx: llvm_i1 "str_eq_call" = func_name(
+        str1.extract_ptr(ctx),
+        str1.extract_len(ctx),
+        str2.extract_ptr(ctx),
+        str2.extract_len(ctx),
+    ))
 }

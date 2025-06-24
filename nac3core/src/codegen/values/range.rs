@@ -47,7 +47,7 @@ impl<'ctx> RangeValue<'ctx> {
         RangeValue { value: ptr, llvm_usize, name }
     }
 
-    fn ptr_to_start(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn ptr_to_start(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.name.map(|v| format!("{v}.start.addr")).unwrap_or_default();
 
@@ -62,7 +62,7 @@ impl<'ctx> RangeValue<'ctx> {
         }
     }
 
-    fn ptr_to_end(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn ptr_to_end(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.name.map(|v| format!("{v}.end.addr")).unwrap_or_default();
 
@@ -77,7 +77,7 @@ impl<'ctx> RangeValue<'ctx> {
         }
     }
 
-    fn ptr_to_step(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    fn ptr_to_step(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let llvm_i32 = ctx.ctx.i32_type();
         let var_name = self.name.map(|v| format!("{v}.step.addr")).unwrap_or_default();
 
@@ -93,7 +93,7 @@ impl<'ctx> RangeValue<'ctx> {
     }
 
     /// Stores the `start` value into this instance.
-    pub fn store_start(&self, ctx: &CodeGenContext<'ctx, '_>, start: IntValue<'ctx>) {
+    pub fn store_start(&self, ctx: &mut CodeGenContext<'ctx, '_>, start: IntValue<'ctx>) {
         debug_assert_eq!(start.get_type().get_bit_width(), 32);
 
         let pstart = self.ptr_to_start(ctx);
@@ -101,7 +101,11 @@ impl<'ctx> RangeValue<'ctx> {
     }
 
     /// Returns the `start` value of this `range`.
-    pub fn load_start(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
+    pub fn load_start(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&str>,
+    ) -> IntValue<'ctx> {
         let pstart = self.ptr_to_start(ctx);
         let var_name = name
             .map(ToString::to_string)
@@ -115,7 +119,7 @@ impl<'ctx> RangeValue<'ctx> {
     }
 
     /// Stores the `end` value into this instance.
-    pub fn store_end(&self, ctx: &CodeGenContext<'ctx, '_>, end: IntValue<'ctx>) {
+    pub fn store_end(&self, ctx: &mut CodeGenContext<'ctx, '_>, end: IntValue<'ctx>) {
         debug_assert_eq!(end.get_type().get_bit_width(), 32);
 
         let pend = self.ptr_to_end(ctx);
@@ -123,7 +127,11 @@ impl<'ctx> RangeValue<'ctx> {
     }
 
     /// Returns the `end` value of this `range`.
-    pub fn load_end(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
+    pub fn load_end(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&str>,
+    ) -> IntValue<'ctx> {
         let pend = self.ptr_to_end(ctx);
         let var_name = name
             .map(ToString::to_string)
@@ -134,7 +142,7 @@ impl<'ctx> RangeValue<'ctx> {
     }
 
     /// Stores the `step` value into this instance.
-    pub fn store_step(&self, ctx: &CodeGenContext<'ctx, '_>, step: IntValue<'ctx>) {
+    pub fn store_step(&self, ctx: &mut CodeGenContext<'ctx, '_>, step: IntValue<'ctx>) {
         debug_assert_eq!(step.get_type().get_bit_width(), 32);
 
         let pstep = self.ptr_to_step(ctx);
@@ -142,7 +150,11 @@ impl<'ctx> RangeValue<'ctx> {
     }
 
     /// Returns the `step` value of this `range`.
-    pub fn load_step(&self, ctx: &CodeGenContext<'ctx, '_>, name: Option<&str>) -> IntValue<'ctx> {
+    pub fn load_step(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&str>,
+    ) -> IntValue<'ctx> {
         let pstep = self.ptr_to_step(ctx);
         let var_name = name
             .map(ToString::to_string)

@@ -1,5 +1,5 @@
 use nac3core::{
-    codegen::{CodeGenContext, expr::infer_and_call_function},
+    codegen::{CodeGenContext, expr::call_extern},
     inkwell::{AddressSpace, AtomicOrdering, values::BasicValueEnum},
 };
 
@@ -283,27 +283,17 @@ pub struct ExternTimeFns {}
 
 impl TimeFns for ExternTimeFns {
     fn emit_now_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
-        infer_and_call_function(
-            ctx,
-            "now_mu",
-            Some(ctx.ctx.i64_type().into()),
-            &[],
-            Some("now_mu"),
-            None,
-        )
-        .unwrap()
+        call_extern!(ctx: (ctx.ctx.i64_type()) "now_mu" = "now_mu"()).into()
     }
 
     fn emit_at_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>, t: BasicValueEnum<'ctx>) {
         assert_eq!(t.get_type(), ctx.ctx.i64_type().into());
-
-        infer_and_call_function(ctx, "at_mu", None, &[t], Some("at_mu"), None);
+        call_extern!(ctx: void "at_mu" = "at_mu"(t));
     }
 
     fn emit_delay_mu<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>, dt: BasicValueEnum<'ctx>) {
         assert_eq!(dt.get_type(), ctx.ctx.i64_type().into());
-
-        infer_and_call_function(ctx, "delay_mu", None, &[dt], Some("delay_mu"), None);
+        call_extern!(ctx: void "delay_mu" = "delay_mu"(dt));
     }
 }
 

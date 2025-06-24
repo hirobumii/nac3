@@ -1,6 +1,6 @@
 use crate::codegen::{
     CodeGenContext, CodeGenerator,
-    expr::infer_and_call_function,
+    expr::call_extern,
     irrt::get_usize_dependent_function_name,
     values::{ArrayLikeValue, ArraySliceValue, ProxyValue, ndarray::NDArrayValue},
 };
@@ -12,23 +12,16 @@ use crate::codegen::{
 /// operation `dst_ndarray = src_ndarray[indices]`.
 pub fn call_nac3_ndarray_index<'ctx, G: CodeGenerator + ?Sized>(
     generator: &G,
-    ctx: &CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     indices: ArraySliceValue<'ctx>,
     src_ndarray: NDArrayValue<'ctx>,
     dst_ndarray: NDArrayValue<'ctx>,
 ) {
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_index");
-    infer_and_call_function(
-        ctx,
-        &name,
-        None,
-        &[
-            indices.size(ctx, generator).into(),
-            indices.base_ptr(ctx, generator).into(),
-            src_ndarray.as_abi_value(ctx).into(),
-            dst_ndarray.as_abi_value(ctx).into(),
-        ],
-        None,
-        None,
-    );
+    call_extern!(ctx: void _ = name(
+        indices.size(ctx, generator),
+        indices.base_ptr(ctx, generator),
+        src_ndarray.as_abi_value(ctx),
+        dst_ndarray.as_abi_value(ctx),
+    ));
 }

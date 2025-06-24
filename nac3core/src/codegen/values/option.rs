@@ -29,13 +29,13 @@ impl<'ctx> OptionValue<'ctx> {
 
     /// Returns an `i1` indicating if this `Option` instance does not hold a value.
     #[must_use]
-    pub fn is_none(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn is_none(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         ctx.builder.build_is_null(self.value, "").unwrap()
     }
 
     /// Returns an `i1` indicating if this `Option` instance contains a value.
     #[must_use]
-    pub fn is_some(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn is_some(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         ctx.builder.build_is_not_null(self.value, "").unwrap()
     }
 
@@ -45,7 +45,7 @@ impl<'ctx> OptionValue<'ctx> {
     ///
     /// The caller must ensure that this `option` value [contains a value][Self::is_some].
     #[must_use]
-    pub unsafe fn load(&self, ctx: &CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
+    pub unsafe fn load(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
         ctx.builder.build_load(self.value, self.name.unwrap_or_default()).unwrap()
     }
 }

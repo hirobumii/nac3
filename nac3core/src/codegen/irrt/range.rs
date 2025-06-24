@@ -1,9 +1,6 @@
-use inkwell::{
-    IntPredicate,
-    values::{BasicValueEnum, IntValue},
-};
+use inkwell::{IntPredicate, values::IntValue};
 
-use crate::codegen::{CodeGenContext, CodeGenerator, expr::infer_and_call_function};
+use crate::codegen::{CodeGenContext, CodeGenerator, expr::call_extern};
 
 /// Invokes the `__nac3_range_slice_len` in IRRT.
 ///
@@ -19,8 +16,6 @@ pub fn calculate_len_for_slice_range<'ctx, G: CodeGenerator + ?Sized>(
     end: IntValue<'ctx>,
     step: IntValue<'ctx>,
 ) -> IntValue<'ctx> {
-    const SYMBOL: &str = "__nac3_range_slice_len";
-
     let llvm_i32 = ctx.ctx.i32_type();
     assert_eq!(start.get_type(), llvm_i32);
     assert_eq!(end.get_type(), llvm_i32);
@@ -40,14 +35,5 @@ pub fn calculate_len_for_slice_range<'ctx, G: CodeGenerator + ?Sized>(
         ctx.current_loc,
     );
 
-    infer_and_call_function(
-        ctx,
-        SYMBOL,
-        Some(llvm_i32.into()),
-        &[start.into(), end.into(), step.into()],
-        Some("calc_len"),
-        None,
-    )
-    .map(BasicValueEnum::into_int_value)
-    .unwrap()
+    call_extern!(ctx: llvm_i32 "calc_len" = "__nac3_range_slice_len"(start, end, step))
 }

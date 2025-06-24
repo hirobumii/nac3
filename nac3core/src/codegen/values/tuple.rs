@@ -29,7 +29,7 @@ impl<'ctx> TupleValue<'ctx> {
     /// Creates an [`TupleValue`] from a [`PointerValue`].
     #[must_use]
     pub fn from_pointer_value(
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         ptr: PointerValue<'ctx>,
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
@@ -47,7 +47,7 @@ impl<'ctx> TupleValue<'ctx> {
     /// Stores a value into the tuple element at the given `index`.
     pub fn insert_element(
         &mut self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         index: u32,
         element: impl BasicValue<'ctx>,
     ) {
@@ -65,7 +65,7 @@ impl<'ctx> TupleValue<'ctx> {
     /// Loads a value from the tuple element at the given `index`.
     pub fn extract_element(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         index: u32,
     ) -> BasicValueEnum<'ctx> {
         ctx.builder
