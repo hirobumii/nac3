@@ -25,22 +25,15 @@ const INTERNAL_CALL_CONV: u32 = inkwell::llvm_sys::LLVMCallConv::LLVMFastCallCon
 ///
 /// Created by [`FunctionStore::declare_extern`] and [`FunctionStore::declare_private`].
 /// See their documentation for more.
-///
-/// # Implementation Notes
-///
-/// This is a lightweight (`Copy`), reusable (does not borrow the [`FunctionStore`])
-/// token that refers to extra function metadata of an LLVM function. It is just
-/// an index into an array of metadata, which has the following benefits:
-///
-/// * The token does not carry the function metadata around, which is expensive.
-/// * The token does not borrow the function metadata or the function name string,
-///   so that it can survive across other declarations and be returned from functions.
-/// * No extra lookups (hash table or LLVM) are needed after the initial function
-///   declaration, such that each function call is fast.
-#[derive(Clone, Copy)]
 pub struct FunctionDecl<'ctx> {
-    id: u32,
+    name: String,
     _phantom: PhantomData<&'ctx ()>,
+}
+
+impl<'ctx> FunctionDecl<'ctx> {
+    fn new(name: String) -> Self {
+        Self { name, _phantom: PhantomData }
+    }
 }
 
 enum FunctionInfo<'ctx> {
@@ -68,12 +61,6 @@ struct TyAndCallConv<'ctx> {
     indirect: bool,
 }
 
-fn push<'ctx, T>(a: &mut Vec<T>, b: T) -> FunctionDecl<'ctx> {
-    let id = a.len() as u32;
-    a.push(b);
-    FunctionDecl { id, _phantom: PhantomData }
-}
-
 /// Functions in an LLVM module, with ABI details encapsulated.
 ///
 /// # Usage
@@ -91,8 +78,7 @@ fn push<'ctx, T>(a: &mut Vec<T>, b: T) -> FunctionDecl<'ctx> {
 /// [`CodeGenContext::build_call_or_invoke`]: crate::codegen::CodeGenContext::build_call_or_invoke
 #[derive(Default)]
 pub struct FunctionStore<'ctx> {
-    names: HashMap<String, FunctionDecl<'ctx>>,
-    functions: Vec<(FunctionValue<'ctx>, FunctionInfo<'ctx>)>,
+    functions: HashMap<String, (FunctionValue<'ctx>, FunctionInfo<'ctx>)>,
 }
 
 impl<'ctx> FunctionStore<'ctx> {
@@ -120,9 +106,9 @@ impl<'ctx> FunctionStore<'ctx> {
         export: bool,
     ) -> (FunctionDecl<'ctx>, FunctionValue<'ctx>) {
         let mut new_fn = None;
-        let info = *self.names.entry(name.into()).or_insert_with(|| {
+        self.functions.entry(name.to_owned()).or_insert_with(|| {
             let f = module.add_function(
-                name,
+                &name,
                 match ret {
                     Some(ret) => ret.fn_type(params, false),
                     None => module.get_context().void_type().fn_type(params, false),
@@ -133,11 +119,11 @@ impl<'ctx> FunctionStore<'ctx> {
                 f.set_call_conventions(INTERNAL_CALL_CONV);
             }
             new_fn = Some(f);
-            push(&mut self.functions, (f, FunctionInfo::Private { ret, params: params.into() }))
+            (f, FunctionInfo::Private { ret, params: params.into() })
         });
 
-        let value = new_fn.unwrap_or_else(|| module.get_function(name).unwrap());
-        (info, value)
+        let value = new_fn.unwrap_or_else(|| module.get_function(&name).unwrap());
+        (FunctionDecl::new(name.into()), value)
     }
 
     /// Declares and registers a function that be defined externally.
@@ -153,10 +139,8 @@ impl<'ctx> FunctionStore<'ctx> {
         is_c_varargs: bool,
         fn_attrs: &[&str],
     ) -> FunctionDecl<'ctx> {
-        let entry = match self.names.entry(name.into()) {
-            Entry::Occupied(o) => {
-                return *o.get();
-            }
+        let entry = match self.functions.entry(name.into()) {
+            Entry::Occupied(_) => return FunctionDecl::new(name.into()),
             Entry::Vacant(v) => v,
         };
 
@@ -209,12 +193,13 @@ impl<'ctx> FunctionStore<'ctx> {
             );
         }
 
-        *entry.insert(push(&mut self.functions, (f, info)))
+        entry.insert((f, info));
+        FunctionDecl::new(name.into())
     }
 
     fn do_call<T>(
         &self,
-        decl: FunctionDecl<'ctx>,
+        decl: &FunctionDecl<'ctx>,
         builder: &Builder<'ctx>,
         args: &[T],
         call: impl FnOnce(FunctionValue<'ctx>, &[T]) -> CallSiteValue<'ctx>,
@@ -226,7 +211,7 @@ impl<'ctx> FunctionStore<'ctx> {
     {
         let ptr_to_t = |p| BasicValueEnum::from(p).into();
 
-        let (value, ref info) = self.functions[decl.id as usize];
+        let (value, ref info) = self.functions[&decl.name];
         match info {
             FunctionInfo::Extern { ret, params, is_c_varargs } => {
                 let mut args = args.iter();
@@ -299,7 +284,7 @@ impl<'ctx> FunctionStore<'ctx> {
     /// Calls a function given its declaration.
     pub(crate) fn call(
         &self,
-        decl: FunctionDecl<'ctx>,
+        decl: &FunctionDecl<'ctx>,
         builder: &Builder<'ctx>,
         args: &[BasicMetadataValueEnum<'ctx>],
         name: &str,
@@ -318,7 +303,7 @@ impl<'ctx> FunctionStore<'ctx> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn invoke(
         &self,
-        decl: FunctionDecl<'ctx>,
+        decl: &FunctionDecl<'ctx>,
         builder: &Builder<'ctx>,
         args: &[BasicValueEnum<'ctx>],
         then_block: BasicBlock<'ctx>,

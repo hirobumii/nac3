@@ -590,7 +590,7 @@ fn format_rpc_ret<'ctx>(
     );
 
     if ctx.unifier.unioned(ret_ty, ctx.primitives.none) {
-        ctx.build_call_or_invoke(rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv");
+        ctx.build_call_or_invoke(&rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv");
         return None;
     }
 
@@ -679,7 +679,7 @@ fn format_rpc_ret<'ctx>(
             // The returned value is the number of bytes for `ndarray.data`.
             let ndarray_nbytes = ctx
                 .build_call_or_invoke(
-                    rpc_recv,
+                    &rpc_recv,
                     &[buffer.base_ptr(ctx, generator).into()], // Reads [usize; ndims]
                     "rpc.size.next",
                 )
@@ -759,7 +759,7 @@ fn format_rpc_ret<'ctx>(
             phi.add_incoming(&[(&ndarray_data, prehead_bb)]);
 
             let alloc_size = ctx
-                .build_call_or_invoke(rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
+                .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
                 .map(BasicValueEnum::into_int_value)
                 .unwrap();
 
@@ -799,7 +799,7 @@ fn format_rpc_ret<'ctx>(
             let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr").unwrap();
             phi.add_incoming(&[(&slotgen, prehead_bb)]);
             let alloc_size = ctx
-                .build_call_or_invoke(rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
+                .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
                 .unwrap()
                 .into_int_value();
             let is_done = ctx

@@ -451,7 +451,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
 
     pub fn build_call_or_invoke(
         &self,
-        fun: FunctionDecl<'ctx>,
+        fun: &FunctionDecl<'ctx>,
         params: &[BasicValueEnum<'ctx>],
         call_name: &str,
     ) -> Option<BasicValueEnum<'ctx>> {
@@ -470,7 +470,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             let current = self.builder.get_insert_block().unwrap().get_parent().unwrap();
             let then_block = self.ctx.append_basic_block(current, &format!("after.{call_name}"));
             let result = self.fn_store.invoke(
-                fun,
+                &fun,
                 &self.builder,
                 params,
                 then_block,
@@ -482,7 +482,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             result
         } else {
             let param: Vec<_> = params.iter().map(|v| (*v).into()).collect();
-            self.fn_store.call(fun, &self.builder, &param, call_name, alloca)
+            self.fn_store.call(&fun, &self.builder, &param, call_name, alloca)
         };
 
         result
@@ -816,7 +816,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
 
     // The function instance should have already been constructed (at least declared) here.
 
-    Ok(ctx.build_call_or_invoke(f, &param_vals, "call"))
+    Ok(ctx.build_call_or_invoke(&f, &param_vals, "call"))
 }
 
 /// Generates three LLVM variables representing the start, stop, and step values of a [range] class
@@ -2933,5 +2933,5 @@ pub fn call_extern_c_fn<'ctx>(
         is_c_varargs,
         fn_attrs,
     );
-    ctx.build_call_or_invoke(f, args, value_name.unwrap_or(""))
+    ctx.build_call_or_invoke(&f, args, value_name.unwrap_or(""))
 }
