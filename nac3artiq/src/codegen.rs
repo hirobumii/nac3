@@ -653,8 +653,8 @@ fn format_rpc_ret<'ctx>(
             let sizeof_ptr =
                 ctx.builder.build_int_z_extend_or_bit_cast(sizeof_ptr, llvm_usize, "").unwrap();
 
-            let sizeof_shape =
-                ctx.builder.build_int_mul(ndarray.load_ndims(ctx), sizeof_usize, "").unwrap();
+            let ndims = ndarray.load_ndims(ctx);
+            let sizeof_shape = ctx.builder.build_int_mul(ndims, sizeof_usize, "").unwrap();
 
             // Size of the buffer for the initial `rpc_recv()`.
             let unaligned_buffer_size =

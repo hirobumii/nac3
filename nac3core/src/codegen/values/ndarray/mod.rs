@@ -534,12 +534,8 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let var_name = name.map(|v| format!("{v}.addr")).unwrap_or_default();
-
-        unsafe {
-            ctx.builder
-                .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], var_name.as_str())
-                .unwrap()
-        }
+        let base_ptr = self.base_ptr(ctx, generator);
+        unsafe { ctx.builder.build_in_bounds_gep(base_ptr, &[*idx], var_name.as_str()).unwrap() }
     }
 
     fn ptr_offset<G: CodeGenerator + ?Sized>(
@@ -551,12 +547,13 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_
     ) -> PointerValue<'ctx> {
         let size = self.size(ctx, generator);
         let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "").unwrap();
+        let ndims = self.0.load_ndims(ctx);
         ctx.make_assert(
             generator,
             in_range,
             "0:IndexError",
             "index {0} is out of bounds for axis 0 with size {1}",
-            [Some(*idx), Some(self.0.load_ndims(ctx)), None],
+            [Some(*idx), Some(ndims), None],
             ctx.current_loc,
         );
 
@@ -649,12 +646,13 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, 
     ) -> PointerValue<'ctx> {
         let size = self.size(ctx, generator);
         let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "").unwrap();
+        let ndims = self.0.load_ndims(ctx);
         ctx.make_assert(
             generator,
             in_range,
             "0:IndexError",
             "index {0} is out of bounds for axis 0 with size {1}",
-            [Some(*idx), Some(self.0.load_ndims(ctx)), None],
+            [Some(*idx), Some(ndims), None],
             ctx.current_loc,
         );
 
@@ -754,12 +752,13 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
     ) -> PointerValue<'ctx> {
         let data_sz = self.size(ctx, generator);
         let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, data_sz, "").unwrap();
+        let ndims = self.0.load_ndims(ctx);
         ctx.make_assert(
             generator,
             in_range,
             "0:IndexError",
             "index {0} is out of bounds with size {1}",
-            [Some(*idx), Some(self.0.load_ndims(ctx)), None],
+            [Some(*idx), Some(ndims), None],
             ctx.current_loc,
         );
 
@@ -829,10 +828,9 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
         let llvm_usize = ctx.get_size_type();
 
         let indices_size = indices.size(ctx, generator);
-        let nidx_leq_ndims = ctx
-            .builder
-            .build_int_compare(IntPredicate::SLE, indices_size, self.0.load_ndims(ctx), "")
-            .unwrap();
+        let ndims = self.0.load_ndims(ctx);
+        let nidx_leq_ndims =
+            ctx.builder.build_int_compare(IntPredicate::SLE, indices_size, ndims, "").unwrap();
         ctx.make_assert(
             generator,
             nidx_leq_ndims,

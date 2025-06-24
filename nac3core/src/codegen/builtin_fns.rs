@@ -63,9 +63,8 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
             {
                 let ndarray = NDArrayType::from_unifier_type(generator, ctx, arg_ty)
                     .map_pointer_value(arg.into_pointer_value(), None);
-                ctx.builder
-                    .build_int_truncate_or_bit_cast(ndarray.len(ctx), llvm_i32, "len")
-                    .unwrap()
+                let len = ndarray.len(ctx);
+                ctx.builder.build_int_truncate_or_bit_cast(len, llvm_i32, "len").unwrap()
             }
 
             TypeEnum::TObj { obj_id, .. }
@@ -73,9 +72,8 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
             {
                 let list = ListType::from_unifier_type(generator, ctx, arg_ty)
                     .map_pointer_value(arg.into_pointer_value(), None);
-                ctx.builder
-                    .build_int_truncate_or_bit_cast(list.load_size(ctx, None), llvm_i32, "len")
-                    .unwrap()
+                let size = list.load_size(ctx, None);
+                ctx.builder.build_int_truncate_or_bit_cast(size, llvm_i32, "len").unwrap()
             }
 
             _ => unsupported_type(ctx, "len", &[arg_ty]),
@@ -901,10 +899,9 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
             let zero = llvm_usize.const_zero();
 
             if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
-                let size_nez = ctx
-                    .builder
-                    .build_int_compare(IntPredicate::NE, ndarray.size(ctx), zero, "")
-                    .unwrap();
+                let size = ndarray.size(ctx);
+                let size_nez =
+                    ctx.builder.build_int_compare(IntPredicate::NE, size, zero, "").unwrap();
 
                 ctx.make_assert(
                     generator,

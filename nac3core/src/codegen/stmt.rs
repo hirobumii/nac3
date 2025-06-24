@@ -506,14 +506,9 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 let ExprKind::Slice { lower, upper, step } = &key.node else {
                     codegen_unreachable!(ctx)
                 };
-                let Some((start, end, step)) = handle_slice_indices(
-                    lower,
-                    upper,
-                    step,
-                    ctx,
-                    generator,
-                    target.load_size(ctx, None),
-                )?
+                let size = target.load_size(ctx, None);
+                let Some((start, end, step)) =
+                    handle_slice_indices(lower, upper, step, ctx, generator, size)?
                 else {
                     return Ok(());
                 };
@@ -523,14 +518,9 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 let value = ListValue::from_pointer_value(value, llvm_usize, None);
 
                 let target_item_ty = ctx.get_llvm_type(generator, target_item_ty);
-                let Some(src_ind) = handle_slice_indices(
-                    &None,
-                    &None,
-                    &None,
-                    ctx,
-                    generator,
-                    value.load_size(ctx, None),
-                )?
+                let size = value.load_size(ctx, None);
+                let Some(src_ind) =
+                    handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                 else {
                     return Ok(());
                 };
