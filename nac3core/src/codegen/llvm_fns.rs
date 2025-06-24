@@ -23,7 +23,7 @@ const INTERNAL_CALL_CONV: u32 = inkwell::llvm_sys::LLVMCallConv::LLVMFastCallCon
 
 /// An LLVM function declaration.
 ///
-/// Created by [`FunctionStore::declare_extern`] and [`FunctionStore::declare_private`].
+/// Created by [`FunctionStore::declare_external`] and [`FunctionStore::declare_internal`].
 /// See their documentation for more.
 pub struct FunctionDecl<'ctx> {
     name: String,
@@ -40,14 +40,15 @@ enum FunctionInfo<'ctx> {
     // These fields are somewhat deducible from the function value, but we try
     // not to do that in case the processing from function info to function type
     // becomes lossy.
-    Extern {
+    External {
         ret: Option<TyAndCallConv<'ctx>>,
         params: Vec<TyAndCallConv<'ctx>>,
         is_c_varargs: bool,
     },
-    Private {
+    Internal {
         ret: Option<BasicTypeEnum<'ctx>>,
         params: Vec<BasicMetadataTypeEnum<'ctx>>,
+        export: bool,
         // do not use native LLVM varargs here; the caller should convert into a
         // Python-compatible list before calling the function
     },
@@ -119,7 +120,7 @@ impl<'ctx> FunctionStore<'ctx> {
                 f.set_call_conventions(INTERNAL_CALL_CONV);
             }
             new_fn = Some(f);
-            (f, FunctionInfo::Private { ret, params: params.into() })
+            (f, FunctionInfo::Internal { ret, params: params.into(), export })
         });
 
         let value = new_fn.unwrap_or_else(|| module.get_function(&name).unwrap());
@@ -172,7 +173,7 @@ impl<'ctx> FunctionStore<'ctx> {
                 }
             }))
             .unzip();
-        let info = FunctionInfo::Extern { ret, params, is_c_varargs };
+        let info = FunctionInfo::External { ret, params, is_c_varargs };
 
         let fn_ty = match llvm_ret {
             None => ctx.void_type().fn_type(&llvm_params, is_c_varargs),
@@ -213,7 +214,7 @@ impl<'ctx> FunctionStore<'ctx> {
 
         let (value, ref info) = self.functions[&decl.name];
         match info {
-            FunctionInfo::Extern { ret, params, is_c_varargs } => {
+            FunctionInfo::External { ret, params, is_c_varargs } => {
                 let mut args = args.iter();
 
                 let slot = match *ret {
@@ -248,7 +249,9 @@ impl<'ctx> FunctionStore<'ctx> {
                 assert_eq!(result.map(|val| val.get_type()), ret.map(|ret_type| ret_type.ty));
                 result
             }
-            FunctionInfo::Private { ret, params } => {
+            FunctionInfo::Internal { ret, params, export } => {
+                assert!(!export, "attempted to call a non-exported function");
+
                 let args = args
                     .iter()
                     .zip(params)

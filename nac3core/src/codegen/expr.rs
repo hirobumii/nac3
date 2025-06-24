@@ -449,6 +449,9 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         }
     }
 
+    /// Calls a declared function. Use [`ctx.fn_store`] to get a function declaration.
+    ///
+    /// [`ctx.fn_store`]: CodeGenContext::fn_store
     pub fn build_call_or_invoke(
         &self,
         fun: &FunctionDecl<'ctx>,
@@ -2840,7 +2843,7 @@ macro_rules! __codegen_call_extern_impl {
 ///
 /// ```llvm
 /// ; types are automatically inferred from the arguments %argX
-/// declare i32 @fn_name(type0, type1) unnamed_addr;
+/// declare i32 @fn_name(type0, type1)
 ///
 /// %var_name = call i32 @fn_name(type0 %arg0, type1 %arg1)
 /// ```
@@ -2914,6 +2917,15 @@ macro_rules! __codegen_call_extern {
 #[doc(inline)]
 pub use __codegen_call_extern as call_extern;
 
+/// Call an external C function, given a function signature and arguments.
+///
+/// You might want to use the [`call_extern`] macro instead, which is easier to use
+/// as it deduces and converts types automatically.
+///
+/// For repeated function calls and dynamically added external bindings, you might want to use
+/// [`FunctionStore::declare_external`] and [`CodeGenContext::build_call_or_invoke`] directly.
+///
+/// [`FunctionStore::declare_external`]: crate::codegen::FunctionStore::declare_external
 #[allow(clippy::too_many_arguments, reason = "most users use the call_extern macro instead")]
 pub fn call_extern_c_fn<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,

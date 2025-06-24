@@ -43,7 +43,7 @@ use crate::{
 };
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
-pub use llvm_fns::FunctionStore;
+pub use llvm_fns::{FunctionDecl, FunctionStore};
 use types::{
     ExceptionType, ListType, OptionType, ProxyType, RangeType, StringType, TupleType,
     ndarray::NDArrayType,
