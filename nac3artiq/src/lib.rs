@@ -176,6 +176,7 @@ pub struct PrimitivePythonId {
     kernel_decorator: u64,
     portable_decorator: u64,
     rpc_decorator: u64,
+    static_method_decorator: u64,
 }
 
 #[derive(Clone, Default)]
@@ -307,6 +308,7 @@ impl Nac3 {
                                             self.primitive_ids.kernel_decorator,
                                             self.primitive_ids.portable_decorator,
                                             self.primitive_ids.rpc_decorator,
+                                            self.primitive_ids.static_method_decorator,
                                         ],
                                     )
                                     .unwrap()
@@ -333,6 +335,7 @@ impl Nac3 {
                                     self.primitive_ids.kernel_decorator,
                                     self.primitive_ids.portable_decorator,
                                     self.primitive_ids.rpc_decorator,
+                                    self.primitive_ids.static_method_decorator,
                                 ],
                             )
                             .unwrap()
@@ -541,7 +544,7 @@ impl Nac3 {
                     })
                     .map_err(|e| e.to_string())
                 }),
-                ..Default::default() // FIXME: just so the compiler doesn't complain for now
+                ..Default::default()
             },
             size_t,
         );
@@ -672,6 +675,7 @@ impl Nac3 {
                             self.primitive_ids.kernel_decorator,
                             self.primitive_ids.portable_decorator,
                             self.primitive_ids.extern_decorator,
+                            self.primitive_ids.static_method_decorator,
                         ]
                         .contains(&decor_fn_id)
                         {
@@ -715,6 +719,7 @@ impl Nac3 {
                                 } else if ![
                                     self.primitive_ids.kernel_decorator,
                                     self.primitive_ids.portable_decorator,
+                                    self.primitive_ids.static_method_decorator,
                                 ]
                                 .contains(&decor_fn_id)
                                 {
@@ -1374,6 +1379,7 @@ impl Nac3 {
             kernel_decorator: get_artiq_builtin_id(Some("artiq"), "kernel")?,
             portable_decorator: get_artiq_builtin_id(Some("artiq"), "portable")?,
             rpc_decorator: get_artiq_builtin_id(Some("artiq"), "rpc")?,
+            static_method_decorator: get_artiq_builtin_id(Some("artiq"), "staticmethod")?,
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();

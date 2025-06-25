@@ -27,6 +27,11 @@ class A:
     def with_attr() -> int32:
         return A.b + 1
 
+class B:
+    @staticmethod
+    def static_add(x: int32, y: int32) -> int32:
+        return A.static_add(x, y)
+
 def run() -> int32:
     a = A(1)
     output_int32(a.add(2))
@@ -36,5 +41,7 @@ def run() -> int32:
     output_int32(A.with_attr())
 
     output_int32(non_member_static_method(2))
+
+    output_int32(B.static_add(0, 3))
 
     return 0
