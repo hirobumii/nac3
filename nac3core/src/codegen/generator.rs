@@ -153,7 +153,7 @@ pub trait CodeGenerator {
     fn gen_assign_target_list<'ctx>(
         &mut self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        targets: &Vec<Expr<Option<Type>>>,
+        targets: &[Expr<Option<Type>>],
         value: ValueEnum<'ctx>,
         value_ty: Type,
     ) -> Result<(), String>

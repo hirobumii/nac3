@@ -201,7 +201,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
 pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
-    targets: &Vec<Expr<Option<Type>>>,
+    targets: &[Expr<Option<Type>>],
     value: ValueEnum<'ctx>,
     value_ty: Type,
 ) -> Result<(), String> {

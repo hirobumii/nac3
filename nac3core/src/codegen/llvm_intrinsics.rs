@@ -7,7 +7,7 @@ use inkwell::{
 
 use super::CodeGenContext;
 
-fn _call_intrinsic<'ctx>(
+fn call_intrinsic_impl<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     intrin: &str,
     // These are *type parameters* for overloaded functions (the ".i8" part of
@@ -25,7 +25,7 @@ fn _call_intrinsic<'ctx>(
 
 macro_rules! call_intrinsic {
     ($ctx: expr, $call_name: expr, $intrin:literal $([$($type_param:expr),*])? ($($arg:expr),*)) => {{
-        _call_intrinsic($ctx, concat!("llvm.", $intrin), &[$($($type_param.into()),*)?], &[$($arg.into()),*], $call_name)
+        call_intrinsic_impl($ctx, concat!("llvm.", $intrin), &[$($($type_param.into()),*)?], &[$($arg.into()),*], $call_name)
     }};
     ($ctx: expr, $call_name: expr, $intrin:literal $([$($type_param:expr),*])? ($($arg:expr),*) -> void) => {{
         assert!(call_intrinsic!($ctx, $call_name, $intrin $([$($type_param),*])? ($($arg),*)).is_none())
@@ -55,12 +55,12 @@ macro_rules! llvm_doc {
 
 #[doc = llvm_doc!("va_start")]
 pub fn call_va_start<'ctx>(ctx: &CodeGenContext<'ctx, '_>, arglist: PointerValue<'ctx>) {
-    call_intrinsic!(ctx, None, "va_start"(arglist) -> void)
+    call_intrinsic!(ctx, None, "va_start"(arglist) -> void);
 }
 
 #[doc = llvm_doc!("va_end")]
 pub fn call_va_end<'ctx>(ctx: &CodeGenContext<'ctx, '_>, arglist: PointerValue<'ctx>) {
-    call_intrinsic!(ctx, None, "va_end"(arglist) -> void)
+    call_intrinsic!(ctx, None, "va_end"(arglist) -> void);
 }
 
 #[doc = llvm_doc!("va_stacksave")]
@@ -75,7 +75,7 @@ pub fn call_stacksave<'ctx>(
 ///
 /// - `ptr`: The pointer storing the address to restore the stack to.
 pub fn call_stackrestore<'ctx>(ctx: &CodeGenContext<'ctx, '_>, ptr: PointerValue<'ctx>) {
-    call_intrinsic!(ctx, None, "stackrestore"(ptr) -> void)
+    call_intrinsic!(ctx, None, "stackrestore"(ptr) -> void);
 }
 
 #[doc = llvm_doc!("memcpy")]
