@@ -2,16 +2,15 @@ use std::{
     cmp::min,
     collections::HashMap,
     convert::TryInto,
-    iter::{once, repeat, repeat_with, zip},
+    iter::{once, zip},
 };
 
 use inkwell::{
-    AddressSpace, IntPredicate, OptimizationLevel,
-    attributes::{Attribute, AttributeLoc},
-    types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum},
-    values::{BasicValueEnum, CallSiteValue, FunctionValue, IntValue, PointerValue, StructValue},
+    IntPredicate, OptimizationLevel,
+    types::{BasicType, BasicTypeEnum},
+    values::{BasicValueEnum, IntValue, PointerValue, StructValue},
 };
-use itertools::{Either, Itertools, izip};
+use itertools::{Itertools, izip};
 
 use nac3parser::ast::{
     self, Boolop, Cmpop, Comprehension, Constant, Expr, ExprKind, Location, Operator, StrRef,
@@ -21,7 +20,7 @@ use nac3parser::ast::{
 use super::{
     CodeGenContext, CodeGenTask, CodeGenerator,
     concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
-    gen_in_range_check, get_llvm_abi_type, get_llvm_type, get_va_count_arg_name,
+    gen_in_range_check, get_llvm_abi_type, get_llvm_type,
     irrt::{
         calculate_len_for_slice_range, call_string_eq, handle_slice_indices, integer_power,
         list_slice_assignment,
@@ -31,7 +30,6 @@ use super::{
         call_memcpy_generic,
     },
     macros::codegen_unreachable,
-    need_sret,
     stmt::{
         gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         gen_var,
@@ -46,6 +44,7 @@ use super::{
     },
 };
 use crate::{
+    codegen::llvm_fns::FunctionDecl,
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
         DefinitionId, TopLevelDef,
@@ -54,7 +53,7 @@ use crate::{
     },
     typecheck::{
         magic_methods::{Binop, BinopVariant, HasOpInfo},
-        typedef::{FunSignature, FuncArg, Type, TypeEnum, TypeVarId, Unifier, VarMap},
+        typedef::{FunSignature, Type, TypeEnum, TypeVarId, Unifier, VarMap},
     },
 };
 
@@ -450,15 +449,15 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         }
     }
 
+    /// Calls a declared function. Use [`ctx.fn_store`] to get a function declaration.
+    ///
+    /// [`ctx.fn_store`]: CodeGenContext::fn_store
     pub fn build_call_or_invoke(
-        &mut self,
-        fun: FunctionValue<'ctx>,
+        &self,
+        fun: &FunctionDecl<'ctx>,
         params: &[BasicValueEnum<'ctx>],
         call_name: &str,
     ) -> Option<BasicValueEnum<'ctx>> {
-        let mut loc_params: Vec<BasicValueEnum<'ctx>> = Vec::new();
-        let mut return_slot = None;
-
         let loc = self.debug_info.0.create_debug_location(
             self.ctx,
             self.current_loc.row as u32,
@@ -468,95 +467,28 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         );
         self.builder.set_current_debug_location(loc);
 
-        if fun.count_params() > 0 {
-            let sret_id = Attribute::get_named_enum_kind_id("sret");
-            let byref_id = Attribute::get_named_enum_kind_id("byref");
-            let byval_id = Attribute::get_named_enum_kind_id("byval");
-
-            let offset = if fun.get_enum_attribute(AttributeLoc::Param(0), sret_id).is_some() {
-                return_slot = Some(
-                    self.builder
-                        .build_alloca(
-                            fun.get_type().get_param_types()[0]
-                                .into_pointer_type()
-                                .get_element_type()
-                                .into_struct_type(),
-                            call_name,
-                        )
-                        .unwrap(),
-                );
-                loc_params.push((*return_slot.as_ref().unwrap()).into());
-                1
-            } else {
-                0
-            };
-            for (i, param) in params.iter().enumerate() {
-                let loc = AttributeLoc::Param((i + offset) as u32);
-                if fun.get_enum_attribute(loc, byref_id).is_some()
-                    || fun.get_enum_attribute(loc, byval_id).is_some()
-                {
-                    // lazy update
-                    if loc_params.is_empty() {
-                        loc_params.extend(params[0..i + offset].iter().copied());
-                    }
-                    let slot = gen_var(self, param.get_type(), Some(call_name)).unwrap();
-                    loc_params.push(slot.into());
-                    self.builder.build_store(slot, *param).unwrap();
-                } else if !loc_params.is_empty() {
-                    loc_params.push(*param);
-                }
-            }
-        }
-
-        let params = if loc_params.is_empty() { params } else { &loc_params };
-        let params = fun
-            .get_type()
-            .get_param_types()
-            .into_iter()
-            .map(Some)
-            .chain(repeat(None))
-            .zip(params.iter())
-            .map(|(ty, val)| match (ty, val.get_type()) {
-                (
-                    Some(BasicMetadataTypeEnum::PointerType(arg_ty)),
-                    BasicTypeEnum::PointerType(val_ty),
-                ) if {
-                    ty.unwrap() != val.get_type().into()
-                        && arg_ty.get_element_type().is_struct_type()
-                        && val_ty.get_element_type().is_struct_type()
-                } =>
-                {
-                    self.builder.build_bit_cast(*val, arg_ty, "call_arg_cast").unwrap()
-                }
-                _ => *val,
-            })
-            .collect_vec();
+        let alloca = |ty| gen_var(self, ty, Some(call_name)).unwrap();
 
         let result = if let Some(target) = self.unwind_target {
             let current = self.builder.get_insert_block().unwrap().get_parent().unwrap();
             let then_block = self.ctx.append_basic_block(current, &format!("after.{call_name}"));
-            let result = self
-                .builder
-                .build_invoke(fun, &params, then_block, target, call_name)
-                .map(CallSiteValue::try_as_basic_value)
-                .map(Either::left)
-                .unwrap();
+            let result = self.fn_store.invoke(
+                &fun,
+                &self.builder,
+                params,
+                then_block,
+                target,
+                call_name,
+                alloca,
+            );
             self.builder.position_at_end(then_block);
             result
         } else {
             let param: Vec<_> = params.iter().map(|v| (*v).into()).collect();
-            self.builder
-                .build_call(fun, &param, call_name)
-                .map(CallSiteValue::try_as_basic_value)
-                .map(Either::left)
-                .unwrap()
+            self.fn_store.call(&fun, &self.builder, &param, call_name, alloca)
         };
 
-        if let Some(slot) = return_slot {
-            Some(self.builder.build_load(slot, call_name).unwrap())
-        } else {
-            result
-        }
+        result
     }
 
     /// Helper function for generating a LLVM variable storing a [String].
@@ -737,30 +669,12 @@ pub fn gen_func_instance<'ctx>(
         );
     }
 
-    if let Some(vararg_arg) = sign.args.iter().find(|arg| arg.is_vararg) {
-        let va_count_arg = get_va_count_arg_name(vararg_arg.name);
-
-        args.insert(
-            args.len() - 1,
-            ConcreteFuncArg {
-                name: va_count_arg,
-                ty: store.from_unifier_type(
-                    &mut ctx.unifier,
-                    &ctx.primitives,
-                    ctx.primitives.usize(),
-                    &mut cache,
-                ),
-                default_value: None,
-                is_vararg: false,
-            },
-        );
-    }
-
     let signature = store.add_cty(signature);
 
     ctx.registry.add_task(CodeGenTask {
         symbol_name: symbol.clone(),
         body: instance.body.clone(),
+        export_symbol: false,
         resolver: resolver.as_ref().unwrap().clone(),
         calls: instance.calls.clone(),
         subst,
@@ -780,16 +694,14 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
     fun: (&FunSignature, DefinitionId),
     params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-    let llvm_usize = ctx.get_size_type();
-
     let definition = ctx.top_level.definitions.read().get(fun.1.0).cloned().unwrap();
     let id;
     let key;
+    let is_extern;
     let param_vals;
-    let vararg_arg;
 
-    // Ensure that the function object only contains up to 1 vararg parameter
-    debug_assert!(fun.0.args.iter().filter(|arg| arg.is_vararg).count() <= 1);
+    let sign = fun.0;
+    let has_varargs = sign.args.iter().any(|arg| arg.is_vararg);
 
     let symbol = {
         // make sure this lock guard is dropped at the end of this scope...
@@ -804,71 +716,19 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                 if let Some(callback) = codegen_callback {
                     return callback.run(ctx, obj, fun, params, generator);
                 }
-                vararg_arg = fun.0.args.iter().find(|arg| arg.is_vararg);
-                let old_key = ctx.get_subst_key(obj.as_ref().map(|a| a.0), fun.0, None);
-                let mut keys = fun.0.args.clone();
-                let mut mapping = HashMap::<_, Vec<ValueEnum>>::new();
+                let old_key = ctx.get_subst_key(obj.as_ref().map(|a| a.0), sign, None);
+                let mut keys = sign.args.clone();
+                let mut mapping = HashMap::<_, ValueEnum>::new();
 
                 for (key, value) in params {
-                    // Find the matching argument
-                    let matching_param = fun
-                        .0
-                        .args
-                        .iter()
-                        .find_or_last(|p| key.is_some_and(|k| k == p.name))
-                        .unwrap();
-                    if matching_param.is_vararg {
-                        if key.is_none() && !keys.is_empty() {
-                            keys.remove(0);
-                        }
-
-                        // vararg is lowered into two arguments - va_count and `...`
-                        // Handle va_count first, for each argument encountered we increment it by 1
-                        let va_count = get_va_count_arg_name(matching_param.name);
-                        if let Some(params) = mapping.get_mut(&va_count) {
-                            debug_assert_eq!(params.len(), 1);
-
-                            let param = params[0]
-                                .clone()
-                                .to_basic_value_enum(ctx, generator, ctx.primitives.usize())?
-                                .into_int_value();
-                            params[0] = param.const_add(llvm_usize.const_int(1, false)).into();
-                        } else {
-                            mapping.insert(va_count, vec![llvm_usize.const_int(1, false).into()]);
-                        }
-
-                        if let Some(param) = mapping.get_mut(&matching_param.name) {
-                            param.push(value);
-                        } else {
-                            mapping.insert(key.unwrap_or(matching_param.name), vec![value]);
-                        }
-                    } else {
-                        mapping.insert(key.unwrap_or_else(|| keys.remove(0).name), vec![value]);
-                    }
+                    mapping.insert(key.unwrap_or_else(|| keys.remove(0).name), value);
                 }
 
                 // default value handling
                 for k in keys {
-                    if mapping.contains_key(&k.name) {
-                        continue;
-                    }
-
-                    if k.is_vararg {
-                        mapping.insert(
-                            get_va_count_arg_name(k.name),
-                            vec![llvm_usize.const_zero().into()],
-                        );
-
-                        mapping.insert(k.name, Vec::default());
-                    } else {
-                        mapping.insert(
-                            k.name,
-                            vec![
-                                ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty)
-                                    .into(),
-                            ],
-                        );
-                    }
+                    mapping.entry(k.name).or_insert_with(|| {
+                        ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty).into()
+                    });
                 }
 
                 // reorder the parameters
@@ -879,28 +739,14 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                     .map(|arg| (mapping.remove(&arg.name).unwrap(), arg.ty))
                     .collect_vec();
                 if let Some(obj) = &obj {
-                    real_params.insert(0, (vec![obj.1.clone()], obj.0));
-                }
-                if let Some(vararg) = vararg_arg {
-                    let vararg_arg_name = get_va_count_arg_name(vararg.name);
-
-                    real_params.insert(
-                        real_params.len() - 1,
-                        (mapping[&vararg_arg_name].clone(), ctx.primitives.usize()),
-                    );
+                    real_params.insert(0, (obj.1.clone(), obj.0));
                 }
 
                 let static_params = real_params
                     .iter()
                     .enumerate()
                     .filter_map(|(i, (v, _))| {
-                        if v.len() != 1 {
-                            None
-                        } else if let ValueEnum::Static(s) = &v[0] {
-                            Some((i, s.clone()))
-                        } else {
-                            None
-                        }
+                        if let ValueEnum::Static(s) = v { Some((i, s.clone())) } else { None }
                     })
                     .collect_vec();
                 id = {
@@ -918,102 +764,62 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                         length
                     }
                 };
+                is_extern = instance_to_stmt.is_empty();
                 // special case: extern functions
-                key = if instance_to_stmt.is_empty() {
-                    String::new()
-                } else {
-                    format!("{id}:{old_key}")
-                };
+                key = if is_extern { String::new() } else { format!("{id}:{old_key}") };
                 param_vals = real_params
                     .into_iter()
-                    .map(|(ps, t)| {
-                        ps.into_iter().map(|p| p.to_basic_value_enum(ctx, generator, t)).collect()
-                    })
-                    .collect::<Result<Vec<Vec<_>>, _>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>();
+                    .map(|(p, t)| Ok::<_, String>((p.to_basic_value_enum(ctx, generator, t)?, t)))
+                    .collect::<Result<Vec<_>, _>>()?;
                 instance_to_symbol.get(&key).cloned().ok_or_else(String::new)
             }
             TopLevelDef::Class { .. } => {
-                return Ok(Some(generator.gen_constructor(ctx, fun.0, &def, params)?));
+                return Ok(Some(generator.gen_constructor(ctx, sign, &def, params)?));
             }
             TopLevelDef::Module { .. } => unreachable!(),
         }
     }
     .or_else(|_: String| {
-        generator.gen_func_instance(ctx, obj.clone(), (fun.0, &mut *definition.write(), key), id)
+        generator.gen_func_instance(ctx, obj.clone(), (sign, &mut *definition.write(), key), id)
     })?;
-    let fun_val = ctx.module.get_function(&symbol).unwrap_or_else(|| {
-        let mut args = fun.0.args.clone();
-        if let Some(obj) = &obj {
-            args.insert(
-                0,
-                FuncArg { name: "self".into(), ty: obj.0, default_value: None, is_vararg: false },
-            );
-        }
-        let ret_type = if ctx.unifier.unioned(fun.0.ret, ctx.primitives.none) {
-            None
-        } else {
-            Some(ctx.get_llvm_abi_type(generator, fun.0.ret))
-        };
-        let has_sret = ret_type.is_some_and(|ret_type| need_sret(ret_type));
-        let mut params = args
-            .iter()
-            .filter(|arg| !arg.is_vararg)
-            .map(|arg| ctx.get_llvm_abi_type(generator, arg.ty).into())
-            .collect_vec();
-        if has_sret {
-            params.insert(0, ret_type.unwrap().ptr_type(AddressSpace::default()).into());
-        }
-        let is_vararg = args.iter().any(|arg| arg.is_vararg);
-        if is_vararg {
-            params.push(ctx.get_size_type().into());
-        }
-        let fun_ty = match ret_type {
-            Some(ret_type) if !has_sret => ret_type.fn_type(&params, is_vararg),
-            _ => ctx.ctx.void_type().fn_type(&params, is_vararg),
-        };
-        let fun_val = ctx.module.add_function(&symbol, fun_ty, None);
-        if has_sret {
-            fun_val.add_attribute(
-                AttributeLoc::Param(0),
-                ctx.ctx.create_type_attribute(
-                    Attribute::get_named_enum_kind_id("sret"),
-                    ret_type.unwrap().as_any_type_enum(),
-                ),
-            );
-        }
 
-        fun_val
-    });
+    let ret_type = if ctx.unifier.unioned(sign.ret, ctx.primitives.none) {
+        None
+    } else {
+        Some(ctx.get_llvm_abi_type(generator, sign.ret))
+    };
+    let args_type = obj
+        .iter()
+        .map(|a| a.0)
+        .chain(sign.args.iter().map(|a| a.ty))
+        .map(|ty| ctx.get_llvm_abi_type(generator, ty));
+
+    // We must declare the function before codegen.
+    let f = if is_extern {
+        let args_type = &args_type.collect_vec();
+        ctx.fn_store.declare_external(&ctx.module, &symbol, ret_type, args_type, has_varargs, &[])
+    } else {
+        // TODO(ivan): reimplement support for variadic arguments as passing lists/tuples
+        assert!(!has_varargs, "not yet implemented: varargs");
+        let args_type = &args_type.map(Into::into).collect_vec();
+        ctx.fn_store.declare_internal(&ctx.module, &symbol, ret_type, args_type, false).0
+    };
 
     // Convert boolean parameter values into i1
-    let vararg_ty = vararg_arg.map(|vararg| ctx.get_llvm_abi_type(generator, vararg.ty));
-    let param_vals = fun_val
-        .get_params()
-        .iter()
-        .map(BasicValueEnum::get_type)
-        .chain(repeat_with(|| vararg_ty.unwrap()))
-        .zip(param_vals)
-        .map(|(p, v)| {
-            if p.is_int_type() && v.is_int_value() {
-                let expected_ty = p.into_int_type();
-                let param_val = v.into_int_value();
-
-                if expected_ty.get_bit_width() == 1 && param_val.get_type().get_bit_width() != 1 {
-                    generator.bool_to_i1(ctx, param_val)
-                } else {
-                    param_val
-                }
-                .into()
+    let param_vals = param_vals
+        .into_iter()
+        .map(|(v, t)| {
+            if ctx.unifier.unioned(ctx.primitives.bool, t) {
+                generator.bool_to_i1(ctx, v.into_int_value()).into()
             } else {
                 v
             }
         })
         .collect_vec();
 
-    Ok(ctx.build_call_or_invoke(fun_val, &param_vals, "call"))
+    // The function instance should have already been constructed (at least declared) here.
+
+    Ok(ctx.build_call_or_invoke(&f, &param_vals, "call"))
 }
 
 /// Generates three LLVM variables representing the start, stop, and step values of a [range] class
@@ -1186,7 +992,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     }
 
     // Emits the content of `cont_bb`
-    let emit_cont_bb = |ctx: &CodeGenContext<'ctx, '_>, list: ListValue<'ctx>| {
+    let emit_cont_bb = |ctx: &mut CodeGenContext<'ctx, '_>, list: ListValue<'ctx>| {
         ctx.builder.position_at_end(cont_bb);
         list.store_size(
             ctx,
@@ -1312,30 +1118,21 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 let rhs =
                     ListValue::from_pointer_value(right_val.into_pointer_value(), llvm_usize, None);
 
-                let size = ctx
-                    .builder
-                    .build_int_add(lhs.load_size(ctx, None), rhs.load_size(ctx, None), "")
-                    .unwrap();
+                let lhs_size = lhs.load_size(ctx, None);
+                let rhs_size = rhs.load_size(ctx, None);
+                let size = ctx.builder.build_int_add(lhs_size, rhs_size, "").unwrap();
 
                 let new_list =
                     ListType::new(ctx, &llvm_elem_ty).construct(generator, ctx, size, None);
 
-                let lhs_size = lhs.load_size(ctx, None);
                 let lhs_len = ctx.builder.build_int_mul(lhs_size, sizeof_elem, "").unwrap();
-
-                let rhs_size = rhs.load_size(ctx, None);
                 let rhs_len = ctx.builder.build_int_mul(rhs_size, sizeof_elem, "").unwrap();
 
                 let list_ptr = new_list.data().base_ptr(ctx, generator);
                 call_memcpy_generic(ctx, list_ptr, lhs.data().base_ptr(ctx, generator), lhs_len);
 
                 let list_ptr = unsafe {
-                    new_list.data().ptr_offset_unchecked(
-                        ctx,
-                        generator,
-                        &lhs.load_size(ctx, None),
-                        None,
-                    )
+                    new_list.data().ptr_offset_unchecked(ctx, generator, &lhs_size, None)
                 };
                 call_memcpy_generic(ctx, list_ptr, rhs.data().base_ptr(ctx, generator), rhs_len);
 
@@ -1382,10 +1179,11 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                     .build_int_truncate_or_bit_cast(elem_llvm_ty.size_of().unwrap(), llvm_usize, "")
                     .unwrap();
 
+                let size = list_val.load_size(ctx, None);
                 let new_list = ListType::new(ctx, &elem_llvm_ty).construct(
                     generator,
                     ctx,
-                    ctx.builder.build_int_mul(list_val.load_size(ctx, None), int_val, "").unwrap(),
+                    ctx.builder.build_int_mul(size, int_val, "").unwrap(),
                     None,
                 );
 
@@ -1396,10 +1194,8 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                     llvm_usize.const_zero(),
                     (int_val, false),
                     |generator, ctx, _, i| {
-                        let offset = ctx
-                            .builder
-                            .build_int_mul(i, list_val.load_size(ctx, None), "")
-                            .unwrap();
+                        let size = list_val.load_size(ctx, None);
+                        let offset = ctx.builder.build_int_mul(i, size, "").unwrap();
                         let ptr = unsafe {
                             new_list.data().ptr_offset_unchecked(ctx, generator, &offset, None)
                         };
@@ -1935,12 +1731,14 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         generator,
                         ctx,
                         |_, ctx| {
+                            let left_size = left_val.load_size(ctx, None);
+                            let right_size = right_val.load_size(ctx, None);
                             Ok(ctx
                                 .builder
                                 .build_int_compare(
                                     IntPredicate::EQ,
-                                    left_val.load_size(ctx, None),
-                                    right_val.load_size(ctx, None),
+                                    left_size,
+                                    right_size,
                                     "",
                                 )
                                 .unwrap())
@@ -1953,12 +1751,13 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                 .build_store(acc_addr, ctx.ctx.bool_type().const_all_ones())
                                 .unwrap();
 
+                            let left_size = left_val.load_size(ctx, None);
                             gen_for_callback_incrementing(
                                 generator,
                                 ctx,
                                 None,
                                 llvm_usize.const_zero(),
-                                (left_val.load_size(ctx, None), false),
+                                (left_size, false),
                                 |generator, ctx, hooks, i| {
                                     let left = unsafe {
                                         left_val.data().get_unchecked(ctx, generator, &i, None)
@@ -2769,14 +2568,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     let ty = ctx.get_llvm_type(generator, *ty);
                     if let ExprKind::Slice { lower, upper, step } = &slice.node {
                         let one = int32.const_int(1, false);
-                        let Some((start, end, step)) = handle_slice_indices(
-                            lower,
-                            upper,
-                            step,
-                            ctx,
-                            generator,
-                            v.load_size(ctx, None),
-                        )?
+                        let size = v.load_size(ctx, None);
+                        let Some((start, end, step)) =
+                            handle_slice_indices(lower, upper, step, ctx, generator, size)?
                         else {
                             return Ok(None);
                         };
@@ -2799,14 +2593,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         );
                         let res_array_ret =
                             ListType::new(ctx, &ty).construct(generator, ctx, length, Some("ret"));
-                        let Some(res_ind) = handle_slice_indices(
-                            &None,
-                            &None,
-                            &None,
-                            ctx,
-                            generator,
-                            res_array_ret.load_size(ctx, None),
-                        )?
+                        let size = res_array_ret.load_size(ctx, None);
+                        let Some(res_ind) =
+                            handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                         else {
                             return Ok(None);
                         };
@@ -2931,95 +2720,230 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
     }))
 }
 
-/// Creates a function in the current module and inserts a `call` instruction into the LLVM IR.
-#[allow(clippy::too_many_arguments)]
-pub fn create_fn_and_call<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    fn_name: &str,
-    ret_type: Option<BasicTypeEnum<'ctx>>,
-    params: &[BasicTypeEnum<'ctx>],
-    args: &[BasicValueEnum<'ctx>],
-    is_var_args: bool,
-    call_value_name: Option<&str>,
-    configure: Option<&dyn Fn(&FunctionValue<'ctx>)>,
-) -> Option<BasicValueEnum<'ctx>> {
-    let intrinsic_fn = ctx.module.get_function(fn_name).unwrap_or_else(|| {
-        let params = params.iter().copied().map(BasicTypeEnum::into).collect_vec();
-        let fn_type = if let Some(ret_type) = ret_type {
-            ret_type.fn_type(params.as_slice(), is_var_args)
-        } else {
-            ctx.ctx.void_type().fn_type(params.as_slice(), is_var_args)
-        };
-
-        ctx.module.add_function(fn_name, fn_type, None)
-    });
-
-    if let Some(configure) = configure {
-        configure(&intrinsic_fn);
-    }
-
-    let args = args.iter().copied().map(BasicValueEnum::into).collect_vec();
-    ctx.builder
-        .build_call(intrinsic_fn, args.as_slice(), call_value_name.unwrap_or_default())
-        .map(CallSiteValue::try_as_basic_value)
-        .map(Either::left)
-        .unwrap()
+trait __ReturnType<'ctx> {
+    type Value;
+    fn into_ret_ty(this: Self) -> Option<BasicTypeEnum<'ctx>>;
+    fn into_value(ret: Option<BasicValueEnum<'ctx>>) -> Self::Value;
 }
 
-/// Creates a function in the current module and inserts a `call` instruction into the LLVM IR.
-///
-/// This is a wrapper around [`create_fn_and_call`] for non-vararg function. This function allows
-/// parameters and arguments to be specified as tuples to better indicate the expected type and
-/// actual value of each parameter-argument pair of the call.
-pub fn create_and_call_function<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    fn_name: &str,
-    ret_type: Option<BasicTypeEnum<'ctx>>,
-    params: &[(BasicTypeEnum<'ctx>, BasicValueEnum<'ctx>)],
-    value_name: Option<&str>,
-    configure: Option<&dyn Fn(&FunctionValue<'ctx>)>,
-) -> Option<BasicValueEnum<'ctx>> {
-    let param_tys = params.iter().map(|(ty, _)| ty).copied().collect_vec();
-    let arg_values = params.iter().map(|(_, value)| value).copied().collect_vec();
-
-    create_fn_and_call(
-        ctx,
-        fn_name,
-        ret_type,
-        param_tys.as_slice(),
-        arg_values.as_slice(),
-        false,
-        value_name,
-        configure,
-    )
+macro_rules! impl_type {
+    ($t:ty: |$self:ident| $into_ret:block, $v:ty: |$ret:ident| $into_val:block) => {
+        impl<'ctx> __ReturnType<'ctx> for $t {
+            type Value = $v;
+            fn into_ret_ty($self: Self) -> Option<BasicTypeEnum<'ctx>> $into_ret
+            fn into_value($ret: Option<BasicValueEnum<'ctx>>) -> Self::Value $into_val
+        }
+    };
+    ($t:ident, $v:ident) => {
+        impl_type!(
+            [inkwell::types::$t<'ctx>; 1]: |this| { Some(this[0].into()) },
+            inkwell::values::$v<'ctx>: |ret| { ret.unwrap().try_into().unwrap() }
+        );
+    };
 }
 
-/// Creates a function in the current module and inserts a `call` instruction into the LLVM IR.
+#[doc(hidden)]
+#[allow(private_bounds, reason = "macro internals")]
+pub fn __handle_return_type<'ctx, T: __ReturnType<'ctx, Value = V>, V>(
+    t: T,
+) -> (Option<BasicTypeEnum<'ctx>>, impl FnOnce(Option<BasicValueEnum<'ctx>>) -> V) {
+    (T::into_ret_ty(t), T::into_value)
+}
+
+impl_type!(ArrayType, ArrayValue);
+impl_type!(FloatType, FloatValue);
+impl_type!(IntType, IntValue);
+impl_type!(PointerType, PointerValue);
+impl_type!(StructType, StructValue);
+impl_type!(VectorType, VectorValue);
+impl_type!(ScalableVectorType, ScalableVectorValue);
+impl_type!(BasicTypeEnum, BasicValueEnum);
+impl_type!((): |_this| { None }, (): |ret| { assert!(ret.is_none()); });
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __codegen_call_extern_impl {
+    (@ctx: [$($p:tt)*] ($ctx:expr) (:) $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(@ret_ty: [$($p)* ($ctx)] $($t)*) };
+    (@ctx: [$($p:tt)*] ($ctx:expr) $($t:tt)*) =>
+        { compile_error!("expected `:` after context") };
+
+    (@ret_ty: [$($p:tt)*] (void) $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(@var_name: [$($p)* (())] $($t)*) };
+    (@ret_ty: [$($p:tt)*] ($ret:expr) $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(@var_name: [$($p)* ([$ret])] $($t)*) };
+
+    (@var_name: [$($p:tt)*] (_) (=) $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(attrs: [$($p)* (None)] $($t)*) };
+    (@var_name: [$($p:tt)*] ($name:expr) (=) $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(attrs: [$($p)* (Some($name))] $($t)*) };
+    (@var_name: [$($p:tt)*] ($name:expr) (?) (=) $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(attrs: [$($p)* ($name)] $($t)*) };
+    (@var_name: [$($p:tt)*] ($name:expr) $($t:tt)*) =>
+        { compile_error!("expected `=` after variable name") };
+
+    (attrs: [$($p:tt)*] ([$($attr:literal)*]) $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(@fn_name: [$($p)* ([$($attr),*])] $($t)*) };
+    (attrs: [$($p:tt)*] ([$($attr:tt)*]) $($t:tt)*) =>
+        { compile_error!(concat!("expected space-separated attrs, found ", stringify!([$($attr)*]))) };
+    (attrs: [$($p:tt)*] $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(@fn_name: [$($p)* ([])] $($t)*)};
+
+    (@fn_name: [$($p:tt)*] ($name:expr) $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(fn_args: [$($p)* ($name)] $($t)*) };
+
+    (fn_args: [$($p:tt)*] (($($arg:expr),* $(,)?)) $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(final: [$($p)* ($($arg),*) (false) ()] $($t)*) };
+    (fn_args: [$($p:tt)*] (($($arg:expr),* ; ...$varargs:expr)) $($t:tt)*) =>
+        { $crate::__codegen_call_extern_impl!(final: [$($p)* ($($arg),*) (true) ($varargs)] $($t)*) };
+    (fn_args: [$($p:tt)*] ($t:tt) $($rest:tt)*) =>
+        { compile_error!(concat!("expected function args, found ", stringify!($t))) };
+
+    (final: [$($p:tt)*] $(($t:tt))+) =>
+        { compile_error!(concat!("extra tokens: ", stringify!($($t)+))) };
+    (final: [($ctx:expr) ($ret_ty:expr) ($var_name:expr) ($fn_attrs:expr) ($fn_name:expr)
+        ($($arg:expr),*) ($is_varargs:expr) ($($varargs:expr)?)]) =>
+    {{
+        let args = [$($arg.into()),*];
+        let _: &[$crate::inkwell::values::BasicValueEnum<'_>] = &args;
+        let types = args.map(|a| a.get_type());
+        let (ret_ty, cast) = $crate::codegen::expr::__handle_return_type($ret_ty);
+        $(let args = args.into_iter().chain($varargs).collect_vec();)?
+        let result = $crate::codegen::expr::call_extern_c_fn(
+            $ctx, &$fn_name, ret_ty, &types, &args, $is_varargs, $var_name, &$fn_attrs,
+        );
+        cast(result)
+    }};
+
+    // The first token for all @ branches is an expression.
+    (@$stage:ident: [$($p:tt)*] ($this:tt) $($rest:tt)*) =>
+        { compile_error!(concat!(stringify!($stage), ": expected expression, found ", stringify!($this))) };
+    ($(@)?$stage:ident: [$($p:tt)*]) =>
+        { compile_error!(concat!("missing ", stringify!($stage))) };
+    ($($t:tt)*) =>
+        { compile_error!(concat!("internal error: could not parse ", stringify!($($t)*))) };
+}
+
+/// Emits an external function call.
 ///
-/// This is a wrapper around [`create_fn_and_call`] for non-vararg function. This function allows
-/// only arguments to be specified and performs inference for the parameter types of the function
-/// using [`BasicValueEnum::get_type`] on the arguments.
+/// Operates on a `&mut CodeGenContext`, declares an external function with inferred
+/// argument types and given return type, then builds a function call to get the corresponding
+/// result.
 ///
-/// This function is recommended if it is known that all function arguments match the parameter
-/// types of the invoked function.
-pub fn infer_and_call_function<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
+/// Typical usage looks like a C function call with an assignment to a local variable,
+/// except that "types", "variable names" and "function names" are now expressions rather
+/// than identifiers.
+///
+/// ```ignore
+/// call_extern!(ctx: llvm_i32 "var_name" = "fn_name"(arg0, arg1));
+/// ```
+///
+/// This emits a function declaration and a call to the function, with adjustments needed for
+/// the C ABI:
+///
+/// ```llvm
+/// ; types are automatically inferred from the arguments %argX
+/// declare i32 @fn_name(type0, type1)
+///
+/// %var_name = call i32 @fn_name(type0 %arg0, type1 %arg1)
+/// ```
+///
+/// # Syntax
+///
+/// ```ignore
+/// call_extern!(ctx: ret_ty var_name = ["attr0" "attr1"] fn_name(arg0, arg1; ...varargs))
+/// ```
+///
+/// - `ctx`: A `&mut CodeGenContext` to build the call instruction into.
+///
+/// - `ret_ty`: The function return type. Either:
+///   - one of the variants of [`BasicTypeEnum`] (the result will be a value of that type); or
+///   - a [`BasicTypeEnum`] (the result will be a [`BasicValueEnum`]); or
+///   - `void` (no return value).
+///
+/// - `var_name`: The variable name to assign to the result. Must be of type [`&str`].
+///   You can use these instead:
+///   - `_`:  Leave the variable unnamed; LLVM will assign a numerical index.
+///   - `var_name?`: Optionally name the variable. `var_name` must be of type [`Option<&str>`].
+///
+/// - `["attr0" "attr1"]` _(optional)_: Function attributes ([docs][attr-docs]). Should be
+///    a list of space-separated string literals.
+///
+/// - `fn_name`: The name of the function. `&fn_name` must coerce into [`&str`].
+///
+/// - `arg0, arg1`: Function arguments. The parameter types of the function are deduced from these values.
+///   Each argument can be any `impl Into<BasicValueEnum<'ctx>>`.
+///
+/// - `varargs`: Variadic arguments. Can be any `impl IntoIterator<Item = BasicValueEnum<'ctx>>`.
+///
+/// Note that `ctx`, `ret_ty`, `var_name` and `fn_name` must be an expression consisting of a single
+/// _token tree_. That is, you should parenthesize any expression that is not just a string literal
+/// or variable identifier.
+///
+/// Even if you intend to discard the result, you must pass the exact same return type as your C function
+/// definition, for ABI reasons.
+///
+/// # Examples
+///
+/// Call an external function with some attributes:
+///
+/// ```ignore
+/// let success = ctx.ctx.i32_type().const_zero();
+/// call_extern!(ctx: void _ = ["noreturn"] "_Exit"(success));
+/// ```
+///
+/// Call a variadic function:
+///
+/// ```ignore
+/// let int = ctx.ctx.i32_type();
+/// let neg_one = int.const_all_ones();
+/// let half = ctx.ctx.f32_type().const_float(0.5);
+/// let format = ctx.builder.build_global_string_ptr("%d %.2f")?.as_pointer_value();
+///
+/// // unlike positional args, variadic args need an explicit cast to BasicValueEnum
+/// let varargs = [neg_one.into(), half.into()];
+///
+/// // at runtime, prints "-1 0.50"; written = 7
+/// let written: IntValue<'ctx> = call_extern!(ctx: int "written" = "printf"(format; ...varargs));
+/// ```
+///
+/// [attr-docs]: https://llvm.org/docs/LangRef.html#fnattrs
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __codegen_call_extern {
+    ($($t:tt)*) => { $crate::__codegen_call_extern_impl!(@ctx: [] $(($t))*) };
+}
+
+#[doc(inline)]
+pub use __codegen_call_extern as call_extern;
+
+/// Call an external C function, given a function signature and arguments.
+///
+/// You might want to use the [`call_extern`] macro instead, which is easier to use
+/// as it deduces and converts types automatically.
+///
+/// For repeated function calls and dynamically added external bindings, you might want to use
+/// [`FunctionStore::declare_external`] and [`CodeGenContext::build_call_or_invoke`] directly.
+///
+/// [`FunctionStore::declare_external`]: crate::codegen::FunctionStore::declare_external
+#[allow(clippy::too_many_arguments, reason = "most users use the call_extern macro instead")]
+pub fn call_extern_c_fn<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
     fn_name: &str,
     ret_type: Option<BasicTypeEnum<'ctx>>,
+    param_types: &[BasicTypeEnum<'ctx>],
     args: &[BasicValueEnum<'ctx>],
+    is_c_varargs: bool,
     value_name: Option<&str>,
-    configure: Option<&dyn Fn(&FunctionValue<'ctx>)>,
+    fn_attrs: &[&str],
 ) -> Option<BasicValueEnum<'ctx>> {
-    let param_tys = args.iter().map(BasicValueEnum::get_type).collect_vec();
-
-    create_fn_and_call(
-        ctx,
+    let f = ctx.fn_store.declare_external(
+        &ctx.module,
         fn_name,
         ret_type,
-        param_tys.as_slice(),
-        args,
-        false,
-        value_name,
-        configure,
-    )
+        param_types,
+        is_c_varargs,
+        fn_attrs,
+    );
+    ctx.build_call_or_invoke(&f, args, value_name.unwrap_or(""))
 }

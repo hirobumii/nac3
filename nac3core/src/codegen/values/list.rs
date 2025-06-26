@@ -62,7 +62,7 @@ impl<'ctx> ListValue<'ctx> {
     }
 
     /// Stores the array of data elements `data` into this instance.
-    fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
+    fn store_data(&self, ctx: &mut CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
         self.items_field().store(ctx, self.value, data, self.name);
     }
 
@@ -106,7 +106,7 @@ impl<'ctx> ListValue<'ctx> {
     }
 
     /// Stores the `size` of this `list` into this instance.
-    pub fn store_size(&self, ctx: &CodeGenContext<'ctx, '_>, size: IntValue<'ctx>) {
+    pub fn store_size(&self, ctx: &mut CodeGenContext<'ctx, '_>, size: IntValue<'ctx>) {
         debug_assert_eq!(size.get_type(), ctx.get_size_type());
 
         self.len_field().store(ctx, self.value, size, self.name);
@@ -115,7 +115,7 @@ impl<'ctx> ListValue<'ctx> {
     /// Returns the size of this `list` as a value.
     pub fn load_size(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> IntValue<'ctx> {
         self.len_field().load(ctx, self.value, name)
@@ -123,7 +123,7 @@ impl<'ctx> ListValue<'ctx> {
 
     /// Returns an instance of [`ListValue`] with the `items` pointer cast to `i8*`.
     #[must_use]
-    pub fn as_i8_list(&self, ctx: &CodeGenContext<'ctx, '_>) -> ListValue<'ctx> {
+    pub fn as_i8_list(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> ListValue<'ctx> {
         let llvm_i8 = ctx.ctx.i8_type();
         let llvm_list_i8 = <Self as ProxyValue>::Type::new(ctx, &llvm_i8);
 
@@ -184,7 +184,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for ListDataProxy<'ctx, '_> {
 
     fn size<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> IntValue<'ctx> {
         self.0.load_size(ctx, None)
@@ -194,7 +194,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for ListDataProxy<'ctx, '_> {
 impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         idx: &IntValue<'ctx>,
         name: Option<&str>,

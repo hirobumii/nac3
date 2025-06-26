@@ -11,7 +11,6 @@ use std::{
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use inkwell::{
     AddressSpace, IntPredicate, OptimizationLevel,
-    attributes::{Attribute, AttributeLoc},
     basic_block::BasicBlock,
     builder::Builder,
     context::Context,
@@ -21,7 +20,7 @@ use inkwell::{
     module::Module,
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
-    types::{AnyType, BasicType, BasicTypeEnum, IntType},
+    types::{BasicTypeEnum, IntType},
     values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue},
 };
 use itertools::Itertools;
@@ -30,6 +29,7 @@ use parking_lot::{Condvar, Mutex};
 use nac3parser::ast::{Location, Stmt, StrRef};
 
 use crate::{
+    codegen::stmt::get_personality,
     symbol_resolver::{StaticValue, SymbolResolver},
     toplevel::{
         TopLevelContext, TopLevelDef,
@@ -43,6 +43,7 @@ use crate::{
 };
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
+pub use llvm_fns::{FunctionDecl, FunctionStore};
 use types::{
     ExceptionType, ListType, OptionType, ProxyType, RangeType, StringType, TupleType,
     ndarray::NDArrayType,
@@ -54,6 +55,7 @@ pub mod expr;
 pub mod extern_fns;
 mod generator;
 pub mod irrt;
+mod llvm_fns;
 pub mod llvm_intrinsics;
 pub mod numpy;
 pub mod stmt;
@@ -223,10 +225,8 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub outer_catch_clauses:
         Option<(Vec<Option<BasicValueEnum<'ctx>>>, BasicBlock<'ctx>, PhiValue<'ctx>)>,
 
-    /// Whether `sret` is needed for the first parameter of the function.
-    ///
-    /// See [`need_sret`].
-    pub need_sret: bool,
+    // all LLVM function declarations
+    pub fn_store: FunctionStore<'ctx>,
 
     /// The current source location.
     pub current_loc: Location,
@@ -395,6 +395,7 @@ impl WorkerRegistry {
         let context = Context::create();
         let mut builder = context.create_builder();
         let mut module = context.create_module(generator.get_name());
+        let mut fn_store = FunctionStore::default();
 
         let target_machine = self.llvm_options.create_target_machine().unwrap();
         module.set_data_layout(&target_machine.get_target_data().get_data_layout());
@@ -413,10 +414,9 @@ impl WorkerRegistry {
 
         let mut errors = HashSet::new();
         while let Some(task) = self.receiver.recv().unwrap() {
-            match gen_func(&context, generator, self, builder, module, task) {
+            match gen_func(&context, generator, self, builder, module, fn_store, task) {
                 Ok(result) => {
-                    builder = result.0;
-                    module = result.1;
+                    (builder, module, fn_store, _) = result;
                 }
                 Err((old_builder, e)) => {
                     builder = old_builder;
@@ -427,6 +427,7 @@ impl WorkerRegistry {
                     let target_machine = self.llvm_options.create_target_machine().unwrap();
                     module.set_data_layout(&target_machine.get_target_data().get_data_layout());
                     module.set_triple(&target_machine.get_triple());
+                    fn_store = FunctionStore::default();
                 }
             }
             *self.task_count.lock() -= 1;
@@ -477,6 +478,7 @@ pub struct CodeGenTask {
     pub store: ConcreteTypeStore,
     pub symbol_name: String,
     pub signature: ConcreteType,
+    pub export_symbol: bool,
     pub body: Arc<Vec<Stmt<Option<Type>>>>,
     pub calls: Arc<HashMap<CodeLocation, CallId>>,
     pub unifier_index: usize,
@@ -636,28 +638,6 @@ fn get_llvm_abi_type<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
-/// Whether `sret` is needed for a return value with type `ty`.
-///
-/// When returning a large data structure (e.g. structures that do not fit in 1-2 native words of
-/// the target processor) by value, a synthetic parameter with a pointer type will be passed in the
-/// slot of the first parameter to act as the location of which the return value is passed into.
-///
-/// See <https://releases.llvm.org/14.0.0/docs/LangRef.html#parameter-attributes> for more
-/// information.
-fn need_sret(ty: BasicTypeEnum) -> bool {
-    fn need_sret_impl(ty: BasicTypeEnum, maybe_large: bool) -> bool {
-        match ty {
-            BasicTypeEnum::IntType(_) | BasicTypeEnum::PointerType(_) => false,
-            BasicTypeEnum::FloatType(_) if maybe_large => false,
-            BasicTypeEnum::StructType(ty) if maybe_large && ty.count_fields() <= 2 => {
-                ty.get_field_types().iter().any(|ty| need_sret_impl(*ty, false))
-            }
-            _ => true,
-        }
-    }
-    need_sret_impl(ty, true)
-}
-
 /// Returns the [`BasicTypeEnum`] representing a `va_list` struct for variadic arguments.
 #[allow(dead_code)]
 fn get_llvm_valist_type<'ctx>(ctx: &'ctx Context, triple: &TargetTriple) -> BasicTypeEnum<'ctx> {
@@ -694,6 +674,10 @@ fn get_llvm_valist_type<'ctx>(ctx: &'ctx Context, triple: &TargetTriple) -> Basi
 }
 
 /// Implementation for generating LLVM IR for a function.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "inherent complexity before CodeGenContext is available"
+)]
 pub fn gen_func_impl<
     'ctx,
     G: CodeGenerator,
@@ -704,9 +688,13 @@ pub fn gen_func_impl<
     registry: &WorkerRegistry,
     builder: Builder<'ctx>,
     module: Module<'ctx>,
+    mut fn_store: FunctionStore<'ctx>,
     task: CodeGenTask,
     codegen_function: F,
-) -> Result<(Builder<'ctx>, Module<'ctx>, FunctionValue<'ctx>), (Builder<'ctx>, String)> {
+) -> Result<
+    (Builder<'ctx>, Module<'ctx>, FunctionStore<'ctx>, FunctionValue<'ctx>),
+    (Builder<'ctx>, String),
+> {
     let top_level_ctx = registry.top_level_ctx.clone();
     let static_value_store = registry.static_value_store.clone();
     let (mut unifier, primitives) = {
@@ -775,17 +763,11 @@ pub fn gen_func_impl<
         unreachable!()
     };
 
-    let (args, ret) = (
-        args.iter()
-            .map(|arg| FuncArg {
-                name: arg.name,
-                ty: task.store.to_unifier_type(&mut unifier, &primitives, arg.ty, &mut cache),
-                default_value: arg.default_value.clone(),
-                is_vararg: arg.is_vararg,
-            })
-            .collect_vec(),
-        task.store.to_unifier_type(&mut unifier, &primitives, *ret, &mut cache),
-    );
+    // TODO(ivan): ConcreteType is conceptually more tightly linked to native LLVM types.
+    // We should not be converting back into typechecking/unifier types and then turning that into
+    // native LLVM types.
+
+    let ret = task.store.to_unifier_type(&mut unifier, &primitives, *ret, &mut cache);
     let ret_type = if unifier.unioned(ret, primitives.none) {
         None
     } else {
@@ -801,13 +783,18 @@ pub fn gen_func_impl<
         ))
     };
 
-    let has_sret = ret_type.is_some_and(|ty| need_sret(ty));
-    let mut params = args
+    let params = args
         .iter()
-        .filter(|arg| !arg.is_vararg)
+        .map(|arg| FuncArg {
+            name: arg.name,
+            ty: task.store.to_unifier_type(&mut unifier, &primitives, arg.ty, &mut cache),
+            default_value: arg.default_value.clone(),
+            is_vararg: arg.is_vararg,
+        })
+        .collect_vec();
+    let params_type = params
+        .iter()
         .map(|arg| {
-            debug_assert!(!arg.is_vararg);
-
             get_llvm_abi_type(
                 context,
                 &module,
@@ -822,37 +809,14 @@ pub fn gen_func_impl<
         })
         .collect_vec();
 
-    if has_sret {
-        params.insert(0, ret_type.unwrap().ptr_type(AddressSpace::default()).into());
-    }
-
-    debug_assert!(matches!(args.iter().filter(|arg| arg.is_vararg).count(), 0..=1));
-    let vararg_arg = args.iter().find(|arg| arg.is_vararg);
-
-    let fn_type = match ret_type {
-        Some(ret_type) if !has_sret => ret_type.fn_type(&params, vararg_arg.is_some()),
-        _ => context.void_type().fn_type(&params, vararg_arg.is_some()),
-    };
-
     let symbol = &task.symbol_name;
-    let fn_val =
-        module.get_function(symbol).unwrap_or_else(|| module.add_function(symbol, fn_type, None));
+    // This module is independent from the module spawning this codegen task,
+    // so we must redefine the function from scratch.
+    let (_, fn_val) =
+        fn_store.declare_internal(&module, symbol, ret_type, &params_type, task.export_symbol);
 
-    if let Some(personality) = &top_level_ctx.personality_symbol {
-        let personality = module.get_function(personality).unwrap_or_else(|| {
-            let ty = context.i32_type().fn_type(&[], true);
-            module.add_function(personality, ty, None)
-        });
+    if let Some(personality) = get_personality(&top_level_ctx, &module) {
         fn_val.set_personality_function(personality);
-    }
-    if has_sret {
-        fn_val.add_attribute(
-            AttributeLoc::Param(0),
-            context.create_type_attribute(
-                Attribute::get_named_enum_kind_id("sret"),
-                ret_type.unwrap().as_any_type_enum(),
-            ),
-        );
     }
 
     let init_bb = context.append_basic_block(fn_val, "init");
@@ -861,9 +825,9 @@ pub fn gen_func_impl<
 
     // Store non-vararg argument values into local variables
     let mut var_assignment = HashMap::new();
-    let offset = u32::from(has_sret);
-    for (n, arg) in args.iter().enumerate().filter(|(_, arg)| !arg.is_vararg) {
-        let param = fn_val.get_nth_param((n as u32) + offset).unwrap();
+
+    for (n, arg) in params.iter().enumerate().filter(|(_, arg)| !arg.is_vararg) {
+        let param = fn_val.get_nth_param(n as u32).unwrap();
         let local_type = get_llvm_type(
             context,
             &module,
@@ -897,18 +861,14 @@ pub fn gen_func_impl<
 
     // TODO: Save vararg parameters as list
 
-    let return_buffer = if has_sret {
-        Some(fn_val.get_nth_param(0).unwrap().into_pointer_value())
-    } else {
-        fn_type.get_return_type().map(|v| builder.build_alloca(v, "$ret").unwrap())
-    };
+    let return_buffer = ret_type.map(|v| builder.build_alloca(v, "$ret").unwrap());
 
     let static_values = {
         let store = registry.static_value_store.lock();
         store.store[task.id].clone()
     };
     for (k, v) in static_values {
-        let (_, static_val, _) = var_assignment.get_mut(&args[k].name).unwrap();
+        let (_, static_val, _) = var_assignment.get_mut(&params[k].name).unwrap();
         *static_val = Some(v);
     }
 
@@ -985,7 +945,7 @@ pub fn gen_func_impl<
         module,
         unifier,
         static_value_store,
-        need_sret: has_sret,
+        fn_store,
         current_loc: Location::default(),
         debug_info: (dibuilder, compile_unit, func_scope.as_debug_info_scope()),
         llvm_usize: OnceCell::default(),
@@ -1020,12 +980,12 @@ pub fn gen_func_impl<
     code_gen_context.builder.unset_current_debug_location();
     code_gen_context.debug_info.0.finalize();
 
-    let CodeGenContext { builder, module, .. } = code_gen_context;
+    let CodeGenContext { builder, module, fn_store, .. } = code_gen_context;
     if let Err(e) = result {
         return Err((builder, e));
     }
 
-    Ok((builder, module, fn_val))
+    Ok((builder, module, fn_store, fn_val))
 }
 
 /// Generates LLVM IR for a function.
@@ -1043,12 +1003,23 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
     registry: &WorkerRegistry,
     builder: Builder<'ctx>,
     module: Module<'ctx>,
+    fn_store: FunctionStore<'ctx>,
     task: CodeGenTask,
-) -> Result<(Builder<'ctx>, Module<'ctx>, FunctionValue<'ctx>), (Builder<'ctx>, String)> {
+) -> Result<
+    (Builder<'ctx>, Module<'ctx>, FunctionStore<'ctx>, FunctionValue<'ctx>),
+    (Builder<'ctx>, String),
+> {
     let body = task.body.clone();
-    gen_func_impl(context, generator, registry, builder, module, task, |generator, ctx| {
-        generator.gen_block(ctx, body.iter())
-    })
+    gen_func_impl(
+        context,
+        generator,
+        registry,
+        builder,
+        module,
+        fn_store,
+        task,
+        |generator, ctx| generator.gen_block(ctx, body.iter()),
+    )
 }
 
 /// Converts the value of a boolean-like value `value` into an arbitrary [`IntType`].
@@ -1115,12 +1086,6 @@ fn gen_in_range_check<'ctx>(
         .unwrap();
 
     ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp").unwrap()
-}
-
-/// Returns the internal name for the `va_count` argument, used to indicate the number of arguments
-/// passed to the variadic function.
-fn get_va_count_arg_name(arg_name: StrRef) -> StrRef {
-    format!("__{}_va_count", &arg_name).into()
 }
 
 /// Returns the alignment of the type.

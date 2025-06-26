@@ -2,7 +2,7 @@ use inkwell::{AddressSpace, values::IntValue};
 
 use crate::codegen::{
     CodeGenContext, CodeGenerator,
-    expr::infer_and_call_function,
+    expr::call_extern,
     irrt::get_usize_dependent_function_name,
     values::{ProxyValue, TypedArrayLikeAccessor, ndarray::NDArrayValue},
 };
@@ -18,7 +18,7 @@ use crate::codegen::{
 /// - `dst_ndarray.strides` must be allocated and may contain uninitialized values.
 pub fn call_nac3_ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
     generator: &G,
-    ctx: &CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     src_ndarray: NDArrayValue<'ctx>,
     dst_ndarray: NDArrayValue<'ctx>,
     axes: Option<&impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>>,
@@ -29,20 +29,12 @@ pub fn call_nac3_ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
     assert!(axes.is_none_or(|axes| axes.element_type(ctx, generator) == llvm_usize.into()));
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_transpose");
-    infer_and_call_function(
-        ctx,
-        &name,
-        None,
-        &[
-            src_ndarray.as_abi_value(ctx).into(),
-            dst_ndarray.as_abi_value(ctx).into(),
-            axes.map_or(llvm_usize.const_zero(), |axes| axes.size(ctx, generator)).into(),
-            axes.map_or(llvm_usize.ptr_type(AddressSpace::default()).const_null(), |axes| {
-                axes.base_ptr(ctx, generator)
-            })
-            .into(),
-        ],
-        None,
-        None,
-    );
+    call_extern!(ctx: void _ = name(
+        src_ndarray.as_abi_value(ctx),
+        dst_ndarray.as_abi_value(ctx),
+        axes.map_or(llvm_usize.const_zero(), |axes| axes.size(ctx, generator)),
+        axes.map_or(llvm_usize.ptr_type(AddressSpace::default()).const_null(), |axes| {
+            axes.base_ptr(ctx, generator)
+        }),
+    ));
 }

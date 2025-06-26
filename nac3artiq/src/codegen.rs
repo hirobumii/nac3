@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
-    iter::once,
     mem,
     sync::Arc,
 };
@@ -16,7 +15,7 @@ use pyo3::{
 use nac3core::{
     codegen::{
         CodeGenContext, CodeGenerator,
-        expr::{create_fn_and_call, destructure_range, gen_call, infer_and_call_function},
+        expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_alloca,
@@ -581,12 +580,17 @@ fn format_rpc_ret<'ctx>(
     let llvm_usize = ctx.get_size_type();
     let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
 
-    let rpc_recv = ctx.module.get_function("rpc_recv").unwrap_or_else(|| {
-        ctx.module.add_function("rpc_recv", llvm_i32.fn_type(&[llvm_pi8.into()], false), None)
-    });
+    let rpc_recv = ctx.fn_store.declare_external(
+        &ctx.module,
+        "rpc_recv",
+        Some(llvm_i32.into()),
+        &[llvm_pi8.into()],
+        false,
+        &[],
+    );
 
     if ctx.unifier.unioned(ret_ty, ctx.primitives.none) {
-        ctx.build_call_or_invoke(rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv");
+        ctx.build_call_or_invoke(&rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv");
         return None;
     }
 
@@ -653,8 +657,8 @@ fn format_rpc_ret<'ctx>(
             let sizeof_ptr =
                 ctx.builder.build_int_z_extend_or_bit_cast(sizeof_ptr, llvm_usize, "").unwrap();
 
-            let sizeof_shape =
-                ctx.builder.build_int_mul(ndarray.load_ndims(ctx), sizeof_usize, "").unwrap();
+            let ndims = ndarray.load_ndims(ctx);
+            let sizeof_shape = ctx.builder.build_int_mul(ndims, sizeof_usize, "").unwrap();
 
             // Size of the buffer for the initial `rpc_recv()`.
             let unaligned_buffer_size =
@@ -675,7 +679,7 @@ fn format_rpc_ret<'ctx>(
             // The returned value is the number of bytes for `ndarray.data`.
             let ndarray_nbytes = ctx
                 .build_call_or_invoke(
-                    rpc_recv,
+                    &rpc_recv,
                     &[buffer.base_ptr(ctx, generator).into()], // Reads [usize; ndims]
                     "rpc.size.next",
                 )
@@ -755,7 +759,7 @@ fn format_rpc_ret<'ctx>(
             phi.add_incoming(&[(&ndarray_data, prehead_bb)]);
 
             let alloc_size = ctx
-                .build_call_or_invoke(rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
+                .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
                 .map(BasicValueEnum::into_int_value)
                 .unwrap();
 
@@ -795,7 +799,7 @@ fn format_rpc_ret<'ctx>(
             let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr").unwrap();
             phi.add_incoming(&[(&slotgen, prehead_bb)]);
             let alloc_size = ctx
-                .build_call_or_invoke(rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
+                .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
                 .unwrap()
                 .into_int_value();
             let is_done = ctx
@@ -935,15 +939,8 @@ fn rpc_codegen_callback_fn<'ctx>(
         ctx.builder.build_store(arg_ptr, arg_slot).unwrap();
     }
 
-    // call
-    infer_and_call_function(
-        ctx,
-        if is_async { "rpc_send_async" } else { "rpc_send" },
-        None,
-        &[service_id.into(), tag_ptr.into(), args_ptr.into()],
-        Some("rpc.send"),
-        None,
-    );
+    call_extern!(ctx: void "rpc.send" =
+        (if is_async { "rpc_send_async" } else { "rpc_send" })(service_id, tag_ptr, args_ptr));
 
     // reclaim stack space used by arguments
     call_stackrestore(ctx, stackptr);
@@ -1130,21 +1127,15 @@ fn polymorphic_print<'ctx>(
         debug_assert_eq!(fmt.as_bytes().last().unwrap(), &0u8);
 
         let llvm_i32 = ctx.ctx.i32_type();
-        let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
 
         let fmt = ctx.gen_string(generator, fmt);
         let fmt = unsafe { fmt.get_field_at_index_unchecked(0) }.into_pointer_value();
 
-        create_fn_and_call(
-            ctx,
-            if as_rtio { "rtio_log" } else { "core_log" },
-            if as_rtio { None } else { Some(llvm_i32.into()) },
-            &[llvm_pi8.into()],
-            &once(fmt.into()).chain(args).collect_vec(),
-            true,
-            None,
-            None,
-        );
+        if as_rtio {
+            call_extern!(ctx: void _ = "rtio_log"(fmt; ...args));
+        } else {
+            call_extern!(ctx: llvm_i32 _ = "core_log"(fmt; ...args));
+        }
     };
 
     let llvm_i32 = ctx.ctx.i32_type();

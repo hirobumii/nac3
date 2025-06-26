@@ -71,13 +71,9 @@ impl<'ctx> NDArrayValue<'ctx> {
         // Resolve negative indices
         let size = self.size(ctx);
         let dst_ndims = self.llvm_usize.const_int(dst_ndarray.get_type().ndims(), false);
-        let dst_shape = dst_ndarray.shape();
+        let dst_shape = dst_ndarray.shape().as_slice_value(ctx, generator);
         irrt::ndarray::call_nac3_ndarray_reshape_resolve_and_check_new_shape(
-            generator,
-            ctx,
-            size,
-            dst_ndims,
-            dst_shape.as_slice_value(ctx, generator),
+            generator, ctx, size, dst_ndims, dst_shape,
         );
 
         gen_if_callback(

@@ -174,6 +174,7 @@ fn test_primitives() {
     let task = CodeGenTask {
         subst: Vec::default(),
         symbol_name: "testing".into(),
+        export_symbol: true,
         body: Arc::new(statements),
         unifier_index: 0,
         calls: Arc::new(calls),
@@ -326,6 +327,7 @@ fn test_simple_call() {
     let task = CodeGenTask {
         subst: Vec::default(),
         symbol_name: "testing".to_string(),
+        export_symbol: true,
         body: Arc::new(statements_1),
         calls: Arc::new(calls1),
         unifier_index: 0,

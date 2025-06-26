@@ -2,7 +2,7 @@ use inkwell::{types::BasicTypeEnum, values::IntValue};
 
 use crate::codegen::{
     CodeGenContext, CodeGenerator,
-    expr::infer_and_call_function,
+    expr::call_extern,
     irrt::get_usize_dependent_function_name,
     values::{ListValue, ProxyValue, TypedArrayLikeAccessor, ndarray::NDArrayValue},
 };
@@ -16,7 +16,7 @@ use crate::codegen::{
 /// initialized to all `-1`s.
 pub fn call_nac3_ndarray_array_set_and_validate_list_shape<'ctx, G: CodeGenerator + ?Sized>(
     generator: &G,
-    ctx: &CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     list: ListValue<'ctx>,
     ndims: IntValue<'ctx>,
     shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
@@ -31,15 +31,7 @@ pub fn call_nac3_ndarray_array_set_and_validate_list_shape<'ctx, G: CodeGenerato
 
     let name =
         get_usize_dependent_function_name(ctx, "__nac3_ndarray_array_set_and_validate_list_shape");
-
-    infer_and_call_function(
-        ctx,
-        &name,
-        None,
-        &[list.as_abi_value(ctx).into(), ndims.into(), shape.base_ptr(ctx, generator).into()],
-        None,
-        None,
-    );
+    call_extern!(ctx: void _ = name(list.as_abi_value(ctx), ndims, shape.base_ptr(ctx, generator)));
 }
 
 /// Generates a call to `__nac3_ndarray_array_write_list_to_array`.
@@ -53,20 +45,11 @@ pub fn call_nac3_ndarray_array_set_and_validate_list_shape<'ctx, G: CodeGenerato
 /// - `ndarray.shape`: Must be initialized.
 /// - `ndarray.data`: Must be allocated and contiguous.
 pub fn call_nac3_ndarray_array_write_list_to_array<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     list: ListValue<'ctx>,
     ndarray: NDArrayValue<'ctx>,
 ) {
     assert_eq!(list.get_type().element_type().unwrap(), ctx.ctx.i8_type().into());
-
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_array_write_list_to_array");
-
-    infer_and_call_function(
-        ctx,
-        &name,
-        None,
-        &[list.as_abi_value(ctx).into(), ndarray.as_abi_value(ctx).into()],
-        None,
-        None,
-    );
+    call_extern!(ctx: void _ = name(list.as_abi_value(ctx), ndarray.as_abi_value(ctx)));
 }

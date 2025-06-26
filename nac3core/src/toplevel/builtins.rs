@@ -1327,9 +1327,10 @@ impl<'a> BuiltinBuilder<'a> {
                     let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
                         .map_pointer_value(ndarray.into_pointer_value(), None);
 
+                    let size = ndarray.size(ctx);
                     let size = ctx
                         .builder
-                        .build_int_truncate_or_bit_cast(ndarray.size(ctx), ctx.ctx.i32_type(), "")
+                        .build_int_truncate_or_bit_cast(size, ctx.ctx.i32_type(), "")
                         .unwrap();
                     Ok(Some(size.into()))
                 }),

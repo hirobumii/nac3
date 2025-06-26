@@ -1,9 +1,9 @@
-use inkwell::values::{BasicValueEnum, IntValue};
+use inkwell::values::IntValue;
 
 use nac3parser::ast::Expr;
 
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator, expr::infer_and_call_function},
+    codegen::{CodeGenContext, CodeGenerator, expr::call_extern},
     typecheck::typedef::Type,
 };
 
@@ -15,8 +15,6 @@ pub fn handle_slice_index_bound<'ctx, G: CodeGenerator>(
     generator: &mut G,
     length: IntValue<'ctx>,
 ) -> Result<Option<IntValue<'ctx>>, String> {
-    const SYMBOL: &str = "__nac3_slice_index_bound";
-
     let llvm_i32 = ctx.ctx.i32_type();
     assert_eq!(length.get_type(), llvm_i32);
 
@@ -26,16 +24,5 @@ pub fn handle_slice_index_bound<'ctx, G: CodeGenerator>(
         return Ok(None);
     };
 
-    Ok(Some(
-        infer_and_call_function(
-            ctx,
-            SYMBOL,
-            Some(llvm_i32.into()),
-            &[i, length.into()],
-            Some("bounded_ind"),
-            None,
-        )
-        .map(BasicValueEnum::into_int_value)
-        .unwrap(),
-    ))
+    Ok(Some(call_extern!(ctx: llvm_i32 "bounded_ind" = "__nac3_slice_index_bound"(i, length))))
 }

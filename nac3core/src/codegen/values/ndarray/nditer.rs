@@ -68,7 +68,7 @@ impl<'ctx> NDIterValue<'ctx> {
     /// If `ndarray` is unsized, this returns true only for the first iteration.
     /// If `ndarray` is 0-sized, this always returns false.
     #[must_use]
-    pub fn has_element(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn has_element(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         irrt::ndarray::call_nac3_nditer_has_element(ctx, *self)
     }
 
@@ -76,7 +76,7 @@ impl<'ctx> NDIterValue<'ctx> {
     ///
     /// If `ndarray` is unsized, this can only be called once.
     /// If `ndarray` is 0-sized, this can never be called.
-    pub fn next(&self, ctx: &CodeGenContext<'ctx, '_>) {
+    pub fn next(&self, ctx: &mut CodeGenContext<'ctx, '_>) {
         irrt::ndarray::call_nac3_nditer_next(ctx, *self);
     }
 
@@ -86,7 +86,7 @@ impl<'ctx> NDIterValue<'ctx> {
 
     /// Get pointer to the current element.
     #[must_use]
-    pub fn get_pointer(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    pub fn get_pointer(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         let elem_ty = self.parent.dtype;
 
         let p = self.element_field().load(ctx, self.as_abi_value(ctx), self.name);
@@ -97,7 +97,7 @@ impl<'ctx> NDIterValue<'ctx> {
 
     /// Get the value of the current element.
     #[must_use]
-    pub fn get_scalar(&self, ctx: &CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
+    pub fn get_scalar(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
         let p = self.get_pointer(ctx);
         ctx.builder.build_load(p, "value").unwrap()
     }
@@ -108,7 +108,7 @@ impl<'ctx> NDIterValue<'ctx> {
 
     /// Get the index of the current element if this ndarray were a flat ndarray.
     #[must_use]
-    pub fn get_index(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn get_index(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.nth_field().load(ctx, self.as_abi_value(ctx), self.name)
     }
 

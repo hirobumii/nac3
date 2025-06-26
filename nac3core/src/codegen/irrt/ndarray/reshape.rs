@@ -2,7 +2,7 @@ use inkwell::values::IntValue;
 
 use crate::codegen::{
     CodeGenContext, CodeGenerator,
-    expr::infer_and_call_function,
+    expr::call_extern,
     irrt::get_usize_dependent_function_name,
     values::{ArrayLikeValue, ArraySliceValue},
 };
@@ -13,7 +13,7 @@ use crate::codegen::{
 /// assertion if multiple dimensions are unknown (`-1`).
 pub fn call_nac3_ndarray_reshape_resolve_and_check_new_shape<'ctx, G: CodeGenerator + ?Sized>(
     generator: &G,
-    ctx: &CodeGenContext<'ctx, '_>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     size: IntValue<'ctx>,
     new_ndims: IntValue<'ctx>,
     new_shape: ArraySliceValue<'ctx>,
@@ -28,12 +28,5 @@ pub fn call_nac3_ndarray_reshape_resolve_and_check_new_shape<'ctx, G: CodeGenera
         ctx,
         "__nac3_ndarray_reshape_resolve_and_check_new_shape",
     );
-    infer_and_call_function(
-        ctx,
-        &name,
-        None,
-        &[size.into(), new_ndims.into(), new_shape.base_ptr(ctx, generator).into()],
-        None,
-        None,
-    );
+    call_extern!(ctx: void _ = name(size, new_ndims, new_shape.base_ptr(ctx, generator)));
 }

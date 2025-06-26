@@ -26,14 +26,14 @@ pub trait ArrayLikeValue<'ctx> {
     /// Returns the size of this array-like value.
     fn size<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
     ) -> IntValue<'ctx>;
 
     /// Returns a [`ArraySliceValue`] representing this value.
     fn as_slice_value<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
     ) -> ArraySliceValue<'ctx> {
         ArraySliceValue::from_ptr_val(
@@ -51,7 +51,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>>: ArrayLikeValue<'ctx> {
     /// This function should be called with a valid index.
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         idx: &Index,
         name: Option<&str>,
@@ -76,7 +76,7 @@ pub trait UntypedArrayLikeAccessor<'ctx, Index = IntValue<'ctx>>:
     /// This function should be called with a valid index.
     unsafe fn get_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         idx: &Index,
         name: Option<&str>,
@@ -107,7 +107,7 @@ pub trait UntypedArrayLikeMutator<'ctx, Index = IntValue<'ctx>>:
     /// This function should be called with a valid index.
     unsafe fn set_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         idx: &Index,
         value: BasicValueEnum<'ctx>,
@@ -136,7 +136,7 @@ pub trait TypedArrayLikeAccessor<'ctx, G: CodeGenerator + ?Sized, T, Index = Int
     /// Casts an element from [`BasicValueEnum`] into `T`.
     fn downcast_to_type(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         value: BasicValueEnum<'ctx>,
     ) -> T;
@@ -146,7 +146,7 @@ pub trait TypedArrayLikeAccessor<'ctx, G: CodeGenerator + ?Sized, T, Index = Int
     /// This function should be called with a valid index.
     unsafe fn get_typed_unchecked(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         idx: &Index,
         name: Option<&str>,
@@ -175,7 +175,7 @@ pub trait TypedArrayLikeMutator<'ctx, G: CodeGenerator + ?Sized, T, Index = IntV
     /// Casts an element from T into [`BasicValueEnum`].
     fn upcast_from_type(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         value: T,
     ) -> BasicValueEnum<'ctx>;
@@ -185,7 +185,7 @@ pub trait TypedArrayLikeMutator<'ctx, G: CodeGenerator + ?Sized, T, Index = IntV
     /// This function should be called with a valid index.
     unsafe fn set_typed_unchecked(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         idx: &Index,
         value: T,
@@ -216,8 +216,8 @@ pub struct TypedArrayLikeAdapter<
     Adapted: ArrayLikeValue<'ctx> = ArraySliceValue<'ctx>,
 > {
     adapted: Adapted,
-    downcast_fn: fn(&CodeGenContext<'ctx, '_>, &G, BasicValueEnum<'ctx>) -> T,
-    upcast_fn: fn(&CodeGenContext<'ctx, '_>, &G, T) -> BasicValueEnum<'ctx>,
+    downcast_fn: fn(&mut CodeGenContext<'ctx, '_>, &G, BasicValueEnum<'ctx>) -> T,
+    upcast_fn: fn(&mut CodeGenContext<'ctx, '_>, &G, T) -> BasicValueEnum<'ctx>,
 }
 
 impl<'ctx, G: CodeGenerator + ?Sized, T, Adapted> TypedArrayLikeAdapter<'ctx, G, T, Adapted>
@@ -231,8 +231,8 @@ where
     /// * `upcast_fn` - The function converting a T into a [`BasicValueEnum`].
     pub fn from(
         adapted: Adapted,
-        downcast_fn: fn(&CodeGenContext<'ctx, '_>, &G, BasicValueEnum<'ctx>) -> T,
-        upcast_fn: fn(&CodeGenContext<'ctx, '_>, &G, T) -> BasicValueEnum<'ctx>,
+        downcast_fn: fn(&mut CodeGenContext<'ctx, '_>, &G, BasicValueEnum<'ctx>) -> T,
+        upcast_fn: fn(&mut CodeGenContext<'ctx, '_>, &G, T) -> BasicValueEnum<'ctx>,
     ) -> Self {
         TypedArrayLikeAdapter { adapted, downcast_fn, upcast_fn }
     }
@@ -261,7 +261,7 @@ where
 
     fn size<CG: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &CG,
     ) -> IntValue<'ctx> {
         self.adapted.size(ctx, generator)
@@ -269,7 +269,7 @@ where
 
     fn as_slice_value<CG: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &CG,
     ) -> ArraySliceValue<'ctx> {
         self.adapted.as_slice_value(ctx, generator)
@@ -283,7 +283,7 @@ where
 {
     unsafe fn ptr_offset_unchecked<CG: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &CG,
         idx: &Index,
         name: Option<&str>,
@@ -322,7 +322,7 @@ where
 {
     fn downcast_to_type(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         value: BasicValueEnum<'ctx>,
     ) -> T {
@@ -337,7 +337,7 @@ where
 {
     fn upcast_from_type(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         value: T,
     ) -> BasicValueEnum<'ctx> {
@@ -387,7 +387,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for ArraySliceValue<'ctx> {
 
     fn size<G: CodeGenerator + ?Sized>(
         &self,
-        _: &CodeGenContext<'ctx, '_>,
+        _: &mut CodeGenContext<'ctx, '_>,
         _: &G,
     ) -> IntValue<'ctx> {
         self.1
@@ -397,7 +397,7 @@ impl<'ctx> ArrayLikeValue<'ctx> for ArraySliceValue<'ctx> {
 impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
     unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
         &self,
-        ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &mut CodeGenContext<'ctx, '_>,
         generator: &G,
         idx: &IntValue<'ctx>,
         name: Option<&str>,

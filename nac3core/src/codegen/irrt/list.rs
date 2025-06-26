@@ -7,7 +7,7 @@ use inkwell::{
 use super::calculate_len_for_slice_range;
 use crate::codegen::{
     CodeGenContext, CodeGenerator,
-    expr::infer_and_call_function,
+    expr::call_extern,
     macros::codegen_unreachable,
     stmt::gen_if_callback,
     values::{ArrayLikeValue, ListValue},
@@ -108,41 +108,28 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
         ctx.current_loc,
     );
 
-    let new_len = {
-        let args = [
-            dest_idx.0.into(),   // dest start idx
-            dest_idx.1.into(),   // dest end idx
-            dest_idx.2.into(),   // dest step
-            dest_arr_ptr.into(), // dest arr ptr
-            dest_len.into(),     // dest arr len
-            src_idx.0.into(),    // src start idx
-            src_idx.1.into(),    // src end idx
-            src_idx.2.into(),    // src step
-            src_arr_ptr.into(),  // src arr ptr
-            src_len.into(),      // src arr len
-            {
-                let s = match ty {
-                    BasicTypeEnum::FloatType(t) => t.size_of(),
-                    BasicTypeEnum::IntType(t) => t.size_of(),
-                    BasicTypeEnum::PointerType(t) => t.size_of(),
-                    BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
-                    _ => codegen_unreachable!(ctx),
-                };
-                ctx.builder.build_int_truncate_or_bit_cast(s, llvm_i32, "size").unwrap()
-            }
-            .into(),
-        ];
-        infer_and_call_function(
-            ctx,
-            fun_symbol,
-            Some(llvm_i32.into()),
-            &args,
-            Some("slice_assign"),
-            None,
-        )
-        .map(BasicValueEnum::into_int_value)
-        .unwrap()
-    };
+    let new_len = call_extern!(ctx: llvm_i32 "slice_assign" = fun_symbol(
+        dest_idx.0,   // dest start idx
+        dest_idx.1,   // dest end idx
+        dest_idx.2,   // dest step
+        dest_arr_ptr, // dest arr ptr
+        dest_len,     // dest arr len
+        src_idx.0,    // src start idx
+        src_idx.1,    // src end idx
+        src_idx.2,    // src step
+        src_arr_ptr,  // src arr ptr
+        src_len,      // src arr len
+        {
+            let s = match ty {
+                BasicTypeEnum::FloatType(t) => t.size_of(),
+                BasicTypeEnum::IntType(t) => t.size_of(),
+                BasicTypeEnum::PointerType(t) => t.size_of(),
+                BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
+                _ => codegen_unreachable!(ctx),
+            };
+            ctx.builder.build_int_truncate_or_bit_cast(s, llvm_i32, "size").unwrap()
+        }
+    ));
 
     // update length
     gen_if_callback(

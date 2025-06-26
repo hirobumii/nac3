@@ -49,7 +49,7 @@ impl<'ctx> StringValue<'ctx> {
     }
 
     /// Returns the pointer to the beginning of the string.
-    pub fn extract_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    pub fn extract_ptr(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         self.ptr_field().extract_value(ctx, self.value)
     }
 
@@ -58,7 +58,7 @@ impl<'ctx> StringValue<'ctx> {
     }
 
     /// Returns the length of the string.
-    pub fn extract_len(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn extract_len(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.len_field().extract_value(ctx, self.value)
     }
 }

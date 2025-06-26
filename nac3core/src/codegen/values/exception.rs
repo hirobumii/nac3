@@ -61,7 +61,7 @@ impl<'ctx> ExceptionValue<'ctx> {
     }
 
     /// Stores the ID of the exception name into this instance.
-    pub fn store_name(&self, ctx: &CodeGenContext<'ctx, '_>, name: IntValue<'ctx>) {
+    pub fn store_name(&self, ctx: &mut CodeGenContext<'ctx, '_>, name: IntValue<'ctx>) {
         debug_assert_eq!(name.get_type(), ctx.ctx.i32_type());
 
         self.name_field().store(ctx, self.value, name, self.name);
@@ -72,7 +72,7 @@ impl<'ctx> ExceptionValue<'ctx> {
     }
 
     /// Stores the file name of the exception source into this instance.
-    pub fn store_file(&self, ctx: &CodeGenContext<'ctx, '_>, file: StructValue<'ctx>) {
+    pub fn store_file(&self, ctx: &mut CodeGenContext<'ctx, '_>, file: StructValue<'ctx>) {
         debug_assert!(StringValue::is_instance(file, self.llvm_usize).is_ok());
 
         self.file_field().store(ctx, self.value, file, self.name);
@@ -117,7 +117,7 @@ impl<'ctx> ExceptionValue<'ctx> {
     }
 
     /// Stores the function name of the exception source into this instance.
-    pub fn store_func(&self, ctx: &CodeGenContext<'ctx, '_>, func: StructValue<'ctx>) {
+    pub fn store_func(&self, ctx: &mut CodeGenContext<'ctx, '_>, func: StructValue<'ctx>) {
         debug_assert!(StringValue::is_instance(func, self.llvm_usize).is_ok());
 
         self.func_field().store(ctx, self.value, func, self.name);
@@ -128,7 +128,7 @@ impl<'ctx> ExceptionValue<'ctx> {
     }
 
     /// Stores the exception message into this instance.
-    pub fn store_message(&self, ctx: &CodeGenContext<'ctx, '_>, message: StructValue<'ctx>) {
+    pub fn store_message(&self, ctx: &mut CodeGenContext<'ctx, '_>, message: StructValue<'ctx>) {
         debug_assert!(StringValue::is_instance(message, self.llvm_usize).is_ok());
 
         self.message_field().store(ctx, self.value, message, self.name);
@@ -149,7 +149,7 @@ impl<'ctx> ExceptionValue<'ctx> {
     /// Stores the parameters of the exception into this instance.
     ///
     /// If the parameter does not exist, pass `i64 0` in the parameter slot.
-    pub fn store_params(&self, ctx: &CodeGenContext<'ctx, '_>, params: &[IntValue<'ctx>; 3]) {
+    pub fn store_params(&self, ctx: &mut CodeGenContext<'ctx, '_>, params: &[IntValue<'ctx>; 3]) {
         debug_assert!(params.iter().all(|p| p.get_type() == ctx.ctx.i64_type()));
 
         [self.param0_field(), self.param1_field(), self.param2_field()]
