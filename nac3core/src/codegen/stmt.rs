@@ -205,6 +205,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     value: ValueEnum<'ctx>,
     value_ty: Type,
 ) -> Result<(), String> {
+    let llvm_usize = ctx.get_size_type();
     match &*ctx.unifier.get_ty(value_ty) {
         TypeEnum::TTuple { ty: tuple_tys, .. } => {
             // Deconstruct the tuple `value`
@@ -271,7 +272,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let starred_list = ListType::new(ctx, &ty).construct(
                 generator,
                 ctx,
-                ctx.ctx.i64_type().const_int((after_idx - before_idx) as u64, false),
+                llvm_usize.const_int((after_idx - before_idx) as u64, false),
                 Some("starred_list"),
             );
 
@@ -279,7 +280,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 let ptr = starred_list.data().ptr_offset(
                     ctx,
                     generator,
-                    &ctx.ctx.i64_type().const_int(i as u64, false),
+                    &llvm_usize.const_int(i as u64, false),
                     None,
                 );
                 ctx.builder.build_store(ptr, *val).unwrap();
@@ -318,7 +319,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 let after = targets.iter().skip(starred_idx + 1).rev();
 
                 let unstarred_size =
-                    ctx.ctx.i64_type().const_int(before.len() as u64 + after.len() as u64, false);
+                    llvm_usize.const_int(before.len() as u64 + after.len() as u64, false);
                 ctx.make_assert(
                     generator,
                     ctx.builder
@@ -343,7 +344,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     let item_ptr = rhs_list.data().ptr_offset(
                         ctx,
                         generator,
-                        &ctx.ctx.i64_type().const_int(i as u64, false),
+                        &llvm_usize.const_int(i as u64, false),
                         Some("item_ptr"),
                     );
                     let item_val = ctx.builder.build_load(item_ptr, "item_val").unwrap();
@@ -358,10 +359,8 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                         .unwrap();
 
                     // rhs_size isn't constant so we need to generate the pointer arithemetic
-                    idx = ctx
-                        .builder
-                        .build_int_sub(idx, ctx.ctx.i64_type().const_int(1, false), "")
-                        .unwrap();
+                    idx =
+                        ctx.builder.build_int_sub(idx, llvm_usize.const_int(1, false), "").unwrap();
 
                     let item_ptr =
                         rhs_list.data().ptr_offset(ctx, generator, &idx, Some("item_ptr2"));
@@ -380,7 +379,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     .builder
                     .build_int_sub(
                         idx,
-                        ctx.ctx.i64_type().const_int(starred_idx as u64, false),
+                        llvm_usize.const_int(starred_idx as u64, false),
                         "starred_size",
                     )
                     .unwrap();
@@ -404,7 +403,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     .build_int_compare(
                         IntPredicate::EQ,
                         starred_size,
-                        ctx.ctx.i64_type().const_zero(),
+                        llvm_usize.const_zero(),
                         "is_starred_empty",
                     )
                     .unwrap();
@@ -417,7 +416,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 let rest_start_ptr = rhs_list.data().ptr_offset(
                     ctx,
                     generator,
-                    &ctx.ctx.i64_type().const_int(starred_idx as u64, false),
+                    &llvm_usize.const_int(starred_idx as u64, false),
                     Some("start_ptr"),
                 );
                 call_memcpy_generic_array(
@@ -440,7 +439,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 ctx.builder.build_store(target_ptr, new_list.get_pointer_value(ctx)).unwrap();
             } else {
                 // If no starred target, make sure the number of targets matches the number of items in the list
-                let lhs_size = ctx.ctx.i64_type().const_int(targets.len() as u64, false);
+                let lhs_size = llvm_usize.const_int(targets.len() as u64, false);
                 ctx.make_assert(
                     generator,
                     ctx.builder
@@ -460,7 +459,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     let item_ptr = rhs_list.data().ptr_offset(
                         ctx,
                         generator,
-                        &ctx.ctx.i64_type().const_int(i as u64, false),
+                        &llvm_usize.const_int(i as u64, false),
                         Some("item_ptr"),
                     );
                     let item_val = ctx.builder.build_load(item_ptr, "item_val").unwrap();
