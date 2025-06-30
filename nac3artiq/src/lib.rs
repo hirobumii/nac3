@@ -53,6 +53,7 @@ use nac3core::{
         DefinitionId, GenCall, TopLevelDef,
         builtins::get_exn_constructor,
         composer::{BuiltinFuncCreator, BuiltinFuncSpec, ComposerConfig, TopLevelComposer},
+        helper::decorator_get_flags,
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
@@ -1133,26 +1134,6 @@ fn decor_expr_id_path(decor_expr: &Located<ExprKind>) -> Option<(Vec<StrRef>, St
         }
         _ => None,
     }
-}
-
-/// Retrieves flags from a decorator, if any.
-fn decorator_get_flags(decorator: &Located<ExprKind>) -> Vec<Constant> {
-    let mut flags = vec![];
-    if let ExprKind::Call { keywords, .. } = &decorator.node {
-        for keyword in keywords {
-            if keyword.node.arg != Some("flags".into()) {
-                continue;
-            }
-            if let ExprKind::Set { elts } = &keyword.node.value.node {
-                for elt in elts {
-                    if let ExprKind::Constant { value, .. } = &elt.node {
-                        flags.push(value.clone());
-                    }
-                }
-            }
-        }
-    }
-    flags
 }
 
 /// Resolves a possibly-qualified name consisting of the prefix `path` and identifier `id` in the

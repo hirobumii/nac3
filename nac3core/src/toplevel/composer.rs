@@ -12,8 +12,8 @@ use nac3parser::ast::{self, Expr, ExprKind, Located, StrRef, fold::Fold};
 
 use super::{
     DefinitionId, FunInstance, GenCall, Location, builtins, get_type_from_type_annotation_kinds,
-    get_type_var_contained_in_type_annotation, make_self_type_annotation,
-    parse_ast_to_type_annotation_kinds, type_annotation::TypeAnnotation,
+    get_type_var_contained_in_type_annotation, helper::decorator_get_flags,
+    make_self_type_annotation, parse_ast_to_type_annotation_kinds, type_annotation::TypeAnnotation,
 };
 use crate::{
     codegen::{expr::get_subst_key, stmt::exn_constructor},
@@ -1847,11 +1847,11 @@ impl<'a> TopLevelComposer<'a> {
                 };
 
                 // Do not further analyse extern functions as the body may contain non-compilable statements
-                let mut deco = decorator_list
+                let mut extern_deco_list = decorator_list
                     .iter()
                     .filter(|d| self.core_config.is_extern_decorator(d).is_ok())
                     .peekable();
-                if deco.peek().is_some() {
+                if extern_deco_list.peek().is_some() {
                     let TopLevelDef::Function { instance_to_symbol, signature, .. } =
                         &mut *def.write()
                     else {
@@ -1860,17 +1860,10 @@ impl<'a> TopLevelComposer<'a> {
 
                     // Check for the existence of an `allow-external-alloc` flag in any extern
                     // decorator.
-                    let skip_ret_check = deco.any(|d| {
-                        let ExprKind::Call { keywords, .. } = &d.node else { return false };
-                        keywords.iter().filter_map(|k| {
-                            if matches!(&k.node.arg, Some(name) if name != &"flags".into()) { return None; }
-                            let ExprKind::Set { elts } = &k.node.value.node else { return None; };
-                            Some(elts)
-                        }).flatten().any(|elt| {
-                            let ExprKind::Constant { value, .. } = &elt.node else { return false; };
-                            matches!(value, ast::Constant::Str(str) if str == "allow-external-alloc")
-                        })
-                    });
+                    let skip_ret_check =
+                        extern_deco_list.flat_map(decorator_get_flags).any(|constant| {
+                            constant == ast::Constant::Str("allow-external-alloc".into())
+                        });
 
                     // Check the function signature to ensure the return type is a non-'alloca'ed
                     // type. This is to ensure that the value is not freed after the function exits

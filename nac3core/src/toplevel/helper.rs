@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use nac3parser::ast::{self, Constant, ExprKind, Location, Stmt, StrRef};
+use nac3parser::ast::{self, Constant, ExprKind, Located, Location, Stmt, StrRef};
 
 use super::{
     DefinitionId, TopLevelDef, check_overload_type_annotation_compatible,
@@ -1265,6 +1265,27 @@ pub fn arraylike_get_ndims(unifier: &mut Unifier, ty: Type) -> u64 {
         }
         _ => 0,
     }
+}
+
+/// Retrieves flags from a decorator, if any.
+#[must_use]
+pub fn decorator_get_flags(decorator: &Located<ExprKind>) -> Vec<Constant> {
+    let mut flags = vec![];
+    if let ExprKind::Call { keywords, .. } = &decorator.node {
+        for keyword in keywords {
+            if keyword.node.arg != Some("flags".into()) {
+                continue;
+            }
+            if let ExprKind::Set { elts } = &keyword.node.value.node {
+                for elt in elts {
+                    if let ExprKind::Constant { value, .. } = &elt.node {
+                        flags.push(value.clone());
+                    }
+                }
+            }
+        }
+    }
+    flags
 }
 
 /// Extract an ndarray's `ndims` [type][`Type`] in `u64`. Panic if not possible.
