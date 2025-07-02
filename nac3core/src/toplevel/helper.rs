@@ -930,29 +930,6 @@ impl TopLevelComposer<'_> {
         Ok(result)
     }
 
-    /// Retrieves flags from a decorator, if any.
-    /// This function takes in:
-    /// * `decorator`: A reference to a `Located<ExprKind>` representing the decorator expression.
-    #[must_use]
-    pub fn get_decorator_flags(decorator: &Located<ExprKind>) -> Vec<Constant> {
-        let mut flags = vec![];
-        if let ExprKind::Call { keywords, .. } = &decorator.node {
-            for keyword in keywords {
-                if keyword.node.arg != Some("flags".into()) {
-                    continue;
-                }
-                if let ExprKind::Set { elts } = &keyword.node.value.node {
-                    for elt in elts {
-                        if let ExprKind::Constant { value, .. } = &elt.node {
-                            flags.push(value.clone());
-                        }
-                    }
-                }
-            }
-        }
-        flags
-    }
-
     pub fn parse_parameter_default_value(
         default: &ast::Expr,
         resolver: &(dyn SymbolResolver + Send + Sync),
@@ -1249,6 +1226,29 @@ pub fn parse_parameter_default_value(
             default.location
         )])),
     }
+}
+
+/// Retrieves flags from a decorator, if any.
+/// This function takes in:
+/// * `decorator`: A reference to a `Located<ExprKind>` representing the decorator expression.
+#[must_use]
+pub fn get_decorator_flags(decorator: &Located<ExprKind>) -> Vec<Constant> {
+    let mut flags = vec![];
+    if let ExprKind::Call { keywords, .. } = &decorator.node {
+        for keyword in keywords {
+            if keyword.node.arg != Some("flags".into()) {
+                continue;
+            }
+            if let ExprKind::Set { elts } = &keyword.node.value.node {
+                for elt in elts {
+                    if let ExprKind::Constant { value, .. } = &elt.node {
+                        flags.push(value.clone());
+                    }
+                }
+            }
+        }
+    }
+    flags
 }
 
 /// Obtains the element type of an array-like type.

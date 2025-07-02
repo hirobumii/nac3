@@ -53,6 +53,7 @@ use nac3core::{
         DefinitionId, GenCall, TopLevelDef,
         builtins::get_exn_constructor,
         composer::{BuiltinFuncCreator, BuiltinFuncSpec, ComposerConfig, TopLevelComposer},
+        helper::get_decorator_flags,
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
@@ -662,7 +663,7 @@ impl Nac3 {
                                 .unwrap();
                             let is_async = decorator_list
                                 .iter()
-                                .flat_map(TopLevelComposer::get_decorator_flags)
+                                .flat_map(get_decorator_flags)
                                 .any(|constant| constant == Constant::Str("async".into()));
                             rpc_ids.push((None, def_id, is_async));
                         } else if ![
@@ -702,7 +703,7 @@ impl Nac3 {
 
                                     let is_async = decorator_list
                                         .iter()
-                                        .flat_map(TopLevelComposer::get_decorator_flags)
+                                        .flat_map(get_decorator_flags)
                                         .any(|constant| constant == Constant::Str("async".into()));
                                     rpc_ids.push((
                                         Some((class_obj.clone(), *name)),
