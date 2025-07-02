@@ -473,7 +473,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             let current = self.builder.get_insert_block().unwrap().get_parent().unwrap();
             let then_block = self.ctx.append_basic_block(current, &format!("after.{call_name}"));
             let result = self.fn_store.invoke(
-                &fun,
+                fun,
                 &self.builder,
                 params,
                 then_block,
@@ -485,7 +485,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             result
         } else {
             let param: Vec<_> = params.iter().map(|v| (*v).into()).collect();
-            self.fn_store.call(&fun, &self.builder, &param, call_name, alloca)
+            self.fn_store.call(fun, &self.builder, &param, call_name, alloca)
         };
 
         result

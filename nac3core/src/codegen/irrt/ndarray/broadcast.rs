@@ -26,7 +26,7 @@ pub fn call_nac3_ndarray_broadcast_to<'ctx>(
     dst_ndarray: NDArrayValue<'ctx>,
 ) {
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_to");
-    call_extern!(ctx: void _ = name(src_ndarray.as_abi_value(ctx), dst_ndarray.as_abi_value(ctx)))
+    call_extern!(ctx: void _ = name(src_ndarray.as_abi_value(ctx), dst_ndarray.as_abi_value(ctx)));
 }
 
 /// Generates a call to `__nac3_ndarray_broadcast_shapes`.

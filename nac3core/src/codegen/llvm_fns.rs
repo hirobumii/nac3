@@ -30,7 +30,7 @@ pub struct FunctionDecl<'ctx> {
     _phantom: PhantomData<&'ctx ()>,
 }
 
-impl<'ctx> FunctionDecl<'ctx> {
+impl FunctionDecl<'_> {
     fn new(name: String) -> Self {
         Self { name, _phantom: PhantomData }
     }
@@ -109,7 +109,7 @@ impl<'ctx> FunctionStore<'ctx> {
         let mut new_fn = None;
         self.functions.entry(name.to_owned()).or_insert_with(|| {
             let f = module.add_function(
-                &name,
+                name,
                 match ret {
                     Some(ret) => ret.fn_type(params, false),
                     None => module.get_context().void_type().fn_type(params, false),
@@ -123,7 +123,7 @@ impl<'ctx> FunctionStore<'ctx> {
             (f, FunctionInfo::Internal { ret, params: params.into(), export })
         });
 
-        let value = new_fn.unwrap_or_else(|| module.get_function(&name).unwrap());
+        let value = new_fn.unwrap_or_else(|| module.get_function(name).unwrap());
         (FunctionDecl::new(name.into()), value)
     }
 
