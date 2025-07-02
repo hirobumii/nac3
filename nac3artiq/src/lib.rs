@@ -53,6 +53,7 @@ use nac3core::{
         DefinitionId, GenCall, TopLevelDef,
         builtins::get_exn_constructor,
         composer::{BuiltinFuncCreator, BuiltinFuncSpec, ComposerConfig, TopLevelComposer},
+        helper::get_decorator_flags,
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
@@ -662,7 +663,7 @@ impl Nac3 {
                                 .unwrap();
                             let is_async = decorator_list
                                 .iter()
-                                .flat_map(decorator_get_flags)
+                                .flat_map(get_decorator_flags)
                                 .any(|constant| constant == Constant::Str("async".into()));
                             rpc_ids.push((None, def_id, is_async));
                         } else if ![
@@ -702,7 +703,7 @@ impl Nac3 {
 
                                     let is_async = decorator_list
                                         .iter()
-                                        .flat_map(decorator_get_flags)
+                                        .flat_map(get_decorator_flags)
                                         .any(|constant| constant == Constant::Str("async".into()));
                                     rpc_ids.push((
                                         Some((class_obj.clone(), *name)),
@@ -1133,26 +1134,6 @@ fn decor_expr_id_path(decor_expr: &Located<ExprKind>) -> Option<(Vec<StrRef>, St
         }
         _ => None,
     }
-}
-
-/// Retrieves flags from a decorator, if any.
-fn decorator_get_flags(decorator: &Located<ExprKind>) -> Vec<Constant> {
-    let mut flags = vec![];
-    if let ExprKind::Call { keywords, .. } = &decorator.node {
-        for keyword in keywords {
-            if keyword.node.arg != Some("flags".into()) {
-                continue;
-            }
-            if let ExprKind::Set { elts } = &keyword.node.value.node {
-                for elt in elts {
-                    if let ExprKind::Constant { value, .. } = &elt.node {
-                        flags.push(value.clone());
-                    }
-                }
-            }
-        }
-    }
-    flags
 }
 
 /// Resolves a possibly-qualified name consisting of the prefix `path` and identifier `id` in the
