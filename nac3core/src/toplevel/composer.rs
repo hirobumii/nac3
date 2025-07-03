@@ -1849,7 +1849,7 @@ impl<'a> TopLevelComposer<'a> {
                 // Do not further analyse extern functions as the body may contain non-compilable statements
                 let mut extern_deco_list = decorator_list
                     .iter()
-                    .filter(|d| self.core_config.is_extern_decorator(d).is_ok())
+                    .filter(|d| self.core_config.is_extern_decorator(d).unwrap_or(false))
                     .peekable();
                 if extern_deco_list.peek().is_some() {
                     let TopLevelDef::Function { instance_to_symbol, signature, .. } =
