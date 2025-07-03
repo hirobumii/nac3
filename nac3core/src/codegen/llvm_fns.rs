@@ -14,7 +14,7 @@ use inkwell::{
     builder::Builder,
     module::{Linkage, Module},
     targets::TargetData,
-    types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum},
+    types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, PointerType},
     values::{BasicMetadataValueEnum, BasicValueEnum, CallSiteValue, FunctionValue, PointerValue},
 };
 use itertools::Itertools;
@@ -212,6 +212,23 @@ impl<'ctx> FunctionStore<'ctx> {
     {
         let ptr_to_t = |p| BasicValueEnum::from(p).into();
 
+        let fixup_ptr_arg = |arg: T, param: PointerType<'ctx>| {
+            // HACK(ivan): Ignore mismatches in element types of pointers.
+            // This is because we had implemented inheritance by reinterpreting
+            // types of pointers liberally:
+            // https://git.m-labs.hk/M-Labs/nac3/pulls/295
+            // Fix the root cause of this when migrating to untyped pointers.
+            let arg = arg.try_into().unwrap().into_pointer_value();
+            let arg: PointerValue = if param.get_element_type().is_struct_type()
+                && arg.get_type().get_element_type().is_struct_type()
+            {
+                builder.build_pointer_cast(arg, param, "").unwrap()
+            } else {
+                arg
+            };
+            ptr_to_t(arg)
+        };
+
         let (value, ref info) = self.functions[&decl.name];
         match info {
             FunctionInfo::External { ret, params, is_c_varargs } => {
@@ -223,6 +240,12 @@ impl<'ctx> FunctionStore<'ctx> {
                 };
                 let normal_args = params.iter().map(|&TyAndCallConv { ty, indirect }| {
                     let next = *args.next().expect("arguments fewer than parameters");
+                    let next = if let BasicTypeEnum::PointerType(p) = ty {
+                        fixup_ptr_arg(next, p)
+                    } else {
+                        next
+                    };
+
                     if indirect {
                         let p = alloca(ty);
                         builder.build_store(p, next.try_into().unwrap()).unwrap();
@@ -257,21 +280,10 @@ impl<'ctx> FunctionStore<'ctx> {
                     .zip(params)
                     .map(|(&arg, param)| {
                         if let BasicMetadataTypeEnum::PointerType(p) = *param {
-                            let arg = arg.try_into().unwrap().into_pointer_value();
-                            if p.get_element_type().is_struct_type()
-                                && arg.get_type().get_element_type().is_struct_type()
-                            {
-                                // HACK(ivan): Ignore mismatches in element types of pointers.
-                                // This is because we had implemented inheritance by reinterpreting
-                                // types of pointers liberally:
-                                // https://git.m-labs.hk/M-Labs/nac3/pulls/295
-                                // Fix the root cause of this when migrating to untyped pointers.
-
-                                let arg = builder.build_pointer_cast(arg, p, "").unwrap();
-                                return ptr_to_t(arg);
-                            }
+                            fixup_ptr_arg(arg, p)
+                        } else {
+                            arg
                         }
-                        arg
                     })
                     .collect_vec();
 
