@@ -58,8 +58,15 @@ enum FunctionInfo<'ctx> {
 struct TyAndCallConv<'ctx> {
     /// The actual type of this parameter or return value.
     ty: BasicTypeEnum<'ctx>,
-    /// Whether this value is passed indirectly.
-    indirect: bool,
+    /// Whether this value is passed indirectly, and if yes, the special
+    /// attribute required for that parameter if necessary.
+    indirect: Option<Option<Attribute>>,
+}
+
+fn get_attrs(
+    a: impl IntoIterator<Item = Option<Attribute>>,
+) -> impl Iterator<Item = (AttributeLoc, Attribute)> {
+    a.into_iter().enumerate().filter_map(|(i, attr)| Some((AttributeLoc::Param(i as _), attr?)))
 }
 
 /// Functions in an LLVM module, with ABI details encapsulated.
@@ -149,42 +156,39 @@ impl<'ctx> FunctionStore<'ctx> {
         let triple = module.get_triple();
         let arch = triple.as_str().to_str().unwrap().split('-').next().unwrap();
 
-        let ret = ret.map(|ty| TyAndCallConv { ty, indirect: indirect_ret(arch, module, ty) });
-        let params = params
-            .iter()
-            .map(|&ty| TyAndCallConv { ty, indirect: indirect_arg(arch, module, ty) })
-            .collect_vec();
-        let (llvm_ret, sret) = match ret {
-            None => (None, None),
-            Some(TyAndCallConv { ty, indirect: false }) => (Some(ty), None),
-            Some(TyAndCallConv { ty, indirect: true }) => (None, Some(ty)),
+        let is_x86 = arch == "x86_64" || arch == "i686";
+        let [attr_sret, attr_byval] =
+            ["sret", "byval"].map(|x| is_x86.then(|| Attribute::get_named_enum_kind_id(x)));
+        let get_conv = |attr: Option<u32>, ty| TyAndCallConv {
+            ty,
+            indirect: indirect_arg(arch, module, ty).then(|| {
+                attr.map(|x| ctx.create_type_attribute(x, AnyType::as_any_type_enum(&ty)))
+            }),
         };
-        let [attr_sret, attr_byval] = ["sret", "byval"].map(Attribute::get_named_enum_kind_id);
-        let ptr = |ty: BasicTypeEnum<'ctx>| ty.ptr_type(AddressSpace::default()).into();
+
+        let ret = ret.map(|ty| get_conv(attr_sret, ty));
+        let params = params.iter().map(|&ty| get_conv(attr_byval, ty)).collect_vec();
+
+        let (llvm_ret, sret) = match ret {
+            Some(TyAndCallConv { ty, indirect: None, .. }) => (Some(ty), None),
+            ret => (None, ret),
+        };
         let (llvm_params, attrs): (Vec<_>, Vec<_>) = sret
             .into_iter()
-            .map(|ty| (ptr(ty), (Some((attr_sret, ty)))))
-            .chain(params.iter().copied().map(|TyAndCallConv { ty, indirect }| {
-                if indirect {
-                    // It appears that only `x86_64` emits an actual "byval" attribute for ABI purposes.
-                    (ptr(ty), (arch == "x86_64").then_some((attr_byval, ty)))
-                } else {
-                    (BasicMetadataTypeEnum::from(ty), None)
-                }
-            }))
+            .chain(params.iter().copied())
+            .map(|TyAndCallConv { ty, indirect }| match indirect {
+                Some(attr) => (ty.ptr_type(AddressSpace::default()).into(), attr),
+                None => (BasicMetadataTypeEnum::from(ty), None),
+            })
             .unzip();
-        let info = FunctionInfo::External { ret, params, is_c_varargs };
 
         let fn_ty = match llvm_ret {
             None => ctx.void_type().fn_type(&llvm_params, is_c_varargs),
             Some(ret) => ret.fn_type(&llvm_params, is_c_varargs),
         };
         let f = module.add_function(name, fn_ty, Some(Linkage::External));
-        for (i, (attr, ty)) in attrs.iter().enumerate().filter_map(|(i, &attr)| Some((i, attr?))) {
-            f.add_attribute(
-                AttributeLoc::Param(i as _),
-                ctx.create_type_attribute(attr, ty.as_any_type_enum()),
-            );
+        for (loc, attr) in get_attrs(attrs) {
+            f.add_attribute(loc, attr);
         }
 
         for &attr in fn_attrs {
@@ -194,6 +198,7 @@ impl<'ctx> FunctionStore<'ctx> {
             );
         }
 
+        let info = FunctionInfo::External { ret, params, is_c_varargs };
         entry.insert((f, info));
         FunctionDecl::new(name.into())
     }
@@ -212,21 +217,19 @@ impl<'ctx> FunctionStore<'ctx> {
     {
         let ptr_to_t = |p| BasicValueEnum::from(p).into();
 
-        let fixup_ptr_arg = |arg: T, param: PointerType<'ctx>| {
+        let fixup_ptr_arg = |mut arg: T, param: PointerType<'ctx>| {
             // HACK(ivan): Ignore mismatches in element types of pointers.
             // This is because we had implemented inheritance by reinterpreting
             // types of pointers liberally:
             // https://git.m-labs.hk/M-Labs/nac3/pulls/295
             // Fix the root cause of this when migrating to untyped pointers.
-            let arg = arg.try_into().unwrap().into_pointer_value();
-            let arg: PointerValue = if param.get_element_type().is_struct_type()
-                && arg.get_type().get_element_type().is_struct_type()
+            let p = arg.try_into().unwrap().into_pointer_value();
+            if param.get_element_type().is_struct_type()
+                && p.get_type().get_element_type().is_struct_type()
             {
-                builder.build_pointer_cast(arg, param, "").unwrap()
-            } else {
-                arg
+                arg = ptr_to_t(builder.build_pointer_cast(p, param, "").unwrap())
             };
-            ptr_to_t(arg)
+            arg
         };
 
         let (value, ref info) = self.functions[&decl.name];
@@ -235,40 +238,43 @@ impl<'ctx> FunctionStore<'ctx> {
                 let mut args = args.iter();
 
                 let slot = match *ret {
-                    Some(TyAndCallConv { ty, indirect: true }) => Some(alloca(ty)),
+                    Some(TyAndCallConv { ty, indirect: Some(attr) }) => Some((alloca(ty), attr)),
                     _ => None,
                 };
                 let normal_args = params.iter().map(|&TyAndCallConv { ty, indirect }| {
-                    let next = *args.next().expect("arguments fewer than parameters");
-                    let next = if let BasicTypeEnum::PointerType(p) = ty {
-                        fixup_ptr_arg(next, p)
-                    } else {
-                        next
-                    };
+                    let mut next = *args.next().expect("arguments fewer than parameters");
+                    if let BasicTypeEnum::PointerType(p) = ty {
+                        next = fixup_ptr_arg(next, p);
+                    }
 
-                    if indirect {
+                    if let Some(attr) = indirect {
                         let p = alloca(ty);
                         builder.build_store(p, next.try_into().unwrap()).unwrap();
-                        ptr_to_t(p)
+                        (ptr_to_t(p), attr)
                     } else {
-                        next
+                        (next, None)
                     }
                 });
-                let mut llvm_args: Vec<_> =
-                    slot.into_iter().map(ptr_to_t).chain(normal_args).collect();
+
+                let normal_slot = slot.map(|(p, attr)| (ptr_to_t(p), attr));
+                let (mut llvm_args, attrs): (Vec<_>, Vec<_>) =
+                    normal_slot.into_iter().chain(normal_args).unzip();
                 if *is_c_varargs {
                     llvm_args.extend(args.copied());
                 } else {
                     assert!(args.as_slice().is_empty(), "too many arguments");
                 }
 
-                let result = call(value, &llvm_args).try_as_basic_value().left();
-                let result = if let Some(slot) = slot {
+                let result = call(value, &llvm_args);
+                for (loc, attr) in get_attrs(attrs) {
+                    result.add_attribute(loc, attr);
+                }
+
+                let mut result = result.try_as_basic_value().left();
+                if let Some((ptr, _)) = slot {
                     assert!(result.is_none());
-                    Some(builder.build_load(slot, "slot").unwrap())
-                } else {
-                    result
-                };
+                    result = Some(builder.build_load(ptr, "slot").unwrap());
+                }
                 assert_eq!(result.map(|val| val.get_type()), ret.map(|ret_type| ret_type.ty));
                 result
             }
@@ -364,6 +370,7 @@ fn indirect_ret(arch: &str, module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool
         "armv7" => arm_indirect_ret(module, ret, false),
         "aarch64" => arm_indirect_ret(module, ret, true),
         "riscv32" => riscv_indirect_ret(module, ret),
+        "i686" => x86_indirect_ret(module, ret),
         _ => unimplemented!("unsupported arch for extern fn: {arch}"),
     }
 }
@@ -433,4 +440,9 @@ fn x86_64_indirect_ret(module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool {
     //
     // So for our specific case, `need_sret` is just a size check.
     bits_of(module, ret) > 128
+}
+
+fn x86_indirect_ret(_module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool {
+    // All aggregates are passed indirectly, even those with just 1 element.
+    ret.is_struct_type() || ret.is_array_type()
 }
