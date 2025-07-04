@@ -64,6 +64,7 @@ pub mod values;
 
 #[cfg(test)]
 mod test;
+pub mod types3;
 
 mod macros {
     /// Codegen-variant of [`std::unreachable`] which accepts an instance of [`CodeGenContext`] as

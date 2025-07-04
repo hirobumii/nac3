@@ -22,7 +22,7 @@ strum_macros = "0.27"
 [dependencies.inkwell]
 version = "0.6.0"
 default-features = false
-features = ["llvm16-0-prefer-dynamic", "target-x86", "target-arm", "target-riscv", "no-libffi-linking", "typed-pointers"]
+features = ["llvm16-0-prefer-dynamic", "target-x86", "target-arm", "target-riscv", "no-libffi-linking"]
 
 [dev-dependencies]
 test-case = "3.3"
