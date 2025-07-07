@@ -159,15 +159,15 @@ impl<'ctx> FunctionStore<'ctx> {
         let is_x86 = arch == "x86_64" || arch == "i686";
         let [attr_sret, attr_byval] =
             ["sret", "byval"].map(|x| is_x86.then(|| Attribute::get_named_enum_kind_id(x)));
-        let get_conv = |attr: Option<u32>, ty| TyAndCallConv {
+        let get_conv = |attr: Option<u32>, ty, indirect_check: fn(_, _, _) -> bool| TyAndCallConv {
             ty,
-            indirect: indirect_arg(arch, module, ty).then(|| {
+            indirect: indirect_check(arch, module, ty).then(|| {
                 attr.map(|x| ctx.create_type_attribute(x, AnyType::as_any_type_enum(&ty)))
             }),
         };
 
-        let ret = ret.map(|ty| get_conv(attr_sret, ty));
-        let params = params.iter().map(|&ty| get_conv(attr_byval, ty)).collect_vec();
+        let ret = ret.map(|ty| get_conv(attr_sret, ty, indirect_ret));
+        let params = params.iter().map(|&ty| get_conv(attr_byval, ty, indirect_arg)).collect_vec();
 
         let (llvm_ret, sret) = match ret {
             Some(TyAndCallConv { ty, indirect: None, .. }) => (Some(ty), None),
