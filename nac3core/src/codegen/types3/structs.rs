@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use inkwell::{builder::Builder, context::Context, types::BasicTypeEnum};
 
 use super::{
-    Basic, BasicTag, I32, I64, RawPointer, Ref, Struct, Type, TypeTag, Usize, Value, Void,
+    Basic, BasicTag, I32, I64, Meta, RawPointer, Ref, Struct, Type, TypeTag, Usize, Value, Void,
     make_structs, type_tag_generic,
 };
 
@@ -46,7 +46,7 @@ make_structs! {
 pub struct Tuple<T>(Void, PhantomData<fn(T) -> T>);
 impl<T: TypeTag> TypeTag for Tuple<T> {
     // *** Typed pointers! ***
-    type Metadata<'ctx> = Vec<T::Metadata<'ctx>>;
+    type Metadata<'ctx> = Vec<Meta<'ctx, T>>;
 }
 type_tag_generic!(Tuple : Struct, Basic);
 

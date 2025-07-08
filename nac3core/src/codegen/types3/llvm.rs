@@ -1,6 +1,6 @@
 use inkwell::llvm_sys::prelude::{LLVMTypeRef, LLVMValueRef};
 
-use super::{SubtypeOf, Type, TypeTag, Value, type_tag};
+use super::{Meta, SubtypeOf, Type, TypeTag, Value, type_tag};
 use inkwell::{types::*, values::*};
 
 macro_rules! impl_for_inkwell {
@@ -65,16 +65,34 @@ unsafe impl<'ctx> super::ValueExt<'ctx> for FunctionValue<'ctx> {
 
 impl_for_inkwell!(AggregateValue, val AggregateValueEnum : Basic);
 
-unsafe impl<'ctx, T: SubtypeOf<Basic> + SubtypeOf<Any>> BasicType<'ctx> for Type<'ctx, T> {}
-unsafe impl<'ctx, T: SubtypeOf<Any>> AnyType<'ctx> for Type<'ctx, T> {}
-unsafe impl<'ctx, T: SubtypeOf<Basic> + SubtypeOf<Any>> BasicValue<'ctx> for Value<'ctx, T> {}
-unsafe impl<'ctx, T: SubtypeOf<Any>> AnyValue<'ctx> for Value<'ctx, T> {}
-pub trait BasicTag: SubtypeOf<Basic> + SubtypeOf<Any> {}
-impl<T: SubtypeOf<Basic> + SubtypeOf<Any>> BasicTag for T {}
+unsafe impl<'ctx, T: SubtypeOf<Basic> + SubtypeOf<Any> + TypeTag<Metadata<'ctx>: std::fmt::Debug>>
+    BasicType<'ctx> for Type<'ctx, T>
+{
+}
+unsafe impl<'ctx, T: SubtypeOf<Any> + TypeTag<Metadata<'ctx>: std::fmt::Debug>> AnyType<'ctx>
+    for Type<'ctx, T>
+{
+}
+unsafe impl<'ctx, T: SubtypeOf<Basic> + SubtypeOf<Any> + TypeTag<Metadata<'ctx>: std::fmt::Debug>>
+    BasicValue<'ctx> for Value<'ctx, T>
+{
+}
+unsafe impl<'ctx, T: SubtypeOf<Any> + TypeTag<Metadata<'ctx>: std::fmt::Debug>> AnyValue<'ctx>
+    for Value<'ctx, T>
+{
+}
+pub trait BasicTag:
+    SubtypeOf<Basic> + SubtypeOf<Any> + for<'ctx> TypeTag<Metadata<'ctx>: std::fmt::Debug>
+{
+}
+impl<T: SubtypeOf<Basic> + SubtypeOf<Any> + for<'ctx> TypeTag<Metadata<'ctx>: std::fmt::Debug>>
+    BasicTag for T
+{
+}
 
 unsafe impl<T: TypeTag> SubtypeOf<Any> for T {
     fn cast_metadata<'ctx>(
-        meta: Self::Metadata<'ctx>,
+        meta: Meta<'ctx, Self>,
     ) -> <Any as super::traits::TypeTag>::Metadata<'ctx> {
         ()
     }

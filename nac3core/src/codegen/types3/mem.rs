@@ -4,6 +4,8 @@ use inkwell::{builder::Builder, context::Context, types::ArrayType, values::Poin
 
 use super::*;
 
+// Meta<'ctx, T>
+
 pub struct Ref<T>(Void, PhantomData<fn(T) -> T>);
 impl<T: TypeTag> TypeTag for Ref<T> {
     // *** Typed pointers! ***
@@ -35,10 +37,10 @@ impl<T: TypeTag> Ref<T> {
 // it's just a type-level wrapper over T itself.
 pub struct Memory<T>(Void, PhantomData<fn() -> T>);
 impl<T: TypeTag> TypeTag for Memory<T> {
-    type Metadata<'ctx> = T::Metadata<'ctx>;
+    type Metadata<'ctx> = Meta<'ctx, T>;
 }
 unsafe impl<T: SubtypeOf<U>, U: TypeTag> SubtypeOf<Memory<U>> for Memory<T> {
-    fn cast_metadata<'ctx>(meta: Self::Metadata<'ctx>) -> <Memory<U> as TypeTag>::Metadata<'ctx> {
+    fn cast_metadata<'ctx>(meta: Meta<'ctx, Self>) -> <Memory<U> as TypeTag>::Metadata<'ctx> {
         T::cast_metadata(meta)
     }
 }
@@ -56,14 +58,13 @@ impl<'ctx, T: TypeTag> Value<'ctx, Ref<Memory<T>>> {
     }
 }
 
+// Somewhat corresponds to C arrays with unknown size. This does use LLVM's array type.
 pub struct TypedArray<T>(Void, PhantomData<fn() -> T>);
 impl<T: TypeTag> TypeTag for TypedArray<T> {
-    type Metadata<'ctx> = T::Metadata<'ctx>;
+    type Metadata<'ctx> = Meta<'ctx, T>;
 }
 unsafe impl<T: SubtypeOf<U>, U: TypeTag> SubtypeOf<TypedArray<U>> for TypedArray<T> {
-    fn cast_metadata<'ctx>(
-        meta: Self::Metadata<'ctx>,
-    ) -> <TypedArray<U> as TypeTag>::Metadata<'ctx> {
+    fn cast_metadata<'ctx>(meta: Meta<'ctx, Self>) -> <TypedArray<U> as TypeTag>::Metadata<'ctx> {
         T::cast_metadata(meta)
     }
 }

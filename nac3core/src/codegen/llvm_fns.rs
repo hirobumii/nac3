@@ -238,7 +238,9 @@ impl<'ctx> FunctionStore<'ctx> {
                 let mut args = args.iter();
 
                 let slot = match *ret {
-                    Some(TyAndCallConv { ty, indirect: Some(attr) }) => Some((alloca(ty), attr)),
+                    Some(TyAndCallConv { ty, indirect: Some(attr) }) => {
+                        Some(((ty, alloca(ty)), attr))
+                    }
                     _ => None,
                 };
                 let normal_args = params.iter().map(|&TyAndCallConv { ty, indirect }| {
@@ -256,7 +258,7 @@ impl<'ctx> FunctionStore<'ctx> {
                     }
                 });
 
-                let normal_slot = slot.map(|(p, attr)| (ptr_to_t(p), attr));
+                let normal_slot = slot.map(|((_ty, p), attr)| (ptr_to_t(p), attr));
                 let (mut llvm_args, attrs): (Vec<_>, Vec<_>) =
                     normal_slot.into_iter().chain(normal_args).unzip();
                 if *is_c_varargs {
@@ -271,9 +273,9 @@ impl<'ctx> FunctionStore<'ctx> {
                 }
 
                 let mut result = result.try_as_basic_value().left();
-                if let Some((ptr, _)) = slot {
+                if let Some(((ty, ptr), _)) = slot {
                     assert!(result.is_none());
-                    result = Some(builder.build_load(ptr, "slot").unwrap());
+                    result = Some(builder.build_load(ty, ptr, "slot").unwrap());
                 }
                 assert_eq!(result.map(|val| val.get_type()), ret.map(|ret_type| ret_type.ty));
                 result

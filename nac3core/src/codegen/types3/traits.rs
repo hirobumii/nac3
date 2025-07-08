@@ -8,7 +8,7 @@ use inkwell::{
 
 /// Represents any type that loosely corresponds to some type in LLVM.
 pub trait TypeTag {
-    type Metadata<'ctx>: Clone + Debug;
+    type Metadata<'ctx>: Clone;
 }
 
 /// Types that have a one-to-one correspondence with LLVM types. This accurately describes
@@ -30,7 +30,7 @@ pub unsafe trait TypeExt<'ctx>: AsTypeRef + Sized {
 /// Represents an LLVM type, with some metadata.
 pub struct Type<'ctx, T: TypeTag> {
     ty: LLVMTypeRef,
-    info: <T as TypeTag>::Metadata<'ctx>,
+    info: Meta<'ctx, T>,
     _phantom: PhantomData<fn() -> (&'ctx (), T)>,
 }
 impl<'ctx, T: TypeTag<Metadata<'ctx>: Copy>> Copy for Type<'ctx, T> {}
@@ -63,16 +63,16 @@ impl<'ctx, T: TypeTag> Type<'ctx, T> {
     {
         unsafe { Self::from_raw_parts(ty, ()) }
     }
-    pub unsafe fn from_raw_parts<Ty: AsTypeRef>(ty: Ty, info: T::Metadata<'ctx>) -> Self {
+    pub unsafe fn from_raw_parts<Ty: AsTypeRef>(ty: Ty, info: Meta<'ctx, T>) -> Self {
         Self { ty: ty.as_type_ref(), info, _phantom: PhantomData }
     }
-    pub fn get<Ty: TypeExt<'ctx>>(self) -> (Ty, T::Metadata<'ctx>)
+    pub fn get<Ty: TypeExt<'ctx>>(self) -> (Ty, Meta<'ctx, T>)
     where
         T: SubtypeOf<Ty::Tag>,
     {
         unsafe { self.get_unchecked() }
     }
-    pub unsafe fn get_unchecked<Ty: TypeExt<'ctx>>(self) -> (Ty, T::Metadata<'ctx>) {
+    pub unsafe fn get_unchecked<Ty: TypeExt<'ctx>>(self) -> (Ty, Meta<'ctx, T>) {
         (unsafe { TypeExt::from_raw(self.ty) }, self.info)
     }
     pub fn cast<U: TypeTag>(self) -> Type<'ctx, U>
@@ -105,7 +105,7 @@ pub unsafe trait ValueExt<'ctx>: AsValueRef + Sized {
 
 pub struct Value<'ctx, T: TypeTag> {
     val: LLVMValueRef,
-    pub(crate) info: <T as TypeTag>::Metadata<'ctx>,
+    pub(crate) info: Meta<'ctx, T>,
     _phantom: PhantomData<(&'ctx ())>,
 }
 
@@ -139,16 +139,16 @@ impl<'ctx, T: TypeTag> Value<'ctx, T> {
     {
         unsafe { Self::from_raw_parts(val, ()) }
     }
-    pub unsafe fn from_raw_parts<Val: AsValueRef>(val: Val, info: T::Metadata<'ctx>) -> Self {
+    pub unsafe fn from_raw_parts<Val: AsValueRef>(val: Val, info: Meta<'ctx, T>) -> Self {
         Self { val: val.as_value_ref(), info, _phantom: PhantomData }
     }
-    pub fn get<Val: ValueExt<'ctx>>(self) -> (Val, T::Metadata<'ctx>)
+    pub fn get<Val: ValueExt<'ctx>>(self) -> (Val, Meta<'ctx, T>)
     where
         T: SubtypeOf<Val::Tag>,
     {
         unsafe { self.get_unchecked() }
     }
-    pub unsafe fn get_unchecked<Val: ValueExt<'ctx>>(self) -> (Val, T::Metadata<'ctx>) {
+    pub unsafe fn get_unchecked<Val: ValueExt<'ctx>>(self) -> (Val, Meta<'ctx, T>) {
         (unsafe { ValueExt::from_raw(self.val) }, self.info)
     }
     pub fn cast<U: TypeTag>(self) -> Value<'ctx, U>
@@ -163,9 +163,11 @@ impl<'ctx, T: TypeTag> Value<'ctx, T> {
     }
 }
 
+pub type Meta<'ctx, T> = <T as TypeTag>::Metadata<'ctx>;
+
 /// Rules of variance.
 pub unsafe trait SubtypeOf<U: TypeTag>: TypeTag {
-    fn cast_metadata<'ctx>(meta: Self::Metadata<'ctx>) -> U::Metadata<'ctx>;
+    fn cast_metadata<'ctx>(meta: Meta<'ctx, Self>) -> Meta<'ctx, U>;
 }
 
 #[macro_export]
@@ -176,10 +178,10 @@ macro_rules! __codegen_type_tag {
             type Metadata<'ctx> = ();
         }
         unsafe impl $crate::codegen::types3::SubtypeOf<$tag> for $tag {
-            fn cast_metadata<'ctx>(meta: Self::Metadata<'ctx>) -> Self::Metadata<'ctx> { meta }
+            fn cast_metadata<'ctx>(meta: $crate::codegen::types3::Meta<'ctx, Self>) -> $crate::codegen::types3::Meta<'ctx, Self> { meta }
         }
         $(unsafe impl $crate::codegen::types3::SubtypeOf<$t> for $tag {
-            fn cast_metadata<'ctx>(meta: Self::Metadata<'ctx>) -> <$t as $crate::codegen::types3::TypeTag>::Metadata<'ctx> { meta }
+            fn cast_metadata<'ctx>(meta: $crate::codegen::types3::Meta<'ctx, Self>) -> $crate::codegen::types3::Meta<'ctx, $t> { meta }
         })*
     }
 }
@@ -192,7 +194,7 @@ pub use __codegen_type_tag as type_tag;
 macro_rules! __codegen_type_tag_generic {
     ($tag:ident : $($t:ty),*) => {
         $(unsafe impl<T: TypeTag> $crate::codegen::types3::SubtypeOf<$t> for $tag<T> {
-            fn cast_metadata<'ctx>(meta: Self::Metadata<'ctx>) -> <$t as $crate::codegen::types3::TypeTag>::Metadata<'ctx> { () }
+            fn cast_metadata<'ctx>(meta: $crate::codegen::types3::Meta<'ctx, Self>) -> $crate::codegen::types3::Meta<'ctx, $t> { () }
         })*
     }
 }

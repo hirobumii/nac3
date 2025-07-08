@@ -4,13 +4,13 @@ use inkwell::{builder::Builder, context::Context, types::PointerType, values::Po
 
 use super::{Basic, Bool, RawPointer, Ref, Type, TypeTag, Value, ValueExt, Void, type_tag_generic};
 
-pub struct Option<T>(Void, PhantomData<fn(T) -> T>);
-impl<T: TypeTag> TypeTag for Option<T> {
+pub struct Optional<T>(Void, PhantomData<fn(T) -> T>);
+impl<T: TypeTag> TypeTag for Optional<T> {
     // *** Typed pointers! ***
     type Metadata<'ctx> = Type<'ctx, T>;
 }
-type_tag_generic!(Option : RawPointer, Basic);
-impl<T: TypeTag> Option<T> {
+type_tag_generic!(Optional : RawPointer, Basic);
+impl<T: TypeTag> Optional<T> {
     fn ty<'ctx>(ctx: &'ctx Context, ty: Type<'ctx, T>) -> Type<'ctx, Self> {
         unsafe { Type::from_raw_parts(RawPointer::ty(ctx), ty) }
     }
