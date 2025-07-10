@@ -12,8 +12,8 @@ use nac3parser::ast::{self, Expr, ExprKind, Located, StrRef, fold::Fold};
 
 use super::{
     DefinitionId, FunInstance, GenCall, Location, builtins, get_type_from_type_annotation_kinds,
-    get_type_var_contained_in_type_annotation, helper::get_decorator_flags,
-    make_self_type_annotation, parse_ast_to_type_annotation_kinds, type_annotation::TypeAnnotation,
+    get_type_var_contained_in_type_annotation, make_self_type_annotation,
+    parse_ast_to_type_annotation_kinds, type_annotation::TypeAnnotation,
 };
 use crate::{
     codegen::{expr::get_subst_key, stmt::exn_constructor},
@@ -1847,39 +1847,16 @@ impl<'a> TopLevelComposer<'a> {
                 };
 
                 // Do not further analyse extern functions as the body may contain non-compilable statements
-                let mut extern_deco_list = decorator_list
+                if decorator_list
                     .iter()
-                    .filter(|d| self.core_config.is_extern_decorator(d).unwrap_or(false))
-                    .peekable();
-                if extern_deco_list.peek().is_some() {
-                    let TopLevelDef::Function { instance_to_symbol, signature, .. } =
-                        &mut *def.write()
-                    else {
+                    .try_fold(false, |acc, dec| {
+                        self.core_config.is_extern_decorator(dec).map(|x| x || acc)
+                    })
+                    .map_err(|err| HashSet::from([err]))?
+                {
+                    let TopLevelDef::Function { instance_to_symbol, .. } = &mut *def.write() else {
                         unreachable!()
                     };
-
-                    // Check for the existence of an `allow-external-alloc` flag in any extern
-                    // decorator.
-                    let skip_ret_check = extern_deco_list
-                        .flat_map(get_decorator_flags)
-                        .any(|flag| flag == ast::Constant::Str("allow-external-alloc".into()));
-
-                    // Check the function signature to ensure the return type is a non-'alloca'ed
-                    // type. This is to ensure that the value is not freed after the function exits
-                    let TypeEnum::TFunc(signature) = &*inferencer.unifier.get_ty(*signature) else {
-                        unreachable!()
-                    };
-                    if !skip_ret_check
-                        && !inferencer.check_return_value_ty(signature.ret)
-                        && !inferencer.unifier.unioned(signature.ret, primitives_ty.none)
-                    {
-                        return Err(HashSet::from([format!(
-                            "extern function `{}` must have a non-alloca return type (at {})",
-                            name,
-                            ast.as_ref().unwrap().location
-                        )]));
-                    }
-
                     instance_to_symbol.insert(String::new(), simple_name.to_string());
                     continue;
                 }
