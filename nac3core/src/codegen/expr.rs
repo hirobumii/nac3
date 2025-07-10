@@ -469,7 +469,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
 
         let alloca = |ty| gen_var(self, ty, Some(call_name)).unwrap();
 
-        let result = if let Some(target) = self.unwind_target {
+        if let Some(target) = self.unwind_target {
             let current = self.builder.get_insert_block().unwrap().get_parent().unwrap();
             let then_block = self.ctx.append_basic_block(current, &format!("after.{call_name}"));
             let result = self.fn_store.invoke(
@@ -486,9 +486,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         } else {
             let param: Vec<_> = params.iter().map(|v| (*v).into()).collect();
             self.fn_store.call(fun, &self.builder, &param, call_name, alloca)
-        };
-
-        result
+        }
     }
 
     /// Helper function for generating a LLVM variable storing a [String].

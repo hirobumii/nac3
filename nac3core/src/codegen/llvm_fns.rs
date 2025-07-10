@@ -55,12 +55,16 @@ enum FunctionInfo<'ctx> {
 }
 
 #[derive(Clone, Copy)]
+enum ArgCallConv {
+    Direct,
+    Indirect(Option<Attribute>),
+}
+
+#[derive(Clone, Copy)]
 struct TyAndCallConv<'ctx> {
     /// The actual type of this parameter or return value.
     ty: BasicTypeEnum<'ctx>,
-    /// Whether this value is passed indirectly, and if yes, the special
-    /// attribute required for that parameter if necessary.
-    indirect: Option<Option<Attribute>>,
+    call_conv: ArgCallConv,
 }
 
 fn get_attrs(
@@ -161,24 +165,28 @@ impl<'ctx> FunctionStore<'ctx> {
             ["sret", "byval"].map(|x| is_x86.then(|| Attribute::get_named_enum_kind_id(x)));
         let get_conv = |attr: Option<u32>, ty, indirect_check: fn(_, _, _) -> bool| TyAndCallConv {
             ty,
-            indirect: indirect_check(arch, module, ty).then(|| {
-                attr.map(|x| ctx.create_type_attribute(x, AnyType::as_any_type_enum(&ty)))
-            }),
+            call_conv: if indirect_check(arch, module, ty) {
+                ArgCallConv::Indirect(
+                    attr.map(|x| ctx.create_type_attribute(x, AnyType::as_any_type_enum(&ty))),
+                )
+            } else {
+                ArgCallConv::Direct
+            },
         };
 
         let ret = ret.map(|ty| get_conv(attr_sret, ty, indirect_ret));
         let params = params.iter().map(|&ty| get_conv(attr_byval, ty, indirect_arg)).collect_vec();
 
         let (llvm_ret, sret) = match ret {
-            Some(TyAndCallConv { ty, indirect: None, .. }) => (Some(ty), None),
+            Some(TyAndCallConv { ty, call_conv: ArgCallConv::Direct, .. }) => (Some(ty), None),
             ret => (None, ret),
         };
         let (llvm_params, attrs): (Vec<_>, Vec<_>) = sret
             .into_iter()
             .chain(params.iter().copied())
-            .map(|TyAndCallConv { ty, indirect }| match indirect {
-                Some(attr) => (ty.ptr_type(AddressSpace::default()).into(), attr),
-                None => (BasicMetadataTypeEnum::from(ty), None),
+            .map(|TyAndCallConv { ty, call_conv }| match call_conv {
+                ArgCallConv::Indirect(attr) => (ty.ptr_type(AddressSpace::default()).into(), attr),
+                ArgCallConv::Direct => (BasicMetadataTypeEnum::from(ty), None),
             })
             .unzip();
 
@@ -227,8 +235,8 @@ impl<'ctx> FunctionStore<'ctx> {
             if param.get_element_type().is_struct_type()
                 && p.get_type().get_element_type().is_struct_type()
             {
-                arg = ptr_to_t(builder.build_pointer_cast(p, param, "").unwrap())
-            };
+                arg = ptr_to_t(builder.build_pointer_cast(p, param, "").unwrap());
+            }
             arg
         };
 
@@ -238,16 +246,18 @@ impl<'ctx> FunctionStore<'ctx> {
                 let mut args = args.iter();
 
                 let slot = match *ret {
-                    Some(TyAndCallConv { ty, indirect: Some(attr) }) => Some((alloca(ty), attr)),
+                    Some(TyAndCallConv { ty, call_conv: ArgCallConv::Indirect(attr) }) => {
+                        Some((alloca(ty), attr))
+                    }
                     _ => None,
                 };
-                let normal_args = params.iter().map(|&TyAndCallConv { ty, indirect }| {
+                let normal_args = params.iter().map(|&TyAndCallConv { ty, call_conv }| {
                     let mut next = *args.next().expect("arguments fewer than parameters");
                     if let BasicTypeEnum::PointerType(p) = ty {
                         next = fixup_ptr_arg(next, p);
                     }
 
-                    if let Some(attr) = indirect {
+                    if let ArgCallConv::Indirect(attr) = call_conv {
                         let p = alloca(ty);
                         builder.build_store(p, next.try_into().unwrap()).unwrap();
                         (ptr_to_t(p), attr)
