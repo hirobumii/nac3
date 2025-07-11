@@ -1693,9 +1693,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "try.break");
         let continue_proxy = ctx.ctx.append_basic_block(current_fun, "try.continue");
         ctx.builder.position_at_end(break_proxy);
-        ctx.build_call_or_invoke(&end_catch, &[], "end_catch");
+        ctx.build_call(&end_catch, &[], "end_catch");
         ctx.builder.position_at_end(continue_proxy);
-        ctx.build_call_or_invoke(&end_catch, &[], "end_catch");
+        ctx.build_call(&end_catch, &[], "end_catch");
         ctx.builder.position_at_end(body);
         redirect(ctx, break_target, break_proxy);
         redirect(ctx, continue_target, continue_proxy);
@@ -1704,7 +1704,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     }
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "try.return");
     ctx.builder.position_at_end(return_proxy);
-    ctx.build_call_or_invoke(&end_catch, &[], "end_catch");
+    ctx.build_call(&end_catch, &[], "end_catch");
     let return_target = ctx.return_target.take().unwrap_or_else(|| {
         let doreturn = ctx.ctx.append_basic_block(current_fun, "try.doreturn");
         ctx.builder.position_at_end(doreturn);
@@ -1747,7 +1747,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         // only need to call end catch if not terminated
         // otherwise, we already handled in return/break/continue/raise
         if current.get_terminator().is_none() {
-            ctx.build_call_or_invoke(&end_catch, &[], "end_catch");
+            ctx.build_call(&end_catch, &[], "end_catch");
         }
         post_handlers.push(current);
         ctx.builder.position_at_end(dispatcher_end);
@@ -2034,9 +2034,9 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "with.break");
         let continue_proxy = ctx.ctx.append_basic_block(current_fun, "with.continue");
         ctx.builder.position_at_end(break_proxy);
-        ctx.build_call_or_invoke(&end_catch, &[], "end_catch");
+        ctx.build_call(&end_catch, &[], "end_catch");
         ctx.builder.position_at_end(continue_proxy);
-        ctx.build_call_or_invoke(&end_catch, &[], "end_catch");
+        ctx.build_call(&end_catch, &[], "end_catch");
         ctx.builder.position_at_end(body);
         redirect(ctx, break_target, break_proxy);
         redirect(ctx, continue_target, continue_proxy);
@@ -2045,7 +2045,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     }
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "with.return");
     ctx.builder.position_at_end(return_proxy);
-    ctx.build_call_or_invoke(&end_catch, &[], "end_catch");
+    ctx.build_call(&end_catch, &[], "end_catch");
     let return_target = ctx.return_target.take().unwrap_or_else(|| {
         let doreturn = ctx.ctx.append_basic_block(current_fun, "with.doreturn");
         ctx.builder.position_at_end(doreturn);

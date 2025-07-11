@@ -10,12 +10,11 @@ use std::{
 use inkwell::{
     AddressSpace,
     attributes::{Attribute, AttributeLoc},
-    basic_block::BasicBlock,
     builder::Builder,
     module::{Linkage, Module},
     targets::TargetData,
     types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, PointerType},
-    values::{BasicMetadataValueEnum, BasicValueEnum, CallSiteValue, FunctionValue, PointerValue},
+    values::{BasicValueEnum, CallSiteValue, FunctionValue, PointerValue},
 };
 use itertools::Itertools;
 
@@ -83,10 +82,11 @@ fn get_attrs(
 /// versa.
 ///
 /// Declare functions using [`declare_external`] or [`declare_internal`].
-/// Call the declared function using [`CodeGenContext::build_call_or_invoke`].
+/// Call the declared function using [`CodeGenContext::build_call`] or [`CodeGenContext::build_call_or_invoke`].
 ///
 /// [`declare_external`]: FunctionStore::declare_external
 /// [`declare_internal`]: FunctionStore::declare_internal
+/// [`CodeGenContext::build_call`]: crate::codegen::CodeGenContext::build_call
 /// [`CodeGenContext::build_call_or_invoke`]: crate::codegen::CodeGenContext::build_call_or_invoke
 #[derive(Default)]
 pub struct FunctionStore<'ctx> {
@@ -211,7 +211,7 @@ impl<'ctx> FunctionStore<'ctx> {
         FunctionDecl::new(name.into())
     }
 
-    fn do_call<T>(
+    pub(crate) fn do_call<T>(
         &self,
         decl: &FunctionDecl<'ctx>,
         builder: &Builder<'ctx>,
@@ -310,45 +310,6 @@ impl<'ctx> FunctionStore<'ctx> {
                 result
             }
         }
-    }
-
-    /// Calls a function given its declaration.
-    pub(crate) fn call(
-        &self,
-        decl: &FunctionDecl<'ctx>,
-        builder: &Builder<'ctx>,
-        args: &[BasicMetadataValueEnum<'ctx>],
-        name: &str,
-        alloca: impl FnMut(BasicTypeEnum<'ctx>) -> PointerValue<'ctx>,
-    ) -> Option<BasicValueEnum<'ctx>> {
-        self.do_call(
-            decl,
-            builder,
-            args,
-            |value, args| builder.build_call(value, args, name).unwrap(),
-            alloca,
-        )
-    }
-
-    /// Calls a function given its declaration, with exception handling.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn invoke(
-        &self,
-        decl: &FunctionDecl<'ctx>,
-        builder: &Builder<'ctx>,
-        args: &[BasicValueEnum<'ctx>],
-        then_block: BasicBlock<'ctx>,
-        catch_block: BasicBlock<'ctx>,
-        name: &str,
-        alloca: impl FnMut(BasicTypeEnum<'ctx>) -> PointerValue<'ctx>,
-    ) -> Option<BasicValueEnum<'ctx>> {
-        self.do_call(
-            decl,
-            builder,
-            args,
-            |value, args| builder.build_invoke(value, args, then_block, catch_block, name).unwrap(),
-            alloca,
-        )
     }
 }
 

@@ -7,6 +7,7 @@ use std::{
 
 use inkwell::{
     IntPredicate, OptimizationLevel,
+    basic_block::BasicBlock,
     types::{BasicType, BasicTypeEnum},
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
 };
@@ -449,14 +450,12 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         }
     }
 
-    /// Calls a declared function. Use [`ctx.fn_store`] to get a function declaration.
-    ///
-    /// [`ctx.fn_store`]: CodeGenContext::fn_store
-    pub fn build_call_or_invoke(
+    fn build_call_or_invoke_impl(
         &self,
         fun: &FunctionDecl<'ctx>,
-        params: &[BasicValueEnum<'ctx>],
+        args: &[BasicValueEnum<'ctx>],
         call_name: &str,
+        unwind_target: Option<BasicBlock<'ctx>>,
     ) -> Option<BasicValueEnum<'ctx>> {
         let loc = self.debug_info.0.create_debug_location(
             self.ctx,
@@ -469,24 +468,54 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
 
         let alloca = |ty| gen_var(self, ty, Some(call_name)).unwrap();
 
-        if let Some(target) = self.unwind_target {
+        if let Some(target) = unwind_target {
             let current = self.builder.get_insert_block().unwrap().get_parent().unwrap();
             let then_block = self.ctx.append_basic_block(current, &format!("after.{call_name}"));
-            let result = self.fn_store.invoke(
+            let result = self.fn_store.do_call(
                 fun,
                 &self.builder,
-                params,
-                then_block,
-                target,
-                call_name,
+                args,
+                |value, args| {
+                    self.builder.build_invoke(value, args, then_block, target, call_name).unwrap()
+                },
                 alloca,
             );
             self.builder.position_at_end(then_block);
             result
         } else {
-            let param: Vec<_> = params.iter().map(|v| (*v).into()).collect();
-            self.fn_store.call(fun, &self.builder, &param, call_name, alloca)
+            let args: Vec<_> = args.iter().map(|v| (*v).into()).collect();
+            self.fn_store.do_call(
+                fun,
+                &self.builder,
+                &args,
+                |value, args| self.builder.build_call(value, args, call_name).unwrap(),
+                alloca,
+            )
         }
+    }
+
+    /// Calls a declared function. Use [`ctx.fn_store`] to get a function declaration.
+    ///
+    /// [`ctx.fn_store`]: CodeGenContext::fn_store
+    pub fn build_call_or_invoke(
+        &self,
+        fun: &FunctionDecl<'ctx>,
+        args: &[BasicValueEnum<'ctx>],
+        call_name: &str,
+    ) -> Option<BasicValueEnum<'ctx>> {
+        self.build_call_or_invoke_impl(fun, args, call_name, self.unwind_target)
+    }
+
+    /// Calls a declared function, ignoring unwind info. Use [`ctx.fn_store`] to get a function declaration.
+    ///
+    /// [`ctx.fn_store`]: CodeGenContext::fn_store
+    pub fn build_call(
+        &self,
+        fun: &FunctionDecl<'ctx>,
+        args: &[BasicValueEnum<'ctx>],
+        call_name: &str,
+    ) -> Option<BasicValueEnum<'ctx>> {
+        self.build_call_or_invoke_impl(fun, args, call_name, None)
     }
 
     /// Helper function for generating a LLVM variable storing a [String].
@@ -2943,5 +2972,5 @@ pub fn call_extern_c_fn<'ctx>(
         is_c_varargs,
         fn_attrs,
     );
-    ctx.build_call_or_invoke(&f, args, value_name.unwrap_or(""))
+    ctx.build_call(&f, args, value_name.unwrap_or(""))
 }
