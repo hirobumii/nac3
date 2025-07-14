@@ -160,9 +160,10 @@ impl<'ctx> FunctionStore<'ctx> {
         let triple = module.get_triple();
         let arch = triple.as_str().to_str().unwrap().split('-').next().unwrap();
 
-        let is_x86 = arch == "x86_64" || arch == "i686";
-        let [attr_sret, attr_byval] =
-            ["sret", "byval"].map(|x| is_x86.then(|| Attribute::get_named_enum_kind_id(x)));
+        let attr_sret = (arch == "x86_64" || arch == "i686" || arch == "riscv32")
+            .then(|| Attribute::get_named_enum_kind_id("sret"));
+        let attr_byval = (arch == "x86_64" || arch == "i686")
+            .then(|| Attribute::get_named_enum_kind_id("byval"));
         let get_conv = |attr: Option<u32>, ty, indirect_check: fn(_, _, _) -> bool| TyAndCallConv {
             ty,
             call_conv: if indirect_check(arch, module, ty) {
@@ -384,6 +385,7 @@ fn riscv_indirect_ret(module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool {
         BasicTypeEnum::FloatType(_) | BasicTypeEnum::IntType(_) | BasicTypeEnum::PointerType(_) => {
             false
         }
+        _ if bits_of(module, ret) <= 64 => false,
         BasicTypeEnum::StructType(s) => {
             let (mut f, mut i) = (0, 0);
             for field in s.get_field_types_iter() {
@@ -393,9 +395,8 @@ fn riscv_indirect_ret(module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool {
                     _ => return true,
                 }
             }
-            (f + i) <= 2 && i <= 1
+            !((f + i) <= 2 && i <= 1)
         }
-        _ if bits_of(module, ret) > 64 => true,
         _ => unreachable!(),
     }
 }
