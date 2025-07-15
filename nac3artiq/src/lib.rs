@@ -76,6 +76,7 @@ mod timeline;
 
 const ENV_NAC3_EMIT_LLVM_BC: &str = "NAC3_EMIT_LLVM_BC";
 const ENV_NAC3_EMIT_LLVM_LL: &str = "NAC3_EMIT_LLVM_LL";
+const ENV_NAC3_OPT_LEVEL: &str = "NAC3_OPT_LEVEL";
 
 #[derive(PartialEq, Clone, Copy)]
 enum Isa {
@@ -1420,6 +1421,18 @@ impl Nac3 {
             string_store.insert(exn_name, id);
         }
 
+        let opt_level = match std::env::var(ENV_NAC3_OPT_LEVEL).as_deref() {
+            Ok("0") => OptimizationLevel::None,
+            Ok("1") => OptimizationLevel::Less,
+            Ok("2") | Err(std::env::VarError::NotPresent) => OptimizationLevel::Default,
+            Ok("3") => OptimizationLevel::Aggressive,
+            unknown => {
+                return Err(exceptions::PyValueError::new_err(format!(
+                    "unknown opt level: {unknown:?}"
+                )));
+            }
+        };
+
         Ok(Nac3 {
             isa,
             time_fns,
@@ -1434,10 +1447,7 @@ impl Nac3 {
             deferred_eval_store: DeferredEvaluationStore::new(),
             special_ids: SpecialPythonId::default(),
             modules: Arc::default(),
-            llvm_options: CodeGenLLVMOptions {
-                opt_level: OptimizationLevel::Default,
-                target: isa.get_llvm_target_options(),
-            },
+            llvm_options: CodeGenLLVMOptions { opt_level, target: isa.get_llvm_target_options() },
         })
     }
 
