@@ -30,7 +30,7 @@ use nac3core::{
         context::Context,
         module::Linkage,
         targets::TargetMachine,
-        types::{BasicType, IntType},
+        types::{BasicType, BasicTypeEnum, IntType},
         values::{BasicValueEnum, IntValue, PointerValue, StructValue},
     },
     nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef},
@@ -949,9 +949,27 @@ fn rpc_codegen_callback_fn<'ctx>(
         // async RPCs do not return any values
         Ok(None)
     } else {
+        fn no_alloc(ty: &BasicTypeEnum) -> bool {
+            use BasicTypeEnum::*;
+
+            match ty {
+                // Pointer types will require allocation for more than the slot
+                PointerType(_) => false,
+
+                // Container types may contain types that require further allocation
+                ArrayType(t) => no_alloc(&t.get_element_type()),
+                VectorType(t) => no_alloc(&t.get_element_type()),
+                ScalableVectorType(t) => no_alloc(&t.get_element_type()),
+                StructType(t) => t.get_field_types().iter().all(|f| no_alloc(f)),
+
+                // Primitives only allocate the slot
+                IntType(_) | FloatType(_) => true,
+            }
+        }
+
         let result = format_rpc_ret(generator, ctx, fun.0.ret);
 
-        if !result.is_some_and(|res| res.get_type().is_pointer_type()) {
+        if result.is_some_and(|res| no_alloc(&res.get_type())) {
             // An RPC returning an NDArray would not touch here.
             call_stackrestore(ctx, stackptr);
         }
