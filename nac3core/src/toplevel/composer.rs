@@ -1135,7 +1135,7 @@ impl<'a> TopLevelComposer<'a> {
                                 )]));
                             } else {
                                 return Err(HashSet::from([format!(
-                                    "{name} method must take `self` as a parameter (at {})", b.location
+                                    "{name} method must have a `self` parameter (at {})", b.location
                                 )]));
                             },
                         }
