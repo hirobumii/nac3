@@ -14,7 +14,7 @@ use pyo3::{
 
 use nac3core::{
     codegen::{
-        CodeGenContext, CodeGenerator,
+        CodeGenContext, CodeGenerator, basic_type_all,
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
@@ -30,7 +30,7 @@ use nac3core::{
         context::Context,
         module::Linkage,
         targets::TargetMachine,
-        types::{BasicType, BasicTypeEnum, IntType},
+        types::{BasicType, IntType},
         values::{BasicValueEnum, IntValue, PointerValue, StructValue},
     },
     nac3parser::ast::{Expr, ExprKind, Located, Stmt, StmtKind, StrRef},
@@ -949,28 +949,12 @@ fn rpc_codegen_callback_fn<'ctx>(
         // async RPCs do not return any values
         Ok(None)
     } else {
-        fn no_alloc(ty: &BasicTypeEnum) -> bool {
-            use BasicTypeEnum::*;
-
-            match ty {
-                // Pointer types will require allocation for more than the slot
-                PointerType(_) => false,
-
-                // Container types may contain types that require further allocation
-                ArrayType(t) => no_alloc(&t.get_element_type()),
-                VectorType(t) => no_alloc(&t.get_element_type()),
-                ScalableVectorType(t) => no_alloc(&t.get_element_type()),
-                StructType(t) => t.get_field_types().iter().all(|f| no_alloc(f)),
-
-                // Primitives only allocate the slot
-                IntType(_) | FloatType(_) => true,
-            }
-        }
-
         let result = format_rpc_ret(generator, ctx, fun.0.ret);
 
-        if result.is_some_and(|res| no_alloc(&res.get_type())) {
-            // An RPC returning an NDArray would not touch here.
+        // Here we call `basic_type_all` to ensure that the return type is not, nor contains, a
+        // pointer type which may require further allocation, in which case the stack should not
+        // have the stack restored, as this will lead to undefined behavior.
+        if result.is_some_and(|res| basic_type_all(&res.get_type(), &|t| !t.is_pointer_type())) {
             call_stackrestore(ctx, stackptr);
         }
 
