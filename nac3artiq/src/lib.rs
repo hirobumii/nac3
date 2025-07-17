@@ -1377,7 +1377,7 @@ impl Nac3 {
             kernel_decorator: get_artiq_builtin_id(Some("artiq"), "kernel")?,
             portable_decorator: get_artiq_builtin_id(Some("artiq"), "portable")?,
             rpc_decorator: get_artiq_builtin_id(Some("artiq"), "rpc")?,
-            static_method_decorator: get_artiq_builtin_id(Some("artiq"), "staticmethod")?,
+            static_method_decorator: get_artiq_builtin_id(None, "staticmethod")?,
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
