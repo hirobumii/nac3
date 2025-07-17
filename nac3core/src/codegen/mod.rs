@@ -685,33 +685,33 @@ where
 {
     use BasicTypeEnum::*;
     // Recusively fold the type using the provided function `f`.
-    let a = f(init, value);
-    let ControlFlow::Continue(new_base) = a else {
-        return a;
+    let folded = f(init, value);
+    let ControlFlow::Continue(new_init) = folded else {
+        return folded;
     };
     match value {
-        ArrayType(ty) => try_fold_basic_type(new_base, &ty.get_element_type(), f),
-        FloatType(_) | IntType(_) => ControlFlow::Continue(new_base),
+        ArrayType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
+        FloatType(_) | IntType(_) => ControlFlow::Continue(new_init),
         PointerType(ty) => {
             if let Ok(ty) = ty.get_element_type().try_into() {
-                try_fold_basic_type(new_base, &ty, f)
+                try_fold_basic_type(new_init, &ty, f)
             } else {
-                ControlFlow::Continue(new_base)
+                ControlFlow::Continue(new_init)
             }
         }
         StructType(ty) => {
             // fold all fields of the struct
             ty.get_field_types()
                 .iter()
-                .try_fold(new_base, |acc, field| try_fold_basic_type(acc, field, f))
+                .try_fold(new_init, |acc, field| try_fold_basic_type(acc, field, f))
         }
-        ScalableVectorType(ty) => try_fold_basic_type(new_base, &ty.get_element_type(), f),
-        VectorType(ty) => try_fold_basic_type(new_base, &ty.get_element_type(), f),
+        ScalableVectorType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
+        VectorType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
     }
 }
 
 /// Function to check that all subtypes of a [`BasicTypeEnum`] hold for a given prpedicate `f`,
-/// with support for short-circuiting, when an instance of an element not satisfying the predicate
+/// with support for short-circuiting when an instance of an element not satisfying the predicate
 /// is found.
 pub fn basic_type_all<F>(value: &BasicTypeEnum, f: &F) -> bool
 where
