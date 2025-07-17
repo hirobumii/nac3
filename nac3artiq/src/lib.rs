@@ -308,7 +308,6 @@ impl Nac3 {
                                             self.primitive_ids.kernel_decorator,
                                             self.primitive_ids.portable_decorator,
                                             self.primitive_ids.rpc_decorator,
-                                            self.primitive_ids.static_method_decorator,
                                         ],
                                     )
                                     .unwrap()
@@ -335,7 +334,6 @@ impl Nac3 {
                                     self.primitive_ids.kernel_decorator,
                                     self.primitive_ids.portable_decorator,
                                     self.primitive_ids.rpc_decorator,
-                                    self.primitive_ids.static_method_decorator,
                                 ],
                             )
                             .unwrap()
