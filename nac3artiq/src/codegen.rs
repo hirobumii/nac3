@@ -14,7 +14,7 @@ use pyo3::{
 
 use nac3core::{
     codegen::{
-        CodeGenContext, CodeGenerator,
+        CodeGenContext, CodeGenerator, basic_type_all,
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
@@ -951,8 +951,10 @@ fn rpc_codegen_callback_fn<'ctx>(
     } else {
         let result = format_rpc_ret(generator, ctx, fun.0.ret);
 
-        if !result.is_some_and(|res| res.get_type().is_pointer_type()) {
-            // An RPC returning an NDArray would not touch here.
+        // Here we call `basic_type_all` to ensure that the return type is not, nor contains, a
+        // pointer type which may require further allocation, in which case the stack should not
+        // be restored, as this will lead to undefined behavior.
+        if result.is_some_and(|res| basic_type_all(&res.get_type(), &|t| !t.is_pointer_type())) {
             call_stackrestore(ctx, stackptr);
         }
 

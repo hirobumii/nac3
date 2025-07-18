@@ -1,6 +1,7 @@
 use std::{
     cell::OnceCell,
     collections::{HashMap, HashSet},
+    ops::ControlFlow,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -671,6 +672,55 @@ fn get_llvm_valist_type<'ctx>(ctx: &'ctx Context, triple: &TargetTriple) -> Basi
             todo!("Unsupported platform for varargs: {triple}")
         }
     }
+}
+
+/// A recursive function to fold a [`BasicTypeEnum`] using a provided function `f`.
+/// `Try` is not stable yet, so `ControlFlow` is used to allow for short-circuiting
+/// during the folding process.
+///
+/// See [`basic_type_all`] for an example of how to use this function.
+pub fn try_fold_basic_type<B, F>(init: B, value: &BasicTypeEnum, f: &F) -> ControlFlow<B, B>
+where
+    F: Fn(B, &BasicTypeEnum) -> ControlFlow<B, B>,
+{
+    use BasicTypeEnum::*;
+    // Recusively fold the type using the provided function `f`.
+    let folded = f(init, value);
+    let ControlFlow::Continue(new_init) = folded else {
+        return folded;
+    };
+    match value {
+        ArrayType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
+        FloatType(_) | IntType(_) => ControlFlow::Continue(new_init),
+        PointerType(ty) => {
+            if let Ok(ty) = ty.get_element_type().try_into() {
+                try_fold_basic_type(new_init, &ty, f)
+            } else {
+                ControlFlow::Continue(new_init)
+            }
+        }
+        StructType(ty) => {
+            // fold all fields of the struct
+            ty.get_field_types()
+                .iter()
+                .try_fold(new_init, |acc, field| try_fold_basic_type(acc, field, f))
+        }
+        ScalableVectorType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
+        VectorType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
+    }
+}
+
+/// Function to check that all subtypes of a [`BasicTypeEnum`] hold for a given prpedicate `f`,
+/// with support for short-circuiting when an instance of an element not satisfying the predicate
+/// is found.
+pub fn basic_type_all<F>(value: &BasicTypeEnum, f: &F) -> bool
+where
+    F: Fn(&BasicTypeEnum) -> bool,
+{
+    try_fold_basic_type((), value, &|(), v| {
+        if f(v) { ControlFlow::Continue(()) } else { ControlFlow::Break(()) }
+    })
+    .is_continue()
 }
 
 /// Implementation for generating LLVM IR for a function.
