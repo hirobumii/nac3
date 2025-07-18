@@ -953,7 +953,7 @@ fn rpc_codegen_callback_fn<'ctx>(
 
         // Here we call `basic_type_all` to ensure that the return type is not, nor contains, a
         // pointer type which may require further allocation, in which case the stack should not
-        // have the stack restored, as this will lead to undefined behavior.
+        // be restored, as this will lead to undefined behavior.
         if result.is_some_and(|res| basic_type_all(&res.get_type(), &|t| !t.is_pointer_type())) {
             call_stackrestore(ctx, stackptr);
         }
