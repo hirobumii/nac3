@@ -83,6 +83,11 @@ pub struct FunInstance {
     pub unifier_id: usize,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunAttribute {
+    StaticMethod,
+}
+
 #[derive(Debug, Clone)]
 pub enum TopLevelDef {
     Module {
@@ -138,6 +143,8 @@ pub enum TopLevelDef {
         signature: Type,
         /// Instantiated type variable IDs.
         var_id: Vec<TypeVarId>,
+        /// Attributes of the function, e.g. `@staticmethod`
+        attributes: Vec<FunAttribute>,
         /// Function instance to symbol mapping
         ///
         /// * Key: String representation of type variable values, sorted by variable ID in ascending

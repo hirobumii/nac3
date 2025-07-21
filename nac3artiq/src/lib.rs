@@ -176,6 +176,7 @@ pub struct PrimitivePythonId {
     kernel_decorator: u64,
     portable_decorator: u64,
     rpc_decorator: u64,
+    static_method_decorator: u64,
 }
 
 #[derive(Clone, Default)]
@@ -541,6 +542,16 @@ impl Nac3 {
                     })
                     .map_err(|e| e.to_string())
                 }),
+                is_static_method_decorator_fn: Box::new(|decorator| {
+                    Python::with_gil(|py| -> PyResult<bool> {
+                        is_decor_fn_same(
+                            decorator,
+                            modules_by_path[&decorator.location.file].bind(py),
+                            &[self.primitive_ids.static_method_decorator],
+                        )
+                    })
+                    .map_err(|e| e.to_string())
+                }),
             },
             size_t,
         );
@@ -671,6 +682,7 @@ impl Nac3 {
                             self.primitive_ids.kernel_decorator,
                             self.primitive_ids.portable_decorator,
                             self.primitive_ids.extern_decorator,
+                            self.primitive_ids.static_method_decorator,
                         ]
                         .contains(&decor_fn_id)
                         {
@@ -714,6 +726,7 @@ impl Nac3 {
                                 } else if ![
                                     self.primitive_ids.kernel_decorator,
                                     self.primitive_ids.portable_decorator,
+                                    self.primitive_ids.static_method_decorator,
                                 ]
                                 .contains(&decor_fn_id)
                                 {
@@ -1373,6 +1386,7 @@ impl Nac3 {
             kernel_decorator: get_artiq_builtin_id(Some("artiq"), "kernel")?,
             portable_decorator: get_artiq_builtin_id(Some("artiq"), "portable")?,
             rpc_decorator: get_artiq_builtin_id(Some("artiq"), "rpc")?,
+            static_method_decorator: get_artiq_builtin_id(None, "staticmethod")?,
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();

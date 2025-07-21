@@ -28,7 +28,7 @@ use super::{
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
-        TopLevelContext, TopLevelDef,
+        FunAttribute, TopLevelContext, TopLevelDef,
         helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
@@ -2000,16 +2000,25 @@ impl Inferencer<'_> {
                         self.unifier,
                     ),
                     (None, mutable) => {
-                        // Check whether it is a class attribute
+                        // Check whether it is a class attribute or a static method
                         let defs = self.top_level.definitions.read();
                         let result = {
-                            if let TopLevelDef::Class { attributes, .. } = &*defs[obj_id.0].read() {
-                                attributes.iter().find_map(|f| {
-                                    if f.0 == attr {
-                                        return Some(f.1);
-                                    }
-                                    None
-                                })
+                            if let TopLevelDef::Class { attributes, methods, .. } =
+                                &*defs[obj_id.0].read()
+                            {
+                                let static_methods = methods.iter().filter(|m| {
+                                    let TopLevelDef::Function { attributes, .. } =
+                                        &*defs[m.2.0].read()
+                                    else {
+                                        unreachable!()
+                                    };
+                                    attributes.contains(&FunAttribute::StaticMethod)
+                                });
+                                attributes
+                                    .iter()
+                                    .map(|(k, v, _)| (k, v))
+                                    .chain(static_methods.map(|(k, v, _)| (k, v)))
+                                    .find_map(|f| if f.0 == &attr { Some(*f.1) } else { None })
                             } else {
                                 None
                             }
@@ -2034,20 +2043,34 @@ impl Inferencer<'_> {
             TypeEnum::TFunc(sign) => {
                 // Access Class Attributes of classes with __init__ function using Class names e.g. Foo.ATTR1
                 let result = {
-                    self.top_level.definitions.read().iter().find_map(|def| {
-                        if let Some(rear_guard) = def.try_read() {
-                            if let TopLevelDef::Class { name, attributes, .. } = &*rear_guard {
-                                if name.to_string() == self.unifier.stringify(sign.ret) {
-                                    return attributes.iter().find_map(|f| {
-                                        if f.0 == attr {
-                                            return Some(f.clone().1);
-                                        }
-                                        None
-                                    });
-                                }
-                            }
+                    let defs = self.top_level.definitions.read();
+                    defs.iter().find_map(|def| {
+                        let rear_guard = def.try_read()?;
+                        let TopLevelDef::Class { name, attributes, methods, .. } = &*rear_guard
+                        else {
+                            return None;
+                        };
+                        if name.to_string() != self.unifier.stringify(sign.ret) {
+                            return None;
                         }
-                        None
+
+                        let static_methods = methods.iter().filter(|m| {
+                            let TopLevelDef::Function { attributes, .. } = &*defs[m.2.0].read()
+                            else {
+                                unreachable!()
+                            };
+                            attributes.contains(&FunAttribute::StaticMethod)
+                        });
+                        attributes
+                            .iter()
+                            .map(|(k, v, _)| (k, v))
+                            .chain(static_methods.map(|(k, v, _)| (k, v)))
+                            .find_map(|f| {
+                                if f.0 == &attr {
+                                    return Some(*f.1);
+                                }
+                                None
+                            })
                     })
                 };
                 match result {

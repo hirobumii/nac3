@@ -48,7 +48,7 @@ use crate::{
     codegen::llvm_fns::FunctionDecl,
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
-        DefinitionId, TopLevelDef,
+        DefinitionId, FunAttribute, TopLevelDef,
         helper::{PrimDef, arraylike_flatten_element_type, extract_ndims},
         numpy::unpack_ndarray_var_tys,
     },
@@ -2465,17 +2465,24 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         .map(Into::into));
                 }
                 ExprKind::Attribute { value, attr, .. } => {
-                    let Some(val) = generator.gen_expr(ctx, value)? else { return Ok(None) };
-
                     // Handle Class Method calls
                     // The attribute will be `DefinitionId` of the method if the call is to one of the parent methods
                     let func_id = attr.to_string().parse::<usize>();
 
-                    let id = if let TypeEnum::TObj { obj_id, .. } =
+                    // For a static method the constructor hasn't always been called, so we get the
+                    // class UnificationKey from the return type of the constructor signature.
+                    let (key, mut is_static) = if let TypeEnum::TFunc(sign) =
                         &*ctx.unifier.get_ty(value.custom.unwrap())
                     {
-                        *obj_id
+                        // The class is not instantiated yet, so we can assume the method is static
+                        (sign.ret, true)
                     } else {
+                        // The class is instantiated meaning the method may or may not be static;
+                        // for now assume it is not, but resolve once the method data is available
+                        (value.custom.unwrap(), false)
+                    };
+
+                    let TypeEnum::TObj { obj_id: id, .. } = &*ctx.unifier.get_ty(key) else {
                         codegen_unreachable!(ctx)
                     };
 
@@ -2486,17 +2493,42 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         let defs = ctx.top_level.definitions.read();
                         let obj_def = defs.get(id.0).unwrap().read();
                         if let TopLevelDef::Class { methods, .. } = &*obj_def {
-                            methods.iter().find(|method| method.0 == *attr).unwrap().2
+                            let fun_id = methods.iter().find(|method| method.0 == *attr).unwrap().2;
+
+                            // A method call on a class instance could still be to a static method
+                            // so we check if the function has been annotated as static
+                            is_static = is_static || {
+                                if let TopLevelDef::Function { attributes, .. } =
+                                    &*defs[fun_id.0].read()
+                                {
+                                    attributes.contains(&FunAttribute::StaticMethod)
+                                } else {
+                                    false
+                                }
+                            };
+
+                            fun_id
                         } else if let TopLevelDef::Module { functions, .. } = &*obj_def {
                             functions.iter().find(|method| method.0 == *attr).unwrap().1
                         } else {
                             codegen_unreachable!(ctx)
                         }
                     };
+
+                    // If the function is static, we can call it directly
+                    if is_static {
+                        ctx.current_loc = expr.location;
+                        return Ok(generator
+                            .gen_call(ctx, None, (&signature, fun_id), params)?
+                            .map(Into::into));
+                    }
+
+                    let Some(val) = generator.gen_expr(ctx, value)? else { return Ok(None) };
+
                     // directly generate code for option.unwrap
                     // since it needs to return static value to optimize for kernel invariant
                     if attr == &"unwrap".into()
-                        && id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap()
+                        && *id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap()
                     {
                         match val {
                             ValueEnum::Static(v) => {
@@ -2529,7 +2561,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                         );
                                         ctx.builder.position_at_end(unreachable_block);
                                         let ptr = ctx
-                                            .get_llvm_type(generator, value.custom.unwrap())
+                                            .get_llvm_type(generator, key)
                                             .into_pointer_type()
                                             .const_null();
                                         Ok(Some(
@@ -2569,12 +2601,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     ctx.current_loc = expr.location;
 
                     return Ok(generator
-                        .gen_call(
-                            ctx,
-                            Some((value.custom.unwrap(), val)),
-                            (&signature, fun_id),
-                            params,
-                        )?
+                        .gen_call(ctx, Some((key, val)), (&signature, fun_id), params)?
                         .map(Into::into));
                 }
                 _ => unimplemented!(),
