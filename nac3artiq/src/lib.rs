@@ -1064,13 +1064,20 @@ impl Nac3 {
             global_option = global.get_next_global();
         }
 
-        emit_llvm(&main, "main.pre-opt");
-
         let target_machine = self
             .llvm_options
             .target
             .create_target_machine(self.llvm_options.opt_level)
             .expect("couldn't create target machine");
+
+        // Strip all unused functions first (necessary even in -O0 to filter out unused IRRT functions)
+        main.run_passes(
+            "globaldce,strip-dead-prototypes",
+            &target_machine,
+            PassBuilderOptions::create(),
+        )
+        .expect("Failed to strip dead code from module `main`");
+        emit_llvm(&main, "main.pre-opt");
 
         let pass_options = PassBuilderOptions::create();
         pass_options.set_merge_functions(true);

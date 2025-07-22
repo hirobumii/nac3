@@ -467,6 +467,13 @@ fn main() {
         function_iter = func.get_next_function();
     }
 
+    // Strip all unused functions first (necessary even in -O0 to filter out unused IRRT functions)
+    main.run_passes(
+        "globaldce,strip-dead-prototypes",
+        &target_machine,
+        PassBuilderOptions::create(),
+    )
+    .expect("Failed to strip dead code from module `main`");
     emit_llvm(&main, "main.pre-opt");
 
     // Optimize `main`
