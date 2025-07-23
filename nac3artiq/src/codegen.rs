@@ -749,14 +749,14 @@ fn format_rpc_ret<'ctx>(
 
             let ndarray_data = ndarray.data().base_ptr(ctx, generator);
 
-            // NOTE: Currently on `prehead_bb`
+            let entry_bb = ctx.builder.get_insert_block().unwrap();
             ctx.builder.build_unconditional_branch(head_bb).unwrap();
 
             // Inserting into `head_bb`. Do `rpc_recv` for `data` recursively.
             ctx.builder.position_at_end(head_bb);
 
             let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr").unwrap();
-            phi.add_incoming(&[(&ndarray_data, prehead_bb)]);
+            phi.add_incoming(&[(&ndarray_data, entry_bb)]);
 
             let alloc_size = ctx
                 .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
