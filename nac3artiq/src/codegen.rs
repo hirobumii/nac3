@@ -881,50 +881,46 @@ fn rpc_codegen_callback_fn<'ctx>(
         })
         .as_pointer_value();
 
-    let arg_length = args.len() + usize::from(obj.is_some());
-
     let stackptr = call_stacksave(ctx, Some("rpc.stack"));
     let args_ptr = ctx
         .builder
         .build_array_alloca(
             ptr_type,
-            ctx.ctx.i32_type().const_int(arg_length as u64, false),
+            ctx.ctx.i32_type().const_int(fun.0.args.len() as u64, false),
             "argptr",
         )
         .unwrap();
 
-    // -- rpc args handling
-    let mut keys = fun.0.args.clone();
-    let mut mapping = HashMap::new();
-    for (key, value) in args {
-        mapping.insert(key.unwrap_or_else(|| keys.remove(0).name), value);
-    }
-    // default value handling
-    for k in keys {
-        mapping
-            .insert(k.name, ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty).into());
-    }
-    // reorder the parameters
-    let mut real_params = fun
-        .0
-        .args
-        .iter()
-        .map(|arg| {
-            mapping
-                .remove(&arg.name)
-                .unwrap()
-                .to_basic_value_enum(ctx, generator, arg.ty)
-                .map(|llvm_val| (llvm_val, arg.ty))
-        })
-        .collect::<Result<Vec<(_, _)>, _>>()?;
-    if let Some(obj) = obj {
-        if let ValueEnum::Static(obj_val) = obj.1 {
-            real_params.insert(0, (obj_val.get_const_obj(ctx, generator), obj.0));
+    // Map passed arguments, both positional and keyword, to the function's parameters
+    // Number of positional arguments checked earlier; calling `unwrap` will never panic
+    let mut keys = fun.0.args.iter();
+    let mut mapping = args
+        .into_iter()
+        .map(|(key, value)| (key.unwrap_or_else(|| keys.next().unwrap().name), value))
+        .collect::<HashMap<_, _>>();
+
+    // Get object of self to be passed as the first argument if the function takes in self
+    let obj = obj.map(|(ty, val)| {
+        if let ValueEnum::Static(obj_val) = val {
+            (obj_val.get_const_obj(ctx, generator), ty)
         } else {
-            // should be an error here...
             panic!("only host object is allowed");
         }
-    }
+    });
+
+    // Map and order the value and type of each argument to match the parameters, filling in defaults
+    let real_params = fun.0.args.iter().filter_map(|arg| {
+        mapping
+            .remove(&arg.name)
+            .unwrap_or_else(|| {
+                ctx.gen_symbol_val(generator, arg.default_value.as_ref().unwrap(), arg.ty).into()
+            })
+            .to_basic_value_enum(ctx, generator, arg.ty)
+            .map(|llvm_val| (llvm_val, arg.ty))
+            .ok()
+    });
+
+    let real_params = obj.into_iter().chain(real_params).collect::<Vec<_>>();
 
     for (i, (arg, arg_ty)) in real_params.iter().enumerate() {
         let arg_slot = format_rpc_arg(generator, ctx, (*arg, *arg_ty, i));
