@@ -881,12 +881,14 @@ fn rpc_codegen_callback_fn<'ctx>(
         })
         .as_pointer_value();
 
+    let arg_length = fun.0.args.len() + usize::from(obj.is_some());
+
     let stackptr = call_stacksave(ctx, Some("rpc.stack"));
     let args_ptr = ctx
         .builder
         .build_array_alloca(
             ptr_type,
-            ctx.ctx.i32_type().const_int(fun.0.args.len() as u64, false),
+            ctx.ctx.i32_type().const_int(arg_length as u64, false),
             "argptr",
         )
         .unwrap();
