@@ -619,6 +619,7 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
         .build_bit_cast(zelf_intptr, zelf_ty.ptr_type(AddressSpace::default()), "malloc")
         .unwrap();
 
+    // call `__init__` if there is one
     if let Some(fun_id) = fun_id {
         let mut sign = signature.clone();
         sign.ret = ctx.primitives.none;
