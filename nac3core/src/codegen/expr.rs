@@ -600,9 +600,25 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     let fun_id = methods.iter().find(|method| method.0 == "__init__".into()).map(|method| method.2);
     let ty = ctx.get_llvm_type(signature.ret).into_pointer_type();
     let zelf_ty: BasicTypeEnum = ty.get_element_type().try_into().unwrap();
-    let zelf: BasicValueEnum<'ctx> =
-        ctx.builder.build_malloc(zelf_ty, "malloc").map(Into::into).unwrap();
-    // call `__init__` if there is one
+
+    let llvm_i8 = ctx.ctx.i8_type();
+    let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
+
+    let target_data =
+        ctx.registry.llvm_options.create_target_machine().map(|tm| tm.get_target_data()).unwrap();
+
+    let llvm_isize = ctx.ctx.custom_width_int_type(target_data.get_pointer_byte_size(None) * 8);
+
+    let sizeof = target_data.get_store_size(&zelf_ty);
+
+    let zelf_intptr: BasicValueEnum =
+        call_extern!(ctx: llvm_pi8 "malloccall" = "nac3_malloc"(llvm_isize.const_int(sizeof, false)))
+            .into();
+    let zelf = ctx
+        .builder
+        .build_bit_cast(zelf_intptr, zelf_ty.ptr_type(AddressSpace::default()), "malloc")
+        .unwrap();
+
     if let Some(fun_id) = fun_id {
         let mut sign = signature.clone();
         sign.ret = ctx.primitives.none;
