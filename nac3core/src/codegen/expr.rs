@@ -601,7 +601,7 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     let ty = ctx.get_llvm_type(signature.ret).into_pointer_type();
     let zelf_ty: BasicTypeEnum = ty.get_element_type().try_into().unwrap();
     let zelf: BasicValueEnum<'ctx> =
-        ctx.builder.build_alloca(zelf_ty, "alloca").map(Into::into).unwrap();
+        ctx.builder.build_malloc(zelf_ty, "malloc").map(Into::into).unwrap();
     // call `__init__` if there is one
     if let Some(fun_id) = fun_id {
         let mut sign = signature.clone();
