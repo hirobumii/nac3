@@ -32,14 +32,14 @@ use tempfile::{self, TempDir};
 
 use nac3core::{
     codegen::{
-        CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator, FunctionStore,
-        WithCall, WorkerRegistry, concrete_type::ConcreteTypeStore, gen_func_impl, irrt::load_irrt,
+        CodeGenOptions, CodeGenTask, CodeGenerator, CoreContext, TargetMachineOptions, WithCall,
+        WorkerRegistry, concrete_type::ConcreteTypeStore, context_ref, gen_func_impl,
+        irrt::load_irrt,
     },
     inkwell::{
         OptimizationLevel,
-        context::Context,
         memory_buffer::MemoryBuffer,
-        module::{FlagBehavior, Linkage, Module},
+        module::{Linkage, Module},
         passes::PassBuilderOptions,
         support::is_multithreaded,
         targets::{FileType, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple},
@@ -117,31 +117,17 @@ impl Isa {
 
     /// Returns an instance of [`CodeGenTargetMachineOptions`] representing the target machine
     /// options used for compiling to this ISA.
-    pub fn get_llvm_target_options(self) -> CodeGenTargetMachineOptions {
-        CodeGenTargetMachineOptions {
+    pub fn get_llvm_target_options(
+        self,
+        target_opt_level: OptimizationLevel,
+    ) -> TargetMachineOptions {
+        TargetMachineOptions {
             triple: self.get_llvm_target_triple().as_str().to_string_lossy().into_owned(),
             cpu: self.get_llvm_target_cpu(),
             features: self.get_llvm_target_features(),
             reloc_mode: RelocMode::PIC,
-            ..CodeGenTargetMachineOptions::from_host()
+            ..TargetMachineOptions::from_host(target_opt_level)
         }
-    }
-
-    /// Returns an instance of [`TargetMachine`] used in compiling and linking of a program of this
-    /// ISA.
-    pub fn create_llvm_target_machine(self, opt_level: OptimizationLevel) -> TargetMachine {
-        self.get_llvm_target_options()
-            .create_target_machine(opt_level)
-            .expect("couldn't create target machine")
-    }
-
-    /// Returns the number of bits in `size_t` for this ISA.
-    fn get_size_type(self, ctx: &Context) -> u32 {
-        ctx.ptr_sized_int_type(
-            &self.create_llvm_target_machine(OptimizationLevel::Default).get_target_data(),
-            None,
-        )
-        .get_bit_width()
     }
 }
 
@@ -216,7 +202,7 @@ struct Nac3 {
     /// Modules registered with NAC3.
     modules: Arc<RwLock<Vec<ModuleInfo>>>,
     /// LLVM-related options for code generation.
-    llvm_options: CodeGenLLVMOptions,
+    codegen_options: CodeGenOptions,
 }
 
 create_exception!(nac3artiq, CompileError, exceptions::PyException);
@@ -494,7 +480,7 @@ impl Nac3 {
         py: Python<'py>,
         link_fn: &dyn Fn(&Module) -> PyResult<T>,
     ) -> PyResult<T> {
-        let size_t = self.isa.get_size_type(&Context::create());
+        let size_t = self.primitive.size_t;
 
         // Cache all imported modules indexed by their path for symbol resolution context
         let modules_by_path = LazyCell::new(|| {
@@ -818,8 +804,8 @@ impl Nac3 {
             .unwrap();
 
         // Process IRRT
-        let context = Context::create();
-        let irrt = load_irrt(&context, resolver.as_ref());
+        context_ref!(context);
+        let irrt = load_irrt(context, resolver.as_ref());
 
         let fun_signature =
             FunSignature { args: vec![], ret: self.primitive.none, vars: VarMap::new() };
@@ -934,10 +920,8 @@ impl Nac3 {
         let threads: Vec<_> = thread_names
             .iter()
             .map(|s| {
-                Box::new(ArtiqCodeGenerator::with_target_machine(
+                Box::new(ArtiqCodeGenerator::new(
                     s.to_string(),
-                    &context,
-                    &self.get_llvm_target_machine(),
                     self.time_fns,
                     self.special_ids.clone(),
                 ))
@@ -947,40 +931,27 @@ impl Nac3 {
         let membuffer = membuffers.clone();
         let mut has_return = false;
         py.allow_threads(|| {
-            let (registry, handles) =
-                WorkerRegistry::create_workers(threads, top_level.clone(), &self.llvm_options, &f);
-
-            let context = Context::create();
-            let mut generator = ArtiqCodeGenerator::with_target_machine(
+            let mut generator = ArtiqCodeGenerator::new(
                 "main".to_string(),
-                &context,
-                &self.get_llvm_target_machine(),
                 self.time_fns,
                 self.special_ids.clone(),
             );
-            let module = context.create_module("main");
-            let fn_store = FunctionStore::default();
-            let target_machine = self.llvm_options.create_target_machine().unwrap();
-            module.set_data_layout(&target_machine.get_target_data().get_data_layout());
-            module.set_triple(&target_machine.get_triple());
-            module.add_basic_value_flag(
-                "Debug Info Version",
-                FlagBehavior::Warning,
-                context.i32_type().const_int(3, false),
+            let (registry, handles) = WorkerRegistry::create_workers(
+                threads,
+                top_level.clone(),
+                &self.codegen_options,
+                &f,
             );
-            module.add_basic_value_flag(
-                "Dwarf Version",
-                FlagBehavior::Warning,
-                context.i32_type().const_int(4, false),
-            );
-            let builder = context.create_builder();
-            let (_, module, _, _) = gen_func_impl(
-                &context,
+
+            context_ref!(context);
+            let context = CoreContext::new(context, "main", &self.codegen_options.target);
+            let builder = context.ctx.create_builder();
+
+            let (context, _, result) = gen_func_impl(
+                context,
+                builder,
                 &mut generator,
                 &registry,
-                builder,
-                module,
-                fn_store,
                 task,
                 |generator, ctx| {
                     assert_eq!(instance.body.len(), 1, "toplevel module should have 1 statement");
@@ -1003,9 +974,9 @@ impl Nac3 {
                         return_obj,
                     )
                 },
-            )
-            .unwrap();
-            let buffer = module.write_bitcode_to_memory();
+            );
+            result.unwrap();
+            let buffer = context.module.write_bitcode_to_memory();
             let buffer = buffer.as_slice().into();
             membuffer.lock().push(buffer);
         });
@@ -1064,11 +1035,7 @@ impl Nac3 {
             global_option = global.get_next_global();
         }
 
-        let target_machine = self
-            .llvm_options
-            .target
-            .create_target_machine(self.llvm_options.opt_level)
-            .expect("couldn't create target machine");
+        let target_machine = self.codegen_options.target.create_target_machine();
 
         // Strip all unused functions first (necessary even in -O0 to filter out unused IRRT functions)
         main.run_passes(
@@ -1081,7 +1048,7 @@ impl Nac3 {
 
         let pass_options = PassBuilderOptions::create();
         pass_options.set_merge_functions(true);
-        let passes = format!("default<O{}>", self.llvm_options.opt_level as u32);
+        let passes = format!("default<O{}>", self.codegen_options.opt_level);
         let result = main.run_passes(passes.as_str(), &target_machine, pass_options);
         if let Err(err) = result {
             panic!("Failed to run optimization for module `main`: {}", err.to_string());
@@ -1105,12 +1072,6 @@ impl Nac3 {
         });
 
         link_fn(&main)
-    }
-
-    /// Returns an instance of [`TargetMachine`] used in compiling and linking of a program to the
-    /// target [ISA][isa].
-    fn get_llvm_target_machine(&self) -> TargetMachine {
-        self.isa.create_llvm_target_machine(self.llvm_options.opt_level)
     }
 }
 
@@ -1285,13 +1246,31 @@ impl Nac3 {
             "cortexa9" => Isa::CortexA9,
             _ => return Err(exceptions::PyValueError::new_err("invalid ISA")),
         };
+
+        let opt_level = match std::env::var(ENV_NAC3_OPT_LEVEL) {
+            Ok(x) if matches!(&*x, "0" | "1" | "2" | "3" | "s" | "z") => x,
+            Err(std::env::VarError::NotPresent) => String::from("2"),
+            unknown => {
+                return Err(exceptions::PyValueError::new_err(format!(
+                    "unknown opt level: {unknown:?}"
+                )));
+            }
+        };
+        // We always use the `Default` target-specific optimization level,
+        // since `nac3ld` only supports relocation types that are used in optimized code.
+        let target_opt_level = OptimizationLevel::Default;
+
+        let target_options = isa.get_llvm_target_options(target_opt_level);
         let time_fns: &(dyn TimeFns + Sync) = match isa {
             Isa::RiscV32G => &timeline::NOW_PINNING_TIME_FNS_64,
             Isa::RiscV32IMA => &timeline::NOW_PINNING_TIME_FNS,
             Isa::CortexA9 | Isa::Host => &timeline::EXTERN_TIME_FNS,
         };
-        let (primitive, _) =
-            TopLevelComposer::make_primitives(isa.get_size_type(&Context::create()));
+        let size_t_bits =
+            target_options.create_target_machine().get_target_data().get_pointer_byte_size(None)
+                * 8;
+
+        let (primitive, _) = TopLevelComposer::make_primitives(size_t_bits);
         let builtins = vec![
             (
                 "now_mu".into(),
@@ -1442,17 +1421,8 @@ impl Nac3 {
             string_store.insert(exn_name, id);
         }
 
-        let opt_level = match std::env::var(ENV_NAC3_OPT_LEVEL).as_deref() {
-            Ok("0") => OptimizationLevel::None,
-            Ok("1") => OptimizationLevel::Less,
-            Ok("2") | Err(std::env::VarError::NotPresent) => OptimizationLevel::Default,
-            Ok("3") => OptimizationLevel::Aggressive,
-            unknown => {
-                return Err(exceptions::PyValueError::new_err(format!(
-                    "unknown opt level: {unknown:?}"
-                )));
-            }
-        };
+        let codegen_options =
+            CodeGenOptions { debug: opt_level == "0", target: target_options, opt_level };
 
         Ok(Nac3 {
             isa,
@@ -1468,7 +1438,7 @@ impl Nac3 {
             deferred_eval_store: DeferredEvaluationStore::new(),
             special_ids: SpecialPythonId::default(),
             modules: Arc::default(),
-            llvm_options: CodeGenLLVMOptions { opt_level, target: isa.get_llvm_target_options() },
+            codegen_options,
         })
     }
 
@@ -1529,7 +1499,7 @@ impl Nac3 {
         embedding_map: &Bound<'py, PyAny>,
         py: Python<'py>,
     ) -> PyResult<()> {
-        let target_machine = self.get_llvm_target_machine();
+        let target_machine = self.codegen_options.target.create_target_machine();
         let link_fn = |module: &Module| {
             if self.isa == Isa::Host {
                 let working_directory = self.working_directory.path().to_owned();
@@ -1545,6 +1515,9 @@ impl Nac3 {
                 let object_mem = target_machine
                     .write_to_memory_buffer(module, FileType::Object)
                     .expect("couldn't write module to object file buffer");
+                if let Some(path) = std::env::var_os("NAC3_EMIT_OBJ") {
+                    std::fs::write(&path, object_mem.as_slice()).map_err(CompileError::new_err)?;
+                }
                 if let Ok(dyn_lib) = Linker::ld(object_mem.as_slice()) {
                     if let Ok(mut file) = fs::File::create(filename) {
                         file.write_all(&dyn_lib).expect("couldn't write linked library to file");
@@ -1569,7 +1542,7 @@ impl Nac3 {
         embedding_map: &Bound<'py, PyAny>,
         py: Python<'py>,
     ) -> PyResult<PyObject> {
-        let target_machine = self.get_llvm_target_machine();
+        let target_machine = self.codegen_options.target.create_target_machine();
         let link_fn = |module: &Module| {
             if self.isa == Isa::Host {
                 let working_directory = self.working_directory.path().to_owned();

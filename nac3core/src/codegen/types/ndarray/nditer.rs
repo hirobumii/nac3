@@ -1,6 +1,6 @@
 use inkwell::{
     AddressSpace,
-    context::{AsContextRef, Context},
+    context::ContextRef,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{IntValue, PointerValue, StructValue},
 };
@@ -9,7 +9,7 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator, irrt,
+    CoreContext, CodeGenContext, CodeGenerator, irrt,
     types::{
         ProxyType,
         structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
@@ -47,20 +47,20 @@ pub struct NDIterStructFields<'ctx> {
 impl<'ctx> NDIterType<'ctx> {
     /// Returns an instance of [`StructFields`] containing all field accessors for this type.
     #[must_use]
-    fn fields(ctx: impl AsContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> NDIterStructFields<'ctx> {
+    fn fields(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> NDIterStructFields<'ctx> {
         NDIterStructFields::new(ctx, llvm_usize)
     }
 
     /// Creates an LLVM type corresponding to the expected structure of an `NDIter`.
     #[must_use]
-    fn llvm_type(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
+    fn llvm_type(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
         let field_tys =
             Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
 
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
-    fn new_impl(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> Self {
+    fn new_impl(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         let llvm_nditer = Self::llvm_type(ctx, llvm_usize);
 
         Self { ty: llvm_nditer, llvm_usize }
@@ -68,17 +68,8 @@ impl<'ctx> NDIterType<'ctx> {
 
     /// Creates an instance of [`NDIter`].
     #[must_use]
-    pub fn new(ctx: &CodeGenContext<'ctx, '_>) -> Self {
-        Self::new_impl(ctx.ctx, ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`NDIter`].
-    #[must_use]
-    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-    ) -> Self {
-        Self::new_impl(ctx, generator.get_size_type(ctx))
+    pub fn new(ctx: &CoreContext<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, ctx.size_t)
     }
 
     /// Creates an [`NDIterType`] from a [`StructType`] representing an `NDIter`.

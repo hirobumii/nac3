@@ -16,7 +16,7 @@ pub fn calculate_len_for_slice_range<'ctx, G: CodeGenerator + ?Sized>(
     end: IntValue<'ctx>,
     step: IntValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_i32 = ctx.i32;
     assert_eq!(start.get_type(), llvm_i32);
     assert_eq!(end.get_type(), llvm_i32);
     assert_eq!(step.get_type(), llvm_i32);

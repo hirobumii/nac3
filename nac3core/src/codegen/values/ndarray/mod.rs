@@ -94,7 +94,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Stores the number of dimensions `ndims` into this instance.
     pub fn store_ndims(&self, ctx: &mut CodeGenContext<'ctx, '_>, ndims: IntValue<'ctx>) {
-        debug_assert_eq!(ndims.get_type(), ctx.get_size_type());
+        debug_assert_eq!(ndims.get_type(), ctx.size_t);
 
         self.ndims_field().store(ctx, self.value, ndims, self.name);
     }
@@ -110,7 +110,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Stores the size of each element `itemsize` into this instance.
     pub fn store_itemsize(&self, ctx: &mut CodeGenContext<'ctx, '_>, itemsize: IntValue<'ctx>) {
-        debug_assert_eq!(itemsize.get_type(), ctx.get_size_type());
+        debug_assert_eq!(itemsize.get_type(), ctx.size_t);
 
         self.itemsize_field().store(ctx, self.value, itemsize, self.name);
     }
@@ -355,7 +355,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> TupleValue<'ctx> {
-        let llvm_i32 = ctx.ctx.i32_type();
+        let llvm_i32 = ctx.i32;
 
         let objects = (0..self.ndims)
             .map(|i| {
@@ -385,7 +385,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> TupleValue<'ctx> {
-        let llvm_i32 = ctx.ctx.i32_type();
+        let llvm_i32 = ctx.i32;
 
         let objects = (0..self.ndims)
             .map(|i| {
@@ -420,7 +420,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     ) -> Option<BasicValueEnum<'ctx>> {
         if self.is_unsized() {
             // NOTE: `np.size(self) == 0` here is never possible.
-            let zero = ctx.get_size_type().const_zero();
+            let zero = ctx.size_t.const_zero();
             let value = unsafe { self.data().get_unchecked(ctx, generator, &zero, None) };
 
             Some(value)
@@ -792,7 +792,7 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
         indices: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        assert_eq!(indices.element_type(ctx, generator), ctx.get_size_type().into());
+        assert_eq!(indices.element_type(ctx, generator), ctx.size_t.into());
 
         let indices = TypedArrayLikeAdapter::from(
             indices.as_slice_value(ctx, generator),
@@ -825,7 +825,7 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
         indices: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        let llvm_usize = ctx.get_size_type();
+        let llvm_usize = ctx.size_t;
 
         let indices_size = indices.size(ctx, generator);
         let ndims = self.0.load_ndims(ctx);
@@ -951,8 +951,7 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
     /// If `object` is an ndarray, [`ScalarOrNDArray::NDArray`].
     ///
     /// For everything else, it is wrapped with [`ScalarOrNDArray::Scalar`].
-    pub fn from_value<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         (object_ty, object): (Type, BasicValueEnum<'ctx>),
     ) -> ScalarOrNDArray<'ctx> {
@@ -960,7 +959,7 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
             {
-                let ndarray = NDArrayType::from_unifier_type(generator, ctx, object_ty)
+                let ndarray = NDArrayType::from_unifier_type(ctx, object_ty)
                     .map_pointer_value(object.into_pointer_value(), None);
                 ScalarOrNDArray::NDArray(ndarray)
             }

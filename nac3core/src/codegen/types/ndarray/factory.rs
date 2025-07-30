@@ -21,12 +21,12 @@ fn ndarray_zero_value<'ctx, G: CodeGenerator + ?Sized>(
         .iter()
         .any(|ty| ctx.unifier.unioned(dtype, *ty))
     {
-        ctx.ctx.i32_type().const_zero().into()
+        ctx.i32.const_zero().into()
     } else if [ctx.primitives.int64, ctx.primitives.uint64]
         .iter()
         .any(|ty| ctx.unifier.unioned(dtype, *ty))
     {
-        ctx.ctx.i64_type().const_zero().into()
+        ctx.i64.const_zero().into()
     } else if ctx.unifier.unioned(dtype, ctx.primitives.float) {
         ctx.ctx.f64_type().const_zero().into()
     } else if ctx.unifier.unioned(dtype, ctx.primitives.bool) {
@@ -49,13 +49,13 @@ fn ndarray_one_value<'ctx, G: CodeGenerator + ?Sized>(
         .any(|ty| ctx.unifier.unioned(dtype, *ty))
     {
         let is_signed = ctx.unifier.unioned(dtype, ctx.primitives.int32);
-        ctx.ctx.i32_type().const_int(1, is_signed).into()
+        ctx.i32.const_int(1, is_signed).into()
     } else if [ctx.primitives.int64, ctx.primitives.uint64]
         .iter()
         .any(|ty| ctx.unifier.unioned(dtype, *ty))
     {
         let is_signed = ctx.unifier.unioned(dtype, ctx.primitives.int64);
-        ctx.ctx.i64_type().const_int(1, is_signed).into()
+        ctx.i64.const_int(1, is_signed).into()
     } else if ctx.unifier.unioned(dtype, ctx.primitives.float) {
         ctx.ctx.f64_type().const_float(1.0).into()
     } else if ctx.unifier.unioned(dtype, ctx.primitives.bool) {
@@ -114,11 +114,11 @@ impl<'ctx> NDArrayType<'ctx> {
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         assert_eq!(
-            ctx.get_llvm_type(generator, dtype),
+            ctx.get_llvm_type(dtype),
             self.dtype,
             "Expected LLVM dtype={} but got {}",
             self.dtype.print_to_string(),
-            ctx.get_llvm_type(generator, dtype).print_to_string(),
+            ctx.get_llvm_type(dtype).print_to_string(),
         );
 
         let fill_value = ndarray_zero_value(generator, ctx, dtype);
@@ -136,11 +136,11 @@ impl<'ctx> NDArrayType<'ctx> {
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         assert_eq!(
-            ctx.get_llvm_type(generator, dtype),
+            ctx.get_llvm_type(dtype),
             self.dtype,
             "Expected LLVM dtype={} but got {}",
             self.dtype.print_to_string(),
-            ctx.get_llvm_type(generator, dtype).print_to_string(),
+            ctx.get_llvm_type(dtype).print_to_string(),
         );
 
         let fill_value = ndarray_one_value(generator, ctx, dtype);
@@ -161,11 +161,11 @@ impl<'ctx> NDArrayType<'ctx> {
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         assert_eq!(
-            ctx.get_llvm_type(generator, dtype),
+            ctx.get_llvm_type(dtype),
             self.dtype,
             "Expected LLVM dtype={} but got {}",
             self.dtype.print_to_string(),
-            ctx.get_llvm_type(generator, dtype).print_to_string(),
+            ctx.get_llvm_type(dtype).print_to_string(),
         );
         assert_eq!(nrows.get_type(), self.llvm_usize);
         assert_eq!(ncols.get_type(), self.llvm_usize);

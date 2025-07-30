@@ -11,12 +11,14 @@ use inkwell::{
     AddressSpace,
     attributes::{Attribute, AttributeLoc},
     builder::Builder,
-    module::{Linkage, Module},
+    module::Linkage,
     targets::TargetData,
     types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, PointerType},
     values::{BasicValueEnum, CallSiteValue, FunctionValue, PointerValue},
 };
 use itertools::Itertools;
+
+use crate::codegen::{CoreContext, TargetMachineOptions};
 
 const INTERNAL_CALL_CONV: u32 = inkwell::llvm_sys::LLVMCallConv::LLVMFastCallConv as _;
 
@@ -72,28 +74,12 @@ fn get_attrs(
     a.into_iter().enumerate().filter_map(|(i, attr)| Some((AttributeLoc::Param(i as _), attr?)))
 }
 
-/// Functions in an LLVM module, with ABI details encapsulated.
-///
-/// # Usage
-///
-/// Construct with [`FunctionStore::default`]. Always keep this in sync
-/// with the relevant module; every construction of a [`FunctionStore`]
-/// should be right next to some construction of a [`Module`], and vice
-/// versa.
-///
-/// Declare functions using [`declare_external`] or [`declare_internal`].
-/// Call the declared function using [`CodeGenContext::build_call`] or [`CodeGenContext::build_call_or_invoke`].
-///
-/// [`declare_external`]: FunctionStore::declare_external
-/// [`declare_internal`]: FunctionStore::declare_internal
-/// [`CodeGenContext::build_call`]: crate::codegen::CodeGenContext::build_call
-/// [`CodeGenContext::build_call_or_invoke`]: crate::codegen::CodeGenContext::build_call_or_invoke
-#[derive(Default)]
-pub struct FunctionStore<'ctx> {
+pub(super) struct FunctionStore<'ctx> {
     functions: HashMap<String, (FunctionValue<'ctx>, FunctionInfo<'ctx>)>,
+    arch: String,
 }
 
-impl<'ctx> FunctionStore<'ctx> {
+impl<'ctx> CoreContext<'ctx> {
     /// Declares and registers a function that is defined internally.
     ///
     /// Returns a `(decl, value)` pair.
@@ -111,19 +97,20 @@ impl<'ctx> FunctionStore<'ctx> {
     /// convention.
     pub fn declare_internal(
         &mut self,
-        module: &Module<'ctx>,
         name: &str,
         ret: Option<BasicTypeEnum<'ctx>>,
         params: &[BasicMetadataTypeEnum<'ctx>],
         export: bool,
     ) -> (FunctionDecl<'ctx>, FunctionValue<'ctx>) {
+        let CoreContext { ctx, module, fn_store, .. } = self;
+
         let mut new_fn = None;
-        self.functions.entry(name.to_owned()).or_insert_with(|| {
+        fn_store.functions.entry(name.to_owned()).or_insert_with(|| {
             let f = module.add_function(
                 name,
                 match ret {
                     Some(ret) => ret.fn_type(params, false),
-                    None => module.get_context().void_type().fn_type(params, false),
+                    None => ctx.void_type().fn_type(params, false),
                 },
                 None,
             );
@@ -142,23 +129,23 @@ impl<'ctx> FunctionStore<'ctx> {
     ///
     /// Returns a function declaration. Note that the registered function signature is designed
     /// to match the C ABI, so you might see a slightly different function signature in LLVM IR.
-    pub fn declare_external<'a>(
-        &'a mut self,
-        module: &Module<'ctx>,
+    pub fn declare_external(
+        &mut self,
         name: &str,
         ret: Option<BasicTypeEnum<'ctx>>,
         params: &[BasicTypeEnum<'ctx>],
         is_c_varargs: bool,
         fn_attrs: &[&str],
     ) -> FunctionDecl<'ctx> {
-        let entry = match self.functions.entry(name.into()) {
+        let CoreContext { ctx, ref module, ref target, ref mut fn_store, .. } = *self;
+
+        let entry = match fn_store.functions.entry(name.into()) {
             Entry::Occupied(_) => return FunctionDecl::new(name.into()),
             Entry::Vacant(v) => v,
         };
 
-        let ctx = module.get_context();
-        let triple = module.get_triple();
-        let arch = triple.as_str().to_str().unwrap().split('-').next().unwrap();
+        let arch = &*fn_store.arch;
+        let layout = target.get_target_data();
 
         let attr_sret = (arch == "x86_64" || arch == "i686" || arch == "riscv32")
             .then(|| Attribute::get_named_enum_kind_id("sret"));
@@ -166,7 +153,7 @@ impl<'ctx> FunctionStore<'ctx> {
             .then(|| Attribute::get_named_enum_kind_id("byval"));
         let get_conv = |attr: Option<u32>, ty, indirect_check: fn(_, _, _) -> bool| TyAndCallConv {
             ty,
-            call_conv: if indirect_check(arch, module, ty) {
+            call_conv: if indirect_check(arch, &layout, ty) {
                 ArgCallConv::Indirect(
                     attr.map(|x| ctx.create_type_attribute(x, AnyType::as_any_type_enum(&ty))),
                 )
@@ -210,6 +197,15 @@ impl<'ctx> FunctionStore<'ctx> {
         let info = FunctionInfo::External { ret, params, is_c_varargs };
         entry.insert((f, info));
         FunctionDecl::new(name.into())
+    }
+}
+
+impl<'ctx> FunctionStore<'ctx> {
+    pub(crate) fn new(options: &TargetMachineOptions) -> Self {
+        Self {
+            functions: HashMap::default(),
+            arch: options.triple.split('-').next().unwrap().to_owned(),
+        }
     }
 
     pub(crate) fn do_call<T>(
@@ -334,58 +330,56 @@ impl<'ctx> FunctionStore<'ctx> {
 ///
 /// Also refer to rustc's impl:
 /// <https://github.com/rust-lang/rust/tree/255aa220821c05c3eac7605fce4ea1c9ab2cbdb4/compiler/rustc_target/src/callconv>
-fn indirect_ret(arch: &str, module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool {
+fn indirect_ret(arch: &str, layout: &TargetData, ret: BasicTypeEnum<'_>) -> bool {
     // LLVM's TargetTriple has methods to access separate components, but inkwell does not
     // expose them. We use a rudimentary approach to parse the triple.
     match arch {
-        "x86_64" => x86_64_indirect_ret(module, ret),
-        "armv7" => arm_indirect_ret(module, ret, false),
-        "aarch64" => arm_indirect_ret(module, ret, true),
-        "riscv32" => riscv_indirect_ret(module, ret),
-        "i686" => x86_indirect_ret(module, ret),
-        _ => unimplemented!("unsupported arch for extern fn: {arch}"),
+        "x86_64" => x86_64_indirect_ret(layout, ret),
+        "armv7" => arm_indirect_ret(layout, ret, false),
+        "aarch64" => arm_indirect_ret(layout, ret, true),
+        "riscv32" => riscv_indirect_ret(layout, ret),
+        "i686" => x86_indirect_ret(layout, ret),
+        arch => unimplemented!("unsupported arch for extern fn: {arch}"),
     }
 }
 
-fn indirect_arg(arch: &str, module: &Module<'_>, ty: BasicTypeEnum<'_>) -> bool {
+fn indirect_arg(arch: &str, layout: &TargetData, ty: BasicTypeEnum<'_>) -> bool {
     // armv7 appears to never pass arguments indirectly at all
-    arch != "armv7" && indirect_ret(arch, module, ty)
+    arch != "armv7" && indirect_ret(arch, layout, ty)
 }
 
-fn bits_of(module: &Module<'_>, ty: BasicTypeEnum<'_>) -> u64 {
-    TargetData::create(module.get_data_layout().as_str().to_str().unwrap()).get_bit_size(&ty)
-}
-
-fn arm_homogeneous_aggregate(module: &Module<'_>, ty: BasicTypeEnum<'_>) -> Option<u32> {
+fn arm_homogeneous_aggregate(layout: &TargetData, ty: BasicTypeEnum<'_>) -> Option<u32> {
     // On ARM architectures, returning a struct of exactly 1-4 floats is through registers.
     match ty {
         BasicTypeEnum::FloatType(_) => Some(1),
-        BasicTypeEnum::IntType(_) | BasicTypeEnum::PointerType(_) if bits_of(module, ty) <= 64 => {
+        BasicTypeEnum::IntType(_) | BasicTypeEnum::PointerType(_)
+            if layout.get_bit_size(&ty) <= 64 =>
+        {
             None
         }
         BasicTypeEnum::StructType(s) => s
             .get_field_types_iter()
-            .map(|ty| arm_homogeneous_aggregate(module, ty))
+            .map(|ty| arm_homogeneous_aggregate(layout, ty))
             .sum::<Option<u32>>()
             .filter(|&n| n <= 4),
         _ => unreachable!(),
     }
 }
 
-fn arm_indirect_ret(module: &Module<'_>, ret: BasicTypeEnum<'_>, aarch64: bool) -> bool {
+fn arm_indirect_ret(layout: &TargetData, ret: BasicTypeEnum<'_>, aarch64: bool) -> bool {
     !matches!(
         ret,
         BasicTypeEnum::FloatType(_) | BasicTypeEnum::IntType(_) | BasicTypeEnum::PointerType(_)
-    ) && bits_of(module, ret) > if aarch64 { 128 } else { 32 }
-        && arm_homogeneous_aggregate(module, ret).is_none()
+    ) && layout.get_bit_size(&ret) > if aarch64 { 128 } else { 32 }
+        && arm_homogeneous_aggregate(layout, ret).is_none()
 }
 
-fn riscv_indirect_ret(module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool {
+fn riscv_indirect_ret(layout: &TargetData, ret: BasicTypeEnum<'_>) -> bool {
     match ret {
         BasicTypeEnum::FloatType(_) | BasicTypeEnum::IntType(_) | BasicTypeEnum::PointerType(_) => {
             false
         }
-        _ if bits_of(module, ret) <= 64 => false,
+        _ if layout.get_bit_size(&ret) <= 64 => false,
         BasicTypeEnum::StructType(s) => {
             let (mut f, mut i) = (0, 0);
             for field in s.get_field_types_iter() {
@@ -401,7 +395,7 @@ fn riscv_indirect_ret(module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool {
     }
 }
 
-fn x86_64_indirect_ret(module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool {
+fn x86_64_indirect_ret(layout: &TargetData, ret: BasicTypeEnum<'_>) -> bool {
     // There's a lot of logic determining which class each "EIGHTBYTE" (64-bit) component refers to.
     // However, if we limit ourselves to:
     // - not have unaligned values;
@@ -411,10 +405,10 @@ fn x86_64_indirect_ret(module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool {
     // unless the size of the struct is > 128 bits, where everything is assigned MEMORY.
     //
     // So for our specific case, `need_sret` is just a size check.
-    bits_of(module, ret) > 128
+    layout.get_bit_size(&ret) > 128
 }
 
-fn x86_indirect_ret(_module: &Module<'_>, ret: BasicTypeEnum<'_>) -> bool {
+fn x86_indirect_ret(_layout: &TargetData, ret: BasicTypeEnum<'_>) -> bool {
     // All aggregates are passed indirectly, even those with just 1 element.
     ret.is_struct_type() || ret.is_array_type()
 }

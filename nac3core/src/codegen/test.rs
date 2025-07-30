@@ -18,12 +18,13 @@ use nac3parser::{
 };
 
 use super::{
-    CodeGenContext, CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, CodeGenerator,
-    DefaultCodeGenerator, WithCall, WorkerRegistry,
+    CodeGenContext, CodeGenOptions, CodeGenTask, CodeGenerator, DefaultCodeGenerator,
+    TargetMachineOptions, WithCall, WorkerRegistry,
     concrete_type::ConcreteTypeStore,
     types::{ListType, ProxyType, RangeType, ndarray::NDArrayType},
 };
 use crate::{
+    codegen::{CoreContext, context_ref},
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
         DefinitionId, FunInstance, TopLevelContext, TopLevelDef,
@@ -90,6 +91,15 @@ impl SymbolResolver for Resolver {
     }
 }
 
+fn codegen_options() -> CodeGenOptions {
+    // We want things like debug assertions, but we otherwise want to run on optimized code.
+    CodeGenOptions {
+        opt_level: String::from("2"),
+        debug: true,
+        target: TargetMachineOptions::from_host_triple(OptimizationLevel::Default),
+    }
+}
+
 #[test]
 #[named]
 fn test_primitives() {
@@ -100,7 +110,6 @@ fn test_primitives() {
         "};
     let statements = parse_program(source, FileName::default()).unwrap();
 
-    let context = inkwell::context::Context::create();
     let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
@@ -111,7 +120,7 @@ fn test_primitives() {
         Arc::new(Resolver { id_to_type: HashMap::new(), id_to_def: RwLock::new(HashMap::new()) })
             as Arc<dyn SymbolResolver + Send + Sync>;
 
-    let threads = vec![DefaultCodeGenerator::new("test".into(), context.i64_type()).into()];
+    let threads = vec![DefaultCodeGenerator::new("test".into()).into()];
     let signature = FunSignature {
         args: vec![
             FuncArg {
@@ -192,11 +201,8 @@ fn test_primitives() {
 
     Target::initialize_all(&InitializationConfig::default());
 
-    let llvm_options = CodeGenLLVMOptions {
-        opt_level: OptimizationLevel::Default,
-        target: CodeGenTargetMachineOptions::from_host_triple(),
-    };
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
+    let (registry, handles) =
+        WorkerRegistry::create_workers(threads, top_level, &codegen_options(), &f);
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 }
@@ -215,7 +221,6 @@ fn test_simple_call() {
         "};
     let statements_2 = parse_program(source_2, FileName::default()).unwrap();
 
-    let context = inkwell::context::Context::create();
     let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
@@ -264,7 +269,7 @@ fn test_simple_call() {
         unreachable!()
     }
 
-    let threads = vec![DefaultCodeGenerator::new("test".into(), context.i64_type()).into()];
+    let threads = vec![DefaultCodeGenerator::new("test".into()).into()];
     let mut function_data = FunctionData {
         resolver: resolver.clone(),
         bound_variables: Vec::new(),
@@ -346,46 +351,36 @@ fn test_simple_call() {
 
     Target::initialize_all(&InitializationConfig::default());
 
-    let llvm_options = CodeGenLLVMOptions {
-        opt_level: OptimizationLevel::Default,
-        target: CodeGenTargetMachineOptions::from_host_triple(),
-    };
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
+    let (registry, handles) =
+        WorkerRegistry::create_workers(threads, top_level, &codegen_options(), &f);
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 }
 
 #[test]
 fn test_classes_list_type_new() {
-    let ctx = inkwell::context::Context::create();
-    let generator = DefaultCodeGenerator::new(String::new(), ctx.i64_type());
-
-    let llvm_i32 = ctx.i32_type();
-    let llvm_usize = generator.get_size_type(&ctx);
-
-    let llvm_list = ListType::new_with_generator(&generator, &ctx, llvm_i32.into());
-    assert!(ListType::is_representable(llvm_list.as_abi_type(), llvm_usize).is_ok());
+    context_ref!(ctx);
+    let ctx = CoreContext::new(ctx, "test_classes_list_type_new", &codegen_options().target);
+    let llvm_i32 = ctx.i32;
+    let llvm_list = ListType::new(&ctx, &llvm_i32);
+    assert!(ListType::is_representable(llvm_list.as_abi_type(), ctx.size_t).is_ok());
 }
 
 #[test]
 fn test_classes_range_type_new() {
-    let ctx = inkwell::context::Context::create();
-    let generator = DefaultCodeGenerator::new(String::new(), ctx.i64_type());
-
-    let llvm_usize = generator.get_size_type(&ctx);
-
-    let llvm_range = RangeType::new_with_generator(&generator, &ctx);
+    context_ref!(ctx);
+    let ctx = CoreContext::new(ctx, "test_classes_range_type_new", &codegen_options().target);
+    let llvm_usize = ctx.size_t;
+    let llvm_range = RangeType::new(&ctx);
     assert!(RangeType::is_representable(llvm_range.as_abi_type(), llvm_usize).is_ok());
 }
 
 #[test]
 fn test_classes_ndarray_type_new() {
-    let ctx = inkwell::context::Context::create();
-    let generator = DefaultCodeGenerator::new(String::new(), ctx.i64_type());
-
-    let llvm_i32 = ctx.i32_type();
-    let llvm_usize = generator.get_size_type(&ctx);
-
-    let llvm_ndarray = NDArrayType::new_with_generator(&generator, &ctx, llvm_i32.into(), 2);
+    context_ref!(ctx);
+    let ctx = CoreContext::new(ctx, "test_classes_ndarray_type_new", &codegen_options().target);
+    let llvm_usize = ctx.size_t;
+    let llvm_i32 = ctx.i32;
+    let llvm_ndarray = NDArrayType::new(&ctx, llvm_i32.into(), 2);
     assert!(NDArrayType::is_representable(llvm_ndarray.as_abi_type(), llvm_usize).is_ok());
 }

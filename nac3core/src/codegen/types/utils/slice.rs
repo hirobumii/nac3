@@ -1,6 +1,6 @@
 use inkwell::{
     AddressSpace,
-    context::{AsContextRef, Context, ContextRef},
+    context::ContextRef,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{IntValue, PointerValue, StructValue},
 };
@@ -9,7 +9,7 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CoreContext, CodeGenContext, CodeGenerator,
     types::{
         ProxyType,
         structure::{
@@ -46,8 +46,7 @@ pub struct SliceStructFields<'ctx> {
 impl<'ctx> SliceStructFields<'ctx> {
     /// Creates a new instance of [`SliceStructFields`] with a custom integer type for its range values.
     #[must_use]
-    pub fn new_sized(ctx: &impl AsContextRef<'ctx>, int_ty: IntType<'ctx>) -> Self {
-        let ctx = unsafe { ContextRef::new(ctx.as_ctx_ref()) };
+    pub fn new_sized(ctx: ContextRef<'ctx>, int_ty: IntType<'ctx>) -> Self {
         let mut counter = FieldIndexCounter::default();
 
         SliceStructFields {
@@ -64,8 +63,8 @@ impl<'ctx> SliceStructFields<'ctx> {
 impl<'ctx> SliceType<'ctx> {
     /// Creates an LLVM type corresponding to the expected structure of a `Slice`.
     #[must_use]
-    fn llvm_type(ctx: &'ctx Context, int_ty: IntType<'ctx>) -> PointerType<'ctx> {
-        let field_tys = SliceStructFields::new_sized(&int_ty.get_context(), int_ty)
+    fn llvm_type(ctx: ContextRef<'ctx>, int_ty: IntType<'ctx>) -> PointerType<'ctx> {
+        let field_tys = SliceStructFields::new_sized(ctx, int_ty)
             .into_iter()
             .map(|field| field.1)
             .collect_vec();
@@ -73,7 +72,7 @@ impl<'ctx> SliceType<'ctx> {
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
-    fn new_impl(ctx: &'ctx Context, int_ty: IntType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+    fn new_impl(ctx: ContextRef<'ctx>, int_ty: IntType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         let llvm_ty = Self::llvm_type(ctx, int_ty);
 
         Self { ty: llvm_ty, int_ty, llvm_usize }
@@ -81,33 +80,14 @@ impl<'ctx> SliceType<'ctx> {
 
     /// Creates an instance of [`SliceType`] with `int_ty` as its backing integer type.
     #[must_use]
-    pub fn new(ctx: &CodeGenContext<'ctx, '_>, int_ty: IntType<'ctx>) -> Self {
-        Self::new_impl(ctx.ctx, int_ty, ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`SliceType`] with `int_ty` as its backing integer type.
-    #[must_use]
-    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        int_ty: IntType<'ctx>,
-    ) -> Self {
-        Self::new_impl(ctx, int_ty, generator.get_size_type(ctx))
+    pub fn new(ctx: &CoreContext<'ctx>, int_ty: IntType<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, int_ty, ctx.size_t)
     }
 
     /// Creates an instance of [`SliceType`] with `usize` as its backing integer type.
     #[must_use]
     pub fn new_usize(ctx: &CodeGenContext<'ctx, '_>) -> Self {
-        Self::new_impl(ctx.ctx, ctx.get_size_type(), ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`SliceType`] with `usize` as its backing integer type.
-    #[must_use]
-    pub fn new_usize_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-    ) -> Self {
-        Self::new_impl(ctx, generator.get_size_type(ctx), generator.get_size_type(ctx))
+        Self::new_impl(ctx.ctx, ctx.size_t, ctx.size_t)
     }
 
     /// Creates an [`SliceType`] from a [`StructType`] representing a `slice`.
@@ -280,7 +260,7 @@ impl<'ctx> StructProxyType<'ctx> for SliceType<'ctx> {
     type StructFields = SliceStructFields<'ctx>;
 
     fn get_fields(&self) -> Self::StructFields {
-        SliceStructFields::new_sized(&self.ty.get_context(), self.int_ty)
+        SliceStructFields::new_sized(self.ty.get_context(), self.int_ty)
     }
 }
 

@@ -239,7 +239,7 @@ impl<'ctx> RustSlice<'ctx> {
         let stop = value_mapper(upper)?;
         let step = value_mapper(step)?;
 
-        Ok(RustSlice { int_ty: ctx.ctx.i32_type(), start, stop, step })
+        Ok(RustSlice { int_ty: ctx.i32, start, stop, step })
     }
 
     /// Write the contents to an LLVM [`SliceValue`].

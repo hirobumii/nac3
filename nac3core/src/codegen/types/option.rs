@@ -1,13 +1,12 @@
 use inkwell::{
     AddressSpace,
-    context::Context,
     types::{BasicType, BasicTypeEnum, IntType, PointerType},
     values::{BasicValue, BasicValueEnum, PointerValue},
 };
 
 use super::ProxyType;
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator, values::OptionValue},
+    codegen::{CoreContext, CodeGenContext, CodeGenerator, values::OptionValue},
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
 };
 
@@ -33,27 +32,13 @@ impl<'ctx> OptionType<'ctx> {
 
     /// Creates an instance of [`OptionType`].
     #[must_use]
-    pub fn new(ctx: &CodeGenContext<'ctx, '_>, element_type: &impl BasicType<'ctx>) -> Self {
-        Self::new_impl(element_type, ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`OptionType`].
-    #[must_use]
-    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        element_type: &impl BasicType<'ctx>,
-    ) -> Self {
-        Self::new_impl(element_type, generator.get_size_type(ctx))
+    pub fn new(ctx: &CoreContext<'ctx>, element_type: &impl BasicType<'ctx>) -> Self {
+        Self::new_impl(element_type, ctx.size_t)
     }
 
     /// Creates an [`OptionType`] from a [unifier type][Type].
     #[must_use]
-    pub fn from_unifier_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ty: Type,
-    ) -> Self {
+    pub fn from_unifier_type(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> Self {
         // Check unifier type and extract `element_type`
         let elem_type = match &*ctx.unifier.get_ty_immutable(ty) {
             TypeEnum::TObj { obj_id, params, .. }
@@ -65,8 +50,8 @@ impl<'ctx> OptionType<'ctx> {
             _ => panic!("Expected `option` type, but got {}", ctx.unifier.stringify(ty)),
         };
 
-        let llvm_usize = ctx.get_size_type();
-        let llvm_elem_type = ctx.get_llvm_type(generator, elem_type);
+        let llvm_usize = ctx.size_t;
+        let llvm_elem_type = ctx.get_llvm_type(elem_type);
 
         Self::new_impl(&llvm_elem_type, llvm_usize)
     }

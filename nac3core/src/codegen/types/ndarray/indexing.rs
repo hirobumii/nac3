@@ -1,6 +1,6 @@
 use inkwell::{
     AddressSpace,
-    context::{AsContextRef, Context},
+    context::ContextRef,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{IntValue, PointerValue, StructValue},
 };
@@ -9,7 +9,7 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CoreContext, CodeGenContext, CodeGenerator,
     types::{
         ProxyType,
         structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
@@ -36,38 +36,27 @@ pub struct NDIndexStructFields<'ctx> {
 
 impl<'ctx> NDIndexType<'ctx> {
     #[must_use]
-    fn fields(
-        ctx: impl AsContextRef<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> NDIndexStructFields<'ctx> {
+    fn fields(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> NDIndexStructFields<'ctx> {
         NDIndexStructFields::new(ctx, llvm_usize)
     }
 
     #[must_use]
-    fn llvm_type(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
+    fn llvm_type(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
         let field_tys =
             Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
 
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
-    fn new_impl(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> Self {
+    fn new_impl(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         let llvm_ndindex = Self::llvm_type(ctx, llvm_usize);
 
         Self { ty: llvm_ndindex, llvm_usize }
     }
 
     #[must_use]
-    pub fn new(ctx: &CodeGenContext<'ctx, '_>) -> Self {
-        Self::new_impl(ctx.ctx, ctx.get_size_type())
-    }
-
-    #[must_use]
-    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-    ) -> Self {
-        Self::new_impl(ctx, generator.get_size_type(ctx))
+    pub fn new(ctx: &CoreContext<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, ctx.size_t)
     }
 
     #[must_use]
@@ -132,7 +121,7 @@ impl<'ctx> NDIndexType<'ctx> {
                 ndindices.ptr_offset_unchecked(
                     ctx,
                     generator,
-                    &ctx.ctx.i64_type().const_int(u64::try_from(i).unwrap(), false),
+                    &ctx.i64.const_int(u64::try_from(i).unwrap(), false),
                     None,
                 )
             };

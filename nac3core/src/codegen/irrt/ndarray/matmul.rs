@@ -20,7 +20,7 @@ pub fn call_nac3_ndarray_matmul_calculate_shapes<'ctx, G: CodeGenerator + ?Sized
     new_b_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
     dst_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     assert_eq!(a_shape.element_type(ctx, generator), llvm_usize.into());
     assert_eq!(b_shape.element_type(ctx, generator), llvm_usize.into());

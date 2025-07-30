@@ -253,7 +253,7 @@ impl<'ctx> RustNDIndex<'ctx> {
         // Set `dst_ndindex_ptr->data`
         match self {
             RustNDIndex::SingleElement(in_index) => {
-                let index_ptr = ctx.builder.build_alloca(ctx.ctx.i32_type(), "").unwrap();
+                let index_ptr = ctx.builder.build_alloca(ctx.i32, "").unwrap();
                 ctx.builder.build_store(index_ptr, *in_index).unwrap();
 
                 dst_ndindex.store_data(
@@ -263,7 +263,7 @@ impl<'ctx> RustNDIndex<'ctx> {
             }
             RustNDIndex::Slice(in_rust_slice) => {
                 let user_slice_ptr =
-                    SliceType::new(ctx, ctx.ctx.i32_type()).alloca_var(generator, ctx, None);
+                    SliceType::new(ctx, ctx.i32).alloca_var(generator, ctx, None);
                 in_rust_slice.write_to_slice(ctx, user_slice_ptr);
 
                 dst_ndindex.store_data(

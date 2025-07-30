@@ -23,7 +23,7 @@ pub fn call_nac3_ndarray_transpose<'ctx, G: CodeGenerator + ?Sized>(
     dst_ndarray: NDArrayValue<'ctx>,
     axes: Option<&impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>>,
 ) {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     assert!(axes.is_none_or(|axes| axes.size(ctx, generator).get_type() == llvm_usize));
     assert!(axes.is_none_or(|axes| axes.element_type(ctx, generator) == llvm_usize.into()));

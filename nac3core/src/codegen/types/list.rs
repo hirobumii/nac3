@@ -1,6 +1,6 @@
 use inkwell::{
-    AddressSpace, IntPredicate, OptimizationLevel,
-    context::Context,
+    AddressSpace, IntPredicate,
+    context::ContextRef,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{IntValue, PointerValue, StructValue},
 };
@@ -11,7 +11,7 @@ use nac3core_derive::StructFields;
 use super::ProxyType;
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator,
+        CodeGenContext, CodeGenerator, CoreContext,
         types::structure::{
             FieldIndexCounter, StructField, StructFields, StructProxyType,
             check_struct_type_matches_fields,
@@ -66,7 +66,7 @@ impl<'ctx> ListType<'ctx> {
     /// Creates an LLVM type corresponding to the expected structure of a `List`.
     #[must_use]
     fn llvm_type(
-        ctx: &'ctx Context,
+        ctx: ContextRef<'ctx>,
         element_type: Option<BasicTypeEnum<'ctx>>,
         llvm_usize: IntType<'ctx>,
     ) -> PointerType<'ctx> {
@@ -79,7 +79,7 @@ impl<'ctx> ListType<'ctx> {
     }
 
     fn new_impl(
-        ctx: &'ctx Context,
+        ctx: ContextRef<'ctx>,
         element_type: Option<BasicTypeEnum<'ctx>>,
         llvm_usize: IntType<'ctx>,
     ) -> Self {
@@ -90,42 +90,19 @@ impl<'ctx> ListType<'ctx> {
 
     /// Creates an instance of [`ListType`].
     #[must_use]
-    pub fn new(ctx: &CodeGenContext<'ctx, '_>, element_type: &impl BasicType<'ctx>) -> Self {
-        Self::new_impl(ctx.ctx, Some(element_type.as_basic_type_enum()), ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`ListType`].
-    #[must_use]
-    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        element_type: BasicTypeEnum<'ctx>,
-    ) -> Self {
-        Self::new_impl(ctx, Some(element_type.as_basic_type_enum()), generator.get_size_type(ctx))
+    pub fn new(ctx: &CoreContext<'ctx>, element_type: &impl BasicType<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, Some(element_type.as_basic_type_enum()), ctx.size_t)
     }
 
     /// Creates an instance of [`ListType`] with an unknown element type.
     #[must_use]
     pub fn new_untyped(ctx: &CodeGenContext<'ctx, '_>) -> Self {
-        Self::new_impl(ctx.ctx, None, ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`ListType`] with an unknown element type.
-    #[must_use]
-    pub fn new_untyped_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-    ) -> Self {
-        Self::new_impl(ctx, None, generator.get_size_type(ctx))
+        Self::new_impl(ctx.ctx, None, ctx.size_t)
     }
 
     /// Creates an [`ListType`] from a [unifier type][Type].
     #[must_use]
-    pub fn from_unifier_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ty: Type,
-    ) -> Self {
+    pub fn from_unifier_type(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> Self {
         // Check unifier type and extract `item_type`
         let elem_type = match &*ctx.unifier.get_ty_immutable(ty) {
             TypeEnum::TObj { obj_id, params, .. }
@@ -137,11 +114,11 @@ impl<'ctx> ListType<'ctx> {
             _ => panic!("Expected `list` type, but got {}", ctx.unifier.stringify(ty)),
         };
 
-        let llvm_usize = ctx.get_size_type();
+        let llvm_usize = ctx.size_t;
         let llvm_elem_type = if let TypeEnum::TVar { .. } = &*ctx.unifier.get_ty_immutable(ty) {
             None
         } else {
-            Some(ctx.get_llvm_type(generator, elem_type))
+            Some(ctx.get_llvm_type(elem_type))
         };
 
         Self::new_impl(ctx.ctx, llvm_elem_type, llvm_usize)
@@ -243,7 +220,7 @@ impl<'ctx> ListType<'ctx> {
         let len = ctx.builder.build_int_z_extend(len, self.llvm_usize, "").unwrap();
 
         // Generate a runtime assertion if allocating a non-empty list with unknown element type
-        if ctx.registry.llvm_options.opt_level == OptimizationLevel::None && self.item.is_none() {
+        if ctx.registry.codegen_options.debug && self.item.is_none() {
             let len_eqz = ctx
                 .builder
                 .build_int_compare(IntPredicate::EQ, len, self.llvm_usize.const_zero(), "")

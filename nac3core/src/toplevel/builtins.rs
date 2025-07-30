@@ -610,7 +610,7 @@ impl<'a> BuiltinBuilder<'a> {
                         let mut start = None;
                         let mut stop = None;
                         let mut step = None;
-                        let int32 = ctx.ctx.i32_type();
+                        let int32 = ctx.i32;
                         let ty_i32 = ctx.primitives.int32;
                         for (i, arg) in args.iter().enumerate() {
                             if arg.0 == Some("start".into()) {
@@ -1335,13 +1335,13 @@ impl<'a> BuiltinBuilder<'a> {
                     let ndarray_ty = fun.0.args[0].ty;
                     let ndarray =
                         args[0].1.clone().to_basic_value_enum(ctx, generator, ndarray_ty)?;
-                    let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
+                    let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
                         .map_pointer_value(ndarray.into_pointer_value(), None);
 
                     let size = ndarray.size(ctx);
                     let size = ctx
                         .builder
-                        .build_int_truncate_or_bit_cast(size, ctx.ctx.i32_type(), "")
+                        .build_int_truncate_or_bit_cast(size, ctx.i32, "")
                         .unwrap();
                     Ok(Some(size.into()))
                 }),
@@ -1368,7 +1368,7 @@ impl<'a> BuiltinBuilder<'a> {
                         let ndarray =
                             args[0].1.clone().to_basic_value_enum(ctx, generator, ndarray_ty)?;
 
-                        let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
+                        let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
                             .map_pointer_value(ndarray.into_pointer_value(), None);
 
                         let result_tuple = match prim {
@@ -1409,7 +1409,7 @@ impl<'a> BuiltinBuilder<'a> {
                     let arg_ty = fun.0.args[0].ty;
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
 
-                    let ndarray = NDArrayType::from_unifier_type(generator, ctx, arg_ty)
+                    let ndarray = NDArrayType::from_unifier_type(ctx, arg_ty)
                         .map_pointer_value(arg_val.into_pointer_value(), None);
 
                     let ndarray = ndarray.transpose(generator, ctx, None); // TODO: Add axes argument
@@ -1447,7 +1447,7 @@ impl<'a> BuiltinBuilder<'a> {
                         let shape_val =
                             args[1].1.clone().to_basic_value_enum(ctx, generator, shape_ty)?;
 
-                        let ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty)
+                        let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
                             .map_pointer_value(ndarray_val.into_pointer_value(), None);
 
                         let shape = parse_numpy_int_sequence(generator, ctx, (shape_ty, shape_val));
@@ -1802,7 +1802,7 @@ impl<'a> BuiltinBuilder<'a> {
 
                 let a_ty = fun.0.args[0].ty;
                 let a_val = args[0].1.clone().to_basic_value_enum(ctx, generator, a_ty)?;
-                let a = ScalarOrNDArray::from_value(generator, ctx, (a_ty, a_val));
+                let a = ScalarOrNDArray::from_value(ctx, (a_ty, a_val));
                 let a_elem_ty = arraylike_flatten_element_type(&mut ctx.unifier, a_ty);
 
                 let (init, sc_val) = match prim {

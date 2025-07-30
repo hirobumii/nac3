@@ -37,7 +37,7 @@ pub fn gen_ndarray_empty<'ctx>(
     let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
 
     let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
-    let llvm_dtype = context.get_llvm_type(generator, dtype);
+    let llvm_dtype = context.get_llvm_type(dtype);
     let ndims = extract_ndims(&context.unifier, ndims);
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
@@ -62,7 +62,7 @@ pub fn gen_ndarray_zeros<'ctx>(
     let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
 
     let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
-    let llvm_dtype = context.get_llvm_type(generator, dtype);
+    let llvm_dtype = context.get_llvm_type(dtype);
     let ndims = extract_ndims(&context.unifier, ndims);
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
@@ -87,7 +87,7 @@ pub fn gen_ndarray_ones<'ctx>(
     let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
 
     let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
-    let llvm_dtype = context.get_llvm_type(generator, dtype);
+    let llvm_dtype = context.get_llvm_type(dtype);
     let ndims = extract_ndims(&context.unifier, ndims);
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
@@ -115,7 +115,7 @@ pub fn gen_ndarray_full<'ctx>(
         args[1].1.clone().to_basic_value_enum(context, generator, fill_value_ty)?;
 
     let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
-    let llvm_dtype = context.get_llvm_type(generator, dtype);
+    let llvm_dtype = context.get_llvm_type(dtype);
     let ndims = extract_ndims(&context.unifier, ndims);
 
     let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
@@ -162,7 +162,7 @@ pub fn gen_ndarray_array<'ctx>(
     let ndims = extract_ndims(&context.unifier, ndims);
 
     let copy = generator.bool_to_i1(context, copy_arg.into_int_value());
-    let ndarray = NDArrayType::from_unifier_type(generator, context, fun.0.ret)
+    let ndarray = NDArrayType::from_unifier_type(context, fun.0.ret)
         .construct_numpy_array(generator, context, (obj_ty, obj_arg), copy, None)
         .atleast_nd(generator, context, ndims);
 
@@ -207,8 +207,8 @@ pub fn gen_ndarray_eye<'ctx>(
 
     let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
 
-    let llvm_usize = context.get_size_type();
-    let llvm_dtype = context.get_llvm_type(generator, dtype);
+    let llvm_usize = context.size_t;
+    let llvm_dtype = context.get_llvm_type(dtype);
 
     let nrows = context
         .builder
@@ -244,8 +244,8 @@ pub fn gen_ndarray_identity<'ctx>(
 
     let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
 
-    let llvm_usize = context.get_size_type();
-    let llvm_dtype = context.get_llvm_type(generator, dtype);
+    let llvm_usize = context.size_t;
+    let llvm_dtype = context.get_llvm_type(dtype);
 
     let n = context
         .builder
@@ -271,7 +271,7 @@ pub fn gen_ndarray_copy<'ctx>(
     let this_arg =
         obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, generator, this_ty)?;
 
-    let this = NDArrayType::from_unifier_type(generator, context, this_ty)
+    let this = NDArrayType::from_unifier_type(context, this_ty)
         .map_pointer_value(this_arg.into_pointer_value(), None);
     let ndarray = this.make_copy(generator, context);
     Ok(ndarray.as_abi_value(context))
@@ -294,7 +294,7 @@ pub fn gen_ndarray_fill<'ctx>(
     let value_ty = fun.0.args[0].ty;
     let value_arg = args[0].1.clone().to_basic_value_enum(context, generator, value_ty)?;
 
-    let this = NDArrayType::from_unifier_type(generator, context, this_ty)
+    let this = NDArrayType::from_unifier_type(context, this_ty)
         .map_pointer_value(this_arg.into_pointer_value(), None);
     this.fill(generator, context, value_arg);
     Ok(())
@@ -317,9 +317,9 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
     match (x1, x2) {
         (BasicValueEnum::PointerValue(n1), BasicValueEnum::PointerValue(n2)) => {
             let a =
-                NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(n1, None);
+                NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(n1, None);
             let b =
-                NDArrayType::from_unifier_type(generator, ctx, x2_ty).map_pointer_value(n2, None);
+                NDArrayType::from_unifier_type(ctx, x2_ty).map_pointer_value(n2, None);
 
             // TODO: General `np.dot()` https://numpy.org/doc/stable/reference/generated/numpy.dot.html.
             assert_eq!(a.get_type().ndims(), 1);
@@ -340,7 +340,7 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
                 ctx.current_loc,
             );
 
-            let dtype_llvm = ctx.get_llvm_type(generator, common_dtype);
+            let dtype_llvm = ctx.get_llvm_type(common_dtype);
 
             let result = ctx.builder.build_alloca(dtype_llvm, "np_dot_result").unwrap();
             ctx.builder.build_store(result, dtype_llvm.const_zero()).unwrap();

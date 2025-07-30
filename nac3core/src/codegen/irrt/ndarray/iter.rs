@@ -20,7 +20,7 @@ pub fn call_nac3_nditer_initialize<'ctx, G: CodeGenerator + ?Sized>(
     ndarray: NDArrayValue<'ctx>,
     indices: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     assert_eq!(indices.element_type(ctx, generator), llvm_usize.into());
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_initialize");

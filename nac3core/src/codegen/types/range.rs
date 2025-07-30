@@ -1,16 +1,13 @@
 use inkwell::{
     AddressSpace,
-    context::Context,
+    context::ContextRef,
     types::{AnyTypeEnum, ArrayType, BasicType, BasicTypeEnum, IntType, PointerType},
     values::{ArrayValue, PointerValue},
 };
 
 use super::ProxyType;
 use crate::{
-    codegen::{
-        values::RangeValue,
-        {CodeGenContext, CodeGenerator},
-    },
+    codegen::{CoreContext, CodeGenContext, CodeGenerator, values::RangeValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -24,13 +21,13 @@ pub struct RangeType<'ctx> {
 impl<'ctx> RangeType<'ctx> {
     /// Creates an LLVM type corresponding to the expected structure of a `Range`.
     #[must_use]
-    fn llvm_type(ctx: &'ctx Context) -> PointerType<'ctx> {
+    fn llvm_type(ctx: ContextRef<'ctx>) -> PointerType<'ctx> {
         // typedef int32_t Range[3];
         let llvm_i32 = ctx.i32_type();
         llvm_i32.array_type(3).ptr_type(AddressSpace::default())
     }
 
-    fn new_impl(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> Self {
+    fn new_impl(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         let llvm_range = Self::llvm_type(ctx);
 
         RangeType { ty: llvm_range, llvm_usize }
@@ -38,17 +35,8 @@ impl<'ctx> RangeType<'ctx> {
 
     /// Creates an instance of [`RangeType`].
     #[must_use]
-    pub fn new(ctx: &CodeGenContext<'ctx, '_>) -> Self {
-        Self::new_impl(ctx.ctx, ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`RangeType`].
-    #[must_use]
-    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-    ) -> Self {
-        Self::new_impl(ctx, generator.get_size_type(ctx))
+    pub fn new(ctx: &CoreContext<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, ctx.size_t)
     }
 
     /// Creates an [`RangeType`] from a [unifier type][Type].

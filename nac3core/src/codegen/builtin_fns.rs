@@ -1,5 +1,5 @@
 use inkwell::{
-    FloatPredicate, IntPredicate, OptimizationLevel,
+    FloatPredicate, IntPredicate,
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue},
 };
@@ -43,7 +43,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (arg_ty, arg): (Type, BasicValueEnum<'ctx>),
 ) -> Result<IntValue<'ctx>, String> {
-    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_i32 = ctx.i32;
     let range_ty = ctx.primitives.range;
 
     Ok(if ctx.unifier.unioned(arg_ty, range_ty) {
@@ -53,7 +53,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
     } else {
         match &*ctx.unifier.get_ty_immutable(arg_ty) {
             TypeEnum::TTuple { .. } => {
-                let tuple = TupleType::from_unifier_type(generator, ctx, arg_ty)
+                let tuple = TupleType::from_unifier_type(ctx, arg_ty)
                     .map_struct_value(arg.into_struct_value(), None);
                 llvm_i32.const_int(tuple.get_type().num_elements().into(), false)
             }
@@ -61,7 +61,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
             {
-                let ndarray = NDArrayType::from_unifier_type(generator, ctx, arg_ty)
+                let ndarray = NDArrayType::from_unifier_type(ctx, arg_ty)
                     .map_pointer_value(arg.into_pointer_value(), None);
                 let len = ndarray.len(ctx);
                 ctx.builder.build_int_truncate_or_bit_cast(len, llvm_i32, "len").unwrap()
@@ -70,7 +70,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
             {
-                let list = ListType::from_unifier_type(generator, ctx, arg_ty)
+                let list = ListType::from_unifier_type(ctx, arg_ty)
                     .map_pointer_value(arg.into_pointer_value(), None);
                 let size = list.load_size(ctx, None);
                 ctx.builder.build_int_truncate_or_bit_cast(size, llvm_i32, "len").unwrap()
@@ -87,7 +87,7 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
-    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_i32 = ctx.i32;
 
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8) => {
@@ -119,8 +119,7 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            let to_int64 =
-                ctx.builder.build_float_to_signed_int(n, ctx.ctx.i64_type(), "").unwrap();
+            let to_int64 = ctx.builder.build_float_to_signed_int(n, ctx.i64, "").unwrap();
             ctx.builder.build_int_truncate(to_int64, llvm_i32, "conv").map(Into::into).unwrap()
         }
 
@@ -128,14 +127,13 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, n_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
                 .map(
                     generator,
                     ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.ctx.i32_type().into() },
+                    NDArrayOut::NewNDArray { dtype: ctx.i32.into() },
                     |generator, ctx, scalar| call_int32(generator, ctx, (elem_ty, scalar)),
                 )
                 .unwrap();
@@ -153,7 +151,7 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
-    let llvm_i64 = ctx.ctx.i64_type();
+    let llvm_i64 = ctx.i64;
 
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8 | 32) => {
@@ -183,24 +181,20 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            ctx.builder
-                .build_float_to_signed_int(n, ctx.ctx.i64_type(), "fptosi")
-                .map(Into::into)
-                .unwrap()
+            ctx.builder.build_float_to_signed_int(n, ctx.i64, "fptosi").map(Into::into).unwrap()
         }
 
         BasicValueEnum::PointerValue(n)
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, n_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
                 .map(
                     generator,
                     ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.ctx.i64_type().into() },
+                    NDArrayOut::NewNDArray { dtype: ctx.i64.into() },
                     |generator, ctx, scalar| call_int64(generator, ctx, (elem_ty, scalar)),
                 )
                 .unwrap();
@@ -218,7 +212,7 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
-    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_i32 = ctx.i32;
 
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8) => {
@@ -255,8 +249,7 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
                 .unwrap();
 
             let to_int32 = ctx.builder.build_float_to_signed_int(n, llvm_i32, "").unwrap();
-            let to_uint64 =
-                ctx.builder.build_float_to_unsigned_int(n, ctx.ctx.i64_type(), "").unwrap();
+            let to_uint64 = ctx.builder.build_float_to_unsigned_int(n, ctx.i64, "").unwrap();
 
             ctx.builder
                 .build_select(
@@ -272,14 +265,13 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, n_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
                 .map(
                     generator,
                     ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.ctx.i32_type().into() },
+                    NDArrayOut::NewNDArray { dtype: ctx.i32.into() },
                     |generator, ctx, scalar| call_uint32(generator, ctx, (elem_ty, scalar)),
                 )
                 .unwrap();
@@ -297,7 +289,7 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
-    let llvm_i64 = ctx.ctx.i64_type();
+    let llvm_i64 = ctx.i64;
 
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8 | 32) => {
@@ -342,14 +334,13 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, n_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
                 .map(
                     generator,
                     ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.ctx.i64_type().into() },
+                    NDArrayOut::NewNDArray { dtype: ctx.i64.into() },
                     |generator, ctx, scalar| call_uint64(generator, ctx, (elem_ty, scalar)),
                 )
                 .unwrap();
@@ -409,8 +400,7 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, n_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
                 .map(
@@ -437,7 +427,7 @@ pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "round";
 
-    let llvm_ret_elem_ty = ctx.get_llvm_abi_type(generator, ret_elem_ty).into_int_type();
+    let llvm_ret_elem_ty = ctx.get_llvm_abi_type(ret_elem_ty).into_int_type();
 
     Ok(match n {
         BasicValueEnum::FloatValue(n) => {
@@ -454,8 +444,7 @@ pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, n_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
                 .map(
@@ -494,8 +483,7 @@ pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, n_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
                 .map(
@@ -559,8 +547,7 @@ pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, n_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
                 .map(
@@ -590,7 +577,7 @@ pub fn call_floor<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "floor";
 
-    let llvm_ret_elem_ty = ctx.get_llvm_abi_type(generator, ret_elem_ty);
+    let llvm_ret_elem_ty = ctx.get_llvm_abi_type(ret_elem_ty);
 
     Ok(match n {
         BasicValueEnum::FloatValue(n) => {
@@ -611,8 +598,7 @@ pub fn call_floor<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, n_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
                 .map(
@@ -641,7 +627,7 @@ pub fn call_ceil<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "ceil";
 
-    let llvm_ret_elem_ty = ctx.get_llvm_abi_type(generator, ret_elem_ty);
+    let llvm_ret_elem_ty = ctx.get_llvm_abi_type(ret_elem_ty);
 
     Ok(match n {
         BasicValueEnum::FloatValue(n) => {
@@ -662,8 +648,7 @@ pub fn call_ceil<'ctx, G: CodeGenerator + ?Sized>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, n_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
                 .map(
@@ -771,10 +756,8 @@ pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
                 ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
-            let x1 =
-                ScalarOrNDArray::from_value(generator, ctx, (x1_ty, x1)).to_ndarray(generator, ctx);
-            let x2 =
-                ScalarOrNDArray::from_value(generator, ctx, (x2_ty, x2)).to_ndarray(generator, ctx);
+            let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1)).to_ndarray(generator, ctx);
+            let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2)).to_ndarray(generator, ctx);
 
             let x1_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
             let x2_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x2_ty);
@@ -862,8 +845,8 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     debug_assert!(["np_argmin", "np_argmax", "np_max", "np_min"].contains(&fn_name));
 
-    let llvm_int64 = ctx.ctx.i64_type();
-    let llvm_usize = ctx.get_size_type();
+    let llvm_int64 = ctx.i64;
+    let llvm_usize = ctx.size_t;
 
     Ok(match a {
         BasicValueEnum::IntValue(_) | BasicValueEnum::FloatValue(_) => {
@@ -892,13 +875,12 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, a_ty);
 
-            let ndarray =
-                NDArrayType::from_unifier_type(generator, ctx, a_ty).map_pointer_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, a_ty).map_pointer_value(n, None);
             let llvm_dtype = ndarray.get_type().element_type();
 
             let zero = llvm_usize.const_zero();
 
-            if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+            if ctx.registry.codegen_options.debug {
                 let size = ndarray.size(ctx);
                 let size_nez =
                     ctx.builder.build_int_compare(IntPredicate::NE, size, zero, "").unwrap();
@@ -982,7 +964,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
                             .build_load(extremum_idx, "")
                             .map(BasicValueEnum::into_int_value)
                             .unwrap(),
-                        ctx.ctx.i64_type(),
+                        ctx.i64,
                         "",
                     )
                     .unwrap()
@@ -1036,10 +1018,8 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
                 ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
-            let x1 =
-                ScalarOrNDArray::from_value(generator, ctx, (x1_ty, x1)).to_ndarray(generator, ctx);
-            let x2 =
-                ScalarOrNDArray::from_value(generator, ctx, (x2_ty, x2)).to_ndarray(generator, ctx);
+            let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1)).to_ndarray(generator, ctx);
+            let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2)).to_ndarray(generator, ctx);
 
             let x1_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
             let x2_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x2_ty);
@@ -1095,12 +1075,12 @@ where
     ) -> Option<BasicValueEnum<'ctx>>,
     RetElemFn: Fn(&mut CodeGenContext<'ctx, '_>, Type) -> Type,
 {
-    let arg = ScalarOrNDArray::from_value(generator, ctx, (arg_ty, arg_val));
+    let arg = ScalarOrNDArray::from_value(ctx, (arg_ty, arg_val));
 
     let dtype = arraylike_flatten_element_type(&mut ctx.unifier, arg_ty);
 
     let ret_ty = get_ret_elem_type(ctx, dtype);
-    let llvm_ret_ty = ctx.get_llvm_type(generator, ret_ty);
+    let llvm_ret_ty = ctx.get_llvm_type(ret_ty);
     let result = arg.map(generator, ctx, llvm_ret_ty, |generator, ctx, scalar| {
         let Some(result) = on_scalar(generator, ctx, dtype, scalar) else {
             unsupported_type(ctx, fn_name, &[arg_ty])
@@ -1435,8 +1415,8 @@ pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_arctan2";
 
-    let x1 = ScalarOrNDArray::from_value(generator, ctx, (x1_ty, x1));
-    let x2 = ScalarOrNDArray::from_value(generator, ctx, (x2_ty, x2));
+    let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
+    let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
     let result = ScalarOrNDArray::broadcasting_starmap(
         generator,
@@ -1469,8 +1449,8 @@ pub fn call_numpy_copysign<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_copysign";
 
-    let x1 = ScalarOrNDArray::from_value(generator, ctx, (x1_ty, x1));
-    let x2 = ScalarOrNDArray::from_value(generator, ctx, (x2_ty, x2));
+    let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
+    let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
     let result = ScalarOrNDArray::broadcasting_starmap(
         generator,
@@ -1503,8 +1483,8 @@ pub fn call_numpy_fmax<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_fmax";
 
-    let x1 = ScalarOrNDArray::from_value(generator, ctx, (x1_ty, x1));
-    let x2 = ScalarOrNDArray::from_value(generator, ctx, (x2_ty, x2));
+    let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
+    let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
     let result = ScalarOrNDArray::broadcasting_starmap(
         generator,
@@ -1537,8 +1517,8 @@ pub fn call_numpy_fmin<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_fmin";
 
-    let x1 = ScalarOrNDArray::from_value(generator, ctx, (x1_ty, x1));
-    let x2 = ScalarOrNDArray::from_value(generator, ctx, (x2_ty, x2));
+    let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
+    let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
     let result = ScalarOrNDArray::broadcasting_starmap(
         generator,
@@ -1571,8 +1551,8 @@ pub fn call_numpy_ldexp<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_ldexp";
 
-    let x1 = ScalarOrNDArray::from_value(generator, ctx, (x1_ty, x1));
-    let x2 = ScalarOrNDArray::from_value(generator, ctx, (x2_ty, x2));
+    let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
+    let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
     let result = ScalarOrNDArray::broadcasting_starmap(
         generator,
@@ -1586,7 +1566,7 @@ pub fn call_numpy_ldexp<'ctx, G: CodeGenerator + ?Sized>(
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1_scalar), BasicValueEnum::IntValue(x2_scalar)) => {
                     debug_assert_eq!(x1.get_dtype(), ctx.ctx.f64_type().into());
-                    debug_assert_eq!(x2.get_dtype(), ctx.ctx.i32_type().into());
+                    debug_assert_eq!(x2.get_dtype(), ctx.i32.into());
                     Ok(irrt::call_ldexp(ctx, x1_scalar, x2_scalar, None).into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
@@ -1607,8 +1587,8 @@ pub fn call_numpy_hypot<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_hypot";
 
-    let x1 = ScalarOrNDArray::from_value(generator, ctx, (x1_ty, x1));
-    let x2 = ScalarOrNDArray::from_value(generator, ctx, (x2_ty, x2));
+    let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
+    let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
     let result = ScalarOrNDArray::broadcasting_starmap(
         generator,
@@ -1641,8 +1621,8 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_nextafter";
 
-    let x1 = ScalarOrNDArray::from_value(generator, ctx, (x1_ty, x1));
-    let x2 = ScalarOrNDArray::from_value(generator, ctx, (x2_ty, x2));
+    let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
+    let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
     let result = ScalarOrNDArray::broadcasting_starmap(
         generator,
@@ -1676,7 +1656,7 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(x1, None);
 
     if !x1.get_type().element_type().is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
@@ -1706,11 +1686,11 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_linalg_qr";
 
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(x1, None);
 
     if !x1.get_type().element_type().is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
@@ -1761,11 +1741,11 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_linalg_svd";
 
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(x1, None);
 
     if !x1.get_type().element_type().is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
@@ -1823,7 +1803,7 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(x1, None);
 
     if !x1.get_type().element_type().is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
@@ -1854,11 +1834,11 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_linalg_pinv";
 
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(x1, None);
 
     if !x1.get_type().element_type().is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
@@ -1899,11 +1879,11 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "sp_linalg_lu";
 
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(x1, None);
 
     if !x1.get_type().element_type().is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
@@ -1955,7 +1935,7 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_linalg_matrix_power";
 
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     let BasicValueEnum::PointerValue(x1) = x1 else {
         unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
@@ -1963,7 +1943,7 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
 
     let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
     let ndims = extract_ndims(&ctx.unifier, ndims);
-    let x1_elem_ty = ctx.get_llvm_type(generator, elem_ty);
+    let x1_elem_ty = ctx.get_llvm_type(elem_ty);
     let x1 = NDArrayValue::from_pointer_value(x1, x1_elem_ty, ndims, llvm_usize, None);
 
     if !x1.get_type().element_type().is_float_type() {
@@ -2008,11 +1988,11 @@ pub fn call_np_linalg_det<'ctx, G: CodeGenerator + ?Sized>(
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "np_linalg_matrix_power";
 
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(x1, None);
 
     if !x1.get_type().element_type().is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
@@ -2051,7 +2031,7 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(x1, None);
     assert_eq!(x1.get_type().ndims(), 2);
 
     if !x1.get_type().element_type().is_float_type() {
@@ -2099,7 +2079,7 @@ pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = NDArrayType::from_unifier_type(generator, ctx, x1_ty).map_pointer_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(x1, None);
     assert_eq!(x1.get_type().ndims(), 2);
 
     if !x1.get_type().element_type().is_float_type() {

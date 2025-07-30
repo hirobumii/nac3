@@ -139,7 +139,7 @@ impl StaticValue for PythonValue {
             || {
                 Python::with_gil(|py| -> PyResult<BasicValueEnum<'ctx>> {
                     let id: u32 = self.store_obj.bind(py).call1((&*self.value,))?.extract()?;
-                    let struct_type = ctx.ctx.struct_type(&[ctx.ctx.i32_type().into()], false);
+                    let struct_type = ctx.ctx.struct_type(&[ctx.i32.into()], false);
                     let global = ctx.module.add_global(
                         struct_type,
                         None,
@@ -148,10 +148,10 @@ impl StaticValue for PythonValue {
                     global.set_constant(true);
                     // Set linkage of global to private to avoid name collisions
                     global.set_linkage(Linkage::Private);
-                    global.set_initializer(&ctx.ctx.const_struct(
-                        &[ctx.ctx.i32_type().const_int(u64::from(id), false).into()],
-                        false,
-                    ));
+                    global.set_initializer(
+                        &ctx.ctx
+                            .const_struct(&[ctx.i32.const_int(u64::from(id), false).into()], false),
+                    );
                     Ok(global.as_pointer_value().into())
                 })
                 .unwrap()
@@ -168,12 +168,10 @@ impl StaticValue for PythonValue {
     ) -> Result<BasicValueEnum<'ctx>, String> {
         if let Some(val) = self.resolver.id_to_primitive.read().get(&self.id) {
             return Ok(match val {
-                PrimitiveValue::I32(val) => ctx.ctx.i32_type().const_int(*val as u64, false).into(),
-                PrimitiveValue::I64(val) => ctx.ctx.i64_type().const_int(*val as u64, false).into(),
-                PrimitiveValue::U32(val) => {
-                    ctx.ctx.i32_type().const_int(u64::from(*val), false).into()
-                }
-                PrimitiveValue::U64(val) => ctx.ctx.i64_type().const_int(*val, false).into(),
+                PrimitiveValue::I32(val) => ctx.i32.const_int(*val as u64, false).into(),
+                PrimitiveValue::I64(val) => ctx.i64.const_int(*val as u64, false).into(),
+                PrimitiveValue::U32(val) => ctx.i32.const_int(u64::from(*val), false).into(),
+                PrimitiveValue::U64(val) => ctx.i64.const_int(*val, false).into(),
                 PrimitiveValue::F64(val) => ctx.ctx.f64_type().const_float(*val).into(),
                 PrimitiveValue::Bool(val) => {
                     ctx.ctx.i8_type().const_int(u64::from(*val), false).into()
@@ -1044,19 +1042,19 @@ impl InnerResolver {
         if ty_id == self.primitive_ids.int || ty_id == self.primitive_ids.int32 {
             let val: i32 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::I32(val));
-            Ok(Some(ctx.ctx.i32_type().const_int(val as u64, false).into()))
+            Ok(Some(ctx.i32.const_int(val as u64, false).into()))
         } else if ty_id == self.primitive_ids.int64 {
             let val: i64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::I64(val));
-            Ok(Some(ctx.ctx.i64_type().const_int(val as u64, false).into()))
+            Ok(Some(ctx.i64.const_int(val as u64, false).into()))
         } else if ty_id == self.primitive_ids.uint32 {
             let val: u32 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::U32(val));
-            Ok(Some(ctx.ctx.i32_type().const_int(u64::from(val), false).into()))
+            Ok(Some(ctx.i32.const_int(u64::from(val), false).into()))
         } else if ty_id == self.primitive_ids.uint64 {
             let val: u64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::U64(val));
-            Ok(Some(ctx.ctx.i64_type().const_int(val, false).into()))
+            Ok(Some(ctx.i64.const_int(val, false).into()))
         } else if ty_id == self.primitive_ids.bool {
             let val: bool = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
@@ -1087,14 +1085,14 @@ impl InnerResolver {
                 }
                 _ => unreachable!("must be list"),
             };
-            let size_t = ctx.get_size_type();
+            let size_t = ctx.size_t;
             let ty = if len == 0
                 && matches!(&*ctx.unifier.get_ty_immutable(elem_ty), TypeEnum::TVar { .. })
             {
                 // The default type for zero-length lists of unknown element type is size_t
                 size_t.into()
             } else {
-                ctx.get_llvm_type(generator, elem_ty)
+                ctx.get_llvm_type(elem_ty)
             };
             let arr_ty = ctx
                 .ctx
@@ -1176,8 +1174,8 @@ impl InnerResolver {
 
             let llvm_i8 = ctx.ctx.i8_type();
             let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-            let llvm_usize = ctx.get_size_type();
-            let llvm_ndarray = NDArrayType::from_unifier_type(generator, ctx, ndarray_ty);
+            let llvm_usize = ctx.size_t;
+            let llvm_ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty);
             let dtype = llvm_ndarray.element_type();
 
             {
@@ -1301,10 +1299,11 @@ impl InnerResolver {
             // will always return a constant size.
             let itemsize = ctx
                 .registry
-                .llvm_options
+                .codegen_options
+                .target
                 .create_target_machine()
-                .map(|tm| tm.get_target_data().get_store_size(&dtype))
-                .unwrap();
+                .get_target_data()
+                .get_store_size(&dtype);
             assert_ne!(itemsize, 0);
 
             // Create the strides needed for ndarray.strides
@@ -1406,7 +1405,7 @@ impl InnerResolver {
             if id == self.primitive_ids.none {
                 // for option type, just a null ptr
                 Ok(Some(
-                    ctx.get_llvm_type(generator, option_val_ty)
+                    ctx.get_llvm_type(option_val_ty)
                         .ptr_type(AddressSpace::default())
                         .const_null()
                         .into(),
@@ -1465,11 +1464,8 @@ impl InnerResolver {
             let ty = self
                 .get_obj_type(py, obj, &mut ctx.unifier, &top_level_defs, &ctx.primitives)?
                 .unwrap();
-            let ty = ctx
-                .get_llvm_type(generator, ty)
-                .into_pointer_type()
-                .get_element_type()
-                .into_struct_type();
+            let ty =
+                ctx.get_llvm_type(ty).into_pointer_type().get_element_type().into_struct_type();
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {

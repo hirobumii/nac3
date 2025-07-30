@@ -30,7 +30,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (input_seq_ty, input_seq): (Type, BasicValueEnum<'ctx>),
 ) -> impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>> + use<'ctx, G> {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     let zero = llvm_usize.const_zero();
     let one = llvm_usize.const_int(1, false);
 
@@ -41,7 +41,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
         {
             // 1. A list of `int32`; e.g., `np.empty([600, 800, 3])`
 
-            let input_seq = ListType::from_unifier_type(generator, ctx, input_seq_ty)
+            let input_seq = ListType::from_unifier_type(ctx, input_seq_ty)
                 .map_pointer_value(input_seq.into_pointer_value(), None);
 
             let len = input_seq.load_size(ctx, None);
@@ -85,7 +85,7 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
         TypeEnum::TTuple { .. } => {
             // 2. A tuple of ints; e.g., `np.empty((600, 800, 3))`
 
-            let input_seq = TupleType::from_unifier_type(generator, ctx, input_seq_ty)
+            let input_seq = TupleType::from_unifier_type(ctx, input_seq_ty)
                 .map_struct_value(input_seq.into_struct_value(), None);
 
             let len = input_seq.get_type().num_elements();

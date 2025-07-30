@@ -1,6 +1,6 @@
 use inkwell::{
     AddressSpace,
-    context::{AsContextRef, Context},
+    context::ContextRef,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{BasicValue, IntValue, PointerValue, StructValue},
 };
@@ -14,8 +14,8 @@ use super::{
 };
 use crate::{
     codegen::{
+        CoreContext, CodeGenContext, CodeGenerator,
         values::{TypedArrayLikeMutator, ndarray::NDArrayValue},
-        {CodeGenContext, CodeGenerator},
     },
     toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},
     typecheck::typedef::Type,
@@ -64,16 +64,13 @@ pub struct NDArrayStructFields<'ctx> {
 impl<'ctx> NDArrayType<'ctx> {
     /// Returns an instance of [`StructFields`] containing all field accessors for this type.
     #[must_use]
-    fn fields(
-        ctx: impl AsContextRef<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> NDArrayStructFields<'ctx> {
+    fn fields(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> NDArrayStructFields<'ctx> {
         NDArrayStructFields::new(ctx, llvm_usize)
     }
 
     /// Creates an LLVM type corresponding to the expected structure of an `NDArray`.
     #[must_use]
-    fn llvm_type(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
+    fn llvm_type(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
         let field_tys =
             Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
 
@@ -81,7 +78,7 @@ impl<'ctx> NDArrayType<'ctx> {
     }
 
     fn new_impl(
-        ctx: &'ctx Context,
+        ctx: ContextRef<'ctx>,
         dtype: BasicTypeEnum<'ctx>,
         ndims: u64,
         llvm_usize: IntType<'ctx>,
@@ -93,19 +90,8 @@ impl<'ctx> NDArrayType<'ctx> {
 
     /// Creates an instance of [`NDArrayType`].
     #[must_use]
-    pub fn new(ctx: &CodeGenContext<'ctx, '_>, dtype: BasicTypeEnum<'ctx>, ndims: u64) -> Self {
-        Self::new_impl(ctx.ctx, dtype, ndims, ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`NDArrayType`].
-    #[must_use]
-    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        dtype: BasicTypeEnum<'ctx>,
-        ndims: u64,
-    ) -> Self {
-        Self::new_impl(ctx, dtype, ndims, generator.get_size_type(ctx))
+    pub fn new(ctx: &CoreContext<'ctx>, dtype: BasicTypeEnum<'ctx>, ndims: u64) -> Self {
+        Self::new_impl(ctx.ctx, dtype, ndims, ctx.size_t)
     }
 
     /// Creates an instance of [`NDArrayType`] as a result of a broadcast operation over one or more
@@ -122,58 +108,25 @@ impl<'ctx> NDArrayType<'ctx> {
             ctx.ctx,
             dtype,
             inputs.iter().map(NDArrayType::ndims).max().unwrap(),
-            ctx.get_size_type(),
-        )
-    }
-
-    /// Creates an instance of [`NDArrayType`] as a result of a broadcast operation over one or more
-    /// `ndarray` operands.
-    #[must_use]
-    pub fn new_broadcast_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        dtype: BasicTypeEnum<'ctx>,
-        inputs: &[NDArrayType<'ctx>],
-    ) -> Self {
-        assert!(!inputs.is_empty());
-
-        Self::new_impl(
-            ctx,
-            dtype,
-            inputs.iter().map(NDArrayType::ndims).max().unwrap(),
-            generator.get_size_type(ctx),
+            ctx.size_t,
         )
     }
 
     /// Creates an instance of [`NDArrayType`] with `ndims` of 0.
     #[must_use]
     pub fn new_unsized(ctx: &CodeGenContext<'ctx, '_>, dtype: BasicTypeEnum<'ctx>) -> Self {
-        Self::new_impl(ctx.ctx, dtype, 0, ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`NDArrayType`] with `ndims` of 0.
-    #[must_use]
-    pub fn new_unsized_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        dtype: BasicTypeEnum<'ctx>,
-    ) -> Self {
-        Self::new_impl(ctx, dtype, 0, generator.get_size_type(ctx))
+        Self::new_impl(ctx.ctx, dtype, 0, ctx.size_t)
     }
 
     /// Creates an [`NDArrayType`] from a [unifier type][Type].
     #[must_use]
-    pub fn from_unifier_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ty: Type,
-    ) -> Self {
+    pub fn from_unifier_type(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> Self {
         let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
-        let llvm_dtype = ctx.get_llvm_type(generator, dtype);
+        let llvm_dtype = ctx.get_llvm_type(dtype);
         let ndims = extract_ndims(&ctx.unifier, ndims);
 
-        Self::new_impl(ctx.ctx, llvm_dtype, ndims, ctx.get_size_type())
+        Self::new_impl(ctx.ctx, llvm_dtype, ndims, ctx.size_t)
     }
 
     /// Creates an [`NDArrayType`] from a [`StructType`] representing an `NDArray`.
@@ -325,7 +278,7 @@ impl<'ctx> NDArrayType<'ctx> {
         let ndarray = Self::new(ctx, self.dtype, shape.len() as u64)
             .construct_uninitialized(generator, ctx, name);
 
-        let llvm_usize = ctx.get_size_type();
+        let llvm_usize = ctx.size_t;
 
         // Write shape
         let ndarray_shape = ndarray.shape();
@@ -360,7 +313,7 @@ impl<'ctx> NDArrayType<'ctx> {
         let ndarray = Self::new(ctx, self.dtype, shape.len() as u64)
             .construct_uninitialized(generator, ctx, name);
 
-        let llvm_usize = ctx.get_size_type();
+        let llvm_usize = ctx.size_t;
 
         // Write shape
         let ndarray_shape = ndarray.shape();

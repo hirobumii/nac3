@@ -1,6 +1,6 @@
 use inkwell::{
     AddressSpace,
-    context::Context,
+    context::ContextRef,
     types::{BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{GlobalValue, IntValue, PointerValue, StructValue},
 };
@@ -12,7 +12,7 @@ use super::{
     ProxyType,
     structure::{StructField, StructFields, check_struct_type_matches_fields},
 };
-use crate::codegen::{CodeGenContext, CodeGenerator, values::StringValue};
+use crate::codegen::{CoreContext, CodeGenContext, values::StringValue};
 
 /// Proxy type for a `str` type in LLVM.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -41,7 +41,7 @@ impl<'ctx> StringType<'ctx> {
 
     /// Creates an LLVM type corresponding to the expected structure of a `str`.
     #[must_use]
-    fn llvm_type(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> StructType<'ctx> {
+    fn llvm_type(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> StructType<'ctx> {
         const NAME: &str = "str";
 
         if let Some(t) = ctx.get_struct_type(NAME) {
@@ -54,7 +54,7 @@ impl<'ctx> StringType<'ctx> {
         }
     }
 
-    fn new_impl(ctx: &'ctx Context, llvm_usize: IntType<'ctx>) -> Self {
+    fn new_impl(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
         let llvm_str = Self::llvm_type(ctx, llvm_usize);
 
         Self { ty: llvm_str, llvm_usize }
@@ -62,17 +62,8 @@ impl<'ctx> StringType<'ctx> {
 
     /// Creates an instance of [`StringType`].
     #[must_use]
-    pub fn new(ctx: &CodeGenContext<'ctx, '_>) -> Self {
-        Self::new_impl(ctx.ctx, ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`StringType`].
-    #[must_use]
-    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-    ) -> Self {
-        Self::new_impl(ctx, generator.get_size_type(ctx))
+    pub fn new(ctx: &CoreContext<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, ctx.size_t)
     }
 
     /// Creates an [`StringType`] from a [`StructType`] representing a `str`.
@@ -108,7 +99,7 @@ impl<'ctx> StringType<'ctx> {
             .build_global_string_ptr(v, "const")
             .map(GlobalValue::as_pointer_value)
             .unwrap();
-        let size = ctx.get_size_type().const_int(v.len() as u64, false);
+        let size = ctx.size_t.const_int(v.len() as u64, false);
         self.map_struct_value(
             self.as_abi_type().const_named_struct(&[str_ptr.into(), size.into()]),
             name,

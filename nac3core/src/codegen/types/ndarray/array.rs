@@ -19,15 +19,14 @@ use crate::{
 };
 
 /// Get the expected `dtype` and `ndims` of the ndarray returned by `np_array(<list>)`.
-fn get_list_object_dtype_and_ndims<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+fn get_list_object_dtype_and_ndims<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     list_ty: Type,
 ) -> (BasicTypeEnum<'ctx>, u64) {
     let dtype = arraylike_flatten_element_type(&mut ctx.unifier, list_ty);
     let ndims = arraylike_get_ndims(&mut ctx.unifier, list_ty);
 
-    (ctx.get_llvm_type(generator, dtype), ndims)
+    (ctx.get_llvm_type(dtype), ndims)
 }
 
 impl<'ctx> NDArrayType<'ctx> {
@@ -39,7 +38,7 @@ impl<'ctx> NDArrayType<'ctx> {
         (list_ty, list): (Type, ListValue<'ctx>),
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        let (dtype, ndims_int) = get_list_object_dtype_and_ndims(generator, ctx, list_ty);
+        let (dtype, ndims_int) = get_list_object_dtype_and_ndims(ctx, list_ty);
         assert!(self.ndims >= ndims_int);
         assert_eq!(dtype, self.dtype);
 
@@ -86,7 +85,7 @@ impl<'ctx> NDArrayType<'ctx> {
         //
         // If `list` is `list[list[T]]` or worse, copy.
 
-        let (dtype, ndims) = get_list_object_dtype_and_ndims(generator, ctx, list_ty);
+        let (dtype, ndims) = get_list_object_dtype_and_ndims(ctx, list_ty);
         if ndims == 1 {
             // `list` is not nested
             assert_eq!(ndims, 1);
@@ -137,7 +136,7 @@ impl<'ctx> NDArrayType<'ctx> {
     ) -> <Self as ProxyType<'ctx>>::Value {
         assert_eq!(copy.get_type(), ctx.ctx.bool_type());
 
-        let (dtype, ndims) = get_list_object_dtype_and_ndims(generator, ctx, list_ty);
+        let (dtype, ndims) = get_list_object_dtype_and_ndims(ctx, list_ty);
 
         let ndarray = gen_if_else_expr_callback(
             generator,
@@ -220,7 +219,7 @@ impl<'ctx> NDArrayType<'ctx> {
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
             {
-                let list = ListType::from_unifier_type(generator, ctx, object_ty)
+                let list = ListType::from_unifier_type(ctx, object_ty)
                     .map_pointer_value(object.into_pointer_value(), None);
                 self.construct_numpy_array_list_impl(generator, ctx, (object_ty, list), copy, name)
             }
@@ -228,7 +227,7 @@ impl<'ctx> NDArrayType<'ctx> {
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
             {
-                let ndarray = NDArrayType::from_unifier_type(generator, ctx, object_ty)
+                let ndarray = NDArrayType::from_unifier_type(ctx, object_ty)
                     .map_pointer_value(object.into_pointer_value(), None);
                 self.construct_numpy_array_ndarray_impl(generator, ctx, ndarray, copy, name)
             }

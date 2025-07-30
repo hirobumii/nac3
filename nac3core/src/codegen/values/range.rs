@@ -48,7 +48,7 @@ impl<'ctx> RangeValue<'ctx> {
     }
 
     fn ptr_to_start(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        let llvm_i32 = ctx.ctx.i32_type();
+        let llvm_i32 = ctx.i32;
         let var_name = self.name.map(|v| format!("{v}.start.addr")).unwrap_or_default();
 
         unsafe {
@@ -63,7 +63,7 @@ impl<'ctx> RangeValue<'ctx> {
     }
 
     fn ptr_to_end(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        let llvm_i32 = ctx.ctx.i32_type();
+        let llvm_i32 = ctx.i32;
         let var_name = self.name.map(|v| format!("{v}.end.addr")).unwrap_or_default();
 
         unsafe {
@@ -78,7 +78,7 @@ impl<'ctx> RangeValue<'ctx> {
     }
 
     fn ptr_to_step(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        let llvm_i32 = ctx.ctx.i32_type();
+        let llvm_i32 = ctx.i32;
         let var_name = self.name.map(|v| format!("{v}.step.addr")).unwrap_or_default();
 
         unsafe {

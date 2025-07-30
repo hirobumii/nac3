@@ -62,7 +62,7 @@ impl<'ctx> ExceptionValue<'ctx> {
 
     /// Stores the ID of the exception name into this instance.
     pub fn store_name(&self, ctx: &mut CodeGenContext<'ctx, '_>, name: IntValue<'ctx>) {
-        debug_assert_eq!(name.get_type(), ctx.ctx.i32_type());
+        debug_assert_eq!(name.get_type(), ctx.i32);
 
         self.name_field().store(ctx, self.value, name, self.name);
     }
@@ -93,7 +93,7 @@ impl<'ctx> ExceptionValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         location: Location,
     ) {
-        let llvm_i32 = ctx.ctx.i32_type();
+        let llvm_i32 = ctx.i32;
 
         let filename = ctx.gen_string(generator, location.file.0);
         self.store_file(ctx, filename);
@@ -150,7 +150,7 @@ impl<'ctx> ExceptionValue<'ctx> {
     ///
     /// If the parameter does not exist, pass `i64 0` in the parameter slot.
     pub fn store_params(&self, ctx: &mut CodeGenContext<'ctx, '_>, params: &[IntValue<'ctx>; 3]) {
-        debug_assert!(params.iter().all(|p| p.get_type() == ctx.ctx.i64_type()));
+        debug_assert!(params.iter().all(|p| p.get_type() == ctx.i64));
 
         [self.param0_field(), self.param1_field(), self.param2_field()]
             .into_iter()

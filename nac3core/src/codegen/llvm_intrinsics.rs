@@ -95,13 +95,12 @@ pub fn call_memcpy<'ctx>(
         dest.get_type().get_element_type().into_int_type().get_bit_width(),
         src.get_type().get_element_type().into_int_type().get_bit_width(),
     );
-    debug_assert_eq!(len.get_type(), ctx.get_size_type());
+    debug_assert_eq!(len.get_type(), ctx.size_t);
 
     let llvm_dest_t = dest.get_type();
     let llvm_src_t = src.get_type();
 
-    let target_data =
-        ctx.registry.llvm_options.create_target_machine().map(|tm| tm.get_target_data()).unwrap();
+    let target_data = ctx.target.get_target_data();
     let dest_alignment = target_data.get_abi_alignment(&llvm_dest_t);
     let src_alignment = target_data.get_abi_alignment(&llvm_src_t);
 
@@ -158,7 +157,7 @@ pub fn call_memcpy_generic_array<'ctx>(
 ) {
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     let dest_elem_t = dest.get_type().get_element_type();
     let src_elem_t = src.get_type().get_element_type();

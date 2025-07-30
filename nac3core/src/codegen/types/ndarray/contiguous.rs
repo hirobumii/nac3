@@ -1,6 +1,6 @@
 use inkwell::{
     AddressSpace,
-    context::Context,
+    context::ContextRef,
     types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{IntValue, PointerValue, StructValue},
 };
@@ -10,7 +10,7 @@ use nac3core_derive::StructFields;
 
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator,
+        CoreContext, CodeGenContext, CodeGenerator,
         types::{
             ProxyType,
             structure::{
@@ -71,7 +71,7 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
     /// Creates an LLVM type corresponding to the expected structure of an `NDArray`.
     #[must_use]
     fn llvm_type(
-        ctx: &'ctx Context,
+        ctx: ContextRef<'ctx>,
         item: BasicTypeEnum<'ctx>,
         llvm_usize: IntType<'ctx>,
     ) -> PointerType<'ctx> {
@@ -81,7 +81,11 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
         ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
     }
 
-    fn new_impl(ctx: &'ctx Context, item: BasicTypeEnum<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
+    fn new_impl(
+        ctx: ContextRef<'ctx>,
+        item: BasicTypeEnum<'ctx>,
+        llvm_usize: IntType<'ctx>,
+    ) -> Self {
         let llvm_cndarray = Self::llvm_type(ctx, item, llvm_usize);
 
         Self { ty: llvm_cndarray, item, llvm_usize }
@@ -89,32 +93,21 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
 
     /// Creates an instance of [`ContiguousNDArrayType`].
     #[must_use]
-    pub fn new(ctx: &CodeGenContext<'ctx, '_>, item: &impl BasicType<'ctx>) -> Self {
-        Self::new_impl(ctx.ctx, item.as_basic_type_enum(), ctx.get_size_type())
-    }
-
-    /// Creates an instance of [`ContiguousNDArrayType`].
-    #[must_use]
-    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        item: BasicTypeEnum<'ctx>,
-    ) -> Self {
-        Self::new_impl(ctx, item, generator.get_size_type(ctx))
+    pub fn new(ctx: &CoreContext<'ctx>, item: &impl BasicType<'ctx>) -> Self {
+        Self::new_impl(ctx.ctx, item.as_basic_type_enum(), ctx.size_t)
     }
 
     /// Creates an [`ContiguousNDArrayType`] from a [unifier type][Type].
     #[must_use]
     pub fn from_unifier_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         ty: Type,
     ) -> Self {
         let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
-        let llvm_dtype = ctx.get_llvm_type(generator, dtype);
+        let llvm_dtype = ctx.get_llvm_type(dtype);
 
-        Self::new_impl(ctx.ctx, llvm_dtype, ctx.get_size_type())
+        Self::new_impl(ctx.ctx, llvm_dtype, ctx.size_t)
     }
 
     /// Creates an [`ContiguousNDArrayType`] from a [`StructType`] representing an `NDArray`.

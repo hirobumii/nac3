@@ -35,8 +35,8 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
     let lhs_dtype = arraylike_flatten_element_type(&mut ctx.unifier, in_a_ty);
     let rhs_dtype = arraylike_flatten_element_type(&mut ctx.unifier, in_b_ty);
 
-    let llvm_usize = ctx.get_size_type();
-    let llvm_dst_dtype = ctx.get_llvm_type(generator, dst_dtype);
+    let llvm_usize = ctx.size_t;
+    let llvm_dst_dtype = ctx.get_llvm_type(dst_dtype);
 
     // Deduce ndims of the result of matmul.
     let ndims_int = max(in_a.ndims, in_b.ndims);
@@ -130,7 +130,7 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
     let at_row = i64::try_from(ndims_int - 2).unwrap();
     let at_col = i64::try_from(ndims_int - 1).unwrap();
 
-    let dst_dtype_llvm = ctx.get_llvm_type(generator, dst_dtype);
+    let dst_dtype_llvm = ctx.get_llvm_type(dst_dtype);
     let dst_zero = dst_dtype_llvm.const_zero();
 
     dst.foreach(generator, ctx, |generator, ctx, _, hdl| {
@@ -288,7 +288,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
         // Postprocessing on the result to remove prepended/appended axes.
         let mut postindices = vec![];
-        let zero = ctx.ctx.i32_type().const_zero();
+        let zero = ctx.i32.const_zero();
 
         if self.ndims == 1 {
             // Remove the prepended 1

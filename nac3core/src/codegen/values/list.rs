@@ -107,7 +107,7 @@ impl<'ctx> ListValue<'ctx> {
 
     /// Stores the `size` of this `list` into this instance.
     pub fn store_size(&self, ctx: &mut CodeGenContext<'ctx, '_>, size: IntValue<'ctx>) {
-        debug_assert_eq!(size.get_type(), ctx.get_size_type());
+        debug_assert_eq!(size.get_type(), ctx.size_t);
 
         self.len_field().store(ctx, self.value, size, self.name);
     }
@@ -215,7 +215,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        debug_assert_eq!(idx.get_type(), ctx.get_size_type());
+        debug_assert_eq!(idx.get_type(), ctx.size_t);
 
         let size = self.size(ctx, generator);
         let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "").unwrap();

@@ -18,7 +18,7 @@ pub fn call_nac3_ndarray_util_assert_shape_no_negative<'ctx, G: CodeGenerator + 
     ctx: &mut CodeGenContext<'ctx, '_>,
     shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     assert_eq!(shape.element_type(ctx, generator), llvm_usize.into());
 
     let name =
@@ -36,7 +36,7 @@ pub fn call_nac3_ndarray_util_assert_output_shape_same<'ctx, G: CodeGenerator + 
     ndarray_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
     output_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     assert_eq!(ndarray_shape.element_type(ctx, generator), llvm_usize.into());
     assert_eq!(output_shape.element_type(ctx, generator), llvm_usize.into());
 
@@ -53,39 +53,39 @@ pub fn call_nac3_ndarray_util_assert_output_shape_same<'ctx, G: CodeGenerator + 
 
 /// Generates a call to `__nac3_ndarray_size`.
 ///
-/// Returns a [`usize`][CodeGenerator::get_size_type] value of the number of elements of an
+/// Returns a `usize` value of the number of elements of an
 /// `ndarray`, corresponding to the value of `ndarray.size`.
 pub fn call_nac3_ndarray_size<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_size");
     call_extern!(ctx: llvm_usize "size" = name(ndarray.as_abi_value(ctx)))
 }
 
 /// Generates a call to `__nac3_ndarray_nbytes`.
 ///
-/// Returns a [`usize`][CodeGenerator::get_size_type] value of the number of bytes consumed by the
+/// Returns a `usize` value of the number of bytes consumed by the
 /// data of the `ndarray`, corresponding to the value of `ndarray.nbytes`.
 pub fn call_nac3_ndarray_nbytes<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_nbytes");
     call_extern!(ctx: llvm_usize "nbytes" = name(ndarray.as_abi_value(ctx)))
 }
 
 /// Generates a call to `__nac3_ndarray_len`.
 ///
-/// Returns a [`usize`][CodeGenerator::get_size_type] value of the size of the topmost dimension of
+/// Returns a `usize` value of the size of the topmost dimension of
 /// the `ndarray`, corresponding to the value of `ndarray.__len__`.
 pub fn call_nac3_ndarray_len<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_len");
     call_extern!(ctx: llvm_usize "len" = name(ndarray.as_abi_value(ctx)))
 }
@@ -112,7 +112,7 @@ pub fn call_nac3_ndarray_get_nth_pelement<'ctx>(
 ) -> PointerValue<'ctx> {
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     assert_eq!(index.get_type(), llvm_usize);
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_nth_pelement");
@@ -132,7 +132,7 @@ pub fn call_nac3_ndarray_get_pelement_by_indices<'ctx, G: CodeGenerator + ?Sized
 ) -> PointerValue<'ctx> {
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     assert_eq!(indices.element_type(ctx, generator), llvm_usize.into());
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_pelement_by_indices");

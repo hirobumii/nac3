@@ -1,7 +1,7 @@
 use inkwell::{
     IntPredicate,
     attributes::{Attribute, AttributeLoc},
-    context::Context,
+    context::ContextRef,
     memory_buffer::MemoryBuffer,
     module::Module,
     values::{BasicValue, BasicValueEnum, IntValue},
@@ -27,7 +27,10 @@ mod slice;
 mod string;
 
 #[must_use]
-pub fn load_irrt<'ctx>(ctx: &'ctx Context, symbol_resolver: &dyn SymbolResolver) -> Module<'ctx> {
+pub fn load_irrt<'ctx>(
+    ctx: ContextRef<'ctx>,
+    symbol_resolver: &dyn SymbolResolver,
+) -> Module<'ctx> {
     let bitcode_buf = MemoryBuffer::create_from_memory_range(
         include_bytes!(concat!(env!("OUT_DIR"), "/irrt.bc")),
         "irrt_bitcode_buffer",
@@ -72,7 +75,7 @@ pub fn load_irrt<'ctx>(ctx: &'ctx Context, symbol_resolver: &dyn SymbolResolver)
 #[must_use]
 pub fn get_usize_dependent_function_name(ctx: &mut CodeGenContext<'_, '_>, name: &str) -> String {
     let mut name = name.to_owned();
-    match ctx.get_size_type().get_bit_width() {
+    match ctx.size_t.get_bit_width() {
         32 => {}
         64 => name.push_str("64"),
         bit_width => {
@@ -130,7 +133,7 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
     generator: &mut G,
     length: IntValue<'ctx>,
 ) -> Result<Option<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>)>, String> {
-    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_i32 = ctx.i32;
 
     let zero = llvm_i32.const_zero();
     let one = llvm_i32.const_int(1, false);

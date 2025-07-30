@@ -25,9 +25,9 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
     src_arr: ListValue<'ctx>,
     src_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
 ) {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
-    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_i32 = ctx.i32;
 
     assert_eq!(dest_idx.0.get_type(), llvm_i32);
     assert_eq!(dest_idx.1.get_type(), llvm_i32);

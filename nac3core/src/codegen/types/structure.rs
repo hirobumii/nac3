@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use inkwell::{
     AddressSpace,
-    context::AsContextRef,
+    context::ContextRef,
     types::{BasicTypeEnum, IntType, PointerType, StructType},
     values::{AggregateValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
 };
@@ -65,7 +65,7 @@ pub trait StructProxyType<'ctx>: ProxyType<'ctx, Base = PointerType<'ctx>> {
 /// ```
 pub trait StructFields<'ctx>: Eq + Copy {
     /// Creates an instance of [`StructFields`] using the given `ctx` and `size_t` types.
-    fn new(ctx: impl AsContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> Self;
+    fn new(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> Self;
 
     /// Returns a [`Vec`] that contains the fields of the structure in the order as they appear in
     /// the type definition.
@@ -177,7 +177,7 @@ where
         unsafe {
             ctx.builder.build_in_bounds_gep(
                 pobj,
-                &[idx, &[ctx.ctx.i32_type().const_int(u64::from(self.index), false)]].concat(),
+                &[idx, &[ctx.i32.const_int(u64::from(self.index), false)]].concat(),
                 "",
             )
         }

@@ -15,7 +15,7 @@ pub fn handle_slice_index_bound<'ctx, G: CodeGenerator>(
     generator: &mut G,
     length: IntValue<'ctx>,
 ) -> Result<Option<IntValue<'ctx>>, String> {
-    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_i32 = ctx.i32;
     assert_eq!(length.get_type(), llvm_i32);
 
     let i = if let Some(v) = generator.gen_expr(ctx, i)? {

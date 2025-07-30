@@ -1,5 +1,4 @@
 use std::{
-    cell::OnceCell,
     collections::{HashMap, HashSet},
     ops::ControlFlow,
     sync::{
@@ -14,7 +13,7 @@ use inkwell::{
     AddressSpace, IntPredicate, OptimizationLevel,
     basic_block::BasicBlock,
     builder::Builder,
-    context::Context,
+    context::{Context, ContextRef},
     debug_info::{
         AsDIScope, DICompileUnit, DIFlagsConstants, DIScope, DISubprogram, DebugInfoBuilder,
     },
@@ -30,7 +29,7 @@ use parking_lot::{Condvar, Mutex};
 use nac3parser::ast::{Location, Stmt, StrRef};
 
 use crate::{
-    codegen::stmt::get_personality,
+    codegen::{llvm_fns::FunctionStore, stmt::get_personality},
     symbol_resolver::{StaticValue, SymbolResolver},
     toplevel::{
         TopLevelContext, TopLevelDef,
@@ -44,7 +43,7 @@ use crate::{
 };
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
-pub use llvm_fns::{FunctionDecl, FunctionStore};
+pub use llvm_fns::FunctionDecl;
 use types::{
     ExceptionType, ListType, OptionType, ProxyType, RangeType, StringType, TupleType,
     ndarray::NDArrayType,
@@ -92,27 +91,20 @@ pub type VarValue<'ctx> = (PointerValue<'ctx>, Option<Arc<dyn StaticValue + Send
 
 /// Additional options for LLVM during codegen.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CodeGenLLVMOptions {
-    /// The optimization level to apply on the generated LLVM IR.
-    pub opt_level: OptimizationLevel,
+pub struct CodeGenOptions {
+    /// The optimization level (0/1/2/3/s/z) to apply on the generated LLVM IR.
+    pub opt_level: String,
+
+    /// Whether we should insert debugging statements in the generated code.
+    pub debug: bool,
 
     /// Options related to the target machine.
-    pub target: CodeGenTargetMachineOptions,
-}
-
-impl CodeGenLLVMOptions {
-    /// Creates a [`TargetMachine`] using the target options specified by this struct.
-    ///
-    /// See [`Target::create_target_machine`].
-    #[must_use]
-    pub fn create_target_machine(&self) -> Option<TargetMachine> {
-        self.target.create_target_machine(self.opt_level)
-    }
+    pub target: TargetMachineOptions,
 }
 
 /// Additional options for code generation for the target machine.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CodeGenTargetMachineOptions {
+pub struct TargetMachineOptions {
     /// The target machine triple.
     pub triple: String,
     /// The target machine CPU.
@@ -123,30 +115,40 @@ pub struct CodeGenTargetMachineOptions {
     pub reloc_mode: RelocMode,
     /// Code model for code generation.
     pub code_model: CodeModel,
+    /// Optimization level for backend/target-specific code generation.
+    ///
+    /// Note that this does not determine the set of optimization passes that run on LLVM IR.
+    ///
+    /// # Target-specific notes
+    ///
+    /// On ARM, GOT entries are created when this level is [`OptimizationLevel::None`], which
+    /// our linker (`nac3ld`) does not support. You must at least use [`OptimizationLevel::Less`].
+    pub target_opt_level: OptimizationLevel,
 }
 
-impl CodeGenTargetMachineOptions {
+impl TargetMachineOptions {
     /// Creates an instance of [`CodeGenTargetMachineOptions`] using the triple of the host machine.
     /// Other options are set to defaults.
     #[must_use]
-    pub fn from_host_triple() -> CodeGenTargetMachineOptions {
-        CodeGenTargetMachineOptions {
+    pub fn from_host_triple(level: OptimizationLevel) -> TargetMachineOptions {
+        TargetMachineOptions {
             triple: TargetMachine::get_default_triple().as_str().to_string_lossy().into_owned(),
             cpu: String::default(),
             features: String::default(),
             reloc_mode: RelocMode::Default,
             code_model: CodeModel::Default,
+            target_opt_level: level,
         }
     }
 
     /// Creates an instance of [`CodeGenTargetMachineOptions`] using the properties of the host
     /// machine. Other options are set to defaults.
     #[must_use]
-    pub fn from_host() -> CodeGenTargetMachineOptions {
-        CodeGenTargetMachineOptions {
+    pub fn from_host(level: OptimizationLevel) -> TargetMachineOptions {
+        TargetMachineOptions {
             cpu: TargetMachine::get_host_cpu_name().to_string(),
             features: TargetMachine::get_host_cpu_features().to_string(),
-            ..CodeGenTargetMachineOptions::from_host_triple()
+            ..TargetMachineOptions::from_host_triple(level)
         }
     }
 
@@ -154,35 +156,34 @@ impl CodeGenTargetMachineOptions {
     ///
     /// See [`Target::create_target_machine`].
     #[must_use]
-    pub fn create_target_machine(&self, level: OptimizationLevel) -> Option<TargetMachine> {
+    pub fn create_target_machine(&self) -> TargetMachine {
         let triple = TargetTriple::create(self.triple.as_str());
         let target = Target::from_triple(&triple).unwrap_or_else(|_| {
             panic!("could not create target from target triple {}", self.triple)
         });
 
-        target.create_target_machine(
-            &triple,
-            self.cpu.as_str(),
-            self.features.as_str(),
-            level,
-            self.reloc_mode,
-            self.code_model,
-        )
+        target
+            .create_target_machine(
+                &triple,
+                self.cpu.as_str(),
+                self.features.as_str(),
+                self.target_opt_level,
+                self.reloc_mode,
+                self.code_model,
+            )
+            .expect("could not create target machine")
     }
 }
 
 pub struct CodeGenContext<'ctx, 'a> {
-    /// The LLVM context associated with [this context][CodeGenContext].
-    pub ctx: &'ctx Context,
+    /// The [`CoreContext`] instance which includes the module and target-specific information.
+    pub inner: CoreContext<'ctx>,
 
-    /// The [Builder] instance for creating LLVM IR statements.
+    /// The [`Builder`] instance for creating LLVM IR statements.
     pub builder: Builder<'ctx>,
     /// The [`DebugInfoBuilder`], [compilation unit information][DICompileUnit], and
     /// [scope information][DIScope] of this context.
     pub debug_info: (DebugInfoBuilder<'ctx>, DICompileUnit<'ctx>, DIScope<'ctx>),
-
-    /// The module for which [this context][CodeGenContext] is generating into.
-    pub module: Module<'ctx>,
 
     /// The [`TopLevelContext`] associated with [this context][CodeGenContext].
     pub top_level: &'a TopLevelContext,
@@ -226,37 +227,29 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub outer_catch_clauses:
         Option<(Vec<Option<BasicValueEnum<'ctx>>>, BasicBlock<'ctx>, PhiValue<'ctx>)>,
 
-    // all LLVM function declarations
-    pub fn_store: FunctionStore<'ctx>,
-
     /// The current source location.
     pub current_loc: Location,
-
-    /// The cached type of `size_t`.
-    llvm_usize: OnceCell<IntType<'ctx>>,
 }
 
-impl<'ctx> CodeGenContext<'ctx, '_> {
+impl<'ctx> std::ops::Deref for CodeGenContext<'ctx, '_> {
+    type Target = CoreContext<'ctx>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl std::ops::DerefMut for CodeGenContext<'_, '_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl CodeGenContext<'_, '_> {
     /// Whether the [current basic block][Builder::get_insert_block] referenced by `builder`
     /// contains a [terminator statement][BasicBlock::get_terminator].
     pub fn is_terminated(&self) -> bool {
         self.builder.get_insert_block().and_then(BasicBlock::get_terminator).is_some()
-    }
-
-    /// Returns a [`IntType`] representing `size_t` for the compilation target as specified by
-    /// [`self.registry`][WorkerRegistry].
-    pub fn get_size_type(&self) -> IntType<'ctx> {
-        *self.llvm_usize.get_or_init(|| {
-            self.ctx.ptr_sized_int_type(
-                &self
-                    .registry
-                    .llvm_options
-                    .create_target_machine()
-                    .map(|tm| tm.get_target_data())
-                    .unwrap(),
-                None,
-            )
-        })
     }
 }
 
@@ -294,7 +287,7 @@ pub struct WorkerRegistry {
     static_value_store: Arc<Mutex<StaticValueStore>>,
 
     /// LLVM-related options for code generation.
-    pub llvm_options: CodeGenLLVMOptions,
+    pub codegen_options: CodeGenOptions,
 }
 
 impl WorkerRegistry {
@@ -303,7 +296,7 @@ impl WorkerRegistry {
     pub fn create_workers<G: CodeGenerator + Send + 'static>(
         generators: Vec<Box<G>>,
         top_level_ctx: Arc<TopLevelContext>,
-        llvm_options: &CodeGenLLVMOptions,
+        codegen_options: &CodeGenOptions,
         f: &Arc<WithCall>,
     ) -> (Arc<WorkerRegistry>, Vec<thread::JoinHandle<()>>) {
         let (sender, receiver) = unbounded();
@@ -324,7 +317,7 @@ impl WorkerRegistry {
             task_count,
             wait_condvar,
             top_level_ctx,
-            llvm_options: llvm_options.clone(),
+            codegen_options: codegen_options.clone(),
         });
 
         let mut handles = Vec::new();
@@ -393,44 +386,26 @@ impl WorkerRegistry {
 
     /// Function executed by worker thread for generating IR for each function.
     fn worker_thread<G: CodeGenerator>(&self, generator: &mut G, f: &Arc<WithCall>) {
-        let context = Context::create();
-        let mut builder = context.create_builder();
-        let mut module = context.create_module(generator.get_name());
-        let mut fn_store = FunctionStore::default();
-
-        let target_machine = self.llvm_options.create_target_machine().unwrap();
-        module.set_data_layout(&target_machine.get_target_data().get_data_layout());
-        module.set_triple(&target_machine.get_triple());
-
-        module.add_basic_value_flag(
-            "Debug Info Version",
-            inkwell::module::FlagBehavior::Warning,
-            context.i32_type().const_int(3, false),
-        );
-        module.add_basic_value_flag(
-            "Dwarf Version",
-            inkwell::module::FlagBehavior::Warning,
-            context.i32_type().const_int(4, false),
-        );
+        context_ref!(ctx);
+        let options = &self.codegen_options.target;
+        let mut context = CoreContext::new(ctx, generator.get_name(), options);
+        let mut builder = context.ctx.create_builder();
 
         let mut errors = HashSet::new();
         while let Some(task) = self.receiver.recv().unwrap() {
-            match gen_func(&context, generator, self, builder, module, fn_store, task) {
-                Ok(result) => {
-                    (builder, module, fn_store, _) = result;
-                }
-                Err((old_builder, e)) => {
-                    builder = old_builder;
+            let (context_, builder_, result) = gen_func(context, builder, generator, self, task);
+            builder = builder_;
+            context = match result {
+                Ok(_) => context_,
+                Err(e) => {
                     errors.insert(e);
-                    // create a new empty module just to continue codegen and collect errors
-                    module = context.create_module(&format!("{}_recover", generator.get_name()));
-
-                    let target_machine = self.llvm_options.create_target_machine().unwrap();
-                    module.set_data_layout(&target_machine.get_target_data().get_data_layout());
-                    module.set_triple(&target_machine.get_triple());
-                    fn_store = FunctionStore::default();
+                    CoreContext::new(
+                        context_.ctx,
+                        &format!("{}_recover", generator.get_name()),
+                        &self.codegen_options.target,
+                    )
                 }
-            }
+            };
             *self.task_count.lock() -= 1;
             self.wait_condvar.notify_all();
         }
@@ -440,34 +415,24 @@ impl WorkerRegistry {
             errors.into_iter().sorted().join("\n----------\n")
         );
 
-        let result = module.verify();
+        let result = context.module.verify();
         if let Err(err) = result {
-            println!("{}", module.print_to_string().to_str().unwrap());
+            println!("{}", context.module.print_to_string().to_str().unwrap());
             panic!("{}", err.to_string())
         }
 
         let pass_options = PassBuilderOptions::create();
-        let target_machine = self
-            .llvm_options
-            .target
-            .create_target_machine(self.llvm_options.opt_level)
-            .unwrap_or_else(|| {
-                panic!(
-                    "could not create target machine from properties {:?}",
-                    self.llvm_options.target
-                )
-            });
-        let passes = format!("default<O{}>", self.llvm_options.opt_level as u32);
-        let result = module.run_passes(passes.as_str(), &target_machine, pass_options);
+        let passes = format!("default<O{}>", self.codegen_options.opt_level);
+        let result = context.module.run_passes(passes.as_str(), &context.target, pass_options);
         if let Err(err) = result {
             panic!(
                 "Failed to run optimization for module `{}`: {}",
-                module.get_name().to_str().unwrap(),
+                context.module.get_name().to_str().unwrap(),
                 err.to_string()
             );
         }
 
-        f.run(&module);
+        f.run(&context.module);
         let mut lock = self.task_count.lock();
         *lock += 1;
         self.wait_condvar.notify_all();
@@ -492,10 +457,8 @@ pub struct CodeGenTask {
 /// This function is used to obtain the in-memory representation of `ty`, e.g. a `bool` variable
 /// would be represented by an `i8`.
 #[allow(clippy::too_many_arguments)]
-fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
-    ctx: &'ctx Context,
-    module: &Module<'ctx>,
-    generator: &G,
+fn get_llvm_type<'ctx>(
+    ctx: &CoreContext<'ctx>,
     unifier: &mut Unifier,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
@@ -514,39 +477,35 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         TObj { obj_id, params, .. } if *obj_id == PrimDef::Option.id() => {
                             let element_type = get_llvm_type(
                                 ctx,
-                                module,
-                                generator,
                                 unifier,
                                 top_level,
                                 type_cache,
                                 *params.iter().next().unwrap().1,
                             );
 
-                            OptionType::new_with_generator(generator, ctx, &element_type).as_abi_type().into()
+                            OptionType::new(ctx, &element_type).as_abi_type().into()
                         }
 
                         TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
                             let element_type = get_llvm_type(
                                 ctx,
-                                module,
-                                generator,
                                 unifier,
                                 top_level,
                                 type_cache,
                                 *params.iter().next().unwrap().1,
                             );
 
-                            ListType::new_with_generator(generator, ctx, element_type).as_abi_type().into()
+                            ListType::new(ctx, &element_type).as_abi_type().into()
                         }
 
                         TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                             let (dtype, ndims) = unpack_ndarray_var_tys(unifier, ty);
                             let ndims = extract_ndims(unifier, ndims);
                             let element_type = get_llvm_type(
-                                ctx, module, generator, unifier, top_level, type_cache, dtype,
+                                ctx,  unifier, top_level, type_cache, dtype,
                             );
 
-                            NDArrayType::new_with_generator(generator, ctx, element_type, ndims).as_abi_type().into()
+                            NDArrayType::new(ctx, element_type, ndims).as_abi_type().into()
                         }
 
                         _ => unreachable!(
@@ -563,10 +522,10 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                 };
 
                 let name = unifier.stringify(ty);
-                let ty = if let Some(t) = module.get_struct_type(&name) {
+                let ty = if let Some(t) = ctx.module.get_struct_type(&name) {
                     t.ptr_type(AddressSpace::default()).into()
                 } else {
-                    let struct_type = ctx.opaque_struct_type(&name);
+                    let struct_type = ctx.ctx.opaque_struct_type(&name);
                     type_cache.insert(
                         unifier.get_representative(ty),
                         struct_type.ptr_type(AddressSpace::default()).into(),
@@ -576,8 +535,6 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                         .map(|f| {
                             get_llvm_type(
                                 ctx,
-                                module,
-                                generator,
                                 unifier,
                                 top_level,
                                 type_cache,
@@ -597,10 +554,10 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
                 let fields = ty
                     .iter()
                     .map(|ty| {
-                        get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, *ty)
+                        get_llvm_type(ctx,  unifier, top_level, type_cache, *ty)
                     })
                     .collect_vec();
-                TupleType::new_with_generator(generator, ctx, &fields).as_abi_type().into()
+                TupleType::new(ctx, &fields).as_abi_type().into()
             }
             TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),
@@ -620,10 +577,8 @@ fn get_llvm_type<'ctx, G: CodeGenerator + ?Sized>(
 /// be byte-aligned for the variable to be addressable in memory, whereas there is no such
 /// restriction for ABI representations.
 #[allow(clippy::too_many_arguments)]
-fn get_llvm_abi_type<'ctx, G: CodeGenerator + ?Sized>(
-    ctx: &'ctx Context,
-    module: &Module<'ctx>,
-    generator: &G,
+fn get_llvm_abi_type<'ctx>(
+    ctx: &CoreContext<'ctx>,
     unifier: &mut Unifier,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
@@ -633,15 +588,15 @@ fn get_llvm_abi_type<'ctx, G: CodeGenerator + ?Sized>(
     // If the type is used in the definition of a function, return `i1` instead of `i8` for ABI
     // consistency.
     if unifier.unioned(ty, primitives.bool) {
-        ctx.bool_type().into()
+        ctx.ctx.bool_type().into()
     } else {
-        get_llvm_type(ctx, module, generator, unifier, top_level, type_cache, ty)
+        get_llvm_type(ctx, unifier, top_level, type_cache, ty)
     }
 }
 
 /// Returns the [`BasicTypeEnum`] representing a `va_list` struct for variadic arguments.
 #[allow(dead_code)]
-fn get_llvm_valist_type<'ctx>(ctx: &'ctx Context, triple: &TargetTriple) -> BasicTypeEnum<'ctx> {
+fn get_llvm_valist_type<'ctx>(ctx: ContextRef<'ctx>, triple: &TargetTriple) -> BasicTypeEnum<'ctx> {
     let triple = TargetMachine::normalize_triple(triple);
     let triple = triple.as_str().to_str().unwrap();
     let arch = triple.split('-').next().unwrap();
@@ -733,18 +688,13 @@ pub fn gen_func_impl<
     G: CodeGenerator,
     F: FnOnce(&mut G, &mut CodeGenContext) -> Result<(), String>,
 >(
-    context: &'ctx Context,
+    mut ctx: CoreContext<'ctx>,
+    builder: Builder<'ctx>,
     generator: &mut G,
     registry: &WorkerRegistry,
-    builder: Builder<'ctx>,
-    module: Module<'ctx>,
-    mut fn_store: FunctionStore<'ctx>,
     task: CodeGenTask,
     codegen_function: F,
-) -> Result<
-    (Builder<'ctx>, Module<'ctx>, FunctionStore<'ctx>, FunctionValue<'ctx>),
-    (Builder<'ctx>, String),
-> {
+) -> (CoreContext<'ctx>, Builder<'ctx>, Result<FunctionValue<'ctx>, String>) {
     let top_level_ctx = registry.top_level_ctx.clone();
     let static_value_store = registry.static_value_store.clone();
     let (mut unifier, primitives) = {
@@ -789,19 +739,15 @@ pub fn gen_func_impl<
     };
 
     let mut type_cache: HashMap<_, _> = [
-        (primitives.int32, context.i32_type().into()),
-        (primitives.int64, context.i64_type().into()),
-        (primitives.uint32, context.i32_type().into()),
-        (primitives.uint64, context.i64_type().into()),
-        (primitives.float, context.f64_type().into()),
-        (primitives.bool, context.i8_type().into()),
-        (primitives.str, {
-            StringType::new_with_generator(generator, context).as_abi_type().into()
-        }),
-        (primitives.range, RangeType::new_with_generator(generator, context).as_abi_type().into()),
-        (primitives.exception, {
-            ExceptionType::new_with_generator(generator, context).as_abi_type().into()
-        }),
+        (primitives.int32, ctx.i32.into()),
+        (primitives.int64, ctx.i64.into()),
+        (primitives.uint32, ctx.i32.into()),
+        (primitives.uint64, ctx.i64.into()),
+        (primitives.float, ctx.ctx.f64_type().into()),
+        (primitives.bool, ctx.ctx.i8_type().into()),
+        (primitives.str, { StringType::new(&ctx).as_abi_type().into() }),
+        (primitives.range, RangeType::new(&ctx).as_abi_type().into()),
+        (primitives.exception, { ExceptionType::new(&ctx).as_abi_type().into() }),
     ]
     .iter()
     .copied()
@@ -822,9 +768,7 @@ pub fn gen_func_impl<
         None
     } else {
         Some(get_llvm_abi_type(
-            context,
-            &module,
-            generator,
+            &ctx,
             &mut unifier,
             top_level_ctx.as_ref(),
             &mut type_cache,
@@ -846,9 +790,7 @@ pub fn gen_func_impl<
         .iter()
         .map(|arg| {
             get_llvm_abi_type(
-                context,
-                &module,
-                generator,
+                &ctx,
                 &mut unifier,
                 top_level_ctx.as_ref(),
                 &mut type_cache,
@@ -862,31 +804,23 @@ pub fn gen_func_impl<
     let symbol = &task.symbol_name;
     // This module is independent from the module spawning this codegen task,
     // so we must redefine the function from scratch.
-    let (_, fn_val) =
-        fn_store.declare_internal(&module, symbol, ret_type, &params_type, task.export_symbol);
+    let (_, fn_val) = ctx.declare_internal(symbol, ret_type, &params_type, task.export_symbol);
 
-    if let Some(personality) = get_personality(&top_level_ctx, &module) {
+    if let Some(personality) = get_personality(&top_level_ctx, &ctx) {
         fn_val.set_personality_function(personality);
     }
 
-    let init_bb = context.append_basic_block(fn_val, "init");
+    let init_bb = ctx.ctx.append_basic_block(fn_val, "init");
     builder.position_at_end(init_bb);
-    let body_bb = context.append_basic_block(fn_val, "body");
+    let body_bb = ctx.ctx.append_basic_block(fn_val, "body");
 
     // Store non-vararg argument values into local variables
     let mut var_assignment = HashMap::new();
 
     for (n, arg) in params.iter().enumerate().filter(|(_, arg)| !arg.is_vararg) {
         let param = fn_val.get_nth_param(n as u32).unwrap();
-        let local_type = get_llvm_type(
-            context,
-            &module,
-            generator,
-            &mut unifier,
-            top_level_ctx.as_ref(),
-            &mut type_cache,
-            arg.ty,
-        );
+        let local_type =
+            get_llvm_type(&ctx, &mut unifier, top_level_ctx.as_ref(), &mut type_cache, arg.ty);
         let alloca =
             builder.build_alloca(local_type, &format!("{}.addr", &arg.name.to_string())).unwrap();
 
@@ -896,7 +830,7 @@ pub fn gen_func_impl<
             let param_val = param.into_int_value();
 
             if expected_ty.get_bit_width() == 8 && param_val.get_type().get_bit_width() == 1 {
-                bool_to_int_type(&builder, param_val, context.i8_type())
+                bool_to_int_type(&builder, param_val, ctx.ctx.i8_type())
             } else {
                 param_val
             }
@@ -925,7 +859,9 @@ pub fn gen_func_impl<
     builder.build_unconditional_branch(body_bb).unwrap();
     builder.position_at_end(body_bb);
 
-    let (dibuilder, compile_unit) = module.create_debug_info_builder(
+    let is_optimized = registry.codegen_options.opt_level != "0";
+
+    let (dibuilder, compile_unit) = ctx.module.create_debug_info_builder(
         /* allow_unresolved */ true,
         /* language */ inkwell::debug_info::DWARFSourceLanguage::Python,
         /* filename */
@@ -935,7 +871,7 @@ pub fn gen_func_impl<
             .map_or_else(|| "<nac3_internal>".to_string(), |f| f.location.file.0.to_string()),
         /* directory */ "",
         /* producer */ "NAC3",
-        /* is_optimized */ registry.llvm_options.opt_level != OptimizationLevel::None,
+        /* is_optimized */ is_optimized,
         /* compiler command line flags */ "",
         /* runtime_ver */ 0,
         /* split_name */ "",
@@ -970,12 +906,22 @@ pub fn gen_func_impl<
         /* is_definition */ true,
         /* scope_line */ row as u32,
         /* flags */ inkwell::debug_info::DIFlags::PUBLIC,
-        /* is_optimized */ registry.llvm_options.opt_level != OptimizationLevel::None,
+        /* is_optimized */ is_optimized,
     );
     fn_val.set_subprogram(func_scope);
 
+    let debug_info = (dibuilder, compile_unit, func_scope.as_debug_info_scope());
+    let loc = debug_info.0.create_debug_location(
+        ctx.ctx,
+        row as u32,
+        col as u32,
+        func_scope.as_debug_info_scope(),
+        None,
+    );
+    builder.set_current_debug_location(loc);
+
     let mut code_gen_context = CodeGenContext {
-        ctx: context,
+        inner: ctx,
         resolver: task.resolver,
         top_level: top_level_ctx.as_ref(),
         calls: task.calls,
@@ -992,35 +938,13 @@ pub fn gen_func_impl<
         init_bb,
         exception_val: Option::default(),
         builder,
-        module,
         unifier,
         static_value_store,
-        fn_store,
         current_loc: Location::default(),
-        debug_info: (dibuilder, compile_unit, func_scope.as_debug_info_scope()),
-        llvm_usize: OnceCell::default(),
+        debug_info,
     };
 
-    let target_llvm_usize = context.ptr_sized_int_type(
-        &registry.llvm_options.create_target_machine().map(|tm| tm.get_target_data()).unwrap(),
-        None,
-    );
-    let generator_llvm_usize = generator.get_size_type(context);
-    assert_eq!(
-        generator_llvm_usize, target_llvm_usize,
-        "CodeGenerator (size_t = {generator_llvm_usize}) is not compatible with CodeGen Target (size_t = {target_llvm_usize})",
-    );
-
-    let loc = code_gen_context.debug_info.0.create_debug_location(
-        context,
-        row as u32,
-        col as u32,
-        func_scope.as_debug_info_scope(),
-        None,
-    );
-    code_gen_context.builder.set_current_debug_location(loc);
-
-    let result = codegen_function(generator, &mut code_gen_context);
+    let result = codegen_function(generator, &mut code_gen_context).map(|()| fn_val);
 
     // after static analysis, only void functions can have no return at the end.
     if !code_gen_context.is_terminated() {
@@ -1030,46 +954,28 @@ pub fn gen_func_impl<
     code_gen_context.builder.unset_current_debug_location();
     code_gen_context.debug_info.0.finalize();
 
-    let CodeGenContext { builder, module, fn_store, .. } = code_gen_context;
-    if let Err(e) = result {
-        return Err((builder, e));
-    }
-
-    Ok((builder, module, fn_store, fn_val))
+    let CodeGenContext { inner, builder, .. } = code_gen_context;
+    (inner, builder, result)
 }
 
 /// Generates LLVM IR for a function.
 ///
-/// * `context` - The [LLVM Context][`Context`] used in generating the function body.
+/// * `context` - The [`CoreContext`] we are inserting into.
+/// * `builder` - The [`Builder`] used for generating LLVM IR.
 /// * `generator` - The [`CodeGenerator`] for generating various program constructs.
 /// * `registry` - The [`WorkerRegistry`] responsible for monitoring this function generation task.
-/// * `builder` - The [`Builder`] used for generating LLVM IR.
-/// * `module` - The [`Module`] of which the generated LLVM function will be inserted into.
 /// * `task` - The [`CodeGenTask`] associated with this function generation task.
-///
 pub fn gen_func<'ctx, G: CodeGenerator>(
-    context: &'ctx Context,
+    context: CoreContext<'ctx>,
+    builder: Builder<'ctx>,
     generator: &mut G,
     registry: &WorkerRegistry,
-    builder: Builder<'ctx>,
-    module: Module<'ctx>,
-    fn_store: FunctionStore<'ctx>,
     task: CodeGenTask,
-) -> Result<
-    (Builder<'ctx>, Module<'ctx>, FunctionStore<'ctx>, FunctionValue<'ctx>),
-    (Builder<'ctx>, String),
-> {
+) -> (CoreContext<'ctx>, Builder<'ctx>, Result<FunctionValue<'ctx>, String>) {
     let body = task.body.clone();
-    gen_func_impl(
-        context,
-        generator,
-        registry,
-        builder,
-        module,
-        fn_store,
-        task,
-        |generator, ctx| generator.gen_block(ctx, body.iter()),
-    )
+    gen_func_impl(context, builder, generator, registry, task, |generator, ctx| {
+        generator.gen_block(ctx, body.iter())
+    })
 }
 
 /// Converts the value of a boolean-like value `value` into an arbitrary [`IntType`].
@@ -1120,10 +1026,8 @@ fn gen_in_range_check<'ctx>(
     stop: IntValue<'ctx>,
     step: IntValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let sign = ctx
-        .builder
-        .build_int_compare(IntPredicate::SGT, step, ctx.ctx.i32_type().const_zero(), "")
-        .unwrap();
+    let sign =
+        ctx.builder.build_int_compare(IntPredicate::SGT, step, ctx.i32.const_zero(), "").unwrap();
     let lo = ctx
         .builder
         .build_select(sign, value, stop, "")
@@ -1194,7 +1098,7 @@ pub fn type_aligned_alloca<'ctx, G: CodeGenerator + ?Sized>(
 
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     let align_ty = align_ty.into();
 
     let size = ctx.builder.build_int_truncate_or_bit_cast(size, llvm_usize, "").unwrap();
@@ -1210,7 +1114,7 @@ pub fn type_aligned_alloca<'ctx, G: CodeGenerator + ?Sized>(
     let alignment = get_type_alignment(align_ty);
     let alignment = ctx.builder.build_int_truncate_or_bit_cast(alignment, llvm_usize, "").unwrap();
 
-    if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+    if ctx.registry.codegen_options.debug {
         let alignment_bitcount = llvm_intrinsics::call_int_ctpop(ctx, alignment, None);
 
         ctx.make_assert(
@@ -1241,3 +1145,84 @@ pub fn type_aligned_alloca<'ctx, G: CodeGenerator + ?Sized>(
         .map(BasicValueEnum::into_pointer_value)
         .unwrap()
 }
+
+/// Contains all global LLVM state that is independent from Python.
+pub struct CoreContext<'ctx> {
+    /// The associated LLVM context.
+    pub ctx: ContextRef<'ctx>,
+    /// The LLVM module that we are generating into.
+    pub module: Module<'ctx>,
+    /// The `TargetMachine` that we are compiling for.
+    pub target: TargetMachine,
+
+    /// The `usize`/`size_t` integer type. Pointer-sized on all supported platforms.
+    pub size_t: IntType<'ctx>,
+    /// The 32-bit integer type.
+    pub i32: IntType<'ctx>,
+    /// The 64-bit integer type.
+    pub i64: IntType<'ctx>,
+
+    /// Wrapped function declarations.
+    ///
+    /// Belongs here because it needs to capture all function declarations to the module;
+    /// wrapping a new `FunctionStore` around a non-empty `Module` is a logical error.
+    fn_store: FunctionStore<'ctx>,
+}
+
+impl<'ctx> CoreContext<'ctx> {
+    /// Constructs a [`CoreContext`].
+    #[must_use]
+    pub fn new(ctx: ContextRef<'ctx>, module_name: &str, options: &TargetMachineOptions) -> Self {
+        let module = ctx.create_module(module_name);
+        let target = options.create_target_machine();
+        let size_t = ctx.ptr_sized_int_type(&target.get_target_data(), None);
+        let i32 = ctx.i32_type();
+        let i64 = ctx.i64_type();
+        let fn_store = FunctionStore::new(options);
+
+        module.set_data_layout(&target.get_target_data().get_data_layout());
+        module.set_triple(&target.get_triple());
+        module.add_basic_value_flag(
+            "Debug Info Version",
+            inkwell::module::FlagBehavior::Warning,
+            i32.const_int(3, false),
+        );
+        module.add_basic_value_flag(
+            "Dwarf Version",
+            inkwell::module::FlagBehavior::Warning,
+            i32.const_int(4, false),
+        );
+
+        Self { ctx, module, target, size_t, i32, i64, fn_store }
+    }
+}
+
+/// Constructs a [`ContextRef`].
+///
+/// This is a macro because it needs to declare and borrow from a local [`Context`].
+///
+/// # Example
+///
+/// ```
+/// # use nac3core::codegen::context_ref;
+/// // Constructs a ContextRef named `ctx`.
+/// context_ref!(ctx);
+/// ```
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __codegen_context_ref {
+    ($name:pat) => {
+        let ctx = $crate::inkwell::context::Context::create();
+        let $name = $crate::codegen::__make_context_ref(&ctx);
+    };
+}
+
+// Enforces that the ContextRef borrows from the Context.
+#[doc(hidden)]
+#[must_use]
+pub fn __make_context_ref(ctx: &Context) -> ContextRef<'_> {
+    unsafe { ContextRef::new(inkwell::context::AsContextRef::as_ctx_ref(&ctx)) }
+}
+
+#[doc(inline)]
+pub use __codegen_context_ref as context_ref;

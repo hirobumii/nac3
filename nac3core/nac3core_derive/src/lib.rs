@@ -295,9 +295,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     let impl_block = quote! {
         impl<'ctx> ::nac3core::codegen::types::structure::StructFields<'ctx> for #ident<'ctx> {
-            fn new(ctx: impl ::nac3core::inkwell::context::AsContextRef<'ctx>, llvm_usize: ::nac3core::inkwell::types::IntType<'ctx>) -> Self {
-                let ctx = unsafe { ::nac3core::inkwell::context::ContextRef::new(ctx.as_ctx_ref()) };
-
+            fn new(ctx: ::nac3core::inkwell::context::ContextRef<'ctx>, llvm_usize: ::nac3core::inkwell::types::IntType<'ctx>) -> Self {
                 let mut counter = ::nac3core::codegen::types::structure::FieldIndexCounter::default();
 
                 #ident {

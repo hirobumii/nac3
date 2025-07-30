@@ -21,7 +21,7 @@ pub fn call_nac3_ndarray_array_set_and_validate_list_shape<'ctx, G: CodeGenerato
     ndims: IntValue<'ctx>,
     shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     assert_eq!(list.get_type().element_type().unwrap(), ctx.ctx.i8_type().into());
     assert_eq!(ndims.get_type(), llvm_usize);
     assert_eq!(

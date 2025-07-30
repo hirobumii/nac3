@@ -77,7 +77,7 @@ pub fn call_ldexp<'ctx>(
 ) -> FloatValue<'ctx> {
     let llvm_f64 = ctx.ctx.f64_type();
     debug_assert_eq!(arg.get_type(), llvm_f64);
-    debug_assert_eq!(exp.get_type(), ctx.ctx.i32_type());
+    debug_assert_eq!(exp.get_type(), ctx.i32);
 
     call_extern!(ctx: llvm_f64 name? = ["nounwind"] "__nac3_ldexp"(arg, exp))
 }

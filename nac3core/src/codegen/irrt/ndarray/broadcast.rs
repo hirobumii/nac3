@@ -45,7 +45,7 @@ pub fn call_nac3_ndarray_broadcast_shapes<'ctx, G, Shape>(
     Shape: TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
         + TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>,
 {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     assert_eq!(num_shape_entries.get_type(), llvm_usize);
     assert!(

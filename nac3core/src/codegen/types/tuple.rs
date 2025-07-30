@@ -1,5 +1,5 @@
 use inkwell::{
-    context::Context,
+    context::ContextRef,
     types::{BasicType, BasicTypeEnum, IntType, PointerType, StructType},
     values::{BasicValueEnum, PointerValue, StructValue},
 };
@@ -7,7 +7,7 @@ use itertools::Itertools;
 
 use super::ProxyType;
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator, values::TupleValue},
+    codegen::{CoreContext, CodeGenContext, values::TupleValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -20,12 +20,12 @@ pub struct TupleType<'ctx> {
 impl<'ctx> TupleType<'ctx> {
     /// Creates an LLVM type corresponding to the expected structure of a tuple.
     #[must_use]
-    fn llvm_type(ctx: &'ctx Context, tys: &[BasicTypeEnum<'ctx>]) -> StructType<'ctx> {
+    fn llvm_type(ctx: ContextRef<'ctx>, tys: &[BasicTypeEnum<'ctx>]) -> StructType<'ctx> {
         ctx.struct_type(tys, false)
     }
 
     fn new_impl(
-        ctx: &'ctx Context,
+        ctx: ContextRef<'ctx>,
         tys: &[BasicTypeEnum<'ctx>],
         llvm_usize: IntType<'ctx>,
     ) -> Self {
@@ -36,39 +36,25 @@ impl<'ctx> TupleType<'ctx> {
 
     /// Creates an instance of [`TupleType`].
     #[must_use]
-    pub fn new(ctx: &CodeGenContext<'ctx, '_>, tys: &[impl BasicType<'ctx>]) -> Self {
+    pub fn new(ctx: &CoreContext<'ctx>, tys: &[impl BasicType<'ctx>]) -> Self {
         Self::new_impl(
             ctx.ctx,
             &tys.iter().map(BasicType::as_basic_type_enum).collect_vec(),
-            ctx.get_size_type(),
+            ctx.size_t,
         )
-    }
-
-    /// Creates an instance of [`TupleType`].
-    #[must_use]
-    pub fn new_with_generator<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &'ctx Context,
-        tys: &[BasicTypeEnum<'ctx>],
-    ) -> Self {
-        Self::new_impl(ctx, tys, generator.get_size_type(ctx))
     }
 
     /// Creates an [`TupleType`] from a [unifier type][Type].
     #[must_use]
-    pub fn from_unifier_type<G: CodeGenerator + ?Sized>(
-        generator: &G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ty: Type,
-    ) -> Self {
-        let llvm_usize = ctx.get_size_type();
+    pub fn from_unifier_type(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> Self {
+        let llvm_usize = ctx.size_t;
 
         // Sanity check on object type.
         let TypeEnum::TTuple { ty: tys, .. } = &*ctx.unifier.get_ty_immutable(ty) else {
             panic!("Expected type to be a TypeEnum::TTuple, got {}", ctx.unifier.stringify(ty));
         };
 
-        let llvm_tys = tys.iter().map(|ty| ctx.get_llvm_type(generator, *ty)).collect_vec();
+        let llvm_tys = tys.iter().map(|ty| ctx.get_llvm_type(*ty)).collect_vec();
         Self { ty: Self::llvm_type(ctx.ctx, &llvm_tys), llvm_usize }
     }
 

@@ -164,7 +164,7 @@ fn broadcast_shapes<'ctx, G, Shape>(
     Shape: TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
         + TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>,
 {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
     let llvm_shape_ty = ShapeEntryType::new(ctx);
 
     assert!(
@@ -219,7 +219,7 @@ impl<'ctx> NDArrayType<'ctx> {
     ) -> BroadcastAllResult<'ctx, G> {
         assert!(!ndarrays.is_empty());
 
-        let llvm_usize = ctx.get_size_type();
+        let llvm_usize = ctx.size_t;
 
         // Infer the broadcast output ndims.
         let broadcast_ndims_int =

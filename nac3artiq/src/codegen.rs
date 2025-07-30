@@ -26,10 +26,8 @@ use nac3core::{
         },
     },
     inkwell::{
-        AddressSpace, IntPredicate, OptimizationLevel,
-        context::Context,
+        AddressSpace, IntPredicate,
         module::Linkage,
-        targets::TargetMachine,
         types::{BasicType, IntType},
         values::{BasicValueEnum, IntValue, PointerValue, StructValue},
     },
@@ -69,9 +67,6 @@ enum ParallelMode {
 pub struct ArtiqCodeGenerator<'a> {
     name: String,
 
-    /// The size of a `size_t` variable in bits.
-    size_t: u32,
-
     /// Monotonic counter for naming `start`/`stop` variables used by `with parallel` blocks.
     name_counter: u32,
 
@@ -95,14 +90,11 @@ pub struct ArtiqCodeGenerator<'a> {
 impl<'a> ArtiqCodeGenerator<'a> {
     pub fn new(
         name: String,
-        size_t: IntType<'_>,
         timeline: &'a (dyn TimeFns + Sync),
         special_ids: SpecialPythonId,
     ) -> ArtiqCodeGenerator<'a> {
-        assert!(matches!(size_t.get_bit_width(), 32 | 64));
         ArtiqCodeGenerator {
             name,
-            size_t: size_t.get_bit_width(),
             name_counter: 0,
             start: None,
             end: None,
@@ -110,18 +102,6 @@ impl<'a> ArtiqCodeGenerator<'a> {
             parallel_mode: ParallelMode::None,
             special_ids,
         }
-    }
-
-    #[must_use]
-    pub fn with_target_machine(
-        name: String,
-        ctx: &Context,
-        target_machine: &TargetMachine,
-        timeline: &'a (dyn TimeFns + Sync),
-        special_ids: SpecialPythonId,
-    ) -> ArtiqCodeGenerator<'a> {
-        let llvm_usize = ctx.ptr_sized_int_type(&target_machine.get_target_data(), None);
-        Self::new(name, llvm_usize, timeline, special_ids)
     }
 
     /// If the generator is currently in a direct-`parallel` block context, emits IR that resets the
@@ -187,10 +167,6 @@ impl<'a> ArtiqCodeGenerator<'a> {
 impl CodeGenerator for ArtiqCodeGenerator<'_> {
     fn get_name(&self) -> &str {
         &self.name
-    }
-
-    fn get_size_type<'ctx>(&self, ctx: &'ctx Context) -> IntType<'ctx> {
-        if self.size_t == 32 { ctx.i32_type() } else { ctx.i64_type() }
     }
 
     fn gen_block<'ctx, 'a, 'c, I: Iterator<Item = &'c Stmt<Option<Type>>>>(
@@ -492,28 +468,26 @@ fn format_rpc_arg<'ctx>(
             // NAC3: NDArray = { usize, usize*, T* }
             // libproto_artiq: NDArray = [data[..], dim_sz[..]]
 
-            let llvm_usize = ctx.get_size_type();
-
             let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, arg_ty);
             let ndims = extract_ndims(&ctx.unifier, ndims);
-            let dtype = ctx.get_llvm_type(generator, elem_ty);
+            let dtype = ctx.get_llvm_type(elem_ty);
             let ndarray = NDArrayType::new(ctx, dtype, ndims)
                 .map_pointer_value(arg.into_pointer_value(), None);
 
-            let ndims = llvm_usize.const_int(ndims, false);
+            let ndims = ctx.size_t.const_int(ndims, false);
 
             // `ndarray.data` is possibly not contiguous, and we need it to be contiguous for
             // the reader.
             // Turning it into a ContiguousNDArray to get a `data` that is contiguous.
             let carray = ndarray.make_contiguous_ndarray(generator, ctx);
 
-            let sizeof_usize = llvm_usize.size_of();
+            let sizeof_usize = ctx.size_t.size_of();
             let sizeof_usize =
-                ctx.builder.build_int_truncate_or_bit_cast(sizeof_usize, llvm_usize, "").unwrap();
+                ctx.builder.build_int_truncate_or_bit_cast(sizeof_usize, ctx.size_t, "").unwrap();
 
             let sizeof_pdata = dtype.ptr_type(AddressSpace::default()).size_of();
             let sizeof_pdata =
-                ctx.builder.build_int_truncate_or_bit_cast(sizeof_pdata, llvm_usize, "").unwrap();
+                ctx.builder.build_int_truncate_or_bit_cast(sizeof_pdata, ctx.size_t, "").unwrap();
 
             let sizeof_buf_shape = ctx.builder.build_int_mul(sizeof_usize, ndims, "").unwrap();
             let sizeof_buf = ctx.builder.build_int_add(sizeof_buf_shape, sizeof_pdata, "").unwrap();
@@ -574,20 +548,13 @@ fn format_rpc_ret<'ctx>(
     // }
 
     let llvm_i8 = ctx.ctx.i8_type();
-    let llvm_i32 = ctx.ctx.i32_type();
+    let llvm_i32 = ctx.i32;
     let llvm_i8_8 = ctx.ctx.struct_type(&[llvm_i8.array_type(8).into()], false);
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
-    let llvm_usize = ctx.get_size_type();
-    let llvm_pusize = llvm_usize.ptr_type(AddressSpace::default());
+    let llvm_pusize = ctx.size_t.ptr_type(AddressSpace::default());
 
-    let rpc_recv = ctx.fn_store.declare_external(
-        &ctx.module,
-        "rpc_recv",
-        Some(llvm_i32.into()),
-        &[llvm_pi8.into()],
-        false,
-        &[],
-    );
+    let rpc_recv =
+        ctx.declare_external("rpc_recv", Some(llvm_i32.into()), &[llvm_pi8.into()], false, &[]);
 
     if ctx.unifier.unioned(ret_ty, ctx.primitives.none) {
         ctx.build_call_or_invoke(&rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv");
@@ -600,11 +567,11 @@ fn format_rpc_ret<'ctx>(
     let alloc_bb = ctx.ctx.append_basic_block(current_function, "rpc.continue");
     let tail_bb = ctx.ctx.append_basic_block(current_function, "rpc.tail");
 
-    let llvm_ret_ty = ctx.get_llvm_abi_type(generator, ret_ty);
+    let llvm_ret_ty = ctx.get_llvm_abi_type(ret_ty);
 
     let result = match &*ctx.unifier.get_ty_immutable(ret_ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-            let num_0 = llvm_usize.const_zero();
+            let num_0 = ctx.size_t.const_zero();
 
             // Round `val` up to its modulo `power_of_two`
             let round_up = |ctx: &mut CodeGenContext<'ctx, '_>,
@@ -633,7 +600,7 @@ fn format_rpc_ret<'ctx>(
             // Allocate the resulting ndarray
             // A condition after format_rpc_ret ensures this will not be popped this off.
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ret_ty);
-            let dtype_llvm = ctx.get_llvm_type(generator, dtype);
+            let dtype_llvm = ctx.get_llvm_type(dtype);
             let ndims = extract_ndims(&ctx.unifier, ndims);
             let ndarray = NDArrayType::new(ctx, dtype_llvm, ndims)
                 .construct_uninitialized(generator, ctx, None);
@@ -649,13 +616,13 @@ fn format_rpc_ret<'ctx>(
 
             // Allocates a buffer for the initial RPC'ed object, which is guaranteed to be
             // (4 + 4 * ndims) bytes with 8-byte alignment
-            let sizeof_usize = llvm_usize.size_of();
+            let sizeof_usize = ctx.size_t.size_of();
             let sizeof_usize =
-                ctx.builder.build_int_truncate_or_bit_cast(sizeof_usize, llvm_usize, "").unwrap();
+                ctx.builder.build_int_truncate_or_bit_cast(sizeof_usize, ctx.size_t, "").unwrap();
 
             let sizeof_ptr = llvm_i8.ptr_type(AddressSpace::default()).size_of();
             let sizeof_ptr =
-                ctx.builder.build_int_z_extend_or_bit_cast(sizeof_ptr, llvm_usize, "").unwrap();
+                ctx.builder.build_int_z_extend_or_bit_cast(sizeof_ptr, ctx.size_t, "").unwrap();
 
             let ndims = ndarray.load_ndims(ctx);
             let sizeof_shape = ctx.builder.build_int_mul(ndims, sizeof_usize, "").unwrap();
@@ -687,7 +654,7 @@ fn format_rpc_ret<'ctx>(
                 .unwrap();
 
             // debug_assert(ndarray_nbytes > 0)
-            if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+            if ctx.registry.codegen_options.debug {
                 let cmp = ctx
                     .builder
                     .build_int_compare(IntPredicate::UGT, ndarray_nbytes, num_0, "")
@@ -722,7 +689,7 @@ fn format_rpc_ret<'ctx>(
             unsafe { ndarray.create_data(generator, ctx) }; // NOTE: the strides of `ndarray` has also been set to contiguous in `create_data`.
 
             // debug_assert(nelems * sizeof(T) >= ndarray_nbytes)
-            if ctx.registry.llvm_options.opt_level == OptimizationLevel::None {
+            if ctx.registry.codegen_options.debug {
                 let num_elements = ndarray.size(ctx);
 
                 let expected_ndarray_nbytes =
@@ -834,8 +801,8 @@ fn rpc_codegen_callback_fn<'ctx>(
     is_async: bool,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
     let int8 = ctx.ctx.i8_type();
-    let int32 = ctx.ctx.i32_type();
-    let size_type = ctx.get_size_type();
+    let int32 = ctx.i32;
+    let size_type = ctx.size_t;
     let ptr_type = int8.ptr_type(AddressSpace::default());
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
@@ -886,11 +853,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     let stackptr = call_stacksave(ctx, Some("rpc.stack"));
     let args_ptr = ctx
         .builder
-        .build_array_alloca(
-            ptr_type,
-            ctx.ctx.i32_type().const_int(arg_length as u64, false),
-            "argptr",
-        )
+        .build_array_alloca(ptr_type, ctx.i32.const_int(arg_length as u64, false), "argptr")
         .unwrap();
 
     // -- rpc args handling
@@ -973,7 +936,7 @@ pub fn attributes_writeback<'ctx>(
         let host_attributes = host_attributes.downcast_bound::<PyList>(py)?;
         let top_levels = ctx.top_level.definitions.read();
         let globals = inner_resolver.global_value_ids.read();
-        let int32 = ctx.ctx.i32_type();
+        let int32 = ctx.i32;
         let zero = int32.const_zero();
         let mut values = Vec::new();
         let mut scratch_buffer = Vec::new();
@@ -1128,7 +1091,7 @@ fn polymorphic_print<'ctx>(
         debug_assert!(!fmt.is_empty());
         debug_assert_eq!(fmt.as_bytes().last().unwrap(), &0u8);
 
-        let llvm_i32 = ctx.ctx.i32_type();
+        let llvm_i32 = ctx.i32;
 
         let fmt = ctx.gen_string(generator, fmt);
         let fmt = unsafe { fmt.get_field_at_index_unchecked(0) }.into_pointer_value();
@@ -1140,9 +1103,9 @@ fn polymorphic_print<'ctx>(
         }
     };
 
-    let llvm_i32 = ctx.ctx.i32_type();
-    let llvm_i64 = ctx.ctx.i64_type();
-    let llvm_usize = ctx.get_size_type();
+    let llvm_i32 = ctx.i32;
+    let llvm_i64 = ctx.i64;
+    let llvm_usize = ctx.size_t;
 
     let suffix = suffix.unwrap_or_default();
 
@@ -1329,7 +1292,7 @@ fn polymorphic_print<'ctx>(
                 flush(ctx, generator, &mut fmt, &mut args);
 
                 let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
-                let ndarray = NDArrayType::from_unifier_type(generator, ctx, ty)
+                let ndarray = NDArrayType::from_unifier_type(ctx, ty)
                     .map_pointer_value(value.into_pointer_value(), None);
 
                 let num_0 = llvm_usize.const_zero();

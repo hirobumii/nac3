@@ -418,7 +418,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        debug_assert_eq!(idx.get_type(), ctx.get_size_type());
+        debug_assert_eq!(idx.get_type(), ctx.size_t);
 
         let size = self.size(ctx, generator);
         let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "").unwrap();

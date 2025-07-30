@@ -15,8 +15,8 @@ use parking_lot::{Mutex, RwLock};
 
 use nac3core::{
     codegen::{
-        CodeGenLLVMOptions, CodeGenTargetMachineOptions, CodeGenTask, DefaultCodeGenerator,
-        WithCall, WorkerRegistry, concrete_type::ConcreteTypeStore, irrt::load_irrt,
+        CodeGenOptions, CodeGenTask, DefaultCodeGenerator, TargetMachineOptions, WithCall,
+        WorkerRegistry, concrete_type::ConcreteTypeStore, context_ref, irrt::load_irrt,
     },
     inkwell::{
         OptimizationLevel,
@@ -254,7 +254,25 @@ fn main() {
 
     Target::initialize_all(&InitializationConfig::default());
 
-    let host_target_machine = CodeGenTargetMachineOptions::from_host();
+    let program = match fs::read_to_string(file_name.clone()) {
+        Ok(program) => program,
+        Err(err) => {
+            panic!("Cannot open input file: {err}");
+        }
+    };
+
+    // The default behavior for -O<n> where n>3 defaults to O3 for both Clang and GCC
+    let opt_level = opt_level.min(3);
+    let codegen_opt_level = opt_level.to_string();
+    let target_opt_level = match opt_level {
+        0 => OptimizationLevel::None,
+        1 => OptimizationLevel::Less,
+        2 => OptimizationLevel::Default,
+        3 => OptimizationLevel::Aggressive,
+        _ => unreachable!(),
+    };
+
+    let host_target_machine = TargetMachineOptions::from_host(target_opt_level);
     let triple = triple.unwrap_or(host_target_machine.triple.clone());
     let mcpu = mcpu
         .map(|arg| if arg == "native" { host_target_machine.cpu.clone() } else { arg })
@@ -274,40 +292,21 @@ fn main() {
         }
         1
     };
-    let opt_level = match opt_level {
-        0 => OptimizationLevel::None,
-        1 => OptimizationLevel::Less,
-        2 => OptimizationLevel::Default,
-        // The default behavior for -O<n> where n>3 defaults to O3 for both Clang and GCC
-        _ => OptimizationLevel::Aggressive,
-    };
 
-    let target_machine_options = CodeGenTargetMachineOptions {
+    let target = TargetMachineOptions {
         triple,
         cpu: mcpu,
         features: target_features,
         reloc_mode: RelocMode::PIC,
         ..host_target_machine
     };
-    let target_machine = target_machine_options
-        .create_target_machine(opt_level)
-        .expect("couldn't create target machine");
+    // Create a target machine now to get sizeof(size_t), which is required for type inference
+    // (specifically, the type of the length of an ndarray).
+    let target_machine = target.create_target_machine();
+    let size_t_bits = target_machine.get_target_data().get_pointer_byte_size(None) * 8;
 
-    let context = nac3core::inkwell::context::Context::create();
-
-    let size_t =
-        context.ptr_sized_int_type(&target_machine.get_target_data(), None).get_bit_width();
-
-    let program = match fs::read_to_string(file_name.clone()) {
-        Ok(program) => program,
-        Err(err) => {
-            panic!("Cannot open input file: {err}");
-        }
-    };
-
-    let primitive: PrimitiveStore = TopLevelComposer::make_primitives(size_t).0;
     let (mut composer, builtins_def, builtins_ty) =
-        TopLevelComposer::new(vec![], vec![], ComposerConfig::default(), size_t);
+        TopLevelComposer::new(vec![], vec![], ComposerConfig::default(), size_t_bits);
 
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
         id_to_type: builtins_ty.into(),
@@ -328,8 +327,9 @@ fn main() {
         }
     };
 
-    // Process IRRT
-    let irrt = load_irrt(&context, resolver.as_ref());
+    context_ref!(context);
+
+    let irrt = load_irrt(context, resolver.as_ref());
     emit_llvm(&irrt, "irrt");
 
     // Process the Python script
@@ -366,10 +366,16 @@ fn main() {
         }
     }
 
-    let signature = FunSignature { args: vec![], ret: primitive.int32, vars: VarMap::new() };
+    let signature =
+        FunSignature { args: vec![], ret: composer.primitives_ty.int32, vars: VarMap::new() };
     let mut store = ConcreteTypeStore::new();
     let mut cache = HashMap::new();
-    let signature = store.from_signature(&mut composer.unifier, &primitive, &signature, &mut cache);
+    let signature = store.from_signature(
+        &mut composer.unifier,
+        &composer.primitives_ty,
+        &signature,
+        &mut cache,
+    );
     let signature = store.add_cty(signature);
 
     if let Err(errors) = composer.start_analysis(true) {
@@ -403,8 +409,6 @@ fn main() {
         instance_to_stmt[""].clone()
     };
 
-    let llvm_options = CodeGenLLVMOptions { opt_level, target: target_machine_options };
-
     let task = CodeGenTask {
         subst: Vec::default(),
         symbol_name: "run".to_string(),
@@ -426,16 +430,11 @@ fn main() {
         let buffer = buffer.as_slice().into();
         membuffer.lock().push(buffer);
     })));
-    let threads = (0..threads)
-        .map(|i| {
-            Box::new(DefaultCodeGenerator::with_target_machine(
-                format!("module{i}"),
-                &context,
-                &target_machine,
-            ))
-        })
-        .collect();
-    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &llvm_options, &f);
+    let threads =
+        (0..threads).map(|i| Box::new(DefaultCodeGenerator::new(format!("module{i}")))).collect();
+    let options =
+        CodeGenOptions { debug: codegen_opt_level == "0", opt_level: codegen_opt_level, target };
+    let (registry, handles) = WorkerRegistry::create_workers(threads, top_level, &options, &f);
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 
@@ -479,7 +478,7 @@ fn main() {
     // Optimize `main`
     let pass_options = PassBuilderOptions::create();
     pass_options.set_merge_functions(true);
-    let passes = format!("default<O{}>", opt_level as u32);
+    let passes = format!("default<O{opt_level}>");
     let result = main.run_passes(passes.as_str(), &target_machine, pass_options);
     if let Err(err) = result {
         panic!("Failed to run optimization for module `main`: {}", err.to_string());

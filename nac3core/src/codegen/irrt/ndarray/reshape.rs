@@ -18,7 +18,7 @@ pub fn call_nac3_ndarray_reshape_resolve_and_check_new_shape<'ctx, G: CodeGenera
     new_ndims: IntValue<'ctx>,
     new_shape: ArraySliceValue<'ctx>,
 ) {
-    let llvm_usize = ctx.get_size_type();
+    let llvm_usize = ctx.size_t;
 
     assert_eq!(size.get_type(), llvm_usize);
     assert_eq!(new_ndims.get_type(), llvm_usize);
