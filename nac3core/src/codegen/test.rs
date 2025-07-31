@@ -92,6 +92,7 @@ impl SymbolResolver for Resolver {
 }
 
 fn codegen_options() -> CodeGenOptions {
+    Target::initialize_native(&InitializationConfig::default()).unwrap();
     // We want things like debug assertions, but we otherwise want to run on optimized code.
     CodeGenOptions {
         opt_level: String::from("2"),
@@ -198,8 +199,6 @@ fn test_primitives() {
             module.print_to_string().to_str().map(str::trim).unwrap()
         );
     })));
-
-    Target::initialize_all(&InitializationConfig::default());
 
     let (registry, handles) =
         WorkerRegistry::create_workers(threads, top_level, &codegen_options(), &f);
@@ -348,8 +347,6 @@ fn test_simple_call() {
             module.print_to_string().to_str().map(str::trim).unwrap()
         );
     })));
-
-    Target::initialize_all(&InitializationConfig::default());
 
     let (registry, handles) =
         WorkerRegistry::create_workers(threads, top_level, &codegen_options(), &f);

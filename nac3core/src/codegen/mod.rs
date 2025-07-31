@@ -158,8 +158,8 @@ impl TargetMachineOptions {
     #[must_use]
     pub fn create_target_machine(&self) -> TargetMachine {
         let triple = TargetTriple::create(self.triple.as_str());
-        let target = Target::from_triple(&triple).unwrap_or_else(|_| {
-            panic!("could not create target from target triple {}", self.triple)
+        let target = Target::from_triple(&triple).unwrap_or_else(|e| {
+            panic!("could not create target from target triple {}: {e}", self.triple)
         });
 
         target
