@@ -6,7 +6,7 @@ use std::{
 };
 
 use inkwell::{
-    IntPredicate,
+    AddressSpace, IntPredicate,
     basic_block::BasicBlock,
     types::{BasicType, BasicTypeEnum},
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
@@ -612,10 +612,14 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     let zelf_intptr: BasicValueEnum =
         call_extern!(ctx: llvm_pi8 "malloccall" = "nac3_malloc"(llvm_isize.const_int(sizeof, false)))
             .into();
+
     let zelf = ctx
         .builder
         .build_bit_cast(zelf_intptr, zelf_ty.ptr_type(AddressSpace::default()), "malloc")
         .unwrap();
+
+    let void = ctx.ctx.void_type();
+    call_extern!(ctx: void _ = "nac3_rc_incr"(zelf_intptr));
 
     // call `__init__` if there is one
     if let Some(fun_id) = fun_id {
