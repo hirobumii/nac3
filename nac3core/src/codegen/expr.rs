@@ -604,10 +604,8 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     let llvm_i8 = ctx.ctx.i8_type();
     let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
 
-    let target_data =
-        ctx.registry.llvm_options.create_target_machine().map(|tm| tm.get_target_data()).unwrap();
-
-    let llvm_isize = ctx.ctx.custom_width_int_type(target_data.get_pointer_byte_size(None) * 8);
+    let target_data = ctx.target.get_target_data();
+    let llvm_isize = ctx.size_t;
 
     let sizeof = target_data.get_store_size(&zelf_ty);
 
