@@ -42,7 +42,7 @@
             };
             passthru.cargoLock = cargoLock;
             nativeBuildInputs = [ pkgs.python3 (pkgs.wrapClangMulti pkgs.llvmPackages_16.clang) llvm-tools-irrt pkgs.llvmPackages_16.llvm.out pkgs.llvmPackages_16.bintools llvm-nac3 ];
-            buildInputs = [ pkgs.python3 llvm-nac3 ];
+            buildInputs = [ pkgs.python3 llvm-nac3 pkgs.stdenv.cc.cc.lib ];
             checkInputs = [ (pkgs.python3.withPackages(ps: [ ps.numpy ps.scipy ])) ];
             checkPhase =
               ''

@@ -2833,7 +2833,7 @@ macro_rules! __codegen_call_extern_impl {
         let _: &[$crate::inkwell::values::BasicValueEnum<'_>] = &args;
         let types = args.map(|a| a.get_type());
         let (ret_ty, cast) = $crate::codegen::expr::__handle_return_type($ret_ty);
-        $(let args = args.into_iter().chain($varargs).collect_vec();)?
+        $(let args = ::std::vec::Vec::from_iter(args.into_iter().chain($varargs));)?
         let result = $crate::codegen::expr::call_extern_c_fn(
             $ctx, &$fn_name, ret_ty, &types, &args, $is_varargs, $var_name, &$fn_attrs,
         );
@@ -2912,24 +2912,31 @@ macro_rules! __codegen_call_extern_impl {
 ///
 /// Call an external function with some attributes:
 ///
-/// ```ignore
+/// ```no_run
+/// # use nac3core::codegen::{CodeGenContext, expr::call_extern};
+/// # fn test(ctx: &mut CodeGenContext) {
 /// let success = ctx.i32.const_zero();
 /// call_extern!(ctx: void _ = ["noreturn"] "_Exit"(success));
+/// # }
 /// ```
 ///
 /// Call a variadic function:
 ///
-/// ```ignore
+/// ```no_run
+/// # use nac3core::codegen::{CodeGenContext, expr::call_extern};
+/// # use nac3core::inkwell::{values::IntValue, builder::BuilderError};
+/// # fn test<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>) -> Result<(), BuilderError> {
 /// let int = ctx.i32;
 /// let neg_one = int.const_all_ones();
 /// let half = ctx.ctx.f32_type().const_float(0.5);
-/// let format = ctx.builder.build_global_string_ptr("%d %.2f")?.as_pointer_value();
+/// let format = ctx.builder.build_global_string_ptr("%d %.2f", "fmt_str")?.as_pointer_value();
 ///
 /// // unlike positional args, variadic args need an explicit cast to BasicValueEnum
 /// let varargs = [neg_one.into(), half.into()];
 ///
 /// // at runtime, prints "-1 0.50"; written = 7
 /// let written: IntValue<'ctx> = call_extern!(ctx: int "written" = "printf"(format; ...varargs));
+/// # Ok(()) }
 /// ```
 ///
 /// [attr-docs]: https://llvm.org/docs/LangRef.html#fnattrs
