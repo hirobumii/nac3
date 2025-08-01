@@ -21,6 +21,9 @@ pub extern "C" fn delay_mu(dt: i64) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rpc_send_async(_: u32, _: &[u8], _: *const *const ()) {}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rtio_init() {
     println!("rtio_init");
 }
@@ -48,6 +51,11 @@ pub extern "C" fn print_int64(x: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn __nac3_personality(_state: u32, _exception_object: u32, _context: u32) -> u32 {
     unimplemented!();
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn __nac3_resume() -> ! {
+    loop {}
 }
 
 fn main() {

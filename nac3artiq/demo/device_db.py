@@ -7,10 +7,10 @@ device_db = {
         "module": "artiq.coredevice.core",
         "class": "Core",
         "arguments": {
-            "host": "kc705",
+            "host": "host",
             "ref_period": 1e-9,
             "ref_multiplier": 8,
-            "target": "rv32g"
+            "target": "host"
         }
     },
 }

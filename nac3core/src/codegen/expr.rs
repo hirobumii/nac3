@@ -618,6 +618,7 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
         .build_bit_cast(zelf_intptr, zelf_ty.ptr_type(AddressSpace::default()), "malloc")
         .unwrap();
 
+    // TODO(HTGAzureX1212): size_t
     let void = ctx.ctx.void_type();
     call_extern!(ctx: void _ = "nac3_rc_incr"(zelf_intptr));
 

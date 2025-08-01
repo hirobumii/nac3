@@ -141,6 +141,10 @@ def compile(cls):
     return cls
 
 
+def staticmethod(function):
+    pass
+
+
 import device_db
 core_arguments = device_db.device_db["core"]["arguments"]
 
@@ -148,6 +152,7 @@ builtins = {
     "int": int,
     "float": float,
     "bool": bool,
+    "staticmethod": staticmethod,
     "str": str,
     "list": list,
     "tuple": tuple,

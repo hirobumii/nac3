@@ -2,6 +2,7 @@
 #include "irrt/exception.hpp"
 #include "irrt/list.hpp"
 #include "irrt/math.hpp"
+#include "irrt/mem.hpp"
 #include "irrt/range.hpp"
 #include "irrt/slice.hpp"
 #include "irrt/string.hpp"
