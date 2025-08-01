@@ -45,12 +45,10 @@ use super::{
     },
 };
 use crate::{
-    codegen::llvm_fns::FunctionDecl,
+    codegen::{irrt::get_usize_dependent_function_name, llvm_fns::FunctionDecl},
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
-        DefinitionId, FunAttribute, TopLevelDef,
-        helper::{PrimDef, arraylike_flatten_element_type, extract_ndims},
-        numpy::unpack_ndarray_var_tys,
+        helper::{arraylike_flatten_element_type, extract_ndims, PrimDef}, numpy::unpack_ndarray_var_tys, DefinitionId, FunAttribute, TopLevelDef
     },
     typecheck::{
         magic_methods::{Binop, BinopVariant, HasOpInfo},
@@ -618,9 +616,9 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
         .build_bit_cast(zelf_intptr, zelf_ty.ptr_type(AddressSpace::default()), "malloc")
         .unwrap();
 
-    // TODO(HTGAzureX1212): size_t
     let void = ctx.ctx.void_type();
-    call_extern!(ctx: void _ = "nac3_rc_incr"(zelf_intptr));
+    let name = get_usize_dependent_function_name(ctx, "nac3_rc_incr");
+    call_extern!(ctx: void _ = name(zelf_intptr));
 
     // call `__init__` if there is one
     if let Some(fun_id) = fun_id {

@@ -8,13 +8,13 @@ extern "C" void nac3_free(void *ptr);
 
 template<typename SizeT>
 void __nac3_rc_incr_impl(void *obj)  {
-    SizeT *p = (SizeT *) ptr;
+    SizeT *p = (SizeT *) obj;
     *(p - 1) += 1;
 }
 
 template<typename SizeT>
 void __nac3_rc_decr_impl(void *obj) {
-    SizeT *p = (SizeT *) ptr;
+    SizeT *p = (SizeT *) obj;
     *(p - 1) -= 1;
 
     if (!*(p - 1))
@@ -23,19 +23,21 @@ void __nac3_rc_decr_impl(void *obj) {
 
 extern "C" {
 
-#define DEF_nac3_rc_incr_(T)                 \
-    void __nac3_rc_incr_##T(void *ptr) {    \
-        return __nac3_rc_incr_impl<T>(ptr); \
-    }
-#define DEF_nac3_rc_decr_(T)                 \
-    void __nac3_rc_decr_##T(void *ptr) {    \
-        return __nac3_rc_incr_impl<T>(ptr); \
-    }
+void nac3_rc_decr(int8_t *ptr) {
+    __nac3_rc_decr_impl<uint32_t>(ptr);
+}
 
-DEF_nac3_rc_decr_(uint32_t);
-DEF_nac3_rc_decr_(uint64_t);
-DEF_nac3_rc_incr_(uint32_t);
-DEF_nac3_rc_incr_(uint64_t);
+void nac3_rc_decr64(int8_t *ptr) {
+    __nac3_rc_decr_impl<uint64_t>(ptr);
+}
+
+void nac3_rc_incr(int8_t *ptr) {
+    __nac3_rc_incr_impl<uint32_t>(ptr);
+}
+
+void nac3_rc_incr64(int8_t *ptr) {
+    __nac3_rc_incr_impl<uint64_t>(ptr);
+}
 
 }
 
