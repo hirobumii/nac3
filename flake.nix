@@ -107,14 +107,14 @@
             (pkgs.fetchFromGitHub {
               owner = "m-labs";
               repo = "sipyco";
-              rev = "dd3fc30a5b530279f8d75ae77b4de51f3b9870a3";
-              sha256 = "sha256-ZOTF/NX7SltbYg+OGSfyjo3uTiaCZJJiITZriKt4YdY=";
+              rev = "91fd4d58073fa059850c8f65bde52c9a20ff91ba";
+              sha256 = "sha256-R2mtON103pFWbkpTem6YOZpKuFOJlvu81IjZpYnkHNo=";
             })
             (pkgs.fetchFromGitHub {
               owner = "m-labs";
               repo = "artiq";
-              rev = "9b61fe3e32f3beca6d22975c68eae7adf5c9aa74";
-              sha256 = "sha256-UETeIBZJyLRvx22F901toSDZibEtke1LA5MPAgPUJRE=";
+              rev = "885521f801ca8ee65de35b928b64b1dd5b2ae212";
+              sha256 = "sha256-u2fySuYGM12+3OwOpNw0WQtDXw5tP80rD1RECtGkwV4=";
             })
           ];
           buildInputs = [
@@ -129,7 +129,7 @@
             sipyco=''${srcs[0]}
             artiq=''${srcs[1]}
             export PYTHONPATH=$sipyco:$artiq
-            python -m artiq.frontend.artiq_ddb_template $artiq/artiq/examples/nac3devices/nac3devices.json > device_db.py
+            python -m artiq.frontend.artiq_ddb_template $artiq/artiq/examples/nac3devices/master.json -s 1 $artiq/artiq/examples/nac3devices/satellite.json > device_db.py
             cp $artiq/artiq/examples/nac3devices/nac3devices.py .
             python -m artiq.frontend.artiq_compile nac3devices.py
             '';
