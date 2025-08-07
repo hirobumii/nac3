@@ -18,7 +18,7 @@ use inkwell::{
 };
 use itertools::Itertools;
 
-use crate::codegen::{CoreContext, TargetMachineOptions};
+use crate::codegen::{ModuleContext, TargetMachineOptions};
 
 const INTERNAL_CALL_CONV: u32 = inkwell::llvm_sys::LLVMCallConv::LLVMFastCallConv as _;
 
@@ -79,7 +79,7 @@ pub(super) struct FunctionStore<'ctx> {
     arch: String,
 }
 
-impl<'ctx> CoreContext<'ctx> {
+impl<'ctx> ModuleContext<'ctx> {
     /// Declares and registers a function that is defined internally.
     ///
     /// Returns a `(decl, value)` pair.
@@ -102,7 +102,7 @@ impl<'ctx> CoreContext<'ctx> {
         params: &[BasicMetadataTypeEnum<'ctx>],
         export: bool,
     ) -> (FunctionDecl<'ctx>, FunctionValue<'ctx>) {
-        let CoreContext { ctx, module, fn_store, .. } = self;
+        let ModuleContext { ctx, module, fn_store, .. } = self;
 
         let mut new_fn = None;
         fn_store.functions.entry(name.to_owned()).or_insert_with(|| {
@@ -137,7 +137,7 @@ impl<'ctx> CoreContext<'ctx> {
         is_c_varargs: bool,
         fn_attrs: &[&str],
     ) -> FunctionDecl<'ctx> {
-        let CoreContext { ctx, ref module, ref target, ref mut fn_store, .. } = *self;
+        let ModuleContext { ctx, ref module, ref target, ref mut fn_store, .. } = *self;
 
         let entry = match fn_store.functions.entry(name.into()) {
             Entry::Occupied(_) => return FunctionDecl::new(name.into()),

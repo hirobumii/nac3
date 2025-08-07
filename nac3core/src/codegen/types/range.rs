@@ -7,7 +7,7 @@ use inkwell::{
 
 use super::ProxyType;
 use crate::{
-    codegen::{CoreContext, CodeGenContext, CodeGenerator, values::RangeValue},
+    codegen::{ModuleContext, CodeGenContext, CodeGenerator, values::RangeValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -35,7 +35,7 @@ impl<'ctx> RangeType<'ctx> {
 
     /// Creates an instance of [`RangeType`].
     #[must_use]
-    pub fn new(ctx: &CoreContext<'ctx>) -> Self {
+    pub fn new(ctx: &ModuleContext<'ctx>) -> Self {
         Self::new_impl(ctx.ctx, ctx.size_t)
     }
 

@@ -9,8 +9,8 @@ pub fn call_isinf<'ctx>(
     v: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> IntValue<'ctx> {
-    assert_eq!(v.get_type(), ctx.ctx.f64_type());
-    call_extern!(ctx: (ctx.ctx.bool_type()) name? = "__nac3_isinf"(v))
+    assert_eq!(v.get_type(), ctx.f64);
+    call_extern!(ctx: (ctx.i1) name? = "__nac3_isinf"(v))
 }
 
 /// Generates a call to [`isnan`](https://en.cppreference.com/w/c/numeric/math/isnan) in IR. Returns
@@ -20,8 +20,8 @@ pub fn call_isnan<'ctx>(
     v: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> IntValue<'ctx> {
-    assert_eq!(v.get_type(), ctx.ctx.f64_type());
-    call_extern!(ctx: (ctx.ctx.bool_type()) name? = "__nac3_isnan"(v))
+    assert_eq!(v.get_type(), ctx.f64);
+    call_extern!(ctx: (ctx.i1) name? = "__nac3_isnan"(v))
 }
 
 /// Macro to generate N-ary functions accepting an arbitrary number of `f64` as arguments and
@@ -42,7 +42,7 @@ macro_rules! generate_f64_nary_fn {
             name: Option<&str>,
         ) -> FloatValue<'ctx> {
             const FN_NAME: &str = (concat!("__nac3_", stringify!($builtin_fn)));
-            let llvm_f64 = ctx.ctx.f64_type();
+            let llvm_f64 = ctx.f64;
             $(debug_assert_eq!($args.get_type(), llvm_f64);)*
             call_extern!(ctx: llvm_f64 name? = ["nounwind"] FN_NAME($($args),*))
         }
@@ -75,7 +75,7 @@ pub fn call_ldexp<'ctx>(
     exp: IntValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
-    let llvm_f64 = ctx.ctx.f64_type();
+    let llvm_f64 = ctx.f64;
     debug_assert_eq!(arg.get_type(), llvm_f64);
     debug_assert_eq!(exp.get_type(), ctx.i32);
 

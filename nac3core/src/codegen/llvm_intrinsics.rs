@@ -1,5 +1,4 @@
 use inkwell::{
-    AddressSpace,
     intrinsics::Intrinsic,
     types::{AnyTypeEnum::IntType, BasicTypeEnum},
     values::{BasicMetadataValueEnum, BasicValueEnum, FloatValue, IntValue, PointerValue},
@@ -117,8 +116,7 @@ pub fn call_memcpy_generic<'ctx>(
     src: PointerValue<'ctx>,
     len: IntValue<'ctx>,
 ) {
-    let llvm_i8 = ctx.ctx.i8_type();
-    let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
+    let llvm_p0i8 = ctx.ptr;
 
     let dest_elem_t = dest.get_type().get_element_type();
     let src_elem_t = src.get_type().get_element_type();
@@ -155,8 +153,7 @@ pub fn call_memcpy_generic_array<'ctx>(
     src: PointerValue<'ctx>,
     len: IntValue<'ctx>,
 ) {
-    let llvm_i8 = ctx.ctx.i8_type();
-    let llvm_p0i8 = llvm_i8.ptr_type(AddressSpace::default());
+    let llvm_p0i8 = ctx.ptr;
     let llvm_usize = ctx.size_t;
 
     let dest_elem_t = dest.get_type().get_element_type();

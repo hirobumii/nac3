@@ -28,9 +28,9 @@ fn ndarray_zero_value<'ctx, G: CodeGenerator + ?Sized>(
     {
         ctx.i64.const_zero().into()
     } else if ctx.unifier.unioned(dtype, ctx.primitives.float) {
-        ctx.ctx.f64_type().const_zero().into()
+        ctx.f64.const_zero().into()
     } else if ctx.unifier.unioned(dtype, ctx.primitives.bool) {
-        ctx.ctx.bool_type().const_zero().into()
+        ctx.i1.const_zero().into()
     } else if ctx.unifier.unioned(dtype, ctx.primitives.str) {
         ctx.gen_string(generator, "").into()
     } else {
@@ -57,9 +57,9 @@ fn ndarray_one_value<'ctx, G: CodeGenerator + ?Sized>(
         let is_signed = ctx.unifier.unioned(dtype, ctx.primitives.int64);
         ctx.i64.const_int(1, is_signed).into()
     } else if ctx.unifier.unioned(dtype, ctx.primitives.float) {
-        ctx.ctx.f64_type().const_float(1.0).into()
+        ctx.f64.const_float(1.0).into()
     } else if ctx.unifier.unioned(dtype, ctx.primitives.bool) {
-        ctx.ctx.bool_type().const_int(1, false).into()
+        ctx.i1.const_int(1, false).into()
     } else if ctx.unifier.unioned(dtype, ctx.primitives.str) {
         ctx.gen_string(generator, "1").into()
     } else {

@@ -22,7 +22,7 @@ pub fn call_nac3_ndarray_array_set_and_validate_list_shape<'ctx, G: CodeGenerato
     shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) {
     let llvm_usize = ctx.size_t;
-    assert_eq!(list.get_type().element_type().unwrap(), ctx.ctx.i8_type().into());
+    assert_eq!(list.get_type().element_type().unwrap(), ctx.i8.into());
     assert_eq!(ndims.get_type(), llvm_usize);
     assert_eq!(
         BasicTypeEnum::try_from(shape.element_type(ctx, generator)).unwrap(),
@@ -49,7 +49,7 @@ pub fn call_nac3_ndarray_array_write_list_to_array<'ctx>(
     list: ListValue<'ctx>,
     ndarray: NDArrayValue<'ctx>,
 ) {
-    assert_eq!(list.get_type().element_type().unwrap(), ctx.ctx.i8_type().into());
+    assert_eq!(list.get_type().element_type().unwrap(), ctx.i8.into());
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_array_write_list_to_array");
     call_extern!(ctx: void _ = name(list.as_abi_value(ctx), ndarray.as_abi_value(ctx)));
 }

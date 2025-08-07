@@ -124,8 +124,7 @@ impl<'ctx> ListValue<'ctx> {
     /// Returns an instance of [`ListValue`] with the `items` pointer cast to `i8*`.
     #[must_use]
     pub fn as_i8_list(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> ListValue<'ctx> {
-        let llvm_i8 = ctx.ctx.i8_type();
-        let llvm_list_i8 = <Self as ProxyValue>::Type::new(ctx, &llvm_i8);
+        let llvm_list_i8 = <Self as ProxyValue>::Type::new(ctx, &ctx.i8);
 
         Self::from_pointer_value(
             ctx.builder.build_pointer_cast(self.value, llvm_list_i8.as_abi_type(), "").unwrap(),

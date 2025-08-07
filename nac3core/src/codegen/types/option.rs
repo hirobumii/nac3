@@ -6,7 +6,7 @@ use inkwell::{
 
 use super::ProxyType;
 use crate::{
-    codegen::{CoreContext, CodeGenContext, CodeGenerator, values::OptionValue},
+    codegen::{ModuleContext, CodeGenContext, CodeGenerator, values::OptionValue},
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
 };
 
@@ -32,7 +32,7 @@ impl<'ctx> OptionType<'ctx> {
 
     /// Creates an instance of [`OptionType`].
     #[must_use]
-    pub fn new(ctx: &CoreContext<'ctx>, element_type: &impl BasicType<'ctx>) -> Self {
+    pub fn new(ctx: &ModuleContext<'ctx>, element_type: &impl BasicType<'ctx>) -> Self {
         Self::new_impl(element_type, ctx.size_t)
     }
 

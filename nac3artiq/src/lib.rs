@@ -32,7 +32,7 @@ use tempfile::{self, TempDir};
 
 use nac3core::{
     codegen::{
-        CodeGenOptions, CodeGenTask, CodeGenerator, CoreContext, TargetMachineOptions, WithCall,
+        CodeGenOptions, CodeGenTask, CodeGenerator, ModuleContext, TargetMachineOptions, WithCall,
         WorkerRegistry, concrete_type::ConcreteTypeStore, context_ref, gen_func_impl,
         irrt::load_irrt,
     },
@@ -944,7 +944,7 @@ impl Nac3 {
             );
 
             context_ref!(context);
-            let context = CoreContext::new(context, "main", &self.codegen_options.target);
+            let context = ModuleContext::new(context, "main", &self.codegen_options.target);
             let builder = context.ctx.create_builder();
 
             let (context, _, result) = gen_func_impl(

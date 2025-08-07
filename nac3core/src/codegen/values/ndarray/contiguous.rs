@@ -214,7 +214,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         ndarray.store_data(
             ctx,
             ctx.builder
-                .build_pointer_cast(data, ctx.ctx.i8_type().ptr_type(AddressSpace::default()), "")
+                .build_pointer_cast(data, ctx.ptr, "")
                 .unwrap(),
         );
 

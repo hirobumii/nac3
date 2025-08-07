@@ -40,7 +40,7 @@ pub fn call_nac3_nditer_has_element<'ctx>(
     iter: NDIterValue<'ctx>,
 ) -> IntValue<'ctx> {
     let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_has_element");
-    call_extern!(ctx: (ctx.ctx.bool_type()) _ = name(iter.as_abi_value(ctx)))
+    call_extern!(ctx: (ctx.i1) _ = name(iter.as_abi_value(ctx)))
 }
 
 /// Generates a call to `__nac3_nditer_next`.

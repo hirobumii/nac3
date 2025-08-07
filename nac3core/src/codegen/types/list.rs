@@ -11,7 +11,7 @@ use nac3core_derive::StructFields;
 use super::ProxyType;
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator, CoreContext,
+        CodeGenContext, CodeGenerator, ModuleContext,
         types::structure::{
             FieldIndexCounter, StructField, StructFields, StructProxyType,
             check_struct_type_matches_fields,
@@ -90,7 +90,7 @@ impl<'ctx> ListType<'ctx> {
 
     /// Creates an instance of [`ListType`].
     #[must_use]
-    pub fn new(ctx: &CoreContext<'ctx>, element_type: &impl BasicType<'ctx>) -> Self {
+    pub fn new(ctx: &ModuleContext<'ctx>, element_type: &impl BasicType<'ctx>) -> Self {
         Self::new_impl(ctx.ctx, Some(element_type.as_basic_type_enum()), ctx.size_t)
     }
 

@@ -1,5 +1,4 @@
 use inkwell::{
-    AddressSpace,
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue},
 };
@@ -92,7 +91,7 @@ impl<'ctx> NDArrayType<'ctx> {
             assert!(self.ndims >= ndims);
             assert_eq!(dtype, self.dtype);
 
-            let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
+            let llvm_pi8 = ctx.ptr;
 
             let ndarray = Self::new(ctx, dtype, 1).construct_uninitialized(generator, ctx, name);
 
@@ -134,7 +133,7 @@ impl<'ctx> NDArrayType<'ctx> {
         copy: IntValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        assert_eq!(copy.get_type(), ctx.ctx.bool_type());
+        assert_eq!(copy.get_type(), ctx.i1);
 
         let (dtype, ndims) = get_list_object_dtype_and_ndims(ctx, list_ty);
 
@@ -179,7 +178,7 @@ impl<'ctx> NDArrayType<'ctx> {
     ) -> <Self as ProxyType<'ctx>>::Value {
         assert_eq!(ndarray.get_type().dtype, self.dtype);
         assert!(self.ndims >= ndarray.get_type().ndims);
-        assert_eq!(copy.get_type(), ctx.ctx.bool_type());
+        assert_eq!(copy.get_type(), ctx.i1);
 
         let ndarray_val = gen_if_else_expr_callback(
             generator,

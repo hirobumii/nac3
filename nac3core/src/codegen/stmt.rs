@@ -26,7 +26,7 @@ use super::{
     },
 };
 use crate::{
-    codegen::{CoreContext, llvm_fns::FunctionDecl},
+    codegen::{ModuleContext, llvm_fns::FunctionDecl},
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelContext, TopLevelDef},
     typecheck::{
@@ -37,7 +37,7 @@ use crate::{
 
 pub(crate) fn get_personality<'ctx>(
     top_level: &TopLevelContext,
-    ctx: &CoreContext<'ctx>,
+    ctx: &ModuleContext<'ctx>,
 ) -> Option<FunctionValue<'ctx>> {
     let sym = top_level.personality_symbol.as_ref()?;
     // The personality is the only symbol where we do not use our external function ABI handling.
@@ -920,7 +920,7 @@ where
 
     ctx.builder.position_at_end(cond_bb);
     let cond = cond(generator, ctx, loop_var.clone())?;
-    assert_eq!(cond.get_type().get_bit_width(), ctx.ctx.bool_type().get_bit_width());
+    assert_eq!(cond.get_type().get_bit_width(), ctx.i1.get_bit_width());
     if !ctx.is_terminated() {
         ctx.builder.build_conditional_branch(cond, body_bb, cont_bb).unwrap();
     }
@@ -1248,7 +1248,7 @@ where
     let end_bb = ctx.ctx.insert_basic_block_after(else_bb, "if.end");
 
     let cond = cond_fn(generator, ctx)?;
-    assert_eq!(cond.get_type().get_bit_width(), ctx.ctx.bool_type().get_bit_width());
+    assert_eq!(cond.get_type().get_bit_width(), ctx.i1.get_bit_width());
     ctx.builder.build_conditional_branch(cond, then_bb, else_bb).unwrap();
 
     ctx.builder.position_at_end(then_bb);
@@ -1540,7 +1540,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     // if we need to generate anything related to exception, we must have personality defined
     let personality = get_personality(ctx.top_level, ctx).unwrap();
     let exception_type = ctx.get_llvm_type(ctx.primitives.exception);
-    let ptr_type = ctx.ctx.i8_type().ptr_type(inkwell::AddressSpace::default());
+    let ptr_type = ctx.ptr;
     let current_block = ctx.builder.get_insert_block().unwrap();
     let current_fun = current_block.get_parent().unwrap();
     let landingpad = ctx.ctx.append_basic_block(current_fun, "try.landingpad");
@@ -1947,7 +1947,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     // copied and trimmed from gen_try, to cover try (setup, enter)..finally (exit)
     let personality = get_personality(ctx.top_level, ctx).unwrap();
     let exception_type = ctx.get_llvm_type(ctx.primitives.exception);
-    let ptr_type = ctx.ctx.i8_type().ptr_type(inkwell::AddressSpace::default());
+    let ptr_type = ctx.ptr;
     let current_block = ctx.builder.get_insert_block().unwrap();
     let current_fun = current_block.get_parent().unwrap();
     let landingpad = ctx.ctx.append_basic_block(current_fun, "with.landingpad");

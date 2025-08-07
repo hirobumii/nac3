@@ -83,7 +83,7 @@ impl<'ctx> SliceValue<'ctx> {
                 self.start_defined_field().store(
                     ctx,
                     self.value,
-                    ctx.ctx.bool_type().const_all_ones(),
+                    ctx.i1.const_all_ones(),
                     self.name,
                 );
                 self.start_field().store(ctx, self.value, start, self.name);
@@ -92,7 +92,7 @@ impl<'ctx> SliceValue<'ctx> {
             None => self.start_defined_field().store(
                 ctx,
                 self.value,
-                ctx.ctx.bool_type().const_zero(),
+                ctx.i1.const_zero(),
                 self.name,
             ),
         }
@@ -120,7 +120,7 @@ impl<'ctx> SliceValue<'ctx> {
                 self.stop_defined_field().store(
                     ctx,
                     self.value,
-                    ctx.ctx.bool_type().const_all_ones(),
+                    ctx.i1.const_all_ones(),
                     self.name,
                 );
                 self.stop_field().store(ctx, self.value, stop, self.name);
@@ -129,7 +129,7 @@ impl<'ctx> SliceValue<'ctx> {
             None => self.stop_defined_field().store(
                 ctx,
                 self.value,
-                ctx.ctx.bool_type().const_zero(),
+                ctx.i1.const_zero(),
                 self.name,
             ),
         }
@@ -157,7 +157,7 @@ impl<'ctx> SliceValue<'ctx> {
                 self.step_defined_field().store(
                     ctx,
                     self.value,
-                    ctx.ctx.bool_type().const_all_ones(),
+                    ctx.i1.const_all_ones(),
                     self.name,
                 );
                 self.step_field().store(ctx, self.value, step, self.name);
@@ -166,7 +166,7 @@ impl<'ctx> SliceValue<'ctx> {
             None => self.step_defined_field().store(
                 ctx,
                 self.value,
-                ctx.ctx.bool_type().const_zero(),
+                ctx.i1.const_zero(),
                 self.name,
             ),
         }

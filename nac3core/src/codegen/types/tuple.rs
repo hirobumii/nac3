@@ -7,7 +7,7 @@ use itertools::Itertools;
 
 use super::ProxyType;
 use crate::{
-    codegen::{CoreContext, CodeGenContext, values::TupleValue},
+    codegen::{ModuleContext, CodeGenContext, values::TupleValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -36,7 +36,7 @@ impl<'ctx> TupleType<'ctx> {
 
     /// Creates an instance of [`TupleType`].
     #[must_use]
-    pub fn new(ctx: &CoreContext<'ctx>, tys: &[impl BasicType<'ctx>]) -> Self {
+    pub fn new(ctx: &ModuleContext<'ctx>, tys: &[impl BasicType<'ctx>]) -> Self {
         Self::new_impl(
             ctx.ctx,
             &tys.iter().map(BasicType::as_basic_type_enum).collect_vec(),

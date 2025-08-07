@@ -9,7 +9,7 @@ pub fn call_j1<'ctx>(
     arg: FloatValue<'ctx>,
     name: Option<&str>,
 ) -> FloatValue<'ctx> {
-    let llvm_f64 = ctx.ctx.f64_type();
+    let llvm_f64 = ctx.f64;
     debug_assert_eq!(arg.get_type(), llvm_f64);
     call_extern!(ctx: llvm_f64 name? = ["nounwind"] "j1"(arg))
 }

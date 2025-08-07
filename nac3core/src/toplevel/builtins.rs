@@ -1796,7 +1796,7 @@ impl<'a> BuiltinBuilder<'a> {
         let var_map = &self.num_or_ndarray_var_map;
         let codegen_callback: Box<GenCallCallback> =
             Box::new(move |ctx, _, fun, args, generator| {
-                let llvm_i1 = ctx.ctx.bool_type();
+                let llvm_i1 = ctx.i1;
                 let llvm_i1_k0 = llvm_i1.const_zero();
                 let llvm_i1_k1 = llvm_i1.const_all_ones();
 

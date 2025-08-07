@@ -254,7 +254,7 @@ pub trait CodeGenerator {
         ctx: &CodeGenContext<'ctx, '_>,
         bool_value: IntValue<'ctx>,
     ) -> IntValue<'ctx> {
-        self.bool_to_int_type(ctx, bool_value, ctx.ctx.bool_type())
+        self.bool_to_int_type(ctx, bool_value, ctx.i1)
     }
 
     /// Converts the value of a boolean-like value `bool_value` into an `i8`.
@@ -263,7 +263,7 @@ pub trait CodeGenerator {
         ctx: &CodeGenContext<'ctx, '_>,
         bool_value: IntValue<'ctx>,
     ) -> IntValue<'ctx> {
-        self.bool_to_int_type(ctx, bool_value, ctx.ctx.i8_type())
+        self.bool_to_int_type(ctx, bool_value, ctx.i8)
     }
 
     /// See [`bool_to_int_type`].

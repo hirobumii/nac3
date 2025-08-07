@@ -24,7 +24,7 @@ use super::{
     types::{ListType, ProxyType, RangeType, ndarray::NDArrayType},
 };
 use crate::{
-    codegen::{CoreContext, context_ref},
+    codegen::{ModuleContext, context_ref},
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
         DefinitionId, FunInstance, TopLevelContext, TopLevelDef,
@@ -357,7 +357,7 @@ fn test_simple_call() {
 #[test]
 fn test_classes_list_type_new() {
     context_ref!(ctx);
-    let ctx = CoreContext::new(ctx, "test_classes_list_type_new", &codegen_options().target);
+    let ctx = ModuleContext::new(ctx, "test_classes_list_type_new", &codegen_options().target);
     let llvm_i32 = ctx.i32;
     let llvm_list = ListType::new(&ctx, &llvm_i32);
     assert!(ListType::is_representable(llvm_list.as_abi_type(), ctx.size_t).is_ok());
@@ -366,7 +366,7 @@ fn test_classes_list_type_new() {
 #[test]
 fn test_classes_range_type_new() {
     context_ref!(ctx);
-    let ctx = CoreContext::new(ctx, "test_classes_range_type_new", &codegen_options().target);
+    let ctx = ModuleContext::new(ctx, "test_classes_range_type_new", &codegen_options().target);
     let llvm_usize = ctx.size_t;
     let llvm_range = RangeType::new(&ctx);
     assert!(RangeType::is_representable(llvm_range.as_abi_type(), llvm_usize).is_ok());
@@ -375,7 +375,7 @@ fn test_classes_range_type_new() {
 #[test]
 fn test_classes_ndarray_type_new() {
     context_ref!(ctx);
-    let ctx = CoreContext::new(ctx, "test_classes_ndarray_type_new", &codegen_options().target);
+    let ctx = ModuleContext::new(ctx, "test_classes_ndarray_type_new", &codegen_options().target);
     let llvm_usize = ctx.size_t;
     let llvm_i32 = ctx.i32;
     let llvm_ndarray = NDArrayType::new(&ctx, llvm_i32.into(), 2);

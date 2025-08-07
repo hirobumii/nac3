@@ -1,7 +1,4 @@
-use inkwell::{
-    AddressSpace,
-    values::{IntValue, PointerValue},
-};
+use inkwell::values::{IntValue, PointerValue};
 
 use crate::codegen::{
     CodeGenContext, CodeGenerator,
@@ -97,7 +94,7 @@ pub fn call_nac3_ndarray_is_c_contiguous<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let llvm_i1 = ctx.ctx.bool_type();
+    let llvm_i1 = ctx.i1;
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_is_c_contiguous");
     call_extern!(ctx: llvm_i1 "is_c_contiguous" = name(ndarray.as_abi_value(ctx)))
 }
@@ -110,8 +107,7 @@ pub fn call_nac3_ndarray_get_nth_pelement<'ctx>(
     ndarray: NDArrayValue<'ctx>,
     index: IntValue<'ctx>,
 ) -> PointerValue<'ctx> {
-    let llvm_i8 = ctx.ctx.i8_type();
-    let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
+    let llvm_pi8 = ctx.ptr;
     let llvm_usize = ctx.size_t;
     assert_eq!(index.get_type(), llvm_usize);
 
@@ -130,8 +126,7 @@ pub fn call_nac3_ndarray_get_pelement_by_indices<'ctx, G: CodeGenerator + ?Sized
     ndarray: NDArrayValue<'ctx>,
     indices: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
 ) -> PointerValue<'ctx> {
-    let llvm_i8 = ctx.ctx.i8_type();
-    let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
+    let llvm_pi8 = ctx.ptr;
     let llvm_usize = ctx.size_t;
     assert_eq!(indices.element_type(ctx, generator), llvm_usize.into());
 

@@ -20,7 +20,7 @@ use inkwell::{
     module::Module,
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
-    types::{BasicTypeEnum, IntType},
+    types::{BasicTypeEnum, FloatType, IntType, PointerType},
     values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue},
 };
 use itertools::Itertools;
@@ -177,7 +177,7 @@ impl TargetMachineOptions {
 
 pub struct CodeGenContext<'ctx, 'a> {
     /// The [`CoreContext`] instance which includes the module and target-specific information.
-    pub inner: CoreContext<'ctx>,
+    pub inner: ModuleContext<'ctx>,
 
     /// The [`Builder`] instance for creating LLVM IR statements.
     pub builder: Builder<'ctx>,
@@ -232,7 +232,7 @@ pub struct CodeGenContext<'ctx, 'a> {
 }
 
 impl<'ctx> std::ops::Deref for CodeGenContext<'ctx, '_> {
-    type Target = CoreContext<'ctx>;
+    type Target = ModuleContext<'ctx>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -388,7 +388,7 @@ impl WorkerRegistry {
     fn worker_thread<G: CodeGenerator>(&self, generator: &mut G, f: &Arc<WithCall>) {
         context_ref!(ctx);
         let options = &self.codegen_options.target;
-        let mut context = CoreContext::new(ctx, generator.get_name(), options);
+        let mut context = ModuleContext::new(ctx, generator.get_name(), options);
         let mut builder = context.ctx.create_builder();
 
         let mut errors = HashSet::new();
@@ -399,7 +399,7 @@ impl WorkerRegistry {
                 Ok(_) => context_,
                 Err(e) => {
                     errors.insert(e);
-                    CoreContext::new(
+                    ModuleContext::new(
                         context_.ctx,
                         &format!("{}_recover", generator.get_name()),
                         &self.codegen_options.target,
@@ -458,7 +458,7 @@ pub struct CodeGenTask {
 /// would be represented by an `i8`.
 #[allow(clippy::too_many_arguments)]
 fn get_llvm_type<'ctx>(
-    ctx: &CoreContext<'ctx>,
+    ctx: &ModuleContext<'ctx>,
     unifier: &mut Unifier,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
@@ -578,7 +578,7 @@ fn get_llvm_type<'ctx>(
 /// restriction for ABI representations.
 #[allow(clippy::too_many_arguments)]
 fn get_llvm_abi_type<'ctx>(
-    ctx: &CoreContext<'ctx>,
+    ctx: &ModuleContext<'ctx>,
     unifier: &mut Unifier,
     top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
@@ -588,7 +588,7 @@ fn get_llvm_abi_type<'ctx>(
     // If the type is used in the definition of a function, return `i1` instead of `i8` for ABI
     // consistency.
     if unifier.unioned(ty, primitives.bool) {
-        ctx.ctx.bool_type().into()
+        ctx.i1.into()
     } else {
         get_llvm_type(ctx, unifier, top_level, type_cache, ty)
     }
@@ -688,13 +688,13 @@ pub fn gen_func_impl<
     G: CodeGenerator,
     F: FnOnce(&mut G, &mut CodeGenContext) -> Result<(), String>,
 >(
-    mut ctx: CoreContext<'ctx>,
+    mut ctx: ModuleContext<'ctx>,
     builder: Builder<'ctx>,
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
     codegen_function: F,
-) -> (CoreContext<'ctx>, Builder<'ctx>, Result<FunctionValue<'ctx>, String>) {
+) -> (ModuleContext<'ctx>, Builder<'ctx>, Result<FunctionValue<'ctx>, String>) {
     let top_level_ctx = registry.top_level_ctx.clone();
     let static_value_store = registry.static_value_store.clone();
     let (mut unifier, primitives) = {
@@ -743,8 +743,8 @@ pub fn gen_func_impl<
         (primitives.int64, ctx.i64.into()),
         (primitives.uint32, ctx.i32.into()),
         (primitives.uint64, ctx.i64.into()),
-        (primitives.float, ctx.ctx.f64_type().into()),
-        (primitives.bool, ctx.ctx.i8_type().into()),
+        (primitives.float, ctx.f64.into()),
+        (primitives.bool, ctx.i8.into()),
         (primitives.str, { StringType::new(&ctx).as_abi_type().into() }),
         (primitives.range, RangeType::new(&ctx).as_abi_type().into()),
         (primitives.exception, { ExceptionType::new(&ctx).as_abi_type().into() }),
@@ -830,7 +830,7 @@ pub fn gen_func_impl<
             let param_val = param.into_int_value();
 
             if expected_ty.get_bit_width() == 8 && param_val.get_type().get_bit_width() == 1 {
-                bool_to_int_type(&builder, param_val, ctx.ctx.i8_type())
+                bool_to_int_type(&builder, param_val, ctx.i8)
             } else {
                 param_val
             }
@@ -966,12 +966,12 @@ pub fn gen_func_impl<
 /// * `registry` - The [`WorkerRegistry`] responsible for monitoring this function generation task.
 /// * `task` - The [`CodeGenTask`] associated with this function generation task.
 pub fn gen_func<'ctx, G: CodeGenerator>(
-    context: CoreContext<'ctx>,
+    context: ModuleContext<'ctx>,
     builder: Builder<'ctx>,
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
-) -> (CoreContext<'ctx>, Builder<'ctx>, Result<FunctionValue<'ctx>, String>) {
+) -> (ModuleContext<'ctx>, Builder<'ctx>, Result<FunctionValue<'ctx>, String>) {
     let body = task.body.clone();
     gen_func_impl(context, builder, generator, registry, task, |generator, ctx| {
         generator.gen_block(ctx, body.iter())
@@ -1096,8 +1096,7 @@ pub fn type_aligned_alloca<'ctx, G: CodeGenerator + ?Sized>(
             .unwrap()
     }
 
-    let llvm_i8 = ctx.ctx.i8_type();
-    let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
+    let llvm_pi8 = ctx.ptr;
     let llvm_usize = ctx.size_t;
     let align_ty = align_ty.into();
 
@@ -1146,8 +1145,9 @@ pub fn type_aligned_alloca<'ctx, G: CodeGenerator + ?Sized>(
         .unwrap()
 }
 
-/// Contains all global LLVM state that is independent from Python.
-pub struct CoreContext<'ctx> {
+/// Contains all global LLVM state that is attached to an LLVM [`Module`] and independent
+/// from Python.
+pub struct ModuleContext<'ctx> {
     /// The associated LLVM context.
     pub ctx: ContextRef<'ctx>,
     /// The LLVM module that we are generating into.
@@ -1155,29 +1155,41 @@ pub struct CoreContext<'ctx> {
     /// The `TargetMachine` that we are compiling for.
     pub target: TargetMachine,
 
-    /// The `usize`/`size_t` integer type. Pointer-sized on all supported platforms.
-    pub size_t: IntType<'ctx>,
-    /// The 32-bit integer type.
-    pub i32: IntType<'ctx>,
-    /// The 64-bit integer type.
-    pub i64: IntType<'ctx>,
-
     /// Wrapped function declarations.
     ///
     /// Belongs here because it needs to capture all function declarations to the module;
     /// wrapping a new `FunctionStore` around a non-empty `Module` is a logical error.
     fn_store: FunctionStore<'ctx>,
+
+    /// The `usize`/`size_t` integer type. Pointer-sized on all supported platforms.
+    pub size_t: IntType<'ctx>,
+    /// The 1-bit integer, or LLVM-boolean, type.
+    pub i1: IntType<'ctx>,
+    /// The 8-bit integer, or byte, type.
+    pub i8: IntType<'ctx>,
+    /// The 32-bit integer type.
+    pub i32: IntType<'ctx>,
+    /// The 64-bit integer type.
+    pub i64: IntType<'ctx>,
+    /// The 64-bit floating-point type.
+    pub f64: FloatType<'ctx>,
+    /// The "canonical" pointer type. Currently implemented as i8*.
+    pub ptr: PointerType<'ctx>,
 }
 
-impl<'ctx> CoreContext<'ctx> {
+impl<'ctx> ModuleContext<'ctx> {
     /// Constructs a [`CoreContext`].
     #[must_use]
     pub fn new(ctx: ContextRef<'ctx>, module_name: &str, options: &TargetMachineOptions) -> Self {
         let module = ctx.create_module(module_name);
         let target = options.create_target_machine();
         let size_t = ctx.ptr_sized_int_type(&target.get_target_data(), None);
+        let i1 = ctx.bool_type();
+        let i8 = ctx.i8_type();
         let i32 = ctx.i32_type();
         let i64 = ctx.i64_type();
+        let f64 = ctx.f64_type();
+        let ptr = i8.ptr_type(AddressSpace::default());
         let fn_store = FunctionStore::new(options);
 
         module.set_data_layout(&target.get_target_data().get_data_layout());
@@ -1193,7 +1205,7 @@ impl<'ctx> CoreContext<'ctx> {
             i32.const_int(4, false),
         );
 
-        Self { ctx, module, target, size_t, i32, i64, fn_store }
+        Self { ctx, module, target, fn_store, size_t, i1, i8, i32, i64, f64, ptr }
     }
 }
 

@@ -12,7 +12,7 @@ use super::{
     ProxyType,
     structure::{StructField, StructFields, check_struct_type_matches_fields},
 };
-use crate::codegen::{CoreContext, CodeGenContext, values::StringValue};
+use crate::codegen::{CodeGenContext, ModuleContext, values::StringValue};
 
 /// Proxy type for a `str` type in LLVM.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -62,7 +62,7 @@ impl<'ctx> StringType<'ctx> {
 
     /// Creates an instance of [`StringType`].
     #[must_use]
-    pub fn new(ctx: &CoreContext<'ctx>) -> Self {
+    pub fn new(ctx: &ModuleContext<'ctx>) -> Self {
         Self::new_impl(ctx.ctx, ctx.size_t)
     }
 

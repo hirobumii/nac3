@@ -1,5 +1,4 @@
 use inkwell::{
-    AddressSpace,
     types::IntType,
     values::{IntValue, PointerValue, StructValue},
 };
@@ -245,10 +244,10 @@ impl<'ctx> RustNDIndex<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         dst_ndindex: NDIndexValue<'ctx>,
     ) {
-        let llvm_pi8 = ctx.ctx.i8_type().ptr_type(AddressSpace::default());
+        let llvm_pi8 = ctx.ptr;
 
         // Set `dst_ndindex.type`
-        dst_ndindex.store_type(ctx, ctx.ctx.i8_type().const_int(self.get_type_id(), false));
+        dst_ndindex.store_type(ctx, ctx.i8.const_int(self.get_type_id(), false));
 
         // Set `dst_ndindex_ptr->data`
         match self {
@@ -262,8 +261,7 @@ impl<'ctx> RustNDIndex<'ctx> {
                 );
             }
             RustNDIndex::Slice(in_rust_slice) => {
-                let user_slice_ptr =
-                    SliceType::new(ctx, ctx.i32).alloca_var(generator, ctx, None);
+                let user_slice_ptr = SliceType::new(ctx, ctx.i32).alloca_var(generator, ctx, None);
                 in_rust_slice.write_to_slice(ctx, user_slice_ptr);
 
                 dst_ndindex.store_data(

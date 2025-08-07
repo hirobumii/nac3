@@ -9,7 +9,7 @@ pub fn call_string_eq<'ctx>(
     str1: StringValue<'ctx>,
     str2: StringValue<'ctx>,
 ) -> IntValue<'ctx> {
-    let llvm_i1 = ctx.ctx.bool_type();
+    let llvm_i1 = ctx.i1;
 
     let func_name = get_usize_dependent_function_name(ctx, "nac3_str_eq");
 

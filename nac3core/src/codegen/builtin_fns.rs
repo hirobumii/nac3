@@ -358,7 +358,7 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
-    let llvm_f64 = ctx.ctx.f64_type();
+    let llvm_f64 = ctx.f64;
 
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8 | 32 | 64) => {
@@ -406,7 +406,7 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
                 .map(
                     generator,
                     ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.ctx.f64_type().into() },
+                    NDArrayOut::NewNDArray { dtype: ctx.f64.into() },
                     |generator, ctx, scalar| call_float(generator, ctx, (elem_ty, scalar)),
                 )
                 .unwrap();
@@ -489,7 +489,7 @@ pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
                 .map(
                     generator,
                     ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.ctx.f64_type().into() },
+                    NDArrayOut::NewNDArray { dtype: ctx.f64.into() },
                     |generator, ctx, scalar| call_numpy_round(generator, ctx, (elem_ty, scalar)),
                 )
                 .unwrap();
@@ -553,7 +553,7 @@ pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
                 .map(
                     generator,
                     ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.ctx.i8_type().into() },
+                    NDArrayOut::NewNDArray { dtype: ctx.i8.into() },
                     |generator, ctx, scalar| {
                         let elem = call_bool(generator, ctx, (elem_ty, scalar))?;
                         Ok(generator.bool_to_i8(ctx, elem.into_int_value()).into())
@@ -1122,13 +1122,7 @@ pub fn call_abs<'ctx, G: CodeGenerator + ?Sized>(
                     .iter()
                     .any(|ty| ctx.unifier.unioned(val_ty, *ty))
                 {
-                    llvm_intrinsics::call_int_abs(
-                        ctx,
-                        n,
-                        ctx.ctx.bool_type().const_zero(),
-                        Some(FN_NAME),
-                    )
-                    .into()
+                    llvm_intrinsics::call_int_abs(ctx, n, ctx.i1.const_zero(), Some(FN_NAME)).into()
                 } else {
                     n.into()
                 }
@@ -1422,7 +1416,7 @@ pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
         generator,
         ctx,
         &[x1, x2],
-        ctx.ctx.f64_type().into(),
+        ctx.f64.into(),
         |_, ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
@@ -1456,7 +1450,7 @@ pub fn call_numpy_copysign<'ctx, G: CodeGenerator + ?Sized>(
         generator,
         ctx,
         &[x1, x2],
-        ctx.ctx.f64_type().into(),
+        ctx.f64.into(),
         |_, ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
@@ -1490,7 +1484,7 @@ pub fn call_numpy_fmax<'ctx, G: CodeGenerator + ?Sized>(
         generator,
         ctx,
         &[x1, x2],
-        ctx.ctx.f64_type().into(),
+        ctx.f64.into(),
         |_, ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
@@ -1524,7 +1518,7 @@ pub fn call_numpy_fmin<'ctx, G: CodeGenerator + ?Sized>(
         generator,
         ctx,
         &[x1, x2],
-        ctx.ctx.f64_type().into(),
+        ctx.f64.into(),
         |_, ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
@@ -1558,14 +1552,14 @@ pub fn call_numpy_ldexp<'ctx, G: CodeGenerator + ?Sized>(
         generator,
         ctx,
         &[x1, x2],
-        ctx.ctx.f64_type().into(),
+        ctx.f64.into(),
         |_, ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
 
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1_scalar), BasicValueEnum::IntValue(x2_scalar)) => {
-                    debug_assert_eq!(x1.get_dtype(), ctx.ctx.f64_type().into());
+                    debug_assert_eq!(x1.get_dtype(), ctx.f64.into());
                     debug_assert_eq!(x2.get_dtype(), ctx.i32.into());
                     Ok(irrt::call_ldexp(ctx, x1_scalar, x2_scalar, None).into())
                 }
@@ -1594,7 +1588,7 @@ pub fn call_numpy_hypot<'ctx, G: CodeGenerator + ?Sized>(
         generator,
         ctx,
         &[x1, x2],
-        ctx.ctx.f64_type().into(),
+        ctx.f64.into(),
         |_, ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
@@ -1628,7 +1622,7 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
         generator,
         ctx,
         &[x1, x2],
-        ctx.ctx.f64_type().into(),
+        ctx.f64.into(),
         |_, ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
@@ -1662,8 +1656,8 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 2)
-        .construct_uninitialized(generator, ctx, None);
+    let out =
+        NDArrayType::new(ctx, ctx.f64.into(), 2).construct_uninitialized(generator, ctx, None);
     out.copy_shape_from_ndarray(generator, ctx, x1);
     unsafe { out.create_data(generator, ctx) };
 
@@ -1704,7 +1698,7 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
     };
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
 
-    let out_ndarray_ty = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 2);
+    let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
     let q = out_ndarray_ty.construct_dyn_shape(generator, ctx, &[d0, dk], None);
     unsafe { q.create_data(generator, ctx) };
 
@@ -1759,8 +1753,8 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
     };
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
 
-    let out_ndarray1_ty = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 1);
-    let out_ndarray2_ty = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 2);
+    let out_ndarray1_ty = NDArrayType::new(ctx, ctx.f64.into(), 1);
+    let out_ndarray2_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
     let u = out_ndarray2_ty.construct_dyn_shape(generator, ctx, &[d0, d0], None);
     unsafe { u.create_data(generator, ctx) };
@@ -1809,8 +1803,8 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 2)
-        .construct_uninitialized(generator, ctx, None);
+    let out =
+        NDArrayType::new(ctx, ctx.f64.into(), 2).construct_uninitialized(generator, ctx, None);
     out.copy_shape_from_ndarray(generator, ctx, x1);
     unsafe { out.create_data(generator, ctx) };
 
@@ -1851,7 +1845,7 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
         x1_shape.get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
     };
 
-    let out = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 2).construct_dyn_shape(
+    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct_dyn_shape(
         generator,
         ctx,
         &[d0, d1],
@@ -1897,7 +1891,7 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
     };
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
 
-    let out_ndarray_ty = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 2);
+    let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
     let l = out_ndarray_ty.construct_dyn_shape(generator, ctx, &[d0, dk], None);
     unsafe { l.create_data(generator, ctx) };
@@ -1956,12 +1950,12 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
         unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
     };
 
-    let x2 = NDArrayType::new_unsized(ctx, ctx.ctx.f64_type().into())
-        .construct_unsized(generator, ctx, &x2, None); // x2.shape == []
+    let x2 =
+        NDArrayType::new_unsized(ctx, ctx.f64.into()).construct_unsized(generator, ctx, &x2, None); // x2.shape == []
     let x2 = x2.atleast_nd(generator, ctx, 1); // x2.shape == [1]
 
-    let out = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 2)
-        .construct_uninitialized(generator, ctx, None);
+    let out =
+        NDArrayType::new(ctx, ctx.f64.into(), 2).construct_uninitialized(generator, ctx, None);
     out.copy_shape_from_ndarray(generator, ctx, x1);
     unsafe { out.create_data(generator, ctx) };
 
@@ -1999,12 +1993,8 @@ pub fn call_np_linalg_det<'ctx, G: CodeGenerator + ?Sized>(
     }
 
     // The output is a float64, but we are using an ndarray (shape == [1]) for uniformity in function call.
-    let det = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 1).construct_const_shape(
-        generator,
-        ctx,
-        &[1],
-        None,
-    );
+    let det =
+        NDArrayType::new(ctx, ctx.f64.into(), 1).construct_const_shape(generator, ctx, &[1], None);
     unsafe { det.create_data(generator, ctx) };
 
     let x1_c = x1.make_contiguous_ndarray(generator, ctx);
@@ -2038,7 +2028,7 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out_ndarray_ty = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 2);
+    let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
     let t = out_ndarray_ty.construct_uninitialized(generator, ctx, None);
     t.copy_shape_from_ndarray(generator, ctx, x1);
@@ -2086,7 +2076,7 @@ pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out_ndarray_ty = NDArrayType::new(ctx, ctx.ctx.f64_type().into(), 2);
+    let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
     let h = out_ndarray_ty.construct_uninitialized(generator, ctx, None);
     h.copy_shape_from_ndarray(generator, ctx, x1);

@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     codegen::{
-        CoreContext, CodeGenContext, CodeGenerator,
+        CodeGenContext, CodeGenerator, ModuleContext,
         values::{TypedArrayLikeMutator, ndarray::NDArrayValue},
     },
     toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},
@@ -90,7 +90,7 @@ impl<'ctx> NDArrayType<'ctx> {
 
     /// Creates an instance of [`NDArrayType`].
     #[must_use]
-    pub fn new(ctx: &CoreContext<'ctx>, dtype: BasicTypeEnum<'ctx>, ndims: u64) -> Self {
+    pub fn new(ctx: &ModuleContext<'ctx>, dtype: BasicTypeEnum<'ctx>, ndims: u64) -> Self {
         Self::new_impl(ctx.ctx, dtype, ndims, ctx.size_t)
     }
 
@@ -355,10 +355,7 @@ impl<'ctx> NDArrayType<'ctx> {
         // We have to put the value on the stack to get a data pointer.
         let data = ctx.builder.build_alloca(value.get_type(), "construct_unsized").unwrap();
         ctx.builder.build_store(data, value).unwrap();
-        let data = ctx
-            .builder
-            .build_pointer_cast(data, ctx.ctx.i8_type().ptr_type(AddressSpace::default()), "")
-            .unwrap();
+        let data = ctx.builder.build_pointer_cast(data, ctx.ptr, "").unwrap();
 
         let ndarray =
             Self::new_unsized(ctx, value.get_type()).construct_uninitialized(generator, ctx, name);

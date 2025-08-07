@@ -460,8 +460,8 @@ fn format_rpc_arg<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (arg, arg_ty, arg_idx): (BasicValueEnum<'ctx>, Type, usize),
 ) -> PointerValue<'ctx> {
-    let llvm_i8 = ctx.ctx.i8_type();
-    let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
+    let llvm_i8 = ctx.i8;
+    let llvm_pi8 = ctx.ptr;
 
     let arg_slot = match &*ctx.unifier.get_ty_immutable(arg_ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
@@ -547,10 +547,10 @@ fn format_rpc_ret<'ctx>(
     //   else *(T*)ret_ptr
     // }
 
-    let llvm_i8 = ctx.ctx.i8_type();
+    let llvm_i8 = ctx.i8;
     let llvm_i32 = ctx.i32;
     let llvm_i8_8 = ctx.ctx.struct_type(&[llvm_i8.array_type(8).into()], false);
-    let llvm_pi8 = llvm_i8.ptr_type(AddressSpace::default());
+    let llvm_pi8 = ctx.ptr;
     let llvm_pusize = ctx.size_t.ptr_type(AddressSpace::default());
 
     let rpc_recv =
@@ -620,7 +620,7 @@ fn format_rpc_ret<'ctx>(
             let sizeof_usize =
                 ctx.builder.build_int_truncate_or_bit_cast(sizeof_usize, ctx.size_t, "").unwrap();
 
-            let sizeof_ptr = llvm_i8.ptr_type(AddressSpace::default()).size_of();
+            let sizeof_ptr = ctx.ptr.size_of();
             let sizeof_ptr =
                 ctx.builder.build_int_z_extend_or_bit_cast(sizeof_ptr, ctx.size_t, "").unwrap();
 
@@ -800,10 +800,10 @@ fn rpc_codegen_callback_fn<'ctx>(
     generator: &mut dyn CodeGenerator,
     is_async: bool,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-    let int8 = ctx.ctx.i8_type();
+    let int8 = ctx.i8;
     let int32 = ctx.i32;
     let size_type = ctx.size_t;
-    let ptr_type = int8.ptr_type(AddressSpace::default());
+    let ptr_type = ctx.ptr;
     let tag_ptr_type = ctx.ctx.struct_type(&[ptr_type.into(), size_type.into()], false);
 
     let service_id = int32.const_int(fun.1.0 as u64, false);

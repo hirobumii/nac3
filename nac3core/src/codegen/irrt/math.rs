@@ -55,14 +55,14 @@ pub fn call_gammaln<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
 ) -> FloatValue<'ctx> {
-    let llvm_f64 = ctx.ctx.f64_type();
+    let llvm_f64 = ctx.f64;
     assert_eq!(v.get_type(), llvm_f64);
     call_extern!(ctx: llvm_f64 "gammaln" = "__nac3_gammaln"(v))
 }
 
 /// Generates a call to `j0` in IR. Returns an `f64` representing the result.
 pub fn call_j0<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
-    let llvm_f64 = ctx.ctx.f64_type();
+    let llvm_f64 = ctx.f64;
     assert_eq!(v.get_type(), llvm_f64);
     call_extern!(ctx: llvm_f64 "j0" = "__nac3_j0"(v))
 }

@@ -9,7 +9,7 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    CoreContext, CodeGenContext, CodeGenerator, irrt,
+    ModuleContext, CodeGenContext, CodeGenerator, irrt,
     types::{
         ProxyType,
         structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
@@ -68,7 +68,7 @@ impl<'ctx> NDIterType<'ctx> {
 
     /// Creates an instance of [`NDIter`].
     #[must_use]
-    pub fn new(ctx: &CoreContext<'ctx>) -> Self {
+    pub fn new(ctx: &ModuleContext<'ctx>) -> Self {
         Self::new_impl(ctx.ctx, ctx.size_t)
     }
 

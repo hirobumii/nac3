@@ -9,7 +9,7 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    CoreContext, CodeGenContext, CodeGenerator,
+    CodeGenContext, CodeGenerator, ModuleContext,
     types::{
         ProxyType,
         structure::{
@@ -80,7 +80,7 @@ impl<'ctx> SliceType<'ctx> {
 
     /// Creates an instance of [`SliceType`] with `int_ty` as its backing integer type.
     #[must_use]
-    pub fn new(ctx: &CoreContext<'ctx>, int_ty: IntType<'ctx>) -> Self {
+    pub fn new(ctx: &ModuleContext<'ctx>, int_ty: IntType<'ctx>) -> Self {
         Self::new_impl(ctx.ctx, int_ty, ctx.size_t)
     }
 

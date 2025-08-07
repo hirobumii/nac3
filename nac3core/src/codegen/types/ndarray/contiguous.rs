@@ -10,7 +10,7 @@ use nac3core_derive::StructFields;
 
 use crate::{
     codegen::{
-        CoreContext, CodeGenContext, CodeGenerator,
+        ModuleContext, CodeGenContext, CodeGenerator,
         types::{
             ProxyType,
             structure::{
@@ -93,7 +93,7 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
 
     /// Creates an instance of [`ContiguousNDArrayType`].
     #[must_use]
-    pub fn new(ctx: &CoreContext<'ctx>, item: &impl BasicType<'ctx>) -> Self {
+    pub fn new(ctx: &ModuleContext<'ctx>, item: &impl BasicType<'ctx>) -> Self {
         Self::new_impl(ctx.ctx, item.as_basic_type_enum(), ctx.size_t)
     }
 

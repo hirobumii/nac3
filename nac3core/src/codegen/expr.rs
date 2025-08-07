@@ -165,8 +165,8 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             SymbolValue::I64(v) => self.i64.const_int(*v as u64, true).into(),
             SymbolValue::U32(v) => self.i32.const_int(u64::from(*v), false).into(),
             SymbolValue::U64(v) => self.i64.const_int(*v, false).into(),
-            SymbolValue::Bool(v) => self.ctx.i8_type().const_int(u64::from(*v), true).into(),
-            SymbolValue::Double(v) => self.ctx.f64_type().const_float(*v).into(),
+            SymbolValue::Bool(v) => self.i8.const_int(u64::from(*v), true).into(),
+            SymbolValue::Double(v) => self.f64.const_float(*v).into(),
             SymbolValue::Str(v) => {
                 StringType::new(self).construct_constant(self, v, None).as_abi_value(self).into()
             }
@@ -219,7 +219,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         match value {
             Constant::Bool(v) => {
                 assert!(self.unifier.unioned(ty, self.primitives.bool));
-                let ty = self.ctx.i8_type();
+                let ty = self.i8;
                 Some(ty.const_int(u64::from(*v), false).into())
             }
             Constant::Int(val) => {
@@ -238,7 +238,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
             }
             Constant::Float(v) => {
                 assert!(self.unifier.unioned(ty, self.primitives.float));
-                let ty = self.ctx.f64_type();
+                let ty = self.f64;
                 Some(ty.const_float(*v).into())
             }
             Constant::Tuple(v) => {
@@ -302,7 +302,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         let (BasicValueEnum::IntValue(lhs), BasicValueEnum::IntValue(rhs)) = (lhs, rhs) else {
             codegen_unreachable!(self)
         };
-        let float = self.ctx.f64_type();
+        let float = self.f64;
         match (op, signed) {
             (Operator::Add, _) => {
                 self.builder.build_int_add(lhs, rhs, "add").map(Into::into).unwrap()
@@ -568,7 +568,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         params: [Option<IntValue<'ctx>>; 3],
         loc: Location,
     ) {
-        let i1 = self.ctx.bool_type();
+        let i1 = self.i1;
         let i1_true = i1.const_all_ones();
         // we assume that the condition is most probably true, so the normal path is the most
         // probable path
@@ -1551,14 +1551,14 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
             let result_ndarray = NDArrayType::new_broadcast(
                 ctx,
-                ctx.ctx.i8_type().into(),
+                ctx.i8.into(),
                 &[left.get_type(), right.get_type()],
             )
             .broadcast_starmap(
                 generator,
                 ctx,
                 &[left, right],
-                NDArrayOut::NewNDArray { dtype: ctx.ctx.i8_type().into() },
+                NDArrayOut::NewNDArray { dtype: ctx.i8.into() },
                 |generator, ctx, scalars| {
                     let left_scalar = scalars[0];
                     let right_scalar = scalars[1];
@@ -1690,7 +1690,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         right_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id());
 
                     let gen_bool_const = |ctx: &CodeGenContext<'ctx, '_>, val: bool| {
-                        let llvm_i1 = ctx.ctx.bool_type();
+                        let llvm_i1 = ctx.i1;
 
                         match (op, val) {
                             (Cmpop::Eq, true) | (Cmpop::NotEq, false) => llvm_i1.const_all_ones(),
@@ -1749,10 +1749,10 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         },
                         |generator, ctx| {
                             let acc_addr = generator
-                                .gen_var_alloc(ctx, ctx.ctx.bool_type().into(), None)
+                                .gen_var_alloc(ctx, ctx.i1.into(), None)
                                 .unwrap();
                             ctx.builder
-                                .build_store(acc_addr, ctx.ctx.bool_type().const_all_ones())
+                                .build_store(acc_addr, ctx.i1.const_all_ones())
                                 .unwrap();
 
                             let left_size = left_val.load_size(ctx, None);
@@ -1797,7 +1797,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                             ctx.builder
                                                 .build_store(
                                                     acc_addr,
-                                                    ctx.ctx.bool_type().const_zero(),
+                                                    ctx.i1.const_zero(),
                                                 )
                                                 .unwrap();
                                             hooks.build_break_branch(&ctx.builder);
@@ -1853,7 +1853,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     todo!("Only __eq__ and __ne__ is implemented for tuples")
                 }
 
-                let llvm_i1 = ctx.ctx.bool_type();
+                let llvm_i1 = ctx.i1;
                 let llvm_i32 = ctx.i32;
 
                 // Assume `true` by default
@@ -1961,7 +1961,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 if ctx.registry.codegen_options.debug {
                     ctx.make_assert(
                         generator,
-                        ctx.ctx.bool_type().const_all_ones(),
+                        ctx.i1.const_all_ones(),
                         "0:AssertionError",
                         "nac3core::codegen::expr::gen_cmpop_expr_with_values: Unexpected comparison between two typevar values",
                         [None, None, None],
@@ -1969,7 +1969,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     );
                 }
 
-                ctx.ctx.bool_type().get_poison()
+                ctx.i1.get_poison()
             } else {
                 return Err(format!("'{}' not supported between instances of '{}' and '{}'",
                                    op.op_info().symbol,
@@ -2287,7 +2287,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             let (a, b) = match op {
                 Boolop::Or => {
                     ctx.builder.position_at_end(a_begin_bb);
-                    let a = ctx.ctx.i8_type().const_int(1, false);
+                    let a = ctx.i8.const_int(1, false);
                     ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
 
                     ctx.builder.position_at_end(b_begin_bb);
@@ -2318,7 +2318,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
 
                     ctx.builder.position_at_end(b_begin_bb);
-                    let b = ctx.ctx.i8_type().const_zero();
+                    let b = ctx.i8.const_zero();
                     ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
 
                     (a, Some(b))
@@ -2328,7 +2328,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             ctx.builder.position_at_end(cont_bb);
             match (a, b) {
                 (Some(a), Some(b)) => {
-                    let phi = ctx.builder.build_phi(ctx.ctx.i8_type(), "").unwrap();
+                    let phi = ctx.builder.build_phi(ctx.i8, "").unwrap();
                     phi.add_incoming(&[(&a, a_end_bb), (&b, b_end_bb)]);
                     phi.as_basic_value().into()
                 }
