@@ -536,24 +536,21 @@ impl<'a> Linker<'a> {
             let target_sec_off = self.elf_shdrs[target_index].shdr.sh_offset;
 
             if reloc_info.defined_val {
-                let (sym_addr, rela_off) = {
-                    let (refed_sym, refed_reloc) =
-                        if let Some(indirect_reloc) = reloc_info.indirect_reloc {
-                            (Some(&self.symtab[indirect_reloc.sym_info() as usize]), indirect_reloc)
-                        } else {
-                            (sym, reloc)
-                        };
-                    (resolve_symbol_addr(refed_sym)?, target_sec_off + refed_reloc.offset())
-                };
+                let (refed_sym, refed_reloc) =
+                    if let Some(indirect_reloc) = reloc_info.indirect_reloc {
+                        (Some(&self.symtab[indirect_reloc.sym_info() as usize]), indirect_reloc)
+                    } else {
+                        (sym, reloc)
+                    };
+                let sym_addr = resolve_symbol_addr(refed_sym)?;
+                let rela_off = target_sec_off + refed_reloc.offset();
 
                 let target_sec_image = &mut self.elf_shdrs[target_index].data;
-                let value = if reloc_info.pc_relative {
-                    sym_addr
-                        .wrapping_sub(rela_off)
-                        .wrapping_add(reloc.addend(target_sec_image) as Elf32_Word)
-                } else {
-                    sym_addr.wrapping_add(reloc.addend(target_sec_image) as Elf32_Word)
-                };
+                let mut value =
+                    sym_addr.wrapping_add(refed_reloc.addend(target_sec_image) as Elf32_Word);
+                if reloc_info.pc_relative {
+                    value = value.wrapping_sub(rela_off);
+                }
 
                 if let Some(relocate) = reloc_info.relocate {
                     let target_word = &mut target_sec_image[reloc.offset() as usize..];
