@@ -182,6 +182,7 @@ def patch(module):
     module.np_eye = np.eye
     module.np_identity = np.identity
     module.np_array = np.array
+    module.np_arange = np.arange
 
     # NumPy NDArray view functions
     module.np_broadcast_to = np.broadcast_to

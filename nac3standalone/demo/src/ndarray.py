@@ -170,6 +170,41 @@ def test_ndarray_fill():
     n.fill(1.0)
     output_ndarray_float_2(n)
 
+def test_ndarray_arange():
+    a: ndarray[int32, 1] = np_arange(3) # 0, 1, 2
+    output_bool(len(a) == 3)
+
+    b: ndarray[int32, 1] = np_arange(3, 5) # 3, 4
+    output_bool(len(b) == 2)
+
+    c: ndarray[int32, 1] = np_arange(3, 10, 2) # 3, 5, 7, 9
+    output_bool(len(c) == 4)
+
+    output_ndarray_int32_1(a)
+    output_ndarray_int32_1(b)
+    output_ndarray_int32_1(c)
+ 
+    d: ndarray[float, 1] = np_arange(3.0) # 0.0, 1.0, 2.0
+    output_bool(len(d) == 3)
+
+    # e: ndarray[float, 1] = np_arange(3.0, 5.0) # 3.0, 4.0
+    # output_bool(len(e) == 2)
+
+    f: ndarray[float, 1] = np_arange(3.0, 10.0, 2.0) # 3.0, 5.0, 7.0, 9.0
+    output_bool(len(f) == 4)
+
+    output_ndarray_float_1(d)
+    # output_ndarray_float_1(e)
+    output_ndarray_float_1(f)
+
+    g: ndarray[int32, 1] = np_arange(10, 0) # empty
+    output_bool(len(g) == 0)
+
+    h: ndarray[int32, 1] = np_arange(10, 0, -1) # 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+    output_bool(len(h) == 10)
+    output_ndarray_int32_1(h)
+
+
 def test_ndarray_copy():
     x: ndarray[float, 2] = np_identity(2)
     y = x.copy()
@@ -1729,6 +1764,7 @@ def run() -> int32:
     test_ndarray_array()
     test_ndarray_identity()
     test_ndarray_fill()
+    test_ndarray_arange()
     test_ndarray_copy()
 
     test_ndarray_neg_idx()
