@@ -67,6 +67,64 @@ fn ndarray_one_value<'ctx, G: CodeGenerator + ?Sized>(
     }
 }
 
+/// Function written to generate basic binary operations on numeric types
+/// Passing a Float and Int will cast the Int to a Float, unsigned Ints will be cast to signed Ints
+/// This is not intended for general use and designed specifically for certain specific numpy operations
+fn gen_numpy_scalar_binop<'ctx, G: CodeGenerator + ?Sized>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    left: BasicValueEnum<'ctx>,
+    left_ty: Type,
+    right: BasicValueEnum<'ctx>,
+    right_ty: Type,
+    op: Operator,
+) -> BasicValueEnum<'ctx> {
+    let mut is_signed = |val: Type| {
+        [ctx.primitives.int32, ctx.primitives.int64].contains(&ctx.unifier.get_representative(val))
+    };
+    let left_attrs = left.is_int_value().then(|| is_signed(left_ty));
+    let right_attrs = right.is_int_value().then(|| is_signed(right_ty));
+
+    // If both left and right are integers, we can use the integer operations, otherwise we cast
+    // any integers to floats and use float operations
+    match (left_attrs, right_attrs) {
+        (Some(l), Some(r)) => {
+            let left = ctx
+                .builder
+                .build_int_s_extend_or_bit_cast(left.into_int_value(), ctx.size_t, "")
+                .unwrap()
+                .as_basic_value_enum();
+            let right = ctx
+                .builder
+                .build_int_s_extend_or_bit_cast(right.into_int_value(), ctx.size_t, "")
+                .unwrap()
+                .as_basic_value_enum();
+
+            ctx.gen_int_ops(generator, op, left, right, l || r)
+        }
+        (l, r) => {
+            let cast = |val: BasicValueEnum<'ctx>, signed: bool| {
+                if signed {
+                    ctx.builder
+                        .build_signed_int_to_float(val.into_int_value(), ctx.ctx.f64_type(), "")
+                        .unwrap()
+                        .into()
+                } else {
+                    ctx.builder
+                        .build_unsigned_int_to_float(val.into_int_value(), ctx.ctx.f64_type(), "")
+                        .unwrap()
+                        .into()
+                }
+            };
+            // Cast is only performed if the value is an integer, floats are left as is
+            let left_float = l.map_or_else(|| left, |signed| cast(left, signed));
+            let right_float = r.map_or_else(|| right, |signed| cast(right, signed));
+
+            ctx.gen_float_ops(op, left_float, right_float)
+        }
+    }
+}
+
 impl<'ctx> NDArrayType<'ctx> {
     /// Create an ndarray like
     /// [`np.empty`](https://numpy.org/doc/stable/reference/generated/numpy.empty.html).
