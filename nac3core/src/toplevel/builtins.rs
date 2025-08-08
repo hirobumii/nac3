@@ -25,9 +25,9 @@ use crate::{
     codegen::{
         builtin_fns,
         numpy::{
-            gen_ndarray_array, gen_ndarray_copy, gen_ndarray_empty, gen_ndarray_eye,
-            gen_ndarray_fill, gen_ndarray_full, gen_ndarray_identity, gen_ndarray_ones,
-            gen_ndarray_zeros, ndarray_dot,
+            gen_ndarray_arange, gen_ndarray_array, gen_ndarray_copy, gen_ndarray_empty,
+            gen_ndarray_eye, gen_ndarray_fill, gen_ndarray_full, gen_ndarray_identity,
+            gen_ndarray_ones, gen_ndarray_zeros, ndarray_dot,
         },
         stmt::{exn_constructor, gen_if_callback},
         types::{RangeType, ndarray::NDArrayType},
@@ -391,7 +391,8 @@ impl<'a> BuiltinBuilder<'a> {
             PrimDef::FunNpArray
             | PrimDef::FunNpFull
             | PrimDef::FunNpEye
-            | PrimDef::FunNpIdentity => self.build_ndarray_other_factory_function(prim),
+            | PrimDef::FunNpIdentity
+            | PrimDef::FunNpArange => self.build_ndarray_other_factory_function(prim),
 
             PrimDef::FunNpSize | PrimDef::FunNpShape | PrimDef::FunNpStrides => {
                 self.build_ndarray_property_getter_function(prim)
@@ -1184,7 +1185,13 @@ impl<'a> BuiltinBuilder<'a> {
     fn build_ndarray_other_factory_function(&mut self, prim: PrimDef) -> TopLevelDef {
         debug_assert_prim_is_allowed(
             prim,
-            &[PrimDef::FunNpArray, PrimDef::FunNpFull, PrimDef::FunNpEye, PrimDef::FunNpIdentity],
+            &[
+                PrimDef::FunNpArray,
+                PrimDef::FunNpFull,
+                PrimDef::FunNpEye,
+                PrimDef::FunNpIdentity,
+                PrimDef::FunNpArange,
+            ],
         );
 
         let PrimitiveStore { int32, bool, ndarray, .. } = *self.primitives;
@@ -1305,6 +1312,51 @@ impl<'a> BuiltinBuilder<'a> {
                         .map(|val| Some(val.as_basic_value_enum()))
                 }),
             ),
+            PrimDef::FunNpArange => {
+                let start = self.unifier.get_fresh_var(Some("Start".into()), None);
+                let stop = self.unifier.get_fresh_var(Some("Stop".into()), None);
+                let step = self.unifier.get_fresh_var(Some("Step".into()), None);
+                TopLevelDef::Function {
+                    name: prim.name().into(),
+                    simple_name: prim.simple_name().into(),
+                    signature: self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                        args: vec![
+                            FuncArg {
+                                name: "start".into(),
+                                ty: start.ty,
+                                default_value: Some(SymbolValue::I32(0)),
+                                is_vararg: false,
+                            },
+                            FuncArg {
+                                name: "stop".into(),
+                                ty: stop.ty,
+                                default_value: None,
+                                is_vararg: false,
+                            },
+                            FuncArg {
+                                name: "step".into(),
+                                ty: step.ty,
+                                default_value: Some(SymbolValue::I32(1)),
+                                is_vararg: false,
+                            },
+                        ],
+                        ret: ndarray,
+                        vars: into_var_map([start, stop, step]),
+                    })),
+                    var_id: vec![start.id, stop.id, step.id],
+                    attributes: Vec::default(),
+                    instance_to_symbol: HashMap::default(),
+                    instance_to_stmt: HashMap::default(),
+                    resolver: None,
+                    codegen_callback: Some(Arc::new(GenCall::new(Box::new(
+                        |ctx, obj, fun, args, generator| {
+                            gen_ndarray_arange(ctx, &obj, fun, &args, generator)
+                                .map(|val| Some(val.as_basic_value_enum()))
+                        },
+                    )))),
+                    loc: None,
+                }
+            }
             _ => unreachable!(),
         }
     }

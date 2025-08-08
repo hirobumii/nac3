@@ -72,6 +72,7 @@ pub enum PrimDef {
     FunNpArray,
     FunNpEye,
     FunNpIdentity,
+    FunNpArange,
 
     // NumPy ndarray property getters
     FunNpSize,
@@ -268,6 +269,7 @@ impl PrimDef {
             PrimDef::FunNpArray => fun("np_array", None),
             PrimDef::FunNpEye => fun("np_eye", None),
             PrimDef::FunNpIdentity => fun("np_identity", None),
+            PrimDef::FunNpArange => fun("np_arange", None),
 
             // NumPy NDArray property getters,
             PrimDef::FunNpSize => fun("np_size", None),

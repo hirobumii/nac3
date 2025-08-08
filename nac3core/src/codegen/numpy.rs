@@ -256,6 +256,49 @@ pub fn gen_ndarray_identity<'ctx>(
     Ok(ndarray.as_abi_value(context))
 }
 
+/// Generates LLVM IR for `ndarray.arange`.
+/// only stop is required, start defaults to 0, step defaults to 1
+// TODO: Default and keyword arguments are broken for numpy all functions.
+pub fn gen_ndarray_arange<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+) -> Result<PointerValue<'ctx>, String> {
+    assert!(obj.is_none());
+    assert!(matches!(args.len(), 1..=3));
+
+    let start_ty = fun.0.args[0].ty;
+    let stop_ty = fun.0.args[1].ty;
+    let step_ty = fun.0.args[2].ty;
+
+    let (start, stop, step) = if args.len() == 1 {
+        (
+            ctx.size_t.const_zero().as_basic_value_enum(),
+            args[0].1.clone().to_basic_value_enum(ctx, generator, stop_ty)?,
+            ctx.size_t.const_int(1, true).as_basic_value_enum(),
+        )
+    } else if args.len() == 2 {
+        (
+            args[0].1.clone().to_basic_value_enum(ctx, generator, stop_ty)?,
+            args[1].1.clone().to_basic_value_enum(ctx, generator, step_ty)?,
+            ctx.size_t.const_int(1, true).as_basic_value_enum(),
+        )
+    } else {
+        (
+            args[0].1.clone().to_basic_value_enum(ctx, generator, start_ty)?,
+            args[1].1.clone().to_basic_value_enum(ctx, generator, stop_ty)?,
+            args[2].1.clone().to_basic_value_enum(ctx, generator, step_ty)?,
+        )
+    };
+
+    let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, fun.0.ret);
+
+    let ndarray = NDArrayType::from_unifier_type(ctx, fun.0.ret);
+    Ok(ndarray.as_abi_value(ctx))
+}
+
 /// Generates LLVM IR for `ndarray.copy`.
 pub fn gen_ndarray_copy<'ctx>(
     context: &mut CodeGenContext<'ctx, '_>,
