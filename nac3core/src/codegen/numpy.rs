@@ -295,7 +295,9 @@ pub fn gen_ndarray_arange<'ctx>(
 
     let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, fun.0.ret);
 
-    let ndarray = NDArrayType::from_unifier_type(ctx, fun.0.ret);
+    let ndarray = NDArrayType::from_unifier_type(ctx, fun.0.ret).construct_numpy_arange(
+        generator, ctx, start, stop, step, start_ty, stop_ty, step_ty, dtype, None,
+    );
     Ok(ndarray.as_abi_value(ctx))
 }
 
