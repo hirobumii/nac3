@@ -10,7 +10,7 @@ use nac3core_derive::StructFields;
 
 use crate::{
     codegen::{
-        CoreContext, CodeGenContext, CodeGenerator,
+        CodeGenContext, CodeGenerator, CoreContext,
         types::{
             ProxyType,
             structure::{

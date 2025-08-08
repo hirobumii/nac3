@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     codegen::{
-        CoreContext, CodeGenContext, CodeGenerator,
+        CodeGenContext, CodeGenerator, CoreContext,
         values::{TypedArrayLikeMutator, ndarray::NDArrayValue},
     },
     toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},

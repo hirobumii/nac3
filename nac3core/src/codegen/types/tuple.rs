@@ -7,7 +7,7 @@ use itertools::Itertools;
 
 use super::ProxyType;
 use crate::{
-    codegen::{CoreContext, CodeGenContext, values::TupleValue},
+    codegen::{CodeGenContext, CoreContext, values::TupleValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 

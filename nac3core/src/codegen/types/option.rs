@@ -6,7 +6,7 @@ use inkwell::{
 
 use super::ProxyType;
 use crate::{
-    codegen::{CoreContext, CodeGenContext, CodeGenerator, values::OptionValue},
+    codegen::{CodeGenContext, CodeGenerator, CoreContext, values::OptionValue},
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
 };
 

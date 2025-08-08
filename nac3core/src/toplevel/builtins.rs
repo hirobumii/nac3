@@ -1339,10 +1339,8 @@ impl<'a> BuiltinBuilder<'a> {
                         .map_pointer_value(ndarray.into_pointer_value(), None);
 
                     let size = ndarray.size(ctx);
-                    let size = ctx
-                        .builder
-                        .build_int_truncate_or_bit_cast(size, ctx.i32, "")
-                        .unwrap();
+                    let size =
+                        ctx.builder.build_int_truncate_or_bit_cast(size, ctx.i32, "").unwrap();
                     Ok(Some(size.into()))
                 }),
             ),

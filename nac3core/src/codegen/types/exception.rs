@@ -13,7 +13,7 @@ use super::{
     structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
 };
 use crate::{
-    codegen::{CoreContext, CodeGenContext, CodeGenerator, values::ExceptionValue},
+    codegen::{CodeGenContext, CodeGenerator, CoreContext, values::ExceptionValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 

@@ -12,7 +12,7 @@ use super::{
     ProxyType,
     structure::{StructField, StructFields, check_struct_type_matches_fields},
 };
-use crate::codegen::{CoreContext, CodeGenContext, values::StringValue};
+use crate::codegen::{CodeGenContext, CoreContext, values::StringValue};
 
 /// Proxy type for a `str` type in LLVM.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
