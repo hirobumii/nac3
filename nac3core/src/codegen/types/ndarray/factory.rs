@@ -467,4 +467,19 @@ impl<'ctx> NDArrayType<'ctx> {
 
         ndarray
     }
+
+    /// Create an ndarray like [`np.linspace`](https://numpy.org/doc/stable/reference/generated/numpy.linspace.html).
+    /// This function generates an ndarray with a specified number of evenly spaced values
+    pub fn construct_numpy_linspace<G: CodeGenerator + ?Sized>(
+        &self,
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        start: BasicValueEnum<'ctx>,
+        stop: BasicValueEnum<'ctx>,
+        num: IntValue<'ctx>,
+        dtype: Type,
+        endpoint: bool,
+        name: Option<&'ctx str>,
+    ) -> <Self as ProxyType<'ctx>>::Value {
+    }
 }

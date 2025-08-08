@@ -301,6 +301,51 @@ pub fn gen_ndarray_arange<'ctx>(
     Ok(ndarray.as_abi_value(ctx))
 }
 
+/// Generates LLVM IR for `ndarray.linspace`.
+pub fn gen_ndarray_linspace<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    obj: &Option<(Type, ValueEnum<'ctx>)>,
+    fun: (&FunSignature, DefinitionId),
+    args: &[(Option<StrRef>, ValueEnum<'ctx>)],
+    generator: &mut dyn CodeGenerator,
+) -> Result<PointerValue<'ctx>, String> {
+    assert!(obj.is_none());
+    assert!(matches!(args.len(), 2..=4));
+
+    let start_ty = fun.0.args[0].ty;
+    let start_arg = args[0].1.clone().to_basic_value_enum(ctx, generator, start_ty)?;
+
+    let stop_ty = fun.0.args[1].ty;
+    let stop_arg = args[1].1.clone().to_basic_value_enum(ctx, generator, stop_ty)?;
+
+    // Use the return type to determine the dtype.
+    let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, fun.0.ret);
+    let llvm_dtype = ctx.get_llvm_type(dtype);
+
+    let num_ty = fun.0.args[2].ty;
+    let num_arg = if let Some(arg) =
+        args.iter().find(|arg| arg.0.is_some_and(|name| name == fun.0.args[2].name))
+    {
+        arg.1.clone().to_basic_value_enum(ctx, generator, num_ty)?
+    } else {
+        ctx.gen_symbol_val(generator, fun.0.args[2].default_value.as_ref().unwrap(), num_ty)
+    };
+
+    let endpoint_ty = fun.0.args[3].ty;
+    let endpoint_arg = if let Some(arg) =
+        args.iter().find(|arg| arg.0.is_some_and(|name| name == fun.0.args[3].name))
+    {
+        arg.1.clone().to_basic_value_enum(ctx, generator, endpoint_ty)?
+    } else {
+        ctx.gen_symbol_val(generator, fun.0.args[3].default_value.as_ref().unwrap(), endpoint_ty)
+    };
+
+    let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, fun.0.ret);
+
+    let ndarray = NDArrayType::from_unifier_type(ctx, fun.0.ret).construct_numpy_linspace();
+    Ok(ndarray.as_abi_value(ctx))
+}
+
 /// Generates LLVM IR for `ndarray.copy`.
 pub fn gen_ndarray_copy<'ctx>(
     context: &mut CodeGenContext<'ctx, '_>,
