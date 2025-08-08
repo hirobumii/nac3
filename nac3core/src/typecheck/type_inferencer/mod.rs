@@ -1684,6 +1684,97 @@ impl Inferencer<'_> {
             }));
         }
 
+        if id == &"np_arange".into() && (1..=3).contains(&args.len()) {
+            let keywords = keywords
+                .iter()
+                .map(|v| fold::fold_keyword(self, v.clone()))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // `stop` is the first or second argument, `start` is always first, but optional
+            let stop = self.fold_expr(args.remove(usize::from(args.len() > 1)))?;
+            let stop_ty = stop.custom.unwrap();
+
+            let start = if args.is_empty() {
+                // Default value for start is 0
+                Located {
+                    location: stop.location,
+                    custom: Some(self.primitives.int32),
+                    node: ExprKind::Constant { value: ast::Constant::Int(0), kind: None },
+                }
+            } else {
+                self.fold_expr(args.remove(0))?
+            };
+            let start_ty = start.custom.unwrap();
+
+            let step = if args.is_empty() {
+                // Default value for step is 1
+                Located {
+                    location: stop.location,
+                    custom: Some(self.primitives.int32),
+                    node: ExprKind::Constant { value: ast::Constant::Int(1), kind: None },
+                }
+            } else {
+                self.fold_expr(args.remove(0))?
+            };
+            let step_ty = step.custom.unwrap();
+
+            let dtype = if self.unifier.unioned(stop_ty, self.primitives.float)
+                || self.unifier.unioned(start_ty, self.primitives.float)
+                || self.unifier.unioned(step_ty, self.primitives.float)
+            {
+                self.primitives.float
+            } else {
+                self.primitives.int32
+            };
+
+            let one =
+                self.unifier.get_fresh_literal(vec![SymbolValue::U64(1)], Some(stop.location));
+            let ret = make_ndarray_ty(self.unifier, self.primitives, Some(dtype), Some(one));
+            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                args: vec![
+                    FuncArg {
+                        name: "start".into(),
+                        ty: start_ty,
+                        default_value: None,
+                        is_vararg: false,
+                    },
+                    FuncArg {
+                        name: "stop".into(),
+                        ty: stop.custom.unwrap(),
+                        default_value: None,
+                        is_vararg: false,
+                    },
+                    FuncArg {
+                        name: "step".into(),
+                        ty: step_ty,
+                        default_value: None,
+                        is_vararg: false,
+                    },
+                ],
+                ret,
+                vars: VarMap::new(),
+            }));
+
+            return Ok(Some(Located {
+                location,
+                custom: Some(make_ndarray_ty(
+                    self.unifier,
+                    self.primitives,
+                    Some(dtype),
+                    Some(one),
+                )),
+                node: ExprKind::Call {
+                    func: Box::new(Located {
+                        custom: Some(custom),
+                        location: func.location,
+                        node: ExprKind::Name { id: *id, ctx: *ctx },
+                    }),
+                    args: vec![start, stop, step],
+                    keywords,
+                },
+            }));
+        }
+
         Ok(None)
     }
 
