@@ -152,6 +152,7 @@ builtins = {
     "list": list,
     "tuple": tuple,
     "Exception": Exception,
+    "staticmethod": staticmethod,
 
     "types": {
         "GenericAlias": GenericAlias,
