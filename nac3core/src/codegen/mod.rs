@@ -1211,14 +1211,18 @@ impl<'ctx> ModuleContext<'ctx> {
 
 /// Constructs a [`ContextRef`].
 ///
-/// This is a macro because it needs to declare and borrow from a local [`Context`].
+/// This is a macro because it needs to declare and borrow from a local [`Context`],
+/// while also ensuring that the [`ContextRef`] has the same lifetime as its backing
+/// [`Context`] instance.
 ///
 /// # Example
 ///
 /// ```
-/// # use nac3core::codegen::context_ref;
+/// use nac3core::codegen::context_ref;
+///
 /// // Constructs a ContextRef named `ctx`.
 /// context_ref!(ctx);
+/// let llvm_i8 = ctx.i8_type();
 /// ```
 #[doc(hidden)]
 #[macro_export]
@@ -1229,7 +1233,7 @@ macro_rules! __codegen_context_ref {
     };
 }
 
-// Enforces that the ContextRef borrows from the Context.
+// Enforces that the [`ContextRef`] borrows from the [`Context`].
 #[doc(hidden)]
 #[must_use]
 pub fn __make_context_ref(ctx: &Context) -> ContextRef<'_> {
