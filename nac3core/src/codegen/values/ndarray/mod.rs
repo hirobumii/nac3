@@ -182,8 +182,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Stores the array of data elements `data` into this instance.
     pub fn store_data(&self, ctx: &mut CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
-        let data =
-            ctx.builder.build_bit_cast(data, ctx.ptr, "").unwrap();
+        let data = ctx.builder.build_bit_cast(data, ctx.ptr, "").unwrap();
         self.data_field().store(ctx, self.value, data.into_pointer_value(), self.name);
     }
 

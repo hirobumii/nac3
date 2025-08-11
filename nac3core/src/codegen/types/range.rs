@@ -7,7 +7,7 @@ use inkwell::{
 
 use super::ProxyType;
 use crate::{
-    codegen::{ModuleContext, CodeGenContext, CodeGenerator, values::RangeValue},
+    codegen::{CodeGenContext, CodeGenerator, ModuleContext, values::RangeValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 

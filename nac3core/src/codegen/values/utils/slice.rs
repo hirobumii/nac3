@@ -89,12 +89,9 @@ impl<'ctx> SliceValue<'ctx> {
                 self.start_field().store(ctx, self.value, start, self.name);
             }
 
-            None => self.start_defined_field().store(
-                ctx,
-                self.value,
-                ctx.i1.const_zero(),
-                self.name,
-            ),
+            None => {
+                self.start_defined_field().store(ctx, self.value, ctx.i1.const_zero(), self.name);
+            }
         }
     }
 
@@ -126,12 +123,9 @@ impl<'ctx> SliceValue<'ctx> {
                 self.stop_field().store(ctx, self.value, stop, self.name);
             }
 
-            None => self.stop_defined_field().store(
-                ctx,
-                self.value,
-                ctx.i1.const_zero(),
-                self.name,
-            ),
+            None => {
+                self.stop_defined_field().store(ctx, self.value, ctx.i1.const_zero(), self.name);
+            }
         }
     }
 
@@ -163,12 +157,9 @@ impl<'ctx> SliceValue<'ctx> {
                 self.step_field().store(ctx, self.value, step, self.name);
             }
 
-            None => self.step_defined_field().store(
-                ctx,
-                self.value,
-                ctx.i1.const_zero(),
-                self.name,
-            ),
+            None => {
+                self.step_defined_field().store(ctx, self.value, ctx.i1.const_zero(), self.name);
+            }
         }
     }
 }

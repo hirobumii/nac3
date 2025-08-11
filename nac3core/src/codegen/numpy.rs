@@ -316,10 +316,8 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
 
     match (x1, x2) {
         (BasicValueEnum::PointerValue(n1), BasicValueEnum::PointerValue(n2)) => {
-            let a =
-                NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(n1, None);
-            let b =
-                NDArrayType::from_unifier_type(ctx, x2_ty).map_pointer_value(n2, None);
+            let a = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(n1, None);
+            let b = NDArrayType::from_unifier_type(ctx, x2_ty).map_pointer_value(n2, None);
 
             // TODO: General `np.dot()` https://numpy.org/doc/stable/reference/generated/numpy.dot.html.
             assert_eq!(a.get_type().ndims(), 1);

@@ -211,12 +211,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
         // Share data
         let data = carray.load_data(ctx);
-        ndarray.store_data(
-            ctx,
-            ctx.builder
-                .build_pointer_cast(data, ctx.ptr, "")
-                .unwrap(),
-        );
+        ndarray.store_data(ctx, ctx.builder.build_pointer_cast(data, ctx.ptr, "").unwrap());
 
         ndarray
     }

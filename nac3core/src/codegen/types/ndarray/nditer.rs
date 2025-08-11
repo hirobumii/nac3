@@ -9,7 +9,7 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    ModuleContext, CodeGenContext, CodeGenerator, irrt,
+    CodeGenContext, CodeGenerator, ModuleContext, irrt,
     types::{
         ProxyType,
         structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
