@@ -205,11 +205,13 @@ impl StaticValue for PythonValue {
                 let ty_id = py_interp::extract_id(&ty)?;
 
                 // for optimizing unwrap KernelInvariant
-                if ty_id == self.resolver.primitive_ids.option && name == "_nac3_option".into() {
+                if ty_id == self.resolver.primitive_ids.artiq.option
+                    && name == "_nac3_option".into()
+                {
                     let obj = self.value.bind(py).getattr(name.to_string().as_str())?;
                     let id = py_interp::extract_id(&obj)?;
                     let obj = Arc::new(obj.into_py_any(py)?);
-                    return if self.id == self.resolver.primitive_ids.none {
+                    return if self.id == self.resolver.primitive_ids.artiq.none {
                         Ok(None)
                     } else {
                         Ok(Some((id, obj)))
@@ -278,7 +280,7 @@ impl StaticValue for PythonValue {
         Python::with_gil(|py| -> PyResult<Option<PyValueHandle>> {
             let ty = py_interp::call_type(self.value.bind(py))?;
             let ty_id = py_interp::extract_id(&ty)?;
-            assert_eq!(ty_id, self.resolver.primitive_ids.tuple);
+            assert_eq!(ty_id, self.resolver.primitive_ids.builtins.tuple);
             let tup = self.value.bind(py).downcast::<PyTuple>()?;
             let elem = Arc::new(tup.get_item(index as usize)?.into_py_any(py)?);
             let id = py_interp::extract_id(elem.bind(py))?;
@@ -347,23 +349,29 @@ impl InnerResolver {
         let ty_id = py_interp::extract_id(pyty)?;
         let ty_ty_id = py_interp::extract_id(&py_interp::call_type(pyty)?.into_any())?;
 
-        if ty_id == self.primitive_ids.int || ty_id == self.primitive_ids.int32 {
+        if ty_id == self.primitive_ids.builtins.int || ty_id == self.primitive_ids.numpy.int32 {
             Ok(Ok((primitives.int32, true)))
-        } else if ty_id == self.primitive_ids.int64 {
+        } else if ty_id == self.primitive_ids.numpy.int64 {
             Ok(Ok((primitives.int64, true)))
-        } else if ty_id == self.primitive_ids.uint32 {
+        } else if ty_id == self.primitive_ids.numpy.uint32 {
             Ok(Ok((primitives.uint32, true)))
-        } else if ty_id == self.primitive_ids.uint64 {
+        } else if ty_id == self.primitive_ids.numpy.uint64 {
             Ok(Ok((primitives.uint64, true)))
-        } else if ty_id == self.primitive_ids.bool || ty_id == self.primitive_ids.np_bool_ {
+        } else if ty_id == self.primitive_ids.builtins.bool
+            || ty_id == self.primitive_ids.numpy.bool_
+        {
             Ok(Ok((primitives.bool, true)))
-        } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
+        } else if ty_id == self.primitive_ids.builtins.str_class
+            || ty_id == self.primitive_ids.numpy.str_
+        {
             Ok(Ok((primitives.str, true)))
-        } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
+        } else if ty_id == self.primitive_ids.builtins.float
+            || ty_id == self.primitive_ids.numpy.float64
+        {
             Ok(Ok((primitives.float, true)))
-        } else if ty_id == self.primitive_ids.exception {
+        } else if ty_id == self.primitive_ids.builtins.exception {
             Ok(Ok((primitives.exception, true)))
-        } else if ty_id == self.primitive_ids.list {
+        } else if ty_id == self.primitive_ids.builtins.list {
             // do not handle type var param and concrete check here
             let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
                 &*unifier.get_ty_immutable(primitives.list)
@@ -379,18 +387,18 @@ impl InnerResolver {
                 .subst(primitives.list, &into_var_map([TypeVar { id: list_tvar.id, ty: var }]))
                 .unwrap();
             Ok(Ok((list, false)))
-        } else if ty_id == self.primitive_ids.ndarray {
+        } else if ty_id == self.primitive_ids.numpy.ndarray {
             // do not handle type var param and concrete check here
             let var = unifier.get_dummy_var().ty;
             let ndims = unifier.get_fresh_const_generic_var(primitives.usize(), None, None).ty;
             let ndarray = make_ndarray_ty(unifier, primitives, Some(var), Some(ndims));
             Ok(Ok((ndarray, false)))
-        } else if ty_id == self.primitive_ids.tuple {
+        } else if ty_id == self.primitive_ids.builtins.tuple {
             // do not handle type var param and concrete check here
             Ok(Ok((unifier.add_ty(TypeEnum::TTuple { ty: vec![], is_vararg_ctx: false }), false)))
-        } else if ty_id == self.primitive_ids.option {
+        } else if ty_id == self.primitive_ids.artiq.option {
             Ok(Ok((primitives.option, false)))
-        } else if ty_id == self.primitive_ids.none {
+        } else if ty_id == self.primitive_ids.artiq.none {
             unreachable!("none cannot be typeid")
         } else if let Some(def_id) = self.pyid_to_def.read().get(&ty_id).copied() {
             let def = defs[def_id.0].read();
@@ -430,7 +438,7 @@ impl InnerResolver {
                 // here also false, later instantiation use python object to check compatible
                 (unifier.add_ty(ty), false)
             }))
-        } else if ty_ty_id == self.primitive_ids.typevar {
+        } else if ty_ty_id == self.primitive_ids.typing.typevar {
             let name = pyty.getattr("__name__").unwrap();
             let name = name.extract::<&str>().unwrap();
             let (constraint_types, is_const_generic) = {
@@ -442,7 +450,7 @@ impl InnerResolver {
                 for i in 0usize.. {
                     if let Ok(constr) = &constraints.get_item(i) {
                         let constr_id = py_interp::extract_id(constr)?;
-                        if constr_id == self.primitive_ids.const_generic_marker {
+                        if constr_id == self.primitive_ids.artiq.const_generic_marker {
                             is_const_generic = true;
                             continue;
                         }
@@ -497,8 +505,8 @@ impl InnerResolver {
             };
 
             Ok(Ok((res, true)))
-        } else if ty_ty_id == self.primitive_ids.generic_alias.0
-            || ty_ty_id == self.primitive_ids.generic_alias.1
+        } else if ty_ty_id == self.primitive_ids.typing.generic_alias
+            || ty_ty_id == self.primitive_ids.types.generic_alias
         {
             let origin = py_interp::typing::call_get_origin(pyty)?;
             let args = py_interp::typing::call_get_args(pyty)?;
@@ -658,7 +666,7 @@ impl InnerResolver {
                 }
                 _ => unimplemented!(),
             }
-        } else if ty_id == self.primitive_ids.virtual_id {
+        } else if ty_id == self.primitive_ids.artiq.virtual_class {
             Ok(Ok((
                 {
                     let ty = TypeEnum::TVirtual { ty: unifier.get_dummy_var().ty };
@@ -708,7 +716,7 @@ impl InnerResolver {
         });
 
         // check if obj is module
-        if py_interp::extract_id(&ty)? == self.primitive_ids.module
+        if py_interp::extract_id(&ty)? == self.primitive_ids.types.module_type
             && self.pyid_to_def.read().contains_key(&py_obj_id)
         {
             let def_id = self.pyid_to_def.read()[&py_obj_id];
@@ -760,9 +768,9 @@ impl InnerResolver {
         let (extracted_ty, inst_check) = match self.get_pyty_obj_type(
             {
                 if [
-                    self.primitive_ids.typevar,
-                    self.primitive_ids.generic_alias.0,
-                    self.primitive_ids.generic_alias.1,
+                    self.primitive_ids.typing.typevar,
+                    self.primitive_ids.typing.generic_alias,
+                    self.primitive_ids.types.generic_alias,
                 ]
                 .contains(&py_interp::extract_id(&ty)?)
                 {
@@ -895,7 +903,7 @@ impl InnerResolver {
                 };
                 // if is `none`
                 let zelf_id = py_interp::extract_id(obj)?;
-                if zelf_id == self.primitive_ids.none {
+                if zelf_id == self.primitive_ids.artiq.none {
                     let ty_enum = unifier.get_ty_immutable(primitives.option);
                     let TypeEnum::TObj { params, .. } = ty_enum.as_ref() else {
                         unreachable!("must be tobj")
@@ -1037,39 +1045,43 @@ impl InnerResolver {
     ) -> PyResult<Option<BasicValueEnum<'ctx>>> {
         let ty_id = py_interp::extract_id(py_interp::call_type(obj)?.as_any())?;
         let id = py_interp::extract_id(obj)?;
-        if ty_id == self.primitive_ids.int || ty_id == self.primitive_ids.int32 {
+        if ty_id == self.primitive_ids.builtins.int || ty_id == self.primitive_ids.numpy.int32 {
             let val: i32 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::I32(val));
             Ok(Some(ctx.i32.const_int(val as u64, false).into()))
-        } else if ty_id == self.primitive_ids.int64 {
+        } else if ty_id == self.primitive_ids.numpy.int64 {
             let val: i64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::I64(val));
             Ok(Some(ctx.i64.const_int(val as u64, false).into()))
-        } else if ty_id == self.primitive_ids.uint32 {
+        } else if ty_id == self.primitive_ids.numpy.uint32 {
             let val: u32 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::U32(val));
             Ok(Some(ctx.i32.const_int(u64::from(val), false).into()))
-        } else if ty_id == self.primitive_ids.uint64 {
+        } else if ty_id == self.primitive_ids.numpy.uint64 {
             let val: u64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::U64(val));
             Ok(Some(ctx.i64.const_int(val, false).into()))
-        } else if ty_id == self.primitive_ids.bool {
+        } else if ty_id == self.primitive_ids.builtins.bool {
             let val: bool = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
             Ok(Some(ctx.i8.const_int(u64::from(val), false).into()))
-        } else if ty_id == self.primitive_ids.np_bool_ {
+        } else if ty_id == self.primitive_ids.numpy.bool_ {
             let val: bool = obj.call_method("__bool__", (), None)?.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Bool(val));
             Ok(Some(ctx.i8.const_int(u64::from(val), false).into()))
-        } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
+        } else if ty_id == self.primitive_ids.builtins.str_class
+            || ty_id == self.primitive_ids.numpy.str_
+        {
             let val: String = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Str(val.clone()));
             Ok(Some(ctx.gen_string(generator, val).into()))
-        } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
+        } else if ty_id == self.primitive_ids.builtins.float
+            || ty_id == self.primitive_ids.numpy.float64
+        {
             let val: f64 = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::F64(val));
             Ok(Some(ctx.f64.const_float(val).into()))
-        } else if ty_id == self.primitive_ids.list {
+        } else if ty_id == self.primitive_ids.builtins.list {
             let id_str = id.to_string();
 
             if let Some(global) = ctx.module.get_global(&id_str) {
@@ -1155,7 +1167,7 @@ impl InnerResolver {
             global.set_initializer(&val);
 
             Ok(Some(global.as_pointer_value().into()))
-        } else if ty_id == self.primitive_ids.ndarray {
+        } else if ty_id == self.primitive_ids.numpy.ndarray {
             let id_str = id.to_string();
 
             if let Some(global) = ctx.module.get_global(&id_str) {
@@ -1368,7 +1380,7 @@ impl InnerResolver {
             ndarray_global.set_initializer(&ndarray);
 
             Ok(Some(ndarray_global.as_pointer_value().into()))
-        } else if ty_id == self.primitive_ids.tuple {
+        } else if ty_id == self.primitive_ids.builtins.tuple {
             let expected_ty_enum = ctx.unifier.get_ty_immutable(expected_ty);
             let TypeEnum::TTuple { ty, is_vararg_ctx: false } = expected_ty_enum.as_ref() else {
                 unreachable!()
@@ -1390,7 +1402,7 @@ impl InnerResolver {
             let val = val?.unwrap();
             let val = ctx.ctx.const_struct(&val, false);
             Ok(Some(val.into()))
-        } else if ty_id == self.primitive_ids.option {
+        } else if ty_id == self.primitive_ids.artiq.option {
             let option_val_ty = match ctx.unifier.get_ty_immutable(expected_ty).as_ref() {
                 TypeEnum::TObj { obj_id, params, .. }
                     if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
@@ -1399,7 +1411,7 @@ impl InnerResolver {
                 }
                 _ => unreachable!("must be option type"),
             };
-            if id == self.primitive_ids.none {
+            if id == self.primitive_ids.artiq.none {
                 // for option type, just a null ptr
                 Ok(Some(
                     ctx.get_llvm_type(option_val_ty)
@@ -1512,37 +1524,41 @@ impl InnerResolver {
     ) -> PyResult<Result<SymbolValue, String>> {
         let id = py_interp::extract_id(obj)?;
         let ty_id = py_interp::extract_id(py_interp::call_type(obj)?.as_any())?;
-        Ok(if ty_id == self.primitive_ids.int || ty_id == self.primitive_ids.int32 {
+        Ok(if ty_id == self.primitive_ids.builtins.int || ty_id == self.primitive_ids.numpy.int32 {
             let val: i32 = obj.extract()?;
             Ok(SymbolValue::I32(val))
-        } else if ty_id == self.primitive_ids.int64 {
+        } else if ty_id == self.primitive_ids.numpy.int64 {
             let val: i64 = obj.extract()?;
             Ok(SymbolValue::I64(val))
-        } else if ty_id == self.primitive_ids.uint32 {
+        } else if ty_id == self.primitive_ids.numpy.uint32 {
             let val: u32 = obj.extract()?;
             Ok(SymbolValue::U32(val))
-        } else if ty_id == self.primitive_ids.uint64 {
+        } else if ty_id == self.primitive_ids.numpy.uint64 {
             let val: u64 = obj.extract()?;
             Ok(SymbolValue::U64(val))
-        } else if ty_id == self.primitive_ids.bool {
+        } else if ty_id == self.primitive_ids.builtins.bool {
             let val: bool = obj.extract()?;
             Ok(SymbolValue::Bool(val))
-        } else if ty_id == self.primitive_ids.np_bool_ {
+        } else if ty_id == self.primitive_ids.numpy.bool_ {
             let val: bool = obj.call_method("__bool__", (), None)?.extract()?;
             Ok(SymbolValue::Bool(val))
-        } else if ty_id == self.primitive_ids.string || ty_id == self.primitive_ids.np_str_ {
+        } else if ty_id == self.primitive_ids.builtins.str_class
+            || ty_id == self.primitive_ids.numpy.str_
+        {
             let val: String = obj.extract()?;
             Ok(SymbolValue::Str(val))
-        } else if ty_id == self.primitive_ids.float || ty_id == self.primitive_ids.float64 {
+        } else if ty_id == self.primitive_ids.builtins.float
+            || ty_id == self.primitive_ids.numpy.float64
+        {
             let val: f64 = obj.extract()?;
             Ok(SymbolValue::Double(val))
-        } else if ty_id == self.primitive_ids.tuple {
+        } else if ty_id == self.primitive_ids.builtins.tuple {
             let elements = obj.downcast::<PyTuple>()?;
             let elements: Result<Result<Vec<_>, String>, _> =
                 elements.iter().map(|elem| self.get_default_param_obj_value(&elem)).collect();
             elements?.map(SymbolValue::Tuple)
-        } else if ty_id == self.primitive_ids.option {
-            if id == self.primitive_ids.none {
+        } else if ty_id == self.primitive_ids.artiq.option {
+            if id == self.primitive_ids.artiq.none {
                 Ok(SymbolValue::OptionNone)
             } else {
                 self.get_default_param_obj_value(&obj.getattr("_nac3_option").unwrap())?
