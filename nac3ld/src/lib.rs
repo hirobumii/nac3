@@ -22,6 +22,8 @@ use elf::*;
 mod dwarf;
 mod elf;
 
+const ENV_NAC3_LD_STRIP: &str = "NAC3_LD_STRIP";
+
 #[derive(PartialEq, Clone, Copy)]
 pub enum Isa {
     CortexA9,
@@ -1372,6 +1374,28 @@ impl<'a> Linker<'a> {
             last_elf_shdr_index as Elf32_Section
         );
 
+        let strip_aux_sections = std::env::var(ENV_NAC3_LD_STRIP).is_ok();
+        if !strip_aux_sections {
+            // Load unallocated PROGBITS sections
+            // Mainly for debugging symbols
+            for (i, shdr) in shdrs.iter().enumerate() {
+                if (shdr.sh_type as usize != SHT_PROGBITS)
+                    || (shdr.sh_flags as usize & SHF_ALLOC == SHF_ALLOC)
+                {
+                    continue;
+                }
+                let section_name = name_starting_at_slice(strtab, shdr.sh_name as usize)
+                    .map_err(|_| "cannot read section name")?;
+                let elf_shdrs_index = linker.load_section(
+                    shdr,
+                    str::from_utf8(section_name).unwrap(),
+                    data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize]
+                        .to_vec(),
+                );
+                linker.section_map.insert(i, elf_shdrs_index);
+            }
+        }
+
         for shdr in shdrs
             .iter()
             .filter(|shdr| shdr.sh_type as usize == SHT_RELA || shdr.sh_type as usize == SHT_REL)
@@ -1381,7 +1405,7 @@ impl<'a> Linker<'a> {
             let referred_shdr = shdrs
                 .get(shdr.sh_info as usize)
                 .ok_or("relocation is not specified to a valid section number")?;
-            if (referred_shdr.sh_flags as usize & SHF_ALLOC) != SHF_ALLOC {
+            if strip_aux_sections && ((referred_shdr.sh_flags as usize & SHF_ALLOC) != SHF_ALLOC) {
                 continue;
             }
 
