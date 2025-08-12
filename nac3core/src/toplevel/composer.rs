@@ -1316,8 +1316,8 @@ impl<'a> TopLevelComposer<'a> {
                                 None => {
                                     // handle Kernel[T], KernelInvariant[T]
                                     let (annotation, mutable) = match &annotation.node {
-                                            ExprKind::Subscript { slice, .. }
-                                        if core_config.has_invariant_ann(annotation).map_err(|err| HashSet::from([err]))? =>
+                                        ExprKind::Subscript { slice, .. }
+                                            if core_config.has_invariant_ann(annotation).map_err(|err| HashSet::from([err]))? =>
                                         {
                                             (slice, false)
                                         }
@@ -1342,7 +1342,7 @@ impl<'a> TopLevelComposer<'a> {
                                     };
 
                                     match &**boxed_expr {
-                                        ast::Located {location: _, custom: (), node: ExprKind::Constant { value: v, kind: _ }} => {
+                                        ast::Located { location: _, custom: (), node: ExprKind::Constant { value: v, kind: _ } } => {
                                             // Restricting the types allowed to be defined as class attributes
                                             match v {
                                                 ast::Constant::Bool(_) | ast::Constant::Str(_) | ast::Constant::Int(_) | ast::Constant::Float(_) => {}
