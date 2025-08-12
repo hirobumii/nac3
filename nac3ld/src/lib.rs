@@ -1395,6 +1395,7 @@ impl<'a> Linker<'a> {
             let rela_dyn_slice =
                 to_struct_mut_slice::<Elf32_Rela>(rela_dyn_rec.data.as_mut_slice());
 
+            assert_eq!(linker.rela_dyn_relas.iter().len(), rela_dyn_slice.len());
             for (i, &rela) in linker.rela_dyn_relas.iter().enumerate() {
                 rela_dyn_slice[i] = rela;
             }
