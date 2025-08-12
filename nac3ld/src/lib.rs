@@ -242,6 +242,15 @@ impl<'a> Linker<'a> {
             pub relocate: Option<Box<RelocateFn>>,
         }
 
+        let target_index = self
+            .section_map
+            .get(&(target_section as usize))
+            .copied()
+            .ok_or(Error::Parsing("Cannot find section with matching sh_index"))?;
+
+        let target_section_alloc =
+            self.elf_shdrs[target_index].shdr.sh_flags as usize & SHF_ALLOC == SHF_ALLOC;
+
         for reloc in relocs {
             if reloc.type_info() == R_TYPE_NONE {
                 continue;
@@ -275,13 +284,6 @@ impl<'a> Linker<'a> {
                             .ok_or(Error::Parsing("section not mapped to the ELF file")),
                     }
                 };
-
-            let get_target_section_index = || -> Result<usize, Error> {
-                self.section_map
-                    .get(&(target_section as usize))
-                    .copied()
-                    .ok_or(Error::Parsing("Cannot find section with matching sh_index"))
-            };
 
             let classify = |reloc: &R, sym_option: Option<&Elf32_Sym>| -> Option<RelocInfo<R>> {
                 let defined_val = sym_option.is_none_or(|sym| {
@@ -544,7 +546,6 @@ impl<'a> Linker<'a> {
 
             let reloc_info =
                 classify(reloc, sym).ok_or(Error::Parsing("unsupported relocation"))?;
-            let target_index = get_target_section_index()?;
             let target_sec_off = self.elf_shdrs[target_index].shdr.sh_offset;
 
             if reloc_info.defined_val {
