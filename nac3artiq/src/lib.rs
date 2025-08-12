@@ -150,6 +150,7 @@ pub struct TypesPythonId {
 
 #[derive(Clone)]
 pub struct TypingPythonId {
+    generic: u64,
     generic_alias: u64,
     typevar: u64,
 }
@@ -522,6 +523,16 @@ impl Nac3 {
             self.builtins.clone(),
             Self::get_lateinit_builtins(),
             ComposerConfig {
+                has_generic_ann_fn: Box::new(|ann| {
+                    Python::with_gil(|py| {
+                        is_class_ann_same(
+                            ann,
+                            modules_by_path[&ann.location.file].bind(py),
+                            self.primitive_ids.typing.generic,
+                        )
+                    })
+                    .map_err(|e| e.to_string())
+                }),
                 has_kernel_ann_fn: Some(Box::new(|ann| {
                     Python::with_gil(|py| {
                         is_class_ann_same(
@@ -1382,6 +1393,7 @@ impl Nac3 {
                 module_type: get_artiq_builtin_id(Some("types"), "ModuleType")?,
             },
             typing: TypingPythonId {
+                generic: get_artiq_builtin_id(Some("typing"), "Generic")?,
                 generic_alias: get_artiq_builtin_id(Some("typing"), "_GenericAlias")?,
                 typevar: get_artiq_builtin_id(Some("typing"), "TypeVar")?,
             },
