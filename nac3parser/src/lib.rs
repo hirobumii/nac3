@@ -18,7 +18,6 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
 #![warn(clippy::pedantic)]
 #![allow(
-    clippy::enum_glob_use,
     clippy::fn_params_excessive_bools,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,

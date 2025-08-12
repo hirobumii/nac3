@@ -96,13 +96,16 @@ fn loc_to_str(loc: Option<Location>) -> String {
 
 impl Display for DisplayTypeError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use TypeErrorKind::*;
         let mut notes = Some(HashMap::new());
         match &self.err.kind {
-            GotMultipleValues { name } => {
+            TypeErrorKind::GotMultipleValues { name } => {
                 write!(f, "For multiple values for parameter {name}")
             }
-            TooManyArguments { expected_min_count, expected_max_count, got_count } => {
+            TypeErrorKind::TooManyArguments {
+                expected_min_count,
+                expected_max_count,
+                got_count,
+            } => {
                 debug_assert!(expected_min_count <= expected_max_count);
                 if expected_min_count == expected_max_count {
                     let expected_count = expected_min_count; // or expected_max_count
@@ -114,11 +117,16 @@ impl Display for DisplayTypeError<'_> {
                     )
                 }
             }
-            MissingArgs { missing_arg_names } => {
+            TypeErrorKind::MissingArgs { missing_arg_names } => {
                 let args = missing_arg_names.iter().join(", ");
                 write!(f, "Missing arguments: {args}")
             }
-            UnsupportedBinaryOpTypes { operator, lhs_type, rhs_type, expected_rhs_type } => {
+            TypeErrorKind::UnsupportedBinaryOpTypes {
+                operator,
+                lhs_type,
+                rhs_type,
+                expected_rhs_type,
+            } => {
                 let op_symbol = operator.op_info().symbol;
 
                 let lhs_type_str = self.unifier.stringify_with_notes(*lhs_type, &mut notes);
@@ -131,7 +139,12 @@ impl Display for DisplayTypeError<'_> {
                     "Unsupported operand type(s) for {op_symbol}: '{lhs_type_str}' and '{rhs_type_str}' (right operand should have type {expected_rhs_type_str})"
                 )
             }
-            UnsupportedComparsionOpTypes { operator, lhs_type, rhs_type, expected_rhs_type } => {
+            TypeErrorKind::UnsupportedComparsionOpTypes {
+                operator,
+                lhs_type,
+                rhs_type,
+                expected_rhs_type,
+            } => {
                 let op_symbol = operator.op_info().symbol;
 
                 let lhs_type_str = self.unifier.stringify_with_notes(*lhs_type, &mut notes);
@@ -144,10 +157,10 @@ impl Display for DisplayTypeError<'_> {
                     "'{op_symbol}' not supported between instances of '{lhs_type_str}' and '{rhs_type_str}' (right operand should have type {expected_rhs_type_str})"
                 )
             }
-            UnknownArgName(name) => {
+            TypeErrorKind::UnknownArgName(name) => {
                 write!(f, "Unknown argument name: {name}")
             }
-            IncorrectArgType { name, expected, got } => {
+            TypeErrorKind::IncorrectArgType { name, expected, got } => {
                 let expected = self.unifier.stringify_with_notes(*expected, &mut notes);
                 let got = self.unifier.stringify_with_notes(*got, &mut notes);
                 write!(
@@ -155,7 +168,7 @@ impl Display for DisplayTypeError<'_> {
                     "Incorrect argument type for parameter {name}. Expected {expected}, but got {got}"
                 )
             }
-            FieldUnificationError { field, types, loc } => {
+            TypeErrorKind::FieldUnificationError { field, types, loc } => {
                 let lhs = self.unifier.stringify_with_notes(types.0, &mut notes);
                 let rhs = self.unifier.stringify_with_notes(types.1, &mut notes);
                 write!(
@@ -168,7 +181,7 @@ impl Display for DisplayTypeError<'_> {
                     loc_to_str(loc.1)
                 )
             }
-            IncompatibleRange(t, ts) => {
+            TypeErrorKind::IncompatibleRange(t, ts) => {
                 let t = self.unifier.stringify_with_notes(*t, &mut notes);
                 let ts = ts
                     .iter()
@@ -176,7 +189,7 @@ impl Display for DisplayTypeError<'_> {
                     .collect::<Vec<_>>();
                 write!(f, "Expected any one of these types: {}, but got {}", ts.join(", "), t)
             }
-            IncompatibleTypes(t1, t2) => {
+            TypeErrorKind::IncompatibleTypes(t1, t2) => {
                 let type1 = self.unifier.get_ty_immutable(*t1);
                 let type2 = self.unifier.get_ty_immutable(*t2);
                 match (&*type1, &*type2) {
@@ -209,7 +222,7 @@ impl Display for DisplayTypeError<'_> {
                     }
                 }
             }
-            MutationError(name, t) => {
+            TypeErrorKind::MutationError(name, t) => {
                 if let TypeEnum::TTuple { .. } = &*self.unifier.get_ty_immutable(*t) {
                     write!(f, "Cannot assign to an element of a tuple")
                 } else {
@@ -217,24 +230,24 @@ impl Display for DisplayTypeError<'_> {
                     write!(f, "Cannot assign to field {name} of {t}, which is immutable")
                 }
             }
-            NoSuchField(name, t) => {
+            TypeErrorKind::NoSuchField(name, t) => {
                 let t = self.unifier.stringify_with_notes(*t, &mut notes);
                 write!(f, "`{t}::{name}` field/method does not exist")
             }
-            NoSuchAttribute(name, t) => {
+            TypeErrorKind::NoSuchAttribute(name, t) => {
                 let t = self.unifier.stringify_with_notes(*t, &mut notes);
                 write!(f, "`{t}::{name}` is not a class attribute")
             }
-            TupleIndexOutOfBounds { index, len } => {
+            TypeErrorKind::TupleIndexOutOfBounds { index, len } => {
                 write!(
                     f,
                     "Tuple index out of bounds. Got {index} but tuple has only {len} elements"
                 )
             }
-            RequiresTypeAnn => {
+            TypeErrorKind::RequiresTypeAnn => {
                 write!(f, "Unable to infer virtual object type: Type annotation required")
             }
-            PolymorphicFunctionPointer => {
+            TypeErrorKind::PolymorphicFunctionPointer => {
                 write!(f, "Polymorphic function pointers is not supported")
             }
         }?;

@@ -9,7 +9,7 @@ use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, Struct
 use itertools::{Itertools, izip};
 use parking_lot::RwLock;
 
-use nac3parser::ast::{Constant, Expr, Location, StrRef};
+use nac3parser::ast::{Constant, Expr, ExprKind, Location, StrRef};
 
 use crate::{
     codegen::{CodeGenContext, CodeGenerator},
@@ -410,7 +410,6 @@ pub fn parse_type_annotation<T>(
     primitives: &PrimitiveStore,
     expr: &Expr<T>,
 ) -> Result<Type, HashSet<String>> {
-    use nac3parser::ast::ExprKind::*;
     let ids = IDENTIFIER_ID.with(|ids| *ids);
     let int32_id = ids[0];
     let int64_id = ids[1];
@@ -480,7 +479,7 @@ pub fn parse_type_annotation<T>(
             let ty = parse_type_annotation(resolver, top_level_defs, unifier, primitives, slice)?;
             Ok(unifier.add_ty(TypeEnum::TVirtual { ty }))
         } else if *id == tuple_id {
-            if let Tuple { elts, .. } = &slice.node {
+            if let ExprKind::Tuple { elts, .. } = &slice.node {
                 let ty = elts
                     .iter()
                     .map(|elt| {
@@ -504,7 +503,7 @@ pub fn parse_type_annotation<T>(
                 }
             };
 
-            let values = if let Tuple { elts, .. } = &slice.node {
+            let values = if let ExprKind::Tuple { elts, .. } = &slice.node {
                 elts.iter().map(&mut parse_literal).collect::<Result<Vec<_>, _>>()?
             } else {
                 vec![parse_literal(slice)?]
@@ -515,7 +514,7 @@ pub fn parse_type_annotation<T>(
 
             Ok(unifier.get_fresh_literal(values, Some(slice.location)))
         } else {
-            let types = if let Tuple { elts, .. } = &slice.node {
+            let types = if let ExprKind::Tuple { elts, .. } = &slice.node {
                 elts.iter()
                     .map(|v| {
                         parse_type_annotation(resolver, top_level_defs, unifier, primitives, v)
@@ -563,15 +562,15 @@ pub fn parse_type_annotation<T>(
     };
 
     match &expr.node {
-        Name { id, .. } => name_handling(id, expr.location, unifier),
-        Subscript { value, slice, .. } => {
-            if let Name { id, .. } = &value.node {
+        ExprKind::Name { id, .. } => name_handling(id, expr.location, unifier),
+        ExprKind::Subscript { value, slice, .. } => {
+            if let ExprKind::Name { id, .. } = &value.node {
                 subscript_name_handle(id, slice, unifier)
             } else {
                 Err(HashSet::from([format!("unsupported type expression at {}", expr.location)]))
             }
         }
-        Constant { value, .. } => SymbolValue::from_constant_inferred(value)
+        ExprKind::Constant { value, .. } => SymbolValue::from_constant_inferred(value)
             .map(|v| unifier.get_fresh_literal(vec![v], Some(expr.location)))
             .map_err(|err| HashSet::from([err])),
         _ => Err(HashSet::from([format!("unsupported type expression at {}", expr.location)])),

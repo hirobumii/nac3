@@ -464,17 +464,16 @@ fn get_llvm_type<'ctx>(
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
     ty: Type,
 ) -> BasicTypeEnum<'ctx> {
-    use TypeEnum::*;
     // we assume the type cache should already contain primitive types,
     // and they should be passed by value instead of passing as pointer.
     type_cache.get(&unifier.get_representative(ty)).copied().unwrap_or_else(|| {
         let ty_enum = unifier.get_ty(ty);
         let result = match &*ty_enum {
-            TObj { obj_id, fields, .. } => {
+            TypeEnum::TObj { obj_id, fields, .. } => {
                 // check to avoid treating non-class primitives as classes
                 if PrimDef::contains_id(*obj_id) {
                     return match &*unifier.get_ty_immutable(ty) {
-                        TObj { obj_id, params, .. } if *obj_id == PrimDef::Option.id() => {
+                        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::Option.id() => {
                             let element_type = get_llvm_type(
                                 ctx,
                                 unifier,
@@ -486,7 +485,7 @@ fn get_llvm_type<'ctx>(
                             OptionType::new(ctx, &element_type).as_abi_type().into()
                         }
 
-                        TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
                             let element_type = get_llvm_type(
                                 ctx,
                                 unifier,
@@ -498,7 +497,7 @@ fn get_llvm_type<'ctx>(
                             ListType::new(ctx, &element_type).as_abi_type().into()
                         }
 
-                        TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
+                        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                             let (dtype, ndims) = unpack_ndarray_var_tys(unifier, ty);
                             let ndims = extract_ndims(unifier, ndims);
                             let element_type = get_llvm_type(
@@ -547,7 +546,7 @@ fn get_llvm_type<'ctx>(
                 };
                 return ty;
             }
-            TTuple { ty, is_vararg_ctx } => {
+            TypeEnum::TTuple { ty, is_vararg_ctx } => {
                 // a struct with fields in the order present in the tuple
                 assert!(!is_vararg_ctx, "Tuples in vararg context must be instantiated with the correct number of arguments before calling get_llvm_type");
 
@@ -559,7 +558,7 @@ fn get_llvm_type<'ctx>(
                     .collect_vec();
                 TupleType::new(ctx, &fields).as_abi_type().into()
             }
-            TVirtual { .. } => unimplemented!(),
+            TypeEnum::TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),
         };
         type_cache.insert(unifier.get_representative(ty), result);
@@ -638,30 +637,31 @@ pub fn try_fold_basic_type<B, F>(init: B, value: &BasicTypeEnum, f: &F) -> Contr
 where
     F: Fn(B, &BasicTypeEnum) -> ControlFlow<B, B>,
 {
-    use BasicTypeEnum::*;
     // Recusively fold the type using the provided function `f`.
     let folded = f(init, value);
     let ControlFlow::Continue(new_init) = folded else {
         return folded;
     };
     match value {
-        ArrayType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
-        FloatType(_) | IntType(_) => ControlFlow::Continue(new_init),
-        PointerType(ty) => {
+        BasicTypeEnum::ArrayType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
+        BasicTypeEnum::FloatType(_) | BasicTypeEnum::IntType(_) => ControlFlow::Continue(new_init),
+        BasicTypeEnum::PointerType(ty) => {
             if let Ok(ty) = ty.get_element_type().try_into() {
                 try_fold_basic_type(new_init, &ty, f)
             } else {
                 ControlFlow::Continue(new_init)
             }
         }
-        StructType(ty) => {
+        BasicTypeEnum::StructType(ty) => {
             // fold all fields of the struct
             ty.get_field_types()
                 .iter()
                 .try_fold(new_init, |acc, field| try_fold_basic_type(acc, field, f))
         }
-        ScalableVectorType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
-        VectorType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
+        BasicTypeEnum::ScalableVectorType(ty) => {
+            try_fold_basic_type(new_init, &ty.get_element_type(), f)
+        }
+        BasicTypeEnum::VectorType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
     }
 }
 

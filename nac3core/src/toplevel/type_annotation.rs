@@ -40,10 +40,9 @@ pub enum TypeAnnotation {
 
 impl TypeAnnotation {
     pub fn stringify(&self, unifier: &mut Unifier) -> String {
-        use TypeAnnotation::*;
         match self {
-            Primitive(ty) | TypeVar(ty) => unifier.stringify(*ty),
-            CustomClass { id, params } => {
+            TypeAnnotation::Primitive(ty) | TypeAnnotation::TypeVar(ty) => unifier.stringify(*ty),
+            TypeAnnotation::CustomClass { id, params } => {
                 let class_name = if let Some(ref top) = unifier.top_level {
                     if let TopLevelDef::Class { name, .. } = &*top.definitions.read()[id.0].read() {
                         (*name).into()
@@ -59,11 +58,11 @@ impl TypeAnnotation {
                     if param_list.is_empty() { String::new() } else { format!("[{param_list}]") }
                 })
             }
-            Literal(values) => {
+            TypeAnnotation::Literal(values) => {
                 format!("Literal({})", values.iter().map(|v| format!("{v:?}")).join(", "))
             }
-            Virtual(ty) => format!("virtual[{}]", ty.stringify(unifier)),
-            Tuple(types) => {
+            TypeAnnotation::Virtual(ty) => format!("virtual[{}]", ty.stringify(unifier)),
+            TypeAnnotation::Tuple(types) => {
                 format!(
                     "tuple[{}]",
                     types.iter().map(|p| p.stringify(unifier)).collect_vec().join(", ")
