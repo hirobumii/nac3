@@ -303,6 +303,7 @@ impl Nac3 {
                             let base_id = py_interp::extract_id(&base_obj)?;
 
                             Ok(base_id == self.primitive_ids.builtins.exception
+                                || base_id == self.primitive_ids.typing.generic
                                 || registered_class_ids.contains(&base_id))
                         })
                         .unwrap()
