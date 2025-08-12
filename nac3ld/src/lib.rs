@@ -269,7 +269,7 @@ impl<'a> Linker<'a> {
                                 // irrelevant in this case.
                                 // The .elf dynamic library can be linked to an arbitrary address
                                 // within the kernel address space
-                                self.elf_shdrs[elf_sec_ind].shdr.sh_offset as Elf32_Word
+                                self.elf_shdrs[elf_sec_ind].shdr.sh_addr as Elf32_Word
                                     + sym.st_value
                             })
                             .ok_or(Error::Parsing("section not mapped to the ELF file")),
@@ -315,7 +315,13 @@ impl<'a> Linker<'a> {
                             defined_val,
                             indirect_reloc: None,
                             pc_relative: false,
-                            relocate: None,
+                            relocate: if target_section_alloc {
+                                None
+                            } else {
+                                Some(Box::new(|target_word, value| {
+                                    LittleEndian::write_u32(target_word, value);
+                                }))
+                            },
                         }),
                         _ => None,
                     },
@@ -412,7 +418,13 @@ impl<'a> Linker<'a> {
                             defined_val,
                             indirect_reloc: None,
                             pc_relative: false,
-                            relocate: None,
+                            relocate: if target_section_alloc {
+                                None
+                            } else {
+                                Some(Box::new(|target_word, value| {
+                                    LittleEndian::write_u32(target_word, value);
+                                }))
+                            },
                         }),
 
                         R_RISCV_SET32 => Some(RelocInfo {
