@@ -608,19 +608,18 @@ impl Unifier {
     }
 
     pub fn is_concrete(&mut self, a: Type, allowed_typevars: &[Type]) -> bool {
-        use TypeEnum::*;
         match &*self.get_ty(a) {
-            TRigidVar { .. }
-            | TLiteral { .. }
+            TypeEnum::TRigidVar { .. }
+            | TypeEnum::TLiteral { .. }
             // functions are instantiated for each call sites, so the function type can contain
             // type variables.
-            | TFunc { .. } => true,
+            | TypeEnum::TFunc { .. } => true,
 
-            TVar { .. } => allowed_typevars.iter().any(|b| self.unification_table.unioned(a, *b)),
-            TCall { .. } => false,
-            TVirtual { ty } => self.is_concrete(*ty, allowed_typevars),
-            TTuple { ty, .. } => ty.iter().all(|ty| self.is_concrete(*ty, allowed_typevars)),
-            TObj { params: vars, .. } => {
+            TypeEnum::TVar { .. } => allowed_typevars.iter().any(|b| self.unification_table.unioned(a, *b)),
+            TypeEnum::TCall { .. } => false,
+            TypeEnum::TVirtual { ty } => self.is_concrete(*ty, allowed_typevars),
+            TypeEnum::TTuple { ty, .. } => ty.iter().all(|ty| self.is_concrete(*ty, allowed_typevars)),
+            TypeEnum::TObj { params: vars, .. } => {
                 vars.values().all(|ty| self.is_concrete(*ty, allowed_typevars))
             }
         }
@@ -906,8 +905,6 @@ impl Unifier {
     }
 
     fn unify_impl(&mut self, a: Type, b: Type, swapped: bool) -> Result<(), TypeError> {
-        use TypeEnum::*;
-
         if !swapped {
             let rep_a = self.unification_table.get_representative(a);
             let rep_b = self.unification_table.get_representative(b);
@@ -925,10 +922,15 @@ impl Unifier {
         };
         match (&*ty_a, &*ty_b) {
             (
-                TVar {
-                    fields: fields1, id, name: name1, loc: loc1, is_const_generic: false, ..
+                TypeEnum::TVar {
+                    fields: fields1,
+                    id,
+                    name: name1,
+                    loc: loc1,
+                    is_const_generic: false,
+                    ..
                 },
-                TVar {
+                TypeEnum::TVar {
                     fields: fields2,
                     id: id2,
                     name: name2,
@@ -976,7 +978,7 @@ impl Unifier {
                     .get_intersection(a, b)
                     .map_err(|()| TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None))?
                     .unwrap();
-                let range = if let TVar { range, .. } = &*self.get_ty(intersection) {
+                let range = if let TypeEnum::TVar { range, .. } = &*self.get_ty(intersection) {
                     range.clone()
                 } else {
                     unreachable!()
@@ -984,7 +986,7 @@ impl Unifier {
                 self.unification_table.unify(a, b);
                 self.unification_table.set_value(
                     a,
-                    Rc::new(TVar {
+                    Rc::new(TypeEnum::TVar {
                         id: name1.map_or(*id2, |_| *id),
                         fields: new_fields,
                         range,
@@ -994,7 +996,7 @@ impl Unifier {
                     }),
                 );
             }
-            (TVar { fields: None, range, is_const_generic: false, .. }, _) => {
+            (TypeEnum::TVar { fields: None, range, is_const_generic: false, .. }, _) => {
                 // We check for the range of the type variable to see if unification is allowed.
                 // Note that although b may be compatible with a, we may have to constrain type
                 // variables in b to make sure that instantiations of b would always be compatible
@@ -1012,8 +1014,8 @@ impl Unifier {
                 self.set_a_to_b(a, x);
             }
             (
-                TVar { fields: Some(fields), range, is_const_generic: false, .. },
-                TTuple { ty, .. },
+                TypeEnum::TVar { fields: Some(fields), range, is_const_generic: false, .. },
+                TypeEnum::TTuple { ty, .. },
             ) => {
                 let len = i32::try_from(ty.len()).unwrap();
                 for (k, v) in fields {
@@ -1055,8 +1057,8 @@ impl Unifier {
                 self.set_a_to_b(a, x);
             }
             (
-                TVar { id: id1, range: ty1, is_const_generic: true, .. },
-                TVar { id: id2, range: ty2, .. },
+                TypeEnum::TVar { id: id1, range: ty1, is_const_generic: true, .. },
+                TypeEnum::TVar { id: id2, range: ty2, .. },
             ) => {
                 let ty1 = ty1[0];
                 let ty2 = ty2[0];
@@ -1068,7 +1070,10 @@ impl Unifier {
                 self.set_a_to_b(a, b);
             }
 
-            (TVar { range: tys, is_const_generic: true, .. }, TLiteral { values, .. }) => {
+            (
+                TypeEnum::TVar { range: tys, is_const_generic: true, .. },
+                TypeEnum::TLiteral { values, .. },
+            ) => {
                 assert_eq!(tys.len(), 1);
                 assert_eq!(values.len(), 1);
 
@@ -1105,7 +1110,7 @@ impl Unifier {
                 self.set_a_to_b(a, b);
             }
 
-            (TLiteral { values: val1, .. }, TLiteral { values: val2, .. }) => {
+            (TypeEnum::TLiteral { values: val1, .. }, TypeEnum::TLiteral { values: val2, .. }) => {
                 for (v1, v2) in zip(val1, val2) {
                     if v1 != v2 {
                         // Try performing integer promotion on literals
@@ -1122,8 +1127,8 @@ impl Unifier {
             }
 
             (
-                TTuple { ty: ty1, is_vararg_ctx: is_vararg1 },
-                TTuple { ty: ty2, is_vararg_ctx: is_vararg2 },
+                TypeEnum::TTuple { ty: ty1, is_vararg_ctx: is_vararg1 },
+                TypeEnum::TTuple { ty: ty2, is_vararg_ctx: is_vararg2 },
             ) => {
                 // Rules for Tuples:
                 // - ty1: is_vararg && ty2: is_vararg -> ty1[0] == ty2[0]
@@ -1164,7 +1169,10 @@ impl Unifier {
 
                 self.set_a_to_b(a, b);
             }
-            (TVar { fields: Some(map), range, .. }, TObj { obj_id, fields, params }) => {
+            (
+                TypeEnum::TVar { fields: Some(map), range, .. },
+                TypeEnum::TObj { obj_id, fields, params },
+            ) => {
                 for (k, field) in map {
                     match *k {
                         RecordKey::Str(s) => {
@@ -1202,16 +1210,16 @@ impl Unifier {
                 self.unify_impl(x, b, false)?;
                 self.set_a_to_b(a, x);
             }
-            (TVar { fields: Some(map), range, .. }, TVirtual { ty }) => {
+            (TypeEnum::TVar { fields: Some(map), range, .. }, TypeEnum::TVirtual { ty }) => {
                 let ty = self.get_ty(*ty);
-                if let TObj { fields, .. } = ty.as_ref() {
+                if let TypeEnum::TObj { fields, .. } = ty.as_ref() {
                     for (k, field) in map {
                         match *k {
                             RecordKey::Str(s) => {
                                 let (ty, _) = fields.get(&s).copied().ok_or_else(|| {
                                     TypeError::new(TypeErrorKind::NoSuchField(*k, b), field.loc)
                                 })?;
-                                if !matches!(self.get_ty(ty).as_ref(), TFunc { .. }) {
+                                if !matches!(self.get_ty(ty).as_ref(), TypeEnum::TFunc { .. }) {
                                     return Err(TypeError::new(
                                         TypeErrorKind::NoSuchField(*k, b),
                                         field.loc,
@@ -1243,8 +1251,8 @@ impl Unifier {
                 self.set_a_to_b(a, x);
             }
             (
-                TObj { obj_id: id1, params: params1, .. },
-                TObj { obj_id: id2, params: params2, .. },
+                TypeEnum::TObj { obj_id: id1, params: params1, .. },
+                TypeEnum::TObj { obj_id: id2, params: params2, .. },
             ) => {
                 if id1 != id2 {
                     Self::incompatible_types(a, b)?;
@@ -1263,20 +1271,20 @@ impl Unifier {
                 }
                 self.set_a_to_b(a, b);
             }
-            (TVirtual { ty: ty1 }, TVirtual { ty: ty2 }) => {
+            (TypeEnum::TVirtual { ty: ty1 }, TypeEnum::TVirtual { ty: ty2 }) => {
                 if self.unify_impl(*ty1, *ty2, false).is_err() {
                     return Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None));
                 }
                 self.set_a_to_b(a, b);
             }
-            (TCall(calls1), TCall(calls2)) => {
+            (TypeEnum::TCall(calls1), TypeEnum::TCall(calls2)) => {
                 // we do not unify individual calls, instead we defer until the unification wtih a
                 // function definition.
                 let calls = calls1.iter().chain(calls2.iter()).copied().collect();
                 self.set_a_to_b(a, b);
-                self.unification_table.set_value(b, Rc::new(TCall(calls)));
+                self.unification_table.set_value(b, Rc::new(TypeEnum::TCall(calls)));
             }
-            (TCall(calls), TFunc(signature)) => {
+            (TypeEnum::TCall(calls), TypeEnum::TFunc(signature)) => {
                 // we unify every calls to the function signature.
                 for c in calls {
                     let call = self.calls[c.0].clone();
@@ -1284,7 +1292,7 @@ impl Unifier {
                 }
                 self.set_a_to_b(a, b);
             }
-            (TFunc(sign1), TFunc(sign2)) => {
+            (TypeEnum::TFunc(sign1), TypeEnum::TFunc(sign2)) => {
                 if !sign1.vars.is_empty() || !sign2.vars.is_empty() {
                     return Err(TypeError::new(TypeErrorKind::PolymorphicFunctionPointer, None));
                 }
@@ -1304,7 +1312,7 @@ impl Unifier {
                 }
                 self.set_a_to_b(a, b);
             }
-            (TVar { fields: Some(fields), .. }, _) => {
+            (TypeEnum::TVar { fields: Some(fields), .. }, _) => {
                 let (k, v) = fields.iter().next().unwrap();
                 return Err(TypeError::new(TypeErrorKind::NoSuchField(*k, b), v.loc));
             }
@@ -1664,13 +1672,12 @@ impl Unifier {
     }
 
     fn get_intersection(&mut self, a: Type, b: Type) -> Result<Option<Type>, ()> {
-        use TypeEnum::*;
         let x = self.get_ty(a);
         let y = self.get_ty(b);
         match (x.as_ref(), y.as_ref()) {
             (
-                TVar { range: range1, name, loc, .. },
-                TVar { fields, range: range2, name: name2, loc: loc2, .. },
+                TypeEnum::TVar { range: range1, name, loc, .. },
+                TypeEnum::TVar { fields, range: range2, name: name2, loc: loc2, .. },
             ) => {
                 // new range is the intersection of them
                 // empty range indicates no constraint
@@ -1690,7 +1697,7 @@ impl Unifier {
                         Err(())
                     } else {
                         let id = self.generate_var_id();
-                        let ty = TVar {
+                        let ty = TypeEnum::TVar {
                             id,
                             fields: fields.clone(),
                             range,
@@ -1702,7 +1709,7 @@ impl Unifier {
                     }
                 }
             }
-            (_, TVar { range, .. }) => {
+            (_, TypeEnum::TVar { range, .. }) => {
                 // range should be restricted to the left hand side
                 if range.is_empty() {
                     Ok(Some(a))
@@ -1716,14 +1723,16 @@ impl Unifier {
                     Err(())
                 }
             }
-            (TVar { range, .. }, _) => self.check_var_compatibility(b, range).or(Err(())),
+            (TypeEnum::TVar { range, .. }, _) => self.check_var_compatibility(b, range).or(Err(())),
             (
-                TTuple { ty: ty1, is_vararg_ctx: is_vararg1 },
-                TTuple { ty: ty2, is_vararg_ctx: is_vararg2 },
+                TypeEnum::TTuple { ty: ty1, is_vararg_ctx: is_vararg1 },
+                TypeEnum::TTuple { ty: ty2, is_vararg_ctx: is_vararg2 },
             ) => {
                 if *is_vararg1 && *is_vararg2 {
                     let isect_ty = self.get_intersection(ty1[0], ty2[0])?;
-                    Ok(isect_ty.map(|ty| self.add_ty(TTuple { ty: vec![ty], is_vararg_ctx: true })))
+                    Ok(isect_ty.map(|ty| {
+                        self.add_ty(TypeEnum::TTuple { ty: vec![ty], is_vararg_ctx: true })
+                    }))
                 } else {
                     let zip_iter: Box<dyn Iterator<Item = (&Type, &Type)>> =
                         match (*is_vararg1, *is_vararg2) {
@@ -1741,7 +1750,7 @@ impl Unifier {
                     let ty: Vec<_> =
                         zip_iter.map(|(a, b)| self.get_intersection(*a, *b)).try_collect()?;
                     Ok(if ty.iter().any(Option::is_some) {
-                        Some(self.add_ty(TTuple {
+                        Some(self.add_ty(TypeEnum::TTuple {
                             ty: zip(ty, ty1.iter()).map(|(a, b)| a.unwrap_or(*b)).collect(),
                             is_vararg_ctx: false,
                         }))
@@ -1752,25 +1761,29 @@ impl Unifier {
             }
             // TODO(Derppening): #444
             (
-                TObj { obj_id: id1, fields, params: params1 },
-                TObj { obj_id: id2, params: params2, .. },
+                TypeEnum::TObj { obj_id: id1, fields, params: params1 },
+                TypeEnum::TObj { obj_id: id2, params: params2, .. },
             ) if *id1 == PrimDef::List.id() && *id2 == PrimDef::List.id() => {
                 let tv_id = iter_type_vars(params1).nth(0).unwrap().id;
                 let ty1 = iter_type_vars(params1).nth(0).unwrap().ty;
                 let ty2 = iter_type_vars(params2).nth(0).unwrap().ty;
 
                 Ok(self.get_intersection(ty1, ty2)?.map(|ty| {
-                    self.add_ty(TObj {
+                    self.add_ty(TypeEnum::TObj {
                         obj_id: *id1,
                         fields: fields.clone(),
                         params: into_var_map([TypeVar { id: tv_id, ty }]),
                     })
                 }))
             }
-            (TVirtual { ty: ty1 }, TVirtual { ty: ty2 }) => {
-                Ok(self.get_intersection(*ty1, *ty2)?.map(|ty| self.add_ty(TVirtual { ty })))
+            (TypeEnum::TVirtual { ty: ty1 }, TypeEnum::TVirtual { ty: ty2 }) => Ok(self
+                .get_intersection(*ty1, *ty2)?
+                .map(|ty| self.add_ty(TypeEnum::TVirtual { ty }))),
+            (TypeEnum::TObj { obj_id: id1, .. }, TypeEnum::TObj { obj_id: id2, .. })
+                if id1 == id2 =>
+            {
+                Ok(None)
             }
-            (TObj { obj_id: id1, .. }, TObj { obj_id: id2, .. }) if id1 == id2 => Ok(None),
             // don't deal with function shape for now
             _ => Err(()),
         }

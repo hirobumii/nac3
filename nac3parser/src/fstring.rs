@@ -1,6 +1,5 @@
 use std::{iter, mem, str};
 
-use self::FStringErrorType::*;
 use crate::{
     ast::{Constant, ConversionFlag, Expr, ExprKind, Location},
     error::{FStringError, FStringErrorType, ParseError},
@@ -56,7 +55,7 @@ impl<'a> FStringParser<'a> {
 
                 '!' if delims.is_empty() && self.chars.peek() != Some(&'=') => {
                     if expression.trim().is_empty() {
-                        return Err(EmptyExpression);
+                        return Err(FStringErrorType::EmptyExpression);
                     }
 
                     conversion = Some(match self.chars.next() {
@@ -64,19 +63,19 @@ impl<'a> FStringParser<'a> {
                         Some('a') => ConversionFlag::Ascii,
                         Some('r') => ConversionFlag::Repr,
                         Some(_) => {
-                            return Err(InvalidConversionFlag);
+                            return Err(FStringErrorType::InvalidConversionFlag);
                         }
                         None => {
-                            return Err(ExpectedRbrace);
+                            return Err(FStringErrorType::ExpectedRbrace);
                         }
                     });
 
                     if let Some(&peek) = self.chars.peek() {
                         if peek != '}' && peek != ':' {
-                            return Err(ExpectedRbrace);
+                            return Err(FStringErrorType::ExpectedRbrace);
                         }
                     } else {
-                        return Err(ExpectedRbrace);
+                        return Err(FStringErrorType::ExpectedRbrace);
                     }
                 }
 
@@ -94,7 +93,7 @@ impl<'a> FStringParser<'a> {
                         match next {
                             '{' => {
                                 if in_nested {
-                                    return Err(ExpressionNestedTooDeeply);
+                                    return Err(FStringErrorType::ExpressionNestedTooDeeply);
                                 }
                                 in_nested = true;
                                 nested = true;
@@ -114,19 +113,16 @@ impl<'a> FStringParser<'a> {
                         self.chars.next();
                     }
                     if in_nested {
-                        return Err(UnclosedLbrace);
+                        return Err(FStringErrorType::UnclosedLbrace);
                     }
                     spec = Some(if nested {
-                        Box::new(
-                            self.expr(ExprKind::FormattedValue {
-                                value: Box::new(
-                                    parse_fstring_expr(&spec_expression)
-                                        .map_err(|e| InvalidExpression(Box::new(e.error)))?,
-                                ),
-                                conversion: None,
-                                format_spec: None,
-                            }),
-                        )
+                        Box::new(self.expr(ExprKind::FormattedValue {
+                            value: Box::new(parse_fstring_expr(&spec_expression).map_err(|e| {
+                                FStringErrorType::InvalidExpression(Box::new(e.error))
+                            })?),
+                            conversion: None,
+                            format_spec: None,
+                        }))
                     } else {
                         Box::new(self.expr(ExprKind::Constant {
                             value: spec_expression.clone().into(),
@@ -140,37 +136,34 @@ impl<'a> FStringParser<'a> {
                 }
                 ')' => {
                     if delims.pop() != Some('(') {
-                        return Err(MismatchedDelimiter);
+                        return Err(FStringErrorType::MismatchedDelimiter);
                     }
                     expression.push(ch);
                 }
                 ']' => {
                     if delims.pop() != Some('[') {
-                        return Err(MismatchedDelimiter);
+                        return Err(FStringErrorType::MismatchedDelimiter);
                     }
                     expression.push(ch);
                 }
                 '}' if !delims.is_empty() => {
                     if delims.pop() != Some('{') {
-                        return Err(MismatchedDelimiter);
+                        return Err(FStringErrorType::MismatchedDelimiter);
                     }
                     expression.push(ch);
                 }
                 '}' => {
                     if expression.is_empty() {
-                        return Err(EmptyExpression);
+                        return Err(FStringErrorType::EmptyExpression);
                     }
                     let ret = if pred_expression_text.is_empty() {
-                        vec![
-                            self.expr(ExprKind::FormattedValue {
-                                value: Box::new(
-                                    parse_fstring_expr(&expression)
-                                        .map_err(|e| InvalidExpression(Box::new(e.error)))?,
-                                ),
-                                conversion,
-                                format_spec: spec,
-                            }),
-                        ]
+                        vec![self.expr(ExprKind::FormattedValue {
+                            value: Box::new(parse_fstring_expr(&expression).map_err(|e| {
+                                FStringErrorType::InvalidExpression(Box::new(e.error))
+                            })?),
+                            conversion,
+                            format_spec: spec,
+                        })]
                     } else {
                         vec![
                             self.expr(ExprKind::Constant {
@@ -182,10 +175,9 @@ impl<'a> FStringParser<'a> {
                                 kind: None,
                             }),
                             self.expr(ExprKind::FormattedValue {
-                                value: Box::new(
-                                    parse_fstring_expr(&expression)
-                                        .map_err(|e| InvalidExpression(Box::new(e.error)))?,
-                                ),
+                                value: Box::new(parse_fstring_expr(&expression).map_err(|e| {
+                                    FStringErrorType::InvalidExpression(Box::new(e.error))
+                                })?),
                                 conversion,
                                 format_spec: spec,
                             }),
@@ -210,7 +202,7 @@ impl<'a> FStringParser<'a> {
                 }
             }
         }
-        Err(UnclosedLbrace)
+        Err(FStringErrorType::UnclosedLbrace)
     }
 
     fn parse(mut self) -> Result<Expr, FStringErrorType> {
@@ -239,7 +231,7 @@ impl<'a> FStringParser<'a> {
                         self.chars.next();
                         content.push('}');
                     } else {
-                        return Err(UnopenedRbrace);
+                        return Err(FStringErrorType::UnopenedRbrace);
                     }
                 }
                 _ => {
@@ -335,24 +327,24 @@ mod tests {
 
     #[test]
     fn test_parse_invalid_fstring() {
-        assert_eq!(parse_fstring("{5!a"), Err(ExpectedRbrace));
-        assert_eq!(parse_fstring("{5!a1}"), Err(ExpectedRbrace));
-        assert_eq!(parse_fstring("{5!"), Err(ExpectedRbrace));
-        assert_eq!(parse_fstring("abc{!a 'cat'}"), Err(EmptyExpression));
-        assert_eq!(parse_fstring("{!a"), Err(EmptyExpression));
-        assert_eq!(parse_fstring("{ !a}"), Err(EmptyExpression));
+        assert_eq!(parse_fstring("{5!a"), Err(FStringErrorType::ExpectedRbrace));
+        assert_eq!(parse_fstring("{5!a1}"), Err(FStringErrorType::ExpectedRbrace));
+        assert_eq!(parse_fstring("{5!"), Err(FStringErrorType::ExpectedRbrace));
+        assert_eq!(parse_fstring("abc{!a 'cat'}"), Err(FStringErrorType::EmptyExpression));
+        assert_eq!(parse_fstring("{!a"), Err(FStringErrorType::EmptyExpression));
+        assert_eq!(parse_fstring("{ !a}"), Err(FStringErrorType::EmptyExpression));
 
-        assert_eq!(parse_fstring("{5!}"), Err(InvalidConversionFlag));
-        assert_eq!(parse_fstring("{5!x}"), Err(InvalidConversionFlag));
+        assert_eq!(parse_fstring("{5!}"), Err(FStringErrorType::InvalidConversionFlag));
+        assert_eq!(parse_fstring("{5!x}"), Err(FStringErrorType::InvalidConversionFlag));
 
-        assert_eq!(parse_fstring("{a:{a:{b}}"), Err(ExpressionNestedTooDeeply));
+        assert_eq!(parse_fstring("{a:{a:{b}}"), Err(FStringErrorType::ExpressionNestedTooDeeply));
 
-        assert_eq!(parse_fstring("{a:b}}"), Err(UnopenedRbrace));
-        assert_eq!(parse_fstring("}"), Err(UnopenedRbrace));
-        assert_eq!(parse_fstring("{a:{b}"), Err(UnclosedLbrace));
-        assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
+        assert_eq!(parse_fstring("{a:b}}"), Err(FStringErrorType::UnopenedRbrace));
+        assert_eq!(parse_fstring("}"), Err(FStringErrorType::UnopenedRbrace));
+        assert_eq!(parse_fstring("{a:{b}"), Err(FStringErrorType::UnclosedLbrace));
+        assert_eq!(parse_fstring("{"), Err(FStringErrorType::UnclosedLbrace));
 
-        assert_eq!(parse_fstring("{}"), Err(EmptyExpression));
+        assert_eq!(parse_fstring("{}"), Err(FStringErrorType::EmptyExpression));
 
         // TODO: check for InvalidExpression enum?
         assert!(parse_fstring("{class}").is_err());

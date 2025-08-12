@@ -3,7 +3,6 @@
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::enum_glob_use,
     clippy::similar_names,
     clippy::too_many_lines
 )]

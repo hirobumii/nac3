@@ -387,8 +387,6 @@ fn gen_rpc_tag(
     ty: Type,
     buffer: &mut Vec<u8>,
 ) -> Result<(), String> {
-    use nac3core::typecheck::typedef::TypeEnum::*;
-
     let PrimitiveStore { int32, int64, float, bool, str, none, .. } = ctx.primitives;
 
     if ctx.unifier.unioned(ty, int32) {
@@ -406,22 +404,22 @@ fn gen_rpc_tag(
     } else {
         let ty_enum = ctx.unifier.get_ty(ty);
         match &*ty_enum {
-            TTuple { ty, is_vararg_ctx: false } => {
+            TypeEnum::TTuple { ty, is_vararg_ctx: false } => {
                 buffer.push(b't');
                 buffer.push(ty.len() as u8);
                 for ty in ty {
                     gen_rpc_tag(ctx, *ty, buffer)?;
                 }
             }
-            TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+            TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
                 let ty = iter_type_vars(params).next().unwrap().ty;
 
                 buffer.push(b'l');
                 gen_rpc_tag(ctx, ty, buffer)?;
             }
-            TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                 let (ndarray_dtype, ndarray_ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
-                let ndarray_ndims = if let TLiteral { values, .. } =
+                let ndarray_ndims = if let TypeEnum::TLiteral { values, .. } =
                     &*ctx.unifier.get_ty_immutable(ndarray_ndims)
                 {
                     if values.len() != 1 {
