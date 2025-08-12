@@ -21,6 +21,7 @@ use super::{
 };
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
+    toplevel::composer::ComposerConfig,
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{
@@ -995,6 +996,7 @@ impl TopLevelComposer<'_> {
         temp_def_list: &[Arc<RwLock<TopLevelDef>>],
         unifier: &mut Unifier,
         primitives_store: &PrimitiveStore,
+        core_config: &ComposerConfig,
     ) -> Result<(), HashSet<String>> {
         let mut class_def = class_def.write();
         let (class_def_id, class_ancestors, class_bases_ast, class_type_vars, class_resolver) = {
@@ -1020,7 +1022,8 @@ impl TopLevelComposer<'_> {
                 // things like `class A(Generic[T, V, ImportedModule.T])` is not supported
                 // i.e. only simple names are allowed in the subscript
                 // should update the TopLevelDef::Class.typevars and the TypeEnum::TObj.params
-                ast::ExprKind::Subscript { value, slice, .. } if matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"Generic".into()) =>
+                ast::ExprKind::Subscript { slice, .. }
+                    if core_config.has_generic_ann(b).map_err(|err| HashSet::from([err]))? =>
                 {
                     if is_generic {
                         return Err(HashSet::from([format!(

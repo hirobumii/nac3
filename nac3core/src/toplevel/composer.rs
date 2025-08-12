@@ -616,6 +616,7 @@ impl<'a> TopLevelComposer<'a> {
                     &temp_def_list,
                     unifier,
                     primitives_store,
+                    &self.core_config,
                 ) {
                     errors.extend(e);
                 }
