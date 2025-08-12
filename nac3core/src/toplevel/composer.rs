@@ -1114,7 +1114,7 @@ impl<'a> TopLevelComposer<'a> {
 
         let (
             class_id,
-            _class_name,
+            class_name,
             _class_bases_ast,
             class_body_ast,
             _class_ancestor_def,
@@ -1391,9 +1391,10 @@ impl<'a> TopLevelComposer<'a> {
                                 if !class_type_vars_def.contains(&t){
                                     return Err(HashSet::from([
                                         format!(
-                                            "class fields can only use type \
-                                                vars over which the class is generic (at {})",
-                                            annotation.location
+                                            "class field `{attr}' uses type var `{}' which is not declared in the `Generic' annotation of class `{class_name}' (at {})\n  Note: Class declares the following type variables: [{}]",
+                                            unifier.stringify(t),
+                                            annotation.location,
+                                            class_type_vars_def.iter().map(|tv| unifier.stringify(*tv)).join(", ")
                                         ),
                                     ]))
                                 }
