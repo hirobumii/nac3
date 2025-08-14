@@ -1372,19 +1372,28 @@ impl<'a> Linker<'a> {
             last_elf_shdr_index as Elf32_Section
         );
 
+        // Load unallocated PROGBITS sections
+        // Mainly for debugging symbols
+        for (i, shdr) in shdrs.iter().enumerate() {
+            if (shdr.sh_type as usize != SHT_PROGBITS)
+                || (shdr.sh_flags as usize & SHF_ALLOC == SHF_ALLOC)
+            {
+                continue;
+            }
+            let section_name = name_starting_at_slice(strtab, shdr.sh_name as usize)
+                .map_err(|_| "cannot read section name")?;
+            let elf_shdrs_index = linker.load_section(
+                shdr,
+                str::from_utf8(section_name).unwrap(),
+                data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize].to_vec(),
+            );
+            linker.section_map.insert(i, elf_shdrs_index);
+        }
+
         for shdr in shdrs
             .iter()
             .filter(|shdr| shdr.sh_type as usize == SHT_RELA || shdr.sh_type as usize == SHT_REL)
         {
-            // If the reloction refers to a section that will not be loaded,
-            // do not process the relocations. The section will not be loaded
-            let referred_shdr = shdrs
-                .get(shdr.sh_info as usize)
-                .ok_or("relocation is not specified to a valid section number")?;
-            if (referred_shdr.sh_flags as usize & SHF_ALLOC) != SHF_ALLOC {
-                continue;
-            }
-
             reloc_invariant!(shdr, |relocs| linker.resolve_relocatables(relocs, shdr.sh_info))?;
         }
 
