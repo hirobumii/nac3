@@ -612,9 +612,9 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
 }
 
 /// See [`CodeGenerator::gen_func_instance`].
-pub fn gen_func_instance<'ctx>(
-    ctx: &mut CodeGenContext<'ctx, '_>,
-    obj: &Option<(Type, ValueEnum<'ctx>)>,
+pub fn gen_func_instance(
+    ctx: &mut CodeGenContext<'_, '_>,
+    obj: Option<Type>,
     fun: (&FunSignature, &mut TopLevelDef, String),
     id: usize,
 ) -> Result<String, String> {
@@ -635,12 +635,12 @@ pub fn gen_func_instance<'ctx>(
     let symbol = format!("{}.{}", name, instance_to_symbol.len());
     instance_to_symbol.insert(key, symbol.clone());
     let mut filter = var_id.clone();
-    if let Some((obj_ty, _)) = &obj {
+    if let Some(obj_ty) = &obj {
         if let TypeEnum::TObj { params, .. } = &*ctx.unifier.get_ty(*obj_ty) {
             filter.extend(params.keys());
         }
     }
-    let key = ctx.get_subst_key(obj.as_ref().map(|a| a.0), sign, Some(&filter));
+    let key = ctx.get_subst_key(obj, sign, Some(&filter));
     let instance = instance_to_stmt.get(&key).unwrap();
 
     let mut store = ConcreteTypeStore::new();
@@ -660,8 +660,8 @@ pub fn gen_func_instance<'ctx>(
     let mut signature = store.from_signature(&mut ctx.unifier, &ctx.primitives, sign, &mut cache);
     let ConcreteTypeEnum::TFunc { args, .. } = &mut signature else { codegen_unreachable!(ctx) };
 
-    if let Some(obj) = &obj {
-        let zelf = store.from_unifier_type(&mut ctx.unifier, &ctx.primitives, obj.0, &mut cache);
+    if let Some(obj) = obj {
+        let zelf = store.from_unifier_type(&mut ctx.unifier, &ctx.primitives, obj, &mut cache);
 
         args.insert(
             0,
@@ -785,7 +785,8 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
         }
     }
     .or_else(|_: String| {
-        generator.gen_func_instance(ctx, obj.clone(), (sign, &mut *definition.write(), key), id)
+        let obj_ty = obj.as_ref().map(|x| x.0);
+        generator.gen_func_instance(ctx, obj_ty, (sign, &mut *definition.write(), key), id)
     })?;
 
     let ret_type = if ctx.unifier.unioned(sign.ret, ctx.primitives.none) {

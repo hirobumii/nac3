@@ -67,14 +67,14 @@ pub trait CodeGenerator {
     ///
     /// Note that this function should check if the function is generated in another thread (due to
     /// possible race condition), see the default implementation for an example.
-    fn gen_func_instance<'ctx>(
+    fn gen_func_instance(
         &mut self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        obj: Option<(Type, ValueEnum<'ctx>)>,
+        ctx: &mut CodeGenContext<'_, '_>,
+        obj: Option<Type>,
         fun: (&FunSignature, &mut TopLevelDef, String),
         id: usize,
     ) -> Result<String, String> {
-        gen_func_instance(ctx, &obj, fun, id)
+        gen_func_instance(ctx, obj, fun, id)
     }
 
     /// Generate the code for an expression.
