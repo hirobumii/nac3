@@ -18,6 +18,7 @@ class B:
 
 
 T = TypeVar("T", A, B)
+U = TypeVar("U", A, B)
 
 
 class C(Generic[T]):
@@ -30,6 +31,11 @@ class C(Generic[T]):
         self.x.foo()
 
 
+def simple(a: T, b: U):
+    a.foo()
+    b.foo()
+
+
 def run() -> int32:
     insta = A()
     inst = C(insta)
@@ -38,5 +44,7 @@ def run() -> int32:
     insta2 = B()
     inst2 = C(insta2)
     inst2.foo()
+
+    simple(insta, b=insta2)
     return 0
 

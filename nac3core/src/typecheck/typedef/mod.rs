@@ -291,10 +291,11 @@ pub enum TypeEnum {
     TVirtual {
         ty: Type,
     },
-    TCall(Vec<CallId>),
 
     /// A function type.
     TFunc(FunSignature),
+    /// A non-concrete type that represents a function call. Only to be unified with `TFunc`.
+    TCall(CallId),
 }
 
 impl TypeEnum {
@@ -639,7 +640,7 @@ impl Unifier {
         }
     }
 
-    pub fn unify_call(
+    fn unify_call(
         &mut self,
         call: &Call,
         b: Type,
@@ -1269,19 +1270,9 @@ impl Unifier {
                 }
                 self.set_a_to_b(a, b);
             }
-            (TCall(calls1), TCall(calls2)) => {
-                // we do not unify individual calls, instead we defer until the unification wtih a
-                // function definition.
-                let calls = calls1.iter().chain(calls2.iter()).copied().collect();
-                self.set_a_to_b(a, b);
-                self.unification_table.set_value(b, Rc::new(TCall(calls)));
-            }
-            (TCall(calls), TFunc(signature)) => {
-                // we unify every calls to the function signature.
-                for c in calls {
-                    let call = self.calls[c.0].clone();
-                    self.unify_call(&call, b, signature)?;
-                }
+            (TCall(call), TFunc(signature)) => {
+                let call = self.calls[call.0].clone();
+                self.unify_call(&call, b, signature)?;
                 self.set_a_to_b(a, b);
             }
             (TFunc(sign1), TFunc(sign2)) => {

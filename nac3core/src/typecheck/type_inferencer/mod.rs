@@ -645,42 +645,6 @@ impl Inferencer<'_> {
         ret: Option<Type>,
         operator_info: Option<OperatorInfo>,
     ) -> InferenceResult {
-        if let TypeEnum::TObj { params: class_params, fields, .. } = &*self.unifier.get_ty(obj) {
-            if class_params.is_empty() {
-                if let Some(ty) = fields.get(&method) {
-                    let ty = ty.0;
-                    if let TypeEnum::TFunc(sign) = &*self.unifier.get_ty(ty) {
-                        if sign.vars.is_empty() {
-                            let call = Call {
-                                posargs: params,
-                                kwargs: HashMap::new(),
-                                ret: sign.ret,
-                                fun: RefCell::new(None),
-                                loc: Some(location),
-                                operator_info,
-                            };
-                            if let Some(ret) = ret {
-                                self.unifier
-                                    .unify(sign.ret, ret)
-                                    .map_err(|err| {
-                                        format!(
-                                            "Cannot unify {} <: {} - {:?}",
-                                            self.unifier.stringify(sign.ret),
-                                            self.unifier.stringify(ret),
-                                            TypeError::new(err.kind, Some(location))
-                                        )
-                                    })
-                                    .unwrap();
-                            }
-                            self.unifier.unify_call(&call, ty, sign).or_else(|e| {
-                                report_type_error(e.at(Some(location)), self.unifier)
-                            })?;
-                            return Ok(sign.ret);
-                        }
-                    }
-                }
-            }
-        }
         let ret = ret.unwrap_or_else(|| self.unifier.get_dummy_var().ty);
 
         let call = self.unifier.add_call(Call {
@@ -692,7 +656,7 @@ impl Inferencer<'_> {
             operator_info,
         });
         self.calls.insert(location.into(), call);
-        let call = self.unifier.add_ty(TypeEnum::TCall(vec![call]));
+        let call = self.unifier.add_ty(TypeEnum::TCall(call));
         let fields = once((method.into(), RecordField::new(call, false, Some(location)))).collect();
         let record = self.unifier.add_record(fields);
         self.constrain(obj, record, &location)?;
@@ -1792,36 +1756,12 @@ impl Inferencer<'_> {
             .map(|v| fold::fold_keyword(self, v))
             .collect::<Result<Vec<_>, _>>()?;
 
-        if let TypeEnum::TFunc(sign) = &*self.unifier.get_ty(func.custom.unwrap()) {
-            if sign.vars.is_empty() {
-                let call = Call {
-                    posargs: args.iter().map(|v| v.custom.unwrap()).collect(),
-                    kwargs: keywords
-                        .iter()
-                        .map(|v| (*v.node.arg.as_ref().unwrap(), v.node.value.custom.unwrap()))
-                        .collect(),
-                    fun: RefCell::new(None),
-                    ret: sign.ret,
-                    loc: Some(location),
-                    operator_info: None,
-                };
-                self.unifier
-                    .unify_call(&call, func.custom.unwrap(), sign)
-                    .or_else(|e| report_type_error(e.at(Some(location)), self.unifier))?;
-                return Ok(Located {
-                    location,
-                    custom: Some(sign.ret),
-                    node: ExprKind::Call { func, args, keywords },
-                });
-            }
-        }
-
         let ret = self.unifier.get_dummy_var().ty;
         let call = self.unifier.add_call(Call {
             posargs: args.iter().map(|v| v.custom.unwrap()).collect(),
             kwargs: keywords
                 .iter()
-                .map(|v| (*v.node.arg.as_ref().unwrap(), v.custom.unwrap()))
+                .map(|v| (*v.node.arg.as_ref().unwrap(), v.node.value.custom.unwrap()))
                 .collect(),
             fun: RefCell::new(None),
             ret,
@@ -1829,7 +1769,7 @@ impl Inferencer<'_> {
             operator_info: None,
         });
         self.calls.insert(location.into(), call);
-        let call = self.unifier.add_ty(TypeEnum::TCall(vec![call]));
+        let call = self.unifier.add_ty(TypeEnum::TCall(call));
         self.unify(func.custom.unwrap(), call, &func.location)?;
 
         Ok(Located { location, custom: Some(ret), node: ExprKind::Call { func, args, keywords } })
