@@ -1,6 +1,5 @@
 use std::{
     borrow::Cow,
-    cell::RefCell,
     collections::{HashMap, HashSet},
     fmt::{self, Display},
     iter::{repeat, repeat_n, zip},
@@ -108,7 +107,7 @@ pub struct Call {
     pub posargs: Vec<Type>,
     pub kwargs: HashMap<StrRef, Type>,
     pub ret: Type,
-    pub fun: RefCell<Option<Type>>,
+    pub fun: Type,
     pub loc: Option<Location>,
 
     /// Details about the associated Python user operator expression of this call, if any.
@@ -421,13 +420,13 @@ impl Unifier {
     }
 
     pub fn get_call_signature(&mut self, id: CallId) -> Option<FunSignature> {
-        let fun = self.calls.get(id.0).unwrap().fun.borrow().unwrap();
+        let fun = self.calls.get(id.0).unwrap().fun;
         if let TypeEnum::TFunc(sign) = &*self.get_ty(fun) { Some(sign.clone()) } else { None }
     }
 
     #[must_use]
     pub fn get_call_signature_immutable(&self, id: CallId) -> Option<FunSignature> {
-        let fun = self.calls.get(id.0).unwrap().fun.borrow().unwrap();
+        let fun = self.calls.get(id.0).unwrap().fun;
         if let TypeEnum::TFunc(sign) = &*self.get_ty_immutable(fun) {
             Some(sign.clone())
         } else {
@@ -881,7 +880,7 @@ impl Unifier {
             }
         }
 
-        *fun.borrow_mut() = Some(b);
+        self.set_a_to_b(*fun, b);
 
         self.discard_snapshot(snapshot);
         Ok(())

@@ -1,5 +1,4 @@
 use std::{
-    cell::RefCell,
     cmp::max,
     collections::{HashMap, HashSet},
     convert::{From, TryInto},
@@ -646,12 +645,13 @@ impl Inferencer<'_> {
         operator_info: Option<OperatorInfo>,
     ) -> InferenceResult {
         let ret = ret.unwrap_or_else(|| self.unifier.get_dummy_var().ty);
+        let fun = self.unifier.get_dummy_var().ty;
 
         let call = self.unifier.add_call(Call {
             posargs: params,
             kwargs: HashMap::new(),
             ret,
-            fun: RefCell::new(None),
+            fun,
             loc: Some(location),
             operator_info,
         });
@@ -1757,14 +1757,15 @@ impl Inferencer<'_> {
             .collect::<Result<Vec<_>, _>>()?;
 
         let ret = self.unifier.get_dummy_var().ty;
+        let fun = self.unifier.get_dummy_var().ty;
         let call = self.unifier.add_call(Call {
             posargs: args.iter().map(|v| v.custom.unwrap()).collect(),
             kwargs: keywords
                 .iter()
                 .map(|v| (*v.node.arg.as_ref().unwrap(), v.node.value.custom.unwrap()))
                 .collect(),
-            fun: RefCell::new(None),
             ret,
+            fun,
             loc: Some(location),
             operator_info: None,
         });
