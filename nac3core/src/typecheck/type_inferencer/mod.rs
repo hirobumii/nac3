@@ -28,8 +28,8 @@ use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         FunAttribute, TopLevelContext, TopLevelDef,
-        helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims},
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+        helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims, extract_ndims},
+        numpy::{make_ndarray_ty, subst_ndarray_tvars, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
     },
 };
@@ -274,7 +274,8 @@ impl Fold<()> for Inferencer<'_> {
                 if self.unifier.unioned(iter.custom.unwrap(), self.primitives.range) {
                     self.unify(self.primitives.int32, target.custom.unwrap(), &target.location)?;
                 } else {
-                    let list_like_ty = match &*self.unifier.get_ty(iter.custom.unwrap()) {
+                    let iter_ty = iter.custom.unwrap();
+                    let list_like_ty = match &*self.unifier.get_ty(iter_ty) {
                         TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
                             let list_tvar = iter_type_vars(params).nth(0).unwrap();
                             self.unifier
@@ -288,7 +289,34 @@ impl Fold<()> for Inferencer<'_> {
                                 .unwrap()
                         }
                         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                            todo!()
+                            let (dtype, ndims) = unpack_ndarray_var_tys(self.unifier, iter_ty);
+                            let kndims = extract_ndims(self.unifier, ndims) - 1;
+
+                            if kndims == 0 {
+                                self.unify(dtype, target.custom.unwrap(), &target.location)?;
+                            } else {
+                                let kndims_ty = self
+                                    .unifier
+                                    .get_fresh_literal(vec![SymbolValue::U64(kndims)], None);
+                                let target_ndarray_ty = make_ndarray_ty(
+                                    self.unifier,
+                                    self.primitives,
+                                    Some(dtype),
+                                    Some(kndims_ty),
+                                );
+                                self.unify(
+                                    target_ndarray_ty,
+                                    target.custom.unwrap(),
+                                    &target.location,
+                                )?;
+                            }
+
+                            subst_ndarray_tvars(
+                                self.unifier,
+                                self.primitives.ndarray,
+                                Some(dtype),
+                                Some(ndims),
+                            )
                         }
                         _ => {
                             // User is attempting to use a for loop to iterate
