@@ -56,29 +56,28 @@ pub fn subst_ndarray_tvars(
     unifier.subst(ndarray, &tvar_subst).unwrap_or(ndarray)
 }
 
-fn unpack_ndarray_tvars(unifier: &mut Unifier, ndarray: Type) -> Vec<(TypeVarId, Type)> {
+fn unpack_ndarray_tvars(
+    unifier: &mut Unifier,
+    ndarray: Type,
+) -> impl Iterator<Item = (TypeVarId, Type)> {
     let TypeEnum::TObj { obj_id, params, .. } = &*unifier.get_ty_immutable(ndarray) else {
         panic!("Expected `ndarray` to be TObj, but got {}", unifier.stringify(ndarray))
     };
     debug_assert_eq!(*obj_id, PrimDef::NDArray.id());
     debug_assert_eq!(params.len(), 2);
 
-    params
-        .iter()
-        .sorted_by_key(|(obj_id, _)| *obj_id)
-        .map(|(var_id, ty)| (*var_id, *ty))
-        .collect_vec()
+    params.iter().map(|(var_id, ty)| (*var_id, *ty)).sorted_by_key(|(obj_id, _)| *obj_id)
 }
 
 /// Unpacks the type variable IDs of `ndarray` into a tuple. The elements of the tuple corresponds
 /// to `dtype` (the element type) and `ndims` (the number of dimensions) of the `ndarray`
 /// respectively.
 pub fn unpack_ndarray_var_ids(unifier: &mut Unifier, ndarray: Type) -> (TypeVarId, TypeVarId) {
-    unpack_ndarray_tvars(unifier, ndarray).into_iter().map(|v| v.0).collect_tuple().unwrap()
+    unpack_ndarray_tvars(unifier, ndarray).map(|v| v.0).collect_tuple().unwrap()
 }
 
 /// Unpacks the type variables of `ndarray` into a tuple. The elements of the tuple corresponds to
 /// `dtype` (the element type) and `ndims` (the number of dimensions) of the `ndarray` respectively.
 pub fn unpack_ndarray_var_tys(unifier: &mut Unifier, ndarray: Type) -> (Type, Type) {
-    unpack_ndarray_tvars(unifier, ndarray).into_iter().map(|v| v.1).collect_tuple().unwrap()
+    unpack_ndarray_tvars(unifier, ndarray).map(|v| v.1).collect_tuple().unwrap()
 }
