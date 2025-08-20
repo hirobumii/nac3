@@ -3,6 +3,7 @@ use std::{
     collections::HashMap,
     convert::TryInto,
     iter::{once, zip},
+    sync::Arc,
 };
 
 use inkwell::{
@@ -46,7 +47,7 @@ use super::{
 };
 use crate::{
     codegen::llvm_fns::FunctionDecl,
-    symbol_resolver::{SymbolValue, ValueEnum},
+    symbol_resolver::{StaticValue, SymbolValue, ValueEnum},
     toplevel::{
         DefinitionId, FunAttribute, TopLevelDef,
         helper::{PrimDef, arraylike_flatten_element_type, extract_ndims},
@@ -57,6 +58,37 @@ use crate::{
         typedef::{FunSignature, Type, TypeEnum, TypeVarId, Unifier, VarMap},
     },
 };
+
+#[derive(Clone)]
+pub struct RtValue<'ctx> {
+    pub ty: Type,
+    // None if `ty` is `primitives.none`,
+    // or when `ty` is free (e.g. return type of a function that does nothing
+    // but raises an exception).
+    pub val: Option<ValueEnum<'ctx>>,
+}
+
+impl<'ctx> RtValue<'ctx> {
+    #[must_use]
+    pub fn r#static(ty: Type, val: Arc<dyn StaticValue + Send + Sync>) -> Self {
+        Self { ty, val: Some(ValueEnum::Static(val)) }
+    }
+    #[must_use]
+    pub fn dynamic(ty: Type, val: BasicValueEnum<'ctx>) -> Self {
+        Self { ty, val: Some(val.into()) }
+    }
+    #[must_use]
+    pub fn none(none: Type) -> Self {
+        Self { ty: none, val: None }
+    }
+    pub fn to_basic_value_enum(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        generator: &mut dyn CodeGenerator,
+    ) -> Result<BasicValueEnum<'ctx>, String> {
+        self.val.as_ref().unwrap().to_basic_value_enum(ctx, generator, self.ty)
+    }
+}
 
 pub fn get_subst_key(
     unifier: &mut Unifier,
@@ -862,16 +894,8 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let Comprehension { target, iter, ifs, .. } = &generators[0];
 
     let iter_ty = iter.custom.unwrap();
-    let iter_val = if let Some(v) = generator.gen_expr(ctx, iter)? {
-        v.to_basic_value_enum(ctx, generator, iter_ty)?
-    } else {
-        for bb in [test_bb, body_bb, cont_bb] {
-            ctx.builder.position_at_end(bb);
-            ctx.builder.build_unreachable().unwrap();
-        }
+    let iter_val = generator.gen_expr(ctx, iter)?.to_basic_value_enum(ctx, generator)?;
 
-        return Ok(None);
-    };
     let int32 = ctx.i32;
     let size_t = ctx.size_t;
     let zero_size_t = size_t.const_zero();
@@ -987,7 +1011,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                 )
                 .into_pointer_value();
             let val = ctx.build_gep_and_load(arr_ptr, &[tmp], Some("val"));
-            generator.gen_assign(ctx, target, val.into(), elt.custom.unwrap())?;
+            generator.gen_assign(ctx, target, &val.into(), elt.custom.unwrap())?;
         }
         _ => {
             panic!(
@@ -1007,15 +1031,8 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     };
 
     for cond in ifs {
-        let result = if let Some(v) = generator.gen_expr(ctx, cond)? {
-            v.to_basic_value_enum(ctx, generator, cond.custom.unwrap())?.into_int_value()
-        } else {
-            // Bail if the predicate is an ellipsis - Emit cont_bb contents in case the
-            // no element matches the predicate
-            emit_cont_bb(ctx, list);
-
-            return Ok(None);
-        };
+        let result =
+            generator.gen_expr(ctx, cond)?.to_basic_value_enum(ctx, generator)?.into_int_value();
         let result = generator.bool_to_i1(ctx, result);
         let succ = ctx.ctx.append_basic_block(current, "then");
         ctx.builder.build_conditional_branch(result, succ, test_bb).unwrap();
@@ -1023,16 +1040,10 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         ctx.builder.position_at_end(succ);
     }
 
-    let Some(elem) = generator.gen_expr(ctx, elt)? else {
-        // Similarly, bail if the generator expression is an ellipsis, but keep cont_bb contents
-        emit_cont_bb(ctx, list);
-
-        return Ok(None);
-    };
     let i = ctx.builder.build_load(index, "i").map(BasicValueEnum::into_int_value).unwrap();
     let elem_ptr =
         unsafe { list.data().ptr_offset_unchecked(ctx, generator, &i, Some("elem_ptr")) };
-    let val = elem.to_basic_value_enum(ctx, generator, elt.custom.unwrap())?;
+    let val = generator.gen_expr(ctx, elt)?.to_basic_value_enum(ctx, generator)?;
     ctx.builder.build_store(elem_ptr, val).unwrap();
     ctx.builder
         .build_store(
@@ -1357,7 +1368,6 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
 /// * `op` - The operator applied on the operands.
 /// * `right` - The right-hand side of the binary operator.
 /// * `loc` - The location of the full expression.
-/// * `is_aug_assign` - Whether the binary operator expression is also an assignment operator.
 pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
@@ -1365,27 +1375,21 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
     op: Binop,
     right: &Expr<Option<Type>>,
     loc: Location,
-) -> Result<Option<ValueEnum<'ctx>>, String> {
-    let left_val = if let Some(v) = generator.gen_expr(ctx, left)? {
-        v.to_basic_value_enum(ctx, generator, left.custom.unwrap())?
-    } else {
-        return Ok(None);
-    };
-    let right_val = if let Some(v) = generator.gen_expr(ctx, right)? {
-        v.to_basic_value_enum(ctx, generator, right.custom.unwrap())?
-    } else {
-        return Ok(None);
-    };
+    result_ty: Type,
+) -> Result<RtValue<'ctx>, String> {
+    let left_val = generator.gen_expr(ctx, left)?.to_basic_value_enum(ctx, generator)?;
+    let right_val = generator.gen_expr(ctx, right)?.to_basic_value_enum(ctx, generator)?;
 
-    gen_binop_expr_with_values(
+    let result = gen_binop_expr_with_values(
         generator,
         ctx,
         (&left.custom, left_val),
         op,
         (&right.custom, right_val),
         loc,
-    )
-    .map(|res| Some(res.into()))
+    )?;
+
+    Ok(RtValue::dynamic(result_ty, result))
 }
 
 /// Generates LLVM IR for a unary operator expression using the [`Type`] and
@@ -1510,15 +1514,12 @@ pub fn gen_unaryop_expr<'ctx, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     op: ast::Unaryop,
     operand: &Expr<Option<Type>>,
-) -> Result<Option<ValueEnum<'ctx>>, String> {
-    let val = if let Some(v) = generator.gen_expr(ctx, operand)? {
-        v.to_basic_value_enum(ctx, generator, operand.custom.unwrap())?
-    } else {
-        return Ok(None);
-    };
+    result_ty: Type,
+) -> Result<RtValue<'ctx>, String> {
+    let val = generator.gen_expr(ctx, operand)?.to_basic_value_enum(ctx, generator)?;
 
-    gen_unaryop_expr_with_values(generator, ctx, op, (&operand.custom, val))
-        .map(|res| Some(res.into()))
+    let result = gen_unaryop_expr_with_values(generator, ctx, op, (&operand.custom, val))?;
+    Ok(RtValue::dynamic(result_ty, result))
 }
 
 /// Generates LLVM IR for a comparison operator expression using the [`Type`] and
@@ -1995,40 +1996,29 @@ pub fn gen_cmpop_expr<'ctx, G: CodeGenerator>(
     left: &Expr<Option<Type>>,
     ops: &[ast::Cmpop],
     comparators: &[Expr<Option<Type>>],
-) -> Result<Option<ValueEnum<'ctx>>, String> {
-    let left_val = if let Some(v) = generator.gen_expr(ctx, left)? {
-        v.to_basic_value_enum(ctx, generator, left.custom.unwrap())?
-    } else {
-        return Ok(None);
-    };
+    result_ty: Type,
+) -> Result<RtValue<'ctx>, String> {
+    let left_val = generator.gen_expr(ctx, left)?.to_basic_value_enum(ctx, generator)?;
+
     let comparator_vals = comparators
         .iter()
         .map(|cmptor| {
-            Ok(if let Some(v) = generator.gen_expr(ctx, cmptor)? {
-                Some((
-                    cmptor.custom,
-                    v.to_basic_value_enum(ctx, generator, cmptor.custom.unwrap())?,
-                ))
-            } else {
-                None
-            })
+            Ok((
+                cmptor.custom,
+                generator.gen_expr(ctx, cmptor)?.to_basic_value_enum(ctx, generator)?,
+            ))
         })
-        .take_while(|v| if let Ok(v) = v { v.is_some() } else { true })
         .collect::<Result<Vec<_>, String>>()?;
-    let comparator_vals = if comparator_vals.len() == comparators.len() {
-        comparator_vals.into_iter().map(Option::unwrap).collect_vec()
-    } else {
-        return Ok(None);
-    };
 
-    gen_cmpop_expr_with_values(
+    let result = gen_cmpop_expr_with_values(
         generator,
         ctx,
         (left.custom, left_val),
         ops,
         comparator_vals.as_slice(),
-    )
-    .map(|res| Some(res.into()))
+    )?;
+
+    Ok(RtValue::dynamic(result_ty, result))
 }
 
 /// See [`CodeGenerator::gen_expr`].
@@ -2036,7 +2026,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     expr: &Expr<Option<Type>>,
-) -> Result<Option<ValueEnum<'ctx>>, String> {
+) -> Result<RtValue<'ctx>, String> {
     ctx.current_loc = expr.location;
     let int32 = ctx.i32;
     let usize = ctx.size_t;
@@ -2051,33 +2041,37 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
     );
     ctx.builder.set_current_debug_location(loc);
 
-    Ok(Some(match &expr.node {
+    let ty = expr.custom.expect("expressions always have a well-defined type");
+
+    Ok(match &expr.node {
         ExprKind::Constant { value, .. } => {
-            let ty = expr.custom.unwrap();
-            let Some(const_val) = ctx.gen_const(generator, value, ty) else { return Ok(None) };
-            const_val.into()
+            let Some(const_val) = ctx.gen_const(generator, value, ty) else {
+                return Ok(RtValue::none(ty));
+            };
+            RtValue::dynamic(ty, const_val)
         }
-        ExprKind::Name { id, .. } if id == &"none".into() => {
-            match &*ctx.unifier.get_ty(expr.custom.unwrap()) {
-                TypeEnum::TObj { obj_id, .. }
-                    if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
-                {
-                    OptionType::from_unifier_type(ctx, expr.custom.unwrap())
-                        .construct_empty(generator, ctx, None)
-                        .as_abi_value(ctx)
-                        .into()
-                }
-                _ => codegen_unreachable!(ctx, "must be option type"),
+        ExprKind::Name { id, .. } if id == &"none".into() => match &*ctx.unifier.get_ty(ty) {
+            TypeEnum::TObj { obj_id, .. }
+                if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
+            {
+                let val = OptionType::from_unifier_type(ctx, ty)
+                    .construct_empty(generator, ctx, None)
+                    .as_abi_value(ctx);
+                RtValue::dynamic(ty, val.into())
             }
-        }
+            _ => codegen_unreachable!(ctx, "must be option type"),
+        },
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
             Some((ptr, None, _)) => {
-                ctx.builder.build_load(*ptr, id.to_string().as_str()).map(Into::into).unwrap()
+                let val = ctx.builder.build_load(*ptr, id.to_string().as_str()).unwrap();
+                RtValue::dynamic(ty, val)
             }
-            Some((_, Some(static_value), _)) => ValueEnum::Static(static_value.clone()),
+            Some((_, Some(static_value), _)) => RtValue::r#static(ty, static_value.clone()),
             None => {
                 let resolver = ctx.resolver.clone();
-                resolver.get_symbol_value(*id, ctx, generator).unwrap()
+                let val = resolver.get_symbol_value(*id, ctx, generator).unwrap();
+                // get_symbol_value returns a ValueEnum
+                RtValue { ty, val: Some(val) }
             }
         },
         ExprKind::List { elts, .. } => {
@@ -2085,41 +2079,32 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             // we should use memcpy for that instead of generating thousands of stores
             let elements = elts
                 .iter()
-                .map(|x| generator.gen_expr(ctx, x))
-                .take_while(|v| !matches!(v, Ok(None)))
-                .collect::<Result<Vec<_>, _>>()?;
-            let elements = elements
-                .into_iter()
-                .zip(elts)
-                .map(|(v, x)| v.unwrap().to_basic_value_enum(ctx, generator, x.custom.unwrap()))
+                .map(|x| {
+                    generator.gen_expr(ctx, x).and_then(|v| v.to_basic_value_enum(ctx, generator))
+                })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            if elements.len() < elts.len() {
-                return Ok(None);
-            }
+            let ty_inner = if elements.is_empty() {
+                let ty_inner =
+                    if let TypeEnum::TObj { obj_id, params, .. } = &*ctx.unifier.get_ty(ty) {
+                        assert_eq!(*obj_id, PrimDef::List.id());
 
-            let ty = if elements.is_empty() {
-                let ty = if let TypeEnum::TObj { obj_id, params, .. } =
-                    &*ctx.unifier.get_ty(expr.custom.unwrap())
-                {
-                    assert_eq!(*obj_id, PrimDef::List.id());
+                        *params.iter().next().unwrap().1
+                    } else {
+                        codegen_unreachable!(ctx)
+                    };
 
-                    *params.iter().next().unwrap().1
-                } else {
-                    codegen_unreachable!(ctx)
-                };
-
-                if let TypeEnum::TVar { .. } = &*ctx.unifier.get_ty_immutable(ty) {
+                if let TypeEnum::TVar { .. } = &*ctx.unifier.get_ty_immutable(ty_inner) {
                     None
                 } else {
-                    Some(ctx.get_llvm_type(ty))
+                    Some(ctx.get_llvm_type(ty_inner))
                 }
             } else {
                 Some(elements[0].get_type())
             };
             let length = ctx.size_t.const_int(elements.len() as u64, false);
-            let arr_str_ptr = if let Some(ty) = ty {
-                ListType::new(ctx, &ty).construct(generator, ctx, length, Some("list"))
+            let arr_str_ptr = if let Some(ty_inner) = ty_inner {
+                ListType::new(ctx, &ty_inner).construct(generator, ctx, length, Some("list"))
             } else {
                 ListType::new_untyped(ctx).construct_empty(generator, ctx, Some("list"))
             };
@@ -2133,23 +2118,15 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 );
                 ctx.builder.build_store(elem_ptr, *v).unwrap();
             }
-            arr_str_ptr.as_abi_value(ctx).into()
+            RtValue::dynamic(ty, arr_str_ptr.as_abi_value(ctx).into())
         }
         ExprKind::Tuple { elts, .. } => {
-            let elements_val = elts
+            let element_val = elts
                 .iter()
-                .map(|x| generator.gen_expr(ctx, x))
-                .take_while(|v| !matches!(v, Ok(None)))
+                .map(|x| {
+                    generator.gen_expr(ctx, x).and_then(|v| v.to_basic_value_enum(ctx, generator))
+                })
                 .collect::<Result<Vec<_>, _>>()?;
-            let element_val = elements_val
-                .into_iter()
-                .zip(elts)
-                .map(|(v, x)| v.unwrap().to_basic_value_enum(ctx, generator, x.custom.unwrap()))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            if element_val.len() < elts.len() {
-                return Ok(None);
-            }
 
             let element_ty = element_val.iter().map(BasicValueEnum::get_type).collect_vec();
             let tuple_ty = ctx.ctx.struct_type(&element_ty, false);
@@ -2167,7 +2144,8 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     ctx.builder.build_store(ptr, v).unwrap();
                 }
             }
-            ctx.builder.build_load(tuple_ptr, "tup_val").map(Into::into).unwrap()
+            let val = ctx.builder.build_load(tuple_ptr, "tup_val").unwrap();
+            RtValue::dynamic(ty, val)
         }
         ExprKind::Attribute { value, attr, .. } => {
             // note that we would handle class methods directly in calls
@@ -2233,19 +2211,21 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 }
             }
 
-            match generator.gen_expr(ctx, value)? {
-                Some(ValueEnum::Static(v)) => v.get_field(*attr, ctx).map_or_else(
-                    || {
+            match generator.gen_expr(ctx, value)?.val {
+                Some(ValueEnum::Static(v)) => {
+                    let result = if let Some(field) = v.get_field(*attr, ctx) {
+                        field.to_basic_value_enum(ctx, generator, ty)?
+                    } else {
                         let v = v.to_basic_value_enum(ctx, generator, value.custom.unwrap())?;
                         let (index, _) = ctx.get_attr_index(value.custom.unwrap(), *attr);
-                        Ok(ValueEnum::Dynamic(ctx.build_gep_and_load(
+                        ctx.build_gep_and_load(
                             v.into_pointer_value(),
                             &[zero, int32.const_int(index as u64, false)],
                             None,
-                        ))) as Result<_, String>
-                    },
-                    Ok,
-                )?,
+                        )
+                    };
+                    RtValue::dynamic(ty, result)
+                }
                 Some(ValueEnum::Dynamic(v)) => {
                     let (index, attr_value) = ctx.get_attr_index(value.custom.unwrap(), *attr);
                     if let Some(val) = attr_value {
@@ -2255,22 +2235,22 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
 
                         return generator.gen_expr(ctx, &modified_expr);
                     }
-                    ValueEnum::Dynamic(ctx.build_gep_and_load(
+                    let result = ctx.build_gep_and_load(
                         v.into_pointer_value(),
                         &[zero, int32.const_int(index as u64, false)],
                         None,
-                    ))
+                    );
+                    RtValue::dynamic(ty, result)
                 }
-                None => return Ok(None),
+                None => return Ok(RtValue::none(ty)),
             }
         }
         ExprKind::BoolOp { op, values } => {
             // requires conditional branches for short-circuiting...
-            let left = if let Some(v) = generator.gen_expr(ctx, &values[0])? {
-                v.to_basic_value_enum(ctx, generator, values[0].custom.unwrap())?.into_int_value()
-            } else {
-                return Ok(None);
-            };
+            let left = generator
+                .gen_expr(ctx, &values[0])?
+                .to_basic_value_enum(ctx, generator)?
+                .into_int_value();
             let left = generator.bool_to_i1(ctx, left);
             let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
             let a_begin_bb = ctx.ctx.append_basic_block(current, "a_begin");
@@ -2291,66 +2271,59 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
 
                     ctx.builder.position_at_end(b_begin_bb);
-                    let b = if let Some(v) = generator.gen_expr(ctx, &values[1])? {
-                        let b = v
-                            .to_basic_value_enum(ctx, generator, values[1].custom.unwrap())?
-                            .into_int_value();
-                        let b = generator.bool_to_i8(ctx, b);
-                        Some(b)
-                    } else {
-                        None
-                    };
+                    let b = generator
+                        .gen_expr(ctx, &values[1])?
+                        .to_basic_value_enum(ctx, generator)?
+                        .into_int_value();
+                    let b = generator.bool_to_i8(ctx, b);
                     ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
 
-                    (Some(a), b)
+                    (a, b)
                 }
                 Boolop::And => {
                     ctx.builder.position_at_end(a_begin_bb);
-                    let a = if let Some(v) = generator.gen_expr(ctx, &values[1])? {
-                        let a = v
-                            .to_basic_value_enum(ctx, generator, values[1].custom.unwrap())?
-                            .into_int_value();
-                        let a = generator.bool_to_i8(ctx, a);
-                        Some(a)
-                    } else {
-                        None
-                    };
+                    let a = generator
+                        .gen_expr(ctx, &values[1])?
+                        .to_basic_value_enum(ctx, generator)?
+                        .into_int_value();
+                    let a = generator.bool_to_i8(ctx, a);
                     ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
 
                     ctx.builder.position_at_end(b_begin_bb);
                     let b = ctx.i8.const_zero();
                     ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
 
-                    (a, Some(b))
+                    (a, b)
                 }
             };
 
             ctx.builder.position_at_end(cont_bb);
-            match (a, b) {
-                (Some(a), Some(b)) => {
-                    let phi = ctx.builder.build_phi(ctx.i8, "").unwrap();
-                    phi.add_incoming(&[(&a, a_end_bb), (&b, b_end_bb)]);
-                    phi.as_basic_value().into()
-                }
-                (Some(a), None) => a.into(),
-                (None, Some(b)) => b.into(),
-                (None, None) => codegen_unreachable!(ctx),
-            }
+            let phi = ctx.builder.build_phi(ctx.i8, "").unwrap();
+            phi.add_incoming(&[(&a, a_end_bb), (&b, b_end_bb)]);
+            RtValue::dynamic(ty, phi.as_basic_value())
         }
         ExprKind::BinOp { op, left, right } => {
-            return gen_binop_expr(generator, ctx, left, Binop::normal(*op), right, expr.location);
+            return gen_binop_expr(
+                generator,
+                ctx,
+                left,
+                Binop::normal(*op),
+                right,
+                expr.location,
+                ty,
+            );
         }
-        ExprKind::UnaryOp { op, operand } => return gen_unaryop_expr(generator, ctx, *op, operand),
+        ExprKind::UnaryOp { op, operand } => {
+            return gen_unaryop_expr(generator, ctx, *op, operand, ty);
+        }
         ExprKind::Compare { left, ops, comparators } => {
-            return gen_cmpop_expr(generator, ctx, left, ops, comparators);
+            return gen_cmpop_expr(generator, ctx, left, ops, comparators, ty);
         }
         ExprKind::IfExp { test, body, orelse } => {
-            let test = match generator.gen_expr(ctx, test)? {
-                Some(v) => {
-                    v.to_basic_value_enum(ctx, generator, test.custom.unwrap())?.into_int_value()
-                }
-                None => return Ok(None),
-            };
+            let test = generator
+                .gen_expr(ctx, test)?
+                .to_basic_value_enum(ctx, generator)?
+                .into_int_value();
             let test = generator.bool_to_i1(ctx, test);
             let body_ty = body.custom.unwrap();
             let is_none = ctx.unifier.get_representative(body_ty) == ctx.primitives.none;
@@ -2368,63 +2341,57 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
 
             ctx.builder.position_at_end(then_bb);
             let a = generator.gen_expr(ctx, body)?;
-            if let Some(a) = a {
-                match result {
-                    None => None,
-                    Some(v) => {
-                        let a = a.to_basic_value_enum(ctx, generator, body.custom.unwrap())?;
-                        Some(ctx.builder.build_store(v, a))
-                    }
-                };
-                ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-            }
+            match result {
+                None => None,
+                Some(v) => {
+                    let a = a.to_basic_value_enum(ctx, generator)?;
+                    Some(ctx.builder.build_store(v, a))
+                }
+            };
+            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
 
             ctx.builder.position_at_end(else_bb);
             let b = generator.gen_expr(ctx, orelse)?;
-            if let Some(b) = b {
-                match result {
-                    None => None,
-                    Some(v) => {
-                        let b = b.to_basic_value_enum(ctx, generator, orelse.custom.unwrap())?;
-                        Some(ctx.builder.build_store(v, b))
-                    }
-                };
-                ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-            }
+            match result {
+                None => None,
+                Some(v) => {
+                    let b = b.to_basic_value_enum(ctx, generator)?;
+                    Some(ctx.builder.build_store(v, b))
+                }
+            };
+            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
 
             ctx.builder.position_at_end(cont_bb);
             if let Some(v) = result {
-                ctx.builder.build_load(v, "if_exp_val_load").map(Into::into).unwrap()
+                let val = ctx.builder.build_load(v, "if_exp_val_load").unwrap();
+                RtValue::dynamic(ty, val)
             } else {
-                return Ok(None);
+                RtValue::none(ty)
             }
         }
         ExprKind::Call { func, args, keywords } => {
             let mut params = args
                 .iter()
-                .map(|arg| generator.gen_expr(ctx, arg))
-                .take_while(|expr| !matches!(expr, Ok(None)))
-                .map(|expr| Ok((None, expr?.unwrap())) as Result<_, String>)
-                .collect::<Result<Vec<_>, _>>()?;
+                .map(|arg| Ok((None, generator.gen_expr(ctx, arg)?.val.unwrap())))
+                .collect::<Result<Vec<_>, String>>()?;
 
-            if params.len() < args.len() {
-                return Ok(None);
-            }
-
-            let kw_iter = keywords.iter().map(|kw| {
-                Ok((
-                    Some(*kw.node.arg.as_ref().unwrap()),
-                    generator.gen_expr(ctx, &kw.node.value)?.unwrap(),
-                )) as Result<_, String>
-            });
-            let kw_iter = kw_iter.collect::<Result<Vec<_>, _>>()?;
-            params.extend(kw_iter);
+            params.extend(
+                keywords
+                    .iter()
+                    .map(|kw| {
+                        Ok::<(Option<StrRef>, ValueEnum), String>((
+                            Some(*kw.node.arg.as_ref().unwrap()),
+                            generator.gen_expr(ctx, &kw.node.value)?.val.unwrap(),
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
             let call = ctx.calls.get(&expr.location.into());
             let signature = if let Some(call) = call {
                 ctx.unifier.get_call_signature(*call).unwrap()
             } else {
-                let ty = func.custom.unwrap();
-                let TypeEnum::TFunc(sign) = &*ctx.unifier.get_ty(ty) else {
+                let func_ty = func.custom.unwrap();
+                let TypeEnum::TFunc(sign) = &*ctx.unifier.get_ty(func_ty) else {
                     codegen_unreachable!(ctx)
                 };
 
@@ -2437,9 +2404,12 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     let fun = ctx.resolver.get_identifier_def(*id).map_err(|e| {
                         format!("{} (at {})", e.iter().next().unwrap(), func.location)
                     })?;
-                    return Ok(generator
-                        .gen_call(ctx, None, (&signature, fun), params)?
-                        .map(Into::into));
+                    let ret_val = generator.gen_call(ctx, None, (&signature, fun), params)?;
+                    return Ok(if let Some(val) = ret_val {
+                        RtValue::dynamic(ty, val)
+                    } else {
+                        RtValue::none(ty)
+                    });
                 }
                 ExprKind::Attribute { value, attr, .. } => {
                     // Handle Class Method calls
@@ -2495,12 +2465,16 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     // If the function is static, we can call it directly
                     if is_static {
                         ctx.current_loc = expr.location;
-                        return Ok(generator
-                            .gen_call(ctx, None, (&signature, fun_id), params)?
-                            .map(Into::into));
+                        let ret_val =
+                            generator.gen_call(ctx, None, (&signature, fun_id), params)?;
+                        return Ok(if let Some(val) = ret_val {
+                            RtValue::dynamic(ty, val)
+                        } else {
+                            RtValue::none(ty)
+                        });
                     }
 
-                    let Some(val) = generator.gen_expr(ctx, value)? else { return Ok(None) };
+                    let val = generator.gen_expr(ctx, value)?.val.unwrap();
 
                     // directly generate code for option.unwrap
                     // since it needs to return static value to optimize for kernel invariant
@@ -2509,44 +2483,43 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     {
                         match val {
                             ValueEnum::Static(v) => {
-                                return match v.get_field("_nac3_option".into(), ctx) {
+                                let field_opt = v.get_field("_nac3_option".into(), ctx);
+                                return if let Some(field_val) = field_opt {
+                                    let v_val =
+                                        field_val.to_basic_value_enum(ctx, generator, ty)?;
+                                    Ok(RtValue::dynamic(ty, v_val))
+                                } else {
                                     // if is none, raise exception directly
-                                    None => {
-                                        let err_msg = ctx.gen_string(generator, "");
-                                        let current_fun = ctx
-                                            .builder
-                                            .get_insert_block()
-                                            .unwrap()
-                                            .get_parent()
-                                            .unwrap();
-                                        let unreachable_block = ctx.ctx.append_basic_block(
-                                            current_fun,
-                                            "unwrap_none_unreachable",
-                                        );
-                                        let exn_block = ctx.ctx.append_basic_block(
-                                            current_fun,
-                                            "unwrap_none_exception",
-                                        );
-                                        ctx.builder.build_unconditional_branch(exn_block).unwrap();
-                                        ctx.builder.position_at_end(exn_block);
-                                        ctx.raise_exn(
-                                            generator,
-                                            "0:UnwrapNoneError",
-                                            err_msg.into(),
-                                            [None, None, None],
-                                            ctx.current_loc,
-                                        );
-                                        ctx.builder.position_at_end(unreachable_block);
-                                        let ptr =
-                                            ctx.get_llvm_type(key).into_pointer_type().const_null();
-                                        Ok(Some(
-                                            ctx.builder
-                                                .build_load(ptr, "unwrap_none_unreachable_load")
-                                                .map(Into::into)
-                                                .unwrap(),
-                                        ))
-                                    }
-                                    Some(v) => Ok(Some(v)),
+                                    let err_msg = ctx.gen_string(generator, "");
+                                    let current_fun = ctx
+                                        .builder
+                                        .get_insert_block()
+                                        .unwrap()
+                                        .get_parent()
+                                        .unwrap();
+                                    let unreachable_block = ctx
+                                        .ctx
+                                        .append_basic_block(current_fun, "unwrap_none_unreachable");
+                                    let exn_block = ctx
+                                        .ctx
+                                        .append_basic_block(current_fun, "unwrap_none_exception");
+                                    ctx.builder.build_unconditional_branch(exn_block).unwrap();
+                                    ctx.builder.position_at_end(exn_block);
+                                    ctx.raise_exn(
+                                        generator,
+                                        "0:UnwrapNoneError",
+                                        err_msg.into(),
+                                        [None, None, None],
+                                        ctx.current_loc,
+                                    );
+                                    ctx.builder.position_at_end(unreachable_block);
+                                    let ptr =
+                                        ctx.get_llvm_type(key).into_pointer_type().const_null();
+                                    let loaded_val = ctx
+                                        .builder
+                                        .build_load(ptr, "unwrap_none_unreachable_load")
+                                        .unwrap();
+                                    Ok(RtValue::dynamic(ty, loaded_val))
                                 };
                             }
                             ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
@@ -2562,7 +2535,8 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                     [None, None, None],
                                     expr.location,
                                 );
-                                return Ok(Some(unsafe { option.load(ctx).into() }));
+                                let loaded = unsafe { option.load(ctx) };
+                                return Ok(RtValue::dynamic(ty, loaded));
                             }
                             ValueEnum::Dynamic(_) => {
                                 codegen_unreachable!(ctx, "option must be static or ptr")
@@ -2573,9 +2547,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                     // Reset current_loc back to the location of the call
                     ctx.current_loc = expr.location;
 
-                    return Ok(generator
-                        .gen_call(ctx, Some((key, val)), (&signature, fun_id), params)?
-                        .map(Into::into));
+                    let ret_val =
+                        generator.gen_call(ctx, Some((key, val)), (&signature, fun_id), params)?;
+                    return Ok(if let Some(val) = ret_val {
+                        RtValue::dynamic(ty, val)
+                    } else {
+                        RtValue::none(ty)
+                    });
                 }
                 _ => unimplemented!(),
             }
@@ -2583,23 +2561,19 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
         ExprKind::Subscript { value, slice, .. } => {
             match &*ctx.unifier.get_ty(value.custom.unwrap()) {
                 TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
-                    let ty = params.iter().next().unwrap().1;
+                    let ty_elem = params.iter().next().unwrap().1;
 
-                    let v = if let Some(v) = generator.gen_expr(ctx, value)? {
-                        v.to_basic_value_enum(ctx, generator, value.custom.unwrap())?
-                            .into_pointer_value()
-                    } else {
-                        return Ok(None);
-                    };
+                    let v_rt = generator.gen_expr(ctx, value)?;
+                    let v = v_rt.to_basic_value_enum(ctx, generator)?.into_pointer_value();
                     let v = ListValue::from_pointer_value(v, usize, Some("arr"));
-                    let ty = ctx.get_llvm_type(*ty);
+                    let ty_elem_llvm = ctx.get_llvm_type(*ty_elem);
                     if let ExprKind::Slice { lower, upper, step } = &slice.node {
                         let one = int32.const_int(1, false);
                         let size = v.load_size(ctx, None);
                         let Some((start, end, step)) =
                             handle_slice_indices(lower, upper, step, ctx, generator, size)?
                         else {
-                            return Ok(None);
+                            return Ok(RtValue::none(ty));
                         };
                         let length = calculate_len_for_slice_range(
                             generator,
@@ -2618,32 +2592,34 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                 .unwrap(),
                             step,
                         );
-                        let res_array_ret =
-                            ListType::new(ctx, &ty).construct(generator, ctx, length, Some("ret"));
+                        let res_array_ret = ListType::new(ctx, &ty_elem_llvm).construct(
+                            generator,
+                            ctx,
+                            length,
+                            Some("ret"),
+                        );
                         let size = res_array_ret.load_size(ctx, None);
                         let Some(res_ind) =
                             handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                         else {
-                            return Ok(None);
+                            return Ok(RtValue::none(ty));
                         };
                         list_slice_assignment(
                             generator,
                             ctx,
-                            ty,
+                            ty_elem_llvm,
                             res_array_ret,
                             res_ind,
                             v,
                             (start, end, step),
                         );
-                        res_array_ret.as_abi_value(ctx).into()
+                        RtValue::dynamic(ty, res_array_ret.as_abi_value(ctx).into())
                     } else {
                         let len = v.load_size(ctx, Some("len"));
-                        let raw_index = if let Some(v) = generator.gen_expr(ctx, slice)? {
-                            v.to_basic_value_enum(ctx, generator, slice.custom.unwrap())?
-                                .into_int_value()
-                        } else {
-                            return Ok(None);
-                        };
+                        let raw_index = generator
+                            .gen_expr(ctx, slice)?
+                            .to_basic_value_enum(ctx, generator)?
+                            .into_int_value();
                         let raw_index =
                             ctx.builder.build_int_s_extend(raw_index, ctx.size_t, "sext").unwrap();
                         // handle negative index
@@ -2677,16 +2653,14 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             [Some(raw_index), Some(len), None],
                             expr.location,
                         );
-                        v.data().get(ctx, generator, &index, None).into()
+                        let result = v.data().get(ctx, generator, &index, None);
+                        RtValue::dynamic(ty, result)
                     }
                 }
                 TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                    let Some(ndarray) = generator.gen_expr(ctx, value)? else {
-                        return Ok(None);
-                    };
-
                     let ndarray_ty = value.custom.unwrap();
-                    let ndarray = ndarray.to_basic_value_enum(ctx, generator, ndarray_ty)?;
+                    let ndarray =
+                        generator.gen_expr(ctx, value)?.to_basic_value_enum(ctx, generator)?;
                     let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
                         .map_pointer_value(ndarray.into_pointer_value(), None);
 
@@ -2695,7 +2669,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                         .index(generator, ctx, &indices)
                         .split_unsized(generator, ctx)
                         .to_basic_value_enum();
-                    return Ok(Some(result.into()));
+                    return Ok(RtValue::dynamic(ty, result));
                 }
                 TypeEnum::TTuple { .. } => {
                     let index: u32 =
@@ -2707,25 +2681,30 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                                 "tuple subscript must be const int after type check"
                             );
                         };
-                    match generator.gen_expr(ctx, value)? {
+                    let rt_val = generator.gen_expr(ctx, value)?;
+                    match rt_val.val {
                         Some(ValueEnum::Dynamic(v)) => {
                             let v = v.into_struct_value();
-                            ctx.builder.build_extract_value(v, index, "tup_elem").unwrap().into()
+                            let result =
+                                ctx.builder.build_extract_value(v, index, "tup_elem").unwrap();
+                            RtValue::dynamic(ty, result)
                         }
                         Some(ValueEnum::Static(v)) => {
-                            if let Some(v) = v.get_tuple_element(index) {
-                                v
+                            if let Some(field_val) = v.get_tuple_element(index) {
+                                let result = field_val.to_basic_value_enum(ctx, generator, ty)?;
+                                RtValue::dynamic(ty, result)
                             } else {
                                 let tup = v
                                     .to_basic_value_enum(ctx, generator, value.custom.unwrap())?
                                     .into_struct_value();
-                                ctx.builder
+                                let result = ctx
+                                    .builder
                                     .build_extract_value(tup, index, "tup_elem")
-                                    .unwrap()
-                                    .into()
+                                    .unwrap();
+                                RtValue::dynamic(ty, result)
                             }
                         }
-                        None => return Ok(None),
+                        None => return Ok(RtValue::none(ty)),
                     }
                 }
                 _ => codegen_unreachable!(
@@ -2736,13 +2715,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
         }
         ExprKind::ListComp { .. } => {
             if let Some(v) = gen_comprehension(generator, ctx, expr)? {
-                v.into()
+                RtValue::dynamic(ty, v)
             } else {
-                return Ok(None);
+                return Ok(RtValue::none(ty));
             }
         }
         _ => unimplemented!(),
-    }))
+    })
 }
 
 trait __ReturnType<'ctx> {

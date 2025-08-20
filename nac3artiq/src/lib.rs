@@ -1018,8 +1018,10 @@ impl Nac3 {
                         unreachable!("toplevel expression must be a function call")
                     };
 
-                    let return_obj =
-                        generator.gen_expr(ctx, expr)?.map(|value| (expr.custom.unwrap(), value));
+                    let return_obj = generator
+                        .gen_expr(ctx, expr)?
+                        .val
+                        .map(|value| (expr.custom.unwrap(), value));
                     has_return = return_obj.is_some();
                     registry.wait_tasks_complete(handles);
                     attributes_writeback(

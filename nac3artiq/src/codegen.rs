@@ -112,11 +112,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
     /// closest parent `with` statement is a `with parallel` block.
     fn timeline_reset_start(&mut self, ctx: &mut CodeGenContext<'_, '_>) -> Result<(), String> {
         if let Some(start) = self.start.clone() {
-            let start_val = self.gen_expr(ctx, &start)?.unwrap().to_basic_value_enum(
-                ctx,
-                self,
-                start.custom.unwrap(),
-            )?;
+            let start_val = self.gen_expr(ctx, &start)?.to_basic_value_enum(ctx, self)?;
             self.timeline.emit_at_mu(ctx, start_val);
         }
 
@@ -142,11 +138,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
         store_name: Option<&str>,
     ) -> Result<(), String> {
         if let Some(end) = end {
-            let old_end = self.gen_expr(ctx, &end)?.unwrap().to_basic_value_enum(
-                ctx,
-                self,
-                end.custom.unwrap(),
-            )?;
+            let old_end = self.gen_expr(ctx, &end)?.to_basic_value_enum(ctx, self)?;
             let now = self.timeline.emit_now_mu(ctx);
             let max =
                 call_int_smax(ctx, old_end.into_int_value(), now.into_int_value(), Some("smax"));
@@ -260,11 +252,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
                         let old_parallel_mode = self.parallel_mode;
 
                         let now = if let Some(old_start) = &old_start {
-                            self.gen_expr(ctx, old_start)?.unwrap().to_basic_value_enum(
-                                ctx,
-                                self,
-                                old_start.custom.unwrap(),
-                            )?
+                            self.gen_expr(ctx, old_start)?.to_basic_value_enum(ctx, self)?
                         } else {
                             self.timeline.emit_now_mu(ctx)
                         };
@@ -332,11 +320,8 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
 
                         // set duration
                         let end_expr = self.end.take().unwrap();
-                        let end_val = self.gen_expr(ctx, &end_expr)?.unwrap().to_basic_value_enum(
-                            ctx,
-                            self,
-                            end_expr.custom.unwrap(),
-                        )?;
+                        let end_val =
+                            self.gen_expr(ctx, &end_expr)?.to_basic_value_enum(ctx, self)?;
 
                         // inside a sequential block
                         if old_start.is_none() {

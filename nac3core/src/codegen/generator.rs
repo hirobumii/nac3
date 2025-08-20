@@ -7,7 +7,7 @@ use nac3parser::ast::{Expr, Stmt, StrRef};
 
 use super::{
     CodeGenContext, bool_to_int_type,
-    expr::{gen_call, gen_constructor, gen_expr, gen_func_instance},
+    expr::{RtValue, gen_call, gen_constructor, gen_expr, gen_func_instance},
     stmt::{
         gen_array_var, gen_assign, gen_assign_target_list, gen_block, gen_for, gen_if, gen_setitem,
         gen_stmt, gen_store_target, gen_var, gen_while, gen_with,
@@ -82,7 +82,7 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         expr: &Expr<Option<Type>>,
-    ) -> Result<Option<ValueEnum<'ctx>>, String>
+    ) -> Result<RtValue<'ctx>, String>
     where
         Self: Sized,
     {
@@ -130,7 +130,7 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         target: &Expr<Option<Type>>,
-        value: ValueEnum<'ctx>,
+        value: &ValueEnum<'ctx>,
         value_ty: Type,
     ) -> Result<(), String>
     where
@@ -146,7 +146,7 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         targets: &[Expr<Option<Type>>],
-        value: ValueEnum<'ctx>,
+        value: &ValueEnum<'ctx>,
         value_ty: Type,
     ) -> Result<(), String>
     where
@@ -163,7 +163,7 @@ pub trait CodeGenerator {
         ctx: &mut CodeGenContext<'ctx, '_>,
         target: &Expr<Option<Type>>,
         key: &Expr<Option<Type>>,
-        value: ValueEnum<'ctx>,
+        value: &ValueEnum<'ctx>,
         value_ty: Type,
     ) -> Result<(), String>
     where

@@ -211,12 +211,10 @@ impl<'ctx> RustNDIndex<'ctx> {
                 RustNDIndex::Slice(slice)
             } else {
                 // Treat and handle everything else as a single element index.
-                let index = generator.gen_expr(ctx, index_expr)?.unwrap().to_basic_value_enum(
-                    ctx,
-                    generator,
-                    ctx.primitives.int32, // Must be int32, this checks for illegal values
-                )?;
-                let index = index.into_int_value();
+                let index = generator
+                    .gen_expr(ctx, index_expr)?
+                    .to_basic_value_enum(ctx, generator)?
+                    .into_int_value();
 
                 RustNDIndex::SingleElement(index)
             };

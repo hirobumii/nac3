@@ -340,13 +340,13 @@ impl<'ctx> From<StructValue<'ctx>> for ValueEnum<'ctx> {
 impl<'ctx> ValueEnum<'ctx> {
     /// Converts this [`ValueEnum`] to a [`BasicValueEnum`].
     pub fn to_basic_value_enum<'a>(
-        self,
+        &self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
         generator: &mut dyn CodeGenerator,
         expected_ty: Type,
     ) -> Result<BasicValueEnum<'ctx>, String> {
-        match self {
-            ValueEnum::Static(v) => v.to_basic_value_enum(ctx, generator, expected_ty),
+        match *self {
+            ValueEnum::Static(ref v) => v.to_basic_value_enum(ctx, generator, expected_ty),
             ValueEnum::Dynamic(v) => Ok(v),
         }
     }

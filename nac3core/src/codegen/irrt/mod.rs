@@ -162,11 +162,11 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
             one,
         ),
         (s, e, Some(step)) => {
-            let step = if let Some(v) = generator.gen_expr(ctx, step)? {
-                v.to_basic_value_enum(ctx, generator, ctx.primitives.int32)?.into_int_value()
-            } else {
-                return Ok(None);
-            };
+            let step = generator
+                .gen_expr(ctx, step)?
+                .to_basic_value_enum(ctx, generator)?
+                .into_int_value();
+
             // assert step != 0, throw exception if not
             let not_zero = ctx
                 .builder

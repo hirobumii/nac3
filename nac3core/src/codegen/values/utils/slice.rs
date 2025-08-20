@@ -214,14 +214,10 @@ impl<'ctx> RustSlice<'ctx> {
             Ok(match value_expr {
                 None => None,
                 Some(value_expr) => {
-                    let value_expr = generator
-                        .gen_expr(ctx, value_expr)?
-                        .map(|value| {
-                            value.to_basic_value_enum(ctx, generator, ctx.primitives.int32)
-                        })
-                        .unwrap()?;
+                    let value =
+                        generator.gen_expr(ctx, value_expr)?.to_basic_value_enum(ctx, generator)?;
 
-                    Some(value_expr.into_int_value())
+                    Some(value.into_int_value())
                 }
             })
         };
