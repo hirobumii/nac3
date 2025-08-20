@@ -180,8 +180,8 @@ impl Display for DisplayTypeError<'_> {
                 let type1 = self.unifier.get_ty_immutable(*t1);
                 let type2 = self.unifier.get_ty_immutable(*t2);
                 match (&*type1, &*type2) {
-                    (TypeEnum::TCall(call), _) => {
-                        let loc = self.unifier.calls[call.0].loc;
+                    (TypeEnum::TCall(calls), _) => {
+                        let loc = self.unifier.calls[calls[0].0].loc;
                         let result = write!(
                             f,
                             "{} is not callable",

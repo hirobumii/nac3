@@ -656,7 +656,7 @@ impl Inferencer<'_> {
             operator_info,
         });
         self.calls.insert(location.into(), call);
-        let call = self.unifier.add_ty(TypeEnum::TCall(call));
+        let call = self.unifier.add_ty(TypeEnum::TCall(vec![call]));
         let fields = once((method.into(), RecordField::new(call, false, Some(location)))).collect();
         let record = self.unifier.add_record(fields);
         self.constrain(obj, record, &location)?;
@@ -1769,7 +1769,7 @@ impl Inferencer<'_> {
             operator_info: None,
         });
         self.calls.insert(location.into(), call);
-        let call = self.unifier.add_ty(TypeEnum::TCall(call));
+        let call = self.unifier.add_ty(TypeEnum::TCall(vec![call]));
         self.unify(func.custom.unwrap(), call, &func.location)?;
 
         Ok(Located { location, custom: Some(ret), node: ExprKind::Call { func, args, keywords } })
