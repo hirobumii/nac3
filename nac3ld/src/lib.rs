@@ -187,7 +187,7 @@ pub struct Linker<'a> {
 }
 
 impl<'a> Linker<'a> {
-    fn get_dynamic_symbol_table(&self) -> Result<SymbolTableReader, Error> {
+    fn get_dynamic_symbol_table(&self) -> Result<SymbolTableReader<'_>, Error> {
         let dynsym_rec = get_section_by_name!(self, ".dynsym")
             .ok_or("cannot make SymbolTableReader using .dynsym")?;
         Ok(SymbolTableReader {

@@ -2313,40 +2313,40 @@ impl Inferencer<'_> {
             TypeEnum::TObj { obj_id, params, .. } => {
                 // If the RHS is a list, we can fold the targets as well.
                 let obj = &self.top_level.definitions.read()[obj_id.0];
-                if let TopLevelDef::Class { object_id, .. } = *obj.read() {
-                    if object_id == PrimDef::List.id() {
-                        let encoutered_starred = false;
-                        let mut folded_targets: Vec<ast::Expr<Option<Type>>> = Vec::new();
-                        let typ = iter_type_vars(params).nth(0).unwrap().ty; // Lists elements are all the same type
+                if let TopLevelDef::Class { object_id, .. } = *obj.read()
+                    && object_id == PrimDef::List.id()
+                {
+                    let encoutered_starred = false;
+                    let mut folded_targets: Vec<ast::Expr<Option<Type>>> = Vec::new();
+                    let typ = iter_type_vars(params).nth(0).unwrap().ty; // Lists elements are all the same type
 
-                        // Length of the list is unknow so we can't perform the same checks as for tuples.
-                        for target in targets {
-                            if let ExprKind::Starred { value: inner, .. } = target.node {
-                                if encoutered_starred {
-                                    return report_error(
-                                        "Only one starred term per list assignment is allowed",
-                                        target.location,
-                                    );
-                                }
-
-                                // The starred element is a list of `typ` type, the rhs is also a
-                                // list of `typ` type so we just assign it that type.
-                                let folded_target = self.fold_assign_target(*inner, rhs_ty)?;
-                                folded_targets.push(Located {
-                                    location: folded_target.location,
-                                    node: ExprKind::Starred {
-                                        value: Box::new(folded_target),
-                                        ctx: ExprContext::Store,
-                                    },
-                                    custom: None,
-                                });
-                                continue;
+                    // Length of the list is unknow so we can't perform the same checks as for tuples.
+                    for target in targets {
+                        if let ExprKind::Starred { value: inner, .. } = target.node {
+                            if encoutered_starred {
+                                return report_error(
+                                    "Only one starred term per list assignment is allowed",
+                                    target.location,
+                                );
                             }
 
-                            folded_targets.push(self.fold_assign_target(target, typ)?);
+                            // The starred element is a list of `typ` type, the rhs is also a
+                            // list of `typ` type so we just assign it that type.
+                            let folded_target = self.fold_assign_target(*inner, rhs_ty)?;
+                            folded_targets.push(Located {
+                                location: folded_target.location,
+                                node: ExprKind::Starred {
+                                    value: Box::new(folded_target),
+                                    ctx: ExprContext::Store,
+                                },
+                                custom: None,
+                            });
+                            continue;
                         }
-                        return Ok(folded_targets);
+
+                        folded_targets.push(self.fold_assign_target(target, typ)?);
                     }
+                    return Ok(folded_targets);
                 }
                 report_error(
                     "LHS target list pattern requires RHS to be a list type",

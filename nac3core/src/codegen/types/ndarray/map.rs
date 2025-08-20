@@ -104,7 +104,9 @@ impl<'ctx> NDArrayType<'ctx> {
             |_, ctx, (out_nditer, in_nditers)| {
                 // Advance all iterators
                 out_nditer.next(ctx);
-                in_nditers.iter().for_each(|nditer| nditer.next(ctx));
+                for nditer in &in_nditers {
+                    nditer.next(ctx);
+                }
                 Ok(())
             },
         )?;

@@ -522,7 +522,7 @@ impl TestEnvironment {
         }
     }
 
-    fn get_inferencer(&mut self) -> Inferencer {
+    fn get_inferencer(&mut self) -> Inferencer<'_> {
         Inferencer {
             top_level: &self.top_level,
             function_data: &mut self.function_data,

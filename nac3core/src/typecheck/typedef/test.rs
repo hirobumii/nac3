@@ -205,21 +205,21 @@ impl TestEnvironment {
                     // we should not resolve the type of type variables.
                     let mut ty = *self.type_mapping.get(x).unwrap();
                     let te = self.unifier.get_ty(ty);
-                    if let TypeEnum::TObj { params, .. } = &*te {
-                        if !params.is_empty() {
-                            assert_eq!(&s[0..1], "[");
-                            let mut p = Vec::new();
-                            while &s[0..1] != "]" {
-                                let result = self.internal_parse(&s[1..], mapping);
-                                p.push(result.0);
-                                s = result.1;
-                            }
-                            s = &s[1..];
-                            ty = self
-                                .unifier
-                                .subst(ty, &params.keys().copied().zip(p).collect())
-                                .unwrap_or(ty);
+                    if let TypeEnum::TObj { params, .. } = &*te
+                        && !params.is_empty()
+                    {
+                        assert_eq!(&s[0..1], "[");
+                        let mut p = Vec::new();
+                        while &s[0..1] != "]" {
+                            let result = self.internal_parse(&s[1..], mapping);
+                            p.push(result.0);
+                            s = result.1;
                         }
+                        s = &s[1..];
+                        ty = self
+                            .unifier
+                            .subst(ty, &params.keys().copied().zip(p).collect())
+                            .unwrap_or(ty);
                     }
                     ty
                 });

@@ -77,7 +77,7 @@ impl TypeError {
     }
 
     #[must_use]
-    pub fn to_display(self, unifier: &Unifier) -> DisplayTypeError {
+    pub fn to_display(self, unifier: &Unifier) -> DisplayTypeError<'_> {
         DisplayTypeError { err: self, unifier }
     }
 }

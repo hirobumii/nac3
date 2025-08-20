@@ -779,12 +779,11 @@ impl TopLevelComposer<'_> {
                 }
                 ast::StmtKind::Assign { targets, .. } => {
                     for t in targets {
-                        if let ast::ExprKind::Attribute { value, attr, .. } = &t.node {
-                            if let ast::ExprKind::Name { id, .. } = &value.node {
-                                if id == &"self".into() {
-                                    result.insert(*attr);
-                                }
-                            }
+                        if let ast::ExprKind::Attribute { value, attr, .. } = &t.node
+                            && let ast::ExprKind::Name { id, .. } = &value.node
+                            && id == &"self".into()
+                        {
+                            result.insert(*attr);
                         }
                     }
                 }

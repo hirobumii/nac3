@@ -543,10 +543,10 @@ impl InnerResolver {
                             .unwrap();
                         Ok(Ok((list, true)))
                     } else {
-                        return Ok(Err(format!(
+                        Ok(Err(format!(
                             "type list needs exactly 1 type parameters, found {}",
                             args.len()
-                        )));
+                        )))
                     }
                 }
                 TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
@@ -650,10 +650,10 @@ impl InnerResolver {
                         );
                         Ok(Ok((unifier.add_ty(TypeEnum::TVirtual { ty: ty.0 }), true)))
                     } else {
-                        return Ok(Err(format!(
+                        Ok(Err(format!(
                             "virtual class needs exactly 1 type parameters, found {}",
                             args.len()
-                        )));
+                        )))
                     }
                 }
                 _ => unimplemented!(),
@@ -692,16 +692,13 @@ impl InnerResolver {
         let pyid_to_def = self.pyid_to_def.read();
         let constructor_ty = pyid_to_def.get(&py_obj_id).and_then(|def_id| {
             defs.iter().find_map(|def| {
-                if let Some(rear_guard) = def.try_read() {
-                    if let TopLevelDef::Class { object_id, methods, constructor, .. } = &*rear_guard
-                    {
-                        if object_id == def_id
-                            && constructor.is_some()
-                            && methods.iter().any(|(s, _, _)| s == &"__init__".into())
-                        {
-                            return *constructor;
-                        }
-                    }
+                if let Some(rear_guard) = def.try_read()
+                    && let TopLevelDef::Class { object_id, methods, constructor, .. } = &*rear_guard
+                    && object_id == def_id
+                    && constructor.is_some()
+                    && methods.iter().any(|(s, _, _)| s == &"__init__".into())
+                {
+                    return *constructor;
                 }
                 None
             })
@@ -1614,10 +1611,10 @@ impl SymbolResolver for Resolver {
                             break;
                         }
                     }
-                    if let Ok(t) = sym_ty {
-                        if let TypeEnum::TVar { .. } = &*unifier.get_ty(t) {
-                            self.0.pyid_to_type.write().insert(*id, t);
-                        }
+                    if let Ok(t) = sym_ty
+                        && let TypeEnum::TVar { .. } = &*unifier.get_ty(t)
+                    {
+                        self.0.pyid_to_type.write().insert(*id, t);
                     }
                     Ok(sym_ty)
                 })

@@ -31,7 +31,7 @@ pub struct DwarfReader<'a> {
 }
 
 impl DwarfReader<'_> {
-    pub fn new(slice: &[u8], virt_addr: u32) -> DwarfReader {
+    pub fn new(slice: &[u8], virt_addr: u32) -> DwarfReader<'_> {
         DwarfReader { slice, virt_addr }
     }
 
@@ -114,7 +114,7 @@ pub struct DwarfWriter<'a> {
 }
 
 impl DwarfWriter<'_> {
-    pub fn new(slice: &mut [u8]) -> DwarfWriter {
+    pub fn new(slice: &mut [u8]) -> DwarfWriter<'_> {
         DwarfWriter { slice, offset: 0 }
     }
 
@@ -207,7 +207,7 @@ pub struct EH_Frame<'a> {
 impl<'a> EH_Frame<'a> {
     /// Creates an [`EH_Frame`] using the bytes in the `.eh_frame` section and its address in the
     /// ELF file.
-    pub fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> EH_Frame {
+    pub fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> EH_Frame<'_> {
         EH_Frame { reader: DwarfReader::new(eh_frame_slice, eh_frame_addr) }
     }
 
@@ -428,7 +428,7 @@ impl EH_Frame_Hdr<'_> {
         eh_frame_hdr_slice: &mut [u8],
         eh_frame_hdr_addr: u32,
         eh_frame_addr: u32,
-    ) -> EH_Frame_Hdr {
+    ) -> EH_Frame_Hdr<'_> {
         let mut writer = DwarfWriter::new(eh_frame_hdr_slice);
 
         writer.write_u8(1); // version

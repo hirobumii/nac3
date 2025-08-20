@@ -682,16 +682,16 @@ impl<'a> TopLevelComposer<'a> {
                     let mut class_def = class_def.write();
                     let TopLevelDef::Class { ancestors, .. } = &*class_def else { unreachable!() };
                     // Methods/fields needs to be processed only if class inherits from another class
-                    if ancestors.len() > 1 {
-                        if let Err(e) = Self::analyze_single_class_ancestors(
+                    if ancestors.len() > 1
+                        && let Err(e) = Self::analyze_single_class_ancestors(
                             &mut class_def,
                             &temp_def_list,
                             unifier,
                             primitives_store,
                             &mut type_var_to_concrete_def,
-                        ) {
-                            errors.extend(e);
-                        }
+                        )
+                    {
+                        errors.extend(e);
                     }
                 }
 
@@ -1528,32 +1528,31 @@ impl<'a> TopLevelComposer<'a> {
         // first, fix function typevar ids
         // they may be changed with our use of placeholders
         for (def, _) in definition_ast_list.iter().skip(self.builtin_num) {
-            if let TopLevelDef::Function { signature, var_id, .. } = &mut *def.write() {
-                if let TypeEnum::TFunc(FunSignature { args, ret, vars }) =
+            if let TopLevelDef::Function { signature, var_id, .. } = &mut *def.write()
+                && let TypeEnum::TFunc(FunSignature { args, ret, vars }) =
                     unifier.get_ty(*signature).as_ref()
-                {
-                    let new_var_ids = vars
-                        .values()
-                        .map(|v| match &*unifier.get_ty(*v) {
-                            TypeEnum::TVar { id, .. } => *id,
-                            _ => unreachable!(),
-                        })
-                        .collect_vec();
-                    if new_var_ids != *var_id {
-                        let new_signature = FunSignature {
-                            args: args.clone(),
-                            ret: *ret,
-                            vars: new_var_ids
-                                .iter()
-                                .zip(vars.values())
-                                .map(|(id, v)| (*id, *v))
-                                .collect(),
-                        };
-                        unifier
-                            .unification_table
-                            .set_value(*signature, Rc::new(TypeEnum::TFunc(new_signature)));
-                        *var_id = new_var_ids;
-                    }
+            {
+                let new_var_ids = vars
+                    .values()
+                    .map(|v| match &*unifier.get_ty(*v) {
+                        TypeEnum::TVar { id, .. } => *id,
+                        _ => unreachable!(),
+                    })
+                    .collect_vec();
+                if new_var_ids != *var_id {
+                    let new_signature = FunSignature {
+                        args: args.clone(),
+                        ret: *ret,
+                        vars: new_var_ids
+                            .iter()
+                            .zip(vars.values())
+                            .map(|(id, v)| (*id, *v))
+                            .collect(),
+                    };
+                    unifier
+                        .unification_table
+                        .set_value(*signature, Rc::new(TypeEnum::TFunc(new_signature)));
+                    *var_id = new_var_ids;
                 }
             }
         }

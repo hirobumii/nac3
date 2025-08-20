@@ -1616,10 +1616,10 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         clauses.push(Some(exn_id_global.as_pointer_value().as_basic_value_enum()));
     }
     let mut all_clauses = clauses.clone();
-    if let Some(old_clauses) = &ctx.outer_catch_clauses {
-        if !found_catch_all {
-            all_clauses.extend_from_slice(&old_clauses.0);
-        }
+    if let Some(old_clauses) = &ctx.outer_catch_clauses
+        && !found_catch_all
+    {
+        all_clauses.extend_from_slice(&old_clauses.0);
     }
     let old_clauses = ctx.outer_catch_clauses.replace((all_clauses, dispatcher, exn));
     let old_unwind = ctx.unwind_target.replace(landingpad);

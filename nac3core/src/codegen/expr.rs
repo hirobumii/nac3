@@ -635,10 +635,10 @@ pub fn gen_func_instance(
     let symbol = format!("{}.{}", name, instance_to_symbol.len());
     instance_to_symbol.insert(key, symbol.clone());
     let mut filter = var_id.clone();
-    if let Some(obj_ty) = &obj {
-        if let TypeEnum::TObj { params, .. } = &*ctx.unifier.get_ty(*obj_ty) {
-            filter.extend(params.keys());
-        }
+    if let Some(obj_ty) = &obj
+        && let TypeEnum::TObj { params, .. } = &*ctx.unifier.get_ty(*obj_ty)
+    {
+        filter.extend(params.keys());
     }
     let key = ctx.get_subst_key(obj, sign, Some(&filter));
     let instance = instance_to_stmt.get(&key).unwrap();
@@ -2177,23 +2177,21 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 if let TypeEnum::TFunc(_) = &*ctx.unifier.get_ty(c) {
                     let defs = ctx.top_level.definitions.read();
                     let result = defs.iter().find_map(|def| {
-                        if let Some(rear_guard) = def.try_read() {
-                            if let TopLevelDef::Class {
+                        if let Some(rear_guard) = def.try_read()
+                            && let TopLevelDef::Class {
                                 constructor: Some(constructor),
                                 attributes,
                                 ..
                             } = &*rear_guard
-                            {
-                                if *constructor == c {
-                                    return attributes.iter().find_map(|f| {
-                                        if f.0 == *attr {
-                                            // All other checks performed by this point
-                                            return Some(f.2.clone());
-                                        }
-                                        None
-                                    });
+                            && *constructor == c
+                        {
+                            return attributes.iter().find_map(|f| {
+                                if f.0 == *attr {
+                                    // All other checks performed by this point
+                                    return Some(f.2.clone());
                                 }
-                            }
+                                None
+                            });
                         }
                         None
                     });
@@ -2208,28 +2206,29 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                             codegen_unreachable!(ctx, "Function Type should not have attributes")
                         }
                     }
-                } else if let TypeEnum::TObj { obj_id, fields, params } = &*ctx.unifier.get_ty(c) {
-                    if fields.is_empty() && params.is_empty() {
-                        let defs = ctx.top_level.definitions.read();
-                        let def = defs[obj_id.0].read();
-                        match if let TopLevelDef::Class { attributes, .. } = &*def {
-                            attributes.iter().find_map(|f| {
-                                if f.0 == *attr {
-                                    return Some(f.2.clone());
-                                }
-                                None
-                            })
-                        } else {
-                            None
-                        } {
-                            Some(val) => {
-                                let mut modified_expr = expr.clone();
-                                modified_expr.node = ExprKind::Constant { value: val, kind: None };
-
-                                return generator.gen_expr(ctx, &modified_expr);
+                } else if let TypeEnum::TObj { obj_id, fields, params } = &*ctx.unifier.get_ty(c)
+                    && fields.is_empty()
+                    && params.is_empty()
+                {
+                    let defs = ctx.top_level.definitions.read();
+                    let def = defs[obj_id.0].read();
+                    match if let TopLevelDef::Class { attributes, .. } = &*def {
+                        attributes.iter().find_map(|f| {
+                            if f.0 == *attr {
+                                return Some(f.2.clone());
                             }
-                            None => codegen_unreachable!(ctx),
+                            None
+                        })
+                    } else {
+                        None
+                    } {
+                        Some(val) => {
+                            let mut modified_expr = expr.clone();
+                            modified_expr.node = ExprKind::Constant { value: val, kind: None };
+
+                            return generator.gen_expr(ctx, &modified_expr);
                         }
+                        None => codegen_unreachable!(ctx),
                     }
                 }
             }

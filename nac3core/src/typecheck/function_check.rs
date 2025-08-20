@@ -73,17 +73,16 @@ impl Inferencer<'_> {
         defined_identifiers: &mut HashSet<StrRef>,
     ) -> Result<(), HashSet<String>> {
         // there are some cases where the custom field is None
-        if let Some(ty) = &expr.custom {
-            if !matches!(&expr.node, ExprKind::Constant { value: Constant::Ellipsis, .. })
-                && ty.obj_id(self.unifier).is_none_or(|id| id != PrimDef::List.id())
-                && !self.unifier.is_concrete(*ty, &self.function_data.bound_variables)
-            {
-                return Err(HashSet::from([format!(
-                    "expected concrete type at {} but got {}",
-                    expr.location,
-                    self.unifier.get_ty(*ty).get_type_name()
-                )]));
-            }
+        if let Some(ty) = &expr.custom
+            && !matches!(&expr.node, ExprKind::Constant { value: Constant::Ellipsis, .. })
+            && ty.obj_id(self.unifier).is_none_or(|id| id != PrimDef::List.id())
+            && !self.unifier.is_concrete(*ty, &self.function_data.bound_variables)
+        {
+            return Err(HashSet::from([format!(
+                "expected concrete type at {} but got {}",
+                expr.location,
+                self.unifier.get_ty(*ty).get_type_name()
+            )]));
         }
         match &expr.node {
             ExprKind::Name { id, .. } => {
@@ -129,16 +128,16 @@ impl Inferencer<'_> {
                 self.should_have_value(right)?;
 
                 // Check whether a bitwise shift has a negative RHS constant value
-                if *op == LShift || *op == RShift {
-                    if let ExprKind::Constant { value, .. } = &right.node {
-                        let Constant::Int(rhs_val) = value else { unreachable!() };
+                if (*op == LShift || *op == RShift)
+                    && let ExprKind::Constant { value, .. } = &right.node
+                {
+                    let Constant::Int(rhs_val) = value else { unreachable!() };
 
-                        if *rhs_val < 0 {
-                            return Err(HashSet::from([format!(
-                                "shift count is negative at {}",
-                                right.location
-                            )]));
-                        }
+                    if *rhs_val < 0 {
+                        return Err(HashSet::from([format!(
+                            "shift count is negative at {}",
+                            right.location
+                        )]));
                     }
                 }
             }

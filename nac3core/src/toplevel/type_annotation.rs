@@ -664,10 +664,8 @@ pub fn get_type_from_type_annotation_kinds(
                     params: subst,
                 });
 
-                if need_subst {
-                    if let Some(wl) = subst_list.as_mut() {
-                        wl.push(ty);
-                    }
+                if need_subst && let Some(wl) = subst_list.as_mut() {
+                    wl.push(ty);
                 }
 
                 ty
