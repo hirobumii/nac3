@@ -319,7 +319,7 @@ pub type SharedUnifier = Arc<Mutex<(UnificationTable<TypeEnum>, u32, Vec<Call>)>
 pub struct Unifier {
     pub(crate) top_level: Option<Arc<TopLevelContext>>,
     pub(crate) unification_table: UnificationTable<Rc<TypeEnum>>,
-    pub(crate) calls: Vec<Rc<Call>>,
+    pub(crate) calls: Vec<Call>,
     var_id_counter: u32,
     unify_cache: HashSet<(Type, Type)>,
     snapshot: Option<(usize, u32)>,
@@ -378,7 +378,7 @@ impl Unifier {
         Unifier {
             unification_table: UnificationTable::from_send(&lock.0),
             var_id_counter: lock.1,
-            calls: lock.2.iter().map(|v| Rc::new(v.clone())).collect_vec(),
+            calls: lock.2.clone(),
             top_level: None,
             unify_cache: HashSet::new(),
             snapshot: None,
@@ -391,7 +391,7 @@ impl Unifier {
         Arc::new(Mutex::new((
             self.unification_table.get_send(),
             self.var_id_counter,
-            self.calls.iter().map(|v| v.as_ref().clone()).collect_vec(),
+            self.calls.clone(),
         )))
     }
 
@@ -415,7 +415,7 @@ impl Unifier {
 
     pub fn add_call(&mut self, call: Call) -> CallId {
         let id = CallId(self.calls.len());
-        self.calls.push(Rc::new(call));
+        self.calls.push(call);
         id
     }
 
