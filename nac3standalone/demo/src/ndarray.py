@@ -36,13 +36,13 @@ def output_ndarray_bool_2(n: ndarray[bool, Literal[2]]):
             output_bool(n[r][c])
 
 def output_ndarray_int32_1(n: ndarray[int32, Literal[1]]):
-    for i in range(len(n)):
-        output_int32(n[i])
+    for i in n:
+        output_int32(i)
 
 def output_ndarray_int32_2(n: ndarray[int32, Literal[2]]):
-    for r in range(len(n)):
-        for c in range(len(n[r])):
-            output_int32(n[r][c])
+    for r in n:
+        for c in r:
+            output_int32(c)
 
 def output_ndarray_int64_2(n: ndarray[int64, Literal[2]]):
     for r in range(len(n)):

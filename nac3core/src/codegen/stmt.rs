@@ -27,8 +27,12 @@ use super::{
 };
 use crate::{
     codegen::{ModuleContext, llvm_fns::FunctionDecl},
-    symbol_resolver::ValueEnum,
-    toplevel::{DefinitionId, TopLevelContext, TopLevelDef},
+    symbol_resolver::{SymbolValue, ValueEnum},
+    toplevel::{
+        DefinitionId, TopLevelContext, TopLevelDef,
+        helper::extract_ndims,
+        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+    },
     typecheck::{
         magic_methods::Binop,
         typedef::{FunSignature, Type, TypeEnum, iter_type_vars},
@@ -796,6 +800,75 @@ pub fn gen_for<G: CodeGenerator>(
                 .unwrap();
             let val = ctx.build_gep_and_load(arr_ptr, &[index], Some("val"));
             let val_ty = iter_type_vars(list_params).next().unwrap().ty;
+            generator.gen_assign(ctx, target, val.into(), val_ty)?;
+            generator.gen_block(ctx, body.iter())?;
+        }
+        TypeEnum::TObj { obj_id, .. }
+            if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
+        {
+            let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, iter_ty);
+            let ndims = extract_ndims(&ctx.unifier, ndims);
+            let ndarray = NDArrayType::from_unifier_type(ctx, iter_ty)
+                .map_pointer_value(iter_val.into_pointer_value(), None);
+
+            let pshape_dim0 = unsafe {
+                ndarray.shape().ptr_offset_unchecked(ctx, generator, &size_t.const_zero(), None)
+            };
+            let shape_dim0 = ctx
+                .builder
+                .build_load(pshape_dim0, "")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+
+            let index_addr = generator.gen_var_alloc(ctx, size_t.into(), Some("for.index.addr"))?;
+            ctx.builder.build_store(index_addr, size_t.const_zero()).unwrap();
+            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+
+            ctx.builder.position_at_end(cond_bb);
+            let index = ctx
+                .builder
+                .build_load(index_addr, "for.index")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+            let cmp = ctx
+                .builder
+                .build_int_compare(IntPredicate::SLT, index, shape_dim0, "cond")
+                .unwrap();
+            ctx.builder.build_conditional_branch(cmp, body_bb, orelse_bb).unwrap();
+
+            ctx.builder.position_at_end(incr_bb);
+            let index =
+                ctx.builder.build_load(index_addr, "").map(BasicValueEnum::into_int_value).unwrap();
+            let inc = ctx.builder.build_int_add(index, size_t.const_int(1, false), "inc").unwrap();
+            ctx.builder.build_store(index_addr, inc).unwrap();
+            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+
+            ctx.builder.position_at_end(body_bb);
+            let index = ctx
+                .builder
+                .build_load(index_addr, "for.index")
+                .map(BasicValueEnum::into_int_value)
+                .unwrap();
+
+            let val = ndarray
+                .index(
+                    generator,
+                    ctx,
+                    &[RustNDIndex::SingleElement(
+                        ctx.builder.build_int_truncate_or_bit_cast(index, int32, "").unwrap(),
+                    )],
+                )
+                .split_unsized(generator, ctx)
+                .to_basic_value_enum();
+
+            let val_ty = if ndims == 1 {
+                dtype
+            } else {
+                let new_ndims =
+                    ctx.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims - 1)], None);
+                make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(dtype), Some(new_ndims))
+            };
+
             generator.gen_assign(ctx, target, val.into(), val_ty)?;
             generator.gen_block(ctx, body.iter())?;
         }
