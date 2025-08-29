@@ -31,9 +31,9 @@ def output_float64(x: float):
     ...
 
 def output_ndarray_bool_2(n: ndarray[bool, Literal[2]]):
-    for r in range(len(n)):
-        for c in range(len(n[r])):
-            output_bool(n[r][c])
+    for r in n:
+        for c in r:
+            output_bool(c)
 
 def output_ndarray_int32_1(n: ndarray[int32, Literal[1]]):
     for i in n:
@@ -45,41 +45,41 @@ def output_ndarray_int32_2(n: ndarray[int32, Literal[2]]):
             output_int32(c)
 
 def output_ndarray_int64_2(n: ndarray[int64, Literal[2]]):
-    for r in range(len(n)):
-        for c in range(len(n[r])):
-            output_int64(n[r][c])
+    for r in n:
+        for c in r:
+            output_int64(c)
 
 def output_ndarray_uint32_2(n: ndarray[uint32, Literal[2]]):
-    for r in range(len(n)):
-        for c in range(len(n[r])):
-            output_uint32(n[r][c])
+    for r in n:
+        for c in r:
+            output_uint32(c)
 
 def output_ndarray_uint64_2(n: ndarray[uint64, Literal[2]]):
-    for r in range(len(n)):
-        for c in range(len(n[r])):
-            output_uint64(n[r][c])
+    for r in n:
+        for c in r:
+            output_uint64(c)
 
 def output_ndarray_float_1(n: ndarray[float, Literal[1]]):
-    for i in range(len(n)):
-        output_float64(n[i])
+    for f in n:
+        output_float64(f)
 
 def output_ndarray_float_2(n: ndarray[float, Literal[2]]):
-    for r in range(len(n)):
-        for c in range(len(n[r])):
-            output_float64(n[r][c])
+    for r in n:
+        for c in r:
+            output_float64(c)
 
 def output_ndarray_float_3(n: ndarray[float, Literal[3]]):
-    for d in range(len(n)):
-        for r in range(len(n[d])):
-            for c in range(len(n[d][r])):
-                output_float64(n[d][r][c])
+    for x in n:
+        for y in x:
+            for z in y:
+                output_float64(z)
 
 def output_ndarray_float_4(n: ndarray[float, Literal[4]]):
-    for x in range(len(n)):
-        for y in range(len(n[x])):
-            for z in range(len(n[x][y])):
-                for w in range(len(n[x][y][z])):
-                    output_float64(n[x][y][z][w])
+    for x in n:
+        for y in x:
+            for z in y:
+                for w in z:
+                    output_float64(w)
 
 def consume_ndarray_1(n: ndarray[float, Literal[1]]):
     pass
@@ -177,6 +177,12 @@ def test_ndarray_copy():
 
     output_ndarray_float_2(x)
     output_ndarray_float_2(y)
+
+def test_ndarray_iter():
+    n: ndarray[float, 2] = np_eye(2)
+    for r in range(len(n)):
+        for c in range(len(n[r])):
+            output_float64(n[r][c])
 
 def test_ndarray_neg_idx():
     x = np_identity(2)
@@ -1730,6 +1736,8 @@ def run() -> int32:
     test_ndarray_identity()
     test_ndarray_fill()
     test_ndarray_copy()
+
+    test_ndarray_iter()
 
     test_ndarray_neg_idx()
     test_ndarray_slices()
