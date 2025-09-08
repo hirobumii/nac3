@@ -34,6 +34,12 @@ type IsAnnClassFn<'a> = dyn Fn(&Located<ExprKind>) -> Result<bool, String> + 'a;
 type IsDecoratorFn<'a> = dyn Fn(&Located<ExprKind>) -> Result<bool, String> + 'a;
 
 pub struct ComposerConfig<'a> {
+    /// A function that checks whether an annotation class indicates a class contains generic
+    /// types in its members.
+    ///
+    /// See [`ComposerConfig::has_generic_ann`].
+    pub has_generic_ann_fn: Box<IsAnnClassFn<'a>>,
+
     /// A function that checks whether an annotation class indicates a class variable should be
     /// mutable, or [`None`] if such a class is not supported.
     ///
@@ -62,6 +68,14 @@ pub struct ComposerConfig<'a> {
 }
 
 impl ComposerConfig<'_> {
+    /// Checks whether the type annotation expression `type_ann` indicates that a class contains
+    /// generic types in its members, usually `Generic[T]`.
+    ///
+    /// The type annotation is resolved in the decorator's global module context.
+    pub fn has_generic_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, String> {
+        (*self.has_generic_ann_fn)(type_ann)
+    }
+
     /// Checks whether the type annotation expression `type_ann` indicates that the variable is
     /// mutable, usually `Kernel[T]`.
     ///
@@ -108,6 +122,15 @@ impl ComposerConfig<'_> {
 impl Default for ComposerConfig<'_> {
     fn default() -> Self {
         ComposerConfig {
+            has_generic_ann_fn: Box::new(|ann| {
+                Ok(matches!(
+                    &ann.node,
+                    ExprKind::Subscript { value, .. } if matches!(
+                        &value.node,
+                        ExprKind::Name { id, .. } if id == &"Generic".into()
+                    )
+                ))
+            }),
             has_kernel_ann_fn: None,
             has_invariant_ann_fn: Box::new(|ann| {
                 Ok(matches!(

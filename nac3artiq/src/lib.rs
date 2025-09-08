@@ -163,6 +163,7 @@ pub struct PrimitivePythonId {
     portable_decorator: u64,
     rpc_decorator: u64,
     static_method_decorator: u64,
+    generic: u64,
 }
 
 #[derive(Clone, Default)]
@@ -495,6 +496,16 @@ impl Nac3 {
             self.builtins.clone(),
             Self::get_lateinit_builtins(),
             ComposerConfig {
+                has_generic_ann_fn: Box::new(|ann| {
+                    Python::with_gil(|py| {
+                        is_class_ann_same(
+                            ann,
+                            modules_by_path[&ann.location.file].bind(py),
+                            self.primitive_ids.generic,
+                        )
+                    })
+                    .map_err(|e| e.to_string())
+                }),
                 has_kernel_ann_fn: Some(Box::new(|ann| {
                     Python::with_gil(|py| {
                         is_class_ann_same(
@@ -1373,6 +1384,7 @@ impl Nac3 {
             portable_decorator: get_artiq_builtin_id(Some("artiq"), "portable")?,
             rpc_decorator: get_artiq_builtin_id(Some("artiq"), "rpc")?,
             static_method_decorator: get_artiq_builtin_id(None, "staticmethod")?,
+            generic: get_artiq_builtin_id(Some("typing"), "Generic")?,
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();

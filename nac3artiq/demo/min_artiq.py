@@ -160,6 +160,7 @@ builtins = {
 
     "typing": {
         "_GenericAlias": _GenericAlias,
+        "Generic": Generic,
         "TypeVar": TypeVar,
     },
 
