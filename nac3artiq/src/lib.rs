@@ -132,38 +132,66 @@ impl Isa {
 }
 
 #[derive(Clone)]
-pub struct PrimitivePythonId {
+pub struct BuiltinPythonId {
     int: u64,
+    float: u64,
+    bool: u64,
+    str_class: u64,
+    list: u64,
+    tuple: u64,
+    exception: u64,
+    staticmethod_decor_fn: u64,
+}
+
+#[derive(Clone)]
+pub struct TypesPythonId {
+    generic_alias: u64,
+    module_type: u64,
+}
+
+#[derive(Clone)]
+pub struct TypingPythonId {
+    generic: u64,
+    generic_alias: u64,
+    typevar: u64,
+}
+
+#[derive(Clone)]
+pub struct NumpyPythonId {
     int32: u64,
     int64: u64,
     uint32: u64,
     uint64: u64,
-    float: u64,
     float64: u64,
-    bool: u64,
-    np_bool_: u64,
-    string: u64,
-    np_str_: u64,
-    list: u64,
+    bool_: u64,
+    str_: u64,
     ndarray: u64,
-    tuple: u64,
-    typevar: u64,
-    const_generic_marker: u64,
-    none: u64,
-    exception: u64,
-    generic_alias: (u64, u64),
-    virtual_id: u64,
-    option: u64,
-    module: u64,
+}
+
+#[derive(Clone)]
+pub struct ArtiqPythonId {
     kernel: u64,
     kernel_invariant: u64,
-    compile_decorator: u64,
-    extern_decorator: u64,
-    kernel_decorator: u64,
-    portable_decorator: u64,
-    rpc_decorator: u64,
-    static_method_decorator: u64,
-    generic: u64,
+    const_generic_marker: u64,
+    none: u64,
+    virtual_class: u64,
+    option: u64,
+
+    // Decorator Functions
+    compile_decor_fn: u64,
+    extern_decor_fn: u64,
+    kernel_decor_fn: u64,
+    portable_decor_fn: u64,
+    rpc_decor_fn: u64,
+}
+
+#[derive(Clone)]
+pub struct PrimitivePythonId {
+    builtins: BuiltinPythonId,
+    types: TypesPythonId,
+    typing: TypingPythonId,
+    numpy: NumpyPythonId,
+    artiq: ArtiqPythonId,
 }
 
 #[derive(Clone, Default)]
@@ -252,7 +280,7 @@ impl Nac3 {
                             is_decor_fn_same(
                                 decorator,
                                 module,
-                                &[self.primitive_ids.compile_decorator],
+                                &[self.primitive_ids.artiq.compile_decor_fn],
                             )
                             .unwrap()
                         })
@@ -275,8 +303,8 @@ impl Nac3 {
                             };
                             let base_id = py_interp::extract_id(&base_obj)?;
 
-                            Ok(base_id == self.primitive_ids.exception
-                                || base_id == self.primitive_ids.generic
+                            Ok(base_id == self.primitive_ids.builtins.exception
+                                || base_id == self.primitive_ids.typing.generic
                                 || registered_class_ids.contains(&base_id))
                         })
                         .unwrap()
@@ -293,9 +321,9 @@ impl Nac3 {
                                         decorator,
                                         module,
                                         &[
-                                            self.primitive_ids.kernel_decorator,
-                                            self.primitive_ids.portable_decorator,
-                                            self.primitive_ids.rpc_decorator,
+                                            self.primitive_ids.artiq.kernel_decor_fn,
+                                            self.primitive_ids.artiq.portable_decor_fn,
+                                            self.primitive_ids.artiq.rpc_decor_fn,
                                         ],
                                     )
                                     .unwrap()
@@ -318,10 +346,10 @@ impl Nac3 {
                                 decorator,
                                 module,
                                 &[
-                                    self.primitive_ids.extern_decorator,
-                                    self.primitive_ids.kernel_decorator,
-                                    self.primitive_ids.portable_decorator,
-                                    self.primitive_ids.rpc_decorator,
+                                    self.primitive_ids.artiq.extern_decor_fn,
+                                    self.primitive_ids.artiq.kernel_decor_fn,
+                                    self.primitive_ids.artiq.portable_decor_fn,
+                                    self.primitive_ids.artiq.rpc_decor_fn,
                                 ],
                             )
                             .unwrap()
@@ -502,7 +530,7 @@ impl Nac3 {
                         is_class_ann_same(
                             ann,
                             modules_by_path[&ann.location.file].bind(py),
-                            self.primitive_ids.generic,
+                            self.primitive_ids.typing.generic,
                         )
                     })
                     .map_err(|e| e.to_string())
@@ -512,7 +540,7 @@ impl Nac3 {
                         is_class_ann_same(
                             ann,
                             modules_by_path[&ann.location.file].bind(py),
-                            self.primitive_ids.kernel,
+                            self.primitive_ids.artiq.kernel,
                         )
                     })
                     .map_err(|e| e.to_string())
@@ -522,7 +550,7 @@ impl Nac3 {
                         is_class_ann_same(
                             ann,
                             modules_by_path[&ann.location.file].bind(py),
-                            self.primitive_ids.kernel_invariant,
+                            self.primitive_ids.artiq.kernel_invariant,
                         )
                     })
                     .map_err(|e| e.to_string())
@@ -533,8 +561,8 @@ impl Nac3 {
                             decorator,
                             modules_by_path[&decorator.location.file].bind(py),
                             &[
-                                self.primitive_ids.extern_decorator,
-                                self.primitive_ids.rpc_decorator,
+                                self.primitive_ids.artiq.extern_decor_fn,
+                                self.primitive_ids.artiq.rpc_decor_fn,
                             ],
                         )
                     })
@@ -545,7 +573,7 @@ impl Nac3 {
                         is_decor_fn_same(
                             decorator,
                             modules_by_path[&decorator.location.file].bind(py),
-                            &[self.primitive_ids.static_method_decorator],
+                            &[self.primitive_ids.builtins.staticmethod_decor_fn],
                         )
                     })
                     .map_err(|e| e.to_string())
@@ -661,7 +689,7 @@ impl Nac3 {
                         let decor_fn = get_decorator_fn(decorator, py_module)?;
                         let decor_fn_id = py_interp::extract_id(&decor_fn.into_pyobject(py)?)?;
 
-                        if decor_fn_id == self.primitive_ids.rpc_decorator {
+                        if decor_fn_id == self.primitive_ids.artiq.rpc_decor_fn {
                             store_fun
                                 .call1(
                                     py,
@@ -677,10 +705,10 @@ impl Nac3 {
                                 .any(|constant| constant == Constant::Str("async".into()));
                             rpc_ids.push((None, def_id, is_async));
                         } else if ![
-                            self.primitive_ids.kernel_decorator,
-                            self.primitive_ids.portable_decorator,
-                            self.primitive_ids.extern_decorator,
-                            self.primitive_ids.static_method_decorator,
+                            self.primitive_ids.artiq.kernel_decor_fn,
+                            self.primitive_ids.artiq.portable_decor_fn,
+                            self.primitive_ids.artiq.extern_decor_fn,
+                            self.primitive_ids.builtins.staticmethod_decor_fn,
                         ]
                         .contains(&decor_fn_id)
                         {
@@ -704,7 +732,7 @@ impl Nac3 {
                                 let decor_fn_id =
                                     py_interp::extract_id(&decor_fn.into_pyobject(py)?)?;
 
-                                if decor_fn_id == self.primitive_ids.rpc_decorator {
+                                if decor_fn_id == self.primitive_ids.artiq.rpc_decor_fn {
                                     if name == &"__init__".into() {
                                         return Err(CompileError::new_err(format!(
                                             "compilation failed\n----------\nThe constructor of class {} should not be decorated with rpc decorator (at {})",
@@ -722,9 +750,9 @@ impl Nac3 {
                                         is_async,
                                     ));
                                 } else if ![
-                                    self.primitive_ids.kernel_decorator,
-                                    self.primitive_ids.portable_decorator,
-                                    self.primitive_ids.static_method_decorator,
+                                    self.primitive_ids.artiq.kernel_decor_fn,
+                                    self.primitive_ids.artiq.portable_decor_fn,
+                                    self.primitive_ids.builtins.staticmethod_decor_fn,
                                 ]
                                 .contains(&decor_fn_id)
                                 {
@@ -1352,40 +1380,48 @@ impl Nac3 {
         };
 
         let primitive_ids = PrimitivePythonId {
-            virtual_id: get_artiq_builtin_id(Some("artiq"), "virtual")?,
-            generic_alias: (
-                get_artiq_builtin_id(Some("typing"), "_GenericAlias")?,
-                get_artiq_builtin_id(Some("types"), "GenericAlias")?,
-            ),
-            none: get_artiq_builtin_id(Some("artiq"), "none")?,
-            typevar: get_artiq_builtin_id(Some("typing"), "TypeVar")?,
-            const_generic_marker: get_artiq_builtin_id(Some("artiq"), "_ConstGenericMarker")?,
-            int: get_artiq_builtin_id(None, "int")?,
-            int32: get_artiq_builtin_id(Some("numpy"), "int32")?,
-            int64: get_artiq_builtin_id(Some("numpy"), "int64")?,
-            uint32: get_artiq_builtin_id(Some("numpy"), "uint32")?,
-            uint64: get_artiq_builtin_id(Some("numpy"), "uint64")?,
-            bool: get_artiq_builtin_id(None, "bool")?,
-            np_bool_: get_artiq_builtin_id(Some("numpy"), "bool_")?,
-            string: get_artiq_builtin_id(None, "str")?,
-            np_str_: get_artiq_builtin_id(Some("numpy"), "str_")?,
-            float: get_artiq_builtin_id(None, "float")?,
-            float64: get_artiq_builtin_id(Some("numpy"), "float64")?,
-            list: get_artiq_builtin_id(None, "list")?,
-            ndarray: get_artiq_builtin_id(Some("numpy"), "ndarray")?,
-            tuple: get_artiq_builtin_id(None, "tuple")?,
-            exception: get_artiq_builtin_id(None, "Exception")?,
-            option: get_artiq_builtin_id(Some("artiq"), "Option")?,
-            module: get_artiq_builtin_id(Some("types"), "ModuleType")?,
-            kernel: get_artiq_builtin_id(Some("artiq"), "Kernel")?,
-            kernel_invariant: get_artiq_builtin_id(Some("artiq"), "KernelInvariant")?,
-            compile_decorator: get_artiq_builtin_id(Some("artiq"), "compile")?,
-            extern_decorator: get_artiq_builtin_id(Some("artiq"), "extern")?,
-            kernel_decorator: get_artiq_builtin_id(Some("artiq"), "kernel")?,
-            portable_decorator: get_artiq_builtin_id(Some("artiq"), "portable")?,
-            rpc_decorator: get_artiq_builtin_id(Some("artiq"), "rpc")?,
-            static_method_decorator: get_artiq_builtin_id(None, "staticmethod")?,
-            generic: get_artiq_builtin_id(Some("typing"), "Generic")?,
+            builtins: BuiltinPythonId {
+                int: get_artiq_builtin_id(None, "int")?,
+                float: get_artiq_builtin_id(None, "float")?,
+                bool: get_artiq_builtin_id(None, "bool")?,
+                str_class: get_artiq_builtin_id(None, "str")?,
+                list: get_artiq_builtin_id(None, "list")?,
+                tuple: get_artiq_builtin_id(None, "tuple")?,
+                exception: get_artiq_builtin_id(None, "Exception")?,
+                staticmethod_decor_fn: get_artiq_builtin_id(None, "staticmethod")?,
+            },
+            types: TypesPythonId {
+                generic_alias: get_artiq_builtin_id(Some("types"), "GenericAlias")?,
+                module_type: get_artiq_builtin_id(Some("types"), "ModuleType")?,
+            },
+            typing: TypingPythonId {
+                generic: get_artiq_builtin_id(Some("typing"), "Generic")?,
+                generic_alias: get_artiq_builtin_id(Some("typing"), "_GenericAlias")?,
+                typevar: get_artiq_builtin_id(Some("typing"), "TypeVar")?,
+            },
+            numpy: NumpyPythonId {
+                int32: get_artiq_builtin_id(Some("numpy"), "int32")?,
+                int64: get_artiq_builtin_id(Some("numpy"), "int64")?,
+                uint32: get_artiq_builtin_id(Some("numpy"), "uint32")?,
+                uint64: get_artiq_builtin_id(Some("numpy"), "uint64")?,
+                float64: get_artiq_builtin_id(Some("numpy"), "float64")?,
+                bool_: get_artiq_builtin_id(Some("numpy"), "bool_")?,
+                str_: get_artiq_builtin_id(Some("numpy"), "str_")?,
+                ndarray: get_artiq_builtin_id(Some("numpy"), "ndarray")?,
+            },
+            artiq: ArtiqPythonId {
+                kernel: get_artiq_builtin_id(Some("artiq"), "Kernel")?,
+                kernel_invariant: get_artiq_builtin_id(Some("artiq"), "KernelInvariant")?,
+                virtual_class: get_artiq_builtin_id(Some("artiq"), "virtual")?,
+                none: get_artiq_builtin_id(Some("artiq"), "none")?,
+                const_generic_marker: get_artiq_builtin_id(Some("artiq"), "_ConstGenericMarker")?,
+                option: get_artiq_builtin_id(Some("artiq"), "Option")?,
+                compile_decor_fn: get_artiq_builtin_id(Some("artiq"), "compile")?,
+                extern_decor_fn: get_artiq_builtin_id(Some("artiq"), "extern")?,
+                kernel_decor_fn: get_artiq_builtin_id(Some("artiq"), "kernel")?,
+                portable_decor_fn: get_artiq_builtin_id(Some("artiq"), "portable")?,
+                rpc_decor_fn: get_artiq_builtin_id(Some("artiq"), "rpc")?,
+            },
         };
 
         let working_directory = tempfile::Builder::new().prefix("nac3-").tempdir().unwrap();
