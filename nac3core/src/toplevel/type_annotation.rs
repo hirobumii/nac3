@@ -248,6 +248,81 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     )
 }
 
+/// Resolves an AST of a possibly-qualified class name into a [`DefinitionId`].
+fn resolve_class_to_id<T>(
+    resolver: &(dyn SymbolResolver + Send + Sync),
+    top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+    expr: &Expr<T>,
+) -> Result<DefinitionId, HashSet<String>> {
+    /// Variant of `resolve_class_to_id` that accepts a tuple of the parent qualified expression
+    /// `value` and the attribute `attr`.
+    fn resolve_id<T>(
+        resolver: &(dyn SymbolResolver + Send + Sync),
+        top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+        (parent, attr): (Option<&Expr<T>>, &StrRef),
+        location: &Location,
+    ) -> Result<DefinitionId, HashSet<String>> {
+        // If the path is unqualified, directly resolve using the provided `resolver`
+        let Some(parent) = parent else {
+            return resolver.get_identifier_def(*attr);
+        };
+
+        // Unpack the parent expression into its qualified parent and attribute
+        let (parent_value, parent_attr) = match &parent.node {
+            ast::ExprKind::Attribute { value, attr, .. } => (Some(value.as_ref()), attr),
+            ast::ExprKind::Name { id, .. } => (None, id),
+            _ => {
+                return Err(HashSet::from([format!(
+                    "unsupported expression type for class name (at {location})",
+                )]));
+            }
+        };
+
+        // Resolve the direct parent module our attribute belongs to
+        let parent_id =
+            resolve_id(resolver, top_level_defs, (parent_value, parent_attr), &parent.location)?;
+        let Some(mod_tld) = top_level_defs.get(parent_id.0) else {
+            return Err(HashSet::from([format!(
+                "NameError: name '{parent_attr}' is not defined (at {})",
+                parent.location
+            )]));
+        };
+        let TopLevelDef::Module { simple_name: mod_name, resolver: mod_resolver, .. } =
+            &*mod_tld.read()
+        else {
+            unreachable!("must be module here")
+        };
+
+        // Resolve the attribute using the resolver of our direct parent
+        resolve_id::<T>(
+            mod_resolver.as_ref().map_or(resolver, Arc::as_ref),
+            top_level_defs,
+            (None, attr),
+            location,
+        )
+        .map_err(|_| {
+            HashSet::from([format!(
+                "AttributeError: module '{mod_name}' has no attribute '{attr}' (at {location})",
+            )])
+        })
+    }
+
+    match &expr.node {
+        ast::ExprKind::Name { id, .. } => {
+            resolve_id::<T>(resolver, top_level_defs, (None, id), &expr.location)
+        }
+
+        ast::ExprKind::Attribute { value, attr, .. } => {
+            resolve_id(resolver, top_level_defs, (Some(value), attr), &expr.location)
+        }
+
+        _ => Err(HashSet::from([format!(
+            "unsupported expression type for class name (at {})",
+            expr.location
+        )])),
+    }
+}
+
 /// Parses an AST expression `expr` into a [`TypeAnnotation`].
 ///
 /// * `locked` - A [`HashMap`] containing the IDs of known definitions, mapped to a [`Vec`] of all
@@ -393,94 +468,20 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
         }
 
         // custom class
-        ast::ExprKind::Subscript { value, slice, .. } => {
-            match &value.node {
-                ast::ExprKind::Name { id, .. } => parse_class_id_as_type_annotation(
-                    resolver,
-                    top_level_defs,
-                    unifier,
-                    primitives,
-                    locked,
-                    *id,
-                    slice,
-                    &expr.location,
-                ),
+        ast::ExprKind::Subscript { value, slice, .. } => match &value.node {
+            ast::ExprKind::Name { id, .. } => parse_class_id_as_type_annotation(
+                resolver,
+                top_level_defs,
+                unifier,
+                primitives,
+                locked,
+                *id,
+                slice,
+                &expr.location,
+            ),
 
-                ast::ExprKind::Attribute { value, attr, .. } => {
-                    if let ast::ExprKind::Name { id, .. } = &value.node {
-                        let mod_id = resolver.get_identifier_def(*id)?;
-                        let Some(mod_tld) = top_level_defs.get(mod_id.0) else {
-                            return Err(HashSet::from([format!(
-                                "NameError: name '{id}' is not defined (at {})",
-                                expr.location
-                            )]));
-                        };
-
-                        let matching_attr = if let TopLevelDef::Module { classes, .. } =
-                            &*mod_tld.read()
-                        {
-                            classes.iter().find(|(name, _)| name == attr).map(|(_, def_id)| *def_id)
-                        } else {
-                            unreachable!("must be module here")
-                        };
-
-                        let Some(def_id) = matching_attr else {
-                            return Err(HashSet::from([format!(
-                                "AttributeError: module '{id}' has no attribute '{attr}' (at {})",
-                                expr.location
-                            )]));
-                        };
-
-                        class_def_id_to_type_annotation::<T, S>(
-                            resolver,
-                            top_level_defs,
-                            unifier,
-                            primitives,
-                            locked,
-                            *attr,
-                            (def_id, Some(slice)),
-                            &expr.location,
-                        )
-                    } else {
-                        // TODO: Handle multiple indirection
-                        Err(HashSet::from([format!(
-                            "unsupported expression type for class name (at {})",
-                            value.location
-                        )]))
-                    }
-                }
-
-                _ => Err(HashSet::from([format!(
-                    "unsupported expression type for class name (at {})",
-                    value.location
-                )])),
-            }
-        }
-
-        ast::ExprKind::Constant { value, .. } => Ok(TypeAnnotation::Literal(vec![value.clone()])),
-
-        ast::ExprKind::Attribute { value, attr, .. } => {
-            if let ast::ExprKind::Name { id, .. } = &value.node {
-                let mod_id = resolver.get_identifier_def(*id)?;
-                let Some(mod_tld) = top_level_defs.get(mod_id.0) else {
-                    return Err(HashSet::from([format!(
-                        "NameError: name '{id}' is not defined (at {})",
-                        expr.location
-                    )]));
-                };
-
-                let matching_attr = if let TopLevelDef::Module { classes, .. } = &*mod_tld.read() {
-                    classes.iter().find(|(name, _)| name == attr).map(|(_, def_id)| *def_id)
-                } else {
-                    unreachable!("must be module here")
-                };
-
-                let Some(def_id) = matching_attr else {
-                    return Err(HashSet::from([format!(
-                        "AttributeError: module '{id}' has no attribute '{attr}' (at {})",
-                        expr.location
-                    )]));
-                };
+            ast::ExprKind::Attribute { attr, .. } => {
+                let def_id = resolve_class_to_id(resolver, top_level_defs, value)?;
 
                 class_def_id_to_type_annotation::<T, S>(
                     resolver,
@@ -489,16 +490,32 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                     primitives,
                     locked,
                     *attr,
-                    (def_id, None),
+                    (def_id, Some(slice)),
                     &expr.location,
                 )
-            } else {
-                // TODO: Handle multiple indirection
-                Err(HashSet::from([format!(
-                    "unsupported expression type for class name (at {})",
-                    value.location
-                )]))
             }
+
+            _ => Err(HashSet::from([format!(
+                "unsupported expression type for class name (at {})",
+                value.location
+            )])),
+        },
+
+        ast::ExprKind::Constant { value, .. } => Ok(TypeAnnotation::Literal(vec![value.clone()])),
+
+        ast::ExprKind::Attribute { attr, .. } => {
+            let def_id = resolve_class_to_id(resolver, top_level_defs, expr)?;
+
+            class_def_id_to_type_annotation::<T, S>(
+                resolver,
+                top_level_defs,
+                unifier,
+                primitives,
+                locked,
+                *attr,
+                (def_id, None),
+                &expr.location,
+            )
         }
 
         _ => Err(HashSet::from([format!(
