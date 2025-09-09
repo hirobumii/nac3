@@ -270,6 +270,7 @@ impl Nac3 {
 
         for mut stmt in parser_result {
             let include = match stmt.node {
+                StmtKind::Import { .. } => true,
                 StmtKind::ClassDef { ref decorator_list, ref mut body, ref mut bases, .. } => {
                     // Check if the class is a NAC3 class by looking for `compile` decorator
                     let nac3_class = Python::with_gil(|py| {
@@ -609,13 +610,57 @@ impl Nac3 {
 
         // Stores a mapping from module id to attributes
         let mut module_cache: HashMap<u64, _> = HashMap::new();
+        let mut register_module_to_cache = |module: &Arc<Py<PyModule>>| -> PyResult<_> {
+            let py_module = module.bind(py);
+
+            let module_id = py_interp::extract_id(py_module)?;
+
+            module_cache.get(&module_id).cloned().map(Ok).unwrap_or({
+                let module_name: String = py_module.getattr("__name__")?.extract()?;
+                let module_file: String = py_module.getattr("__file__")?.extract()?;
+
+                let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
+                let members = py_module.dict();
+                for (key, val) in members {
+                    let key: &str = key.extract().unwrap();
+                    let val = py_interp::extract_id(&val).unwrap();
+                    name_to_pyid.insert(key.into(), val);
+                }
+                let resolver = Arc::new(Resolver(Arc::new(InnerResolver {
+                    id_to_type: builtins_ty.clone().into(),
+                    id_to_def: builtins_def.clone().into(),
+                    pyid_to_def: self.pyid_to_def.clone(),
+                    pyid_to_type: pyid_to_type.clone(),
+                    primitive_ids: self.primitive_ids.clone(),
+                    global_value_ids: global_value_ids.clone(),
+                    name_to_pyid: name_to_pyid.clone(),
+                    module: module.clone(),
+                    id_to_pyval: RwLock::default(),
+                    id_to_primitive: RwLock::default(),
+                    field_to_val: RwLock::default(),
+                    helper: helper.clone(),
+                    string_store: self.string_store.clone(),
+                    exception_ids: self.exception_ids.clone(),
+                    deferred_eval_store: self.deferred_eval_store.clone(),
+                }))) as Arc<dyn SymbolResolver + Send + Sync>;
+                let name_to_pyid = Rc::new(name_to_pyid);
+                let module_location = ast::Location::new(1, 1, FileName::from(module_file));
+                module_cache.insert(
+                    module_id,
+                    (
+                        name_to_pyid.clone(),
+                        resolver.clone(),
+                        module_name.clone(),
+                        Some(module_location),
+                    ),
+                );
+                Ok((name_to_pyid, resolver, module_name, Some(module_location)))
+            })
+        };
 
         let mut rpc_ids = vec![];
         for (stmt, path, module) in &self.top_levels {
             let py_module = module.bind(py).downcast::<PyModule>()?;
-            let module_id = py_interp::extract_id(py_module)?;
-            let module_name: String = py_module.getattr("__name__")?.extract()?;
-            let helper = helper.clone();
             let class_obj;
             if let StmtKind::ClassDef { name, .. } = &stmt.node {
                 let class = py_module.getattr(name.to_string().as_str()).unwrap();
@@ -629,47 +674,22 @@ impl Nac3 {
             } else {
                 class_obj = None;
             }
-            let (name_to_pyid, resolver, _, _) =
-                module_cache.get(&module_id).cloned().unwrap_or_else(|| {
-                    let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
-                    let members = py_module.getattr("__dict__").unwrap();
-                    let members = members.downcast::<PyDict>().unwrap();
-                    for (key, val) in members {
-                        let key: &str = key.extract().unwrap();
-                        let val = py_interp::extract_id(&val).unwrap();
-                        name_to_pyid.insert(key.into(), val);
-                    }
-                    let resolver = Arc::new(Resolver(Arc::new(InnerResolver {
-                        id_to_type: builtins_ty.clone().into(),
-                        id_to_def: builtins_def.clone().into(),
-                        pyid_to_def: self.pyid_to_def.clone(),
-                        pyid_to_type: pyid_to_type.clone(),
-                        primitive_ids: self.primitive_ids.clone(),
-                        global_value_ids: global_value_ids.clone(),
-                        name_to_pyid: name_to_pyid.clone(),
-                        module: module.clone(),
-                        id_to_pyval: RwLock::default(),
-                        id_to_primitive: RwLock::default(),
-                        field_to_val: RwLock::default(),
-                        helper,
-                        string_store: self.string_store.clone(),
-                        exception_ids: self.exception_ids.clone(),
-                        deferred_eval_store: self.deferred_eval_store.clone(),
-                    })))
-                        as Arc<dyn SymbolResolver + Send + Sync>;
-                    let name_to_pyid = Rc::new(name_to_pyid);
-                    let module_location = ast::Location::new(1, 1, stmt.location.file);
-                    module_cache.insert(
-                        module_id,
-                        (
-                            name_to_pyid.clone(),
-                            resolver.clone(),
-                            module_name.clone(),
-                            Some(module_location),
-                        ),
-                    );
-                    (name_to_pyid, resolver, module_name, Some(module_location))
-                });
+            let (name_to_pyid, resolver, _, _) = register_module_to_cache(module)?;
+
+            // Register all imported modules to allow resolution of classes/functions within those modules
+            if let StmtKind::Import { names, .. } = &stmt.node {
+                for name in names {
+                    let id = name.asname.unwrap_or(name.name);
+                    let imp_mod = py_module
+                        .dict()
+                        .get_item(id.to_string().as_str())?
+                        .unwrap_or_else(|| panic!("Unable to find key `{id}` in module `{module}`"))
+                        .downcast_into::<PyModule>()?
+                        .unbind();
+                    register_module_to_cache(&Arc::new(imp_mod))?;
+                }
+                continue;
+            }
 
             let (name, def_id, ty) = composer
                 .register_top_level(stmt.clone(), Some(resolver.clone()), path, false)
