@@ -11,7 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 indexmap = "2.10"
 itertools = "0.14"
-pyo3 = { version = "0.25", features = ["extension-module"] }
+pyo3 = { version = "0.26", features = ["extension-module"] }
 parking_lot = "0.12"
 tempfile = "3.21"
 nac3core = { path = "../nac3core" }
