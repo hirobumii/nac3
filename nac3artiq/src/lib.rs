@@ -241,7 +241,7 @@ impl Nac3 {
         module: &Arc<Py<PyModule>>,
         registered_class_ids: &HashSet<u64>,
     ) -> PyResult<()> {
-        let (module_name, source_file, source) = Python::with_gil(|py| -> PyResult<_> {
+        let (module_name, source_file, source) = Python::attach(|py| -> PyResult<_> {
             let module = module.bind(py);
             let source_file = module.getattr("__file__");
             let (source_file, source) = if let Ok(source_file) = source_file {
@@ -273,7 +273,7 @@ impl Nac3 {
                 StmtKind::Import { .. } => true,
                 StmtKind::ClassDef { ref decorator_list, ref mut body, ref mut bases, .. } => {
                     // Check if the class is a NAC3 class by looking for `compile` decorator
-                    let nac3_class = Python::with_gil(|py| {
+                    let nac3_class = Python::attach(|py| {
                         let module = module.bind(py);
 
                         decorator_list.iter().any(|decorator| {
@@ -292,7 +292,7 @@ impl Nac3 {
 
                     // Drop unregistered (i.e. host-only) base classes.
                     bases.retain(|base| {
-                        Python::with_gil(|py| -> PyResult<bool> {
+                        Python::attach(|py| -> PyResult<bool> {
                             let Some((path, id)) = class_expr_id_path(base) else {
                                 return Ok(true);
                             };
@@ -312,7 +312,7 @@ impl Nac3 {
 
                     body.retain(|stmt| {
                         if let StmtKind::FunctionDef { ref decorator_list, .. } = stmt.node {
-                            Python::with_gil(|py| {
+                            Python::attach(|py| {
                                 let module = module.bind(py);
 
                                 // Keep all class functions decorated with `kernel`, `portable`, or `rpc` decorator
@@ -337,7 +337,7 @@ impl Nac3 {
                     true
                 }
                 StmtKind::FunctionDef { ref decorator_list, .. } => {
-                    Python::with_gil(|py| {
+                    Python::attach(|py| {
                         let module = module.bind(py);
 
                         // Keep all top-level functions decorated with `extern`, `kernel`, `portable`, or `rpc` decorator
@@ -526,7 +526,7 @@ impl Nac3 {
             Self::get_lateinit_builtins(),
             ComposerConfig {
                 has_generic_ann_fn: Box::new(|ann| {
-                    Python::with_gil(|py| {
+                    Python::attach(|py| {
                         is_class_ann_same(
                             ann,
                             modules_by_path[&ann.location.file].bind(py),
@@ -536,7 +536,7 @@ impl Nac3 {
                     .map_err(|e| e.to_string())
                 }),
                 has_kernel_ann_fn: Some(Box::new(|ann| {
-                    Python::with_gil(|py| {
+                    Python::attach(|py| {
                         is_class_ann_same(
                             ann,
                             modules_by_path[&ann.location.file].bind(py),
@@ -546,7 +546,7 @@ impl Nac3 {
                     .map_err(|e| e.to_string())
                 })),
                 has_invariant_ann_fn: Box::new(|ann| {
-                    Python::with_gil(|py| {
+                    Python::attach(|py| {
                         is_class_ann_same(
                             ann,
                             modules_by_path[&ann.location.file].bind(py),
@@ -556,7 +556,7 @@ impl Nac3 {
                     .map_err(|e| e.to_string())
                 }),
                 is_extern_decorator_fn: Box::new(|decorator| {
-                    Python::with_gil(|py| -> PyResult<bool> {
+                    Python::attach(|py| -> PyResult<bool> {
                         is_decor_fn_same(
                             decorator,
                             modules_by_path[&decorator.location.file].bind(py),
@@ -569,7 +569,7 @@ impl Nac3 {
                     .map_err(|e| e.to_string())
                 }),
                 is_static_method_decorator_fn: Box::new(|decorator| {
-                    Python::with_gil(|py| -> PyResult<bool> {
+                    Python::attach(|py| -> PyResult<bool> {
                         is_decor_fn_same(
                             decorator,
                             modules_by_path[&decorator.location.file].bind(py),
@@ -986,7 +986,7 @@ impl Nac3 {
 
         let membuffer = membuffers.clone();
         let mut has_return = false;
-        py.allow_threads(|| {
+        py.detach(|| {
             let mut generator = ArtiqCodeGenerator::new(
                 "main".to_string(),
                 self.time_fns,
@@ -1112,7 +1112,7 @@ impl Nac3 {
 
         emit_llvm(&main, "main.post-opt");
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let string_store = self.string_store.read();
             let mut string_store_vec = string_store.iter().collect::<Vec<_>>();
             string_store_vec.sort_by(|(_s1, key1), (_s2, key2)| key1.cmp(key2));
@@ -1606,7 +1606,7 @@ impl Nac3 {
         args: Vec<Bound<'py, PyAny>>,
         embedding_map: &Bound<'py, PyAny>,
         py: Python<'py>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let target_machine = self.codegen_options.target.create_target_machine();
         let link_fn = |module: &Module| {
             if self.isa == Isa::Host {

@@ -7,7 +7,7 @@ use std::{
 
 use itertools::Itertools;
 use pyo3::{
-    PyObject, PyResult, Python,
+    PyResult, Python,
     prelude::*,
     types::{PyDict, PyList},
 };
@@ -927,10 +927,10 @@ pub fn attributes_writeback<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     generator: &mut dyn CodeGenerator,
     inner_resolver: &InnerResolver,
-    host_attributes: &PyObject,
+    host_attributes: &Py<PyAny>,
     return_obj: Option<(Type, ValueEnum<'ctx>)>,
 ) -> Result<(), String> {
-    Python::with_gil(|py| -> PyResult<Result<(), String>> {
+    Python::attach(|py| -> PyResult<Result<(), String>> {
         let host_attributes = host_attributes.downcast_bound::<PyList>(py)?;
         let top_levels = ctx.top_level.definitions.read();
         let globals = inner_resolver.global_value_ids.read();

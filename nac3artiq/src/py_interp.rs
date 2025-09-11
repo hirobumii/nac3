@@ -24,13 +24,13 @@ pub use builtins::*;
 pub mod builtins {
     use pyo3::{
         prelude::*,
-        sync::GILOnceCell,
+        sync::PyOnceLock,
         types::{PyAnyMethods, PyBool, PyCFunction, PyInt, PyModule, PyString, PyType},
     };
 
     /// Returns a reference to this module.
     pub fn module(py: Python<'_>) -> PyResult<&Bound<'_, PyModule>> {
-        static MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+        static MODULE: PyOnceLock<Py<PyModule>> = PyOnceLock::new();
 
         MODULE
             .get_or_try_init(py, || {
@@ -43,7 +43,7 @@ pub mod builtins {
     /// Returns a reference to the
     /// [`Exception`](https://docs.python.org/3/library/exceptions.html#Exception) class.
     pub fn get_exception_class(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
-        static EXCEPTION_CLASS: GILOnceCell<Py<PyType>> = GILOnceCell::new();
+        static EXCEPTION_CLASS: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
         EXCEPTION_CLASS.import(py, "builtins", "Exception")
     }
@@ -51,7 +51,7 @@ pub mod builtins {
     /// Returns a reference to the [`id`](https://docs.python.org/3/library/functions.html#id)
     /// function.
     pub fn id_fn(py: Python<'_>) -> PyResult<&Bound<'_, PyCFunction>> {
-        static ID_FN: GILOnceCell<Py<PyCFunction>> = GILOnceCell::new();
+        static ID_FN: PyOnceLock<Py<PyCFunction>> = PyOnceLock::new();
 
         ID_FN.import(py, "builtins", "id")
     }
@@ -65,7 +65,7 @@ pub mod builtins {
     /// Returns a reference to the
     /// [`issubclass`](https://docs.python.org/3/library/functions.html#issubclass) function.
     pub fn issubclass_fn(py: Python<'_>) -> PyResult<&Bound<'_, PyCFunction>> {
-        static ISSUBCLASS_FN: GILOnceCell<Py<PyCFunction>> = GILOnceCell::new();
+        static ISSUBCLASS_FN: PyOnceLock<Py<PyCFunction>> = PyOnceLock::new();
 
         ISSUBCLASS_FN.import(py, "builtins", "issubclass")
     }
@@ -82,7 +82,7 @@ pub mod builtins {
     /// Returns a reference to the [`len`](https://docs.python.org/3/library/functions.html#len)
     /// function.
     pub fn len_fn(py: Python<'_>) -> PyResult<&Bound<'_, PyCFunction>> {
-        static LEN_FN: GILOnceCell<Py<PyCFunction>> = GILOnceCell::new();
+        static LEN_FN: PyOnceLock<Py<PyCFunction>> = PyOnceLock::new();
 
         LEN_FN.import(py, "builtins", "len")
     }
@@ -96,7 +96,7 @@ pub mod builtins {
     /// Returns a reference to the
     /// [`repr`](https://docs.python.org/3/library/functions.html#repr) function.
     pub fn repr_fn(py: Python<'_>) -> PyResult<&Bound<'_, PyCFunction>> {
-        static REPR_FN: GILOnceCell<Py<PyCFunction>> = GILOnceCell::new();
+        static REPR_FN: PyOnceLock<Py<PyCFunction>> = PyOnceLock::new();
 
         REPR_FN.import(py, "builtins", "repr")
     }
@@ -110,7 +110,7 @@ pub mod builtins {
     /// Returns a reference to the
     /// [`type`](https://docs.python.org/3/library/functions.html#type) class.
     pub fn get_type_class(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
-        static TYPE_FN: GILOnceCell<Py<PyType>> = GILOnceCell::new();
+        static TYPE_FN: PyOnceLock<Py<PyType>> = PyOnceLock::new();
 
         TYPE_FN.import(py, "builtins", "type")
     }
@@ -125,14 +125,14 @@ pub mod builtins {
 pub mod typing {
     use pyo3::{
         prelude::*,
-        sync::GILOnceCell,
+        sync::PyOnceLock,
         types::{PyAnyMethods, PyFunction, PyModule, PyTuple},
     };
 
     /// Returns a reference to this module.
     #[allow(dead_code, reason = "For API consistency between all `py_interp` modules.")]
     pub fn module(py: Python<'_>) -> PyResult<&Bound<'_, PyModule>> {
-        static MODULE: GILOnceCell<Py<PyModule>> = GILOnceCell::new();
+        static MODULE: PyOnceLock<Py<PyModule>> = PyOnceLock::new();
 
         MODULE
             .get_or_try_init(py, || {
@@ -145,7 +145,7 @@ pub mod typing {
     /// Returns a reference to the
     /// [`typing.get_args`](https://docs.python.org/3/library/typing.html#typing.get_args) function.
     pub fn get_args_fn(py: Python<'_>) -> PyResult<&Bound<'_, PyFunction>> {
-        static GET_ARGS_FN: GILOnceCell<Py<PyFunction>> = GILOnceCell::new();
+        static GET_ARGS_FN: PyOnceLock<Py<PyFunction>> = PyOnceLock::new();
 
         GET_ARGS_FN.import(py, "typing", "get_args")
     }
@@ -160,7 +160,7 @@ pub mod typing {
     /// [`typing.get_origin`](https://docs.python.org/3/library/typing.html#typing.get_origin)
     /// function.
     pub fn get_origin_fn(py: Python<'_>) -> PyResult<&Bound<'_, PyFunction>> {
-        static GET_ORIGIN_FN: GILOnceCell<Py<PyFunction>> = GILOnceCell::new();
+        static GET_ORIGIN_FN: PyOnceLock<Py<PyFunction>> = PyOnceLock::new();
 
         GET_ORIGIN_FN.import(py, "typing", "get_origin")
     }

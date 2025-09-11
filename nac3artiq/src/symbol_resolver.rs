@@ -10,7 +10,7 @@ use std::{
 use itertools::Itertools;
 use parking_lot::RwLock;
 use pyo3::{
-    IntoPyObjectExt, PyAny, PyErr, PyObject, PyResult, Python,
+    IntoPyObjectExt, PyAny, PyErr, PyResult, Python,
     prelude::*,
     types::{PyDict, PyTuple},
 };
@@ -60,7 +60,7 @@ pub enum PrimitiveValue {
 /// An entry in the [`DeferredEvaluationStore`], containing the deferred types, a [`PyObject`]
 /// representing the `__constraints__` of the type variables, and the name of the type to be
 /// instantiated.
-type DeferredEvaluationEntry = (Vec<Type>, PyObject, String);
+type DeferredEvaluationEntry = (Vec<Type>, Py<PyAny>, String);
 
 #[derive(Clone)]
 pub struct DeferredEvaluationStore {
@@ -82,7 +82,7 @@ impl DeferredEvaluationStore {
 pub(crate) type ResolverField = (u64, StrRef);
 
 /// A value as stored in Python, represented by the `id()` and [`PyObject`] of the value.
-pub(crate) type PyValueHandle = (u64, Arc<PyObject>);
+pub(crate) type PyValueHandle = (u64, Arc<Py<PyAny>>);
 
 pub struct InnerResolver {
     pub id_to_type: RwLock<HashMap<StrRef, Type>>,
@@ -90,7 +90,7 @@ pub struct InnerResolver {
     pub id_to_pyval: RwLock<HashMap<StrRef, PyValueHandle>>,
     pub id_to_primitive: RwLock<HashMap<u64, PrimitiveValue>>,
     pub field_to_val: RwLock<HashMap<ResolverField, Option<PyValueHandle>>>,
-    pub global_value_ids: Arc<RwLock<HashMap<u64, PyObject>>>,
+    pub global_value_ids: Arc<RwLock<HashMap<u64, Py<PyAny>>>>,
     pub pyid_to_def: Arc<RwLock<HashMap<u64, DefinitionId>>>,
     pub pyid_to_type: Arc<RwLock<HashMap<u64, Type>>>,
     pub primitive_ids: PrimitivePythonId,
@@ -114,14 +114,14 @@ pub struct Resolver(pub Arc<InnerResolver>);
 
 #[derive(Clone)]
 pub struct PythonHelper {
-    pub store_obj: Arc<PyObject>,
-    pub store_str: Arc<PyObject>,
+    pub store_obj: Arc<Py<PyAny>>,
+    pub store_str: Arc<Py<PyAny>>,
 }
 
 struct PythonValue {
     id: u64,
-    value: Arc<PyObject>,
-    store_obj: Arc<PyObject>,
+    value: Arc<Py<PyAny>>,
+    store_obj: Arc<Py<PyAny>>,
     resolver: Arc<InnerResolver>,
 }
 
@@ -137,7 +137,7 @@ impl StaticValue for PythonValue {
     ) -> BasicValueEnum<'ctx> {
         ctx.module.get_global(format!("{}_const", self.id).as_str()).map_or_else(
             || {
-                Python::with_gil(|py| -> PyResult<BasicValueEnum<'ctx>> {
+                Python::attach(|py| -> PyResult<BasicValueEnum<'ctx>> {
                     let id: u32 = self.store_obj.bind(py).call1((&*self.value,))?.extract()?;
                     let struct_type = ctx.ctx.struct_type(&[ctx.i32.into()], false);
                     let global = ctx.module.add_global(
@@ -181,7 +181,7 @@ impl StaticValue for PythonValue {
             return Ok(global.as_pointer_value().into());
         }
 
-        Python::with_gil(|py| -> PyResult<BasicValueEnum<'ctx>> {
+        Python::attach(|py| -> PyResult<BasicValueEnum<'ctx>> {
             self.resolver
                 .get_obj_value(py, (*self.value).bind(py), ctx, generator, expected_ty)
                 .map(Option::unwrap)
@@ -199,7 +199,7 @@ impl StaticValue for PythonValue {
             field_to_val.get(&(self.id, name)).cloned()
         }
         .unwrap_or_else(|| {
-            Python::with_gil(|py| -> PyResult<Option<PyValueHandle>> {
+            Python::attach(|py| -> PyResult<Option<PyValueHandle>> {
                 let id = py_interp::extract_id(self.value.bind(py))?;
                 let ty = py_interp::call_type(self.value.bind(py))?;
                 let ty_id = py_interp::extract_id(&ty)?;
@@ -265,7 +265,7 @@ impl StaticValue for PythonValue {
             .unwrap()
         })
         .map(|(id, obj)| {
-            Python::with_gil(|_| {
+            Python::attach(|_| {
                 ValueEnum::Static(Arc::new(PythonValue {
                     id,
                     value: obj,
@@ -277,7 +277,7 @@ impl StaticValue for PythonValue {
     }
 
     fn get_tuple_element<'ctx>(&self, index: u32) -> Option<ValueEnum<'ctx>> {
-        Python::with_gil(|py| -> PyResult<Option<PyValueHandle>> {
+        Python::attach(|py| -> PyResult<Option<PyValueHandle>> {
             let ty = py_interp::call_type(self.value.bind(py))?;
             let ty_id = py_interp::extract_id(&ty)?;
             assert_eq!(ty_id, self.resolver.primitive_ids.builtins.tuple);
@@ -1573,7 +1573,7 @@ impl SymbolResolver for Resolver {
             unreachable!("only for resolving names")
         };
 
-        Python::with_gil(|py| -> PyResult<Option<SymbolValue>> {
+        Python::attach(|py| -> PyResult<Option<SymbolValue>> {
             let obj = self.0.module.bind(py);
             let members = obj.getattr("__dict__").unwrap();
             let members = members.downcast::<PyDict>().unwrap();
@@ -1615,7 +1615,7 @@ impl SymbolResolver for Resolver {
             } {
                 Ok(t)
             } else {
-                Python::with_gil(|py| -> PyResult<Result<Type, String>> {
+                Python::attach(|py| -> PyResult<Result<Type, String>> {
                     let obj = self.0.module.bind(py);
                     let mut sym_ty = Err(format!("cannot find symbol `{str}`"));
                     let members = obj.getattr("__dict__").unwrap();
@@ -1650,7 +1650,7 @@ impl SymbolResolver for Resolver {
             id_to_val.get(&id).cloned()
         }
         .or_else(|| {
-            Python::with_gil(|py| -> PyResult<Option<PyValueHandle>> {
+            Python::attach(|py| -> PyResult<Option<PyValueHandle>> {
                 let obj = self.0.module.bind(py);
                 let mut sym_value: Option<PyValueHandle> = None;
                 let members = obj.getattr("__dict__").unwrap();
@@ -1671,7 +1671,7 @@ impl SymbolResolver for Resolver {
             .unwrap()
         });
         sym_value.map(|(id, v)| {
-            Python::with_gil(|_| {
+            Python::attach(|_| {
                 ValueEnum::Static(Arc::new(PythonValue {
                     id,
                     value: v,
@@ -1724,7 +1724,7 @@ impl SymbolResolver for Resolver {
         if self.0.deferred_eval_store.needs_defer.load(Relaxed) {
             self.0.deferred_eval_store.needs_defer.store(false, Relaxed);
             let store = self.0.deferred_eval_store.store.read();
-            Python::with_gil(|py| -> PyResult<Result<(), String>> {
+            Python::attach(|py| -> PyResult<Result<(), String>> {
                 for (variables, constraints, name) in store.iter() {
                     let constraints = constraints.bind(py);
                     for (i, var) in variables.iter().enumerate() {
