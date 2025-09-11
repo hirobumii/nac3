@@ -265,14 +265,12 @@ impl StaticValue for PythonValue {
             .unwrap()
         })
         .map(|(id, obj)| {
-            Python::attach(|_| {
-                ValueEnum::Static(Arc::new(PythonValue {
-                    id,
-                    value: obj,
-                    store_obj: self.store_obj.clone(),
-                    resolver: self.resolver.clone(),
-                }))
-            })
+            ValueEnum::Static(Arc::new(PythonValue {
+                id,
+                value: obj,
+                store_obj: self.store_obj.clone(),
+                resolver: self.resolver.clone(),
+            }))
         })
     }
 
@@ -1671,14 +1669,12 @@ impl SymbolResolver for Resolver {
             .unwrap()
         });
         sym_value.map(|(id, v)| {
-            Python::attach(|_| {
-                ValueEnum::Static(Arc::new(PythonValue {
-                    id,
-                    value: v,
-                    store_obj: self.0.helper.store_obj.clone(),
-                    resolver: self.0.clone(),
-                }))
-            })
+            ValueEnum::Static(Arc::new(PythonValue {
+                id,
+                value: v,
+                store_obj: self.0.helper.store_obj.clone(),
+                resolver: self.0.clone(),
+            }))
         })
     }
 
