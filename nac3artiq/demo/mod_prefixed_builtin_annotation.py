@@ -2,7 +2,9 @@ from typing import Literal
 
 from min_artiq import Core, KernelInvariant, compile, kernel
 import numpy as np
-from numpy import ndarray
+
+# Tests the special case where `sys.__file__` is not present
+import sys
 
 @compile
 class FindTrapResonance():

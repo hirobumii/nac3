@@ -617,7 +617,8 @@ impl Nac3 {
 
             module_cache.get(&module_id).cloned().map(Ok).unwrap_or({
                 let module_name: String = py_module.getattr("__name__")?.extract()?;
-                let module_file: String = py_module.getattr("__file__")?.extract()?;
+                let module_file: Option<String> =
+                    py_module.getattr_opt("__file__")?.map(|file| file.extract()).transpose()?;
 
                 let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
                 let members = py_module.dict();
@@ -644,17 +645,13 @@ impl Nac3 {
                     deferred_eval_store: self.deferred_eval_store.clone(),
                 }))) as Arc<dyn SymbolResolver + Send + Sync>;
                 let name_to_pyid = Rc::new(name_to_pyid);
-                let module_location = ast::Location::new(1, 1, FileName::from(module_file));
+                let module_location =
+                    module_file.map(|file| ast::Location::new(1, 1, FileName::from(file)));
                 module_cache.insert(
                     module_id,
-                    (
-                        name_to_pyid.clone(),
-                        resolver.clone(),
-                        module_name.clone(),
-                        Some(module_location),
-                    ),
+                    (name_to_pyid.clone(), resolver.clone(), module_name.clone(), module_location),
                 );
-                Ok((name_to_pyid, resolver, module_name, Some(module_location)))
+                Ok((name_to_pyid, resolver, module_name, module_location))
             })
         };
 
