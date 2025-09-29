@@ -1,21 +1,21 @@
 { pkgs } : [
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libunwind-20.1.8-1-any.pkg.tar.zst";
-  sha256 = "01mxlqgf9dfhp30sqhi4fbsgmww44xh0qjmyl8drf3gskqyxa2ix";
-  name = "mingw-w64-clang-x86_64-libunwind-20.1.8-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libunwind-21.1.1-1-any.pkg.tar.zst";
+  sha256 = "0m3a5b6pi6pqc9kjl453kkfbpbw9hixczq1i35ahwgglczw60z3p";
+  name = "mingw-w64-clang-x86_64-libunwind-21.1.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libc++-20.1.8-1-any.pkg.tar.zst";
-  sha256 = "0am1zbfwyywlpbgj7q4h1w8willqqmrg27mm14h6ldrywpnyksvl";
-  name = "mingw-w64-clang-x86_64-libc++-20.1.8-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libc++-21.1.1-1-any.pkg.tar.zst";
+  sha256 = "105qhspr2hy9h887b9gvcf3x5r01w8ggi0526jr42r81wyy5hg90";
+  name = "mingw-w64-clang-x86_64-libc++-21.1.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libffi-3.5.1-1-any.pkg.tar.zst";
-  sha256 = "1vyc9kyqzwx6p9bxm1ybf38j2072ni25wsi6pyzlqs4y01kqy7ph";
-  name = "mingw-w64-clang-x86_64-libffi-3.5.1-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libffi-3.5.2-1-any.pkg.tar.zst";
+  sha256 = "02lc36mk43vi6lg4gb4dkyigk56fkqdk7b3ycapmih1w7kfyqq2r";
+  name = "mingw-w64-clang-x86_64-libffi-3.5.2-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -43,9 +43,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libxml2-2.14.5-2-any.pkg.tar.zst";
-  sha256 = "0pdx9i0bswjcx5mfx3syzzw6rx5iwd4wr4w743zklpinyy43yc8q";
-  name = "mingw-w64-clang-x86_64-libxml2-2.14.5-2-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libxml2-2.14.6-1-any.pkg.tar.zst";
+  sha256 = "14r2p36qqnc8aq3gf6rz3mrszckhkfi9vd1q8v67a4isfdx1bb66";
+  name = "mingw-w64-clang-x86_64-libxml2-2.14.6-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -55,63 +55,63 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-llvm-libs-20.1.8-2-any.pkg.tar.zst";
-  sha256 = "0y3hkfc7y2gmglwszm9l3n1hgc27bcdq39cy5id4l5r62d6r4s5y";
-  name = "mingw-w64-clang-x86_64-llvm-libs-20.1.8-2-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-llvm-libs-21.1.1-1-any.pkg.tar.zst";
+  sha256 = "03s0swygziqa4gf09p51d3nnmsb2alfzrmjb4mrkvfmd9n4m0zca";
+  name = "mingw-w64-clang-x86_64-llvm-libs-21.1.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-clang-libs-20.1.8-2-any.pkg.tar.zst";
-  sha256 = "09m1781imh789am14vh427md96304xy5yb6ad7f39g0mjj5z1idy";
-  name = "mingw-w64-clang-x86_64-clang-libs-20.1.8-2-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-clang-libs-21.1.1-1-any.pkg.tar.zst";
+  sha256 = "1hvpkj07bfsw9lppavj9jjjvrwis1j9pb39yrdan54483x7yyvhh";
+  name = "mingw-w64-clang-x86_64-clang-libs-21.1.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-compiler-rt-20.1.8-2-any.pkg.tar.zst";
-  sha256 = "0sgnbcngspqy0vaavf458b0fj7yglpfv7d6s3sfxb19zz93h8c4g";
-  name = "mingw-w64-clang-x86_64-compiler-rt-20.1.8-2-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-compiler-rt-21.1.1-1-any.pkg.tar.zst";
+  sha256 = "0lbqdq6rzf65a02lkz9qch24db4mrlgf8f62d3agqn1pyqwby3da";
+  name = "mingw-w64-clang-x86_64-compiler-rt-21.1.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-llvm-tools-20.1.8-2-any.pkg.tar.zst";
-  sha256 = "0c1ybxsv17a7lbflwp4vf218alpy31hp2bwdsdk06r31ji60z09x";
-  name = "mingw-w64-clang-x86_64-llvm-tools-20.1.8-2-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-llvm-tools-21.1.1-1-any.pkg.tar.zst";
+  sha256 = "0mv34np81ailsbc7mzpw7z5xywy77nkkjk8202dsvdsayiby702h";
+  name = "mingw-w64-clang-x86_64-llvm-tools-21.1.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-headers-git-13.0.0.r113.g3692f3ae0-1-any.pkg.tar.zst";
-  sha256 = "0psxracbgccy9s69wx8kpvh1xg4h90hhfh99j5m28z2j2wrl848x";
-  name = "mingw-w64-clang-x86_64-headers-git-13.0.0.r113.g3692f3ae0-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-headers-git-13.0.0.r179.g8181947cc-1-any.pkg.tar.zst";
+  sha256 = "1fi6bcgbx5080z3v1av39kn5wnybgyjx6aggahxhrb20mgq9i8mx";
+  name = "mingw-w64-clang-x86_64-headers-git-13.0.0.r179.g8181947cc-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-crt-git-13.0.0.r113.g3692f3ae0-1-any.pkg.tar.zst";
-  sha256 = "0qwpi48sx32iszkizcr15x1rpi9wyp0y10sa8rv5jnj435z1l21y";
-  name = "mingw-w64-clang-x86_64-crt-git-13.0.0.r113.g3692f3ae0-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-crt-git-13.0.0.r179.g8181947cc-1-any.pkg.tar.zst";
+  sha256 = "0bzzfscl2nyv81w3inkkl7f7injsgpcgbbivm3nm3zyra1ka0clf";
+  name = "mingw-w64-clang-x86_64-crt-git-13.0.0.r179.g8181947cc-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-lld-20.1.8-2-any.pkg.tar.zst";
-  sha256 = "132xdqkgspn1lfbixrqzyxl66bvngzcl5h4lzknrxbzh9xc6l10l";
-  name = "mingw-w64-clang-x86_64-lld-20.1.8-2-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-lld-21.1.1-1-any.pkg.tar.zst";
+  sha256 = "0an9dzbrg75fmm6bp9hls5ailcd9ngvhma2jcvwcyznv6x8pps8h";
+  name = "mingw-w64-clang-x86_64-lld-21.1.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libwinpthread-13.0.0.r113.g3692f3ae0-1-any.pkg.tar.zst";
-  sha256 = "1slzpw80yr15dby437bbpy8bjiky11h4jf283nhpx9bpv7f96ra7";
-  name = "mingw-w64-clang-x86_64-libwinpthread-13.0.0.r113.g3692f3ae0-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libwinpthread-13.0.0.r179.g8181947cc-1-any.pkg.tar.zst";
+  sha256 = "0mgxz784hbazmcwd3s44b7m2v38d07cq5yc7cdznrjmiypp8hwk3";
+  name = "mingw-w64-clang-x86_64-libwinpthread-13.0.0.r179.g8181947cc-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-winpthreads-13.0.0.r113.g3692f3ae0-1-any.pkg.tar.zst";
-  sha256 = "13aimb29146n98lxrxvnlm5hmqhjl23jaql75gyiprkx35jns5nh";
-  name = "mingw-w64-clang-x86_64-winpthreads-13.0.0.r113.g3692f3ae0-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-winpthreads-13.0.0.r179.g8181947cc-1-any.pkg.tar.zst";
+  sha256 = "0yir5d351jqixvx5jrgsvyqlmsjgl97icx24215xzkbf5z2xlpg6";
+  name = "mingw-w64-clang-x86_64-winpthreads-13.0.0.r179.g8181947cc-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-clang-20.1.8-2-any.pkg.tar.zst";
-  sha256 = "014z7sclpn6j77117am6srvgwjgxmjx2bg8byq33pf0bq76cvv8v";
-  name = "mingw-w64-clang-x86_64-clang-20.1.8-2-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-clang-21.1.1-1-any.pkg.tar.zst";
+  sha256 = "1wywhprrl2nnn4gz6mq4d57i47x5khc8n6sn03jya4s1fvrjhnvn";
+  name = "mingw-w64-clang-x86_64-clang-21.1.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -121,9 +121,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-openssl-3.5.2-1-any.pkg.tar.zst";
-  sha256 = "0zz4cq8ragsmsr87jplrdjai3rc0pz7kkixps17ppx4s4r7bvwmb";
-  name = "mingw-w64-clang-x86_64-openssl-3.5.2-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-openssl-3.5.3-1-any.pkg.tar.zst";
+  sha256 = "1m10925vnkfkq4lhdd075alkbn8h0bd13ha8lak1fynpi91vrc4m";
+  name = "mingw-w64-clang-x86_64-openssl-3.5.3-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -145,9 +145,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-pcre2-10.45-1-any.pkg.tar.zst";
-  sha256 = "1bczcjb46wiphnlaarfjd78k1v9x1vnr9b7gq8xwib18hmzick9r";
-  name = "mingw-w64-clang-x86_64-pcre2-10.45-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-pcre2-10.46-1-any.pkg.tar.zst";
+  sha256 = "122q5mwa156va0ji9v8gmn501k15sy08d3biji0rnryprl308pfd";
+  name = "mingw-w64-clang-x86_64-pcre2-10.46-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -175,9 +175,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-rust-1.89.0-3-any.pkg.tar.zst";
-  sha256 = "1mawqq6954kznidhcch14af8qi6n8kp2rmng0psrm3062ghk84p0";
-  name = "mingw-w64-clang-x86_64-rust-1.89.0-3-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-rust-1.90.0-2-any.pkg.tar.zst";
+  sha256 = "0gfiicqar1waznj3772sdi6bpz1aws2ncdkjdh4f4pdbpbdk3psj";
+  name = "mingw-w64-clang-x86_64-rust-1.90.0-2-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -205,9 +205,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libidn2-2.3.8-2-any.pkg.tar.zst";
-  sha256 = "109wmjiihw9s9dvyhn6wv92m4d8s7g9zq0d2c6z7j5vx2pffpyhp";
-  name = "mingw-w64-clang-x86_64-libidn2-2.3.8-2-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libidn2-2.3.8-3-any.pkg.tar.zst";
+  sha256 = "1kjbpj4dbk7xlsx85wzw0y9fq46y1b9vk8mg2qpdyrihg5503dfn";
+  name = "mingw-w64-clang-x86_64-libidn2-2.3.8-3-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -223,9 +223,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-p11-kit-0.25.5-1-any.pkg.tar.zst";
-  sha256 = "00yz6cmr1ldlrskv811n345xcia88mj7w4fyx4m9z5848jxgsabd";
-  name = "mingw-w64-clang-x86_64-p11-kit-0.25.5-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-p11-kit-0.25.10-1-any.pkg.tar.zst";
+  sha256 = "1vwlyv5c52hmc2madb8rw0s30msncymawh2vgaiy648x7dsfbwi6";
+  name = "mingw-w64-clang-x86_64-p11-kit-0.25.10-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -235,9 +235,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-nghttp2-1.66.0-1-any.pkg.tar.zst";
-  sha256 = "1b7fsns0gjzf9vi3k1s92w5mm6521kyn3c1jhgn9zmmy4s8yww21";
-  name = "mingw-w64-clang-x86_64-nghttp2-1.66.0-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-nghttp2-1.67.1-1-any.pkg.tar.zst";
+  sha256 = "15cncaybpq1m0qrf87i9h2zk1v8nmjwd8ccsqrzjb5c207m0dkc9";
+  name = "mingw-w64-clang-x86_64-nghttp2-1.67.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -259,27 +259,27 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-ngtcp2-1.14.0-1-any.pkg.tar.zst";
-  sha256 = "14l98sijz2n57x7vi8bxhgaa8nn9n2wzpxzhwbx38wa4klbrqnml";
-  name = "mingw-w64-clang-x86_64-ngtcp2-1.14.0-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-ngtcp2-1.16.0-1-any.pkg.tar.zst";
+  sha256 = "0akq2smhm7nahhmarwkrm657rw7v4499rf8s5l5ilamf95sh8hpi";
+  name = "mingw-w64-clang-x86_64-ngtcp2-1.16.0-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-nghttp3-1.11.0-1-any.pkg.tar.zst";
-  sha256 = "0s3dybqg6gmmkaab10bdm53nv10gwvmpfh0m2nbasgghylnn74yr";
-  name = "mingw-w64-clang-x86_64-nghttp3-1.11.0-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-nghttp3-1.12.0-1-any.pkg.tar.zst";
+  sha256 = "1pj67igdfx9rpx1kkn56drigfha24z2qj80qj1xbi10ic1wq3v67";
+  name = "mingw-w64-clang-x86_64-nghttp3-1.12.0-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-curl-8.15.0-1-any.pkg.tar.zst";
-  sha256 = "1cs5r8qzd035dwpv7wvbpirb2y8jvbjpq4jz3zqb33w2035qwqi2";
-  name = "mingw-w64-clang-x86_64-curl-8.15.0-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-curl-8.16.0-1-any.pkg.tar.zst";
+  sha256 = "0na53rws9xa1q1ddp3xndlq8hj9sjw6sm0syhh2kabli3q202rxp";
+  name = "mingw-w64-clang-x86_64-curl-8.16.0-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-expat-2.7.1-2-any.pkg.tar.zst";
-  sha256 = "0b8sd94i2g1dbjpv5jhkayb42h015l2hn85yr2kyq3grr4xhx0sc";
-  name = "mingw-w64-clang-x86_64-expat-2.7.1-2-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-expat-2.7.3-1-any.pkg.tar.zst";
+  sha256 = "04sp1xlv9hx39zhh5i557frmifgkk1lwx333iwbn33f061kmfz3h";
+  name = "mingw-w64-clang-x86_64-expat-2.7.3-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -289,9 +289,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libb2-0.98.1-2-any.pkg.tar.zst";
-  sha256 = "0555dvb2xs6695sz5ndrx6y0cz3qa5cg0m5v8q1md13ssg76vlh6";
-  name = "mingw-w64-clang-x86_64-libb2-0.98.1-2-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-libb2-0.98.1-3-any.pkg.tar.zst";
+  sha256 = "1qn2xlvv1xc3qyfqar3fdmg7mqfsvaa1x68y9jwbvar7xbqnjb3g";
+  name = "mingw-w64-clang-x86_64-libb2-0.98.1-3-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -325,9 +325,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-ninja-1.13.0-1-any.pkg.tar.zst";
-  sha256 = "1wx1sp118rj1c7ylqmajfichra75h2hay2z061sg7v0az5lblr3n";
-  name = "mingw-w64-clang-x86_64-ninja-1.13.0-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-ninja-1.13.1-1-any.pkg.tar.zst";
+  sha256 = "040ymqf8f3kpm6sgs2n7qqxinbsbkn0zc945l3hr9hyjfggxdvi5";
+  name = "mingw-w64-clang-x86_64-ninja-1.13.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -343,9 +343,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-cmake-4.1.0-1-any.pkg.tar.zst";
-  sha256 = "0qxw04ndl9s8dqna9hcdia7706s1hzj8fl5p26wmlzr3ysd5p5vg";
-  name = "mingw-w64-clang-x86_64-cmake-4.1.0-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-cmake-4.1.1-2-any.pkg.tar.zst";
+  sha256 = "1h92xy63a4zziyjxglm8k2kq0pi5vf8lcv9gcvdw6fy8c6d3fpl4";
+  name = "mingw-w64-clang-x86_64-cmake-4.1.1-2-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -379,15 +379,15 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-python-3.12.11-1-any.pkg.tar.zst";
-  sha256 = "1smhrvizcrrvzp9bc69iiicjcxff8khsja0pk8rcxlf817s7z9j6";
-  name = "mingw-w64-clang-x86_64-python-3.12.11-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-python-3.12.11-3-any.pkg.tar.zst";
+  sha256 = "18lajhbjmwdglhjlrkwb129xgaf3h1x046yzbs8ynmx1ar4vv2fi";
+  name = "mingw-w64-clang-x86_64-python-3.12.11-3-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-llvm-openmp-20.1.8-1-any.pkg.tar.zst";
-  sha256 = "0sd9wvrrdv2galrpx3lhmi811qzbzgidykqyapjqs76447w5lid9";
-  name = "mingw-w64-clang-x86_64-llvm-openmp-20.1.8-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-llvm-openmp-21.1.1-1-any.pkg.tar.zst";
+  sha256 = "0dv6kbc411flj88ijnpgr8lqnkblwfh74cfpw05zlx89cygzbw42";
+  name = "mingw-w64-clang-x86_64-llvm-openmp-21.1.1-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
@@ -397,9 +397,9 @@
 })
 
 (pkgs.fetchurl {
-  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-python-numpy-2.3.2-1-any.pkg.tar.zst";
-  sha256 = "13sl63k50x1nrimxbd1ml7f7lgblqbppl4pv2yqqbrwa9z6k2ycz";
-  name = "mingw-w64-clang-x86_64-python-numpy-2.3.2-1-any.pkg.tar.zst";
+  url = "https://mirror.msys2.org/mingw/clang64/mingw-w64-clang-x86_64-python-numpy-2.3.3-1-any.pkg.tar.zst";
+  sha256 = "0fjgl8b0a4mmnn3ql1nibvqhgl5zz4dwabqmjjgsk30jdirpxch1";
+  name = "mingw-w64-clang-x86_64-python-numpy-2.3.3-1-any.pkg.tar.zst";
 })
 
 (pkgs.fetchurl {
