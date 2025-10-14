@@ -8,7 +8,8 @@ use nac3parser::ast::Location;
 
 use super::{ProxyValue, StringValue, structure::StructProxyValue};
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
+    stmt::gen_var,
     types::{
         ExceptionType,
         structure::{StructField, StructProxyType},
@@ -26,20 +27,15 @@ pub struct ExceptionValue<'ctx> {
 impl<'ctx> ExceptionValue<'ctx> {
     /// Creates an [`ExceptionValue`] from a [`StructValue`].
     #[must_use]
-    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_struct_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         val: StructValue<'ctx>,
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        let pval = generator
-            .gen_var_alloc(
-                ctx,
-                val.get_type().into(),
-                name.map(|name| format!("{name}.addr")).as_deref(),
-            )
-            .unwrap();
+        let pval =
+            gen_var(ctx, val.get_type().into(), name.map(|name| format!("{name}.addr")).as_deref())
+                .unwrap();
         ctx.builder.build_store(pval, val).unwrap();
         Self::from_pointer_value(pval, llvm_usize, name)
     }
@@ -87,15 +83,10 @@ impl<'ctx> ExceptionValue<'ctx> {
     }
 
     /// Stores the [location][Location] of the exception source into this instance.
-    pub fn store_location<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        location: Location,
-    ) {
+    pub fn store_location(&self, ctx: &mut CodeGenContext<'ctx, '_>, location: Location) {
         let llvm_i32 = ctx.i32;
 
-        let filename = ctx.gen_string(generator, location.file.0);
+        let filename = ctx.gen_string(location.file.0);
         self.store_file(ctx, filename);
 
         self.line_field().store(

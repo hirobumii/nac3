@@ -1,18 +1,17 @@
 use inkwell::{
-    types::{BasicTypeEnum, IntType},
-    values::{BasicValueEnum, IntValue, PointerValue},
+    // ...existing code...
+    values::{BasicValueEnum, PointerValue},
 };
 
 use nac3parser::ast::{Expr, Stmt, StrRef};
 
 use super::{
-    CodeGenContext, bool_to_int_type,
+    CodeGenContext,
     expr::{RtValue, gen_call, gen_constructor, gen_expr, gen_func_instance},
     stmt::{
-        gen_array_var, gen_assign, gen_assign_target_list, gen_block, gen_for, gen_if, gen_setitem,
-        gen_stmt, gen_store_target, gen_var, gen_while, gen_with,
+        gen_assign, gen_assign_target_list, gen_block, gen_for, gen_if, gen_setitem, gen_stmt,
+        gen_store_target, gen_while, gen_with,
     },
-    values::ArraySliceValue,
 };
 use crate::{
     symbol_resolver::ValueEnum,
@@ -87,29 +86,6 @@ pub trait CodeGenerator {
         Self: Sized,
     {
         gen_expr(self, ctx, expr)
-    }
-
-    /// Allocate memory for a variable and return a pointer pointing to it.
-    /// The default implementation places the allocations at the start of the function.
-    fn gen_var_alloc<'ctx>(
-        &mut self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ty: BasicTypeEnum<'ctx>,
-        name: Option<&str>,
-    ) -> Result<PointerValue<'ctx>, String> {
-        gen_var(ctx, ty, name)
-    }
-
-    /// Allocate memory for a variable and return a pointer pointing to it.
-    /// The default implementation places the allocations at the start of the function.
-    fn gen_array_var_alloc<'ctx>(
-        &mut self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ty: BasicTypeEnum<'ctx>,
-        size: IntValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> Result<ArraySliceValue<'ctx>, String> {
-        gen_array_var(ctx, ty, size, name)
     }
 
     /// Return a pointer pointing to the target of the expression.
@@ -246,34 +222,6 @@ pub trait CodeGenerator {
         Self: Sized,
     {
         gen_block(self, ctx, stmts)
-    }
-
-    /// Converts the value of a boolean-like value `bool_value` into an `i1`.
-    fn bool_to_i1<'ctx>(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        bool_value: IntValue<'ctx>,
-    ) -> IntValue<'ctx> {
-        self.bool_to_int_type(ctx, bool_value, ctx.i1)
-    }
-
-    /// Converts the value of a boolean-like value `bool_value` into an `i8`.
-    fn bool_to_i8<'ctx>(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        bool_value: IntValue<'ctx>,
-    ) -> IntValue<'ctx> {
-        self.bool_to_int_type(ctx, bool_value, ctx.i8)
-    }
-
-    /// See [`bool_to_int_type`].
-    fn bool_to_int_type<'ctx>(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        bool_value: IntValue<'ctx>,
-        ty: IntType<'ctx>,
-    ) -> IntValue<'ctx> {
-        bool_to_int_type(&ctx.builder, bool_value, ty)
     }
 }
 

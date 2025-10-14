@@ -1,7 +1,7 @@
 use inkwell::values::IntValue;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
     values::{
@@ -13,21 +13,20 @@ use crate::codegen::{
 /// Generates a call to `__nac3_nditer_initialize`.
 ///
 /// Initializes the `iter` object.
-pub fn call_nac3_nditer_initialize<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_nditer_initialize<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     iter: NDIterValue<'ctx>,
     ndarray: NDArrayValue<'ctx>,
-    indices: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
+    indices: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
 ) {
     let llvm_usize = ctx.size_t;
-    assert_eq!(indices.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(indices.element_type(ctx), llvm_usize.into());
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_initialize");
     call_extern!(ctx: void _ = name(
         iter.as_abi_value(ctx),
         ndarray.as_abi_value(ctx),
-        indices.base_ptr(ctx, generator),
+        indices.base_ptr(ctx),
     ));
 }
 

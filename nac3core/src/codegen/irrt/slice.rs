@@ -18,7 +18,7 @@ pub fn handle_slice_index_bound<'ctx, G: CodeGenerator>(
     let llvm_i32 = ctx.i32;
     assert_eq!(length.get_type(), llvm_i32);
 
-    let i = generator.gen_expr(ctx, i)?.to_basic_value_enum(ctx, generator)?;
+    let i = generator.gen_expr(ctx, i)?.to_basic_value_enum(ctx)?;
 
     Ok(Some(call_extern!(ctx: llvm_i32 "bounded_ind" = "__nac3_slice_index_bound"(i, length))))
 }

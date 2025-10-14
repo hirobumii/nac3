@@ -9,7 +9,7 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator, ModuleContext,
+    CodeGenContext, ModuleContext,
     types::{
         ProxyType,
         structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
@@ -89,14 +89,13 @@ impl<'ctx> ShapeEntryType<'ctx> {
 
     /// Allocates an instance of [`ShapeEntryValue`] as if by calling `alloca` on the base type.
     #[must_use]
-    pub fn alloca_var<G: CodeGenerator + ?Sized>(
+    pub fn alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(generator, ctx, name),
+            self.raw_alloca_var(ctx, name),
             self.llvm_usize,
             name,
         )
@@ -104,20 +103,13 @@ impl<'ctx> ShapeEntryType<'ctx> {
 
     /// Converts an existing value into a [`ShapeEntryValue`].
     #[must_use]
-    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
+    pub fn map_struct_value(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: StructValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_struct_value(
-            generator,
-            ctx,
-            value,
-            self.llvm_usize,
-            name,
-        )
+        <Self as ProxyType<'ctx>>::Value::from_struct_value(ctx, value, self.llvm_usize, name)
     }
 
     /// Converts an existing value into a [`ShapeEntryValue`].

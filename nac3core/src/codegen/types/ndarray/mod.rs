@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator, ModuleContext,
+        CodeGenContext, ModuleContext,
         values::{TypedArrayLikeMutator, ndarray::NDArrayValue},
     },
     toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},
@@ -193,14 +193,13 @@ impl<'ctx> NDArrayType<'ctx> {
     ///
     /// See [`ProxyType::raw_alloca_var`].
     #[must_use]
-    pub fn alloca_var<G: CodeGenerator + ?Sized>(
+    pub fn alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(generator, ctx, name),
+            self.raw_alloca_var(ctx, name),
             self.dtype,
             self.ndims,
             self.llvm_usize,
@@ -217,14 +216,13 @@ impl<'ctx> NDArrayType<'ctx> {
     /// - `strides`: allocated on the stack with an array of length `ndims` with uninitialized
     ///   values.
     #[must_use]
-    fn construct_impl<G: CodeGenerator + ?Sized>(
+    fn construct_impl(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         ndims: IntValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        let ndarray = self.alloca_var(generator, ctx, name);
+        let ndarray = self.alloca_var(ctx, name);
 
         let itemsize = ctx
             .builder
@@ -251,32 +249,30 @@ impl<'ctx> NDArrayType<'ctx> {
     /// - `strides`: allocated on the stack with an array of length `ndims` with uninitialized
     ///   values.
     #[must_use]
-    pub fn construct_uninitialized<G: CodeGenerator + ?Sized>(
+    pub fn construct_uninitialized(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         let ndims = self.llvm_usize.const_int(self.ndims, false);
 
-        self.construct_impl(generator, ctx, ndims, name)
+        self.construct_impl(ctx, ndims, name)
     }
 
     /// Convenience function. Allocate an [`NDArrayValue`] with a statically known shape.
     ///
     /// The returned [`NDArrayValue`]'s `data` and `strides` are uninitialized.
     #[must_use]
-    pub fn construct_const_shape<G: CodeGenerator + ?Sized>(
+    pub fn construct_const_shape(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         shape: &[u64],
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         assert_eq!(shape.len() as u64, self.ndims);
 
-        let ndarray = Self::new(ctx, self.dtype, shape.len() as u64)
-            .construct_uninitialized(generator, ctx, name);
+        let ndarray =
+            Self::new(ctx, self.dtype, shape.len() as u64).construct_uninitialized(ctx, name);
 
         let llvm_usize = ctx.size_t;
 
@@ -285,12 +281,7 @@ impl<'ctx> NDArrayType<'ctx> {
         for (i, dim) in shape.iter().enumerate() {
             let dim = llvm_usize.const_int(*dim, false);
             unsafe {
-                ndarray_shape.set_typed_unchecked(
-                    ctx,
-                    generator,
-                    &llvm_usize.const_int(i as u64, false),
-                    dim,
-                );
+                ndarray_shape.set_typed_unchecked(ctx, &llvm_usize.const_int(i as u64, false), dim);
             }
         }
 
@@ -301,17 +292,16 @@ impl<'ctx> NDArrayType<'ctx> {
     ///
     /// The returned [`NDArrayValue`]'s `data` and `strides` are uninitialized.
     #[must_use]
-    pub fn construct_dyn_shape<G: CodeGenerator + ?Sized>(
+    pub fn construct_dyn_shape(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         shape: &[IntValue<'ctx>],
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         assert_eq!(shape.len() as u64, self.ndims);
 
-        let ndarray = Self::new(ctx, self.dtype, shape.len() as u64)
-            .construct_uninitialized(generator, ctx, name);
+        let ndarray =
+            Self::new(ctx, self.dtype, shape.len() as u64).construct_uninitialized(ctx, name);
 
         let llvm_usize = ctx.size_t;
 
@@ -328,7 +318,6 @@ impl<'ctx> NDArrayType<'ctx> {
             unsafe {
                 ndarray_shape.set_typed_unchecked(
                     ctx,
-                    generator,
                     &llvm_usize.const_int(i as u64, false),
                     *dim,
                 );
@@ -340,9 +329,8 @@ impl<'ctx> NDArrayType<'ctx> {
 
     /// Create an unsized ndarray to contain `value`.
     #[must_use]
-    pub fn construct_unsized<G: CodeGenerator + ?Sized>(
+    pub fn construct_unsized(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: &impl BasicValue<'ctx>,
         name: Option<&'ctx str>,
@@ -357,23 +345,20 @@ impl<'ctx> NDArrayType<'ctx> {
         ctx.builder.build_store(data, value).unwrap();
         let data = ctx.builder.build_pointer_cast(data, ctx.ptr, "").unwrap();
 
-        let ndarray =
-            Self::new_unsized(ctx, value.get_type()).construct_uninitialized(generator, ctx, name);
+        let ndarray = Self::new_unsized(ctx, value.get_type()).construct_uninitialized(ctx, name);
         ctx.builder.build_store(ndarray.ptr_to_data(ctx), data).unwrap();
         ndarray
     }
 
     /// Converts an existing value into a [`NDArrayValue`].
     #[must_use]
-    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
+    pub fn map_struct_value(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: StructValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_struct_value(
-            generator,
             ctx,
             value,
             self.dtype,

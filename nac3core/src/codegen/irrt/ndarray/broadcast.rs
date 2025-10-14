@@ -1,7 +1,7 @@
 use inkwell::values::IntValue;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
     types::{ProxyType, ndarray::ShapeEntryType},
@@ -33,36 +33,31 @@ pub fn call_nac3_ndarray_broadcast_to<'ctx>(
 ///
 /// Attempts to calculate the resultant shape from broadcasting all shapes in `shape_entries`,
 /// writing the result to `dst_shape`.
-pub fn call_nac3_ndarray_broadcast_shapes<'ctx, G, Shape>(
-    generator: &G,
+pub fn call_nac3_ndarray_broadcast_shapes<'ctx, Shape>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     num_shape_entries: IntValue<'ctx>,
     shape_entries: ArraySliceValue<'ctx>,
     dst_ndims: IntValue<'ctx>,
     dst_shape: &Shape,
 ) where
-    G: CodeGenerator + ?Sized,
-    Shape: TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
-        + TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>,
+    Shape:
+        TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> + TypedArrayLikeMutator<'ctx, IntValue<'ctx>>,
 {
     let llvm_usize = ctx.size_t;
 
     assert_eq!(num_shape_entries.get_type(), llvm_usize);
     assert!(
-        ShapeEntryType::is_representable(
-            shape_entries.base_ptr(ctx, generator).get_type(),
-            llvm_usize,
-        )
-        .is_ok()
+        ShapeEntryType::is_representable(shape_entries.base_ptr(ctx).get_type(), llvm_usize,)
+            .is_ok()
     );
     assert_eq!(dst_ndims.get_type(), llvm_usize);
-    assert_eq!(dst_shape.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(dst_shape.element_type(ctx), llvm_usize.into());
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");
     call_extern!(ctx: void _ = name(
         num_shape_entries,
-        shape_entries.base_ptr(ctx, generator),
+        shape_entries.base_ptr(ctx),
         dst_ndims,
-        dst_shape.base_ptr(ctx, generator),
+        dst_shape.base_ptr(ctx),
     ));
 }

@@ -4,7 +4,7 @@ use inkwell::values::{IntValue, PointerValue};
 use itertools::Itertools;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator, irrt,
+    CodeGenContext, irrt,
     stmt::gen_if_callback,
     types::ndarray::NDArrayType,
     values::{
@@ -19,12 +19,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// If this ndarray's `ndims` is less than `ndmin`, a view is created on this with 1s prepended
     /// to the shape. Otherwise, this function does nothing and return this ndarray.
     #[must_use]
-    pub fn atleast_nd<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ndmin: u64,
-    ) -> Self {
+    pub fn atleast_nd(&self, ctx: &mut CodeGenContext<'ctx, '_>, ndmin: u64) -> Self {
         let ndims = self.ndims;
 
         if ndims < ndmin {
@@ -32,7 +27,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             let indices = repeat_n(RustNDIndex::NewAxis, (ndmin - ndims) as usize)
                 .chain(once(RustNDIndex::Ellipsis))
                 .collect_vec();
-            self.index(generator, ctx, &indices)
+            self.index(ctx, &indices)
         } else {
             *self
         }
@@ -50,47 +45,46 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// * `new_ndims` - The number of dimensions of `new_shape` as a [`Type`].
     /// * `new_shape` - The target shape to do `np.reshape()`.
     #[must_use]
-    pub fn reshape_or_copy<G: CodeGenerator + ?Sized>(
+    pub fn reshape_or_copy(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         new_ndims: u64,
-        new_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
+        new_shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
     ) -> Self {
-        assert_eq!(new_shape.element_type(ctx, generator), self.llvm_usize.into());
+        assert_eq!(new_shape.element_type(ctx), self.llvm_usize.into());
 
         // TODO: The current criterion for whether to do a full copy or not is by checking
         //       `is_c_contiguous`, but this is not optimal - there are cases when the ndarray is
         //       not contiguous but could be reshaped without copying data. Look into how numpy does
         //       it.
 
-        let dst_ndarray = NDArrayType::new(ctx, self.dtype, new_ndims)
-            .construct_uninitialized(generator, ctx, None);
-        dst_ndarray.copy_shape_from_array(generator, ctx, new_shape.base_ptr(ctx, generator));
+        let dst_ndarray =
+            NDArrayType::new(ctx, self.dtype, new_ndims).construct_uninitialized(ctx, None);
+        dst_ndarray.copy_shape_from_array(ctx, new_shape.base_ptr(ctx));
 
         // Resolve negative indices
         let size = self.size(ctx);
         let dst_ndims = self.llvm_usize.const_int(dst_ndarray.get_type().ndims(), false);
-        let dst_shape = dst_ndarray.shape().as_slice_value(ctx, generator);
+        let dst_shape = dst_ndarray.shape().as_slice_value(ctx);
         irrt::ndarray::call_nac3_ndarray_reshape_resolve_and_check_new_shape(
-            generator, ctx, size, dst_ndims, dst_shape,
+            ctx, size, dst_ndims, dst_shape,
         );
 
         gen_if_callback(
-            generator,
+            &mut (),
             ctx,
-            |_, ctx| Ok(self.is_c_contiguous(ctx)),
-            |generator, ctx| {
+            |(), ctx| Ok(self.is_c_contiguous(ctx)),
+            |(), ctx| {
                 // Reshape is possible without copying
                 dst_ndarray.set_strides_contiguous(ctx);
-                dst_ndarray.store_data(ctx, self.data().base_ptr(ctx, generator));
+                dst_ndarray.store_data(ctx, self.data().base_ptr(ctx));
 
                 Ok(())
             },
-            |generator, ctx| {
+            |(), ctx| {
                 // Reshape is impossible without copying
                 unsafe {
-                    dst_ndarray.create_data(generator, ctx);
+                    dst_ndarray.create_data(ctx);
                 }
                 dst_ndarray.copy_data_from(ctx, *self);
 
@@ -108,9 +102,8 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// * `axes` - If specified, should be an array of the permutation (negative indices are
     ///   **allowed**).
     #[must_use]
-    pub fn transpose<G: CodeGenerator + ?Sized>(
+    pub fn transpose(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         axes: Option<PointerValue<'ctx>>,
     ) -> Self {
@@ -119,7 +112,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         );
 
         // Define models
-        let transposed_ndarray = self.get_type().construct_uninitialized(generator, ctx, None);
+        let transposed_ndarray = self.get_type().construct_uninitialized(ctx, None);
 
         let axes = if let Some(axes) = axes {
             let num_axes = self.llvm_usize.const_int(self.ndims, false);
@@ -129,20 +122,14 @@ impl<'ctx> NDArrayValue<'ctx> {
 
             Some(TypedArrayLikeAdapter::from(
                 axes,
-                |_, _, val| val.into_int_value(),
-                |_, _, val| val.into(),
+                |_, val| val.into_int_value(),
+                |_, val| val.into(),
             ))
         } else {
             None
         };
 
-        irrt::ndarray::call_nac3_ndarray_transpose(
-            generator,
-            ctx,
-            *self,
-            transposed_ndarray,
-            axes.as_ref(),
-        );
+        irrt::ndarray::call_nac3_ndarray_transpose(ctx, *self, transposed_ndarray, axes.as_ref());
 
         transposed_ndarray
     }

@@ -9,11 +9,12 @@ use super::{
     UntypedArrayLikeMutator, structure::StructProxyValue,
 };
 use crate::codegen::{
+    CodeGenContext,
+    stmt::gen_var,
     types::{
         ListType, ProxyType,
         structure::{StructField, StructProxyType},
     },
-    {CodeGenContext, CodeGenerator},
 };
 
 /// Proxy type for accessing a `list` value in LLVM.
@@ -27,20 +28,15 @@ pub struct ListValue<'ctx> {
 impl<'ctx> ListValue<'ctx> {
     /// Creates an [`ListValue`] from a [`PointerValue`].
     #[must_use]
-    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_struct_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         val: StructValue<'ctx>,
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        let pval = generator
-            .gen_var_alloc(
-                ctx,
-                val.get_type().into(),
-                name.map(|name| format!("{name}.addr")).as_deref(),
-            )
-            .unwrap();
+        let pval =
+            gen_var(ctx, val.get_type().into(), name.map(|name| format!("{name}.addr")).as_deref())
+                .unwrap();
         ctx.builder.build_store(pval, val).unwrap();
         Self::from_pointer_value(pval, llvm_usize, name)
     }
@@ -165,61 +161,44 @@ impl<'ctx> From<ListValue<'ctx>> for PointerValue<'ctx> {
 pub struct ListDataProxy<'ctx, 'a>(&'a ListValue<'ctx>);
 
 impl<'ctx> ArrayLikeValue<'ctx> for ListDataProxy<'ctx, '_> {
-    fn element_type<G: CodeGenerator + ?Sized>(
-        &self,
-        _: &CodeGenContext<'ctx, '_>,
-        _: &G,
-    ) -> AnyTypeEnum<'ctx> {
+    fn element_type(&self, _: &CodeGenContext<'ctx, '_>) -> AnyTypeEnum<'ctx> {
         self.0.value.get_type().get_element_type()
     }
 
-    fn base_ptr<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        _: &G,
-    ) -> PointerValue<'ctx> {
+    fn base_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         self.0.items_field().load(ctx, self.0.value, self.0.name)
     }
 
-    fn size<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        _: &G,
-    ) -> IntValue<'ctx> {
+    fn size(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.0.load_size(ctx, None)
     }
 }
 
 impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
-    unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
+    unsafe fn ptr_offset_unchecked(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &G,
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let var_name = name.map(|v| format!("{v}.addr")).unwrap_or_default();
 
         unsafe {
-            ctx.builder
-                .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], var_name.as_str())
-                .unwrap()
+            ctx.builder.build_in_bounds_gep(self.base_ptr(ctx), &[*idx], var_name.as_str()).unwrap()
         }
     }
 
-    fn ptr_offset<G: CodeGenerator + ?Sized>(
+    fn ptr_offset(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         debug_assert_eq!(idx.get_type(), ctx.size_t);
 
-        let size = self.size(ctx, generator);
+        let size = self.size(ctx);
         let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "").unwrap();
         ctx.make_assert(
-            generator,
             in_range,
             "0:IndexError",
             "list index out of range",
@@ -227,7 +206,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ListDataProxy<'ctx, '_> {
             ctx.current_loc,
         );
 
-        unsafe { self.ptr_offset_unchecked(ctx, generator, idx, name) }
+        unsafe { self.ptr_offset_unchecked(ctx, idx, name) }
     }
 }
 

@@ -1,6 +1,6 @@
 use inkwell::{IntPredicate, values::IntValue};
 
-use crate::codegen::{CodeGenContext, CodeGenerator, expr::call_extern};
+use crate::codegen::{CodeGenContext, expr::call_extern};
 
 /// Invokes the `__nac3_range_slice_len` in IRRT.
 ///
@@ -9,8 +9,7 @@ use crate::codegen::{CodeGenContext, CodeGenerator, expr::call_extern};
 /// - `step`: The `i32` step value for the slice.
 ///
 /// Returns an `i32` value of the length of the slice.
-pub fn calculate_len_for_slice_range<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn calculate_len_for_slice_range<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     start: IntValue<'ctx>,
     end: IntValue<'ctx>,
@@ -27,7 +26,6 @@ pub fn calculate_len_for_slice_range<'ctx, G: CodeGenerator + ?Sized>(
         .build_int_compare(IntPredicate::NE, step, step.get_type().const_zero(), "range_step_ne")
         .unwrap();
     ctx.make_assert(
-        generator,
         not_zero,
         "0:ValueError",
         "step must not be zero",

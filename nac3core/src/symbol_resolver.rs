@@ -12,7 +12,7 @@ use parking_lot::RwLock;
 use nac3parser::ast::{Constant, Expr, ExprKind, Location, StrRef};
 
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator},
+    codegen::CodeGenContext,
     toplevel::{DefinitionId, TopLevelDef, type_annotation::TypeAnnotation},
     typecheck::{
         type_inferencer::PrimitiveStore,
@@ -273,17 +273,12 @@ pub trait StaticValue {
     fn get_unique_identifier(&self) -> u64;
 
     /// Returns the constant object represented by this unique identifier.
-    fn get_const_obj<'ctx>(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
-    ) -> BasicValueEnum<'ctx>;
+    fn get_const_obj<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx>;
 
     /// Converts this value to a LLVM [`BasicValueEnum`].
     fn to_basic_value_enum<'ctx>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
         expected_ty: Type,
     ) -> Result<BasicValueEnum<'ctx>, String>;
 
@@ -342,11 +337,10 @@ impl<'ctx> ValueEnum<'ctx> {
     pub fn to_basic_value_enum<'a>(
         &self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
-        generator: &mut dyn CodeGenerator,
         expected_ty: Type,
     ) -> Result<BasicValueEnum<'ctx>, String> {
         match *self {
-            ValueEnum::Static(ref v) => v.to_basic_value_enum(ctx, generator, expected_ty),
+            ValueEnum::Static(ref v) => v.to_basic_value_enum(ctx, expected_ty),
             ValueEnum::Dynamic(v) => Ok(v),
         }
     }
@@ -369,7 +363,6 @@ pub trait SymbolResolver {
         &self,
         str: StrRef,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>>;
 
     fn get_default_param_value(&self, expr: &Expr) -> Option<SymbolValue>;

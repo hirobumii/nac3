@@ -6,7 +6,7 @@ use parking_lot::RwLock;
 use nac3parser::ast::{self, Location, Stmt, StrRef};
 
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator},
+    codegen::CodeGenContext,
     symbol_resolver::{SymbolResolver, ValueEnum},
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
@@ -35,7 +35,6 @@ type GenCallCallback = dyn for<'ctx, 'a> Fn(
         Option<(Type, ValueEnum<'ctx>)>,
         (&FunSignature, DefinitionId),
         Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-        &mut dyn CodeGenerator,
     ) -> Result<Option<BasicValueEnum<'ctx>>, String>
     + Send
     + Sync;
@@ -54,7 +53,7 @@ impl GenCall {
     /// `reason`.
     #[must_use]
     pub fn create_dummy(reason: String) -> GenCall {
-        Self::new(Box::new(move |_, _, _, _, _| unreachable!("{reason}")))
+        Self::new(Box::new(move |_, _, _, _| unreachable!("{reason}")))
     }
 
     pub fn run<'ctx>(
@@ -63,9 +62,8 @@ impl GenCall {
         obj: Option<(Type, ValueEnum<'ctx>)>,
         fun: (&FunSignature, DefinitionId),
         args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-        generator: &mut dyn CodeGenerator,
     ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
-        (self.fp)(ctx, obj, fun, args, generator)
+        (self.fp)(ctx, obj, fun, args)
     }
 }
 

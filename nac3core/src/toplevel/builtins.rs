@@ -29,7 +29,7 @@ use crate::{
             gen_ndarray_fill, gen_ndarray_full, gen_ndarray_identity, gen_ndarray_ones,
             gen_ndarray_zeros, ndarray_dot,
         },
-        stmt::{exn_constructor, gen_if_callback},
+        stmt::{exn_constructor, gen_if_callback, gen_var},
         types::{RangeType, ndarray::NDArrayType},
         values::{
             ProxyValue,
@@ -600,101 +600,79 @@ impl<'a> BuiltinBuilder<'a> {
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
-                codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                    |ctx, obj, _, args, generator| {
-                        let (zelf_ty, zelf) = obj.unwrap();
-                        let zelf =
-                            zelf.to_basic_value_enum(ctx, generator, zelf_ty)?.into_pointer_value();
-                        let zelf = RangeType::new(ctx).map_pointer_value(zelf, Some("range"));
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, obj, _, args| {
+                    let (zelf_ty, zelf) = obj.unwrap();
+                    let zelf = zelf.to_basic_value_enum(ctx, zelf_ty)?.into_pointer_value();
+                    let zelf = RangeType::new(ctx).map_pointer_value(zelf, Some("range"));
 
-                        let mut start = None;
-                        let mut stop = None;
-                        let mut step = None;
-                        let int32 = ctx.i32;
-                        let ty_i32 = ctx.primitives.int32;
-                        for (i, arg) in args.iter().enumerate() {
-                            if arg.0 == Some("start".into()) {
-                                start = Some(
-                                    arg.1
-                                        .clone()
-                                        .to_basic_value_enum(ctx, generator, ty_i32)?
-                                        .into_int_value(),
-                                );
-                            } else if arg.0 == Some("stop".into()) {
-                                stop = Some(
-                                    arg.1
-                                        .clone()
-                                        .to_basic_value_enum(ctx, generator, ty_i32)?
-                                        .into_int_value(),
-                                );
-                            } else if arg.0 == Some("step".into()) {
-                                step = Some(
-                                    arg.1
-                                        .clone()
-                                        .to_basic_value_enum(ctx, generator, ty_i32)?
-                                        .into_int_value(),
-                                );
-                            } else if i == 0 {
-                                start = Some(
-                                    arg.1
-                                        .clone()
-                                        .to_basic_value_enum(ctx, generator, ty_i32)?
-                                        .into_int_value(),
-                                );
-                            } else if i == 1 {
-                                stop = Some(
-                                    arg.1
-                                        .clone()
-                                        .to_basic_value_enum(ctx, generator, ty_i32)?
-                                        .into_int_value(),
-                                );
-                            } else if i == 2 {
-                                step = Some(
-                                    arg.1
-                                        .clone()
-                                        .to_basic_value_enum(ctx, generator, ty_i32)?
-                                        .into_int_value(),
-                                );
-                            }
+                    let mut start = None;
+                    let mut stop = None;
+                    let mut step = None;
+                    let int32 = ctx.i32;
+                    let ty_i32 = ctx.primitives.int32;
+                    for (i, arg) in args.iter().enumerate() {
+                        if arg.0 == Some("start".into()) {
+                            start = Some(
+                                arg.1.clone().to_basic_value_enum(ctx, ty_i32)?.into_int_value(),
+                            );
+                        } else if arg.0 == Some("stop".into()) {
+                            stop = Some(
+                                arg.1.clone().to_basic_value_enum(ctx, ty_i32)?.into_int_value(),
+                            );
+                        } else if arg.0 == Some("step".into()) {
+                            step = Some(
+                                arg.1.clone().to_basic_value_enum(ctx, ty_i32)?.into_int_value(),
+                            );
+                        } else if i == 0 {
+                            start = Some(
+                                arg.1.clone().to_basic_value_enum(ctx, ty_i32)?.into_int_value(),
+                            );
+                        } else if i == 1 {
+                            stop = Some(
+                                arg.1.clone().to_basic_value_enum(ctx, ty_i32)?.into_int_value(),
+                            );
+                        } else if i == 2 {
+                            step = Some(
+                                arg.1.clone().to_basic_value_enum(ctx, ty_i32)?.into_int_value(),
+                            );
                         }
-                        let step = match step {
-                            Some(step) => {
-                                // assert step != 0, throw exception if not
-                                let not_zero = ctx
-                                    .builder
-                                    .build_int_compare(
-                                        IntPredicate::NE,
-                                        step,
-                                        step.get_type().const_zero(),
-                                        "range_step_ne",
-                                    )
-                                    .unwrap();
-                                ctx.make_assert(
-                                    generator,
-                                    not_zero,
-                                    "0:ValueError",
-                                    "range() step must not be zero",
-                                    [None, None, None],
-                                    ctx.current_loc,
-                                );
-                                step
-                            }
-                            None => int32.const_int(1, false),
-                        };
-                        let stop = stop.unwrap_or_else(|| {
-                            let v = start.unwrap();
-                            start = None;
-                            v
-                        });
-                        let start = start.unwrap_or_else(|| int32.const_zero());
+                    }
+                    let step = match step {
+                        Some(step) => {
+                            // assert step != 0, throw exception if not
+                            let not_zero = ctx
+                                .builder
+                                .build_int_compare(
+                                    IntPredicate::NE,
+                                    step,
+                                    step.get_type().const_zero(),
+                                    "range_step_ne",
+                                )
+                                .unwrap();
+                            ctx.make_assert(
+                                not_zero,
+                                "0:ValueError",
+                                "range() step must not be zero",
+                                [None, None, None],
+                                ctx.current_loc,
+                            );
+                            step
+                        }
+                        None => int32.const_int(1, false),
+                    };
+                    let stop = stop.unwrap_or_else(|| {
+                        let v = start.unwrap();
+                        start = None;
+                        v
+                    });
+                    let start = start.unwrap_or_else(|| int32.const_zero());
 
-                        zelf.store_start(ctx, start);
-                        zelf.store_end(ctx, stop);
-                        zelf.store_step(ctx, step);
+                    zelf.store_start(ctx, start);
+                    zelf.store_end(ctx, stop);
+                    zelf.store_step(ctx, step);
 
-                        Ok(Some(zelf.as_abi_value(ctx).into()))
-                    },
-                )))),
+                    Ok(Some(zelf.as_abi_value(ctx).into()))
+                })))),
                 loc: None,
             },
 
@@ -794,30 +772,24 @@ impl<'a> BuiltinBuilder<'a> {
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
-                codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                    move |ctx, obj, _, _, generator| {
-                        let expect_ty = obj.clone().unwrap().0;
-                        let obj_val = obj
-                            .unwrap()
-                            .1
-                            .clone()
-                            .to_basic_value_enum(ctx, generator, expect_ty)?;
-                        let BasicValueEnum::PointerValue(ptr) = obj_val else {
-                            unreachable!("option must be ptr")
-                        };
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(move |ctx, obj, _, _| {
+                    let expect_ty = obj.clone().unwrap().0;
+                    let obj_val = obj.unwrap().1.clone().to_basic_value_enum(ctx, expect_ty)?;
+                    let BasicValueEnum::PointerValue(ptr) = obj_val else {
+                        unreachable!("option must be ptr")
+                    };
 
-                        let returned_int = match prim {
-                            PrimDef::FunOptionIsNone => {
-                                ctx.builder.build_is_null(ptr, prim.simple_name())
-                            }
-                            PrimDef::FunOptionIsSome => {
-                                ctx.builder.build_is_not_null(ptr, prim.simple_name())
-                            }
-                            _ => unreachable!(),
-                        };
-                        Ok(Some(returned_int.map(Into::into).unwrap()))
-                    },
-                )))),
+                    let returned_int = match prim {
+                        PrimDef::FunOptionIsNone => {
+                            ctx.builder.build_is_null(ptr, prim.simple_name())
+                        }
+                        PrimDef::FunOptionIsSome => {
+                            ctx.builder.build_is_not_null(ptr, prim.simple_name())
+                        }
+                        _ => unreachable!(),
+                    };
+                    Ok(Some(returned_int.map(Into::into).unwrap()))
+                })))),
                 loc: None,
             },
 
@@ -839,18 +811,13 @@ impl<'a> BuiltinBuilder<'a> {
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
-                codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                    |ctx, _, fun, args, generator| {
-                        let arg_ty = fun.0.args[0].ty;
-                        let arg_val =
-                            args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                        let alloca = generator
-                            .gen_var_alloc(ctx, arg_val.get_type(), Some("alloca_some"))
-                            .unwrap();
-                        ctx.builder.build_store(alloca, arg_val).unwrap();
-                        Ok(Some(alloca.into()))
-                    },
-                )))),
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args| {
+                    let arg_ty = fun.0.args[0].ty;
+                    let arg_val = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
+                    let alloca = gen_var(ctx, arg_val.get_type(), Some("alloca_some")).unwrap();
+                    ctx.builder.build_store(alloca, arg_val).unwrap();
+                    Ok(Some(alloca.into()))
+                })))),
                 loc: None,
             },
 
@@ -924,12 +891,10 @@ impl<'a> BuiltinBuilder<'a> {
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
-                codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                    |ctx, obj, fun, args, generator| {
-                        gen_ndarray_copy(ctx, &obj, fun, &args, generator)
-                            .map(|val| Some(val.as_basic_value_enum()))
-                    },
-                )))),
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, obj, fun, args| {
+                    gen_ndarray_copy(ctx, &obj, fun, &args)
+                        .map(|val| Some(val.as_basic_value_enum()))
+                })))),
                 loc: None,
             },
 
@@ -942,12 +907,10 @@ impl<'a> BuiltinBuilder<'a> {
                 instance_to_symbol: HashMap::default(),
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
-                codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                    |ctx, obj, fun, args, generator| {
-                        gen_ndarray_fill(ctx, &obj, fun, &args, generator)?;
-                        Ok(None)
-                    },
-                )))),
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, obj, fun, args| {
+                    gen_ndarray_fill(ctx, &obj, fun, &args)?;
+                    Ok(None)
+                })))),
                 loc: None,
             },
 
@@ -987,23 +950,21 @@ impl<'a> BuiltinBuilder<'a> {
             instance_to_symbol: HashMap::default(),
             instance_to_stmt: HashMap::default(),
             resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                move |ctx, _, fun, args, generator| {
-                    let arg_ty = fun.0.args[0].ty;
-                    let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args| {
+                let arg_ty = fun.0.args[0].ty;
+                let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
 
-                    let func = match prim {
-                        PrimDef::FunInt32 => builtin_fns::call_int32,
-                        PrimDef::FunInt64 => builtin_fns::call_int64,
-                        PrimDef::FunUInt32 => builtin_fns::call_uint32,
-                        PrimDef::FunUInt64 => builtin_fns::call_uint64,
-                        PrimDef::FunFloat => builtin_fns::call_float,
-                        PrimDef::FunBool => builtin_fns::call_bool,
-                        _ => unreachable!(),
-                    };
-                    Ok(Some(func(generator, ctx, (arg_ty, arg))?))
-                },
-            )))),
+                let func = match prim {
+                    PrimDef::FunInt32 => builtin_fns::call_int32,
+                    PrimDef::FunInt64 => builtin_fns::call_int64,
+                    PrimDef::FunUInt32 => builtin_fns::call_uint32,
+                    PrimDef::FunUInt64 => builtin_fns::call_uint64,
+                    PrimDef::FunFloat => builtin_fns::call_float,
+                    PrimDef::FunBool => builtin_fns::call_bool,
+                    _ => unreachable!(),
+                };
+                Ok(Some(func(ctx, (arg_ty, arg))?))
+            })))),
             loc: None,
         }
     }
@@ -1048,12 +1009,12 @@ impl<'a> BuiltinBuilder<'a> {
             prim.name(),
             ret_ty.ty,
             &[(p0_ty.ty, "n")],
-            Box::new(move |ctx, _, fun, args, generator| {
+            Box::new(move |ctx, _, fun, args| {
                 let arg_ty = fun.0.args[0].ty;
-                let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+                let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
 
                 let ret_elem_ty = size_variant.of_int(&ctx.primitives);
-                Ok(Some(builtin_fns::call_round(generator, ctx, (arg_ty, arg), ret_elem_ty)?))
+                Ok(Some(builtin_fns::call_round(ctx, (arg_ty, arg), ret_elem_ty)?))
             }),
         )
     }
@@ -1112,16 +1073,16 @@ impl<'a> BuiltinBuilder<'a> {
             prim.name(),
             ret_ty.ty,
             &[(p0_ty.ty, "n")],
-            Box::new(move |ctx, _, fun, args, generator| {
+            Box::new(move |ctx, _, fun, args| {
                 let arg_ty = fun.0.args[0].ty;
-                let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+                let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
 
                 let ret_elem_ty = size_variant.of_int(&ctx.primitives);
                 let func = match kind {
                     Kind::Ceil => builtin_fns::call_ceil,
                     Kind::Floor => builtin_fns::call_floor,
                 };
-                Ok(Some(func(generator, ctx, (arg_ty, arg), ret_elem_ty)?))
+                Ok(Some(func(ctx, (arg_ty, arg), ret_elem_ty)?))
             }),
         )
     }
@@ -1166,14 +1127,14 @@ impl<'a> BuiltinBuilder<'a> {
             prim.name(),
             self.ndarray_float,
             &[(self.ndarray_factory_fn_shape_arg_tvar.ty, "shape")],
-            Box::new(move |ctx, obj, fun, args, generator| {
+            Box::new(move |ctx, obj, fun, args| {
                 let func = match prim {
                     PrimDef::FunNpNDArray | PrimDef::FunNpEmpty => gen_ndarray_empty,
                     PrimDef::FunNpZeros => gen_ndarray_zeros,
                     PrimDef::FunNpOnes => gen_ndarray_ones,
                     _ => unreachable!(),
                 };
-                func(ctx, &obj, fun, &args, generator).map(|val| Some(val.as_basic_value_enum()))
+                func(ctx, &obj, fun, &args).map(|val| Some(val.as_basic_value_enum()))
             }),
         )
     }
@@ -1226,8 +1187,8 @@ impl<'a> BuiltinBuilder<'a> {
                     instance_to_stmt: HashMap::default(),
                     resolver: None,
                     codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                        |ctx, obj, fun, args, generator| {
-                            gen_ndarray_array(ctx, &obj, fun, &args, generator)
+                        |ctx, obj, fun, args| {
+                            gen_ndarray_array(ctx, &obj, fun, &args)
                                 .map(|val| Some(val.as_basic_value_enum()))
                         },
                     )))),
@@ -1245,8 +1206,8 @@ impl<'a> BuiltinBuilder<'a> {
                     // We are using List[int32] here, as I don't know a way to specify an n-tuple bound on a
                     // type variable
                     &[(self.list_int32, "shape"), (tv.ty, "fill_value")],
-                    Box::new(move |ctx, obj, fun, args, generator| {
-                        gen_ndarray_full(ctx, &obj, fun, &args, generator)
+                    Box::new(move |ctx, obj, fun, args| {
+                        gen_ndarray_full(ctx, &obj, fun, &args)
                             .map(|val| Some(val.as_basic_value_enum()))
                     }),
                 )
@@ -1286,8 +1247,8 @@ impl<'a> BuiltinBuilder<'a> {
                     instance_to_stmt: HashMap::default(),
                     resolver: None,
                     codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                        |ctx, obj, fun, args, generator| {
-                            gen_ndarray_eye(ctx, &obj, fun, &args, generator)
+                        |ctx, obj, fun, args| {
+                            gen_ndarray_eye(ctx, &obj, fun, &args)
                                 .map(|val| Some(val.as_basic_value_enum()))
                         },
                     )))),
@@ -1300,8 +1261,8 @@ impl<'a> BuiltinBuilder<'a> {
                 prim.name(),
                 self.ndarray_float_2d,
                 &[(int32, "n")],
-                Box::new(|ctx, obj, fun, args, generator| {
-                    gen_ndarray_identity(ctx, &obj, fun, &args, generator)
+                Box::new(|ctx, obj, fun, args| {
+                    gen_ndarray_identity(ctx, &obj, fun, &args)
                         .map(|val| Some(val.as_basic_value_enum()))
                 }),
             ),
@@ -1328,13 +1289,12 @@ impl<'a> BuiltinBuilder<'a> {
                 prim.name(),
                 self.primitives.int32,
                 &[(in_ndarray_ty.ty, "a")],
-                Box::new(|ctx, obj, fun, args, generator| {
+                Box::new(|ctx, obj, fun, args| {
                     assert!(obj.is_none());
                     assert_eq!(args.len(), 1);
 
                     let ndarray_ty = fun.0.args[0].ty;
-                    let ndarray =
-                        args[0].1.clone().to_basic_value_enum(ctx, generator, ndarray_ty)?;
+                    let ndarray = args[0].1.clone().to_basic_value_enum(ctx, ndarray_ty)?;
                     let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
                         .map_pointer_value(ndarray.into_pointer_value(), None);
 
@@ -1358,20 +1318,19 @@ impl<'a> BuiltinBuilder<'a> {
                     prim.name(),
                     ret_ty,
                     &[(in_ndarray_ty.ty, "a")],
-                    Box::new(move |ctx, obj, fun, args, generator| {
+                    Box::new(move |ctx, obj, fun, args| {
                         assert!(obj.is_none());
                         assert_eq!(args.len(), 1);
 
                         let ndarray_ty = fun.0.args[0].ty;
-                        let ndarray =
-                            args[0].1.clone().to_basic_value_enum(ctx, generator, ndarray_ty)?;
+                        let ndarray = args[0].1.clone().to_basic_value_enum(ctx, ndarray_ty)?;
 
                         let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
                             .map_pointer_value(ndarray.into_pointer_value(), None);
 
                         let result_tuple = match prim {
-                            PrimDef::FunNpShape => ndarray.make_shape_tuple(generator, ctx),
-                            PrimDef::FunNpStrides => ndarray.make_strides_tuple(generator, ctx),
+                            PrimDef::FunNpShape => ndarray.make_shape_tuple(ctx),
+                            PrimDef::FunNpStrides => ndarray.make_strides_tuple(ctx),
                             _ => unreachable!(),
                         };
 
@@ -1403,14 +1362,14 @@ impl<'a> BuiltinBuilder<'a> {
                 prim.name(),
                 in_ndarray_ty.ty,
                 &[(in_ndarray_ty.ty, "x")],
-                Box::new(move |ctx, _, fun, args, generator| {
+                Box::new(move |ctx, _, fun, args| {
                     let arg_ty = fun.0.args[0].ty;
-                    let arg_val = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+                    let arg_val = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
 
                     let ndarray = NDArrayType::from_unifier_type(ctx, arg_ty)
                         .map_pointer_value(arg_val.into_pointer_value(), None);
 
-                    let ndarray = ndarray.transpose(generator, ctx, None); // TODO: Add axes argument
+                    let ndarray = ndarray.transpose(ctx, None); // TODO: Add axes argument
                     Ok(Some(ndarray.as_abi_value(ctx).into()))
                 }),
             ),
@@ -1436,32 +1395,26 @@ impl<'a> BuiltinBuilder<'a> {
                         (in_ndarray_ty.ty, "x"),
                         (self.ndarray_factory_fn_shape_arg_tvar.ty, "shape"), // Handled by special folding
                     ],
-                    Box::new(move |ctx, _, fun, args, generator| {
+                    Box::new(move |ctx, _, fun, args| {
                         let ndarray_ty = fun.0.args[0].ty;
-                        let ndarray_val =
-                            args[0].1.clone().to_basic_value_enum(ctx, generator, ndarray_ty)?;
+                        let ndarray_val = args[0].1.clone().to_basic_value_enum(ctx, ndarray_ty)?;
 
                         let shape_ty = fun.0.args[1].ty;
-                        let shape_val =
-                            args[1].1.clone().to_basic_value_enum(ctx, generator, shape_ty)?;
+                        let shape_val = args[1].1.clone().to_basic_value_enum(ctx, shape_ty)?;
 
                         let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
                             .map_pointer_value(ndarray_val.into_pointer_value(), None);
 
-                        let shape = parse_numpy_int_sequence(generator, ctx, (shape_ty, shape_val));
+                        let shape = parse_numpy_int_sequence(ctx, (shape_ty, shape_val));
 
                         // The ndims after reshaping is gotten from the return type of the call.
                         let (_, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, fun.0.ret);
                         let ndims = extract_ndims(&ctx.unifier, ndims);
 
                         let new_ndarray = match prim {
-                            PrimDef::FunNpBroadcastTo => {
-                                ndarray.broadcast_to(generator, ctx, ndims, &shape)
-                            }
+                            PrimDef::FunNpBroadcastTo => ndarray.broadcast_to(ctx, ndims, &shape),
 
-                            PrimDef::FunNpReshape => {
-                                ndarray.reshape_or_copy(generator, ctx, ndims, &shape)
-                            }
+                            PrimDef::FunNpReshape => ndarray.reshape_or_copy(ctx, ndims, &shape),
 
                             _ => unreachable!(),
                         };
@@ -1498,12 +1451,10 @@ impl<'a> BuiltinBuilder<'a> {
             instance_to_symbol: HashMap::default(),
             instance_to_stmt: HashMap::default(),
             resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, fun, args, generator| {
-                    let arg_ty = fun.0.args[0].ty;
-                    Ok(Some(args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?))
-                },
-            )))),
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args| {
+                let arg_ty = fun.0.args[0].ty;
+                Ok(Some(args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?))
+            })))),
             loc: None,
         }
     }
@@ -1518,16 +1469,16 @@ impl<'a> BuiltinBuilder<'a> {
             prim.name(),
             self.float_or_ndarray_ty.ty,
             &[(self.float_or_ndarray_ty.ty, "n")],
-            Box::new(move |ctx, _, fun, args, generator| {
+            Box::new(move |ctx, _, fun, args| {
                 let arg_ty = fun.0.args[0].ty;
-                let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+                let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
 
                 let func = match prim {
                     PrimDef::FunNpCeil => builtin_fns::call_ceil,
                     PrimDef::FunNpFloor => builtin_fns::call_floor,
                     _ => unreachable!(),
                 };
-                Ok(Some(func(generator, ctx, (arg_ty, arg), ctx.primitives.float)?))
+                Ok(Some(func(ctx, (arg_ty, arg), ctx.primitives.float)?))
             }),
         )
     }
@@ -1542,10 +1493,10 @@ impl<'a> BuiltinBuilder<'a> {
             prim.name(),
             self.float_or_ndarray_ty.ty,
             &[(self.float_or_ndarray_ty.ty, "n")],
-            Box::new(|ctx, _, fun, args, generator| {
+            Box::new(|ctx, _, fun, args| {
                 let arg_ty = fun.0.args[0].ty;
-                let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
-                Ok(Some(builtin_fns::call_numpy_round(generator, ctx, (arg_ty, arg))?))
+                let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
+                Ok(Some(builtin_fns::call_numpy_round(ctx, (arg_ty, arg))?))
             }),
         )
     }
@@ -1575,14 +1526,12 @@ impl<'a> BuiltinBuilder<'a> {
             instance_to_symbol: HashMap::default(),
             instance_to_stmt: HashMap::default(),
             resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                move |ctx, _, fun, args, generator| {
-                    let arg_ty = fun.0.args[0].ty;
-                    let arg = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args| {
+                let arg_ty = fun.0.args[0].ty;
+                let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
 
-                    builtin_fns::call_len(generator, ctx, (arg_ty, arg)).map(|ret| Some(ret.into()))
-                },
-            )))),
+                builtin_fns::call_len(ctx, (arg_ty, arg)).map(|ret| Some(ret.into()))
+            })))),
             loc: None,
         }
     }
@@ -1617,21 +1566,19 @@ impl<'a> BuiltinBuilder<'a> {
             instance_to_symbol: HashMap::default(),
             instance_to_stmt: HashMap::default(),
             resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                move |ctx, _, fun, args, generator| {
-                    let m_ty = fun.0.args[0].ty;
-                    let n_ty = fun.0.args[1].ty;
-                    let m_val = args[0].1.clone().to_basic_value_enum(ctx, generator, m_ty)?;
-                    let n_val = args[1].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args| {
+                let m_ty = fun.0.args[0].ty;
+                let n_ty = fun.0.args[1].ty;
+                let m_val = args[0].1.clone().to_basic_value_enum(ctx, m_ty)?;
+                let n_val = args[1].1.clone().to_basic_value_enum(ctx, n_ty)?;
 
-                    let func = match prim {
-                        PrimDef::FunMin => builtin_fns::call_min,
-                        PrimDef::FunMax => builtin_fns::call_max,
-                        _ => unreachable!(),
-                    };
-                    Ok(Some(func(ctx, (m_ty, m_val), (n_ty, n_val))))
-                },
-            )))),
+                let func = match prim {
+                    PrimDef::FunMin => builtin_fns::call_min,
+                    PrimDef::FunMax => builtin_fns::call_max,
+                    _ => unreachable!(),
+                };
+                Ok(Some(func(ctx, (m_ty, m_val), (n_ty, n_val))))
+            })))),
             loc: None,
         }
     }
@@ -1667,11 +1614,11 @@ impl<'a> BuiltinBuilder<'a> {
             prim.name(),
             ret_ty,
             &[(self.num_or_ndarray_ty.ty, "a")],
-            Box::new(move |ctx, _, fun, args, generator| {
+            Box::new(move |ctx, _, fun, args| {
                 let a_ty = fun.0.args[0].ty;
-                let a = args[0].1.clone().to_basic_value_enum(ctx, generator, a_ty)?;
+                let a = args[0].1.clone().to_basic_value_enum(ctx, a_ty)?;
 
-                Ok(Some(builtin_fns::call_numpy_max_min(generator, ctx, (a_ty, a), prim.name())?))
+                Ok(Some(builtin_fns::call_numpy_max_min(ctx, (a_ty, a), prim.name())?))
             }),
         )
     }
@@ -1705,22 +1652,20 @@ impl<'a> BuiltinBuilder<'a> {
             instance_to_symbol: HashMap::default(),
             instance_to_stmt: HashMap::default(),
             resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                move |ctx, _, fun, args, generator| {
-                    let x1_ty = fun.0.args[0].ty;
-                    let x2_ty = fun.0.args[1].ty;
-                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
-                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args| {
+                let x1_ty = fun.0.args[0].ty;
+                let x2_ty = fun.0.args[1].ty;
+                let x1_val = args[0].1.clone().to_basic_value_enum(ctx, x1_ty)?;
+                let x2_val = args[1].1.clone().to_basic_value_enum(ctx, x2_ty)?;
 
-                    let func = match prim {
-                        PrimDef::FunNpMinimum => builtin_fns::call_numpy_minimum,
-                        PrimDef::FunNpMaximum => builtin_fns::call_numpy_maximum,
-                        _ => unreachable!(),
-                    };
+                let func = match prim {
+                    PrimDef::FunNpMinimum => builtin_fns::call_numpy_minimum,
+                    PrimDef::FunNpMaximum => builtin_fns::call_numpy_maximum,
+                    _ => unreachable!(),
+                };
 
-                    Ok(Some(func(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
-                },
-            )))),
+                Ok(Some(func(ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
+            })))),
             loc: None,
         }
     }
@@ -1747,14 +1692,12 @@ impl<'a> BuiltinBuilder<'a> {
             instance_to_symbol: HashMap::default(),
             instance_to_stmt: HashMap::default(),
             resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                |ctx, _, fun, args, generator| {
-                    let n_ty = fun.0.args[0].ty;
-                    let n_val = args[0].1.clone().to_basic_value_enum(ctx, generator, n_ty)?;
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args| {
+                let n_ty = fun.0.args[0].ty;
+                let n_val = args[0].1.clone().to_basic_value_enum(ctx, n_ty)?;
 
-                    Ok(Some(builtin_fns::call_abs(generator, ctx, (n_ty, n_val))?))
-                },
-            )))),
+                Ok(Some(builtin_fns::call_abs(ctx, (n_ty, n_val))?))
+            })))),
             loc: None,
         }
     }
@@ -1771,9 +1714,9 @@ impl<'a> BuiltinBuilder<'a> {
             prim.name(),
             bool,
             &[(float, "x")],
-            Box::new(move |ctx, _, fun, args, generator| {
+            Box::new(move |ctx, _, fun, args| {
                 let x_ty = fun.0.args[0].ty;
-                let x_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x_ty)?;
+                let x_val = args[0].1.clone().to_basic_value_enum(ctx, x_ty)?;
 
                 let func = match prim {
                     PrimDef::FunNpIsInf => builtin_fns::call_numpy_isinf,
@@ -1781,7 +1724,7 @@ impl<'a> BuiltinBuilder<'a> {
                     _ => unreachable!(),
                 };
 
-                Ok(Some(func(generator, ctx, (x_ty, x_val))?))
+                Ok(Some(func(ctx, (x_ty, x_val))?))
             }),
         )
     }
@@ -1792,54 +1735,52 @@ impl<'a> BuiltinBuilder<'a> {
         let param_ty = &[(self.num_or_ndarray_ty.ty, "a")];
         let ret_ty = self.primitives.bool;
         let var_map = &self.num_or_ndarray_var_map;
-        let codegen_callback: Box<GenCallCallback> =
-            Box::new(move |ctx, _, fun, args, generator| {
-                let llvm_i1 = ctx.i1;
-                let llvm_i1_k0 = llvm_i1.const_zero();
-                let llvm_i1_k1 = llvm_i1.const_all_ones();
+        let codegen_callback: Box<GenCallCallback> = Box::new(move |ctx, _, fun, args| {
+            let llvm_i1 = ctx.i1;
+            let llvm_i1_k0 = llvm_i1.const_zero();
+            let llvm_i1_k1 = llvm_i1.const_all_ones();
 
-                let a_ty = fun.0.args[0].ty;
-                let a_val = args[0].1.clone().to_basic_value_enum(ctx, generator, a_ty)?;
-                let a = ScalarOrNDArray::from_value(ctx, (a_ty, a_val));
-                let a_elem_ty = arraylike_flatten_element_type(&mut ctx.unifier, a_ty);
+            let a_ty = fun.0.args[0].ty;
+            let a_val = args[0].1.clone().to_basic_value_enum(ctx, a_ty)?;
+            let a = ScalarOrNDArray::from_value(ctx, (a_ty, a_val));
+            let a_elem_ty = arraylike_flatten_element_type(&mut ctx.unifier, a_ty);
 
-                let (init, sc_val) = match prim {
-                    PrimDef::FunNpAny => (llvm_i1_k0, llvm_i1_k1),
-                    PrimDef::FunNpAll => (llvm_i1_k1, llvm_i1_k0),
+            let (init, sc_val) = match prim {
+                PrimDef::FunNpAny => (llvm_i1_k0, llvm_i1_k1),
+                PrimDef::FunNpAll => (llvm_i1_k1, llvm_i1_k0),
+                _ => unreachable!(),
+            };
+
+            let acc = a.fold(ctx, init, |ctx, hooks, acc, elem| {
+                gen_if_callback(
+                    &mut (),
+                    ctx,
+                    |(), ctx| {
+                        Ok(ctx
+                            .builder
+                            .build_int_compare(IntPredicate::EQ, acc, sc_val, "")
+                            .unwrap())
+                    },
+                    |(), ctx| {
+                        if let Some(hooks) = hooks {
+                            hooks.build_break_branch(&ctx.builder);
+                        }
+                        Ok(())
+                    },
+                    |(), _| Ok(()),
+                )?;
+
+                let is_truthy = builtin_fns::call_bool(ctx, (a_elem_ty, elem))?.into_int_value();
+
+                Ok(match prim {
+                    PrimDef::FunNpAny => ctx.builder.build_or(acc, is_truthy, "").unwrap(),
+                    PrimDef::FunNpAll => ctx.builder.build_and(acc, is_truthy, "").unwrap(),
                     _ => unreachable!(),
-                };
+                })
+            })?;
 
-                let acc = a.fold(generator, ctx, init, |generator, ctx, hooks, acc, elem| {
-                    gen_if_callback(
-                        generator,
-                        ctx,
-                        |_, ctx| {
-                            Ok(ctx
-                                .builder
-                                .build_int_compare(IntPredicate::EQ, acc, sc_val, "")
-                                .unwrap())
-                        },
-                        |_, ctx| {
-                            if let Some(hooks) = hooks {
-                                hooks.build_break_branch(&ctx.builder);
-                            }
-                            Ok(())
-                        },
-                        |_, _| Ok(()),
-                    )?;
-
-                    let is_truthy =
-                        builtin_fns::call_bool(generator, ctx, (a_elem_ty, elem))?.into_int_value();
-
-                    Ok(match prim {
-                        PrimDef::FunNpAny => ctx.builder.build_or(acc, is_truthy, "").unwrap(),
-                        PrimDef::FunNpAll => ctx.builder.build_and(acc, is_truthy, "").unwrap(),
-                        _ => unreachable!(),
-                    })
-                })?;
-
-                Ok(Some(acc.as_basic_value_enum()))
-            });
+            Ok(Some(acc.as_basic_value_enum()))
+        });
 
         create_fn_by_codegen(self.unifier, var_map, prim.name(), ret_ty, param_ty, codegen_callback)
     }
@@ -1893,9 +1834,9 @@ impl<'a> BuiltinBuilder<'a> {
             prim.name(),
             self.float_or_ndarray_ty.ty,
             &[(self.float_or_ndarray_ty.ty, arg_name)],
-            Box::new(move |ctx, _, fun, args, generator| {
+            Box::new(move |ctx, _, fun, args| {
                 let arg_ty = fun.0.args[0].ty;
-                let arg_val = args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty)?;
+                let arg_val = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
 
                 let func = match prim {
                     PrimDef::FunNpSin => builtin_fns::call_numpy_sin,
@@ -1939,7 +1880,7 @@ impl<'a> BuiltinBuilder<'a> {
 
                     _ => unreachable!(),
                 };
-                Ok(Some(func(generator, ctx, (arg_ty, arg_val))?))
+                Ok(Some(func(ctx, (arg_ty, arg_val))?))
             }),
         )
     }
@@ -2000,27 +1941,25 @@ impl<'a> BuiltinBuilder<'a> {
             instance_to_symbol: HashMap::default(),
             instance_to_stmt: HashMap::default(),
             resolver: None,
-            codegen_callback: Some(Arc::new(GenCall::new(Box::new(
-                move |ctx, _, fun, args, generator| {
-                    let x1_ty = fun.0.args[0].ty;
-                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
-                    let x2_ty = fun.0.args[1].ty;
-                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
+            codegen_callback: Some(Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args| {
+                let x1_ty = fun.0.args[0].ty;
+                let x1_val = args[0].1.clone().to_basic_value_enum(ctx, x1_ty)?;
+                let x2_ty = fun.0.args[1].ty;
+                let x2_val = args[1].1.clone().to_basic_value_enum(ctx, x2_ty)?;
 
-                    let func = match prim {
-                        PrimDef::FunNpArctan2 => builtin_fns::call_numpy_arctan2,
-                        PrimDef::FunNpCopysign => builtin_fns::call_numpy_copysign,
-                        PrimDef::FunNpFmax => builtin_fns::call_numpy_fmax,
-                        PrimDef::FunNpFmin => builtin_fns::call_numpy_fmin,
-                        PrimDef::FunNpLdExp => builtin_fns::call_numpy_ldexp,
-                        PrimDef::FunNpHypot => builtin_fns::call_numpy_hypot,
-                        PrimDef::FunNpNextAfter => builtin_fns::call_numpy_nextafter,
-                        _ => unreachable!(),
-                    };
+                let func = match prim {
+                    PrimDef::FunNpArctan2 => builtin_fns::call_numpy_arctan2,
+                    PrimDef::FunNpCopysign => builtin_fns::call_numpy_copysign,
+                    PrimDef::FunNpFmax => builtin_fns::call_numpy_fmax,
+                    PrimDef::FunNpFmin => builtin_fns::call_numpy_fmin,
+                    PrimDef::FunNpLdExp => builtin_fns::call_numpy_ldexp,
+                    PrimDef::FunNpHypot => builtin_fns::call_numpy_hypot,
+                    PrimDef::FunNpNextAfter => builtin_fns::call_numpy_nextafter,
+                    _ => unreachable!(),
+                };
 
-                    Ok(Some(func(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
-                },
-            )))),
+                Ok(Some(func(ctx, (x1_ty, x1_val), (x2_ty, x2_val))?))
+            })))),
             loc: None,
         }
     }
@@ -2053,14 +1992,14 @@ impl<'a> BuiltinBuilder<'a> {
                 prim.name(),
                 self.num_ty.ty,
                 &[(self.num_or_ndarray_ty.ty, "x1"), (self.num_or_ndarray_ty.ty, "x2")],
-                Box::new(move |ctx, _, fun, args, generator| {
+                Box::new(move |ctx, _, fun, args| {
                     let x1_ty = fun.0.args[0].ty;
-                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, x1_ty)?;
 
                     let x2_ty = fun.0.args[1].ty;
-                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
+                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, x2_ty)?;
 
-                    let result = ndarray_dot(generator, ctx, (x1_ty, x1_val), (x2_ty, x2_val))?;
+                    let result = ndarray_dot(ctx, (x1_ty, x1_val), (x2_ty, x2_val))?;
                     Ok(Some(result))
                 }),
             ),
@@ -2072,10 +2011,9 @@ impl<'a> BuiltinBuilder<'a> {
                     prim.name(),
                     self.ndarray_float_2d,
                     &[(self.ndarray_float_2d, "x1")],
-                    Box::new(move |ctx, _, fun, args, generator| {
+                    Box::new(move |ctx, _, fun, args| {
                         let x1_ty = fun.0.args[0].ty;
-                        let x1_val =
-                            args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+                        let x1_val = args[0].1.clone().to_basic_value_enum(ctx, x1_ty)?;
 
                         let func = match prim {
                             PrimDef::FunNpLinalgCholesky => builtin_fns::call_np_linalg_cholesky,
@@ -2083,7 +2021,7 @@ impl<'a> BuiltinBuilder<'a> {
                             PrimDef::FunNpLinalgPinv => builtin_fns::call_np_linalg_pinv,
                             _ => unreachable!(),
                         };
-                        Ok(Some(func(generator, ctx, (x1_ty, x1_val))?))
+                        Ok(Some(func(ctx, (x1_ty, x1_val))?))
                     }),
                 )
             }
@@ -2102,10 +2040,9 @@ impl<'a> BuiltinBuilder<'a> {
                     prim.name(),
                     ret_ty,
                     &[(self.ndarray_float_2d, "x1")],
-                    Box::new(move |ctx, _, fun, args, generator| {
+                    Box::new(move |ctx, _, fun, args| {
                         let x1_ty = fun.0.args[0].ty;
-                        let x1_val =
-                            args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+                        let x1_val = args[0].1.clone().to_basic_value_enum(ctx, x1_ty)?;
 
                         let func = match prim {
                             PrimDef::FunNpLinalgQr => builtin_fns::call_np_linalg_qr,
@@ -2116,7 +2053,7 @@ impl<'a> BuiltinBuilder<'a> {
                             }
                             _ => unreachable!(),
                         };
-                        Ok(Some(func(generator, ctx, (x1_ty, x1_val))?))
+                        Ok(Some(func(ctx, (x1_ty, x1_val))?))
                     }),
                 )
             }
@@ -2132,12 +2069,11 @@ impl<'a> BuiltinBuilder<'a> {
                     prim.name(),
                     ret_ty,
                     &[(self.ndarray_float_2d, "x1")],
-                    Box::new(move |ctx, _, fun, args, generator| {
+                    Box::new(move |ctx, _, fun, args| {
                         let x1_ty = fun.0.args[0].ty;
-                        let x1_val =
-                            args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+                        let x1_val = args[0].1.clone().to_basic_value_enum(ctx, x1_ty)?;
 
-                        Ok(Some(builtin_fns::call_np_linalg_svd(generator, ctx, (x1_ty, x1_val))?))
+                        Ok(Some(builtin_fns::call_np_linalg_svd(ctx, (x1_ty, x1_val))?))
                     }),
                 )
             }
@@ -2147,14 +2083,13 @@ impl<'a> BuiltinBuilder<'a> {
                 prim.name(),
                 self.ndarray_float_2d,
                 &[(self.ndarray_float_2d, "x1"), (self.primitives.int32, "power")],
-                Box::new(move |ctx, _, fun, args, generator| {
+                Box::new(move |ctx, _, fun, args| {
                     let x1_ty = fun.0.args[0].ty;
-                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
+                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, x1_ty)?;
                     let x2_ty = fun.0.args[1].ty;
-                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, generator, x2_ty)?;
+                    let x2_val = args[1].1.clone().to_basic_value_enum(ctx, x2_ty)?;
 
                     Ok(Some(builtin_fns::call_np_linalg_matrix_power(
-                        generator,
                         ctx,
                         (x1_ty, x1_val),
                         (x2_ty, x2_val),
@@ -2167,10 +2102,10 @@ impl<'a> BuiltinBuilder<'a> {
                 prim.name(),
                 self.primitives.float,
                 &[(self.ndarray_float_2d, "x1")],
-                Box::new(move |ctx, _, fun, args, generator| {
+                Box::new(move |ctx, _, fun, args| {
                     let x1_ty = fun.0.args[0].ty;
-                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, generator, x1_ty)?;
-                    Ok(Some(builtin_fns::call_np_linalg_det(generator, ctx, (x1_ty, x1_val))?))
+                    let x1_val = args[0].1.clone().to_basic_value_enum(ctx, x1_ty)?;
+                    Ok(Some(builtin_fns::call_np_linalg_det(ctx, (x1_ty, x1_val))?))
                 }),
             ),
             _ => unreachable!(),

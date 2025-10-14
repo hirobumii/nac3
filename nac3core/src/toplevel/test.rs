@@ -19,7 +19,7 @@ use super::{
     helper::PrimDef,
 };
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator},
+    codegen::CodeGenContext,
     symbol_resolver::{SymbolResolver, ValueEnum},
     typecheck::{
         type_inferencer::PrimitiveStore,
@@ -71,7 +71,6 @@ impl SymbolResolver for Resolver {
         &self,
         _: StrRef,
         _: &mut CodeGenContext<'ctx, '_>,
-        _: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
         unimplemented!()
     }

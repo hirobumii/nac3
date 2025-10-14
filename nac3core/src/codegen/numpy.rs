@@ -6,13 +6,14 @@ use inkwell::{
 use nac3parser::ast::StrRef;
 
 use super::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
     macros::codegen_unreachable,
     stmt::gen_for_callback,
     types::ndarray::{NDArrayType, NDIterType},
     values::{ProxyValue, ndarray::shape::parse_numpy_int_sequence},
 };
 use crate::{
+    codegen::bool_to_i1,
     symbol_resolver::ValueEnum,
     toplevel::{
         DefinitionId,
@@ -28,22 +29,21 @@ pub fn gen_ndarray_empty<'ctx>(
     obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
     let shape_ty = fun.0.args[0].ty;
-    let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
+    let shape_arg = args[0].1.clone().to_basic_value_enum(context, shape_ty)?;
 
     let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
     let llvm_dtype = context.get_llvm_type(dtype);
     let ndims = extract_ndims(&context.unifier, ndims);
 
-    let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
+    let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg));
 
-    let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
-        .construct_numpy_empty(generator, context, &shape, None);
+    let ndarray =
+        NDArrayType::new(context, llvm_dtype, ndims).construct_numpy_empty(context, &shape, None);
     Ok(ndarray.as_abi_value(context))
 }
 
@@ -53,22 +53,21 @@ pub fn gen_ndarray_zeros<'ctx>(
     obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
     let shape_ty = fun.0.args[0].ty;
-    let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
+    let shape_arg = args[0].1.clone().to_basic_value_enum(context, shape_ty)?;
 
     let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
     let llvm_dtype = context.get_llvm_type(dtype);
     let ndims = extract_ndims(&context.unifier, ndims);
 
-    let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
+    let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg));
 
     let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
-        .construct_numpy_zeros(generator, context, dtype, &shape, None);
+        .construct_numpy_zeros(context, dtype, &shape, None);
     Ok(ndarray.as_abi_value(context))
 }
 
@@ -78,22 +77,21 @@ pub fn gen_ndarray_ones<'ctx>(
     obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
     let shape_ty = fun.0.args[0].ty;
-    let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
+    let shape_arg = args[0].1.clone().to_basic_value_enum(context, shape_ty)?;
 
     let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
     let llvm_dtype = context.get_llvm_type(dtype);
     let ndims = extract_ndims(&context.unifier, ndims);
 
-    let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
+    let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg));
 
     let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
-        .construct_numpy_ones(generator, context, dtype, &shape, None);
+        .construct_numpy_ones(context, dtype, &shape, None);
     Ok(ndarray.as_abi_value(context))
 }
 
@@ -103,25 +101,22 @@ pub fn gen_ndarray_full<'ctx>(
     obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
     assert_eq!(args.len(), 2);
 
     let shape_ty = fun.0.args[0].ty;
-    let shape_arg = args[0].1.clone().to_basic_value_enum(context, generator, shape_ty)?;
+    let shape_arg = args[0].1.clone().to_basic_value_enum(context, shape_ty)?;
     let fill_value_ty = fun.0.args[1].ty;
-    let fill_value_arg =
-        args[1].1.clone().to_basic_value_enum(context, generator, fill_value_ty)?;
+    let fill_value_arg = args[1].1.clone().to_basic_value_enum(context, fill_value_ty)?;
 
     let (dtype, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
     let llvm_dtype = context.get_llvm_type(dtype);
     let ndims = extract_ndims(&context.unifier, ndims);
 
-    let shape = parse_numpy_int_sequence(generator, context, (shape_ty, shape_arg));
+    let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg));
 
     let ndarray = NDArrayType::new(context, llvm_dtype, ndims).construct_numpy_full(
-        generator,
         context,
         &shape,
         fill_value_arg,
@@ -135,25 +130,20 @@ pub fn gen_ndarray_array<'ctx>(
     obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
     assert!(matches!(args.len(), 1..=3));
 
     let obj_ty = fun.0.args[0].ty;
-    let obj_arg = args[0].1.clone().to_basic_value_enum(context, generator, obj_ty)?;
+    let obj_arg = args[0].1.clone().to_basic_value_enum(context, obj_ty)?;
 
     let copy_arg = if let Some(arg) =
         args.iter().find(|arg| arg.0.is_some_and(|name| name == fun.0.args[1].name))
     {
         let copy_ty = fun.0.args[1].ty;
-        arg.1.clone().to_basic_value_enum(context, generator, copy_ty)?
+        arg.1.clone().to_basic_value_enum(context, copy_ty)?
     } else {
-        context.gen_symbol_val(
-            generator,
-            fun.0.args[1].default_value.as_ref().unwrap(),
-            fun.0.args[1].ty,
-        )
+        context.gen_symbol_val(fun.0.args[1].default_value.as_ref().unwrap(), fun.0.args[1].ty)
     };
 
     // The ndmin argument is ignored. We can simply force the ndarray's number of dimensions to be
@@ -161,10 +151,10 @@ pub fn gen_ndarray_array<'ctx>(
     let (_, ndims) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
     let ndims = extract_ndims(&context.unifier, ndims);
 
-    let copy = generator.bool_to_i1(context, copy_arg.into_int_value());
+    let copy = bool_to_i1(context, copy_arg.into_int_value());
     let ndarray = NDArrayType::from_unifier_type(context, fun.0.ret)
-        .construct_numpy_array(generator, context, (obj_ty, obj_arg), copy, None)
-        .atleast_nd(generator, context, ndims);
+        .construct_numpy_array(context, (obj_ty, obj_arg), copy, None)
+        .atleast_nd(context, ndims);
 
     Ok(ndarray.as_abi_value(context))
 }
@@ -175,34 +165,29 @@ pub fn gen_ndarray_eye<'ctx>(
     obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
     assert!(matches!(args.len(), 1..=3));
 
     let nrows_ty = fun.0.args[0].ty;
-    let nrows_arg = args[0].1.clone().to_basic_value_enum(context, generator, nrows_ty)?;
+    let nrows_arg = args[0].1.clone().to_basic_value_enum(context, nrows_ty)?;
 
     let ncols_ty = fun.0.args[1].ty;
     let ncols_arg = if let Some(arg) =
         args.iter().find(|arg| arg.0.is_some_and(|name| name == fun.0.args[1].name))
     {
-        arg.1.clone().to_basic_value_enum(context, generator, ncols_ty)
+        arg.1.clone().to_basic_value_enum(context, ncols_ty)
     } else {
-        args[0].1.clone().to_basic_value_enum(context, generator, nrows_ty)
+        args[0].1.clone().to_basic_value_enum(context, nrows_ty)
     }?;
 
     let offset_ty = fun.0.args[2].ty;
     let offset_arg = if let Some(arg) =
         args.iter().find(|arg| arg.0.is_some_and(|name| name == fun.0.args[2].name))
     {
-        arg.1.clone().to_basic_value_enum(context, generator, offset_ty)
+        arg.1.clone().to_basic_value_enum(context, offset_ty)
     } else {
-        Ok(context.gen_symbol_val(
-            generator,
-            fun.0.args[2].default_value.as_ref().unwrap(),
-            offset_ty,
-        ))
+        Ok(context.gen_symbol_val(fun.0.args[2].default_value.as_ref().unwrap(), offset_ty))
     }?;
 
     let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
@@ -224,7 +209,7 @@ pub fn gen_ndarray_eye<'ctx>(
         .unwrap();
 
     let ndarray = NDArrayType::new(context, llvm_dtype, 2)
-        .construct_numpy_eye(generator, context, dtype, nrows, ncols, offset, None);
+        .construct_numpy_eye(context, dtype, nrows, ncols, offset, None);
     Ok(ndarray.as_abi_value(context))
 }
 
@@ -234,13 +219,12 @@ pub fn gen_ndarray_identity<'ctx>(
     obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
     let n_ty = fun.0.args[0].ty;
-    let n_arg = args[0].1.clone().to_basic_value_enum(context, generator, n_ty)?;
+    let n_arg = args[0].1.clone().to_basic_value_enum(context, n_ty)?;
 
     let (dtype, _) = unpack_ndarray_var_tys(&mut context.unifier, fun.0.ret);
 
@@ -251,8 +235,8 @@ pub fn gen_ndarray_identity<'ctx>(
         .builder
         .build_int_s_extend_or_bit_cast(n_arg.into_int_value(), llvm_usize, "")
         .unwrap();
-    let ndarray = NDArrayType::new(context, llvm_dtype, 2)
-        .construct_numpy_identity(generator, context, dtype, n, None);
+    let ndarray =
+        NDArrayType::new(context, llvm_dtype, 2).construct_numpy_identity(context, dtype, n, None);
     Ok(ndarray.as_abi_value(context))
 }
 
@@ -262,18 +246,16 @@ pub fn gen_ndarray_copy<'ctx>(
     obj: &Option<(Type, ValueEnum<'ctx>)>,
     _fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<PointerValue<'ctx>, String> {
     assert!(obj.is_some());
     assert!(args.is_empty());
 
     let this_ty = obj.as_ref().unwrap().0;
-    let this_arg =
-        obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, generator, this_ty)?;
+    let this_arg = obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, this_ty)?;
 
     let this = NDArrayType::from_unifier_type(context, this_ty)
         .map_pointer_value(this_arg.into_pointer_value(), None);
-    let ndarray = this.make_copy(generator, context);
+    let ndarray = this.make_copy(context);
     Ok(ndarray.as_abi_value(context))
 }
 
@@ -283,20 +265,18 @@ pub fn gen_ndarray_fill<'ctx>(
     obj: &Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<(), String> {
     assert!(obj.is_some());
     assert_eq!(args.len(), 1);
 
     let this_ty = obj.as_ref().unwrap().0;
-    let this_arg =
-        obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, generator, this_ty)?;
+    let this_arg = obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, this_ty)?;
     let value_ty = fun.0.args[0].ty;
-    let value_arg = args[0].1.clone().to_basic_value_enum(context, generator, value_ty)?;
+    let value_arg = args[0].1.clone().to_basic_value_enum(context, value_ty)?;
 
     let this = NDArrayType::from_unifier_type(context, this_ty)
         .map_pointer_value(this_arg.into_pointer_value(), None);
-    this.fill(generator, context, value_arg);
+    this.fill(context, value_arg);
     Ok(())
 }
 
@@ -306,8 +286,7 @@ pub fn gen_ndarray_fill<'ctx>(
 ///
 /// The input `NDArray` are flattened and treated as 1D
 /// The operation is equivalent to `np.dot(arr1.ravel(), arr2.ravel())`
-pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn ndarray_dot<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -330,7 +309,6 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
             let same_shape =
                 ctx.builder.build_int_compare(IntPredicate::EQ, a_size, b_size, "").unwrap();
             ctx.make_assert(
-                generator,
                 same_shape,
                 "0:ValueError",
                 "shapes ({0},) and ({1},) not aligned: {0} (dim 0) != {1} (dim 1)",
@@ -345,19 +323,19 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
 
             // Do dot product.
             gen_for_callback(
-                generator,
+                &mut (),
                 ctx,
                 Some("np_dot"),
-                |generator, ctx| {
-                    let a_iter = NDIterType::new(ctx).construct(generator, ctx, a);
-                    let b_iter = NDIterType::new(ctx).construct(generator, ctx, b);
+                |(), ctx| {
+                    let a_iter = NDIterType::new(ctx).construct(ctx, a);
+                    let b_iter = NDIterType::new(ctx).construct(ctx, b);
                     Ok((a_iter, b_iter))
                 },
-                |_, ctx, (a_iter, _b_iter)| {
+                |(), ctx, (a_iter, _b_iter)| {
                     // Only a_iter drives the condition, b_iter should have the same status.
                     Ok(a_iter.has_element(ctx))
                 },
-                |_, ctx, _hooks, (a_iter, b_iter)| {
+                |(), ctx, _hooks, (a_iter, b_iter)| {
                     let a_scalar = a_iter.get_scalar(ctx);
                     let b_scalar = b_iter.get_scalar(ctx);
 
@@ -385,7 +363,7 @@ pub fn ndarray_dot<'ctx, G: CodeGenerator + ?Sized>(
                     ctx.builder.build_store(result, new_result).unwrap();
                     Ok(())
                 },
-                |_, ctx, (a_iter, b_iter)| {
+                |(), ctx, (a_iter, b_iter)| {
                     a_iter.next(ctx);
                     b_iter.next(ctx);
                     Ok(())

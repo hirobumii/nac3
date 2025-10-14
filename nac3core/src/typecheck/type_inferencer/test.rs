@@ -9,7 +9,7 @@ use nac3parser::{ast::FileName, parser::parse_program};
 
 use super::*;
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator},
+    codegen::CodeGenContext,
     symbol_resolver::ValueEnum,
     toplevel::{DefinitionId, TopLevelDef, helper::PrimDef},
     typecheck::{
@@ -45,7 +45,6 @@ impl SymbolResolver for Resolver {
         &self,
         _: StrRef,
         _: &mut CodeGenContext<'ctx, '_>,
-        _: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
         unimplemented!()
     }

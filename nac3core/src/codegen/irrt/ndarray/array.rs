@@ -1,7 +1,7 @@
 use inkwell::{types::BasicTypeEnum, values::IntValue};
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
     values::{ListValue, ProxyValue, TypedArrayLikeAccessor, ndarray::NDArrayValue},
@@ -14,24 +14,20 @@ use crate::codegen::{
 ///
 /// `shape` must be pre-allocated by the caller of this function to `[usize; ndims]`, and must be
 /// initialized to all `-1`s.
-pub fn call_nac3_ndarray_array_set_and_validate_list_shape<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_array_set_and_validate_list_shape<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     list: ListValue<'ctx>,
     ndims: IntValue<'ctx>,
-    shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
+    shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
 ) {
     let llvm_usize = ctx.size_t;
     assert_eq!(list.get_type().element_type().unwrap(), ctx.i8.into());
     assert_eq!(ndims.get_type(), llvm_usize);
-    assert_eq!(
-        BasicTypeEnum::try_from(shape.element_type(ctx, generator)).unwrap(),
-        llvm_usize.into()
-    );
+    assert_eq!(BasicTypeEnum::try_from(shape.element_type(ctx)).unwrap(), llvm_usize.into());
 
     let name =
         get_usize_dependent_function_name(ctx, "__nac3_ndarray_array_set_and_validate_list_shape");
-    call_extern!(ctx: void _ = name(list.as_abi_value(ctx), ndims, shape.base_ptr(ctx, generator)));
+    call_extern!(ctx: void _ = name(list.as_abi_value(ctx), ndims, shape.base_ptr(ctx)));
 }
 
 /// Generates a call to `__nac3_ndarray_array_write_list_to_array`.

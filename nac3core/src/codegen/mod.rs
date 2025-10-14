@@ -978,6 +978,19 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
     })
 }
 
+pub fn bool_to_i1<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    bool_value: IntValue<'ctx>,
+) -> IntValue<'ctx> {
+    bool_to_int_type(&ctx.builder, bool_value, ctx.i1)
+}
+pub fn bool_to_i8<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    bool_value: IntValue<'ctx>,
+) -> IntValue<'ctx> {
+    bool_to_int_type(&ctx.builder, bool_value, ctx.i8)
+}
+
 /// Converts the value of a boolean-like value `value` into an arbitrary [`IntType`].
 ///
 /// This has the same semantics as `(ty)(value != 0)` in C.
@@ -1062,8 +1075,7 @@ pub fn get_type_alignment<'ctx>(ty: impl Into<BasicTypeEnum<'ctx>>) -> IntValue<
 ///
 /// The returned [`PointerValue`] will have a type of `i8*`, a size of at least `size`, and will be
 /// aligned with the alignment of `align_ty`.
-pub fn type_aligned_alloca<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn type_aligned_alloca<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     align_ty: impl Into<BasicTypeEnum<'ctx>>,
     size: IntValue<'ctx>,
@@ -1117,7 +1129,6 @@ pub fn type_aligned_alloca<'ctx, G: CodeGenerator + ?Sized>(
         let alignment_bitcount = llvm_intrinsics::call_int_ctpop(ctx, alignment, None);
 
         ctx.make_assert(
-            generator,
             ctx.builder
                 .build_int_compare(
                     IntPredicate::EQ,

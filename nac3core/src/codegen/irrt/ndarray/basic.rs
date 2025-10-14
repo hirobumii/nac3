@@ -1,7 +1,7 @@
 use inkwell::values::{IntValue, PointerValue};
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
     values::{ProxyValue, TypedArrayLikeAccessor, ndarray::NDArrayValue},
@@ -10,41 +10,39 @@ use crate::codegen::{
 /// Generates a call to `__nac3_ndarray_util_assert_shape_no_negative`.
 ///
 /// Assets that `shape` does not contain negative dimensions.
-pub fn call_nac3_ndarray_util_assert_shape_no_negative<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_util_assert_shape_no_negative<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
+    shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
 ) {
     let llvm_usize = ctx.size_t;
-    assert_eq!(shape.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(shape.element_type(ctx), llvm_usize.into());
 
     let name =
         get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_shape_no_negative");
-    call_extern!(ctx: llvm_usize _ = name(shape.size(ctx, generator), shape.base_ptr(ctx, generator)));
+    call_extern!(ctx: llvm_usize _ = name(shape.size(ctx), shape.base_ptr(ctx)));
 }
 
 /// Generates a call to `__nac3_ndarray_util_assert_shape_output_shape_same`.
 ///
 /// Asserts that `ndarray_shape` and `output_shape` are the same in the context of writing output to
 /// an `ndarray`.
-pub fn call_nac3_ndarray_util_assert_output_shape_same<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_util_assert_output_shape_same<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    ndarray_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
-    output_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
+    ndarray_shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
+    output_shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
 ) {
     let llvm_usize = ctx.size_t;
-    assert_eq!(ndarray_shape.element_type(ctx, generator), llvm_usize.into());
-    assert_eq!(output_shape.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(ndarray_shape.element_type(ctx), llvm_usize.into());
+    assert_eq!(output_shape.element_type(ctx), llvm_usize.into());
 
     let name =
         get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_output_shape_same");
 
     call_extern!(ctx: llvm_usize _ = name(
-        ndarray_shape.size(ctx, generator),
-        ndarray_shape.base_ptr(ctx, generator),
-        output_shape.size(ctx, generator),
-        output_shape.base_ptr(ctx, generator)
+        ndarray_shape.size(ctx),
+        ndarray_shape.base_ptr(ctx),
+        output_shape.size(ctx),
+        output_shape.base_ptr(ctx)
     ));
 }
 
@@ -120,18 +118,17 @@ pub fn call_nac3_ndarray_get_nth_pelement<'ctx>(
 /// `indices` must have the same number of elements as the number of dimensions in `ndarray`.
 ///
 /// Returns a [`PointerValue`] to the element indexed by `indices`.
-pub fn call_nac3_ndarray_get_pelement_by_indices<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_get_pelement_by_indices<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ndarray: NDArrayValue<'ctx>,
-    indices: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
+    indices: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
 ) -> PointerValue<'ctx> {
     let llvm_pi8 = ctx.ptr;
     let llvm_usize = ctx.size_t;
-    assert_eq!(indices.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(indices.element_type(ctx), llvm_usize.into());
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_pelement_by_indices");
-    call_extern!(ctx: llvm_pi8 "pelement" = name(ndarray.as_abi_value(ctx), indices.base_ptr(ctx, generator)))
+    call_extern!(ctx: llvm_pi8 "pelement" = name(ndarray.as_abi_value(ctx), indices.base_ptr(ctx)))
 }
 
 /// Generates a call to `__nac3_ndarray_set_strides_by_shape`.

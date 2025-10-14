@@ -7,7 +7,7 @@ use inkwell::{
 
 use super::ProxyType;
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator, ModuleContext, values::RangeValue},
+    codegen::{CodeGenContext, ModuleContext, values::RangeValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -74,7 +74,7 @@ impl<'ctx> RangeType<'ctx> {
     ///
     /// See [`ProxyType::raw_alloca`].
     #[must_use]
-    pub fn alloca<G: CodeGenerator + ?Sized>(
+    pub fn alloca(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
@@ -90,14 +90,13 @@ impl<'ctx> RangeType<'ctx> {
     ///
     /// See [`ProxyType::raw_alloca_var`].
     #[must_use]
-    pub fn alloca_var<G: CodeGenerator + ?Sized>(
+    pub fn alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(generator, ctx, name),
+            self.raw_alloca_var(ctx, name),
             self.llvm_usize,
             name,
         )
@@ -105,20 +104,13 @@ impl<'ctx> RangeType<'ctx> {
 
     /// Converts an existing value into a [`RangeValue`].
     #[must_use]
-    pub fn map_array_value<G: CodeGenerator + ?Sized>(
+    pub fn map_array_value(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: ArrayValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_array_value(
-            generator,
-            ctx,
-            value,
-            self.llvm_usize,
-            name,
-        )
+        <Self as ProxyType<'ctx>>::Value::from_array_value(ctx, value, self.llvm_usize, name)
     }
 
     /// Converts an existing value into a [`RangeValue`].

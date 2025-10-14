@@ -14,9 +14,9 @@ use super::{
 };
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator, irrt,
+        CodeGenContext, irrt,
         llvm_intrinsics::{call_int_umin, call_memcpy_generic_array},
-        stmt::gen_for_callback_incrementing,
+        stmt::{gen_for_callback_incrementing, gen_var},
         type_aligned_alloca,
         types::{
             TupleType,
@@ -54,8 +54,7 @@ pub struct NDArrayValue<'ctx> {
 impl<'ctx> NDArrayValue<'ctx> {
     /// Creates an [`NDArrayValue`] from a [`StructValue`].
     #[must_use]
-    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_struct_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         val: StructValue<'ctx>,
         dtype: BasicTypeEnum<'ctx>,
@@ -63,13 +62,9 @@ impl<'ctx> NDArrayValue<'ctx> {
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        let pval = generator
-            .gen_var_alloc(
-                ctx,
-                val.get_type().into(),
-                name.map(|name| format!("{name}.addr")).as_deref(),
-            )
-            .unwrap();
+        let pval =
+            gen_var(ctx, val.get_type().into(), name.map(|name| format!("{name}.addr")).as_deref())
+                .unwrap();
         ctx.builder.build_store(pval, val).unwrap();
         Self::from_pointer_value(pval, dtype, ndims, llvm_usize, name)
     }
@@ -194,14 +189,10 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// # Safety
     ///
     /// The caller must ensure that `shape` and `itemsize` of this ndarray instance is initialized.
-    pub unsafe fn create_data<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-    ) {
+    pub unsafe fn create_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) {
         let nbytes = self.nbytes(ctx);
 
-        let data = type_aligned_alloca(generator, ctx, self.dtype, nbytes, None);
+        let data = type_aligned_alloca(ctx, self.dtype, nbytes, None);
         self.store_data(ctx, data);
 
         self.set_strides_contiguous(ctx);
@@ -214,55 +205,51 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 
     /// Copy shape dimensions from an array.
-    pub fn copy_shape_from_array<G: CodeGenerator + ?Sized>(
+    pub fn copy_shape_from_array(
         &self,
-        generator: &G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         shape: PointerValue<'ctx>,
     ) {
         let num_items = self.load_ndims(ctx);
 
-        call_memcpy_generic_array(ctx, self.shape().base_ptr(ctx, generator), shape, num_items);
+        call_memcpy_generic_array(ctx, self.shape().base_ptr(ctx), shape, num_items);
     }
 
     /// Copy shape dimensions from an ndarray.
     /// Panics if `ndims` mismatches.
-    pub fn copy_shape_from_ndarray<G: CodeGenerator + ?Sized>(
+    pub fn copy_shape_from_ndarray(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         src_ndarray: NDArrayValue<'ctx>,
     ) {
         assert_eq!(self.ndims, src_ndarray.ndims);
 
-        let src_shape = src_ndarray.shape().base_ptr(ctx, generator);
-        self.copy_shape_from_array(generator, ctx, src_shape);
+        let src_shape = src_ndarray.shape().base_ptr(ctx);
+        self.copy_shape_from_array(ctx, src_shape);
     }
 
     /// Copy strides dimensions from an array.
-    pub fn copy_strides_from_array<G: CodeGenerator + ?Sized>(
+    pub fn copy_strides_from_array(
         &self,
-        generator: &G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         strides: PointerValue<'ctx>,
     ) {
         let num_items = self.load_ndims(ctx);
 
-        call_memcpy_generic_array(ctx, self.strides().base_ptr(ctx, generator), strides, num_items);
+        call_memcpy_generic_array(ctx, self.strides().base_ptr(ctx), strides, num_items);
     }
 
     /// Copy strides dimensions from an ndarray.
     /// Panics if `ndims` mismatches.
-    pub fn copy_strides_from_ndarray<G: CodeGenerator + ?Sized>(
+    pub fn copy_strides_from_ndarray(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         src_ndarray: NDArrayValue<'ctx>,
     ) {
         assert_eq!(self.ndims, src_ndarray.ndims);
 
-        let src_strides = src_ndarray.strides().base_ptr(ctx, generator);
-        self.copy_strides_from_array(generator, ctx, src_strides);
+        let src_strides = src_ndarray.strides().base_ptr(ctx);
+        self.copy_strides_from_array(ctx, src_strides);
     }
 
     /// Get the `np.size()` of this ndarray.
@@ -299,16 +286,12 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///
     /// The new ndarray will own its data and will be C-contiguous.
     #[must_use]
-    pub fn make_copy<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> Self {
-        let clone = self.get_type().construct_uninitialized(generator, ctx, None);
+    pub fn make_copy(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Self {
+        let clone = self.get_type().construct_uninitialized(ctx, None);
 
         let shape = self.shape();
-        clone.copy_shape_from_array(generator, ctx, shape.base_ptr(ctx, generator));
-        unsafe { clone.create_data(generator, ctx) };
+        clone.copy_shape_from_array(ctx, shape.base_ptr(ctx));
+        unsafe { clone.create_data(ctx) };
         clone.copy_data_from(ctx, *self);
         clone
     }
@@ -327,15 +310,10 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// Fill the ndarray with a scalar.
     ///
     /// `fill_value` must have the same LLVM type as the `dtype` of this ndarray.
-    pub fn fill<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        value: BasicValueEnum<'ctx>,
-    ) {
+    pub fn fill(&self, ctx: &mut CodeGenContext<'ctx, '_>, value: BasicValueEnum<'ctx>) {
         // TODO: It is possible to optimize this by exploiting contiguous strides with memset.
         //       Probably best to implement in IRRT.
-        self.foreach(generator, ctx, |_, ctx, _, nditer| {
+        self.foreach(ctx, |ctx, _, nditer| {
             let p = nditer.get_pointer(ctx);
             ctx.builder.build_store(p, value).unwrap();
             Ok(())
@@ -347,11 +325,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// [`np.shape(<ndarray>)`](https://numpy.org/doc/stable/reference/generated/numpy.shape.html).
     ///
     /// All elements in the tuple are `i32`.
-    pub fn make_shape_tuple<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> TupleValue<'ctx> {
+    pub fn make_shape_tuple(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> TupleValue<'ctx> {
         let llvm_i32 = ctx.i32;
 
         let objects = (0..self.ndims)
@@ -359,7 +333,6 @@ impl<'ctx> NDArrayValue<'ctx> {
                 let dim = unsafe {
                     self.shape().get_typed_unchecked(
                         ctx,
-                        generator,
                         &self.llvm_usize.const_int(i, false),
                         None,
                     )
@@ -377,11 +350,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// [`<ndarray>.strides`](https://numpy.org/doc/stable/reference/generated/numpy.ndarray.strides.html).
     ///
     /// All elements in the tuple are `i32`.
-    pub fn make_strides_tuple<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> TupleValue<'ctx> {
+    pub fn make_strides_tuple(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> TupleValue<'ctx> {
         let llvm_i32 = ctx.i32;
 
         let objects = (0..self.ndims)
@@ -389,7 +358,6 @@ impl<'ctx> NDArrayValue<'ctx> {
                 let dim = unsafe {
                     self.strides().get_typed_unchecked(
                         ctx,
-                        generator,
                         &self.llvm_usize.const_int(i, false),
                         None,
                     )
@@ -410,15 +378,14 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 
     /// Returns the element present in this `ndarray` if this is unsized.
-    pub fn get_unsized_element<G: CodeGenerator + ?Sized>(
+    pub fn get_unsized_element(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> Option<BasicValueEnum<'ctx>> {
         if self.is_unsized() {
             // NOTE: `np.size(self) == 0` here is never possible.
             let zero = ctx.size_t.const_zero();
-            let value = unsafe { self.data().get_unchecked(ctx, generator, &zero, None) };
+            let value = unsafe { self.data().get_unchecked(ctx, &zero, None) };
 
             Some(value)
         } else {
@@ -428,12 +395,8 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// If this ndarray is unsized, return its sole value as an [`BasicValueEnum`].
     /// Otherwise, do nothing and return the ndarray itself.
-    pub fn split_unsized<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> ScalarOrNDArray<'ctx> {
-        if let Some(unsized_elem) = self.get_unsized_element(generator, ctx) {
+    pub fn split_unsized(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> ScalarOrNDArray<'ctx> {
+        if let Some(unsized_elem) = self.get_unsized_element(ctx) {
             ScalarOrNDArray::Scalar(unsized_elem)
         } else {
             ScalarOrNDArray::NDArray(*self)
@@ -443,17 +406,15 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// Check if this `NDArray` can be used as an `out` ndarray for an operation.
     ///
     /// Raise an exception if the shapes do not match.
-    pub fn assert_can_be_written_by_out<G: CodeGenerator + ?Sized>(
+    pub fn assert_can_be_written_by_out(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        out_shape: impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
+        out_shape: impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
     ) {
         let ndarray_shape = self.shape();
         let output_shape = out_shape;
 
         irrt::ndarray::call_nac3_ndarray_util_assert_output_shape_same(
-            generator,
             ctx,
             &ndarray_shape,
             &output_shape,
@@ -497,56 +458,43 @@ impl<'ctx> From<NDArrayValue<'ctx>> for PointerValue<'ctx> {
 pub struct NDArrayShapeProxy<'ctx, 'a>(&'a NDArrayValue<'ctx>);
 
 impl<'ctx> ArrayLikeValue<'ctx> for NDArrayShapeProxy<'ctx, '_> {
-    fn element_type<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        generator: &G,
-    ) -> AnyTypeEnum<'ctx> {
-        self.0.shape().base_ptr(ctx, generator).get_type().get_element_type()
+    fn element_type(&self, ctx: &CodeGenContext<'ctx, '_>) -> AnyTypeEnum<'ctx> {
+        self.0.shape().base_ptr(ctx).get_type().get_element_type()
     }
 
-    fn base_ptr<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        _: &G,
-    ) -> PointerValue<'ctx> {
+    fn base_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         self.0.shape_field().load(ctx, self.0.value, self.0.name)
     }
 
-    fn size<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        _: &G,
-    ) -> IntValue<'ctx> {
+    fn size(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.0.load_ndims(ctx)
     }
 }
 
 impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {
-    unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
+    unsafe fn ptr_offset_unchecked(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &G,
+
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let var_name = name.map(|v| format!("{v}.addr")).unwrap_or_default();
-        let base_ptr = self.base_ptr(ctx, generator);
+        let base_ptr = self.base_ptr(ctx);
         unsafe { ctx.builder.build_in_bounds_gep(base_ptr, &[*idx], var_name.as_str()).unwrap() }
     }
 
-    fn ptr_offset<G: CodeGenerator + ?Sized>(
+    fn ptr_offset(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        let size = self.size(ctx, generator);
+        let size = self.size(ctx);
         let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "").unwrap();
         let ndims = self.0.load_ndims(ctx);
         ctx.make_assert(
-            generator,
             in_range,
             "0:IndexError",
             "index {0} is out of bounds for axis 0 with size {1}",
@@ -554,33 +502,29 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_
             ctx.current_loc,
         );
 
-        unsafe { self.ptr_offset_unchecked(ctx, generator, idx, name) }
+        unsafe { self.ptr_offset_unchecked(ctx, idx, name) }
     }
 }
 
 impl<'ctx> UntypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {}
 impl<'ctx> UntypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {}
 
-impl<'ctx, G: CodeGenerator + ?Sized> TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
-    for NDArrayShapeProxy<'ctx, '_>
-{
+impl<'ctx> TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {
     fn downcast_to_type(
         &self,
         _: &mut CodeGenContext<'ctx, '_>,
-        _: &G,
+
         value: BasicValueEnum<'ctx>,
     ) -> IntValue<'ctx> {
         value.into_int_value()
     }
 }
 
-impl<'ctx, G: CodeGenerator + ?Sized> TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>
-    for NDArrayShapeProxy<'ctx, '_>
-{
+impl<'ctx> TypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayShapeProxy<'ctx, '_> {
     fn upcast_from_type(
         &self,
         _: &mut CodeGenContext<'ctx, '_>,
-        _: &G,
+
         value: IntValue<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         value.into()
@@ -592,60 +536,45 @@ impl<'ctx, G: CodeGenerator + ?Sized> TypedArrayLikeMutator<'ctx, G, IntValue<'c
 pub struct NDArrayStridesProxy<'ctx, 'a>(&'a NDArrayValue<'ctx>);
 
 impl<'ctx> ArrayLikeValue<'ctx> for NDArrayStridesProxy<'ctx, '_> {
-    fn element_type<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        generator: &G,
-    ) -> AnyTypeEnum<'ctx> {
-        self.0.strides().base_ptr(ctx, generator).get_type().get_element_type()
+    fn element_type(&self, ctx: &CodeGenContext<'ctx, '_>) -> AnyTypeEnum<'ctx> {
+        self.0.strides().base_ptr(ctx).get_type().get_element_type()
     }
 
-    fn base_ptr<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        _: &G,
-    ) -> PointerValue<'ctx> {
+    fn base_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         self.0.strides_field().load(ctx, self.0.value, self.0.name)
     }
 
-    fn size<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        _: &G,
-    ) -> IntValue<'ctx> {
+    fn size(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         self.0.load_ndims(ctx)
     }
 }
 
 impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, '_> {
-    unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
+    unsafe fn ptr_offset_unchecked(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &G,
+
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let var_name = name.map(|v| format!("{v}.addr")).unwrap_or_default();
 
         unsafe {
-            ctx.builder
-                .build_in_bounds_gep(self.base_ptr(ctx, generator), &[*idx], var_name.as_str())
-                .unwrap()
+            ctx.builder.build_in_bounds_gep(self.base_ptr(ctx), &[*idx], var_name.as_str()).unwrap()
         }
     }
 
-    fn ptr_offset<G: CodeGenerator + ?Sized>(
+    fn ptr_offset(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        let size = self.size(ctx, generator);
+        let size = self.size(ctx);
         let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, size, "").unwrap();
         let ndims = self.0.load_ndims(ctx);
         ctx.make_assert(
-            generator,
             in_range,
             "0:IndexError",
             "index {0} is out of bounds for axis 0 with size {1}",
@@ -653,33 +582,29 @@ impl<'ctx> ArrayLikeIndexer<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, 
             ctx.current_loc,
         );
 
-        unsafe { self.ptr_offset_unchecked(ctx, generator, idx, name) }
+        unsafe { self.ptr_offset_unchecked(ctx, idx, name) }
     }
 }
 
 impl<'ctx> UntypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, '_> {}
 impl<'ctx> UntypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, '_> {}
 
-impl<'ctx, G: CodeGenerator + ?Sized> TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
-    for NDArrayStridesProxy<'ctx, '_>
-{
+impl<'ctx> TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, '_> {
     fn downcast_to_type(
         &self,
         _: &mut CodeGenContext<'ctx, '_>,
-        _: &G,
+
         value: BasicValueEnum<'ctx>,
     ) -> IntValue<'ctx> {
         value.into_int_value()
     }
 }
 
-impl<'ctx, G: CodeGenerator + ?Sized> TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>
-    for NDArrayStridesProxy<'ctx, '_>
-{
+impl<'ctx> TypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayStridesProxy<'ctx, '_> {
     fn upcast_from_type(
         &self,
         _: &mut CodeGenContext<'ctx, '_>,
-        _: &G,
+
         value: IntValue<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         value.into()
@@ -691,36 +616,24 @@ impl<'ctx, G: CodeGenerator + ?Sized> TypedArrayLikeMutator<'ctx, G, IntValue<'c
 pub struct NDArrayDataProxy<'ctx, 'a>(&'a NDArrayValue<'ctx>);
 
 impl<'ctx> ArrayLikeValue<'ctx> for NDArrayDataProxy<'ctx, '_> {
-    fn element_type<G: CodeGenerator + ?Sized>(
-        &self,
-        _: &CodeGenContext<'ctx, '_>,
-        _: &G,
-    ) -> AnyTypeEnum<'ctx> {
+    fn element_type(&self, _: &CodeGenContext<'ctx, '_>) -> AnyTypeEnum<'ctx> {
         self.0.dtype.as_any_type_enum()
     }
 
-    fn base_ptr<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        _: &G,
-    ) -> PointerValue<'ctx> {
+    fn base_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
         self.0.data_field().load(ctx, self.0.value, self.0.name)
     }
 
-    fn size<G: CodeGenerator + ?Sized>(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        _: &G,
-    ) -> IntValue<'ctx> {
+    fn size(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         irrt::ndarray::call_nac3_ndarray_len(ctx, *self.0)
     }
 }
 
 impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
-    unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
+    unsafe fn ptr_offset_unchecked(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &G,
+
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
@@ -732,7 +645,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
         ctx.builder
             .build_pointer_cast(
                 ptr,
-                BasicTypeEnum::try_from(self.element_type(ctx, generator))
+                BasicTypeEnum::try_from(self.element_type(ctx))
                     .unwrap()
                     .ptr_type(AddressSpace::default()),
                 name.unwrap_or_default(),
@@ -740,18 +653,17 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
             .unwrap()
     }
 
-    fn ptr_offset<G: CodeGenerator + ?Sized>(
+    fn ptr_offset(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+
         idx: &IntValue<'ctx>,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        let data_sz = self.size(ctx, generator);
+        let data_sz = self.size(ctx);
         let in_range = ctx.builder.build_int_compare(IntPredicate::ULT, *idx, data_sz, "").unwrap();
         let ndims = self.0.load_ndims(ctx);
         ctx.make_assert(
-            generator,
             in_range,
             "0:IndexError",
             "index {0} is out of bounds with size {1}",
@@ -759,7 +671,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
             ctx.current_loc,
         );
 
-        let ptr = unsafe { self.ptr_offset_unchecked(ctx, generator, idx, name) };
+        let ptr = unsafe { self.ptr_offset_unchecked(ctx, idx, name) };
 
         // Current implementation is transparent - The returned pointer type is
         // already cast into the expected type, allowing for immediately
@@ -767,7 +679,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for NDArrayDataProxy<'ctx, '_> {
         ctx.builder
             .build_pointer_cast(
                 ptr,
-                BasicTypeEnum::try_from(self.element_type(ctx, generator))
+                BasicTypeEnum::try_from(self.element_type(ctx))
                     .unwrap()
                     .ptr_type(AddressSpace::default()),
                 "",
@@ -782,24 +694,22 @@ impl<'ctx> UntypedArrayLikeMutator<'ctx, IntValue<'ctx>> for NDArrayDataProxy<'c
 impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
     for NDArrayDataProxy<'ctx, '_>
 {
-    unsafe fn ptr_offset_unchecked<G: CodeGenerator + ?Sized>(
+    unsafe fn ptr_offset_unchecked(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &G,
+
         indices: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
-        assert_eq!(indices.element_type(ctx, generator), ctx.size_t.into());
+        assert_eq!(indices.element_type(ctx), ctx.size_t.into());
 
         let indices = TypedArrayLikeAdapter::from(
-            indices.as_slice_value(ctx, generator),
-            |_, _, v| v.into_int_value(),
-            |_, _, v| v.into(),
+            indices.as_slice_value(ctx),
+            |_, v| v.into_int_value(),
+            |_, v| v.into(),
         );
 
-        let ptr = irrt::ndarray::call_nac3_ndarray_get_pelement_by_indices(
-            generator, ctx, *self.0, &indices,
-        );
+        let ptr = irrt::ndarray::call_nac3_ndarray_get_pelement_by_indices(ctx, *self.0, &indices);
 
         // Current implementation is transparent - The returned pointer type is
         // already cast into the expected type, allowing for immediately
@@ -807,7 +717,7 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
         ctx.builder
             .build_pointer_cast(
                 ptr,
-                BasicTypeEnum::try_from(self.element_type(ctx, generator))
+                BasicTypeEnum::try_from(self.element_type(ctx))
                     .unwrap()
                     .ptr_type(AddressSpace::default()),
                 name.unwrap_or_default(),
@@ -815,21 +725,20 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
             .unwrap()
     }
 
-    fn ptr_offset<G: CodeGenerator + ?Sized>(
+    fn ptr_offset(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut G,
+
         indices: &Index,
         name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let llvm_usize = ctx.size_t;
 
-        let indices_size = indices.size(ctx, generator);
+        let indices_size = indices.size(ctx);
         let ndims = self.0.load_ndims(ctx);
         let nidx_leq_ndims =
             ctx.builder.build_int_compare(IntPredicate::SLE, indices_size, ndims, "").unwrap();
         ctx.make_assert(
-            generator,
             nidx_leq_ndims,
             "0:IndexError",
             "invalid index to scalar variable",
@@ -837,20 +746,20 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
             ctx.current_loc,
         );
 
-        let indices_len = indices.size(ctx, generator);
+        let indices_len = indices.size(ctx);
         let ndarray_len = self.0.load_ndims(ctx);
         let len = call_int_umin(ctx, indices_len, ndarray_len, None);
         gen_for_callback_incrementing(
-            generator,
+            &mut (),
             ctx,
             None,
             llvm_usize.const_zero(),
             (len, false),
-            |generator, ctx, _, i| {
+            |(), ctx, _, i| {
                 let (dim_idx, dim_sz) = unsafe {
                     (
-                        indices.get_unchecked(ctx, generator, &i, None).into_int_value(),
-                        self.0.shape().get_typed_unchecked(ctx, generator, &i, None),
+                        indices.get_unchecked(ctx, &i, None).into_int_value(),
+                        self.0.shape().get_typed_unchecked(ctx, &i, None),
                     )
                 };
                 let dim_idx = ctx
@@ -862,7 +771,6 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
                     ctx.builder.build_int_compare(IntPredicate::SLT, dim_idx, dim_sz, "").unwrap();
 
                 ctx.make_assert(
-                    generator,
                     dim_lt,
                     "0:IndexError",
                     "index {0} is out of bounds for axis 0 with size {1}",
@@ -876,12 +784,12 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
         )
         .unwrap();
 
-        let ptr = unsafe { self.ptr_offset_unchecked(ctx, generator, indices, name) };
+        let ptr = unsafe { self.ptr_offset_unchecked(ctx, indices, name) };
         // TODO: Current implementation is transparent
         ctx.builder
             .build_pointer_cast(
                 ptr,
-                BasicTypeEnum::try_from(self.element_type(ctx, generator))
+                BasicTypeEnum::try_from(self.element_type(ctx))
                     .unwrap()
                     .ptr_type(AddressSpace::default()),
                 "",
@@ -979,15 +887,11 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
     /// - If this is an ndarray, the ndarray is returned.
     /// - If this is a scalar, this function returns new ndarray created with
     ///   [`NDArrayType::construct_unsized`].
-    pub fn to_ndarray<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> NDArrayValue<'ctx> {
+    pub fn to_ndarray(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> NDArrayValue<'ctx> {
         match self {
             ScalarOrNDArray::NDArray(ndarray) => *ndarray,
             ScalarOrNDArray::Scalar(scalar) => NDArrayType::new_unsized(ctx, scalar.get_type())
-                .construct_unsized(generator, ctx, scalar, None),
+                .construct_unsized(ctx, scalar, None),
         }
     }
 

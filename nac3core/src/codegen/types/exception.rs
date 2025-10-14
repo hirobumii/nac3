@@ -13,7 +13,7 @@ use super::{
     structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
 };
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator, ModuleContext, values::ExceptionValue},
+    codegen::{CodeGenContext, ModuleContext, values::ExceptionValue},
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -152,14 +152,13 @@ impl<'ctx> ExceptionType<'ctx> {
     ///
     /// See [`ProxyType::raw_alloca_var`].
     #[must_use]
-    pub fn alloca_var<G: CodeGenerator + ?Sized>(
+    pub fn alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(generator, ctx, name),
+            self.raw_alloca_var(ctx, name),
             self.llvm_usize,
             name,
         )
@@ -167,20 +166,13 @@ impl<'ctx> ExceptionType<'ctx> {
 
     /// Converts an existing value into a [`ExceptionValue`].
     #[must_use]
-    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
+    pub fn map_struct_value(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: StructValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_struct_value(
-            generator,
-            ctx,
-            value,
-            self.llvm_usize,
-            name,
-        )
+        <Self as ProxyType<'ctx>>::Value::from_struct_value(ctx, value, self.llvm_usize, name)
     }
 
     /// Converts an existing value into a [`ExceptionValue`].

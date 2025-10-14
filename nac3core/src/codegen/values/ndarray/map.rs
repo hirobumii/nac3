@@ -1,7 +1,7 @@
 use inkwell::{types::BasicTypeEnum, values::BasicValueEnum};
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
     values::{
         ProxyValue,
         ndarray::{NDArrayOut, NDArrayValue, ScalarOrNDArray},
@@ -10,28 +10,20 @@ use crate::codegen::{
 
 impl<'ctx> NDArrayValue<'ctx> {
     /// Map through this ndarray with an elementwise function.
-    pub fn map<'a, G, Mapping>(
+    pub fn map<'a, Mapping>(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, 'a>,
         out: NDArrayOut<'ctx>,
         mapping: Mapping,
     ) -> Result<Self, String>
     where
-        G: CodeGenerator + ?Sized,
         Mapping: FnOnce(
-            &mut G,
             &mut CodeGenContext<'ctx, 'a>,
             BasicValueEnum<'ctx>,
         ) -> Result<BasicValueEnum<'ctx>, String>,
     {
-        self.get_type().broadcast_starmap(
-            generator,
-            ctx,
-            &[*self],
-            out,
-            |generator, ctx, scalars| mapping(generator, ctx, scalars[0]),
-        )
+        self.get_type()
+            .broadcast_starmap(ctx, &[*self], out, |ctx, scalars| mapping(ctx, scalars[0]))
     }
 }
 
@@ -43,27 +35,20 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
     ///
     /// If this is an ndarray, `mapping` will be applied to the elements of the ndarray. A new
     /// ndarray of the results will be created and returned as a [`ScalarOrNDArray::NDArray`].
-    pub fn map<'a, G, Mapping>(
+    pub fn map<'a, Mapping>(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, 'a>,
         ret_dtype: BasicTypeEnum<'ctx>,
         mapping: Mapping,
     ) -> Result<ScalarOrNDArray<'ctx>, String>
     where
-        G: CodeGenerator + ?Sized,
         Mapping: FnOnce(
-            &mut G,
             &mut CodeGenContext<'ctx, 'a>,
             BasicValueEnum<'ctx>,
         ) -> Result<BasicValueEnum<'ctx>, String>,
     {
-        ScalarOrNDArray::broadcasting_starmap(
-            generator,
-            ctx,
-            &[*self],
-            ret_dtype,
-            |generator, ctx, scalars| mapping(generator, ctx, scalars[0]),
-        )
+        ScalarOrNDArray::broadcasting_starmap(ctx, &[*self], ret_dtype, |ctx, scalars| {
+            mapping(ctx, scalars[0])
+        })
     }
 }

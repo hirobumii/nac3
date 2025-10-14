@@ -9,6 +9,7 @@ use nac3parser::ast::{Expr, ExprKind};
 use crate::{
     codegen::{
         CodeGenContext, CodeGenerator, irrt,
+        stmt::gen_var,
         types::{
             ndarray::{NDArrayType, NDIndexType},
             structure::{StructField, StructProxyType},
@@ -32,20 +33,15 @@ pub struct NDIndexValue<'ctx> {
 impl<'ctx> NDIndexValue<'ctx> {
     /// Creates an [`NDIndexValue`] from a [`StructValue`].
     #[must_use]
-    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_struct_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         val: StructValue<'ctx>,
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        let pval = generator
-            .gen_var_alloc(
-                ctx,
-                val.get_type().into(),
-                name.map(|name| format!("{name}.addr")).as_deref(),
-            )
-            .unwrap();
+        let pval =
+            gen_var(ctx, val.get_type().into(), name.map(|name| format!("{name}.addr")).as_deref())
+                .unwrap();
         ctx.builder.build_store(pval, val).unwrap();
         Self::from_pointer_value(pval, llvm_usize, name)
     }
@@ -139,18 +135,13 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// This function behaves like NumPy's ndarray indexing, but if the indices index
     /// into a single element, an unsized ndarray is returned.
     #[must_use]
-    pub fn index<G: CodeGenerator + ?Sized>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        indices: &[RustNDIndex<'ctx>],
-    ) -> Self {
+    pub fn index(&self, ctx: &mut CodeGenContext<'ctx, '_>, indices: &[RustNDIndex<'ctx>]) -> Self {
         let dst_ndims = self.deduce_ndims_after_indexing_with(indices);
-        let dst_ndarray = NDArrayType::new(ctx, self.dtype, dst_ndims)
-            .construct_uninitialized(generator, ctx, None);
+        let dst_ndarray =
+            NDArrayType::new(ctx, self.dtype, dst_ndims).construct_uninitialized(ctx, None);
 
-        let indices = NDIndexType::new(ctx).construct_ndindices(generator, ctx, indices);
-        irrt::ndarray::call_nac3_ndarray_index(generator, ctx, indices, *self, dst_ndarray);
+        let indices = NDIndexType::new(ctx).construct_ndindices(ctx, indices);
+        irrt::ndarray::call_nac3_ndarray_index(ctx, indices, *self, dst_ndarray);
 
         dst_ndarray
     }
@@ -211,10 +202,8 @@ impl<'ctx> RustNDIndex<'ctx> {
                 RustNDIndex::Slice(slice)
             } else {
                 // Treat and handle everything else as a single element index.
-                let index = generator
-                    .gen_expr(ctx, index_expr)?
-                    .to_basic_value_enum(ctx, generator)?
-                    .into_int_value();
+                let index =
+                    generator.gen_expr(ctx, index_expr)?.to_basic_value_enum(ctx)?.into_int_value();
 
                 RustNDIndex::SingleElement(index)
             };
@@ -236,9 +225,8 @@ impl<'ctx> RustNDIndex<'ctx> {
     }
 
     /// Serialize this [`RustNDIndex`] by writing it into an LLVM [`NDIndexValue`].
-    pub fn write_to_ndindex<G: CodeGenerator + ?Sized>(
+    pub fn write_to_ndindex(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         dst_ndindex: NDIndexValue<'ctx>,
     ) {
@@ -259,7 +247,7 @@ impl<'ctx> RustNDIndex<'ctx> {
                 );
             }
             RustNDIndex::Slice(in_rust_slice) => {
-                let user_slice_ptr = SliceType::new(ctx, ctx.i32).alloca_var(generator, ctx, None);
+                let user_slice_ptr = SliceType::new(ctx, ctx.i32).alloca_var(ctx, None);
                 in_rust_slice.write_to_slice(ctx, user_slice_ptr);
 
                 dst_ndindex.store_data(

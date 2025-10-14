@@ -6,7 +6,7 @@ use inkwell::{
 
 use super::ProxyType;
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator, ModuleContext, values::OptionValue},
+    codegen::{CodeGenContext, ModuleContext, values::OptionValue},
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
 };
 
@@ -75,15 +75,14 @@ impl<'ctx> OptionType<'ctx> {
     /// The returned value will be `Some(v)` if [`value` contains a value][Option::is_some],
     /// otherwise `none` will be returned.
     #[must_use]
-    pub fn construct<G: CodeGenerator + ?Sized>(
+    pub fn construct(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: Option<BasicValueEnum<'ctx>>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         let ptr = if let Some(v) = value {
-            let pvar = self.raw_alloca_var(generator, ctx, name);
+            let pvar = self.raw_alloca_var(ctx, name);
             ctx.builder.build_store(pvar, v).unwrap();
             pvar
         } else {
@@ -96,27 +95,25 @@ impl<'ctx> OptionType<'ctx> {
     ///
     /// The returned value will always be `none`.
     #[must_use]
-    pub fn construct_empty<G: CodeGenerator + ?Sized>(
+    pub fn construct_empty(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        self.construct(generator, ctx, None, name)
+        self.construct(ctx, None, name)
     }
 
     /// Allocates an [`OptionValue`] on the stack.
     ///
     /// The returned value will be set to `Some(value)`.
     #[must_use]
-    pub fn construct_some_value<G: CodeGenerator + ?Sized>(
+    pub fn construct_some_value(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: &impl BasicValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        self.construct(generator, ctx, Some(value.as_basic_value_enum()), name)
+        self.construct(ctx, Some(value.as_basic_value_enum()), name)
     }
 
     /// Converts an existing value into a [`OptionValue`].

@@ -461,8 +461,8 @@ impl Nac3 {
                         ret: primitives.none,
                         vars: into_var_map([arg_ty]),
                     },
-                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
-                        gen_core_log(ctx, obj.as_ref(), fun, &args, generator)?;
+                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args| {
+                        gen_core_log(ctx, obj.as_ref(), fun, &args)?;
 
                         Ok(None)
                     }))),
@@ -491,8 +491,8 @@ impl Nac3 {
                         ret: primitives.none,
                         vars: into_var_map([arg_ty]),
                     },
-                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
-                        gen_rtio_log(ctx, obj.as_ref(), fun, &args, generator)?;
+                    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args| {
+                        gen_rtio_log(ctx, obj.as_ref(), fun, &args)?;
 
                         Ok(None)
                     }))),
@@ -1024,13 +1024,7 @@ impl Nac3 {
                         .map(|value| (expr.custom.unwrap(), value));
                     has_return = return_obj.is_some();
                     registry.wait_tasks_complete(handles);
-                    attributes_writeback(
-                        ctx,
-                        generator,
-                        inner_resolver.as_ref(),
-                        &host_attributes,
-                        return_obj,
-                    )
+                    attributes_writeback(ctx, inner_resolver.as_ref(), &host_attributes, return_obj)
                 },
             );
             result.unwrap();
@@ -1333,7 +1327,7 @@ impl Nac3 {
             (
                 "now_mu".into(),
                 FunSignature { args: vec![], ret: primitive.int64, vars: VarMap::new() },
-                Arc::new(GenCall::new(Box::new(move |ctx, _, _, _, _| {
+                Arc::new(GenCall::new(Box::new(move |ctx, _, _, _| {
                     Ok(Some(time_fns.emit_now_mu(ctx)))
                 }))),
             ),
@@ -1349,10 +1343,9 @@ impl Nac3 {
                     ret: primitive.none,
                     vars: VarMap::new(),
                 },
-                Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args, generator| {
+                Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args| {
                     let arg_ty = fun.0.args[0].ty;
-                    let arg =
-                        args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty).unwrap();
+                    let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty).unwrap();
                     time_fns.emit_at_mu(ctx, arg);
                     Ok(None)
                 }))),
@@ -1369,10 +1362,9 @@ impl Nac3 {
                     ret: primitive.none,
                     vars: VarMap::new(),
                 },
-                Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args, generator| {
+                Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args| {
                     let arg_ty = fun.0.args[0].ty;
-                    let arg =
-                        args[0].1.clone().to_basic_value_enum(ctx, generator, arg_ty).unwrap();
+                    let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty).unwrap();
                     time_fns.emit_delay_mu(ctx, arg);
                     Ok(None)
                 }))),

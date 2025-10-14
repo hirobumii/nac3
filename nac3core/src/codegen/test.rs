@@ -18,8 +18,8 @@ use nac3parser::{
 };
 
 use super::{
-    CodeGenContext, CodeGenOptions, CodeGenTask, CodeGenerator, DefaultCodeGenerator,
-    TargetMachineOptions, WithCall, WorkerRegistry,
+    CodeGenContext, CodeGenOptions, CodeGenTask, DefaultCodeGenerator, TargetMachineOptions,
+    WithCall, WorkerRegistry,
     concrete_type::ConcreteTypeStore,
     types::{ListType, ProxyType, RangeType, ndarray::NDArrayType},
 };
@@ -69,7 +69,6 @@ impl SymbolResolver for Resolver {
         &self,
         _: StrRef,
         _: &mut CodeGenContext<'ctx, '_>,
-        _: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
         unimplemented!()
     }

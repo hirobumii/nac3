@@ -6,12 +6,13 @@ use inkwell::{
 use itertools::Itertools;
 
 use super::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
     expr::destructure_range,
     extern_fns, irrt,
     irrt::calculate_len_for_slice_range,
     llvm_intrinsics,
     macros::codegen_unreachable,
+    stmt::gen_var,
     types::{ListType, RangeType, TupleType, ndarray::NDArrayType},
     values::{
         ProxyValue, TypedArrayLikeAccessor, UntypedArrayLikeAccessor,
@@ -19,6 +20,7 @@ use super::{
     },
 };
 use crate::{
+    codegen::bool_to_i8,
     toplevel::{
         helper::{PrimDef, arraylike_flatten_element_type, extract_ndims},
         numpy::unpack_ndarray_var_tys,
@@ -38,8 +40,7 @@ fn unsupported_type(ctx: &CodeGenContext<'_, '_>, fn_name: &str, tys: &[Type]) -
 }
 
 /// Invokes the `len` builtin function.
-pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_len<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (arg_ty, arg): (Type, BasicValueEnum<'ctx>),
 ) -> Result<IntValue<'ctx>, String> {
@@ -49,7 +50,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
     Ok(if ctx.unifier.unioned(arg_ty, range_ty) {
         let arg = RangeType::new(ctx).map_pointer_value(arg.into_pointer_value(), Some("range"));
         let (start, end, step) = destructure_range(ctx, arg);
-        calculate_len_for_slice_range(generator, ctx, start, end, step)
+        calculate_len_for_slice_range(ctx, start, end, step)
     } else {
         match &*ctx.unifier.get_ty_immutable(arg_ty) {
             TypeEnum::TTuple { .. } => {
@@ -82,8 +83,7 @@ pub fn call_len<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `int32` builtin function.
-pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_int32<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -130,12 +130,9 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
-                .map(
-                    generator,
-                    ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.i32.into() },
-                    |generator, ctx, scalar| call_int32(generator, ctx, (elem_ty, scalar)),
-                )
+                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.i32.into() }, |ctx, scalar| {
+                    call_int32(ctx, (elem_ty, scalar))
+                })
                 .unwrap();
 
             result.as_abi_value(ctx).into()
@@ -146,8 +143,7 @@ pub fn call_int32<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `int64` builtin function.
-pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_int64<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -191,12 +187,9 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
-                .map(
-                    generator,
-                    ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.i64.into() },
-                    |generator, ctx, scalar| call_int64(generator, ctx, (elem_ty, scalar)),
-                )
+                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.i64.into() }, |ctx, scalar| {
+                    call_int64(ctx, (elem_ty, scalar))
+                })
                 .unwrap();
 
             result.as_abi_value(ctx).into()
@@ -207,8 +200,7 @@ pub fn call_int64<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `uint32` builtin function.
-pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_uint32<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -268,12 +260,9 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
-                .map(
-                    generator,
-                    ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.i32.into() },
-                    |generator, ctx, scalar| call_uint32(generator, ctx, (elem_ty, scalar)),
-                )
+                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.i32.into() }, |ctx, scalar| {
+                    call_uint32(ctx, (elem_ty, scalar))
+                })
                 .unwrap();
 
             result.as_abi_value(ctx).into()
@@ -284,8 +273,7 @@ pub fn call_uint32<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `uint64` builtin function.
-pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_uint64<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -337,12 +325,9 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
-                .map(
-                    generator,
-                    ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.i64.into() },
-                    |generator, ctx, scalar| call_uint64(generator, ctx, (elem_ty, scalar)),
-                )
+                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.i64.into() }, |ctx, scalar| {
+                    call_uint64(ctx, (elem_ty, scalar))
+                })
                 .unwrap();
 
             result.as_abi_value(ctx).into()
@@ -353,8 +338,7 @@ pub fn call_uint64<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `float` builtin function.
-pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_float<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -403,12 +387,9 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
-                .map(
-                    generator,
-                    ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.f64.into() },
-                    |generator, ctx, scalar| call_float(generator, ctx, (elem_ty, scalar)),
-                )
+                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.f64.into() }, |ctx, scalar| {
+                    call_float(ctx, (elem_ty, scalar))
+                })
                 .unwrap();
 
             result.as_abi_value(ctx).into()
@@ -419,8 +400,7 @@ pub fn call_float<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `round` builtin function.
-pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_round<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
     ret_elem_ty: Type,
@@ -448,12 +428,9 @@ pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
 
             let result = ndarray
                 .map(
-                    generator,
                     ctx,
                     NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty.into() },
-                    |generator, ctx, scalar| {
-                        call_round(generator, ctx, (elem_ty, scalar), ret_elem_ty)
-                    },
+                    |ctx, scalar| call_round(ctx, (elem_ty, scalar), ret_elem_ty),
                 )
                 .unwrap();
 
@@ -465,8 +442,7 @@ pub fn call_round<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `np_round` builtin function.
-pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_round<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -486,12 +462,9 @@ pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
-                .map(
-                    generator,
-                    ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.f64.into() },
-                    |generator, ctx, scalar| call_numpy_round(generator, ctx, (elem_ty, scalar)),
-                )
+                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.f64.into() }, |ctx, scalar| {
+                    call_numpy_round(ctx, (elem_ty, scalar))
+                })
                 .unwrap();
 
             result.as_abi_value(ctx).into()
@@ -502,8 +475,7 @@ pub fn call_numpy_round<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `bool` builtin function.
-pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_bool<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -550,15 +522,10 @@ pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
-                .map(
-                    generator,
-                    ctx,
-                    NDArrayOut::NewNDArray { dtype: ctx.i8.into() },
-                    |generator, ctx, scalar| {
-                        let elem = call_bool(generator, ctx, (elem_ty, scalar))?;
-                        Ok(generator.bool_to_i8(ctx, elem.into_int_value()).into())
-                    },
-                )
+                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.i8.into() }, |ctx, scalar| {
+                    let elem = call_bool(ctx, (elem_ty, scalar))?;
+                    Ok(bool_to_i8(ctx, elem.into_int_value()).into())
+                })
                 .unwrap();
 
             result.as_abi_value(ctx).into()
@@ -569,8 +536,7 @@ pub fn call_bool<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `floor` builtin function.
-pub fn call_floor<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_floor<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
     ret_elem_ty: Type,
@@ -601,14 +567,9 @@ pub fn call_floor<'ctx, G: CodeGenerator + ?Sized>(
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
-                .map(
-                    generator,
-                    ctx,
-                    NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty },
-                    |generator, ctx, scalar| {
-                        call_floor(generator, ctx, (elem_ty, scalar), ret_elem_ty)
-                    },
-                )
+                .map(ctx, NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty }, |ctx, scalar| {
+                    call_floor(ctx, (elem_ty, scalar), ret_elem_ty)
+                })
                 .unwrap();
 
             result.as_abi_value(ctx).into()
@@ -619,8 +580,7 @@ pub fn call_floor<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `ceil` builtin function.
-pub fn call_ceil<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_ceil<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
     ret_elem_ty: Type,
@@ -651,14 +611,9 @@ pub fn call_ceil<'ctx, G: CodeGenerator + ?Sized>(
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_pointer_value(n, None);
 
             let result = ndarray
-                .map(
-                    generator,
-                    ctx,
-                    NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty },
-                    |generator, ctx, scalar| {
-                        call_ceil(generator, ctx, (elem_ty, scalar), ret_elem_ty)
-                    },
-                )
+                .map(ctx, NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty }, |ctx, scalar| {
+                    call_ceil(ctx, (elem_ty, scalar), ret_elem_ty)
+                })
                 .unwrap();
 
             result.as_abi_value(ctx).into()
@@ -717,8 +672,7 @@ pub fn call_min<'ctx>(
 }
 
 /// Invokes the `np_minimum` builtin function.
-pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_minimum<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -756,8 +710,8 @@ pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
                 ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
-            let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1)).to_ndarray(generator, ctx);
-            let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2)).to_ndarray(generator, ctx);
+            let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1)).to_ndarray(ctx);
+            let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2)).to_ndarray(ctx);
 
             let x1_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
             let x2_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x2_ty);
@@ -768,11 +722,10 @@ pub fn call_numpy_minimum<'ctx, G: CodeGenerator + ?Sized>(
             let result =
                 NDArrayType::new_broadcast(ctx, llvm_common_dtype, &[x1.get_type(), x2.get_type()])
                     .broadcast_starmap(
-                        generator,
                         ctx,
                         &[x1, x2],
                         NDArrayOut::NewNDArray { dtype: llvm_common_dtype },
-                        |_, ctx, scalars| {
+                        |ctx, scalars| {
                             let x1_scalar = scalars[0];
                             let x2_scalar = scalars[1];
                             Ok(call_min(ctx, (x1_dtype, x1_scalar), (x2_dtype, x2_scalar)))
@@ -837,8 +790,7 @@ pub fn call_max<'ctx>(
 
 /// Invokes the `np_max`, `np_min`, `np_argmax`, `np_argmin` functions
 /// * `fn_name`: Can be one of `"np_argmin"`, `"np_argmax"`, `"np_max"`, `"np_min"`
-pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_max_min<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (a_ty, a): (Type, BasicValueEnum<'ctx>),
     fn_name: &str,
@@ -886,7 +838,6 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
                     ctx.builder.build_int_compare(IntPredicate::NE, size, zero, "").unwrap();
 
                 ctx.make_assert(
-                    generator,
                     size_nez,
                     "0:ValueError",
                     format!("zero-size array to reduction operation {fn_name}").as_str(),
@@ -895,16 +846,16 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
                 );
             }
 
-            let extremum = generator.gen_var_alloc(ctx, llvm_dtype, None)?;
-            let extremum_idx = generator.gen_var_alloc(ctx, llvm_usize.into(), None)?;
+            let extremum = gen_var(ctx, llvm_dtype, None)?;
+            let extremum_idx = gen_var(ctx, llvm_usize.into(), None)?;
 
-            let first_value = unsafe { ndarray.data().get_unchecked(ctx, generator, &zero, None) };
+            let first_value = unsafe { ndarray.data().get_unchecked(ctx, &zero, None) };
             ctx.builder.build_store(extremum, first_value).unwrap();
             ctx.builder.build_store(extremum_idx, zero).unwrap();
 
             // The first element is iterated, but this doesn't matter.
             ndarray
-                .foreach(generator, ctx, |_, ctx, _, nditer| {
+                .foreach(ctx, |ctx, _, nditer| {
                     let old_extremum = ctx.builder.build_load(extremum, "").unwrap();
                     let old_extremum_idx = ctx
                         .builder
@@ -979,8 +930,7 @@ pub fn call_numpy_max_min<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `np_maximum` builtin function.
-pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_maximum<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -1018,8 +968,8 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
                 ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
-            let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1)).to_ndarray(generator, ctx);
-            let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2)).to_ndarray(generator, ctx);
+            let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1)).to_ndarray(ctx);
+            let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2)).to_ndarray(ctx);
 
             let x1_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
             let x2_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x2_ty);
@@ -1030,11 +980,10 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
             let result =
                 NDArrayType::new_broadcast(ctx, llvm_common_dtype, &[x1.get_type(), x2.get_type()])
                     .broadcast_starmap(
-                        generator,
                         ctx,
                         &[x1, x2],
                         NDArrayOut::NewNDArray { dtype: llvm_common_dtype },
-                        |_, ctx, scalars| {
+                        |ctx, scalars| {
                             let x1_scalar = scalars[0];
                             let x2_scalar = scalars[1];
                             Ok(call_max(ctx, (x1_dtype, x1_scalar), (x2_dtype, x2_scalar)))
@@ -1057,8 +1006,7 @@ pub fn call_numpy_maximum<'ctx, G: CodeGenerator + ?Sized>(
 ///   Return a constant [`Type`] here if the return type does not depend on the input type.
 /// * `on_scalar`: The function that acts on the scalars of the input. Returns [`Option::None`]
 ///   if the scalar type & value are faulty and should panic with [`unsupported_type`].
-fn helper_call_numpy_unary_elementwise<'ctx, OnScalarFn, RetElemFn, G>(
-    generator: &mut G,
+fn helper_call_numpy_unary_elementwise<'ctx, OnScalarFn, RetElemFn>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (arg_ty, arg_val): (Type, BasicValueEnum<'ctx>),
     fn_name: &str,
@@ -1066,9 +1014,7 @@ fn helper_call_numpy_unary_elementwise<'ctx, OnScalarFn, RetElemFn, G>(
     on_scalar: &OnScalarFn,
 ) -> Result<BasicValueEnum<'ctx>, String>
 where
-    G: CodeGenerator + ?Sized,
     OnScalarFn: Fn(
-        &mut G,
         &mut CodeGenContext<'ctx, '_>,
         Type,
         BasicValueEnum<'ctx>,
@@ -1081,8 +1027,8 @@ where
 
     let ret_ty = get_ret_elem_type(ctx, dtype);
     let llvm_ret_ty = ctx.get_llvm_type(ret_ty);
-    let result = arg.map(generator, ctx, llvm_ret_ty, |generator, ctx, scalar| {
-        let Some(result) = on_scalar(generator, ctx, dtype, scalar) else {
+    let result = arg.map(ctx, llvm_ret_ty, |ctx, scalar| {
+        let Some(result) = on_scalar(ctx, dtype, scalar) else {
             unsupported_type(ctx, fn_name, &[arg_ty])
         };
         Ok(result)
@@ -1091,20 +1037,18 @@ where
     Ok(result.to_basic_value_enum())
 }
 
-pub fn call_abs<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_abs<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     n: (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
     const FN_NAME: &str = "abs";
 
     helper_call_numpy_unary_elementwise(
-        generator,
         ctx,
         n,
         FN_NAME,
         &|_ctx, elem_ty| elem_ty,
-        &|_generator, ctx, val_ty, val| match val {
+        &|ctx, val_ty, val| match val {
             BasicValueEnum::IntValue(n) => Some({
                 debug_assert!(
                     [
@@ -1151,13 +1095,11 @@ pub fn call_abs<'ctx, G: CodeGenerator + ?Sized>(
 macro_rules! create_helper_call_numpy_unary_elementwise {
     ($name:ident, $fn_name:literal, $get_ret_elem_type:expr, $on_scalar:expr) => {
         #[allow(clippy::redundant_closure_call)]
-        pub fn $name<'ctx, G: CodeGenerator + ?Sized>(
-            generator: &mut G,
+        pub fn $name<'ctx>(
             ctx: &mut CodeGenContext<'ctx, '_>,
             arg: (Type, BasicValueEnum<'ctx>),
         ) -> Result<BasicValueEnum<'ctx>, String> {
             helper_call_numpy_unary_elementwise(
-                generator,
                 ctx,
                 arg,
                 $fn_name,
@@ -1178,8 +1120,8 @@ macro_rules! create_helper_call_numpy_unary_elementwise {
 ///
 /// ```ignore
 /// // Type of `$on_scalar:expr`
-/// fn on_scalar<'ctx, G: CodeGenerator + ?Sized>(
-///     generator: &mut G,
+/// fn on_scalar<'ctx>(
+///     
 ///     ctx: &mut CodeGenContext<'ctx, '_>,
 ///     arg: FloatValue<'ctx>
 /// ) -> IntValue<'ctx> // of LLVM type `i1`
@@ -1190,13 +1132,13 @@ macro_rules! create_helper_call_numpy_unary_elementwise_float_to_bool {
             $name,
             $fn_name,
             |ctx, _| ctx.primitives.bool,
-            |generator, ctx, n_ty, val| {
+            |ctx, n_ty, val| {
                 match val {
                     BasicValueEnum::FloatValue(n) => {
                         debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
                         let ret = $on_scalar(ctx, n, Option::<&str>::None);
-                        Some(generator.bool_to_i8(ctx, ret).into())
+                        Some(bool_to_i8(ctx, ret).into())
                     }
                     _ => None,
                 }
@@ -1214,8 +1156,8 @@ macro_rules! create_helper_call_numpy_unary_elementwise_float_to_bool {
 ///
 /// ```ignore
 /// // Type of `$on_scalar:expr`
-/// fn on_scalar<'ctx, G: CodeGenerator + ?Sized>(
-///     generator: &mut G,
+/// fn on_scalar<'ctx>(
+///     
 ///     ctx: &mut CodeGenContext<'ctx, '_>,
 ///     arg: FloatValue<'ctx>
 /// ) -> FloatValue<'ctx>
@@ -1226,7 +1168,7 @@ macro_rules! create_helper_call_numpy_unary_elementwise_float_to_float {
             $name,
             $fn_name,
             |ctx, _| ctx.primitives.float,
-            |_generator, ctx, val_ty, val| {
+            |ctx, val_ty, val| {
                 match val {
                     BasicValueEnum::FloatValue(n) => {
                         debug_assert!(ctx.unifier.unioned(val_ty, ctx.primitives.float));
@@ -1401,8 +1343,7 @@ create_helper_call_numpy_unary_elementwise_float_to_float!(
 );
 
 /// Invokes the `np_arctan2` builtin function.
-pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_arctan2<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -1412,12 +1353,8 @@ pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
     let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
-    let result = ScalarOrNDArray::broadcasting_starmap(
-        generator,
-        ctx,
-        &[x1, x2],
-        ctx.f64.into(),
-        |_, ctx, scalars| {
+    let result =
+        ScalarOrNDArray::broadcasting_starmap(ctx, &[x1, x2], ctx.f64.into(), |ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
 
@@ -1427,16 +1364,14 @@ pub fn call_numpy_arctan2<'ctx, G: CodeGenerator + ?Sized>(
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
 
     Ok(result.to_basic_value_enum())
 }
 
 /// Invokes the `np_copysign` builtin function.
-pub fn call_numpy_copysign<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_copysign<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -1446,12 +1381,8 @@ pub fn call_numpy_copysign<'ctx, G: CodeGenerator + ?Sized>(
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
     let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
-    let result = ScalarOrNDArray::broadcasting_starmap(
-        generator,
-        ctx,
-        &[x1, x2],
-        ctx.f64.into(),
-        |_, ctx, scalars| {
+    let result =
+        ScalarOrNDArray::broadcasting_starmap(ctx, &[x1, x2], ctx.f64.into(), |ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
 
@@ -1461,16 +1392,14 @@ pub fn call_numpy_copysign<'ctx, G: CodeGenerator + ?Sized>(
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
 
     Ok(result.to_basic_value_enum())
 }
 
 /// Invokes the `np_fmax` builtin function.
-pub fn call_numpy_fmax<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_fmax<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -1480,12 +1409,8 @@ pub fn call_numpy_fmax<'ctx, G: CodeGenerator + ?Sized>(
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
     let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
-    let result = ScalarOrNDArray::broadcasting_starmap(
-        generator,
-        ctx,
-        &[x1, x2],
-        ctx.f64.into(),
-        |_, ctx, scalars| {
+    let result =
+        ScalarOrNDArray::broadcasting_starmap(ctx, &[x1, x2], ctx.f64.into(), |ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
 
@@ -1495,16 +1420,14 @@ pub fn call_numpy_fmax<'ctx, G: CodeGenerator + ?Sized>(
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
 
     Ok(result.to_basic_value_enum())
 }
 
 /// Invokes the `np_fmin` builtin function.
-pub fn call_numpy_fmin<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_fmin<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -1514,12 +1437,8 @@ pub fn call_numpy_fmin<'ctx, G: CodeGenerator + ?Sized>(
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
     let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
-    let result = ScalarOrNDArray::broadcasting_starmap(
-        generator,
-        ctx,
-        &[x1, x2],
-        ctx.f64.into(),
-        |_, ctx, scalars| {
+    let result =
+        ScalarOrNDArray::broadcasting_starmap(ctx, &[x1, x2], ctx.f64.into(), |ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
 
@@ -1529,16 +1448,14 @@ pub fn call_numpy_fmin<'ctx, G: CodeGenerator + ?Sized>(
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
 
     Ok(result.to_basic_value_enum())
 }
 
 /// Invokes the `np_ldexp` builtin function.
-pub fn call_numpy_ldexp<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_ldexp<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -1548,12 +1465,8 @@ pub fn call_numpy_ldexp<'ctx, G: CodeGenerator + ?Sized>(
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
     let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
-    let result = ScalarOrNDArray::broadcasting_starmap(
-        generator,
-        ctx,
-        &[x1, x2],
-        ctx.f64.into(),
-        |_, ctx, scalars| {
+    let result =
+        ScalarOrNDArray::broadcasting_starmap(ctx, &[x1, x2], ctx.f64.into(), |ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
 
@@ -1565,16 +1478,14 @@ pub fn call_numpy_ldexp<'ctx, G: CodeGenerator + ?Sized>(
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
 
     Ok(result.to_basic_value_enum())
 }
 
 /// Invokes the `np_hypot` builtin function.
-pub fn call_numpy_hypot<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_hypot<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -1584,12 +1495,8 @@ pub fn call_numpy_hypot<'ctx, G: CodeGenerator + ?Sized>(
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
     let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
-    let result = ScalarOrNDArray::broadcasting_starmap(
-        generator,
-        ctx,
-        &[x1, x2],
-        ctx.f64.into(),
-        |_, ctx, scalars| {
+    let result =
+        ScalarOrNDArray::broadcasting_starmap(ctx, &[x1, x2], ctx.f64.into(), |ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
 
@@ -1599,16 +1506,14 @@ pub fn call_numpy_hypot<'ctx, G: CodeGenerator + ?Sized>(
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
 
     Ok(result.to_basic_value_enum())
 }
 
 /// Invokes the `np_nextafter` builtin function.
-pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_numpy_nextafter<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -1618,12 +1523,8 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
     let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2));
 
-    let result = ScalarOrNDArray::broadcasting_starmap(
-        generator,
-        ctx,
-        &[x1, x2],
-        ctx.f64.into(),
-        |_, ctx, scalars| {
+    let result =
+        ScalarOrNDArray::broadcasting_starmap(ctx, &[x1, x2], ctx.f64.into(), |ctx, scalars| {
             let x1_scalar = scalars[0];
             let x2_scalar = scalars[1];
 
@@ -1633,16 +1534,14 @@ pub fn call_numpy_nextafter<'ctx, G: CodeGenerator + ?Sized>(
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
 
     Ok(result.to_basic_value_enum())
 }
 
 /// Invokes the `np_linalg_cholesky` linalg function
-pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_np_linalg_cholesky<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -1656,13 +1555,12 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out =
-        NDArrayType::new(ctx, ctx.f64.into(), 2).construct_uninitialized(generator, ctx, None);
-    out.copy_shape_from_ndarray(generator, ctx, x1);
-    unsafe { out.create_data(generator, ctx) };
+    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct_uninitialized(ctx, None);
+    out.copy_shape_from_ndarray(ctx, x1);
+    unsafe { out.create_data(ctx) };
 
-    let x1_c = x1.make_contiguous_ndarray(generator, ctx);
-    let out_c = out.make_contiguous_ndarray(generator, ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx);
+    let out_c = out.make_contiguous_ndarray(ctx);
     extern_fns::call_np_linalg_cholesky(
         ctx,
         x1_c.as_abi_value(ctx).into(),
@@ -1673,8 +1571,7 @@ pub fn call_np_linalg_cholesky<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `np_linalg_qr` linalg function
-pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_np_linalg_qr<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -1691,23 +1588,20 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
     }
 
     let x1_shape = x1.shape();
-    let d0 =
-        unsafe { x1_shape.get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None) };
-    let d1 = unsafe {
-        x1_shape.get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
-    };
+    let d0 = unsafe { x1_shape.get_typed_unchecked(ctx, &llvm_usize.const_zero(), None) };
+    let d1 = unsafe { x1_shape.get_typed_unchecked(ctx, &llvm_usize.const_int(1, false), None) };
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
 
     let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
-    let q = out_ndarray_ty.construct_dyn_shape(generator, ctx, &[d0, dk], None);
-    unsafe { q.create_data(generator, ctx) };
+    let q = out_ndarray_ty.construct_dyn_shape(ctx, &[d0, dk], None);
+    unsafe { q.create_data(ctx) };
 
-    let r = out_ndarray_ty.construct_dyn_shape(generator, ctx, &[dk, d1], None);
-    unsafe { r.create_data(generator, ctx) };
+    let r = out_ndarray_ty.construct_dyn_shape(ctx, &[dk, d1], None);
+    unsafe { r.create_data(ctx) };
 
-    let x1_c = x1.make_contiguous_ndarray(generator, ctx);
-    let q_c = q.make_contiguous_ndarray(generator, ctx);
-    let r_c = r.make_contiguous_ndarray(generator, ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx);
+    let q_c = q.make_contiguous_ndarray(ctx);
+    let r_c = r.make_contiguous_ndarray(ctx);
 
     extern_fns::call_np_linalg_qr(
         ctx,
@@ -1728,8 +1622,7 @@ pub fn call_np_linalg_qr<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `np_linalg_svd` linalg function
-pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_np_linalg_svd<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -1746,29 +1639,26 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
     }
 
     let x1_shape = x1.shape();
-    let d0 =
-        unsafe { x1_shape.get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None) };
-    let d1 = unsafe {
-        x1_shape.get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
-    };
+    let d0 = unsafe { x1_shape.get_typed_unchecked(ctx, &llvm_usize.const_zero(), None) };
+    let d1 = unsafe { x1_shape.get_typed_unchecked(ctx, &llvm_usize.const_int(1, false), None) };
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
 
     let out_ndarray1_ty = NDArrayType::new(ctx, ctx.f64.into(), 1);
     let out_ndarray2_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
-    let u = out_ndarray2_ty.construct_dyn_shape(generator, ctx, &[d0, d0], None);
-    unsafe { u.create_data(generator, ctx) };
+    let u = out_ndarray2_ty.construct_dyn_shape(ctx, &[d0, d0], None);
+    unsafe { u.create_data(ctx) };
 
-    let s = out_ndarray1_ty.construct_dyn_shape(generator, ctx, &[dk], None);
-    unsafe { s.create_data(generator, ctx) };
+    let s = out_ndarray1_ty.construct_dyn_shape(ctx, &[dk], None);
+    unsafe { s.create_data(ctx) };
 
-    let vh = out_ndarray2_ty.construct_dyn_shape(generator, ctx, &[d1, d1], None);
-    unsafe { vh.create_data(generator, ctx) };
+    let vh = out_ndarray2_ty.construct_dyn_shape(ctx, &[d1, d1], None);
+    unsafe { vh.create_data(ctx) };
 
-    let x1_c = x1.make_contiguous_ndarray(generator, ctx);
-    let u_c = u.make_contiguous_ndarray(generator, ctx);
-    let s_c = s.make_contiguous_ndarray(generator, ctx);
-    let vh_c = vh.make_contiguous_ndarray(generator, ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx);
+    let u_c = u.make_contiguous_ndarray(ctx);
+    let s_c = s.make_contiguous_ndarray(ctx);
+    let vh_c = vh.make_contiguous_ndarray(ctx);
 
     extern_fns::call_np_linalg_svd(
         ctx,
@@ -1788,8 +1678,7 @@ pub fn call_np_linalg_svd<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `np_linalg_inv` linalg function
-pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_np_linalg_inv<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -1803,13 +1692,12 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out =
-        NDArrayType::new(ctx, ctx.f64.into(), 2).construct_uninitialized(generator, ctx, None);
-    out.copy_shape_from_ndarray(generator, ctx, x1);
-    unsafe { out.create_data(generator, ctx) };
+    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct_uninitialized(ctx, None);
+    out.copy_shape_from_ndarray(ctx, x1);
+    unsafe { out.create_data(ctx) };
 
-    let x1_c = x1.make_contiguous_ndarray(generator, ctx);
-    let out_c = out.make_contiguous_ndarray(generator, ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx);
+    let out_c = out.make_contiguous_ndarray(ctx);
     extern_fns::call_np_linalg_inv(
         ctx,
         x1_c.as_abi_value(ctx).into(),
@@ -1821,8 +1709,7 @@ pub fn call_np_linalg_inv<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `np_linalg_pinv` linalg function
-pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_np_linalg_pinv<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -1839,22 +1726,14 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
     }
 
     let x1_shape = x1.shape();
-    let d0 =
-        unsafe { x1_shape.get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None) };
-    let d1 = unsafe {
-        x1_shape.get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
-    };
+    let d0 = unsafe { x1_shape.get_typed_unchecked(ctx, &llvm_usize.const_zero(), None) };
+    let d1 = unsafe { x1_shape.get_typed_unchecked(ctx, &llvm_usize.const_int(1, false), None) };
 
-    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct_dyn_shape(
-        generator,
-        ctx,
-        &[d0, d1],
-        None,
-    );
-    unsafe { out.create_data(generator, ctx) };
+    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct_dyn_shape(ctx, &[d0, d1], None);
+    unsafe { out.create_data(ctx) };
 
-    let x1_c = x1.make_contiguous_ndarray(generator, ctx);
-    let out_c = out.make_contiguous_ndarray(generator, ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx);
+    let out_c = out.make_contiguous_ndarray(ctx);
     extern_fns::call_np_linalg_pinv(
         ctx,
         x1_c.as_abi_value(ctx).into(),
@@ -1866,8 +1745,7 @@ pub fn call_np_linalg_pinv<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `sp_linalg_lu` linalg function
-pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_sp_linalg_lu<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -1884,24 +1762,21 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
     }
 
     let x1_shape = x1.shape();
-    let d0 =
-        unsafe { x1_shape.get_typed_unchecked(ctx, generator, &llvm_usize.const_zero(), None) };
-    let d1 = unsafe {
-        x1_shape.get_typed_unchecked(ctx, generator, &llvm_usize.const_int(1, false), None)
-    };
+    let d0 = unsafe { x1_shape.get_typed_unchecked(ctx, &llvm_usize.const_zero(), None) };
+    let d1 = unsafe { x1_shape.get_typed_unchecked(ctx, &llvm_usize.const_int(1, false), None) };
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
 
     let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
-    let l = out_ndarray_ty.construct_dyn_shape(generator, ctx, &[d0, dk], None);
-    unsafe { l.create_data(generator, ctx) };
+    let l = out_ndarray_ty.construct_dyn_shape(ctx, &[d0, dk], None);
+    unsafe { l.create_data(ctx) };
 
-    let u = out_ndarray_ty.construct_dyn_shape(generator, ctx, &[dk, d1], None);
-    unsafe { u.create_data(generator, ctx) };
+    let u = out_ndarray_ty.construct_dyn_shape(ctx, &[dk, d1], None);
+    unsafe { u.create_data(ctx) };
 
-    let x1_c = x1.make_contiguous_ndarray(generator, ctx);
-    let l_c = l.make_contiguous_ndarray(generator, ctx);
-    let u_c = u.make_contiguous_ndarray(generator, ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx);
+    let l_c = l.make_contiguous_ndarray(ctx);
+    let u_c = u.make_contiguous_ndarray(ctx);
     extern_fns::call_sp_linalg_lu(
         ctx,
         x1_c.as_abi_value(ctx).into(),
@@ -1921,8 +1796,7 @@ pub fn call_sp_linalg_lu<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `np_linalg_matrix_power` linalg function
-pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_np_linalg_matrix_power<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
@@ -1945,23 +1819,21 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
     }
 
     // x2 is a float, but we are promoting this to a 1D ndarray (.shape == [1]) for uniformity in function call.
-    let x2 = call_float(generator, ctx, (x2_ty, x2))?;
+    let x2 = call_float(ctx, (x2_ty, x2))?;
     let BasicValueEnum::FloatValue(x2) = x2 else {
         unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
     };
 
-    let x2 =
-        NDArrayType::new_unsized(ctx, ctx.f64.into()).construct_unsized(generator, ctx, &x2, None); // x2.shape == []
-    let x2 = x2.atleast_nd(generator, ctx, 1); // x2.shape == [1]
+    let x2 = NDArrayType::new_unsized(ctx, ctx.f64.into()).construct_unsized(ctx, &x2, None); // x2.shape == []
+    let x2 = x2.atleast_nd(ctx, 1); // x2.shape == [1]
 
-    let out =
-        NDArrayType::new(ctx, ctx.f64.into(), 2).construct_uninitialized(generator, ctx, None);
-    out.copy_shape_from_ndarray(generator, ctx, x1);
-    unsafe { out.create_data(generator, ctx) };
+    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct_uninitialized(ctx, None);
+    out.copy_shape_from_ndarray(ctx, x1);
+    unsafe { out.create_data(ctx) };
 
-    let x1_c = x1.make_contiguous_ndarray(generator, ctx);
-    let x2_c = x2.make_contiguous_ndarray(generator, ctx);
-    let out_c = out.make_contiguous_ndarray(generator, ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx);
+    let x2_c = x2.make_contiguous_ndarray(ctx);
+    let out_c = out.make_contiguous_ndarray(ctx);
 
     extern_fns::call_np_linalg_matrix_power(
         ctx,
@@ -1975,8 +1847,7 @@ pub fn call_np_linalg_matrix_power<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `np_linalg_det` linalg function
-pub fn call_np_linalg_det<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_np_linalg_det<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -1993,12 +1864,11 @@ pub fn call_np_linalg_det<'ctx, G: CodeGenerator + ?Sized>(
     }
 
     // The output is a float64, but we are using an ndarray (shape == [1]) for uniformity in function call.
-    let det =
-        NDArrayType::new(ctx, ctx.f64.into(), 1).construct_const_shape(generator, ctx, &[1], None);
-    unsafe { det.create_data(generator, ctx) };
+    let det = NDArrayType::new(ctx, ctx.f64.into(), 1).construct_const_shape(ctx, &[1], None);
+    unsafe { det.create_data(ctx) };
 
-    let x1_c = x1.make_contiguous_ndarray(generator, ctx);
-    let out_c = det.make_contiguous_ndarray(generator, ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx);
+    let out_c = det.make_contiguous_ndarray(ctx);
     extern_fns::call_np_linalg_det(
         ctx,
         x1_c.as_abi_value(ctx).into(),
@@ -2007,13 +1877,12 @@ pub fn call_np_linalg_det<'ctx, G: CodeGenerator + ?Sized>(
     );
 
     // Get the determinant out of `out`
-    let det = unsafe { det.data().get_unchecked(ctx, generator, &llvm_usize.const_zero(), None) };
+    let det = unsafe { det.data().get_unchecked(ctx, &llvm_usize.const_zero(), None) };
     Ok(det)
 }
 
 /// Invokes the `sp_linalg_schur` linalg function
-pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_sp_linalg_schur<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -2030,17 +1899,17 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
 
     let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
-    let t = out_ndarray_ty.construct_uninitialized(generator, ctx, None);
-    t.copy_shape_from_ndarray(generator, ctx, x1);
-    unsafe { t.create_data(generator, ctx) };
+    let t = out_ndarray_ty.construct_uninitialized(ctx, None);
+    t.copy_shape_from_ndarray(ctx, x1);
+    unsafe { t.create_data(ctx) };
 
-    let z = out_ndarray_ty.construct_uninitialized(generator, ctx, None);
-    z.copy_shape_from_ndarray(generator, ctx, x1);
-    unsafe { z.create_data(generator, ctx) };
+    let z = out_ndarray_ty.construct_uninitialized(ctx, None);
+    z.copy_shape_from_ndarray(ctx, x1);
+    unsafe { z.create_data(ctx) };
 
-    let x1_c = x1.make_contiguous_ndarray(generator, ctx);
-    let t_c = t.make_contiguous_ndarray(generator, ctx);
-    let z_c = z.make_contiguous_ndarray(generator, ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx);
+    let t_c = t.make_contiguous_ndarray(ctx);
+    let z_c = z.make_contiguous_ndarray(ctx);
     extern_fns::call_sp_linalg_schur(
         ctx,
         x1_c.as_abi_value(ctx).into(),
@@ -2060,8 +1929,7 @@ pub fn call_sp_linalg_schur<'ctx, G: CodeGenerator + ?Sized>(
 }
 
 /// Invokes the `sp_linalg_hessenberg` linalg function
-pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn call_sp_linalg_hessenberg<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
 ) -> Result<BasicValueEnum<'ctx>, String> {
@@ -2078,17 +1946,17 @@ pub fn call_sp_linalg_hessenberg<'ctx, G: CodeGenerator + ?Sized>(
 
     let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
-    let h = out_ndarray_ty.construct_uninitialized(generator, ctx, None);
-    h.copy_shape_from_ndarray(generator, ctx, x1);
-    unsafe { h.create_data(generator, ctx) };
+    let h = out_ndarray_ty.construct_uninitialized(ctx, None);
+    h.copy_shape_from_ndarray(ctx, x1);
+    unsafe { h.create_data(ctx) };
 
-    let q = out_ndarray_ty.construct_uninitialized(generator, ctx, None);
-    q.copy_shape_from_ndarray(generator, ctx, x1);
-    unsafe { q.create_data(generator, ctx) };
+    let q = out_ndarray_ty.construct_uninitialized(ctx, None);
+    q.copy_shape_from_ndarray(ctx, x1);
+    unsafe { q.create_data(ctx) };
 
-    let x1_c = x1.make_contiguous_ndarray(generator, ctx);
-    let h_c = h.make_contiguous_ndarray(generator, ctx);
-    let q_c = q.make_contiguous_ndarray(generator, ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx);
+    let h_c = h.make_contiguous_ndarray(ctx);
+    let q_c = q.make_contiguous_ndarray(ctx);
     extern_fns::call_sp_linalg_hessenberg(
         ctx,
         x1_c.as_abi_value(ctx).into(),

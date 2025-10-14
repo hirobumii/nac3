@@ -2,8 +2,8 @@ use inkwell::values::{BasicValue, BasicValueEnum};
 
 use super::{NDArrayValue, NDIterValue, ScalarOrNDArray};
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
-    stmt::{BreakContinueHooks, gen_for_callback},
+    CodeGenContext,
+    stmt::{BreakContinueHooks, gen_for_callback, gen_var},
     types::ndarray::NDIterType,
 };
 
@@ -14,42 +14,38 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// `f` has access to [`BreakContinueHooks`] to short-circuit the `fold` operation, an instance
     /// of `V` representing the current accumulated value, and an [`NDIterValue`] to get the
     /// properties of the current iterated element.
-    pub fn fold<'a, G, V, F>(
+    pub fn fold<'a, V, F>(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, 'a>,
         init: V,
         f: F,
     ) -> Result<V, String>
     where
-        G: CodeGenerator + ?Sized,
         V: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>>,
         <V as TryFrom<BasicValueEnum<'ctx>>>::Error: std::fmt::Debug,
         F: FnOnce(
-            &mut G,
             &mut CodeGenContext<'ctx, 'a>,
             BreakContinueHooks<'ctx>,
             V,
             NDIterValue<'ctx>,
         ) -> Result<V, String>,
     {
-        let acc_ptr =
-            generator.gen_var_alloc(ctx, init.as_basic_value_enum().get_type(), None).unwrap();
+        let acc_ptr = gen_var(ctx, init.as_basic_value_enum().get_type(), None).unwrap();
         ctx.builder.build_store(acc_ptr, init).unwrap();
 
         gen_for_callback(
-            generator,
+            &mut (),
             ctx,
             Some("ndarray_fold"),
-            |generator, ctx| Ok(NDIterType::new(ctx).construct(generator, ctx, *self)),
-            |_, ctx, nditer| Ok(nditer.has_element(ctx)),
-            |generator, ctx, hooks, nditer| {
+            |(), ctx| Ok(NDIterType::new(ctx).construct(ctx, *self)),
+            |(), ctx, nditer| Ok(nditer.has_element(ctx)),
+            |(), ctx, hooks, nditer| {
                 let acc = V::try_from(ctx.builder.build_load(acc_ptr, "").unwrap()).unwrap();
-                let acc = f(generator, ctx, hooks, acc, nditer)?;
+                let acc = f(ctx, hooks, acc, nditer)?;
                 ctx.builder.build_store(acc_ptr, acc).unwrap();
                 Ok(())
             },
-            |_, ctx, nditer| {
+            |(), ctx, nditer| {
                 nditer.next(ctx);
                 Ok(())
             },
@@ -69,19 +65,16 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
     ///   available if this instance represents a scalar value.
     /// - The 5th parameter of `f` is a [`BasicValueEnum`], since no [iterator][`NDIterValue`] will
     ///   be created if this instance represents a scalar value.
-    pub fn fold<'a, G, V, F>(
+    pub fn fold<'a, V, F>(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, 'a>,
         init: V,
         f: F,
     ) -> Result<V, String>
     where
-        G: CodeGenerator + ?Sized,
         V: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>>,
         <V as TryFrom<BasicValueEnum<'ctx>>>::Error: std::fmt::Debug,
         F: FnOnce(
-            &mut G,
             &mut CodeGenContext<'ctx, 'a>,
             Option<&BreakContinueHooks<'ctx>>,
             V,
@@ -89,13 +82,11 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
         ) -> Result<V, String>,
     {
         match self {
-            ScalarOrNDArray::Scalar(v) => f(generator, ctx, None, init, *v),
-            ScalarOrNDArray::NDArray(v) => {
-                v.fold(generator, ctx, init, |generator, ctx, hooks, acc, nditer| {
-                    let elem = nditer.get_scalar(ctx);
-                    f(generator, ctx, Some(&hooks), acc, elem)
-                })
-            }
+            ScalarOrNDArray::Scalar(v) => f(ctx, None, init, *v),
+            ScalarOrNDArray::NDArray(v) => v.fold(ctx, init, |ctx, hooks, acc, nditer| {
+                let elem = nditer.get_scalar(ctx);
+                f(ctx, Some(&hooks), acc, elem)
+            }),
         }
     }
 }

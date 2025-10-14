@@ -6,8 +6,8 @@ use inkwell::{
 
 use super::NDArrayValue;
 use crate::codegen::{
-    CodeGenContext, CodeGenerator, irrt,
-    stmt::{BreakContinueHooks, gen_for_callback},
+    CodeGenContext, irrt,
+    stmt::{BreakContinueHooks, gen_for_callback, gen_var},
     types::{
         ndarray::NDIterType,
         structure::{StructField, StructProxyType},
@@ -27,8 +27,7 @@ pub struct NDIterValue<'ctx> {
 impl<'ctx> NDIterValue<'ctx> {
     /// Creates an [`NDArrayValue`] from a [`StructValue`].
     #[must_use]
-    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_struct_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         val: StructValue<'ctx>,
         parent: NDArrayValue<'ctx>,
@@ -36,13 +35,9 @@ impl<'ctx> NDIterValue<'ctx> {
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        let pval = generator
-            .gen_var_alloc(
-                ctx,
-                val.get_type().into(),
-                name.map(|name| format!("{name}.addr")).as_deref(),
-            )
-            .unwrap();
+        let pval =
+            gen_var(ctx, val.get_type().into(), name.map(|name| format!("{name}.addr")).as_deref())
+                .unwrap();
         ctx.builder.build_store(pval, val).unwrap();
         Self::from_pointer_value(pval, parent, indices, llvm_usize, name)
     }
@@ -114,13 +109,11 @@ impl<'ctx> NDIterValue<'ctx> {
 
     /// Get the indices of the current element.
     #[must_use]
-    pub fn get_indices<G: CodeGenerator + ?Sized>(
-        &self,
-    ) -> TypedArrayLikeAdapter<'ctx, G, IntValue<'ctx>> {
+    pub fn get_indices(&self) -> TypedArrayLikeAdapter<'ctx, IntValue<'ctx>> {
         TypedArrayLikeAdapter::from(
             self.indices,
-            |_, _, val| val.into_int_value(),
-            |_, _, val| val.into(),
+            |_, val| val.into_int_value(),
+            |_, val| val.into(),
         )
     }
 }
@@ -156,29 +149,22 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///
     /// `body` has access to [`BreakContinueHooks`] to short-circuit and [`NDIterValue`] to
     /// get properties of the current iteration (e.g., the current element, indices, etc.)
-    pub fn foreach<'a, G, F>(
-        &self,
-        generator: &mut G,
-        ctx: &mut CodeGenContext<'ctx, 'a>,
-        body: F,
-    ) -> Result<(), String>
+    pub fn foreach<'a, F>(&self, ctx: &mut CodeGenContext<'ctx, 'a>, body: F) -> Result<(), String>
     where
-        G: CodeGenerator + ?Sized,
         F: FnOnce(
-            &mut G,
             &mut CodeGenContext<'ctx, 'a>,
             BreakContinueHooks<'ctx>,
             NDIterValue<'ctx>,
         ) -> Result<(), String>,
     {
         gen_for_callback(
-            generator,
+            &mut (),
             ctx,
             Some("ndarray_foreach"),
-            |generator, ctx| Ok(NDIterType::new(ctx).construct(generator, ctx, *self)),
-            |_, ctx, nditer| Ok(nditer.has_element(ctx)),
-            |generator, ctx, hooks, nditer| body(generator, ctx, hooks, nditer),
-            |_, ctx, nditer| {
+            |(), ctx| Ok(NDIterType::new(ctx).construct(ctx, *self)),
+            |(), ctx, nditer| Ok(nditer.has_element(ctx)),
+            |(), ctx, hooks, nditer| body(ctx, hooks, nditer),
+            |(), ctx, nditer| {
                 nditer.next(ctx);
                 Ok(())
             },

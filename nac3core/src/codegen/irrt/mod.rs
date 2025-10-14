@@ -162,10 +162,7 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
             one,
         ),
         (s, e, Some(step)) => {
-            let step = generator
-                .gen_expr(ctx, step)?
-                .to_basic_value_enum(ctx, generator)?
-                .into_int_value();
+            let step = generator.gen_expr(ctx, step)?.to_basic_value_enum(ctx)?.into_int_value();
 
             // assert step != 0, throw exception if not
             let not_zero = ctx
@@ -178,7 +175,6 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                 )
                 .unwrap();
             ctx.make_assert(
-                generator,
                 not_zero,
                 "0:ValueError",
                 "slice step cannot be zero",

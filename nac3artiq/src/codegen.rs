@@ -14,10 +14,10 @@ use pyo3::{
 
 use nac3core::{
     codegen::{
-        CodeGenContext, CodeGenerator, basic_type_all,
+        CodeGenContext, CodeGenerator, basic_type_all, bool_to_i1,
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
-        stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
+        stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_var, gen_with},
         type_aligned_alloca,
         types::{RangeType, ndarray::NDArrayType},
         values::{
@@ -112,7 +112,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
     /// closest parent `with` statement is a `with parallel` block.
     fn timeline_reset_start(&mut self, ctx: &mut CodeGenContext<'_, '_>) -> Result<(), String> {
         if let Some(start) = self.start.clone() {
-            let start_val = self.gen_expr(ctx, &start)?.to_basic_value_enum(ctx, self)?;
+            let start_val = self.gen_expr(ctx, &start)?.to_basic_value_enum(ctx)?;
             self.timeline.emit_at_mu(ctx, start_val);
         }
 
@@ -138,7 +138,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
         store_name: Option<&str>,
     ) -> Result<(), String> {
         if let Some(end) = end {
-            let old_end = self.gen_expr(ctx, &end)?.to_basic_value_enum(ctx, self)?;
+            let old_end = self.gen_expr(ctx, &end)?.to_basic_value_enum(ctx)?;
             let now = self.timeline.emit_now_mu(ctx);
             let max =
                 call_int_smax(ctx, old_end.into_int_value(), now.into_int_value(), Some("smax"));
@@ -232,17 +232,15 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
             // parallel block, and we should update the max end value.
             if let ExprKind::Name { id, ctx: name_ctx } = &item.context_expr.node {
                 let resolver = ctx.resolver.clone();
-                if let Some(static_value) =
-                    if let Some((_ptr, static_value, _counter)) = ctx.var_assignment.get(id) {
-                        static_value.clone()
-                    } else if let Some(ValueEnum::Static(val)) =
-                        resolver.get_symbol_value(*id, ctx, self)
-                    {
-                        Some(val)
-                    } else {
-                        None
-                    }
+                if let Some(static_value) = if let Some((_ptr, static_value, _counter)) =
+                    ctx.var_assignment.get(id)
                 {
+                    static_value.clone()
+                } else if let Some(ValueEnum::Static(val)) = resolver.get_symbol_value(*id, ctx) {
+                    Some(val)
+                } else {
+                    None
+                } {
                     let python_id = static_value.get_unique_identifier();
                     if python_id == self.special_ids.parallel
                         || python_id == self.special_ids.legacy_parallel
@@ -252,7 +250,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
                         let old_parallel_mode = self.parallel_mode;
 
                         let now = if let Some(old_start) = &old_start {
-                            self.gen_expr(ctx, old_start)?.to_basic_value_enum(ctx, self)?
+                            self.gen_expr(ctx, old_start)?.to_basic_value_enum(ctx)?
                         } else {
                             self.timeline.emit_now_mu(ctx)
                         };
@@ -320,8 +318,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
 
                         // set duration
                         let end_expr = self.end.take().unwrap();
-                        let end_val =
-                            self.gen_expr(ctx, &end_expr)?.to_basic_value_enum(ctx, self)?;
+                        let end_val = self.gen_expr(ctx, &end_expr)?.to_basic_value_enum(ctx)?;
 
                         // inside a sequential block
                         if old_start.is_none() {
@@ -439,7 +436,6 @@ fn gen_rpc_tag(
 ///
 /// See `artiq/firmware/libproto_artiq/rpc_proto.rs` for the expected format.
 fn format_rpc_arg<'ctx>(
-    generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, '_>,
     (arg, arg_ty, arg_idx): (BasicValueEnum<'ctx>, Type, usize),
 ) -> PointerValue<'ctx> {
@@ -462,7 +458,7 @@ fn format_rpc_arg<'ctx>(
             // `ndarray.data` is possibly not contiguous, and we need it to be contiguous for
             // the reader.
             // Turning it into a ContiguousNDArray to get a `data` that is contiguous.
-            let carray = ndarray.make_contiguous_ndarray(generator, ctx);
+            let carray = ndarray.make_contiguous_ndarray(ctx);
 
             let sizeof_usize = ctx.size_t.size_of();
             let sizeof_usize =
@@ -478,9 +474,8 @@ fn format_rpc_arg<'ctx>(
             // buf = { data: void*, shape: [size_t; ndims]; }
             let buf = ctx.builder.build_array_alloca(llvm_i8, sizeof_buf, "rpc.arg").unwrap();
             let buf = ArraySliceValue::from_ptr_val(buf, sizeof_buf, Some("rpc.arg"));
-            let buf_data = buf.base_ptr(ctx, generator);
-            let buf_shape =
-                unsafe { buf.ptr_offset_unchecked(ctx, generator, &sizeof_pdata, None) };
+            let buf_data = buf.base_ptr(ctx);
+            let buf_shape = unsafe { buf.ptr_offset_unchecked(ctx, &sizeof_pdata, None) };
 
             // Write to `buf->data`
             let carray_data = carray.load_data(ctx);
@@ -488,18 +483,17 @@ fn format_rpc_arg<'ctx>(
             call_memcpy(ctx, buf_data, carray_data, sizeof_pdata);
 
             // Write to `buf->shape`
-            let carray_shape = ndarray.shape().base_ptr(ctx, generator);
+            let carray_shape = ndarray.shape().base_ptr(ctx);
             let carray_shape_i8 =
                 ctx.builder.build_pointer_cast(carray_shape, llvm_pi8, "").unwrap();
             call_memcpy(ctx, buf_shape, carray_shape_i8, sizeof_buf_shape);
 
-            buf.base_ptr(ctx, generator)
+            buf.base_ptr(ctx)
         }
 
         _ => {
-            let arg_slot = generator
-                .gen_var_alloc(ctx, arg.get_type(), Some(&format!("rpc.arg{arg_idx}")))
-                .unwrap();
+            let arg_slot =
+                gen_var(ctx, arg.get_type(), Some(&format!("rpc.arg{arg_idx}"))).unwrap();
             ctx.builder.build_store(arg_slot, arg).unwrap();
 
             ctx.builder
@@ -516,7 +510,6 @@ fn format_rpc_arg<'ctx>(
 
 /// Formats an RPC return value to conform to the expected format required by NAC3.
 fn format_rpc_ret<'ctx>(
-    generator: &mut dyn CodeGenerator,
     ctx: &mut CodeGenContext<'ctx, '_>,
     ret_ty: Type,
 ) -> Option<BasicValueEnum<'ctx>> {
@@ -585,8 +578,8 @@ fn format_rpc_ret<'ctx>(
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ret_ty);
             let dtype_llvm = ctx.get_llvm_type(dtype);
             let ndims = extract_ndims(&ctx.unifier, ndims);
-            let ndarray = NDArrayType::new(ctx, dtype_llvm, ndims)
-                .construct_uninitialized(generator, ctx, None);
+            let ndarray =
+                NDArrayType::new(ctx, dtype_llvm, ndims).construct_uninitialized(ctx, None);
 
             // NOTE: Current content of `ndarray`:
             //   - * `data` - **NOT YET** allocated.
@@ -615,13 +608,8 @@ fn format_rpc_ret<'ctx>(
                 ctx.builder.build_int_add(sizeof_ptr, sizeof_shape, "").unwrap();
 
             let stackptr = call_stacksave(ctx, None);
-            let buffer = type_aligned_alloca(
-                generator,
-                ctx,
-                llvm_i8_8,
-                unaligned_buffer_size,
-                Some("rpc.buffer"),
-            );
+            let buffer =
+                type_aligned_alloca(ctx, llvm_i8_8, unaligned_buffer_size, Some("rpc.buffer"));
             let buffer = ArraySliceValue::from_ptr_val(buffer, unaligned_buffer_size, None);
 
             // The first call to `rpc_recv` reads the top-level ndarray object: [pdata, shape]
@@ -630,7 +618,7 @@ fn format_rpc_ret<'ctx>(
             let ndarray_nbytes = ctx
                 .build_call_or_invoke(
                     &rpc_recv,
-                    &[buffer.base_ptr(ctx, generator).into()], // Reads [usize; ndims]
+                    &[buffer.base_ptr(ctx).into()], // Reads [usize; ndims]
                     "rpc.size.next",
                 )
                 .map(BasicValueEnum::into_int_value)
@@ -644,7 +632,6 @@ fn format_rpc_ret<'ctx>(
                     .unwrap();
 
                 ctx.make_assert(
-                    generator,
                     cmp,
                     "0:AssertionError",
                     "Unexpected RPC termination for ndarray - Expected data buffer next",
@@ -655,13 +642,12 @@ fn format_rpc_ret<'ctx>(
 
             // Copy shape from the buffer to `ndarray.shape`.
             // We need to skip the first `sizeof(uint8_t*)` bytes to skip the `pdata` in `[pdata, shape]`.
-            let pbuffer_shape =
-                unsafe { buffer.ptr_offset_unchecked(ctx, generator, &sizeof_ptr, None) };
+            let pbuffer_shape = unsafe { buffer.ptr_offset_unchecked(ctx, &sizeof_ptr, None) };
             let pbuffer_shape =
                 ctx.builder.build_pointer_cast(pbuffer_shape, llvm_pusize, "").unwrap();
 
             // Copy shape from buffer to `ndarray.shape`
-            ndarray.copy_shape_from_array(generator, ctx, pbuffer_shape);
+            ndarray.copy_shape_from_array(ctx, pbuffer_shape);
 
             // Restore stack from before allocation of buffer
             call_stackrestore(ctx, stackptr);
@@ -669,7 +655,7 @@ fn format_rpc_ret<'ctx>(
             // Allocate `ndarray.data`.
             // `ndarray.shape` must be initialized beforehand in this implementation
             //   (for ndarray.create_data() to know how many elements to allocate)
-            unsafe { ndarray.create_data(generator, ctx) }; // NOTE: the strides of `ndarray` has also been set to contiguous in `create_data`.
+            unsafe { ndarray.create_data(ctx) }; // NOTE: the strides of `ndarray` has also been set to contiguous in `create_data`.
 
             // debug_assert(nelems * sizeof(T) >= ndarray_nbytes)
             if ctx.registry.codegen_options.debug {
@@ -688,7 +674,6 @@ fn format_rpc_ret<'ctx>(
                     .unwrap();
 
                 ctx.make_assert(
-                    generator,
                     cmp,
                     "0:AssertionError",
                     "Unexpected allocation size request for ndarray data - Expected up to {0} bytes, got {1} bytes",
@@ -697,7 +682,7 @@ fn format_rpc_ret<'ctx>(
                 );
             }
 
-            let ndarray_data = ndarray.data().base_ptr(ctx, generator);
+            let ndarray_data = ndarray.data().base_ptr(ctx);
 
             let entry_bb = ctx.builder.get_insert_block().unwrap();
             ctx.builder.build_unconditional_branch(head_bb).unwrap();
@@ -780,7 +765,6 @@ fn rpc_codegen_callback_fn<'ctx>(
     obj: Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-    generator: &mut dyn CodeGenerator,
     is_async: bool,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
     let int8 = ctx.i8;
@@ -847,8 +831,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
     // default value handling
     for k in keys {
-        mapping
-            .insert(k.name, ctx.gen_symbol_val(generator, &k.default_value.unwrap(), k.ty).into());
+        mapping.insert(k.name, ctx.gen_symbol_val(&k.default_value.unwrap(), k.ty).into());
     }
     // reorder the parameters
     let mut real_params = fun
@@ -859,13 +842,13 @@ fn rpc_codegen_callback_fn<'ctx>(
             mapping
                 .remove(&arg.name)
                 .unwrap()
-                .to_basic_value_enum(ctx, generator, arg.ty)
+                .to_basic_value_enum(ctx, arg.ty)
                 .map(|llvm_val| (llvm_val, arg.ty))
         })
         .collect::<Result<Vec<(_, _)>, _>>()?;
     if let Some(obj) = obj {
         if let ValueEnum::Static(obj_val) = obj.1 {
-            real_params.insert(0, (obj_val.get_const_obj(ctx, generator), obj.0));
+            real_params.insert(0, (obj_val.get_const_obj(ctx), obj.0));
         } else {
             // should be an error here...
             panic!("only host object is allowed");
@@ -873,7 +856,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
 
     for (i, (arg, arg_ty)) in real_params.iter().enumerate() {
-        let arg_slot = format_rpc_arg(generator, ctx, (*arg, *arg_ty, i));
+        let arg_slot = format_rpc_arg(ctx, (*arg, *arg_ty, i));
         let arg_ptr = unsafe {
             ctx.builder.build_gep(
                 args_ptr,
@@ -895,7 +878,7 @@ fn rpc_codegen_callback_fn<'ctx>(
         // async RPCs do not return any values
         Ok(None)
     } else {
-        let result = format_rpc_ret(generator, ctx, fun.0.ret);
+        let result = format_rpc_ret(ctx, fun.0.ret);
 
         // Here we call `basic_type_all` to ensure that the return type is not, nor contains, a
         // pointer type which may require further allocation, in which case the stack should not
@@ -910,7 +893,6 @@ fn rpc_codegen_callback_fn<'ctx>(
 
 pub fn attributes_writeback<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    generator: &mut dyn CodeGenerator,
     inner_resolver: &InnerResolver,
     host_attributes: &Py<PyAny>,
     return_obj: Option<(Type, ValueEnum<'ctx>)>,
@@ -925,7 +907,7 @@ pub fn attributes_writeback<'ctx>(
         let mut scratch_buffer = Vec::new();
 
         if let Some((ty, obj)) = return_obj {
-            values.push((ty, obj.to_basic_value_enum(ctx, generator, ty).unwrap()));
+            values.push((ty, obj.to_basic_value_enum(ctx, ty).unwrap()));
         }
 
         for val in (*globals).values() {
@@ -949,10 +931,7 @@ pub fn attributes_writeback<'ctx>(
                         let pydict = PyDict::new(py);
                         pydict.set_item("obj", val)?;
                         host_attributes.append(pydict)?;
-                        values.push((
-                            ty,
-                            inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap(),
-                        ));
+                        values.push((ty, inner_resolver.get_obj_value(py, val, ctx, ty)?.unwrap()));
                     }
                 }
                 TypeEnum::TObj { fields, obj_id, .. }
@@ -961,7 +940,7 @@ pub fn attributes_writeback<'ctx>(
                     // we only care about primitive attributes
                     // for non-primitive attributes, they should be in another global
                     let mut attributes = Vec::new();
-                    let obj = inner_resolver.get_obj_value(py, val, ctx, generator, ty)?.unwrap();
+                    let obj = inner_resolver.get_obj_value(py, val, ctx, ty)?.unwrap();
                     for (name, (field_ty, attr_kind)) in fields {
                         if !attr_kind.is_mutable() {
                             continue;
@@ -1005,8 +984,7 @@ pub fn attributes_writeback<'ctx>(
         };
         let args: Vec<_> =
             values.into_iter().map(|(_, val)| (None, ValueEnum::Dynamic(val))).collect();
-        if let Err(e) =
-            rpc_codegen_callback_fn(ctx, None, (&fun, PrimDef::Int32.id()), args, generator, true)
+        if let Err(e) = rpc_codegen_callback_fn(ctx, None, (&fun, PrimDef::Int32.id()), args, true)
         {
             return Ok(Err(e));
         }
@@ -1017,8 +995,8 @@ pub fn attributes_writeback<'ctx>(
 }
 
 pub fn rpc_codegen_callback(is_async: bool) -> Arc<GenCall> {
-    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args, generator| {
-        rpc_codegen_callback_fn(ctx, obj, fun, args, generator, is_async)
+    Arc::new(GenCall::new(Box::new(move |ctx, obj, fun, args| {
+        rpc_codegen_callback_fn(ctx, obj, fun, args, is_async)
     })))
 }
 
@@ -1060,31 +1038,28 @@ fn get_fprintf_format_constant<'ctx>(
 /// * `as_rtio` - Whether to print to `rtio_log` instead of `core_log`.
 fn polymorphic_print<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    generator: &mut dyn CodeGenerator,
     values: &[(Type, ValueEnum<'ctx>)],
     separator: &str,
     suffix: Option<&str>,
     as_repr: bool,
     as_rtio: bool,
 ) -> Result<(), String> {
-    let printf = |ctx: &mut CodeGenContext<'ctx, '_>,
-                  generator: &mut dyn CodeGenerator,
-                  fmt: String,
-                  args: Vec<BasicValueEnum<'ctx>>| {
-        debug_assert!(!fmt.is_empty());
-        debug_assert_eq!(fmt.as_bytes().last().unwrap(), &0u8);
+    let printf =
+        |ctx: &mut CodeGenContext<'ctx, '_>, fmt: String, args: Vec<BasicValueEnum<'ctx>>| {
+            debug_assert!(!fmt.is_empty());
+            debug_assert_eq!(fmt.as_bytes().last().unwrap(), &0u8);
 
-        let llvm_i32 = ctx.i32;
+            let llvm_i32 = ctx.i32;
 
-        let fmt = ctx.gen_string(generator, fmt);
-        let fmt = unsafe { fmt.get_field_at_index_unchecked(0) }.into_pointer_value();
+            let fmt = ctx.gen_string(fmt);
+            let fmt = unsafe { fmt.get_field_at_index_unchecked(0) }.into_pointer_value();
 
-        if as_rtio {
-            call_extern!(ctx: void _ = "rtio_log"(fmt; ...args));
-        } else {
-            call_extern!(ctx: llvm_i32 _ = "core_log"(fmt; ...args));
-        }
-    };
+            if as_rtio {
+                call_extern!(ctx: void _ = "rtio_log"(fmt; ...args));
+            } else {
+                call_extern!(ctx: llvm_i32 _ = "core_log"(fmt; ...args));
+            }
+        };
 
     let llvm_i32 = ctx.i32;
     let llvm_i64 = ctx.i64;
@@ -1096,18 +1071,17 @@ fn polymorphic_print<'ctx>(
     let mut args = Vec::new();
 
     let flush = |ctx: &mut CodeGenContext<'ctx, '_>,
-                 generator: &mut dyn CodeGenerator,
                  fmt: &mut String,
                  args: &mut Vec<BasicValueEnum<'ctx>>| {
         if !fmt.is_empty() {
             fmt.push('\0');
-            printf(ctx, generator, mem::take(fmt), mem::take(args));
+            printf(ctx, mem::take(fmt), mem::take(args));
         }
     };
 
     for (ty, value) in values {
         let ty = *ty;
-        let value = value.clone().to_basic_value_enum(ctx, generator, ty).unwrap();
+        let value = value.clone().to_basic_value_enum(ctx, ty).unwrap();
 
         if !fmt.is_empty() {
             fmt.push_str(separator);
@@ -1116,13 +1090,13 @@ fn polymorphic_print<'ctx>(
         match &*ctx.unifier.get_ty_immutable(ty) {
             TypeEnum::TTuple { ty: tys, is_vararg_ctx: false } => {
                 let pvalue = {
-                    let pvalue = generator.gen_var_alloc(ctx, value.get_type(), None).unwrap();
+                    let pvalue = gen_var(ctx, value.get_type(), None).unwrap();
                     ctx.builder.build_store(pvalue, value).unwrap();
                     pvalue
                 };
 
                 fmt.push('(');
-                flush(ctx, generator, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args);
 
                 let tuple_vals = tys
                     .iter()
@@ -1137,7 +1111,7 @@ fn polymorphic_print<'ctx>(
                     })
                     .collect_vec();
 
-                polymorphic_print(ctx, generator, &tuple_vals, ", ", None, true, as_rtio)?;
+                polymorphic_print(ctx, &tuple_vals, ", ", None, true, as_rtio)?;
 
                 if tuple_vals.len() == 1 {
                     fmt.push_str(",)");
@@ -1154,17 +1128,17 @@ fn polymorphic_print<'ctx>(
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Bool.id() => {
                 fmt.push_str("%.*s");
 
-                let true_str = ctx.gen_string(generator, "True");
+                let true_str = ctx.gen_string("True");
                 let true_data =
                     unsafe { true_str.get_field_at_index_unchecked(0) }.into_pointer_value();
                 let true_len = unsafe { true_str.get_field_at_index_unchecked(1) }.into_int_value();
-                let false_str = ctx.gen_string(generator, "False");
+                let false_str = ctx.gen_string("False");
                 let false_data =
                     unsafe { false_str.get_field_at_index_unchecked(0) }.into_pointer_value();
                 let false_len =
                     unsafe { false_str.get_field_at_index_unchecked(1) }.into_int_value();
 
-                let bool_val = generator.bool_to_i1(ctx, value.into_int_value());
+                let bool_val = bool_to_i1(ctx, value.into_int_value());
 
                 args.extend([
                     ctx.builder.build_select(bool_val, true_len, false_len, "").unwrap(),
@@ -1217,7 +1191,7 @@ fn polymorphic_print<'ctx>(
                 let elem_ty = *params.iter().next().unwrap().1;
 
                 fmt.push('[');
-                flush(ctx, generator, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args);
 
                 let val =
                     ListValue::from_pointer_value(value.into_pointer_value(), llvm_usize, None);
@@ -1226,39 +1200,31 @@ fn polymorphic_print<'ctx>(
                     ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "").unwrap();
 
                 gen_for_callback_incrementing(
-                    generator,
+                    &mut (),
                     ctx,
                     None,
                     llvm_usize.const_zero(),
                     (len, false),
-                    |generator, ctx, _, i| {
-                        let elem = unsafe { val.data().get_unchecked(ctx, generator, &i, None) };
+                    |(), ctx, _, i| {
+                        let elem = unsafe { val.data().get_unchecked(ctx, &i, None) };
 
-                        polymorphic_print(
-                            ctx,
-                            generator,
-                            &[(elem_ty, elem.into())],
-                            "",
-                            None,
-                            true,
-                            as_rtio,
-                        )?;
+                        polymorphic_print(ctx, &[(elem_ty, elem.into())], "", None, true, as_rtio)?;
 
                         gen_if_callback(
-                            generator,
+                            &mut (),
                             ctx,
-                            |_, ctx| {
+                            |(), ctx| {
                                 Ok(ctx
                                     .builder
                                     .build_int_compare(IntPredicate::ULT, i, last, "")
                                     .unwrap())
                             },
-                            |generator, ctx| {
-                                printf(ctx, generator, ", \0".into(), Vec::default());
+                            |(), ctx| {
+                                printf(ctx, ", \0".into(), Vec::default());
 
                                 Ok(())
                             },
-                            |_, _| Ok(()),
+                            |(), _| Ok(()),
                         )?;
 
                         Ok(())
@@ -1267,12 +1233,12 @@ fn polymorphic_print<'ctx>(
                 )?;
 
                 fmt.push(']');
-                flush(ctx, generator, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args);
             }
 
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                 fmt.push_str("array([");
-                flush(ctx, generator, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args);
 
                 let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
                 let ndarray = NDArrayType::from_unifier_type(ctx, ty)
@@ -1281,48 +1247,40 @@ fn polymorphic_print<'ctx>(
                 let num_0 = llvm_usize.const_zero();
 
                 // Print `ndarray` as a flat list delimited by interspersed with ", \0"
-                ndarray.foreach(generator, ctx, |generator, ctx, _, hdl| {
+                ndarray.foreach(ctx, |ctx, _, hdl| {
                     let i = hdl.get_index(ctx);
                     let scalar = hdl.get_scalar(ctx);
 
                     // if (i != 0) puts(", ");
                     gen_if_callback(
-                        generator,
+                        &mut (),
                         ctx,
-                        |_, ctx| {
+                        |(), ctx| {
                             let not_first = ctx
                                 .builder
                                 .build_int_compare(IntPredicate::NE, i, num_0, "")
                                 .unwrap();
                             Ok(not_first)
                         },
-                        |generator, ctx| {
-                            printf(ctx, generator, ", \0".into(), Vec::default());
+                        |(), ctx| {
+                            printf(ctx, ", \0".into(), Vec::default());
                             Ok(())
                         },
-                        |_, _| Ok(()),
+                        |(), _| Ok(()),
                     )?;
 
                     // Print element
-                    polymorphic_print(
-                        ctx,
-                        generator,
-                        &[(dtype, scalar.into())],
-                        "",
-                        None,
-                        true,
-                        as_rtio,
-                    )?;
+                    polymorphic_print(ctx, &[(dtype, scalar.into())], "", None, true, as_rtio)?;
                     Ok(())
                 })?;
 
                 fmt.push_str(")]");
-                flush(ctx, generator, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args);
             }
 
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Range.id() => {
                 fmt.push_str("range(");
-                flush(ctx, generator, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args);
 
                 let val = RangeType::new(ctx).map_pointer_value(value.into_pointer_value(), None);
 
@@ -1330,7 +1288,6 @@ fn polymorphic_print<'ctx>(
 
                 polymorphic_print(
                     ctx,
-                    generator,
                     &[
                         (ctx.primitives.int32, start.into()),
                         (ctx.primitives.int32, stop.into()),
@@ -1394,7 +1351,7 @@ fn polymorphic_print<'ctx>(
     }
 
     fmt.push_str(suffix);
-    flush(ctx, generator, &mut fmt, &mut args);
+    flush(ctx, &mut fmt, &mut args);
 
     Ok(())
 }
@@ -1402,12 +1359,11 @@ fn polymorphic_print<'ctx>(
 /// Invokes the `core_log` intrinsic function.
 pub fn call_core_log_impl<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    generator: &mut dyn CodeGenerator,
     arg: (Type, BasicValueEnum<'ctx>),
 ) -> Result<(), String> {
     let (arg_ty, arg_val) = arg;
 
-    polymorphic_print(ctx, generator, &[(arg_ty, arg_val.into())], " ", Some("\n"), false, false)?;
+    polymorphic_print(ctx, &[(arg_ty, arg_val.into())], " ", Some("\n"), false, false)?;
 
     Ok(())
 }
@@ -1415,7 +1371,6 @@ pub fn call_core_log_impl<'ctx>(
 /// Invokes the `rtio_log` intrinsic function.
 pub fn call_rtio_log_impl<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
-    generator: &mut dyn CodeGenerator,
     channel: StructValue<'ctx>,
     arg: (Type, BasicValueEnum<'ctx>),
 ) -> Result<(), String> {
@@ -1423,14 +1378,13 @@ pub fn call_rtio_log_impl<'ctx>(
 
     polymorphic_print(
         ctx,
-        generator,
         &[(ctx.primitives.str, channel.into())],
         " ",
         Some("\x1E"),
         false,
         true,
     )?;
-    polymorphic_print(ctx, generator, &[(arg_ty, arg_val.into())], " ", Some("\x1D"), false, true)?;
+    polymorphic_print(ctx, &[(arg_ty, arg_val.into())], " ", Some("\x1D"), false, true)?;
 
     Ok(())
 }
@@ -1441,15 +1395,14 @@ pub fn gen_core_log<'ctx>(
     obj: Option<&(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<(), String> {
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
     let value_ty = fun.0.args[0].ty;
-    let value_arg = args[0].1.clone().to_basic_value_enum(ctx, generator, value_ty)?;
+    let value_arg = args[0].1.clone().to_basic_value_enum(ctx, value_ty)?;
 
-    call_core_log_impl(ctx, generator, (value_ty, value_arg))
+    call_core_log_impl(ctx, (value_ty, value_arg))
 }
 
 /// Generates a call to `rtio_log`.
@@ -1458,17 +1411,15 @@ pub fn gen_rtio_log<'ctx>(
     obj: Option<&(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-    generator: &mut dyn CodeGenerator,
 ) -> Result<(), String> {
     assert!(obj.is_none());
     assert_eq!(args.len(), 2);
 
     let channel_ty = fun.0.args[0].ty;
     assert!(ctx.unifier.unioned(channel_ty, ctx.primitives.str));
-    let channel_arg =
-        args[0].1.clone().to_basic_value_enum(ctx, generator, channel_ty)?.into_struct_value();
+    let channel_arg = args[0].1.clone().to_basic_value_enum(ctx, channel_ty)?.into_struct_value();
     let value_ty = fun.0.args[1].ty;
-    let value_arg = args[1].1.clone().to_basic_value_enum(ctx, generator, value_ty)?;
+    let value_arg = args[1].1.clone().to_basic_value_enum(ctx, value_ty)?;
 
-    call_rtio_log_impl(ctx, generator, channel_arg, (value_ty, value_arg))
+    call_rtio_log_impl(ctx, channel_arg, (value_ty, value_arg))
 }

@@ -5,8 +5,8 @@ use nac3parser::ast::Operator;
 use super::{NDArrayOut, NDArrayValue, RustNDIndex};
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator,
-        expr::gen_binop_expr_with_values,
+        CodeGenContext,
+        expr::gen_prim_binop_expr,
         irrt,
         stmt::gen_for_callback_incrementing,
         types::ndarray::NDArrayType,
@@ -22,8 +22,7 @@ use crate::{
 /// Perform `np.einsum("...ij,...jk->...ik", in_a, in_b)`.
 ///
 /// `dst_dtype` defines the dtype of the returned ndarray.
-fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
-    generator: &mut G,
+fn matmul_at_least_2d<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     dst_dtype: Type,
     (in_a_ty, in_a): (Type, NDArrayValue<'ctx>),
@@ -47,23 +46,15 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
     let (lhs, rhs, dst) = {
         let in_lhs_ndims = llvm_usize.const_int(in_a.ndims, false);
         let in_lhs_shape = TypedArrayLikeAdapter::from(
-            ArraySliceValue::from_ptr_val(
-                in_a.shape().base_ptr(ctx, generator),
-                in_lhs_ndims,
-                None,
-            ),
-            |_, _, val| val.into_int_value(),
-            |_, _, val| val.into(),
+            ArraySliceValue::from_ptr_val(in_a.shape().base_ptr(ctx), in_lhs_ndims, None),
+            |_, val| val.into_int_value(),
+            |_, val| val.into(),
         );
         let in_rhs_ndims = llvm_usize.const_int(in_b.ndims, false);
         let in_rhs_shape = TypedArrayLikeAdapter::from(
-            ArraySliceValue::from_ptr_val(
-                in_b.shape().base_ptr(ctx, generator),
-                in_rhs_ndims,
-                None,
-            ),
-            |_, _, val| val.into_int_value(),
-            |_, _, val| val.into(),
+            ArraySliceValue::from_ptr_val(in_b.shape().base_ptr(ctx), in_rhs_ndims, None),
+            |_, val| val.into_int_value(),
+            |_, val| val.into(),
         );
         let lhs_shape = TypedArrayLikeAdapter::from(
             ArraySliceValue::from_ptr_val(
@@ -71,8 +62,8 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
                 ndims,
                 None,
             ),
-            |_, _, val| val.into_int_value(),
-            |_, _, val| val.into(),
+            |_, val| val.into_int_value(),
+            |_, val| val.into(),
         );
         let rhs_shape = TypedArrayLikeAdapter::from(
             ArraySliceValue::from_ptr_val(
@@ -80,8 +71,8 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
                 ndims,
                 None,
             ),
-            |_, _, val| val.into_int_value(),
-            |_, _, val| val.into(),
+            |_, val| val.into_int_value(),
+            |_, val| val.into(),
         );
         let dst_shape = TypedArrayLikeAdapter::from(
             ArraySliceValue::from_ptr_val(
@@ -89,13 +80,12 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
                 ndims,
                 None,
             ),
-            |_, _, val| val.into_int_value(),
-            |_, _, val| val.into(),
+            |_, val| val.into_int_value(),
+            |_, val| val.into(),
         );
 
         // Matmul dimension compatibility is checked here.
         irrt::ndarray::call_nac3_ndarray_matmul_calculate_shapes(
-            generator,
             ctx,
             &in_lhs_shape,
             &in_rhs_shape,
@@ -105,26 +95,21 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
             &dst_shape,
         );
 
-        let lhs = in_a.broadcast_to(generator, ctx, ndims_int, &lhs_shape);
-        let rhs = in_b.broadcast_to(generator, ctx, ndims_int, &rhs_shape);
+        let lhs = in_a.broadcast_to(ctx, ndims_int, &lhs_shape);
+        let rhs = in_b.broadcast_to(ctx, ndims_int, &rhs_shape);
 
-        let dst = NDArrayType::new(ctx, llvm_dst_dtype, ndims_int)
-            .construct_uninitialized(generator, ctx, None);
-        dst.copy_shape_from_array(generator, ctx, dst_shape.base_ptr(ctx, generator));
+        let dst =
+            NDArrayType::new(ctx, llvm_dst_dtype, ndims_int).construct_uninitialized(ctx, None);
+        dst.copy_shape_from_array(ctx, dst_shape.base_ptr(ctx));
         unsafe {
-            dst.create_data(generator, ctx);
+            dst.create_data(ctx);
         }
 
         (lhs, rhs, dst)
     };
 
     let len = unsafe {
-        lhs.shape().get_typed_unchecked(
-            ctx,
-            generator,
-            &llvm_usize.const_int(ndims_int - 1, false),
-            None,
-        )
+        lhs.shape().get_typed_unchecked(ctx, &llvm_usize.const_int(ndims_int - 1, false), None)
     };
 
     let at_row = i64::try_from(ndims_int - 2).unwrap();
@@ -133,98 +118,72 @@ fn matmul_at_least_2d<'ctx, G: CodeGenerator>(
     let dst_dtype_llvm = ctx.get_llvm_type(dst_dtype);
     let dst_zero = dst_dtype_llvm.const_zero();
 
-    dst.foreach(generator, ctx, |generator, ctx, _, hdl| {
+    dst.foreach(ctx, |ctx, _, hdl| {
         let pdst_ij = hdl.get_pointer(ctx);
 
         ctx.builder.build_store(pdst_ij, dst_zero).unwrap();
 
-        let indices = hdl.get_indices::<G>();
-        let i = unsafe {
-            indices.get_unchecked(ctx, generator, &llvm_usize.const_int(at_row as u64, true), None)
-        };
-        let j = unsafe {
-            indices.get_unchecked(ctx, generator, &llvm_usize.const_int(at_col as u64, true), None)
-        };
+        let indices = hdl.get_indices();
+        let i =
+            unsafe { indices.get_unchecked(ctx, &llvm_usize.const_int(at_row as u64, true), None) };
+        let j =
+            unsafe { indices.get_unchecked(ctx, &llvm_usize.const_int(at_col as u64, true), None) };
 
         let num_0 = llvm_usize.const_int(0, false);
         let num_1 = llvm_usize.const_int(1, false);
 
         gen_for_callback_incrementing(
-            generator,
+            &mut (),
             ctx,
             None,
             num_0,
             (len, false),
-            |generator, ctx, _, k| {
+            |(), ctx, _, k| {
                 // `indices` is modified to index into `a` and `b`, and restored.
                 unsafe {
+                    indices.set_unchecked(ctx, &llvm_usize.const_int(at_row as u64, true), i);
                     indices.set_unchecked(
                         ctx,
-                        generator,
-                        &llvm_usize.const_int(at_row as u64, true),
-                        i,
-                    );
-                    indices.set_unchecked(
-                        ctx,
-                        generator,
                         &llvm_usize.const_int(at_col as u64, true),
                         k.into(),
                     );
                 }
-                let a_ik = unsafe { lhs.data().get_unchecked(ctx, generator, &indices, None) };
+                let a_ik = unsafe { lhs.data().get_unchecked(ctx, &indices, None) };
 
                 unsafe {
                     indices.set_unchecked(
                         ctx,
-                        generator,
                         &llvm_usize.const_int(at_row as u64, true),
                         k.into(),
                     );
-                    indices.set_unchecked(
-                        ctx,
-                        generator,
-                        &llvm_usize.const_int(at_col as u64, true),
-                        j,
-                    );
+                    indices.set_unchecked(ctx, &llvm_usize.const_int(at_col as u64, true), j);
                 }
-                let b_kj = unsafe { rhs.data().get_unchecked(ctx, generator, &indices, None) };
+                let b_kj = unsafe { rhs.data().get_unchecked(ctx, &indices, None) };
 
                 // Restore `indices`.
                 unsafe {
-                    indices.set_unchecked(
-                        ctx,
-                        generator,
-                        &llvm_usize.const_int(at_row as u64, true),
-                        i,
-                    );
-                    indices.set_unchecked(
-                        ctx,
-                        generator,
-                        &llvm_usize.const_int(at_col as u64, true),
-                        j,
-                    );
+                    indices.set_unchecked(ctx, &llvm_usize.const_int(at_row as u64, true), i);
+                    indices.set_unchecked(ctx, &llvm_usize.const_int(at_col as u64, true), j);
                 }
 
                 // x = a_[...]ik * b_[...]kj
-                let x = gen_binop_expr_with_values(
-                    generator,
+                let x = gen_prim_binop_expr(
                     ctx,
                     (&Some(lhs_dtype), a_ik),
                     Binop::normal(Operator::Mult),
                     (&Some(rhs_dtype), b_kj),
-                    ctx.current_loc,
-                )?;
+                )?
+                .expect("matmul: ndarray should contain primtives only");
 
                 // dst_[...]ij += x
                 let dst_ij = ctx.builder.build_load(pdst_ij, "").unwrap();
-                let dst_ij = gen_binop_expr_with_values(
-                    generator,
+                let dst_ij = gen_prim_binop_expr(
                     ctx,
                     (&Some(dst_dtype), dst_ij),
                     Binop::normal(Operator::Add),
                     (&Some(dst_dtype), x),
-                    ctx.current_loc,
-                )?;
+                )?
+                .expect("matmul: ndarray should contain primtives only");
                 ctx.builder.build_store(pdst_ij, dst_ij).unwrap();
 
                 Ok(())
@@ -245,9 +204,8 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///
     /// `dst_dtype` defines the dtype of the returned ndarray.
     #[must_use]
-    pub fn matmul<G: CodeGenerator>(
+    pub fn matmul(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         self_ty: Type,
         (other_ty, other): (Type, Self),
@@ -269,22 +227,21 @@ impl<'ctx> NDArrayValue<'ctx> {
 
         let new_a = if self.ndims == 1 {
             // Prepend 1 to its dimensions
-            self.index(generator, ctx, &[RustNDIndex::NewAxis, RustNDIndex::Ellipsis])
+            self.index(ctx, &[RustNDIndex::NewAxis, RustNDIndex::Ellipsis])
         } else {
             *self
         };
 
         let new_b = if other.ndims == 1 {
             // Append 1 to its dimensions
-            other.index(generator, ctx, &[RustNDIndex::Ellipsis, RustNDIndex::NewAxis])
+            other.index(ctx, &[RustNDIndex::Ellipsis, RustNDIndex::NewAxis])
         } else {
             other
         };
 
         // NOTE: `result` will always be a newly allocated ndarray.
         // Current implementation cannot do in-place matrix muliplication.
-        let mut result =
-            matmul_at_least_2d(generator, ctx, out_dtype, (self_ty, new_a), (other_ty, new_b));
+        let mut result = matmul_at_least_2d(ctx, out_dtype, (self_ty, new_a), (other_ty, new_b));
 
         // Postprocessing on the result to remove prepended/appended axes.
         let mut postindices = vec![];
@@ -302,14 +259,14 @@ impl<'ctx> NDArrayValue<'ctx> {
         }
 
         if !postindices.is_empty() {
-            result = result.index(generator, ctx, &postindices);
+            result = result.index(ctx, &postindices);
         }
 
         match out {
             NDArrayOut::NewNDArray { .. } => result,
             NDArrayOut::WriteToNDArray { ndarray: out_ndarray } => {
                 let result_shape = result.shape();
-                out_ndarray.assert_can_be_written_by_out(generator, ctx, result_shape);
+                out_ndarray.assert_can_be_written_by_out(ctx, result_shape);
 
                 out_ndarray.copy_data_from(ctx, result);
                 out_ndarray

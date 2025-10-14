@@ -9,7 +9,8 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator, ModuleContext, irrt,
+    CodeGenContext, ModuleContext, irrt,
+    stmt::gen_array_var,
     types::{
         ProxyType,
         structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
@@ -116,16 +117,15 @@ impl<'ctx> NDIterType<'ctx> {
     ///
     /// See [`ProxyType::raw_alloca_var`].
     #[must_use]
-    pub fn alloca_var<G: CodeGenerator + ?Sized>(
+    pub fn alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         parent: NDArrayValue<'ctx>,
         indices: ArraySliceValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(generator, ctx, name),
+            self.raw_alloca_var(ctx, name),
             parent,
             indices,
             self.llvm_usize,
@@ -135,33 +135,29 @@ impl<'ctx> NDIterType<'ctx> {
 
     /// Allocate an [`NDIter`] that iterates through the given `ndarray`.
     #[must_use]
-    pub fn construct<G: CodeGenerator + ?Sized>(
+    pub fn construct(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         ndarray: NDArrayValue<'ctx>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        let nditer = self.raw_alloca_var(generator, ctx, None);
+        let nditer = self.raw_alloca_var(ctx, None);
         let ndims = self.llvm_usize.const_int(ndarray.get_type().ndims(), false);
 
         // The caller has the responsibility to allocate 'indices' for `NDIter`.
+        let indices = gen_array_var(ctx, self.llvm_usize, ndims, None).unwrap();
         let indices =
-            generator.gen_array_var_alloc(ctx, self.llvm_usize.into(), ndims, None).unwrap();
-        let indices =
-            TypedArrayLikeAdapter::from(indices, |_, _, v| v.into_int_value(), |_, _, v| v.into());
+            TypedArrayLikeAdapter::from(indices, |_, v| v.into_int_value(), |_, v| v.into());
 
-        let nditer =
-            self.map_pointer_value(nditer, ndarray, indices.as_slice_value(ctx, generator), None);
+        let nditer = self.map_pointer_value(nditer, ndarray, indices.as_slice_value(ctx), None);
 
-        irrt::ndarray::call_nac3_nditer_initialize(generator, ctx, nditer, ndarray, &indices);
+        irrt::ndarray::call_nac3_nditer_initialize(ctx, nditer, ndarray, &indices);
 
         nditer
     }
 
     #[must_use]
-    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
+    pub fn map_struct_value(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: StructValue<'ctx>,
         parent: NDArrayValue<'ctx>,
@@ -169,7 +165,6 @@ impl<'ctx> NDIterType<'ctx> {
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_struct_value(
-            generator,
             ctx,
             value,
             parent,

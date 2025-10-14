@@ -6,7 +6,7 @@ use inkwell::{
 
 use super::calculate_len_for_slice_range;
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
     expr::call_extern,
     macros::codegen_unreachable,
     stmt::gen_if_callback,
@@ -16,8 +16,7 @@ use crate::codegen::{
 /// This function handles 'end' **inclusively**.
 /// Order of tuples `assign_idx` and `value_idx` is ('start', 'end', 'step').
 /// Negative index should be handled before entering this function
-pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn list_slice_assignment<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ty: BasicTypeEnum<'ctx>,
     dest_arr: ListValue<'ctx>,
@@ -40,13 +39,13 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
 
     let zero = llvm_i32.const_zero();
     let one = llvm_i32.const_int(1, false);
-    let dest_arr_ptr = dest_arr.data().base_ptr(ctx, generator);
+    let dest_arr_ptr = dest_arr.data().base_ptr(ctx);
     let dest_arr_ptr =
         ctx.builder.build_pointer_cast(dest_arr_ptr, elem_ptr_type, "dest_arr_ptr_cast").unwrap();
     let dest_len = dest_arr.load_size(ctx, Some("dest.len"));
     let dest_len =
         ctx.builder.build_int_truncate_or_bit_cast(dest_len, llvm_i32, "srclen32").unwrap();
-    let src_arr_ptr = src_arr.data().base_ptr(ctx, generator);
+    let src_arr_ptr = src_arr.data().base_ptr(ctx);
     let src_arr_ptr =
         ctx.builder.build_pointer_cast(src_arr_ptr, elem_ptr_type, "src_arr_ptr_cast").unwrap();
     let src_len = src_arr.load_size(ctx, Some("src.len"));
@@ -76,10 +75,8 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
         )
         .map(BasicValueEnum::into_int_value)
         .unwrap();
-    let src_slice_len =
-        calculate_len_for_slice_range(generator, ctx, src_idx.0, src_end, src_idx.2);
-    let dest_slice_len =
-        calculate_len_for_slice_range(generator, ctx, dest_idx.0, dest_end, dest_idx.2);
+    let src_slice_len = calculate_len_for_slice_range(ctx, src_idx.0, src_end, src_idx.2);
+    let dest_slice_len = calculate_len_for_slice_range(ctx, dest_idx.0, dest_end, dest_idx.2);
     let src_eq_dest = ctx
         .builder
         .build_int_compare(IntPredicate::EQ, src_slice_len, dest_slice_len, "slice_src_eq_dest")
@@ -100,7 +97,6 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
     let cond_1 = ctx.builder.build_and(dest_step_eq_one, src_slt_dest, "slice_cond_1").unwrap();
     let cond = ctx.builder.build_or(src_eq_dest, cond_1, "slice_cond").unwrap();
     ctx.make_assert(
-        generator,
         cond,
         "0:ValueError",
         "attempt to assign sequence of size {0} to slice of size {1} with step size {2}",
@@ -133,21 +129,21 @@ pub fn list_slice_assignment<'ctx, G: CodeGenerator + ?Sized>(
 
     // update length
     gen_if_callback(
-        generator,
+        &mut (),
         ctx,
-        |_, ctx| {
+        |(), ctx| {
             Ok(ctx
                 .builder
                 .build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update")
                 .unwrap())
         },
-        |_, ctx| {
+        |(), ctx| {
             let new_len =
                 ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len").unwrap();
             dest_arr.store_size(ctx, new_len);
             Ok(())
         },
-        |_, _| Ok(()),
+        |(), _| Ok(()),
     )
     .unwrap();
 }

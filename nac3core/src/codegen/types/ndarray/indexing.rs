@@ -9,7 +9,7 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator, ModuleContext,
+    CodeGenContext, ModuleContext,
     types::{
         ProxyType,
         structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
@@ -90,14 +90,13 @@ impl<'ctx> NDIndexType<'ctx> {
     ///
     /// See [`ProxyType::raw_alloca_var`].
     #[must_use]
-    pub fn alloca_var<G: CodeGenerator + ?Sized>(
+    pub fn alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(generator, ctx, name),
+            self.raw_alloca_var(ctx, name),
             self.llvm_usize,
             name,
         )
@@ -105,29 +104,26 @@ impl<'ctx> NDIndexType<'ctx> {
 
     /// Serialize a list of [`RustNDIndex`] as a newly allocated LLVM array of [`NDIndexValue`].
     #[must_use]
-    pub fn construct_ndindices<G: CodeGenerator + ?Sized>(
+    pub fn construct_ndindices(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         in_ndindices: &[RustNDIndex<'ctx>],
     ) -> ArraySliceValue<'ctx> {
         // Allocate the LLVM ndindices.
         let num_ndindices = self.llvm_usize.const_int(in_ndindices.len() as u64, false);
-        let ndindices = self.array_alloca_var(generator, ctx, num_ndindices, None);
+        let ndindices = self.array_alloca_var(ctx, num_ndindices, None);
 
         // Initialize all of them.
         for (i, in_ndindex) in in_ndindices.iter().enumerate() {
             let pndindex = unsafe {
                 ndindices.ptr_offset_unchecked(
                     ctx,
-                    generator,
                     &ctx.i64.const_int(u64::try_from(i).unwrap(), false),
                     None,
                 )
             };
 
             in_ndindex.write_to_ndindex(
-                generator,
                 ctx,
                 NDIndexValue::from_pointer_value(pndindex, self.llvm_usize, None),
             );
@@ -137,20 +133,13 @@ impl<'ctx> NDIndexType<'ctx> {
     }
 
     #[must_use]
-    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
+    pub fn map_struct_value(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: StructValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_struct_value(
-            generator,
-            ctx,
-            value,
-            self.llvm_usize,
-            name,
-        )
+        <Self as ProxyType<'ctx>>::Value::from_struct_value(ctx, value, self.llvm_usize, name)
     }
 
     #[must_use]

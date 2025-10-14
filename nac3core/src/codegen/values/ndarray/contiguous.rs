@@ -6,8 +6,8 @@ use inkwell::{
 
 use super::NDArrayValue;
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
-    stmt::gen_if_callback,
+    CodeGenContext,
+    stmt::{gen_if_callback, gen_var},
     types::{
         ndarray::{ContiguousNDArrayType, NDArrayType},
         structure::{StructField, StructProxyType},
@@ -26,21 +26,16 @@ pub struct ContiguousNDArrayValue<'ctx> {
 impl<'ctx> ContiguousNDArrayValue<'ctx> {
     /// Creates an [`ContiguousNDArrayValue`] from a [`StructValue`].
     #[must_use]
-    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_struct_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         val: StructValue<'ctx>,
         dtype: BasicTypeEnum<'ctx>,
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        let pval = generator
-            .gen_var_alloc(
-                ctx,
-                val.get_type().into(),
-                name.map(|name| format!("{name}.addr")).as_deref(),
-            )
-            .unwrap();
+        let pval =
+            gen_var(ctx, val.get_type().into(), name.map(|name| format!("{name}.addr")).as_deref())
+                .unwrap();
         ctx.builder.build_store(pval, val).unwrap();
         Self::from_pointer_value(pval, dtype, llvm_usize, name)
     }
@@ -132,26 +127,24 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///
     /// If this ndarray is C-contiguous, contents of this ndarray will not be copied. The created
     /// [`ContiguousNDArrayValue`] will share memory with this ndarray.
-    pub fn make_contiguous_ndarray<G: CodeGenerator + ?Sized>(
+    pub fn make_contiguous_ndarray(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> ContiguousNDArrayValue<'ctx> {
-        let result =
-            ContiguousNDArrayType::new(ctx, &self.dtype).alloca_var(generator, ctx, self.name);
+        let result = ContiguousNDArrayType::new(ctx, &self.dtype).alloca_var(ctx, self.name);
 
         // Set ndims and shape.
         let ndims = self.llvm_usize.const_int(self.ndims, false);
         result.store_ndims(ctx, ndims);
 
         let shape = self.shape();
-        result.store_shape(ctx, shape.base_ptr(ctx, generator));
+        result.store_shape(ctx, shape.base_ptr(ctx));
 
         gen_if_callback(
-            generator,
+            &mut (),
             ctx,
-            |_, ctx| Ok(self.is_c_contiguous(ctx)),
-            |_, ctx| {
+            |(), ctx| Ok(self.is_c_contiguous(ctx)),
+            |(), ctx| {
                 // This ndarray is contiguous.
                 let data = self.data_field().load(ctx, self.as_abi_value(ctx), self.name);
                 let data = ctx
@@ -162,11 +155,11 @@ impl<'ctx> NDArrayValue<'ctx> {
 
                 Ok(())
             },
-            |generator, ctx| {
+            |(), ctx| {
                 // This ndarray is not contiguous. Do a full-copy on `data`. `make_copy` produces an
                 // ndarray with contiguous `data`.
-                let copied_ndarray = self.make_copy(generator, ctx);
-                let data = copied_ndarray.data().base_ptr(ctx, generator);
+                let copied_ndarray = self.make_copy(ctx);
+                let data = copied_ndarray.data().base_ptr(ctx);
                 let data = ctx
                     .builder
                     .build_pointer_cast(data, result.item.ptr_type(AddressSpace::default()), "")
@@ -189,8 +182,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// `ndims` has to be provided as [`NDArrayValue`] requires a statically known `ndims` value,
     /// despite the fact that the information should be contained within the
     /// [`ContiguousNDArrayValue`].
-    pub fn from_contiguous_ndarray<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_contiguous_ndarray(
         ctx: &mut CodeGenContext<'ctx, '_>,
         carray: ContiguousNDArrayValue<'ctx>,
         ndims: u64,
@@ -198,15 +190,12 @@ impl<'ctx> NDArrayValue<'ctx> {
         // TODO: Debug assert `ndims == carray.ndims` to catch bugs.
 
         // Allocate the resulting ndarray.
-        let ndarray = NDArrayType::new(ctx, carray.item, ndims).construct_uninitialized(
-            generator,
-            ctx,
-            carray.name,
-        );
+        let ndarray =
+            NDArrayType::new(ctx, carray.item, ndims).construct_uninitialized(ctx, carray.name);
 
         // Copy shape and update strides
         let shape = carray.load_shape(ctx);
-        ndarray.copy_shape_from_array(generator, ctx, shape);
+        ndarray.copy_shape_from_array(ctx, shape);
         ndarray.set_strides_contiguous(ctx);
 
         // Share data

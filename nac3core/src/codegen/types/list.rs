@@ -11,7 +11,7 @@ use nac3core_derive::StructFields;
 use super::ProxyType;
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator, ModuleContext,
+        CodeGenContext, ModuleContext,
         types::structure::{
             FieldIndexCounter, StructField, StructFields, StructProxyType,
             check_struct_type_matches_fields,
@@ -190,14 +190,13 @@ impl<'ctx> ListType<'ctx> {
     ///
     /// See [`ProxyType::raw_alloca_var`].
     #[must_use]
-    pub fn alloca_var<G: CodeGenerator + ?Sized>(
+    pub fn alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(generator, ctx, name),
+            self.raw_alloca_var(ctx, name),
             self.llvm_usize,
             name,
         )
@@ -210,9 +209,8 @@ impl<'ctx> ListType<'ctx> {
     /// - `data`: Allocated with `len` number of elements.
     /// - `len`: Initialized to the value of `len` passed to this function.
     #[must_use]
-    pub fn construct<G: CodeGenerator + ?Sized>(
+    pub fn construct(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         len: IntValue<'ctx>,
         name: Option<&'ctx str>,
@@ -227,7 +225,6 @@ impl<'ctx> ListType<'ctx> {
                 .unwrap();
 
             ctx.make_assert(
-                generator,
                 len_eqz,
                 "0:AssertionError",
                 "Cannot allocate a non-empty list with unknown element type",
@@ -236,7 +233,7 @@ impl<'ctx> ListType<'ctx> {
             );
         }
 
-        let plist = self.alloca_var(generator, ctx, name);
+        let plist = self.alloca_var(ctx, name);
         plist.store_size(ctx, len);
 
         let item = self.item.unwrap_or(self.llvm_usize.into());
@@ -256,13 +253,12 @@ impl<'ctx> ListType<'ctx> {
     /// - `data`: Initialized to `(T*) 0`.
     /// - `len`: Initialized to `0`.
     #[must_use]
-    pub fn construct_empty<G: CodeGenerator + ?Sized>(
+    pub fn construct_empty(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        let plist = self.alloca_var(generator, ctx, name);
+        let plist = self.alloca_var(ctx, name);
 
         plist.store_size(ctx, self.llvm_usize.const_zero());
         plist.create_data(ctx, self.item.unwrap_or(self.llvm_usize.into()), None);
@@ -272,20 +268,13 @@ impl<'ctx> ListType<'ctx> {
 
     /// Converts an existing value into a [`ListValue`].
     #[must_use]
-    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
+    pub fn map_struct_value(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: StructValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_struct_value(
-            generator,
-            ctx,
-            value,
-            self.llvm_usize,
-            name,
-        )
+        <Self as ProxyType<'ctx>>::Value::from_struct_value(ctx, value, self.llvm_usize, name)
     }
 
     /// Converts an existing value into a [`ListValue`].

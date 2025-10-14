@@ -2,8 +2,8 @@ use inkwell::values::{BasicValueEnum, IntValue};
 
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator,
-        stmt::gen_for_callback_incrementing,
+        CodeGenContext,
+        stmt::{gen_array_var, gen_for_callback_incrementing},
         types::{ListType, TupleType},
         values::{
             ArraySliceValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
@@ -25,11 +25,10 @@ use crate::{
 ///      `np.empty([3])`
 ///
 /// All `int32` values will be sign-extended to `SizeT`.
-pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn parse_numpy_int_sequence<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (input_seq_ty, input_seq): (Type, BasicValueEnum<'ctx>),
-) -> impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>> + use<'ctx, G> {
+) -> impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> + use<'ctx> {
     let llvm_usize = ctx.size_t;
     let zero = llvm_usize.const_zero();
     let one = llvm_usize.const_int(1, false);
@@ -49,29 +48,28 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
             let result = ctx.builder.build_array_alloca(llvm_usize, len, "").unwrap();
             let result = TypedArrayLikeAdapter::from(
                 ArraySliceValue::from_ptr_val(result, len, None),
-                |_, _, val| val.into_int_value(),
-                |_, _, val| val.into(),
+                |_, val| val.into_int_value(),
+                |_, val| val.into(),
             );
 
             // Load all the `int32`s from the input_sequence, cast them to `SizeT`, and store them into `result`
             gen_for_callback_incrementing(
-                generator,
+                &mut (),
                 ctx,
                 None,
                 zero,
                 (len, false),
-                |generator, ctx, _, i| {
+                |(), ctx, _, i| {
                     // Load the i-th int32 in the input sequence
-                    let int = unsafe {
-                        input_seq.data().get_unchecked(ctx, generator, &i, None).into_int_value()
-                    };
+                    let int =
+                        unsafe { input_seq.data().get_unchecked(ctx, &i, None).into_int_value() };
 
                     // Cast to SizeT
                     let int =
                         ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "").unwrap();
 
                     // Store
-                    unsafe { result.set_typed_unchecked(ctx, generator, &i, int) };
+                    unsafe { result.set_typed_unchecked(ctx, &i, int) };
 
                     Ok(())
                 },
@@ -90,18 +88,13 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
 
             let len = input_seq.get_type().num_elements();
 
-            let result = generator
-                .gen_array_var_alloc(
-                    ctx,
-                    llvm_usize.into(),
-                    llvm_usize.const_int(u64::from(len), false),
-                    None,
-                )
-                .unwrap();
+            let result =
+                gen_array_var(ctx, llvm_usize, llvm_usize.const_int(u64::from(len), false), None)
+                    .unwrap();
             let result = TypedArrayLikeAdapter::from(
                 result,
-                |_, _, val| val.into_int_value(),
-                |_, _, val| val.into(),
+                |_, val| val.into_int_value(),
+                |_, val| val.into(),
             );
 
             for i in 0..input_seq.get_type().num_elements() {
@@ -112,7 +105,6 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
                 unsafe {
                     result.set_typed_unchecked(
                         ctx,
-                        generator,
                         &llvm_usize.const_int(u64::from(i), false),
                         int,
                     );
@@ -130,18 +122,18 @@ pub fn parse_numpy_int_sequence<'ctx, G: CodeGenerator + ?Sized>(
             let input_int = input_seq.into_int_value();
 
             let len = one;
-            let result = generator.gen_array_var_alloc(ctx, llvm_usize.into(), len, None).unwrap();
+            let result = gen_array_var(ctx, llvm_usize, len, None).unwrap();
             let result = TypedArrayLikeAdapter::from(
                 result,
-                |_, _, val| val.into_int_value(),
-                |_, _, val| val.into(),
+                |_, val| val.into_int_value(),
+                |_, val| val.into(),
             );
             let int =
                 ctx.builder.build_int_s_extend_or_bit_cast(input_int, llvm_usize, "").unwrap();
 
             // Storing into result[0]
             unsafe {
-                result.set_typed_unchecked(ctx, generator, &zero, int);
+                result.set_typed_unchecked(ctx, &zero, int);
             }
 
             result

@@ -10,7 +10,7 @@ use nac3core_derive::StructFields;
 
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator, ModuleContext,
+        CodeGenContext, ModuleContext,
         types::{
             ProxyType,
             structure::{
@@ -99,10 +99,7 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
 
     /// Creates an [`ContiguousNDArrayType`] from a [unifier type][Type].
     #[must_use]
-    pub fn from_unifier_type<G: CodeGenerator + ?Sized>(
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ty: Type,
-    ) -> Self {
+    pub fn from_unifier_type(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> Self {
         let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
         let llvm_dtype = ctx.get_llvm_type(dtype);
@@ -155,14 +152,13 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
     ///
     /// See [`ProxyType::raw_alloca_var`].
     #[must_use]
-    pub fn alloca_var<G: CodeGenerator + ?Sized>(
+    pub fn alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(generator, ctx, name),
+            self.raw_alloca_var(ctx, name),
             self.item,
             self.llvm_usize,
             name,
@@ -171,15 +167,13 @@ impl<'ctx> ContiguousNDArrayType<'ctx> {
 
     /// Converts an existing value into a [`ContiguousNDArrayValue`].
     #[must_use]
-    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
+    pub fn map_struct_value(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: StructValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_struct_value(
-            generator,
             ctx,
             value,
             self.item,

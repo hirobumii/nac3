@@ -8,6 +8,7 @@ use nac3parser::ast::Expr;
 use crate::{
     codegen::{
         CodeGenContext, CodeGenerator,
+        stmt::gen_var,
         types::{
             structure::{StructField, StructProxyType},
             utils::SliceType,
@@ -29,21 +30,16 @@ pub struct SliceValue<'ctx> {
 impl<'ctx> SliceValue<'ctx> {
     /// Creates an [`SliceValue`] from a [`StructValue`].
     #[must_use]
-    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_struct_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         val: StructValue<'ctx>,
         int_ty: IntType<'ctx>,
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        let pval = generator
-            .gen_var_alloc(
-                ctx,
-                val.get_type().into(),
-                name.map(|name| format!("{name}.addr")).as_deref(),
-            )
-            .unwrap();
+        let pval =
+            gen_var(ctx, val.get_type().into(), name.map(|name| format!("{name}.addr")).as_deref())
+                .unwrap();
         ctx.builder.build_store(pval, val).unwrap();
         Self::from_pointer_value(pval, int_ty, llvm_usize, name)
     }
@@ -214,8 +210,7 @@ impl<'ctx> RustSlice<'ctx> {
             Ok(match value_expr {
                 None => None,
                 Some(value_expr) => {
-                    let value =
-                        generator.gen_expr(ctx, value_expr)?.to_basic_value_enum(ctx, generator)?;
+                    let value = generator.gen_expr(ctx, value_expr)?.to_basic_value_enum(ctx)?;
 
                     Some(value.into_int_value())
                 }

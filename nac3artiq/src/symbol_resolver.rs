@@ -17,7 +17,7 @@ use pyo3::{
 
 use nac3core::{
     codegen::{
-        CodeGenContext, CodeGenerator,
+        CodeGenContext,
         types::{ProxyType, ndarray::NDArrayType, structure::StructProxyType},
         values::ndarray::make_contiguous_strides,
     },
@@ -130,11 +130,7 @@ impl StaticValue for PythonValue {
         self.id
     }
 
-    fn get_const_obj<'ctx>(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        _: &mut dyn CodeGenerator,
-    ) -> BasicValueEnum<'ctx> {
+    fn get_const_obj<'ctx>(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
         ctx.module.get_global(format!("{}_const", self.id).as_str()).map_or_else(
             || {
                 Python::attach(|py| -> PyResult<BasicValueEnum<'ctx>> {
@@ -163,7 +159,6 @@ impl StaticValue for PythonValue {
     fn to_basic_value_enum<'ctx, 'a>(
         &self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
-        generator: &mut dyn CodeGenerator,
         expected_ty: Type,
     ) -> Result<BasicValueEnum<'ctx>, String> {
         if let Some(val) = self.resolver.id_to_primitive.read().get(&self.id) {
@@ -174,7 +169,7 @@ impl StaticValue for PythonValue {
                 PrimitiveValue::U64(val) => ctx.i64.const_int(*val, false).into(),
                 PrimitiveValue::F64(val) => ctx.f64.const_float(*val).into(),
                 PrimitiveValue::Bool(val) => ctx.i8.const_int(u64::from(*val), false).into(),
-                PrimitiveValue::Str(val) => ctx.gen_string(generator, val).into(),
+                PrimitiveValue::Str(val) => ctx.gen_string(val).into(),
             });
         }
         if let Some(global) = ctx.module.get_global(&self.id.to_string()) {
@@ -183,7 +178,7 @@ impl StaticValue for PythonValue {
 
         Python::attach(|py| -> PyResult<BasicValueEnum<'ctx>> {
             self.resolver
-                .get_obj_value(py, (*self.value).bind(py), ctx, generator, expected_ty)
+                .get_obj_value(py, (*self.value).bind(py), ctx, expected_ty)
                 .map(Option::unwrap)
         })
         .map_err(|e| e.to_string())
@@ -1035,7 +1030,6 @@ impl InnerResolver {
         py: Python<'py>,
         obj: &Bound<'py, PyAny>,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
         expected_ty: Type,
     ) -> PyResult<Option<BasicValueEnum<'ctx>>> {
         let ty_id = py_interp::extract_id(py_interp::call_type(obj)?.as_any())?;
@@ -1069,7 +1063,7 @@ impl InnerResolver {
         {
             let val: String = obj.extract().unwrap();
             self.id_to_primitive.write().insert(id, PrimitiveValue::Str(val.clone()));
-            Ok(Some(ctx.gen_string(generator, val).into()))
+            Ok(Some(ctx.gen_string(val).into()))
         } else if ty_id == self.primitive_ids.builtins.float
             || ty_id == self.primitive_ids.numpy.float64
         {
@@ -1116,7 +1110,7 @@ impl InnerResolver {
             let arr: Result<Option<Vec<_>>, _> = (0..len)
                 .map(|i| {
                     obj.get_item(i).and_then(|elem| {
-                        self.get_obj_value(py, &elem, ctx, generator, elem_ty).map_err(|e| {
+                        self.get_obj_value(py, &elem, ctx, elem_ty).map_err(|e| {
                             super::CompileError::new_err(format!("Error getting element {i}: {e}"))
                         })
                     })
@@ -1209,7 +1203,7 @@ impl InnerResolver {
                 .enumerate()
                 .map(|(i, elem)| {
                     let value = self
-                        .get_obj_value(py, &elem, ctx, generator, ctx.primitives.usize())
+                        .get_obj_value(py, &elem, ctx, ctx.primitives.usize())
                         .map_err(|e| {
                             super::CompileError::new_err(format!("Error getting element {i}: {e}"))
                         })?
@@ -1246,7 +1240,7 @@ impl InnerResolver {
                 .map(|i| {
                     obj.getattr("flat")?.get_item(i).and_then(|elem| {
                         let value = self
-                            .get_obj_value(py, &elem, ctx, generator, ndarray_dtype)
+                            .get_obj_value(py, &elem, ctx, ndarray_dtype)
                             .map_err(|e| {
                                 super::CompileError::new_err(format!(
                                     "Error getting element {i}: {e}"
@@ -1389,7 +1383,7 @@ impl InnerResolver {
                 .enumerate()
                 .zip(tup_tys)
                 .map(|((i, elem), ty)| {
-                    self.get_obj_value(py, &elem, ctx, generator, *ty).map_err(|e| {
+                    self.get_obj_value(py, &elem, ctx, *ty).map_err(|e| {
                         super::CompileError::new_err(format!("Error getting element {i}: {e}"))
                     })
                 })
@@ -1416,13 +1410,7 @@ impl InnerResolver {
                 ))
             } else {
                 match self
-                    .get_obj_value(
-                        py,
-                        &obj.getattr("_nac3_option").unwrap(),
-                        ctx,
-                        generator,
-                        option_val_ty,
-                    )
+                    .get_obj_value(py, &obj.getattr("_nac3_option").unwrap(), ctx, option_val_ty)
                     .map_err(|e| {
                         super::CompileError::new_err(format!(
                             "Error getting value of Option object: {e}"
@@ -1487,16 +1475,10 @@ impl InnerResolver {
             let values: Result<Option<Vec<_>>, _> = fields
                 .iter()
                 .map(|(name, ty, _)| {
-                    self.get_obj_value(
-                        py,
-                        &obj.getattr(name.to_string().as_str())?,
-                        ctx,
-                        generator,
-                        *ty,
-                    )
-                    .map_err(|e| {
-                        super::CompileError::new_err(format!("Error getting field {name}: {e}"))
-                    })
+                    self.get_obj_value(py, &obj.getattr(name.to_string().as_str())?, ctx, *ty)
+                        .map_err(|e| {
+                            super::CompileError::new_err(format!("Error getting field {name}: {e}"))
+                        })
                 })
                 .collect();
             let values = values?;
@@ -1641,7 +1623,6 @@ impl SymbolResolver for Resolver {
         &self,
         id: StrRef,
         _: &mut CodeGenContext<'ctx, '_>,
-        _: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
         let sym_value = {
             let id_to_val = self.0.id_to_pyval.read();

@@ -9,7 +9,7 @@ use itertools::Itertools;
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator, ModuleContext,
+    CodeGenContext, ModuleContext,
     types::{
         ProxyType,
         structure::{
@@ -138,14 +138,13 @@ impl<'ctx> SliceType<'ctx> {
     ///
     /// See [`ProxyType::raw_alloca_var`].
     #[must_use]
-    pub fn alloca_var<G: CodeGenerator + ?Sized>(
+    pub fn alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(generator, ctx, name),
+            self.raw_alloca_var(ctx, name),
             self.int_ty,
             self.llvm_usize,
             name,
@@ -154,15 +153,13 @@ impl<'ctx> SliceType<'ctx> {
 
     /// Converts an existing value into a [`SliceValue`].
     #[must_use]
-    pub fn map_struct_value<G: CodeGenerator + ?Sized>(
+    pub fn map_struct_value(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: StructValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> <Self as ProxyType<'ctx>>::Value {
         <Self as ProxyType<'ctx>>::Value::from_struct_value(
-            generator,
             ctx,
             value,
             self.int_ty,

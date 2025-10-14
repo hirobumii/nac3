@@ -1,7 +1,7 @@
 use inkwell::values::IntValue;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
     values::{ArrayLikeValue, ArraySliceValue},
@@ -11,8 +11,7 @@ use crate::codegen::{
 ///
 /// Resolves unknown dimensions in `new_shape` for `numpy.reshape(<ndarray>, new_shape)`, raising an
 /// assertion if multiple dimensions are unknown (`-1`).
-pub fn call_nac3_ndarray_reshape_resolve_and_check_new_shape<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &G,
+pub fn call_nac3_ndarray_reshape_resolve_and_check_new_shape<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     size: IntValue<'ctx>,
     new_ndims: IntValue<'ctx>,
@@ -22,11 +21,11 @@ pub fn call_nac3_ndarray_reshape_resolve_and_check_new_shape<'ctx, G: CodeGenera
 
     assert_eq!(size.get_type(), llvm_usize);
     assert_eq!(new_ndims.get_type(), llvm_usize);
-    assert_eq!(new_shape.element_type(ctx, generator), llvm_usize.into());
+    assert_eq!(new_shape.element_type(ctx), llvm_usize.into());
 
     let name = get_usize_dependent_function_name(
         ctx,
         "__nac3_ndarray_reshape_resolve_and_check_new_shape",
     );
-    call_extern!(ctx: void _ = name(size, new_ndims, new_shape.base_ptr(ctx, generator)));
+    call_extern!(ctx: void _ = name(size, new_ndims, new_shape.base_ptr(ctx)));
 }

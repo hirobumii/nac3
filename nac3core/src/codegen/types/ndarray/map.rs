@@ -2,7 +2,7 @@ use inkwell::{types::BasicTypeEnum, values::BasicValueEnum};
 use itertools::Itertools;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator,
+    CodeGenContext,
     stmt::gen_for_callback,
     types::{
         ProxyType,
@@ -24,37 +24,30 @@ impl<'ctx> NDArrayType<'ctx> {
     ///
     /// `out` specifies whether the result should be a new ndarray or to be written an existing
     /// ndarray.
-    pub fn broadcast_starmap<'a, G, MappingFn>(
+    pub fn broadcast_starmap<'a, MappingFn>(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, 'a>,
         ndarrays: &[NDArrayValue<'ctx>],
         out: NDArrayOut<'ctx>,
         mapping: MappingFn,
     ) -> Result<<Self as ProxyType<'ctx>>::Value, String>
     where
-        G: CodeGenerator + ?Sized,
         MappingFn: FnOnce(
-            &mut G,
             &mut CodeGenContext<'ctx, 'a>,
             &[BasicValueEnum<'ctx>],
         ) -> Result<BasicValueEnum<'ctx>, String>,
     {
         // Broadcast inputs
-        let broadcast_result = self.broadcast(generator, ctx, ndarrays);
+        let broadcast_result = self.broadcast(ctx, ndarrays);
 
         let out_ndarray = match out {
             NDArrayOut::NewNDArray { dtype } => {
                 // Create a new ndarray based on the broadcast shape.
                 let result_ndarray = NDArrayType::new(ctx, dtype, broadcast_result.ndims)
-                    .construct_uninitialized(generator, ctx, None);
-                result_ndarray.copy_shape_from_array(
-                    generator,
-                    ctx,
-                    broadcast_result.shape.base_ptr(ctx, generator),
-                );
+                    .construct_uninitialized(ctx, None);
+                result_ndarray.copy_shape_from_array(ctx, broadcast_result.shape.base_ptr(ctx));
                 unsafe {
-                    result_ndarray.create_data(generator, ctx);
+                    result_ndarray.create_data(ctx);
                 }
                 result_ndarray
             }
@@ -63,45 +56,45 @@ impl<'ctx> NDArrayType<'ctx> {
                 // Use an existing ndarray.
 
                 // Check that its shape is compatible with the broadcast shape.
-                result_ndarray.assert_can_be_written_by_out(generator, ctx, broadcast_result.shape);
+                result_ndarray.assert_can_be_written_by_out(ctx, broadcast_result.shape);
                 result_ndarray
             }
         };
 
         // Map element-wise and store results into `mapped_ndarray`.
-        let nditer = NDIterType::new(ctx).construct(generator, ctx, out_ndarray);
+        let nditer = NDIterType::new(ctx).construct(ctx, out_ndarray);
         gen_for_callback(
-            generator,
+            &mut (),
             ctx,
             Some("broadcast_starmap"),
-            |generator, ctx| {
+            |(), ctx| {
                 // Create NDIters for all broadcasted input ndarrays.
                 let other_nditers = broadcast_result
                     .ndarrays
                     .iter()
-                    .map(|ndarray| NDIterType::new(ctx).construct(generator, ctx, *ndarray))
+                    .map(|ndarray| NDIterType::new(ctx).construct(ctx, *ndarray))
                     .collect_vec();
                 Ok((nditer, other_nditers))
             },
-            |_, ctx, (out_nditer, _in_nditers)| {
+            |(), ctx, (out_nditer, _in_nditers)| {
                 // We can simply use `out_nditer`'s `has_element()`.
                 // `in_nditers`' `has_element()`s should return the same value.
                 Ok(out_nditer.has_element(ctx))
             },
-            |generator, ctx, _hooks, (out_nditer, in_nditers)| {
+            |(), ctx, _hooks, (out_nditer, in_nditers)| {
                 // Get all the scalars from the broadcasted input ndarrays, pass them to `mapping`,
                 // and write to `out_ndarray`.
                 let in_scalars =
                     in_nditers.iter().map(|nditer| nditer.get_scalar(ctx)).collect_vec();
 
-                let result = mapping(generator, ctx, &in_scalars)?;
+                let result = mapping(ctx, &in_scalars)?;
 
                 let p = out_nditer.get_pointer(ctx);
                 ctx.builder.build_store(p, result).unwrap();
 
                 Ok(())
             },
-            |_, ctx, (out_nditer, in_nditers)| {
+            |(), ctx, (out_nditer, in_nditers)| {
                 // Advance all iterators
                 out_nditer.next(ctx);
                 for nditer in &in_nditers {
@@ -140,17 +133,14 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
     /// Otherwise (if there are any [`ScalarOrNDArray::NDArray`] in `inputs`), all inputs will be
     /// 'as-ndarray'-ed into ndarrays, then all inputs (now all ndarrays) will be passed to
     /// [`NDArrayValue::broadcasting_starmap`] and **create** a new ndarray with dtype `ret_dtype`.
-    pub fn broadcasting_starmap<'a, G, MappingFn>(
-        generator: &mut G,
+    pub fn broadcasting_starmap<'a, MappingFn>(
         ctx: &mut CodeGenContext<'ctx, 'a>,
         inputs: &[ScalarOrNDArray<'ctx>],
         ret_dtype: BasicTypeEnum<'ctx>,
         mapping: MappingFn,
     ) -> Result<ScalarOrNDArray<'ctx>, String>
     where
-        G: CodeGenerator + ?Sized,
         MappingFn: FnOnce(
-            &mut G,
             &mut CodeGenContext<'ctx, 'a>,
             &[BasicValueEnum<'ctx>],
         ) -> Result<BasicValueEnum<'ctx>, String>,
@@ -161,19 +151,18 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
 
         if let Some(scalars) = all_scalars {
             let scalars = scalars.iter().copied().collect_vec();
-            let value = mapping(generator, ctx, &scalars)?;
+            let value = mapping(ctx, &scalars)?;
 
             Ok(ScalarOrNDArray::Scalar(value))
         } else {
             // Promote all input to ndarrays and map through them.
-            let inputs = inputs.iter().map(|input| input.to_ndarray(generator, ctx)).collect_vec();
+            let inputs = inputs.iter().map(|input| input.to_ndarray(ctx)).collect_vec();
             let ndarray = NDArrayType::new_broadcast(
                 ctx,
                 ret_dtype,
                 &inputs.iter().map(NDArrayValue::get_type).collect_vec(),
             )
             .broadcast_starmap(
-                generator,
                 ctx,
                 &inputs,
                 NDArrayOut::NewNDArray { dtype: ret_dtype },

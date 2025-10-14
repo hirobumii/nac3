@@ -5,7 +5,7 @@ use inkwell::{
 
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator, irrt,
+        CodeGenContext, irrt,
         stmt::gen_if_else_expr_callback,
         types::{ListType, ProxyType, ndarray::NDArrayType},
         values::{
@@ -30,9 +30,8 @@ fn get_list_object_dtype_and_ndims<'ctx>(
 
 impl<'ctx> NDArrayType<'ctx> {
     /// Implementation of `np_array(<list>, copy=True)`
-    fn construct_numpy_array_from_list_copy_true_impl<G: CodeGenerator + ?Sized>(
+    fn construct_numpy_array_from_list_copy_true_impl(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         (list_ty, list): (Type, ListValue<'ctx>),
         name: Option<&'ctx str>,
@@ -49,19 +48,15 @@ impl<'ctx> NDArrayType<'ctx> {
         let ndims = self.llvm_usize.const_int(ndims_int, false);
         let shape = ctx.builder.build_array_alloca(self.llvm_usize, ndims, "").unwrap();
         let shape = ArraySliceValue::from_ptr_val(shape, ndims, None);
-        let shape = TypedArrayLikeAdapter::from(
-            shape,
-            |_, _, val| val.into_int_value(),
-            |_, _, val| val.into(),
-        );
+        let shape =
+            TypedArrayLikeAdapter::from(shape, |_, val| val.into_int_value(), |_, val| val.into());
         irrt::ndarray::call_nac3_ndarray_array_set_and_validate_list_shape(
-            generator, ctx, list_value, ndims, &shape,
+            ctx, list_value, ndims, &shape,
         );
 
-        let ndarray =
-            Self::new(ctx, dtype, ndims_int).construct_uninitialized(generator, ctx, name);
-        ndarray.copy_shape_from_array(generator, ctx, shape.base_ptr(ctx, generator));
-        unsafe { ndarray.create_data(generator, ctx) };
+        let ndarray = Self::new(ctx, dtype, ndims_int).construct_uninitialized(ctx, name);
+        ndarray.copy_shape_from_array(ctx, shape.base_ptr(ctx));
+        unsafe { ndarray.create_data(ctx) };
 
         // Copy all contents from the list.
         irrt::ndarray::call_nac3_ndarray_array_write_list_to_array(ctx, list_value, ndarray);
@@ -70,9 +65,8 @@ impl<'ctx> NDArrayType<'ctx> {
     }
 
     /// Implementation of `np_array(<list>, copy=None)`
-    fn construct_numpy_array_from_list_copy_none_impl<G: CodeGenerator + ?Sized>(
+    fn construct_numpy_array_from_list_copy_none_impl(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         (list_ty, list): (Type, ListValue<'ctx>),
         name: Option<&'ctx str>,
@@ -93,20 +87,18 @@ impl<'ctx> NDArrayType<'ctx> {
 
             let llvm_pi8 = ctx.ptr;
 
-            let ndarray = Self::new(ctx, dtype, 1).construct_uninitialized(generator, ctx, name);
+            let ndarray = Self::new(ctx, dtype, 1).construct_uninitialized(ctx, name);
 
             // Set data
-            let data = ctx
-                .builder
-                .build_pointer_cast(list.data().base_ptr(ctx, generator), llvm_pi8, "")
-                .unwrap();
+            let data =
+                ctx.builder.build_pointer_cast(list.data().base_ptr(ctx), llvm_pi8, "").unwrap();
             ndarray.store_data(ctx, data);
 
             // ndarray->shape[0] = list->len;
             let shape = ndarray.shape();
             let list_len = list.load_size(ctx, None);
             unsafe {
-                shape.set_typed_unchecked(ctx, generator, &self.llvm_usize.const_zero(), list_len);
+                shape.set_typed_unchecked(ctx, &self.llvm_usize.const_zero(), list_len);
             }
 
             // Set strides, the `data` is contiguous
@@ -115,19 +107,13 @@ impl<'ctx> NDArrayType<'ctx> {
             ndarray
         } else {
             // `list` is nested, copy
-            self.construct_numpy_array_from_list_copy_true_impl(
-                generator,
-                ctx,
-                (list_ty, list),
-                name,
-            )
+            self.construct_numpy_array_from_list_copy_true_impl(ctx, (list_ty, list), name)
         }
     }
 
     /// Implementation of `np_array(<list>, copy=copy)`
-    fn construct_numpy_array_list_impl<G: CodeGenerator + ?Sized>(
+    fn construct_numpy_array_list_impl(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         (list_ty, list): (Type, ListValue<'ctx>),
         copy: IntValue<'ctx>,
@@ -138,25 +124,17 @@ impl<'ctx> NDArrayType<'ctx> {
         let (dtype, ndims) = get_list_object_dtype_and_ndims(ctx, list_ty);
 
         let ndarray = gen_if_else_expr_callback(
-            generator,
+            &mut (),
             ctx,
-            |_generator, _ctx| Ok(copy),
-            |generator, ctx| {
-                let ndarray = self.construct_numpy_array_from_list_copy_true_impl(
-                    generator,
-                    ctx,
-                    (list_ty, list),
-                    name,
-                );
+            |(), _ctx| Ok(copy),
+            |(), ctx| {
+                let ndarray =
+                    self.construct_numpy_array_from_list_copy_true_impl(ctx, (list_ty, list), name);
                 Ok(Some(ndarray.as_abi_value(ctx)))
             },
-            |generator, ctx| {
-                let ndarray = self.construct_numpy_array_from_list_copy_none_impl(
-                    generator,
-                    ctx,
-                    (list_ty, list),
-                    name,
-                );
+            |(), ctx| {
+                let ndarray =
+                    self.construct_numpy_array_from_list_copy_none_impl(ctx, (list_ty, list), name);
                 Ok(Some(ndarray.as_abi_value(ctx)))
             },
         )
@@ -168,9 +146,8 @@ impl<'ctx> NDArrayType<'ctx> {
     }
 
     /// Implementation of `np_array(<ndarray>, copy=copy)`.
-    pub fn construct_numpy_array_ndarray_impl<G: CodeGenerator + ?Sized>(
+    pub fn construct_numpy_array_ndarray_impl(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         ndarray: NDArrayValue<'ctx>,
         copy: IntValue<'ctx>,
@@ -181,14 +158,14 @@ impl<'ctx> NDArrayType<'ctx> {
         assert_eq!(copy.get_type(), ctx.i1);
 
         let ndarray_val = gen_if_else_expr_callback(
-            generator,
+            &mut (),
             ctx,
-            |_generator, _ctx| Ok(copy),
-            |generator, ctx| {
-                let ndarray = ndarray.make_copy(generator, ctx); // Force copy
+            |(), _ctx| Ok(copy),
+            |(), ctx| {
+                let ndarray = ndarray.make_copy(ctx); // Force copy
                 Ok(Some(ndarray.as_abi_value(ctx)))
             },
-            |_generator, ctx| {
+            |(), ctx| {
                 // No need to copy. Return `ndarray` itself.
                 Ok(Some(ndarray.as_abi_value(ctx)))
             },
@@ -206,9 +183,8 @@ impl<'ctx> NDArrayType<'ctx> {
     /// Note that the returned [`NDArrayValue`] may have fewer dimensions than is specified by this
     /// instance. Use [`NDArrayValue::atleast_nd`] on the returned value if an `ndarray` instance
     /// with the exact number of dimensions is needed.
-    pub fn construct_numpy_array<G: CodeGenerator + ?Sized>(
+    pub fn construct_numpy_array(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         (object_ty, object): (Type, BasicValueEnum<'ctx>),
         copy: IntValue<'ctx>,
@@ -220,7 +196,7 @@ impl<'ctx> NDArrayType<'ctx> {
             {
                 let list = ListType::from_unifier_type(ctx, object_ty)
                     .map_pointer_value(object.into_pointer_value(), None);
-                self.construct_numpy_array_list_impl(generator, ctx, (object_ty, list), copy, name)
+                self.construct_numpy_array_list_impl(ctx, (object_ty, list), copy, name)
             }
 
             TypeEnum::TObj { obj_id, .. }
@@ -228,7 +204,7 @@ impl<'ctx> NDArrayType<'ctx> {
             {
                 let ndarray = NDArrayType::from_unifier_type(ctx, object_ty)
                     .map_pointer_value(object.into_pointer_value(), None);
-                self.construct_numpy_array_ndarray_impl(generator, ctx, ndarray, copy, name)
+                self.construct_numpy_array_ndarray_impl(ctx, ndarray, copy, name)
             }
 
             _ => panic!("Unrecognized object type: {}", ctx.unifier.stringify(object_ty)), // Typechecker ensures this

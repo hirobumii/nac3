@@ -3,16 +3,11 @@ use inkwell::{
     values::{FloatValue, IntValue},
 };
 
-use crate::codegen::{
-    expr::call_extern,
-    macros::codegen_unreachable,
-    {CodeGenContext, CodeGenerator},
-};
+use crate::codegen::{CodeGenContext, expr::call_extern, macros::codegen_unreachable};
 
 // repeated squaring method adapted from GNU Scientific Library:
 // https://git.savannah.gnu.org/cgit/gsl.git/tree/sys/pow_int.c
-pub fn integer_power<'ctx, G: CodeGenerator + ?Sized>(
-    generator: &mut G,
+pub fn integer_power<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     base: IntValue<'ctx>,
     exp: IntValue<'ctx>,
@@ -39,7 +34,6 @@ pub fn integer_power<'ctx, G: CodeGenerator + ?Sized>(
         )
         .unwrap();
     ctx.make_assert(
-        generator,
         ge_zero,
         "0:ValueError",
         "integer power must be positive or zero",

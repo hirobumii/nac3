@@ -22,8 +22,9 @@ use inkwell::{
 };
 
 use super::{
+    CodeGenContext,
+    stmt::{gen_array_var, gen_var},
     values::{ArraySliceValue, ProxyValue},
-    {CodeGenContext, CodeGenerator},
 };
 pub use exception::*;
 pub use list::*;
@@ -80,13 +81,12 @@ pub trait ProxyType<'ctx>: Into<Self::Base> {
 
     /// Creates a new value of this type by invoking `alloca` at the beginning of the function,
     /// returning a [`PointerValue`] instance representing the allocated value.
-    fn raw_alloca_var<G: CodeGenerator + ?Sized>(
+    fn raw_alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> PointerValue<'ctx> {
-        generator.gen_var_alloc(ctx, self.alloca_type().as_basic_type_enum(), name).unwrap()
+        gen_var(ctx, self.alloca_type().as_basic_type_enum(), name).unwrap()
     }
 
     /// Creates a new array value of this type by invoking `alloca` at the current builder location,
@@ -112,16 +112,13 @@ pub trait ProxyType<'ctx>: Into<Self::Base> {
 
     /// Creates a new array value of this type by invoking `alloca` at the beginning of the
     /// function, returning an [`ArraySliceValue`] encapsulating the resulting array.
-    fn array_alloca_var<G: CodeGenerator + ?Sized>(
+    fn array_alloca_var(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         size: IntValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> ArraySliceValue<'ctx> {
-        generator
-            .gen_array_var_alloc(ctx, self.alloca_type().as_basic_type_enum(), size, name)
-            .unwrap()
+        gen_array_var(ctx, self.alloca_type().as_basic_type_enum(), size, name).unwrap()
     }
 
     /// Returns the [base type][Self::Base] of this proxy.

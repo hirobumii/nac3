@@ -6,7 +6,7 @@ use std::{
 use parking_lot::{Mutex, RwLock};
 
 use nac3core::{
-    codegen::{CodeGenContext, CodeGenerator},
+    codegen::CodeGenContext,
     inkwell::{module::Linkage, values::BasicValue},
     nac3parser::ast::{self, StrRef},
     symbol_resolver::{SymbolResolver, SymbolValue, ValueEnum},
@@ -75,7 +75,6 @@ impl SymbolResolver for Resolver {
         &self,
         str: StrRef,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        generator: &mut dyn CodeGenerator,
     ) -> Option<ValueEnum<'ctx>> {
         self.0.module_globals.lock().get(&str).cloned().map(|v| {
             ctx.module
@@ -83,7 +82,7 @@ impl SymbolResolver for Resolver {
                 .unwrap_or_else(|| {
                     let ty = v.get_type(&ctx.primitives, &mut ctx.unifier);
 
-                    let init_val = ctx.gen_symbol_val(generator, &v, ty);
+                    let init_val = ctx.gen_symbol_val(&v, ty);
                     let llvm_ty = init_val.get_type();
 
                     let global = ctx.module.add_global(llvm_ty, None, &str.to_string());

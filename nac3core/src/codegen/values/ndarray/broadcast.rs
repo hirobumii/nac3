@@ -5,7 +5,8 @@ use inkwell::{
 use itertools::Itertools;
 
 use crate::codegen::{
-    CodeGenContext, CodeGenerator, irrt,
+    CodeGenContext, irrt,
+    stmt::gen_var,
     types::{
         ProxyType,
         ndarray::{NDArrayType, ShapeEntryType},
@@ -28,20 +29,15 @@ pub struct ShapeEntryValue<'ctx> {
 impl<'ctx> ShapeEntryValue<'ctx> {
     /// Creates an [`ShapeEntryValue`] from a [`StructValue`].
     #[must_use]
-    pub fn from_struct_value<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_struct_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         val: StructValue<'ctx>,
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        let pval = generator
-            .gen_var_alloc(
-                ctx,
-                val.get_type().into(),
-                name.map(|name| format!("{name}.addr")).as_deref(),
-            )
-            .unwrap();
+        let pval =
+            gen_var(ctx, val.get_type().into(), name.map(|name| format!("{name}.addr")).as_deref())
+                .unwrap();
         ctx.builder.build_store(pval, val).unwrap();
         Self::from_pointer_value(pval, llvm_usize, name)
     }
@@ -112,23 +108,18 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///   The caller has to figure this out for this function.
     /// * `target_shape` - An array pointer pointing to the target shape.
     #[must_use]
-    pub fn broadcast_to<G: CodeGenerator + ?Sized>(
+    pub fn broadcast_to(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         target_ndims: u64,
-        target_shape: &impl TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>,
+        target_shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
     ) -> Self {
         assert!(self.ndims <= target_ndims);
-        assert_eq!(target_shape.element_type(ctx, generator), self.llvm_usize.into());
+        assert_eq!(target_shape.element_type(ctx), self.llvm_usize.into());
 
-        let broadcast_ndarray = NDArrayType::new(ctx, self.dtype, target_ndims)
-            .construct_uninitialized(generator, ctx, None);
-        broadcast_ndarray.copy_shape_from_array(
-            generator,
-            ctx,
-            target_shape.base_ptr(ctx, generator),
-        );
+        let broadcast_ndarray =
+            NDArrayType::new(ctx, self.dtype, target_ndims).construct_uninitialized(ctx, None);
+        broadcast_ndarray.copy_shape_from_array(ctx, target_shape.base_ptr(ctx));
 
         irrt::ndarray::call_nac3_ndarray_broadcast_to(ctx, *self, broadcast_ndarray);
         broadcast_ndarray
@@ -137,12 +128,12 @@ impl<'ctx> NDArrayValue<'ctx> {
 
 /// A result produced by [`broadcast_all_ndarrays`]
 #[derive(Clone)]
-pub struct BroadcastAllResult<'ctx, G: CodeGenerator + ?Sized> {
+pub struct BroadcastAllResult<'ctx> {
     /// The statically known `ndims` of the broadcast result.
     pub ndims: u64,
 
     /// The broadcasting shape.
-    pub shape: TypedArrayLikeAdapter<'ctx, G, IntValue<'ctx>>,
+    pub shape: TypedArrayLikeAdapter<'ctx, IntValue<'ctx>>,
 
     /// Broadcasted views on the inputs.
     ///
@@ -153,26 +144,20 @@ pub struct BroadcastAllResult<'ctx, G: CodeGenerator + ?Sized> {
 }
 
 /// Helper function to call [`irrt::ndarray::call_nac3_ndarray_broadcast_shapes`].
-fn broadcast_shapes<'ctx, G, Shape>(
-    generator: &mut G,
+fn broadcast_shapes<'ctx, Shape>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     in_shape_entries: &[(ArraySliceValue<'ctx>, u64)], // (shape, shape's length/ndims)
     broadcast_ndims: u64,
     broadcast_shape: &Shape,
 ) where
-    G: CodeGenerator + ?Sized,
-    Shape: TypedArrayLikeAccessor<'ctx, G, IntValue<'ctx>>
-        + TypedArrayLikeMutator<'ctx, G, IntValue<'ctx>>,
+    Shape:
+        TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> + TypedArrayLikeMutator<'ctx, IntValue<'ctx>>,
 {
     let llvm_usize = ctx.size_t;
     let llvm_shape_ty = ShapeEntryType::new(ctx);
 
-    assert!(
-        in_shape_entries
-            .iter()
-            .all(|entry| entry.0.element_type(ctx, generator) == llvm_usize.into())
-    );
-    assert_eq!(broadcast_shape.element_type(ctx, generator), llvm_usize.into());
+    assert!(in_shape_entries.iter().all(|entry| entry.0.element_type(ctx) == llvm_usize.into()));
+    assert_eq!(broadcast_shape.element_type(ctx), llvm_usize.into());
 
     // Prepare input shape entries to be passed to `call_nac3_ndarray_broadcast_shapes`.
     let num_shape_entries =
@@ -180,24 +165,18 @@ fn broadcast_shapes<'ctx, G, Shape>(
     let shape_entries = llvm_shape_ty.array_alloca(ctx, num_shape_entries, None);
     for (i, (in_shape, in_ndims)) in in_shape_entries.iter().enumerate() {
         let pshape_entry = unsafe {
-            shape_entries.ptr_offset_unchecked(
-                ctx,
-                generator,
-                &llvm_usize.const_int(i as u64, false),
-                None,
-            )
+            shape_entries.ptr_offset_unchecked(ctx, &llvm_usize.const_int(i as u64, false), None)
         };
         let shape_entry = llvm_shape_ty.map_pointer_value(pshape_entry, None);
 
         let in_ndims = llvm_usize.const_int(*in_ndims, false);
         shape_entry.store_ndims(ctx, in_ndims);
 
-        shape_entry.store_shape(ctx, in_shape.base_ptr(ctx, generator));
+        shape_entry.store_shape(ctx, in_shape.base_ptr(ctx));
     }
 
     let broadcast_ndims = llvm_usize.const_int(broadcast_ndims, false);
     irrt::ndarray::call_nac3_ndarray_broadcast_shapes(
-        generator,
         ctx,
         num_shape_entries,
         shape_entries,
@@ -211,12 +190,11 @@ impl<'ctx> NDArrayType<'ctx> {
     /// [`np.broadcast()`](https://numpy.org/doc/stable/reference/generated/numpy.broadcast.html)
     /// and return a [`BroadcastAllResult`] containing all the information of the result of the
     /// broadcast operation.
-    pub fn broadcast<G: CodeGenerator + ?Sized>(
+    pub fn broadcast(
         &self,
-        generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         ndarrays: &[NDArrayValue<'ctx>],
-    ) -> BroadcastAllResult<'ctx, G> {
+    ) -> BroadcastAllResult<'ctx> {
         assert!(!ndarrays.is_empty());
 
         let llvm_usize = ctx.size_t;
@@ -234,24 +212,20 @@ impl<'ctx> NDArrayType<'ctx> {
         );
         let broadcast_shape = TypedArrayLikeAdapter::from(
             broadcast_shape,
-            |_, _, val| val.into_int_value(),
-            |_, _, val| val.into(),
+            |_, val| val.into_int_value(),
+            |_, val| val.into(),
         );
 
         let shape_entries = ndarrays
             .iter()
-            .map(|ndarray| {
-                (ndarray.shape().as_slice_value(ctx, generator), ndarray.get_type().ndims())
-            })
+            .map(|ndarray| (ndarray.shape().as_slice_value(ctx), ndarray.get_type().ndims()))
             .collect_vec();
-        broadcast_shapes(generator, ctx, &shape_entries, broadcast_ndims_int, &broadcast_shape);
+        broadcast_shapes(ctx, &shape_entries, broadcast_ndims_int, &broadcast_shape);
 
         // Broadcast all the inputs to shape `dst_shape`.
         let broadcast_ndarrays = ndarrays
             .iter()
-            .map(|ndarray| {
-                ndarray.broadcast_to(generator, ctx, broadcast_ndims_int, &broadcast_shape)
-            })
+            .map(|ndarray| ndarray.broadcast_to(ctx, broadcast_ndims_int, &broadcast_shape))
             .collect_vec();
 
         BroadcastAllResult {

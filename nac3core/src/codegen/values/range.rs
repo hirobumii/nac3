@@ -4,7 +4,7 @@ use inkwell::{
 };
 
 use super::ProxyValue;
-use crate::codegen::{CodeGenContext, CodeGenerator, types::RangeType};
+use crate::codegen::{CodeGenContext, stmt::gen_var, types::RangeType};
 
 /// Proxy type for accessing a `range` value in LLVM.
 #[derive(Copy, Clone)]
@@ -17,20 +17,15 @@ pub struct RangeValue<'ctx> {
 impl<'ctx> RangeValue<'ctx> {
     /// Creates an [`RangeValue`] from a [`PointerValue`].
     #[must_use]
-    pub fn from_array_value<G: CodeGenerator + ?Sized>(
-        generator: &mut G,
+    pub fn from_array_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         val: ArrayValue<'ctx>,
         llvm_usize: IntType<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        let pval = generator
-            .gen_var_alloc(
-                ctx,
-                val.get_type().into(),
-                name.map(|name| format!("{name}.addr")).as_deref(),
-            )
-            .unwrap();
+        let pval =
+            gen_var(ctx, val.get_type().into(), name.map(|name| format!("{name}.addr")).as_deref())
+                .unwrap();
         ctx.builder.build_store(pval, val).unwrap();
         Self::from_pointer_value(pval, llvm_usize, name)
     }
