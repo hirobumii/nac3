@@ -617,6 +617,110 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
     Ok(())
 }
 
+/// Generates a Python-style `for` construct using lambdas, similar to the following desugared Python code:
+///
+/// ```python
+/// v = init()
+/// while cond(v):
+///     body(v)
+///     update(v)
+/// else:
+///     orelse()
+/// ```
+///
+/// Note that this function only provides the bare control flow structure necessary for a generic
+/// Python-based for loop; it does not implement any specific iteration semantics. The caller is
+/// responsible for implementing the desired iteration behavior based on the type of the `iterable`
+/// object.
+///
+/// * `init` - A lambda containing IR statements declaring and initializing loop variables. The
+///   return value is a [Clone] value which will be passed to the other lambdas.
+/// * `cond` - A lambda containing IR statements checking whether the loop should continue
+///   executing. The result value must be an `i1` indicating if the loop should continue.
+/// * `body` - A lambda containing IR statements within the loop body.
+/// * `update` - A lambda containing IR statements updating loop variables.
+/// * `orelse` - A lambda containing IR statements to execute if the `for` loop completes without
+///   `break`.
+#[allow(clippy::too_many_arguments)]
+pub fn gen_for_pythonic_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn, OrElseFn>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    label: Option<&str>,
+    init: InitFn,
+    cond: CondFn,
+    body: BodyFn,
+    update: UpdateFn,
+    orelse: OrElseFn,
+) -> Result<(), String>
+where
+    G: CodeGenerator + ?Sized,
+    I: Clone,
+    InitFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<I, String>,
+    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<IntValue<'ctx>, String>,
+    BodyFn: FnOnce(
+        &mut G,
+        &mut CodeGenContext<'ctx, 'a>,
+        BreakContinueHooks<'ctx>,
+        I,
+    ) -> Result<(), String>,
+    UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
+    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+{
+    let label = label.unwrap_or("for");
+
+    let current_bb = ctx.builder.get_insert_block().unwrap();
+    let init_bb = ctx.ctx.insert_basic_block_after(current_bb, &format!("{label}.init"));
+    // The BB containing the loop condition check
+    let cond_bb = ctx.ctx.insert_basic_block_after(init_bb, &format!("{label}.cond"));
+    let body_bb = ctx.ctx.insert_basic_block_after(cond_bb, &format!("{label}.body"));
+    // The BB containing the increment expression
+    let update_bb = ctx.ctx.insert_basic_block_after(body_bb, &format!("{label}.update"));
+    let orelse_bb = ctx.ctx.insert_basic_block_after(update_bb, &format!("{label}.orelse"));
+    let cont_bb = ctx.ctx.insert_basic_block_after(update_bb, &format!("{label}.end"));
+
+    // store loop bb information and restore it later
+    let loop_bb = ctx.loop_target.replace((update_bb, cont_bb));
+
+    ctx.builder.build_unconditional_branch(init_bb).unwrap();
+
+    ctx.builder.position_at_end(init_bb);
+    let loop_var = init(generator, ctx)?;
+    if !ctx.is_terminated() {
+        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+    }
+
+    ctx.builder.position_at_end(cond_bb);
+    let cond = cond(generator, ctx, loop_var.clone())?;
+    assert_eq!(cond.get_type().get_bit_width(), ctx.i1.get_bit_width());
+    if !ctx.is_terminated() {
+        ctx.builder.build_conditional_branch(cond, body_bb, orelse_bb).unwrap();
+    }
+
+    ctx.builder.position_at_end(body_bb);
+    let hooks = BreakContinueHooks { exit_bb: cont_bb, latch_bb: update_bb };
+    body(generator, ctx, hooks, loop_var.clone())?;
+    if !ctx.is_terminated() {
+        ctx.builder.build_unconditional_branch(update_bb).unwrap();
+    }
+
+    ctx.builder.position_at_end(update_bb);
+    update(generator, ctx, loop_var)?;
+    if !ctx.is_terminated() {
+        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+    }
+
+    ctx.builder.position_at_end(orelse_bb);
+    orelse(generator, ctx)?;
+    if !ctx.is_terminated() {
+        ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+    }
+
+    ctx.builder.position_at_end(cont_bb);
+    ctx.loop_target = loop_bb;
+
+    Ok(())
+}
+
 /// See [`CodeGenerator::gen_for`].
 pub fn gen_for<G: CodeGenerator>(
     generator: &mut G,
@@ -932,52 +1036,7 @@ where
     ) -> Result<(), String>,
     UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
 {
-    let label = label.unwrap_or("for");
-
-    let current_bb = ctx.builder.get_insert_block().unwrap();
-    let init_bb = ctx.ctx.insert_basic_block_after(current_bb, &format!("{label}.init"));
-    // The BB containing the loop condition check
-    let cond_bb = ctx.ctx.insert_basic_block_after(init_bb, &format!("{label}.cond"));
-    let body_bb = ctx.ctx.insert_basic_block_after(cond_bb, &format!("{label}.body"));
-    // The BB containing the increment expression
-    let update_bb = ctx.ctx.insert_basic_block_after(body_bb, &format!("{label}.update"));
-    let cont_bb = ctx.ctx.insert_basic_block_after(update_bb, &format!("{label}.end"));
-
-    // store loop bb information and restore it later
-    let loop_bb = ctx.loop_target.replace((update_bb, cont_bb));
-
-    ctx.builder.build_unconditional_branch(init_bb).unwrap();
-
-    ctx.builder.position_at_end(init_bb);
-    let loop_var = init(generator, ctx)?;
-    if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
-    }
-
-    ctx.builder.position_at_end(cond_bb);
-    let cond = cond(generator, ctx, loop_var.clone())?;
-    assert_eq!(cond.get_type().get_bit_width(), ctx.i1.get_bit_width());
-    if !ctx.is_terminated() {
-        ctx.builder.build_conditional_branch(cond, body_bb, cont_bb).unwrap();
-    }
-
-    ctx.builder.position_at_end(body_bb);
-    let hooks = BreakContinueHooks { exit_bb: cont_bb, latch_bb: update_bb };
-    body(generator, ctx, hooks, loop_var.clone())?;
-    if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(update_bb).unwrap();
-    }
-
-    ctx.builder.position_at_end(update_bb);
-    update(generator, ctx, loop_var)?;
-    if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
-    }
-
-    ctx.builder.position_at_end(cont_bb);
-    ctx.loop_target = loop_bb;
-
-    Ok(())
+    gen_for_pythonic_callback(generator, ctx, label, init, cond, body, update, |_, _| Ok(()))
 }
 
 /// Generates a C-style monotonically-increasing `for` construct using lambdas, similar to the
