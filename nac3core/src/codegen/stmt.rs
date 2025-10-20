@@ -1181,6 +1181,70 @@ where
     )
 }
 
+/// Generates a Python-style `while` construct using lambdas, similar to the following Python code:
+/// ```python
+/// while cond():
+///     body()
+/// else:
+///     orelse()
+/// ```
+///
+/// * `cond` - A lambda containing IR statements checking whether the loop should continue
+///   executing. The result value must be an `i1` indicating if the loop should continue.
+/// * `body` - A lambda containing IR statements within the loop body.
+/// * `orelse` - A lambda containing IR statements to execute if the `while` loop completes without
+///   `break`.
+pub fn gen_while_pythonic_callback<'ctx, 'a, G, CondFn, BodyFn, OrElseFn>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    label: Option<&str>,
+    cond: CondFn,
+    body: BodyFn,
+    orelse: OrElseFn,
+) -> Result<(), String>
+where
+    G: CodeGenerator + ?Sized,
+    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
+    BodyFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+{
+    let label = label.unwrap_or("while");
+
+    let current_bb = ctx.builder.get_insert_block().unwrap();
+    let test_bb = ctx.ctx.insert_basic_block_after(current_bb, &format!("{label}.test"));
+    let body_bb = ctx.ctx.insert_basic_block_after(test_bb, &format!("{label}.body"));
+    let orelse_bb = ctx.ctx.insert_basic_block_after(body_bb, &format!("{label}.orelse"));
+    let cont_bb = ctx.ctx.insert_basic_block_after(orelse_bb, &format!("{label}.cont"));
+
+    // store loop bb information and restore it later
+    let loop_bb = ctx.loop_target.replace((test_bb, cont_bb));
+
+    ctx.builder.build_unconditional_branch(test_bb).unwrap();
+
+    ctx.builder.position_at_end(test_bb);
+    let test = cond(generator, ctx)?;
+    if !ctx.is_terminated() {
+        ctx.builder.build_conditional_branch(bool_to_i1(ctx, test), body_bb, orelse_bb).unwrap();
+    }
+
+    ctx.builder.position_at_end(body_bb);
+    body(generator, ctx)?;
+    if !ctx.is_terminated() {
+        ctx.builder.build_unconditional_branch(test_bb).unwrap();
+    }
+
+    ctx.builder.position_at_end(orelse_bb);
+    orelse(generator, ctx)?;
+    if !ctx.is_terminated() {
+        ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+    }
+
+    ctx.builder.position_at_end(cont_bb);
+    ctx.loop_target = loop_bb;
+
+    Ok(())
+}
+
 /// See [`CodeGenerator::gen_while`].
 pub fn gen_while<G: CodeGenerator>(
     generator: &mut G,
@@ -1193,51 +1257,37 @@ pub fn gen_while<G: CodeGenerator>(
     // if so, remove the static value as it may not be correct in this branch
     let var_assignment = ctx.var_assignment.clone();
 
-    let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-    let test_bb = ctx.ctx.append_basic_block(current, "while.test");
-    let body_bb = ctx.ctx.append_basic_block(current, "while.body");
-    let cont_bb = ctx.ctx.append_basic_block(current, "while.cont");
-    // if there is no orelse, we just go to cont_bb
-    let orelse_bb = if orelse.is_empty() {
-        cont_bb
-    } else {
-        ctx.ctx.append_basic_block(current, "while.orelse")
-    };
-    // store loop bb information and restore it later
-    let loop_bb = ctx.loop_target.replace((test_bb, cont_bb));
-    ctx.builder.build_unconditional_branch(test_bb).unwrap();
-    ctx.builder.position_at_end(test_bb);
-    let test = generator.gen_expr(ctx, test)?.to_basic_value_enum(ctx)?;
-    let BasicValueEnum::IntValue(test) = test else { codegen_unreachable!(ctx) };
+    gen_while_pythonic_callback(
+        generator,
+        ctx,
+        None,
+        |generator, ctx| {
+            generator
+                .gen_expr(ctx, test)?
+                .to_basic_value_enum(ctx)
+                .map(BasicValueEnum::into_int_value)
+        },
+        |generator, ctx| {
+            generator.gen_block(ctx, body.iter())?;
 
-    ctx.builder.build_conditional_branch(bool_to_i1(ctx, test), body_bb, orelse_bb).unwrap();
+            for (k, (_, _, counter)) in &var_assignment {
+                let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
+                if counter != counter2 {
+                    *static_val = None;
+                }
+            }
 
-    ctx.builder.position_at_end(body_bb);
-    generator.gen_block(ctx, body.iter())?;
+            Ok(())
+        },
+        |generator, ctx| generator.gen_block(ctx, orelse.iter()),
+    )?;
+
     for (k, (_, _, counter)) in &var_assignment {
         let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
         if counter != counter2 {
             *static_val = None;
         }
     }
-    if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(test_bb).unwrap();
-    }
-    if !orelse.is_empty() {
-        ctx.builder.position_at_end(orelse_bb);
-        generator.gen_block(ctx, orelse.iter())?;
-        if !ctx.is_terminated() {
-            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-        }
-    }
-    for (k, (_, _, counter)) in &var_assignment {
-        let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
-        if counter != counter2 {
-            *static_val = None;
-        }
-    }
-    ctx.builder.position_at_end(cont_bb);
-    ctx.loop_target = loop_bb;
 
     Ok(())
 }
