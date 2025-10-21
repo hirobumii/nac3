@@ -1197,6 +1197,7 @@ pub fn gen_prim_binop_expr<'ctx>(
                         Ok(())
                     },
                     llvm_usize.const_int(1, false),
+                    |(), _| Ok(()),
                 )?;
 
                 Ok(new_list.as_abi_value(ctx).into())
@@ -1795,6 +1796,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                     Ok(())
                                 },
                                 llvm_usize.const_int(1, false),
+                                |(), _| Ok(()),
                             )?;
 
                             let acc = ctx

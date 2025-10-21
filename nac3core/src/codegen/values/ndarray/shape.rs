@@ -74,6 +74,7 @@ pub fn parse_numpy_int_sequence<'ctx>(
                     Ok(())
                 },
                 one,
+                |(), _| Ok(()),
             )
             .unwrap();
 

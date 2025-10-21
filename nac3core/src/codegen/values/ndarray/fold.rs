@@ -49,6 +49,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 nditer.next(ctx);
                 Ok(())
             },
+            |(), _| Ok(()),
         )?;
 
         let acc = ctx.builder.build_load(acc_ptr, "").unwrap();

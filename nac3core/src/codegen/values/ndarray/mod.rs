@@ -781,6 +781,7 @@ impl<'ctx, Index: UntypedArrayLikeAccessor<'ctx>> ArrayLikeIndexer<'ctx, Index>
                 Ok(())
             },
             llvm_usize.const_int(1, false),
+            |(), _| Ok(()),
         )
         .unwrap();
 

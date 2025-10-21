@@ -1230,6 +1230,7 @@ fn polymorphic_print<'ctx>(
                         Ok(())
                     },
                     llvm_usize.const_int(1, false),
+                    |(), _| Ok(()),
                 )?;
 
                 fmt.push(']');

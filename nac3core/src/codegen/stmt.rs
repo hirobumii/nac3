@@ -642,7 +642,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 /// * `orelse` - A lambda containing IR statements to execute if the `for` loop completes without
 ///   `break`.
 #[allow(clippy::too_many_arguments)]
-pub fn gen_for_pythonic_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn, OrElseFn>(
+pub fn gen_for_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn, OrElseFn>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     label: Option<&str>,
@@ -773,7 +773,7 @@ pub fn gen_for<G: CodeGenerator>(
                 ctx.current_loc,
             );
 
-            gen_for_pythonic_callback(
+            gen_for_callback(
                 generator,
                 ctx,
                 None,
@@ -842,7 +842,7 @@ pub fn gen_for<G: CodeGenerator>(
 
             let len = iter_val.load_size(ctx, None);
 
-            gen_for_pythonic_callback(
+            gen_for_callback(
                 generator,
                 ctx,
                 None,
@@ -909,7 +909,7 @@ pub fn gen_for<G: CodeGenerator>(
                 .map(BasicValueEnum::into_int_value)
                 .unwrap();
 
-            gen_for_pythonic_callback(
+            gen_for_callback(
                 generator,
                 ctx,
                 None,
@@ -1018,45 +1018,6 @@ impl<'ctx> BreakContinueHooks<'ctx> {
     }
 }
 
-/// Generates a C-style `for` construct using lambdas, similar to the following C code:
-///
-/// ```c
-/// for (x... = init(); cond(x...); update(x...)) {
-///     body(x...);
-/// }
-/// ```
-///
-/// * `init` - A lambda containing IR statements declaring and initializing loop variables. The
-///   return value is a [Clone] value which will be passed to the other lambdas.
-/// * `cond` - A lambda containing IR statements checking whether the loop should continue
-///   executing. The result value must be an `i1` indicating if the loop should continue.
-/// * `body` - A lambda containing IR statements within the loop body.
-/// * `update` - A lambda containing IR statements updating loop variables.
-pub fn gen_for_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn>(
-    generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
-    label: Option<&str>,
-    init: InitFn,
-    cond: CondFn,
-    body: BodyFn,
-    update: UpdateFn,
-) -> Result<(), String>
-where
-    G: ?Sized,
-    I: Clone,
-    InitFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<I, String>,
-    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<IntValue<'ctx>, String>,
-    BodyFn: FnOnce(
-        &mut G,
-        &mut CodeGenContext<'ctx, 'a>,
-        BreakContinueHooks<'ctx>,
-        I,
-    ) -> Result<(), String>,
-    UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
-{
-    gen_for_pythonic_callback(generator, ctx, label, init, cond, body, update, |_, _| Ok(()))
-}
-
 /// Generates a C-style monotonically-increasing `for` construct using lambdas, similar to the
 /// following C code:
 ///
@@ -1072,7 +1033,8 @@ where
 ///   value should be treated as inclusive (as opposed to exclusive).
 /// * `body` - A lambda containing IR statements within the loop body.
 /// * `incr_val` - The value to increment the loop variable on each iteration.
-pub fn gen_for_callback_incrementing<'ctx, 'a, G, BodyFn>(
+#[allow(clippy::too_many_arguments)]
+pub fn gen_for_callback_incrementing<'ctx, 'a, G, BodyFn, OrElseFn>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     label: Option<&str>,
@@ -1080,6 +1042,7 @@ pub fn gen_for_callback_incrementing<'ctx, 'a, G, BodyFn>(
     max_val: (IntValue<'ctx>, bool),
     body: BodyFn,
     incr_val: IntValue<'ctx>,
+    orelse: OrElseFn,
 ) -> Result<(), String>
 where
     G: ?Sized,
@@ -1089,6 +1052,7 @@ where
         BreakContinueHooks<'ctx>,
         IntValue<'ctx>,
     ) -> Result<(), String>,
+    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
 {
     let init_val_t = init_val.get_type();
 
@@ -1125,6 +1089,7 @@ where
 
             Ok(())
         },
+        orelse,
     )
 }
 
@@ -1148,7 +1113,7 @@ where
 ///   iterable. This value will be extended to the size of `start`.
 /// - `body_fn`: A lambda of IR statements within the loop body.
 #[allow(clippy::too_many_arguments)]
-pub fn gen_for_range_callback<'ctx, 'a, G, StartFn, StopFn, StepFn, BodyFn>(
+pub fn gen_for_range_callback<'ctx, 'a, G, StartFn, StopFn, StepFn, BodyFn, OrElseFn>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     label: Option<&str>,
@@ -1157,6 +1122,7 @@ pub fn gen_for_range_callback<'ctx, 'a, G, StartFn, StopFn, StepFn, BodyFn>(
     (stop_fn, stop_inclusive): (StopFn, bool),
     step_fn: StepFn,
     body_fn: BodyFn,
+    orelse: OrElseFn,
 ) -> Result<(), String>
 where
     G: ?Sized,
@@ -1169,6 +1135,7 @@ where
         BreakContinueHooks<'ctx>,
         IntValue<'ctx>,
     ) -> Result<(), String>,
+    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
 {
     let init_val_t = start_fn(generator, ctx).map(IntValue::get_type).unwrap();
 
@@ -1255,6 +1222,7 @@ where
 
             Ok(())
         },
+        orelse,
     )
 }
 

@@ -168,6 +168,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 nditer.next(ctx);
                 Ok(())
             },
+            |(), _| Ok(()),
         )
     }
 }

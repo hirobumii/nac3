@@ -102,6 +102,7 @@ impl<'ctx> NDArrayType<'ctx> {
                 }
                 Ok(())
             },
+            |(), _| Ok(()),
         )?;
 
         Ok(out_ndarray)

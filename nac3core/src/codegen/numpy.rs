@@ -368,6 +368,7 @@ pub fn ndarray_dot<'ctx>(
                     b_iter.next(ctx);
                     Ok(())
                 },
+                |(), _| Ok(()),
             )
             .unwrap();
 

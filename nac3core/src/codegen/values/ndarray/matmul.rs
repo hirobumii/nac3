@@ -189,6 +189,7 @@ fn matmul_at_least_2d<'ctx>(
                 Ok(())
             },
             num_1,
+            |(), _| Ok(()),
         )
     })
     .unwrap();
