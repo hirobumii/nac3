@@ -646,13 +646,7 @@ impl Inferencer<'_> {
                 self.defined_identifiers.insert(*id);
                 Ok(())
             }
-            ExprKind::Tuple { elts, .. } => {
-                for elt in elts {
-                    self.infer_pattern(elt)?;
-                }
-                Ok(())
-            }
-            ExprKind::List { elts, .. } => {
+            ExprKind::List { elts, .. } | ExprKind::Tuple { elts, .. } => {
                 for elt in elts {
                     self.infer_pattern(elt)?;
                 }
