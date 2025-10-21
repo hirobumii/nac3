@@ -26,7 +26,7 @@ use super::{
     },
 };
 use crate::{
-    codegen::{ModuleContext, llvm_fns::FunctionDecl},
+    codegen::{ModuleContext, llvm_fns::FunctionDecl, values::UntypedArrayLikeAccessor},
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
         DefinitionId, TopLevelContext, TopLevelDef,
@@ -653,7 +653,7 @@ pub fn gen_for_pythonic_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateF
     orelse: OrElseFn,
 ) -> Result<(), String>
 where
-    G: CodeGenerator + ?Sized,
+    G: ?Sized,
     I: Clone,
     InitFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<I, String>,
     CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<IntValue<'ctx>, String>,
@@ -681,6 +681,18 @@ where
     // store loop bb information and restore it later
     let loop_bb = ctx.loop_target.replace((update_bb, cont_bb));
 
+    // var_assignment static values may be changed in another branch
+    // if so, remove the static value as it may not be correct in this branch
+    let var_assignment = ctx.var_assignment.clone();
+    let restore_var_assignment = |ctx: &mut CodeGenContext<'ctx, 'a>| {
+        for (k, (_, _, counter)) in &var_assignment {
+            let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
+            if counter != counter2 {
+                *static_val = None;
+            }
+        }
+    };
+
     ctx.builder.build_unconditional_branch(init_bb).unwrap();
 
     ctx.builder.position_at_end(init_bb);
@@ -699,6 +711,7 @@ where
     ctx.builder.position_at_end(body_bb);
     let hooks = BreakContinueHooks { exit_bb: cont_bb, latch_bb: update_bb };
     body(generator, ctx, hooks, loop_var.clone())?;
+    restore_var_assignment(ctx);
     if !ctx.is_terminated() {
         ctx.builder.build_unconditional_branch(update_bb).unwrap();
     }
@@ -715,6 +728,7 @@ where
         ctx.builder.build_unconditional_branch(cont_bb).unwrap();
     }
 
+    restore_var_assignment(ctx);
     ctx.builder.position_at_end(cont_bb);
     ctx.loop_target = loop_bb;
 
@@ -731,27 +745,8 @@ pub fn gen_for<G: CodeGenerator>(
         codegen_unreachable!(ctx)
     };
 
-    // var_assignment static values may be changed in another branch
-    // if so, remove the static value as it may not be correct in this branch
-    let var_assignment = ctx.var_assignment.clone();
-
     let int32 = ctx.i32;
     let size_t = ctx.size_t;
-    let zero = int32.const_zero();
-    let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
-    let body_bb = ctx.ctx.append_basic_block(current, "for.body");
-    let cont_bb = ctx.ctx.append_basic_block(current, "for.end");
-    // if there is no orelse, we just go to cont_bb
-    let orelse_bb =
-        if orelse.is_empty() { cont_bb } else { ctx.ctx.append_basic_block(current, "for.orelse") };
-
-    // The BB containing the increment expression
-    let incr_bb = ctx.ctx.append_basic_block(current, "for.incr");
-    // The BB containing the loop condition check
-    let cond_bb = ctx.ctx.append_basic_block(current, "for.cond");
-
-    // store loop bb information and restore it later
-    let loop_bb = ctx.loop_target.replace((incr_bb, cont_bb));
 
     let iter_ty = iter.custom.unwrap();
     let iter_val = generator.gen_expr(ctx, iter)?.to_basic_value_enum(ctx)?;
@@ -762,17 +757,8 @@ pub fn gen_for<G: CodeGenerator>(
         {
             let iter_val =
                 RangeType::new(ctx).map_pointer_value(iter_val.into_pointer_value(), Some("range"));
-            // Internal variable for loop; Cannot be assigned
-            let i = gen_var(ctx, int32.into(), Some("for.i.addr"))?;
-            // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed
-            let Some(target_i) =
-                generator.gen_store_target(ctx, target, Some("for.target.addr"))?
-            else {
-                codegen_unreachable!(ctx)
-            };
-            let (start, stop, step) = destructure_range(ctx, iter_val);
 
-            ctx.builder.build_store(i, start).unwrap();
+            let (start, stop, step) = destructure_range(ctx, iter_val);
 
             // Check "If step is zero, ValueError is raised."
             let rangenez = ctx
@@ -786,91 +772,126 @@ pub fn gen_for<G: CodeGenerator>(
                 [None, None, None],
                 ctx.current_loc,
             );
-            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
 
-            {
-                ctx.builder.position_at_end(cond_bb);
-                ctx.builder
-                    .build_conditional_branch(
-                        gen_in_range_check(
-                            ctx,
+            gen_for_pythonic_callback(
+                generator,
+                ctx,
+                None,
+                |generator, ctx| {
+                    // Internal variable for loop; Cannot be assigned
+                    let i = gen_var(ctx, int32.into(), Some("for.i.addr"))?;
+                    // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed
+                    let Some(target_i) =
+                        generator.gen_store_target(ctx, target, Some("for.target.addr"))?
+                    else {
+                        codegen_unreachable!(ctx)
+                    };
+
+                    ctx.builder.build_store(i, start).unwrap();
+
+                    Ok((i, target_i))
+                },
+                |_, ctx, (i, _)| {
+                    Ok(gen_in_range_check(
+                        ctx,
+                        ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
+                        stop,
+                        step,
+                    ))
+                },
+                |generator, ctx, _, (i, target_i)| {
+                    ctx.builder
+                        .build_store(
+                            target_i,
                             ctx.builder
                                 .build_load(i, "")
                                 .map(BasicValueEnum::into_int_value)
                                 .unwrap(),
-                            stop,
+                        )
+                        .unwrap();
+                    generator.gen_block(ctx, body.iter())?;
+
+                    Ok(())
+                },
+                |_, ctx, (i, _)| {
+                    let next_i = ctx
+                        .builder
+                        .build_int_add(
+                            ctx.builder
+                                .build_load(i, "")
+                                .map(BasicValueEnum::into_int_value)
+                                .unwrap(),
                             step,
-                        ),
-                        body_bb,
-                        orelse_bb,
-                    )
-                    .unwrap();
-            }
+                            "inc",
+                        )
+                        .unwrap();
+                    ctx.builder.build_store(i, next_i).unwrap();
 
-            ctx.builder.position_at_end(incr_bb);
-            let next_i = ctx
-                .builder
-                .build_int_add(
-                    ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
-                    step,
-                    "inc",
-                )
-                .unwrap();
-            ctx.builder.build_store(i, next_i).unwrap();
-            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
-
-            ctx.builder.position_at_end(body_bb);
-            ctx.builder
-                .build_store(
-                    target_i,
-                    ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
-                )
-                .unwrap();
-            generator.gen_block(ctx, body.iter())?;
+                    Ok(())
+                },
+                |generator, ctx| generator.gen_block(ctx, orelse.iter()),
+            )?;
         }
         TypeEnum::TObj { obj_id, params: list_params, .. }
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
-            let index_addr = gen_var(ctx, size_t.into(), Some("for.index.addr"))?;
-            ctx.builder.build_store(index_addr, size_t.const_zero()).unwrap();
-            let len = ctx
-                .build_gep_and_load(
-                    iter_val.into_pointer_value(),
-                    &[zero, int32.const_int(1, false)],
-                    Some("len"),
-                )
-                .into_int_value();
-            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+            let list_elem_ty = iter_type_vars(list_params).next().unwrap().ty;
+            let llvm_list_elem_t = ctx.get_llvm_type(list_elem_ty);
+            let iter_val = ListType::new(ctx, &llvm_list_elem_t)
+                .map_pointer_value(iter_val.into_pointer_value(), Some("list"));
 
-            ctx.builder.position_at_end(cond_bb);
-            let index = ctx
-                .builder
-                .build_load(index_addr, "for.index")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, index, len, "cond").unwrap();
-            ctx.builder.build_conditional_branch(cmp, body_bb, orelse_bb).unwrap();
+            let len = iter_val.load_size(ctx, None);
 
-            ctx.builder.position_at_end(incr_bb);
-            let index =
-                ctx.builder.build_load(index_addr, "").map(BasicValueEnum::into_int_value).unwrap();
-            let inc = ctx.builder.build_int_add(index, size_t.const_int(1, true), "inc").unwrap();
-            ctx.builder.build_store(index_addr, inc).unwrap();
-            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+            gen_for_pythonic_callback(
+                generator,
+                ctx,
+                None,
+                |_, ctx| {
+                    let index_addr = gen_var(ctx, size_t.into(), Some("for.index.addr"))?;
+                    ctx.builder.build_store(index_addr, size_t.const_zero()).unwrap();
 
-            ctx.builder.position_at_end(body_bb);
-            let arr_ptr = ctx
-                .build_gep_and_load(iter_val.into_pointer_value(), &[zero, zero], Some("arr.addr"))
-                .into_pointer_value();
-            let index = ctx
-                .builder
-                .build_load(index_addr, "for.index")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let val = ctx.build_gep_and_load(arr_ptr, &[index], Some("val"));
-            let val_ty = iter_type_vars(list_params).next().unwrap().ty;
-            generator.gen_assign(ctx, target, &val.into(), val_ty)?;
-            generator.gen_block(ctx, body.iter())?;
+                    Ok(index_addr)
+                },
+                |_, ctx, index_addr| {
+                    let index = ctx
+                        .builder
+                        .build_load(index_addr, "for.index")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    let cmp = ctx
+                        .builder
+                        .build_int_compare(IntPredicate::SLT, index, len, "cond")
+                        .unwrap();
+
+                    Ok(cmp)
+                },
+                |generator, ctx, _, index_addr| {
+                    let index = ctx
+                        .builder
+                        .build_load(index_addr, "for.index")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    let val = unsafe { iter_val.data().get_unchecked(ctx, &index, Some("val")) };
+                    let val_ty = iter_type_vars(list_params).next().unwrap().ty;
+                    generator.gen_assign(ctx, target, &val.into(), val_ty)?;
+                    generator.gen_block(ctx, body.iter())?;
+
+                    Ok(())
+                },
+                |_, ctx, index_addr| {
+                    let index = ctx
+                        .builder
+                        .build_load(index_addr, "")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    let inc =
+                        ctx.builder.build_int_add(index, size_t.const_int(1, true), "inc").unwrap();
+                    ctx.builder.build_store(index_addr, inc).unwrap();
+
+                    Ok(())
+                },
+                |generator, ctx| generator.gen_block(ctx, orelse.iter()),
+            )?;
         }
         TypeEnum::TObj { obj_id, .. }
             if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
@@ -888,90 +909,87 @@ pub fn gen_for<G: CodeGenerator>(
                 .map(BasicValueEnum::into_int_value)
                 .unwrap();
 
-            let index_addr = gen_var(ctx, size_t.into(), Some("for.index.addr"))?;
-            ctx.builder.build_store(index_addr, size_t.const_zero()).unwrap();
-            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+            gen_for_pythonic_callback(
+                generator,
+                ctx,
+                None,
+                |_, ctx| {
+                    let index_addr = gen_var(ctx, size_t.into(), Some("for.index.addr"))?;
+                    ctx.builder.build_store(index_addr, size_t.const_zero()).unwrap();
 
-            ctx.builder.position_at_end(cond_bb);
-            let index = ctx
-                .builder
-                .build_load(index_addr, "for.index")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let cmp = ctx
-                .builder
-                .build_int_compare(IntPredicate::SLT, index, shape_dim0, "cond")
-                .unwrap();
-            ctx.builder.build_conditional_branch(cmp, body_bb, orelse_bb).unwrap();
+                    Ok(index_addr)
+                },
+                |_, ctx, index_addr| {
+                    let index = ctx
+                        .builder
+                        .build_load(index_addr, "for.index")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    let cmp = ctx
+                        .builder
+                        .build_int_compare(IntPredicate::SLT, index, shape_dim0, "cond")
+                        .unwrap();
 
-            ctx.builder.position_at_end(incr_bb);
-            let index =
-                ctx.builder.build_load(index_addr, "").map(BasicValueEnum::into_int_value).unwrap();
-            let inc = ctx.builder.build_int_add(index, size_t.const_int(1, false), "inc").unwrap();
-            ctx.builder.build_store(index_addr, inc).unwrap();
-            ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+                    Ok(cmp)
+                },
+                |generator, ctx, _, index_addr| {
+                    let index = ctx
+                        .builder
+                        .build_load(index_addr, "for.index")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
 
-            ctx.builder.position_at_end(body_bb);
-            let index = ctx
-                .builder
-                .build_load(index_addr, "for.index")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
+                    let val = ndarray
+                        .index(
+                            ctx,
+                            &[RustNDIndex::SingleElement(
+                                ctx.builder
+                                    .build_int_truncate_or_bit_cast(index, int32, "")
+                                    .unwrap(),
+                            )],
+                        )
+                        .split_unsized(ctx)
+                        .to_basic_value_enum();
 
-            let val = ndarray
-                .index(
-                    ctx,
-                    &[RustNDIndex::SingleElement(
-                        ctx.builder.build_int_truncate_or_bit_cast(index, int32, "").unwrap(),
-                    )],
-                )
-                .split_unsized(ctx)
-                .to_basic_value_enum();
+                    let val_ty = if ndims == 1 {
+                        dtype
+                    } else {
+                        let new_ndims =
+                            ctx.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims - 1)], None);
+                        make_ndarray_ty(
+                            &mut ctx.unifier,
+                            &ctx.primitives,
+                            Some(dtype),
+                            Some(new_ndims),
+                        )
+                    };
 
-            let val_ty = if ndims == 1 {
-                dtype
-            } else {
-                let new_ndims =
-                    ctx.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims - 1)], None);
-                make_ndarray_ty(&mut ctx.unifier, &ctx.primitives, Some(dtype), Some(new_ndims))
-            };
+                    generator.gen_assign(ctx, target, &val.into(), val_ty)?;
+                    generator.gen_block(ctx, body.iter())?;
 
-            generator.gen_assign(ctx, target, &val.into(), val_ty)?;
-            generator.gen_block(ctx, body.iter())?;
+                    Ok(())
+                },
+                |_, ctx, index_addr| {
+                    let index = ctx
+                        .builder
+                        .build_load(index_addr, "")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    let inc = ctx
+                        .builder
+                        .build_int_add(index, size_t.const_int(1, false), "inc")
+                        .unwrap();
+                    ctx.builder.build_store(index_addr, inc).unwrap();
+
+                    Ok(())
+                },
+                |generator, ctx| generator.gen_block(ctx, orelse.iter()),
+            )?;
         }
         _ => {
             panic!("unsupported for loop iterator type: {}", ctx.unifier.stringify(iter_ty));
         }
     }
-
-    for (k, (_, _, counter)) in &var_assignment {
-        let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
-        if counter != counter2 {
-            *static_val = None;
-        }
-    }
-
-    if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(incr_bb).unwrap();
-    }
-
-    if !orelse.is_empty() {
-        ctx.builder.position_at_end(orelse_bb);
-        generator.gen_block(ctx, orelse.iter())?;
-        if !ctx.is_terminated() {
-            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-        }
-    }
-
-    for (k, (_, _, counter)) in &var_assignment {
-        let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
-        if counter != counter2 {
-            *static_val = None;
-        }
-    }
-
-    ctx.builder.position_at_end(cont_bb);
-    ctx.loop_target = loop_bb;
 
     Ok(())
 }
