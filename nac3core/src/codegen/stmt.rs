@@ -1033,6 +1033,8 @@ impl<'ctx> BreakContinueHooks<'ctx> {
 ///   value should be treated as inclusive (as opposed to exclusive).
 /// * `body` - A lambda containing IR statements within the loop body.
 /// * `incr_val` - The value to increment the loop variable on each iteration.
+/// * `orelse` - A lambda containing IR statements to execute if the `for` loop completes without
+///   `break`.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_for_callback_incrementing<'ctx, 'a, G, BodyFn, OrElseFn>(
     generator: &mut G,
@@ -1112,6 +1114,8 @@ where
 /// - `step_fn`: A lambda of IR statements that retrieves the `step` value of the  `range`-like
 ///   iterable. This value will be extended to the size of `start`.
 /// - `body_fn`: A lambda of IR statements within the loop body.
+/// * `orelse` - A lambda containing IR statements to execute if the `for` loop completes without
+///   `break`.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_for_range_callback<'ctx, 'a, G, StartFn, StopFn, StepFn, BodyFn, OrElseFn>(
     generator: &mut G,
