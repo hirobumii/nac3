@@ -1271,7 +1271,7 @@ where
 /// * `body` - A lambda containing IR statements within the loop body.
 /// * `orelse` - A lambda containing IR statements to execute if the `while` loop completes without
 ///   `break`.
-pub fn gen_while_pythonic_callback<'ctx, 'a, G, CondFn, BodyFn, OrElseFn>(
+pub fn gen_while_callback<'ctx, 'a, G, CondFn, BodyFn, OrElseFn>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     label: Option<&str>,
@@ -1286,6 +1286,18 @@ where
     OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
 {
     let label = label.unwrap_or("while");
+
+    // var_assignment static values may be changed in another branch
+    // if so, remove the static value as it may not be correct in this branch
+    let var_assignment = ctx.var_assignment.clone();
+    let restore_var_assignment = |ctx: &mut CodeGenContext<'ctx, 'a>| {
+        for (k, (_, _, counter)) in &var_assignment {
+            let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
+            if counter != counter2 {
+                *static_val = None;
+            }
+        }
+    };
 
     let current_bb = ctx.builder.get_insert_block().unwrap();
     let test_bb = ctx.ctx.insert_basic_block_after(current_bb, &format!("{label}.test"));
@@ -1306,6 +1318,7 @@ where
 
     ctx.builder.position_at_end(body_bb);
     body(generator, ctx)?;
+    restore_var_assignment(ctx);
     if !ctx.is_terminated() {
         ctx.builder.build_unconditional_branch(test_bb).unwrap();
     }
@@ -1316,6 +1329,7 @@ where
         ctx.builder.build_unconditional_branch(cont_bb).unwrap();
     }
 
+    restore_var_assignment(ctx);
     ctx.builder.position_at_end(cont_bb);
     ctx.loop_target = loop_bb;
 
@@ -1330,11 +1344,7 @@ pub fn gen_while<G: CodeGenerator>(
 ) -> Result<(), String> {
     let StmtKind::While { test, body, orelse, .. } = &stmt.node else { codegen_unreachable!(ctx) };
 
-    // var_assignment static values may be changed in another branch
-    // if so, remove the static value as it may not be correct in this branch
-    let var_assignment = ctx.var_assignment.clone();
-
-    gen_while_pythonic_callback(
+    gen_while_callback(
         generator,
         ctx,
         None,
@@ -1347,24 +1357,10 @@ pub fn gen_while<G: CodeGenerator>(
         |generator, ctx| {
             generator.gen_block(ctx, body.iter())?;
 
-            for (k, (_, _, counter)) in &var_assignment {
-                let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
-                if counter != counter2 {
-                    *static_val = None;
-                }
-            }
-
             Ok(())
         },
         |generator, ctx| generator.gen_block(ctx, orelse.iter()),
     )?;
-
-    for (k, (_, _, counter)) in &var_assignment {
-        let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
-        if counter != counter2 {
-            *static_val = None;
-        }
-    }
 
     Ok(())
 }
