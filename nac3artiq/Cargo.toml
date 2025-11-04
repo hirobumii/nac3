@@ -9,7 +9,7 @@ name = "nac3artiq"
 crate-type = ["cdylib"]
 
 [dependencies]
-indexmap = "2.11"
+indexmap = "2.12"
 itertools = "0.14"
 pyo3 = { version = "0.26", features = ["extension-module"] }
 parking_lot = "0.12"
