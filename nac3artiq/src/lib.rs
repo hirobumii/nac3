@@ -657,7 +657,7 @@ impl Nac3 {
 
         let mut rpc_ids = vec![];
         for (stmt, path, module) in &self.top_levels {
-            let py_module = module.bind(py).downcast::<PyModule>()?;
+            let py_module = module.bind(py).cast::<PyModule>()?;
             let class_obj;
             if let StmtKind::ClassDef { name, .. } = &stmt.node {
                 let class = py_module.getattr(name.to_string().as_str()).unwrap();
@@ -681,7 +681,7 @@ impl Nac3 {
                         .dict()
                         .get_item(id.to_string().as_str())?
                         .unwrap_or_else(|| panic!("Unable to find key `{id}` in module `{module}`"))
-                        .downcast_into::<PyModule>()?
+                        .cast_into::<PyModule>()?
                         .unbind();
                     register_module_to_cache(&Arc::new(imp_mod))?;
                 }
@@ -1199,7 +1199,7 @@ fn get_class_type<'py>(
         return Ok(None);
     };
 
-    Ok(resolve_qname((path, id), ctx)?.map(PyAnyMethods::downcast_into).transpose()?)
+    Ok(resolve_qname((path, id), ctx)?.map(Bound::cast_into).transpose()?)
 }
 
 /// Returns the original function of the given `decorator` in the `ctx` global context.
@@ -1378,7 +1378,7 @@ impl Nac3 {
                     .unwrap_or_else(|| {
                         panic!("no module key '{mod_name}' present in artiq_builtins")
                     })
-                    .downcast_into::<PyDict>()?
+                    .cast_into::<PyDict>()?
             } else {
                 artiq_builtins.clone()
             };
@@ -1514,8 +1514,8 @@ impl Nac3 {
             for (_, module) in functions {
                 if !module.is_none() {
                     modules.insert(
-                        py_interp::extract_id(module.downcast::<PyModule>()?)?,
-                        Arc::new(module.downcast_into::<PyModule>()?.unbind()),
+                        py_interp::extract_id(module.cast::<PyModule>()?)?,
+                        Arc::new(module.cast_into::<PyModule>()?.unbind()),
                     );
                 }
             }
@@ -1523,8 +1523,8 @@ impl Nac3 {
             for (class, module) in classes {
                 if !module.is_none() {
                     modules.insert(
-                        py_interp::extract_id(module.downcast::<PyModule>()?)?,
-                        Arc::new(module.downcast_into::<PyModule>()?.unbind()),
+                        py_interp::extract_id(module.cast::<PyModule>()?)?,
+                        Arc::new(module.cast_into::<PyModule>()?.unbind()),
                     );
                 }
                 class_ids.insert(py_interp::extract_id(&class)?);

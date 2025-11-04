@@ -898,7 +898,7 @@ pub fn attributes_writeback<'ctx>(
     return_obj: Option<(Type, ValueEnum<'ctx>)>,
 ) -> Result<(), String> {
     Python::attach(|py| -> PyResult<Result<(), String>> {
-        let host_attributes = host_attributes.downcast_bound::<PyList>(py)?;
+        let host_attributes = host_attributes.cast_bound::<PyList>(py)?;
         let top_levels = ctx.top_level.definitions.read();
         let globals = inner_resolver.global_value_ids.read();
         let int32 = ctx.i32;

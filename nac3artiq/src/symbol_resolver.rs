@@ -274,7 +274,7 @@ impl StaticValue for PythonValue {
             let ty = py_interp::call_type(self.value.bind(py))?;
             let ty_id = py_interp::extract_id(&ty)?;
             assert_eq!(ty_id, self.resolver.primitive_ids.builtins.tuple);
-            let tup = self.value.bind(py).downcast::<PyTuple>()?;
+            let tup = self.value.bind(py).cast::<PyTuple>()?;
             let elem = Arc::new(tup.get_item(index as usize)?.into_py_any(py)?);
             let id = py_interp::extract_id(elem.bind(py))?;
             Ok(Some((id, elem)))
@@ -873,7 +873,7 @@ impl InnerResolver {
                 }
             }
             (TypeEnum::TTuple { .. }, false) => {
-                let elements = obj.downcast::<PyTuple>()?;
+                let elements = obj.cast::<PyTuple>()?;
                 let types: Result<Result<Vec<_>, _>, _> = elements
                     .iter()
                     .map(|elem| self.get_obj_type(py, &elem, unifier, defs, primitives))
@@ -1194,7 +1194,7 @@ impl InnerResolver {
 
             // Obtain the shape of the ndarray
             let shape_tuple = obj.getattr("shape")?;
-            let shape_tuple = shape_tuple.downcast::<PyTuple>()?;
+            let shape_tuple = shape_tuple.cast::<PyTuple>()?;
             assert_eq!(shape_tuple.len(), ndims as usize);
 
             // The Rust type inferencer cannot figure this out
@@ -1376,7 +1376,7 @@ impl InnerResolver {
             };
 
             let tup_tys = ty.iter();
-            let elements = obj.downcast::<PyTuple>()?;
+            let elements = obj.cast::<PyTuple>()?;
             assert_eq!(elements.len(), tup_tys.len());
             let val: Result<Option<Vec<_>>, _> = elements
                 .iter()
@@ -1530,7 +1530,7 @@ impl InnerResolver {
             let val: f64 = obj.extract()?;
             Ok(SymbolValue::Double(val))
         } else if ty_id == self.primitive_ids.builtins.tuple {
-            let elements = obj.downcast::<PyTuple>()?;
+            let elements = obj.cast::<PyTuple>()?;
             let elements: Result<Result<Vec<_>, String>, _> =
                 elements.iter().map(|elem| self.get_default_param_obj_value(&elem)).collect();
             elements?.map(SymbolValue::Tuple)
@@ -1556,7 +1556,7 @@ impl SymbolResolver for Resolver {
         Python::attach(|py| -> PyResult<Option<SymbolValue>> {
             let obj = self.0.module.bind(py);
             let members = obj.getattr("__dict__").unwrap();
-            let members = members.downcast::<PyDict>().unwrap();
+            let members = members.cast::<PyDict>().unwrap();
             let mut sym_value = None;
             for (key, val) in members {
                 let key: &str = key.extract()?;
@@ -1599,7 +1599,7 @@ impl SymbolResolver for Resolver {
                     let obj = self.0.module.bind(py);
                     let mut sym_ty = Err(format!("cannot find symbol `{str}`"));
                     let members = obj.getattr("__dict__").unwrap();
-                    let members = members.downcast::<PyDict>().unwrap();
+                    let members = members.cast::<PyDict>().unwrap();
                     for (key, val) in members {
                         let key: &str = key.extract()?;
                         if key == str.to_string() {
@@ -1633,7 +1633,7 @@ impl SymbolResolver for Resolver {
                 let obj = self.0.module.bind(py);
                 let mut sym_value: Option<PyValueHandle> = None;
                 let members = obj.getattr("__dict__").unwrap();
-                let members = members.downcast::<PyDict>().unwrap();
+                let members = members.cast::<PyDict>().unwrap();
                 for (key, val) in members {
                     let key: &str = key.extract()?;
                     if key == id.to_string() {

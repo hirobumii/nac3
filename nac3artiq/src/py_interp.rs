@@ -59,7 +59,7 @@ pub mod builtins {
     /// Invokes [`id(object)`][id_fn], extracting its value and returning a [`u64`] representing
     /// the result.
     pub fn extract_id(object: &Bound<'_, PyAny>) -> PyResult<u64> {
-        id_fn(object.py())?.call1((object,))?.downcast_into::<PyInt>()?.extract()
+        id_fn(object.py())?.call1((object,))?.cast_into::<PyInt>()?.extract()
     }
 
     /// Returns a reference to the
@@ -76,7 +76,7 @@ pub mod builtins {
         class: &Bound<'_, PyAny>,
         classinfo: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
-        issubclass_fn(class.py())?.call1((class, classinfo))?.downcast_into::<PyBool>()?.extract()
+        issubclass_fn(class.py())?.call1((class, classinfo))?.cast_into::<PyBool>()?.extract()
     }
 
     /// Returns a reference to the [`len`](https://docs.python.org/3/library/functions.html#len)
@@ -90,7 +90,7 @@ pub mod builtins {
     /// Invokes [`len(object)`][len_fn], extracting its value and returning a [`usize`]
     /// representing the result.
     pub fn extract_len(object: &Bound<'_, PyAny>) -> PyResult<usize> {
-        len_fn(object.py())?.call1((object,))?.downcast_into::<PyInt>()?.extract()
+        len_fn(object.py())?.call1((object,))?.cast_into::<PyInt>()?.extract()
     }
 
     /// Returns a reference to the
@@ -104,7 +104,7 @@ pub mod builtins {
     /// Invokes [`repr(object)`][repr_fn], extracting its value and returning a [`String`]
     /// representing the result.
     pub fn extract_repr(object: &Bound<'_, PyAny>) -> PyResult<String> {
-        repr_fn(object.py())?.call1((object,))?.downcast_into::<PyString>()?.extract()
+        repr_fn(object.py())?.call1((object,))?.cast_into::<PyString>()?.extract()
     }
 
     /// Returns a reference to the
@@ -117,7 +117,7 @@ pub mod builtins {
 
     /// Invokes [`type(object)`][type_fn], returning a [`PyType`] representing the result.
     pub fn call_type<'py>(object: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyType>> {
-        Ok(get_type_class(object.py())?.call1((object,))?.downcast_into()?)
+        Ok(get_type_class(object.py())?.call1((object,))?.cast_into()?)
     }
 }
 
@@ -153,7 +153,7 @@ pub mod typing {
     /// Invokes [`typing.get_args(tp)`][get_args_fn], returning a [`PyTuple`] representing the
     /// result.
     pub fn call_get_args<'py>(tp: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyTuple>> {
-        Ok(get_args_fn(tp.py())?.call1((tp,))?.downcast_into()?)
+        Ok(get_args_fn(tp.py())?.call1((tp,))?.cast_into()?)
     }
 
     /// Returns a reference to the
@@ -168,6 +168,6 @@ pub mod typing {
     /// Invokes [`typing.get_origin(tp)`][get_origin_fn], returning a [`PyAny`] representing the
     /// result.
     pub fn call_get_origin<'py>(tp: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        Ok(get_origin_fn(tp.py())?.call1((tp,))?.downcast_into()?)
+        Ok(get_origin_fn(tp.py())?.call1((tp,))?.cast_into()?)
     }
 }
