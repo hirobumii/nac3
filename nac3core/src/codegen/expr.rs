@@ -2182,20 +2182,20 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             }
 
             match generator.gen_expr(ctx, value)?.val {
-                Some(ValueEnum::Static(v)) => {
-                    let result = if let Some(field) = v.get_field(*attr, ctx) {
-                        field.to_basic_value_enum(ctx, ty)?
-                    } else {
+                Some(ValueEnum::Static(v)) => match v.get_field(*attr, ctx) {
+                    Some(ValueEnum::Static(v)) => RtValue::r#static(ty, v),
+                    Some(ValueEnum::Dynamic(v)) => RtValue::dynamic(ty, v),
+                    None => {
                         let v = v.to_basic_value_enum(ctx, value.custom.unwrap())?;
                         let (index, _) = ctx.get_attr_index(value.custom.unwrap(), *attr);
-                        ctx.build_gep_and_load(
+                        let val = ctx.build_gep_and_load(
                             v.into_pointer_value(),
                             &[zero, int32.const_int(index as u64, false)],
                             None,
-                        )
-                    };
-                    RtValue::dynamic(ty, result)
-                }
+                        );
+                        RtValue::dynamic(ty, val)
+                    }
+                },
                 Some(ValueEnum::Dynamic(v)) => {
                     let (index, attr_value) = ctx.get_attr_index(value.custom.unwrap(), *attr);
                     if let Some(val) = attr_value {
