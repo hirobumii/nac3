@@ -57,11 +57,11 @@ rm -f ./*.o ./*.bc demo
 
 if [ -z "$i686" ]; then
   $nac3standalone "${nac3args[@]}"
-  clang -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
+  clang -g -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
   clang -o demo module.o demo.o $DEMO_LINALG_STUB -fuse-ld=lld -lm
 else
   $nac3standalone --triple i686-unknown-linux-gnu --target-features +sse2 "${nac3args[@]}"
-  clang -m32 -c -std=gnu11 -Wall -Wextra -O3 -msse2 -o demo.o demo.c
+  clang -g -m32 -c -std=gnu11 -Wall -Wextra -O3 -msse2 -o demo.o demo.c
   clang -m32 -o demo module.o demo.o $DEMO_LINALG_STUB32 -lm -Wl,--no-warn-search-mismatch
 fi
 
