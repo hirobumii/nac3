@@ -1089,25 +1089,17 @@ impl Nac3 {
             global_option = global.get_next_global();
         }
 
-        let target_machine = self.codegen_options.target.create_target_machine();
-
-        // Strip all unused functions first (necessary even in -O0 to filter out unused IRRT functions)
-        main.run_passes(
-            "globaldce,strip-dead-prototypes",
-            &target_machine,
-            PassBuilderOptions::create(),
-        )
-        .expect("Failed to strip dead code from module `main`");
         emit_llvm(&main, "main.pre-opt");
 
+        let target_machine = self.codegen_options.target.create_target_machine();
         let pass_options = PassBuilderOptions::create();
         pass_options.set_merge_functions(true);
-        let passes = format!("default<O{}>", self.codegen_options.opt_level);
+        let passes =
+            format!("globaldce,strip-dead-prototypes,default<O{}>", self.codegen_options.opt_level);
         let result = main.run_passes(passes.as_str(), &target_machine, pass_options);
         if let Err(err) = result {
             panic!("Failed to run optimization for module `main`: {}", err.to_string());
         }
-
         emit_llvm(&main, "main.post-opt");
 
         Python::attach(|py| {
