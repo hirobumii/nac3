@@ -1,4 +1,5 @@
 use std::{
+    cell::OnceCell,
     collections::{HashMap, HashSet},
     ops::ControlFlow,
     sync::{
@@ -390,10 +391,12 @@ impl WorkerRegistry {
         let options = &self.codegen_options.target;
         let mut context = ModuleContext::new(ctx, generator.get_name(), options);
         let mut builder = context.ctx.create_builder();
+        let mut unifier_cache = vec![OnceCell::new(); self.top_level_ctx.unifiers.read().len()];
 
         let mut errors = HashSet::new();
         while let Some(task) = self.receiver.recv().unwrap() {
-            let (context_, builder_, result) = gen_func(context, builder, generator, self, task);
+            let (context_, builder_, result) =
+                gen_func(context, builder, generator, self, task, &mut unifier_cache);
             builder = builder_;
             context = match result {
                 Ok(_) => context_,
@@ -693,13 +696,19 @@ pub fn gen_func_impl<
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
+    unifier_cache: &mut [OnceCell<Unifier>],
     codegen_function: F,
 ) -> (ModuleContext<'ctx>, Builder<'ctx>, Result<FunctionValue<'ctx>, String>) {
     let top_level_ctx = registry.top_level_ctx.clone();
     let static_value_store = registry.static_value_store.clone();
     let (mut unifier, primitives) = {
-        let (unifier, primitives) = &top_level_ctx.unifiers.read()[task.unifier_index];
-        (Unifier::from_shared_unifier(unifier), *primitives)
+        let (shared_unifier, primitives) = &top_level_ctx.unifiers.read()[task.unifier_index];
+        (
+            unifier_cache[task.unifier_index]
+                .get_or_init(|| Unifier::from_shared_unifier(shared_unifier))
+                .clone(),
+            *primitives,
+        )
     };
     unifier.put_primitive_store(&primitives);
     unifier.top_level = Some(top_level_ctx.clone());
@@ -971,9 +980,10 @@ pub fn gen_func<'ctx, G: CodeGenerator>(
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
+    unifier_cache: &mut [OnceCell<Unifier>],
 ) -> (ModuleContext<'ctx>, Builder<'ctx>, Result<FunctionValue<'ctx>, String>) {
     let body = task.body.clone();
-    gen_func_impl(context, builder, generator, registry, task, |generator, ctx| {
+    gen_func_impl(context, builder, generator, registry, task, unifier_cache, |generator, ctx| {
         generator.gen_block(ctx, body.iter())
     })
 }

@@ -8,7 +8,7 @@
 )]
 
 use std::{
-    cell::LazyCell,
+    cell::{LazyCell, OnceCell},
     collections::{HashMap, HashSet},
     fs,
     io::Write,
@@ -1002,6 +1002,7 @@ impl Nac3 {
             context_ref!(context);
             let context = ModuleContext::new(context, "main", &self.codegen_options.target);
             let builder = context.ctx.create_builder();
+            let mut unifier_cache = vec![OnceCell::new(); top_level.unifiers.read().len()];
 
             let (context, _, result) = gen_func_impl(
                 context,
@@ -1009,6 +1010,7 @@ impl Nac3 {
                 &mut generator,
                 &registry,
                 task,
+                &mut unifier_cache,
                 |generator, ctx| {
                     assert_eq!(instance.body.len(), 1, "toplevel module should have 1 statement");
                     let StmtKind::Expr { value: ref expr, .. } = instance.body[0].node else {
