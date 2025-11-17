@@ -703,15 +703,19 @@ pub fn gen_func_impl<
     let static_value_store = registry.static_value_store.clone();
     let (mut unifier, primitives) = {
         let (shared_unifier, primitives) = &top_level_ctx.unifiers.read()[task.unifier_index];
+
         (
             unifier_cache[task.unifier_index]
-                .get_or_init(|| Unifier::from_shared_unifier(shared_unifier))
+                .get_or_init(|| {
+                    let mut unifier = Unifier::from_shared_unifier(shared_unifier);
+                    unifier.put_primitive_store(primitives);
+                    unifier.top_level = Some(top_level_ctx.clone());
+                    unifier
+                })
                 .clone(),
             *primitives,
         )
     };
-    unifier.put_primitive_store(&primitives);
-    unifier.top_level = Some(top_level_ctx.clone());
 
     let mut cache = HashMap::new();
     for (a, b) in &task.subst {
