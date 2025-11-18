@@ -1,25 +1,24 @@
-{ pkgs }:
-let
+{pkgs}: let
   msys2-env = pkgs.stdenvNoCC.mkDerivation rec {
     name = "msys2-env";
-    srcs = import ./msys2_packages.nix { inherit pkgs; };
-    buildInputs = [ pkgs.gnutar pkgs.zstd ];
-    phases = [ "installPhase" ];
-    installPhase = (pkgs.lib.strings.concatStringsSep "\n" (["mkdir $out"] ++ (map (p: "tar xvf ${p} -C $out") srcs)));
+    srcs = import ./msys2_packages.nix {inherit pkgs;};
+    buildInputs = [pkgs.gnutar pkgs.zstd];
+    phases = ["installPhase"];
+    installPhase = pkgs.lib.strings.concatStringsSep "\n" (["mkdir $out"] ++ (map (p: "tar xvf ${p} -C $out") srcs));
   };
-  silenceFontconfig = # silence flood of "Fontconfig error: Cannot load default config file: No such file: (null)"
+  silenceFontconfig =
+    # silence flood of "Fontconfig error: Cannot load default config file: No such file: (null)"
     ''
-    export FONTCONFIG_PATH=$HOME/fonts
-    mkdir $FONTCONFIG_PATH
-    cat > $FONTCONFIG_PATH/fonts.conf << EOF
-    <fontconfig>
-    </fontconfig>
-    EOF
+      export FONTCONFIG_PATH=$HOME/fonts
+      mkdir $FONTCONFIG_PATH
+      cat > $FONTCONFIG_PATH/fonts.conf << EOF
+      <fontconfig>
+      </fontconfig>
+      EOF
     '';
   pyo3-mingw-config = pkgs.writeTextFile {
     name = "pyo3-mingw-config";
-    text =
-      ''
+    text = ''
       implementation=CPython
       version=3.12
       shared=true
@@ -29,17 +28,16 @@ let
       pointer_width=64
       build_flags=WITH_THREAD
       suppress_build_script_link_lines=false
-      '';
+    '';
   };
-  sources = import ../llvm/sources.nix { inherit (pkgs) fetchurl; };
+  sources = import ../llvm/sources.nix {inherit (pkgs) fetchurl;};
 in rec {
   llvm-nac3 = pkgs.stdenvNoCC.mkDerivation rec {
     pname = "llvm-nac3-msys2";
     version = "16.0.6";
-    buildInputs = [ pkgs.wineWowPackages.stable ];
-    phases = [ "unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase" ];
-    unpackPhase =
-      ''
+    buildInputs = [pkgs.wineWowPackages.stable];
+    phases = ["unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase"];
+    unpackPhase = ''
       mkdir llvm
       tar xf ${sources.llvm} -C llvm --strip-components=1
       tar xf ${sources.cmake} -C llvm/cmake --strip-components=2
@@ -51,9 +49,8 @@ in rec {
       # build of llvm-lto fails and -DLLVM_BUILD_TOOLS=OFF does not disable it reliably because cmake
       rm -rf tools/lto
       rm -rf tools/sancov
-      '';
-    configurePhase =
-      ''
+    '';
+    configurePhase = ''
       export HOME=`mktemp -d`
       export WINEDEBUG=-all
       export WINEPATH=Z:${msys2-env}/clang64/bin
@@ -61,22 +58,21 @@ in rec {
       mkdir build
       cd build
       wine64 cmake .. -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_UNWIND_TABLES=OFF -DLLVM_ENABLE_THREADS=ON -DLLVM_TARGETS_TO_BUILD=X86\;ARM\;RISCV -DLLVM_LINK_LLVM_DYLIB=OFF -DLLVM_ENABLE_FFI=OFF -DFFI_INCLUDE_DIR=fck-cmake -DFFI_LIBRARY_DIR=fck-cmake -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_ENABLE_PROJECTS=clang -DCMAKE_INSTALL_PREFIX=Z:$out
-      '';
-    buildPhase =
-      ''
+    '';
+    buildPhase = ''
       wine64 ninja -j $NIX_BUILD_CORES
-      '';
-    installPhase =
-      ''
+    '';
+    installPhase = ''
       wine64 ninja install
-      '';
+    '';
     dontFixup = true;
   };
-  llvm-tools-irrt = pkgs.runCommandNoCC "llvm-tools-irrt" {}
+  llvm-tools-irrt =
+    pkgs.runCommandNoCC "llvm-tools-irrt" {}
     ''
-    mkdir -p $out/bin
-    ln -s ${llvm-nac3}/bin/clang.exe $out/bin/clang-irrt.exe
-    ln -s ${llvm-nac3}/bin/llvm-as.exe $out/bin/llvm-as-irrt.exe
+      mkdir -p $out/bin
+      ln -s ${llvm-nac3}/bin/clang.exe $out/bin/clang-irrt.exe
+      ln -s ${llvm-nac3}/bin/llvm-as.exe $out/bin/llvm-as-irrt.exe
     '';
   nac3artiq = pkgs.rustPlatform.buildRustPackage {
     name = "nac3artiq-msys2";
@@ -84,9 +80,8 @@ in rec {
     cargoLock = {
       lockFile = ../../Cargo.lock;
     };
-    nativeBuildInputs = [ pkgs.wineWowPackages.stable ];
-    buildPhase =
-      ''
+    nativeBuildInputs = [pkgs.wineWowPackages.stable];
+    buildPhase = ''
       export HOME=`mktemp -d`
       export WINEDEBUG=-all
       export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${llvm-tools-irrt}/bin
@@ -95,51 +90,49 @@ in rec {
       export CC=clang
       export LLVM_SYS_160_PREFIX=Z:${llvm-nac3}
       wine64 cargo build --release -p nac3artiq
-      '';
-    installPhase =
-      ''
+    '';
+    installPhase = ''
       mkdir $out $out/nix-support
       cp target/release/nac3artiq.dll $out/nac3artiq.pyd
       echo file binary-dist $out/nac3artiq.pyd >> $out/nix-support/hydra-build-products
-      '';
-    doCheck = false;  # https://git.m-labs.hk/M-Labs/nac3/issues/358
-    checkPhase =
-      ''
+    '';
+    doCheck = false; # https://git.m-labs.hk/M-Labs/nac3/issues/358
+    checkPhase = ''
       wine64 cargo test --release
-      '';
+    '';
     dontFixup = true;
   };
   nac3artiq-pkg = pkgs.stdenvNoCC.mkDerivation {
     name = "nac3artiq-msys2-pkg";
-    nativeBuildInputs = [ pkgs.pacman pkgs.fakeroot pkgs.libarchive pkgs.zstd ];
+    nativeBuildInputs = [pkgs.pacman pkgs.fakeroot pkgs.libarchive pkgs.zstd];
     src = nac3artiq;
-    phases = [ "buildPhase" "installPhase" ];
-    buildPhase =
-      ''
+    phases = ["buildPhase" "installPhase"];
+    buildPhase = ''
       ln -s ${./PKGBUILD} PKGBUILD
       ln -s $src/nac3artiq.pyd nac3artiq.pyd
       makepkg --config ${./makepkg.conf} --nodeps
-      '';
-    installPhase =
-      ''
+    '';
+    installPhase = ''
       mkdir $out $out/nix-support
       cp *.pkg.tar.zst $out
       echo file msys2 $out/*.pkg.tar.zst >> $out/nix-support/hydra-build-products
-      '';
-  };
-  wine-msys2 = pkgs.writeShellScriptBin "wine-msys2"
-    ''
-    export WINEDEBUG=-all
-    export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${llvm-tools-irrt}/bin
-    export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
-    exec ${pkgs.wineWowPackages.stable}/bin/wine64 cmd
     '';
-  wine-msys2-build = pkgs.writeShellScriptBin "wine-msys2-build"
+  };
+  wine-msys2 =
+    pkgs.writeShellScriptBin "wine-msys2"
     ''
-    export HOME=`mktemp -d`
-    export WINEDEBUG=-all
-    export WINEPATH=Z:${msys2-env}/clang64/bin
-    ${silenceFontconfig}
-    exec ${pkgs.wineWowPackages.stable}/bin/wine64 $@
+      export WINEDEBUG=-all
+      export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${llvm-tools-irrt}/bin
+      export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
+      exec ${pkgs.wineWowPackages.stable}/bin/wine64 cmd
+    '';
+  wine-msys2-build =
+    pkgs.writeShellScriptBin "wine-msys2-build"
+    ''
+      export HOME=`mktemp -d`
+      export WINEDEBUG=-all
+      export WINEPATH=Z:${msys2-env}/clang64/bin
+      ${silenceFontconfig}
+      exec ${pkgs.wineWowPackages.stable}/bin/wine64 $@
     '';
 }
