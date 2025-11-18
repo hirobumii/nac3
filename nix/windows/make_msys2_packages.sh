@@ -12,16 +12,16 @@ curl -L https://raw.githubusercontent.com/msys2/MSYS2-packages/master/pacman/pac
 fakeroot pacman --root $MSYS2DIR --config $MSYS2DIR/etc/pacman.conf -Syy
 pacman --root $MSYS2DIR --config $MSYS2DIR/etc/pacman.conf --cachedir $MSYS2DIR/msys/cache -Sp mingw-w64-clang-x86_64-rust mingw-w64-clang-x86_64-cmake mingw-w64-clang-x86_64-ninja mingw-w64-clang-x86_64-python-numpy mingw-w64-clang-x86_64-python-setuptools > $MSYS2DIR/packages.txt
 
-echo "{ pkgs } : [" > msys2_packages.nix
+echo -n "{pkgs}: [" > msys2_packages.nix
 while read package; do
 	basename=${package##*/}
 	name=${basename//\~/}
 	hash=$(nix-prefetch-url $package --name $name)
 	echo "
-(pkgs.fetchurl {
-  url = \"$package\";
-  sha256 = \"$hash\";
-  name = \"$name\";
-})" >> msys2_packages.nix
+  (pkgs.fetchurl {
+    url = \"$package\";
+    sha256 = \"$hash\";
+    name = \"$name\";
+  })" >> msys2_packages.nix
 done < $MSYS2DIR/packages.txt
 echo "]" >> msys2_packages.nix
