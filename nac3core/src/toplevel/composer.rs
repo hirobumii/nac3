@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt,
     rc::Rc,
     sync::Arc,
 };
@@ -8,7 +9,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use parking_lot::RwLock;
 
-use nac3parser::ast::{self, Expr, ExprKind, Located, StrRef, fold::Fold};
+use nac3parser::ast::{self, Expr, ExprKind, FileName, Located, StrRef, fold::Fold};
 
 use super::{
     DefinitionId, FunInstance, GenCall, Location, builtins, get_type_from_type_annotation_kinds,
@@ -25,55 +26,174 @@ use crate::{
     },
 };
 
-/// Function type to check if a type annotation class references a specific class in global
-/// context.
-type IsAnnClassFn<'a> = dyn Fn(&Located<ExprKind>) -> Result<bool, String> + 'a;
+/// Enumeration of all builtin identifiers recognized by the compiler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinKind {
+    // Type annotations
+    Kernel,
+    KernelInvariant,
+    ConstGeneric,
+    None,
+    Virtual,
+    Option,
 
-/// Function type to check if a decorator references a specific decorator function in global
-/// context.
-type IsDecoratorFn<'a> = dyn Fn(&Located<ExprKind>) -> Result<bool, String> + 'a;
+    // Decorators
+    Compile,
+    ExternFn,
+    KernelDecorator,
+    Portable,
+    Rpc,
+    StaticMethod,
 
-pub struct ComposerConfig<'a> {
-    /// A function that checks whether an annotation class indicates a class contains generic
-    /// types in its members.
-    ///
-    /// See [`ComposerConfig::has_generic_ann`].
-    pub has_generic_ann_fn: Box<IsAnnClassFn<'a>>,
+    // Core primitives
+    Int,
+    Float,
+    Bool,
+    Str,
+    List,
+    Tuple,
+    Exception,
 
-    /// A function that checks whether an annotation class indicates a class variable should be
-    /// mutable, or [`None`] if such a class is not supported.
-    ///
-    /// See [`ComposerConfig::has_kernel_ann`].
-    pub has_kernel_ann_fn: Option<Box<IsAnnClassFn<'a>>>,
+    // Type system
+    Generic,
+    TypeVar,
+    GenericAlias,
+    GenericAliasUnderscore,
+    ModuleType,
+    Literal,
 
-    /// A function that checks whether an annotation class indicates a class variable should be
-    /// immutable.
-    ///
-    /// See [`ComposerConfig::has_invariant_ann`].
-    pub has_invariant_ann_fn: Box<IsAnnClassFn<'a>>,
+    // Sized types
+    Int32,
+    Int64,
+    Uint32,
+    Uint64,
+    Float64,
+    BoolType,
+    StrType,
+    NDArray,
 
-    /// A function that checks whether a decorator indicates that the function should be treated as
-    /// `extern`, i.e. defined not as part of the compiled Python binary and hence does not contain
-    /// a function body.
-    ///
-    /// See [`ComposerConfig::is_extern_decorator`].
-    pub is_extern_decorator_fn: Box<IsDecoratorFn<'a>>,
+    // Functions
+    Range,
+    Round,
+    Round64,
+    Floor,
+    Floor64,
+    Ceil,
+    Ceil64,
+    Len,
+    Min,
+    Max,
+    Abs,
+    Some,
 
-    /// A function to check whether a decorate indicates that the function is a static method, i.e.
-    /// does not take `self` as the first argument, and can be called without instanciating the
-    /// class.
-    ///
-    /// See [`ComposerConfig::is_static_method_decorator`].
-    pub is_static_method_decorator_fn: Box<IsDecoratorFn<'a>>,
+    // NumPy array creation
+    NpNDArray,
+    NpEmpty,
+    NpZeros,
+    NpOnes,
+    NpFull,
+    NpArray,
+    NpEye,
+    NpIdentity,
+
+    // NumPy array properties
+    NpSize,
+    NpShape,
+    NpStrides,
+
+    // NumPy array manipulation
+    NpBroadcastTo,
+    NpTranspose,
+    NpReshape,
+
+    // NumPy math functions
+    NpRound,
+    NpFloor,
+    NpCeil,
+    NpMin,
+    NpMinimum,
+    NpMax,
+    NpMaximum,
+    NpArgmax,
+    NpIsnan,
+    NpIsinf,
+    NpSin,
+    NpCos,
+    NpExp,
+    NpExp2,
+    NpLog,
+    NpLog10,
+    NpLog2,
+    NpFabs,
+    NpSqrt,
+    NpRint,
+    NpTan,
+    NpArcsin,
+    NpArccos,
+    NpArctan,
+    NpSinh,
+    NpCosh,
+    NpTanh,
+    NpArcsinh,
+    NpArccosh,
+    NpArctanh,
+    NpExpm1,
+    NpCbrt,
+
+    // SciPy special functions
+    SpSpecErf,
+    SpSpecErfc,
+    SpSpecGamma,
+    SpSpecGammaln,
+    SpSpecJ0,
+    SpSpecJ1,
+
+    // NumPy binary operations
+    NpArctan2,
+    NpCopysign,
+    NpFmax,
+    NpFmin,
+    NpLdexp,
+    NpHypot,
+    NpNextafter,
+
+    // NumPy reduction operations
+    NpAny,
+    NpAll,
+
+    // NumPy linear algebra
+    NpDot,
+    NpLinalgCholesky,
+    NpLinalgQr,
+    NpLinalgSvd,
+    NpLinalgInv,
+    NpLinalgPinv,
+    NpLinalgMatrixPower,
+    NpLinalgDet,
+
+    // SciPy linear algebra
+    SpLinalgLu,
+    SpLinalgSchur,
+    SpLinalgHessenberg,
 }
 
-impl ComposerConfig<'_> {
+/// Trait for matching AST expressions against builtin identifiers.
+pub trait BuiltinRegistry: Send + Sync {
+    /// Match an AST expression against known builtin identifiers.
+    ///
+    /// Returns `Some(BuiltinKind)` if the expression matches a recognized builtin,
+    /// otherwise returns `None`.
+    ///
+    /// # Arguments
+    /// * `expr` - The AST expression to match
+    fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<BuiltinKind>;
+
     /// Checks whether the type annotation expression `type_ann` indicates that a class contains
     /// generic types in its members, usually `Generic[T]`.
     ///
     /// The type annotation is resolved in the decorator's global module context.
-    pub fn has_generic_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, String> {
-        (*self.has_generic_ann_fn)(type_ann)
+    fn has_generic_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, BuiltinMatchError> {
+        Ok(self.match_builtin(type_ann) == Some(BuiltinKind::Generic))
     }
 
     /// Checks whether the type annotation expression `type_ann` indicates that the variable is
@@ -82,16 +202,16 @@ impl ComposerConfig<'_> {
     /// The type annotation is resolved in the decorator's global module context.
     ///
     /// Returns `Ok(None)` if this functionality is not supported.
-    pub fn has_kernel_ann(&self, type_ann: &Located<ExprKind>) -> Result<Option<bool>, String> {
-        self.has_kernel_ann_fn.as_ref().map(|f| f(type_ann)).transpose()
+    fn has_kernel_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, BuiltinMatchError> {
+        Ok(self.match_builtin(type_ann) == Some(BuiltinKind::Kernel))
     }
 
     /// Checks whether the type annotation expression `type_ann` indicates that the variable is
     /// immutable, usually `KernelInvariant[T]`.
     ///
     /// The type annotation is resolved in the decorator's global module context.
-    pub fn has_invariant_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, String> {
-        (*self.has_invariant_ann_fn)(type_ann)
+    fn has_invariant_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, BuiltinMatchError> {
+        Ok(self.match_builtin(type_ann) == Some(BuiltinKind::KernelInvariant))
     }
 
     /// Checks whether the `decorator` indicates that the function should be an `extern` function,
@@ -102,8 +222,11 @@ impl ComposerConfig<'_> {
     /// executed on the host interpreter.
     ///
     /// The decorator is resolved in the decorator's global module context.
-    pub fn is_extern_decorator(&self, decorator: &Located<ExprKind>) -> Result<bool, String> {
-        (*self.is_extern_decorator_fn)(decorator)
+    fn is_extern_decorator(
+        &self,
+        decorator: &Located<ExprKind>,
+    ) -> Result<bool, BuiltinMatchError> {
+        Ok(self.match_builtin(decorator) == Some(BuiltinKind::ExternFn))
     }
 
     /// Checks whether the `decorator` indicates that the function is a static method, usually the
@@ -111,54 +234,48 @@ impl ComposerConfig<'_> {
     /// argument, and can be called without instantiating the class.
     ///
     /// The decorator is resolved in the decorator's global module context.
-    pub fn is_static_method_decorator(
+    fn is_static_method_decorator(
         &self,
         decorator: &Located<ExprKind>,
-    ) -> Result<bool, String> {
-        (*self.is_static_method_decorator_fn)(decorator)
+    ) -> Result<bool, BuiltinMatchError> {
+        Ok(self.match_builtin(decorator) == Some(BuiltinKind::StaticMethod))
+    }
+
+    /// Returns true if kernel decorators are supported (ARTIQ mode).
+    /// Returns false for standalone mode.
+    fn supports_kernel_decorators(&self) -> bool {
+        false
     }
 }
 
-impl Default for ComposerConfig<'_> {
-    fn default() -> Self {
-        ComposerConfig {
-            has_generic_ann_fn: Box::new(|ann| {
-                Ok(matches!(
-                    &ann.node,
-                    ExprKind::Subscript { value, .. } if matches!(
-                        &value.node,
-                        ExprKind::Name { id, .. } if id == &"Generic".into()
-                    )
-                ))
-            }),
-            has_kernel_ann_fn: None,
-            has_invariant_ann_fn: Box::new(|ann| {
-                Ok(matches!(
-                    &ann.node,
-                    ExprKind::Subscript { value, .. } if matches!(
-                        &value.node,
-                        ExprKind::Name { id, .. } if id == &"KernelInvariant".into()
-                    )
-                ))
-            }),
-            is_extern_decorator_fn: Box::new(|decorator| {
-                Ok(matches!(
-                    &decorator.node,
-                    ExprKind::Name { id, .. } if id == &"extern".into()
-                ))
-            }),
-            is_static_method_decorator_fn: Box::new(|decorator| {
-                Ok(matches!(
-                    &decorator.node,
-                    ExprKind::Name { id, .. } if id == &"staticmethod".into()
-                ))
-            }),
+/// Errors that can occur during builtin identifier matching
+#[derive(Debug, Clone)]
+pub enum BuiltinMatchError {
+    ModuleNotFound { file: FileName },
+    PythonError(String),
+    ResolutionError(String),
+}
+
+impl fmt::Display for BuiltinMatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BuiltinMatchError::ModuleNotFound { file } => {
+                write!(f, "No module found for file {file:?}")
+            }
+            BuiltinMatchError::PythonError(err) => {
+                write!(f, "Python error: {err}")
+            }
+            BuiltinMatchError::ResolutionError(err) => {
+                write!(f, "Resolution error: {err}")
+            }
         }
     }
 }
 
+impl std::error::Error for BuiltinMatchError {}
+
 pub type DefAst = (Arc<RwLock<TopLevelDef>>, Option<Stmt<()>>);
-pub struct TopLevelComposer<'a> {
+pub struct TopLevelComposer {
     // list of top level definitions, same as top level context
     pub definition_ast_list: Vec<DefAst>,
     // start as a primitive unifier, will add more top_level defs inside
@@ -173,7 +290,8 @@ pub struct TopLevelComposer<'a> {
     pub method_class: HashMap<DefinitionId, DefinitionId>,
     // number of built-in function and classes in the definition list, later skip
     pub builtin_num: usize,
-    pub core_config: ComposerConfig<'a>,
+    /// Registry for builtin identifiers.
+    pub builtin_registry: Arc<dyn BuiltinRegistry>,
     /// The size of a native word on the target platform.
     pub size_t: u32,
 }
@@ -186,7 +304,7 @@ pub type BuiltinFuncSpec = (StrRef, FunSignature, Arc<GenCall>);
 /// [`Unifier`].
 pub type BuiltinFuncCreator = dyn Fn(&PrimitiveStore, &mut Unifier) -> BuiltinFuncSpec;
 
-impl<'a> TopLevelComposer<'a> {
+impl TopLevelComposer {
     /// return a composer and things to make a "primitive" symbol resolver, so that the symbol
     /// resolver can later figure out primitive tye definitions when passed a primitive type name
     ///
@@ -199,7 +317,7 @@ impl<'a> TopLevelComposer<'a> {
     pub fn new(
         builtins: Vec<BuiltinFuncSpec>,
         lateinit_builtins: Vec<Box<BuiltinFuncCreator>>,
-        core_config: ComposerConfig<'a>,
+        builtin_registry: Arc<dyn BuiltinRegistry>,
         size_t: u32,
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
         let (primitives_ty, mut unifier) = Self::make_primitives(size_t);
@@ -307,7 +425,7 @@ impl<'a> TopLevelComposer<'a> {
                 keyword_list,
                 defined_names,
                 method_class,
-                core_config,
+                builtin_registry,
                 size_t,
             },
             builtin_id,
@@ -328,6 +446,7 @@ impl<'a> TopLevelComposer<'a> {
                 self.primitives_ty,
             )])),
             personality_symbol: Some("__nac3_personality".into()),
+            builtin_registry: self.builtin_registry.clone(),
         }
     }
 
@@ -447,12 +566,12 @@ impl<'a> TopLevelComposer<'a> {
                 // and then push in the correct order after the for loop
                 let mut class_method_index_offset = 0;
                 let init_id = "__init__".into();
-                let exception_id = "Exception".into();
                 // TODO: Fix this hack. We will generate constructor for classes that inherit
                 // from Exception class (directly or indirectly), but this code cannot handle
                 // subclass of other exception classes.
-                let mut contains_constructor = bases
-                    .iter().any(|base| matches!(base.node, ast::ExprKind::Name { id, .. } if id == exception_id));
+                let mut contains_constructor = bases.iter().any(|base| {
+                    self.builtin_registry.match_builtin(base) == Some(BuiltinKind::Exception)
+                });
                 for b in body {
                     if let ast::StmtKind::FunctionDef {
                         name: method_name, decorator_list, ..
@@ -487,7 +606,7 @@ impl<'a> TopLevelComposer<'a> {
                         let dummy_method_type = self.unifier.get_dummy_var().ty;
                         let mut attributes = vec![];
                         if decorator_list.iter().any(|d| {
-                            self.core_config.is_static_method_decorator(d).unwrap_or(false)
+                            self.builtin_registry.is_static_method_decorator(d).unwrap_or(false)
                         }) {
                             attributes.push(super::FunAttribute::StaticMethod);
                         }
@@ -597,6 +716,7 @@ impl<'a> TopLevelComposer<'a> {
     /// Checks for class type variables and ancestors adding them to the `TopLevelDef` list
     fn analyze_top_level_class_definition(&mut self) -> Result<(), HashSet<String>> {
         let def_list = &self.definition_ast_list;
+        let builtin_registry = &self.builtin_registry;
         let unifier = &mut self.unifier;
         let primitives_store = &self.primitives_ty;
         let mut errors = HashSet::new();
@@ -616,7 +736,7 @@ impl<'a> TopLevelComposer<'a> {
                     &temp_def_list,
                     unifier,
                     primitives_store,
-                    &self.core_config,
+                    builtin_registry,
                 ) {
                     errors.extend(e);
                 }
@@ -691,7 +811,7 @@ impl<'a> TopLevelComposer<'a> {
                     unifier,
                     primitives_store,
                     &mut type_var_to_concrete_def,
-                    (&self.keyword_list, &self.core_config),
+                    (&self.keyword_list, &self.builtin_registry),
                 ) {
                     errors.extend(e);
                 }
@@ -842,6 +962,7 @@ impl<'a> TopLevelComposer<'a> {
                     let type_annotation = parse_ast_to_type_annotation_kinds(
                         resolver,
                         temp_def_list.as_slice(),
+                        &self.builtin_registry,
                         unifier,
                         primitives_store,
                         annotation,
@@ -933,6 +1054,7 @@ impl<'a> TopLevelComposer<'a> {
                         let type_annotation = parse_ast_to_type_annotation_kinds(
                             resolver,
                             temp_def_list.as_slice(),
+                            &self.builtin_registry,
                             unifier,
                             primitives_store,
                             annotation,
@@ -974,7 +1096,11 @@ impl<'a> TopLevelComposer<'a> {
                             default_value: match default {
                                 None => None,
                                 Some(default) => Some({
-                                    let v = Self::parse_parameter_default_value(default, resolver)?;
+                                    let v = Self::parse_parameter_default_value(
+                                        default,
+                                        resolver,
+                                        &self.builtin_registry,
+                                    )?;
                                     Self::check_default_param_type(
                                         &v,
                                         &type_annotation,
@@ -1006,6 +1132,7 @@ impl<'a> TopLevelComposer<'a> {
                         parse_ast_to_type_annotation_kinds(
                             resolver,
                             &temp_def_list,
+                            &self.builtin_registry,
                             unifier,
                             primitives_store,
                             return_annotation,
@@ -1090,9 +1217,9 @@ impl<'a> TopLevelComposer<'a> {
         unifier: &mut Unifier,
         primitives: &PrimitiveStore,
         type_var_to_concrete_def: &mut HashMap<Type, TypeAnnotation>,
-        core_info: (&HashSet<StrRef>, &ComposerConfig),
+        core_info: (&HashSet<StrRef>, &Arc<dyn BuiltinRegistry>),
     ) -> Result<(), HashSet<String>> {
-        let (keyword_list, core_config) = core_info;
+        let (keyword_list, builtin_registry) = core_info;
 
         let mut class_def = class_def.write();
         let TopLevelDef::Class {
@@ -1140,7 +1267,7 @@ impl<'a> TopLevelComposer<'a> {
                     let mut method_var_map = VarMap::new();
 
                     let is_static = decorator_list.iter().any(|def| {
-                        core_config.is_static_method_decorator(def).unwrap_or(false)
+                        builtin_registry.is_static_method_decorator(def).unwrap_or(false)
                     });
 
                     let arg_types: Vec<FuncArg> = {
@@ -1190,6 +1317,7 @@ impl<'a> TopLevelComposer<'a> {
                                 parse_ast_to_type_annotation_kinds(
                                     class_resolver,
                                     temp_def_list,
+                                    builtin_registry,
                                     unifier,
                                     primitives,
                                     annotation_expr,
@@ -1220,7 +1348,7 @@ impl<'a> TopLevelComposer<'a> {
                                     let default_idx = idx - no_defaults;
 
                                     Some({
-                                        let v = Self::parse_parameter_default_value(&args.defaults[default_idx], class_resolver)?;
+                                        let v = Self::parse_parameter_default_value(&args.defaults[default_idx], class_resolver, builtin_registry)?;
                                         Self::check_default_param_type(&v, &type_ann, primitives, unifier).map_err(|err| HashSet::from([format!("{} (at {})", err, x.location)]))?;
                                         v
                                     })
@@ -1242,6 +1370,7 @@ impl<'a> TopLevelComposer<'a> {
                             let annotation = parse_ast_to_type_annotation_kinds(
                                 class_resolver,
                                 temp_def_list,
+                                builtin_registry,
                                 unifier,
                                 primitives,
                                 result,
@@ -1317,16 +1446,16 @@ impl<'a> TopLevelComposer<'a> {
                                     // handle Kernel[T], KernelInvariant[T]
                                     let (annotation, mutable) = match &annotation.node {
                                         ExprKind::Subscript { slice, .. }
-                                            if core_config.has_invariant_ann(annotation).map_err(|err| HashSet::from([err]))? =>
+                                            if builtin_registry.has_invariant_ann(annotation).map_err(|err| HashSet::from([err.to_string()]))? =>
                                         {
                                             (slice, false)
                                         }
                                         ExprKind::Subscript { slice, .. }
-                                            if core_config.has_kernel_ann(annotation).map_err(|err| HashSet::from([err]))?.unwrap_or_default() =>
+                                            if builtin_registry.has_kernel_ann(annotation).map_err(|err| HashSet::from([err.to_string()]))? =>
                                         {
                                             (slice, true)
                                         }
-                                        _ if core_config.has_kernel_ann_fn.is_none() => (annotation, true),
+                                        _ if !builtin_registry.supports_kernel_decorators() => (annotation, true),
                                         _ => continue, // ignore fields annotated otherwise
                                     };
                                     class_fields_def.push((*attr, dummy_field_type, mutable));
@@ -1337,7 +1466,7 @@ impl<'a> TopLevelComposer<'a> {
                                     // Class attributes are set as immutable regardless
                                     let (annotation, _) = match &annotation.node {
                                         ExprKind::Subscript { slice, .. } => (slice, false),
-                                        _ if core_config.has_kernel_ann_fn.is_none() => (annotation, false),
+                                        _ if !builtin_registry.supports_kernel_decorators() => (annotation, false),
                                         _ => continue,
                                     };
 
@@ -1372,6 +1501,7 @@ impl<'a> TopLevelComposer<'a> {
                             let parsed_annotation = parse_ast_to_type_annotation_kinds(
                                 class_resolver,
                                 temp_def_list,
+                                builtin_registry,
                                 unifier,
                                 primitives,
                                 annotation.as_ref(),
@@ -1926,9 +2056,9 @@ impl<'a> TopLevelComposer<'a> {
                 if decorator_list
                     .iter()
                     .try_fold(false, |acc, dec| {
-                        self.core_config.is_extern_decorator(dec).map(|x| x || acc)
+                        self.builtin_registry.is_extern_decorator(dec).map(|x| x || acc)
                     })
-                    .map_err(|err| HashSet::from([err]))?
+                    .map_err(|err| HashSet::from([err.to_string()]))?
                 {
                     let TopLevelDef::Function { instance_to_symbol, .. } = &mut *def.write() else {
                         unreachable!()

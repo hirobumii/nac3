@@ -7,7 +7,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use strum::IntoEnumIterator;
 
-use nac3parser::ast::{self, Constant, Expr, Location, StrRef};
+use nac3parser::ast::{self, Constant, Expr, ExprKind, Location, StrRef};
 
 use super::{
     DefinitionId, TopLevelDef,
@@ -15,6 +15,7 @@ use super::{
 };
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
+    toplevel::composer::{BuiltinKind, BuiltinRegistry},
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{AttrKind, Type, TypeEnum, Unifier, VarMap},
@@ -78,6 +79,7 @@ impl TypeAnnotation {
 fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+    builtin_registry: &Arc<dyn BuiltinRegistry>,
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     mut locked: HashMap<DefinitionId, Vec<Type>, S>,
@@ -131,6 +133,7 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
                 parse_ast_to_type_annotation_kinds(
                     resolver,
                     top_level_defs,
+                    builtin_registry,
                     unifier,
                     primitives,
                     x,
@@ -172,42 +175,56 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
 fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+    builtin_registry: &Arc<dyn BuiltinRegistry>,
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     locked: HashMap<DefinitionId, Vec<Type>, S>,
-    id: StrRef,
-    location: &Location,
+    expr: &ast::Expr<T>,
 ) -> Result<TypeAnnotation, HashSet<String>> {
-    if id == "int32".into() {
-        Ok(TypeAnnotation::Primitive(primitives.int32))
-    } else if id == "int64".into() {
-        Ok(TypeAnnotation::Primitive(primitives.int64))
-    } else if id == "uint32".into() {
-        Ok(TypeAnnotation::Primitive(primitives.uint32))
-    } else if id == "uint64".into() {
-        Ok(TypeAnnotation::Primitive(primitives.uint64))
-    } else if id == "float".into() {
-        Ok(TypeAnnotation::Primitive(primitives.float))
-    } else if id == "bool".into() {
-        Ok(TypeAnnotation::Primitive(primitives.bool))
-    } else if id == "str".into() {
-        Ok(TypeAnnotation::Primitive(primitives.str))
-    } else if id == "Exception".into() {
-        Ok(TypeAnnotation::CustomClass { id: PrimDef::Exception.id(), params: Vec::default() })
-    } else if let Ok(obj_id) = resolver.get_identifier_def(id) {
+    let location = &expr.location;
+    let ast::ExprKind::Name { id, .. } = &expr.node else { unreachable!("must be name expr here") };
+    let name_expr = Expr {
+        node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
+        location: *location,
+        custom: (),
+    };
+    if let Some(builtin) = builtin_registry.match_builtin(&name_expr) {
+        if builtin == BuiltinKind::Int32 {
+            return Ok(TypeAnnotation::Primitive(primitives.int32));
+        } else if builtin == BuiltinKind::Int64 {
+            return Ok(TypeAnnotation::Primitive(primitives.int64));
+        } else if builtin == BuiltinKind::Uint32 {
+            return Ok(TypeAnnotation::Primitive(primitives.uint32));
+        } else if builtin == BuiltinKind::Uint64 {
+            return Ok(TypeAnnotation::Primitive(primitives.uint64));
+        } else if builtin == BuiltinKind::Float {
+            return Ok(TypeAnnotation::Primitive(primitives.float));
+        } else if builtin == BuiltinKind::Bool {
+            return Ok(TypeAnnotation::Primitive(primitives.bool));
+        } else if builtin == BuiltinKind::Str {
+            return Ok(TypeAnnotation::Primitive(primitives.str));
+        } else if builtin == BuiltinKind::Exception {
+            return Ok(TypeAnnotation::CustomClass {
+                id: PrimDef::Exception.id(),
+                params: Vec::default(),
+            });
+        }
+    }
+    if let Ok(obj_id) = resolver.get_identifier_def(*id) {
         class_def_id_to_type_annotation(
             resolver,
             top_level_defs,
+            builtin_registry,
             unifier,
             primitives,
             locked,
-            id,
+            *id,
             (obj_id, None as Option<&Expr<T>>),
             location,
         )
-    } else if let Ok(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, id) {
+    } else if let Ok(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id) {
         if let TypeEnum::TVar { .. } = unifier.get_ty(ty).as_ref() {
-            let var = unifier.get_fresh_var(Some(id), Some(*location)).ty;
+            let var = unifier.get_fresh_var(Some(*id), Some(*location)).ty;
             unifier.unify(var, ty).unwrap();
             Ok(TypeAnnotation::TypeVar(ty))
         } else {
@@ -223,6 +240,7 @@ fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
 fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+    builtin_registry: &Arc<dyn BuiltinRegistry>,
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     locked: HashMap<DefinitionId, Vec<Type>, S>,
@@ -230,7 +248,22 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     slice: &Expr<T>,
     location: &Location,
 ) -> Result<TypeAnnotation, HashSet<String>> {
-    if ["virtual".into(), "Generic".into(), "tuple".into(), "Option".into()].contains(&id) {
+    let name_expr = Expr {
+        node: ExprKind::Name { id, ctx: ast::ExprContext::Load },
+        location: *location,
+        custom: (),
+    };
+    if let Some(builtin) = builtin_registry.match_builtin(&name_expr)
+        && matches!(
+            builtin,
+            BuiltinKind::Kernel
+                | BuiltinKind::KernelInvariant
+                | BuiltinKind::ConstGeneric
+                | BuiltinKind::None
+                | BuiltinKind::Virtual
+                | BuiltinKind::Option
+        )
+    {
         return Err(HashSet::from([format!("keywords cannot be class name (at {location})")]));
     }
 
@@ -239,6 +272,7 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     class_def_id_to_type_annotation(
         resolver,
         top_level_defs,
+        builtin_registry,
         unifier,
         primitives,
         locked,
@@ -332,6 +366,7 @@ fn resolve_class_to_id<T>(
 pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+    builtin_registry: &Arc<dyn BuiltinRegistry>,
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     expr: &ast::Expr<T>,
@@ -339,25 +374,31 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
     locked: HashMap<DefinitionId, Vec<Type>, S>,
 ) -> Result<TypeAnnotation, HashSet<String>> {
     match &expr.node {
-        ast::ExprKind::Name { id, .. } => parse_name_as_type_annotation::<T, S>(
+        ast::ExprKind::Name { .. } => parse_name_as_type_annotation::<T, S>(
             resolver,
             top_level_defs,
+            builtin_registry,
             unifier,
             primitives,
             locked,
-            *id,
-            &expr.location,
+            expr,
         ),
 
         // virtual
         ast::ExprKind::Subscript { value, slice, .. }
-            if {
-                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"virtual".into())
-            } =>
+            if matches!(&value.node, ast::ExprKind::Name { id, .. } if {
+                let name_expr = Expr {
+                    node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
+                    location: value.location,
+                    custom: (),
+                };
+                builtin_registry.match_builtin(&name_expr) == Some(BuiltinKind::Virtual)
+            }) =>
         {
             let def = parse_ast_to_type_annotation_kinds(
                 resolver,
                 top_level_defs,
+                builtin_registry,
                 unifier,
                 primitives,
                 slice.as_ref(),
@@ -371,13 +412,19 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // option
         ast::ExprKind::Subscript { value, slice, .. }
-            if {
-                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"Option".into())
-            } =>
+            if matches!(&value.node, ast::ExprKind::Name { id, .. } if {
+                let name_expr = Expr {
+                    node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
+                    location: value.location,
+                    custom: (),
+                };
+                builtin_registry.match_builtin(&name_expr) == Some(BuiltinKind::Option)
+            }) =>
         {
             let def_ann = parse_ast_to_type_annotation_kinds(
                 resolver,
                 top_level_defs,
+                builtin_registry,
                 unifier,
                 primitives,
                 slice.as_ref(),
@@ -394,9 +441,14 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // tuple
         ast::ExprKind::Subscript { value, slice, .. }
-            if {
-                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"tuple".into())
-            } =>
+            if matches!(&value.node, ast::ExprKind::Name { id, .. } if {
+                let name_expr = Expr {
+                    node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
+                    location: value.location,
+                    custom: (),
+                };
+                builtin_registry.match_builtin(&name_expr) == Some(BuiltinKind::Tuple)
+            }) =>
         {
             let tup_elts = {
                 if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
@@ -411,6 +463,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                     parse_ast_to_type_annotation_kinds(
                         resolver,
                         top_level_defs,
+                        builtin_registry,
                         unifier,
                         primitives,
                         e,
@@ -423,9 +476,14 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // Literal
         ast::ExprKind::Subscript { value, slice, .. }
-            if {
-                matches!(&value.node, ast::ExprKind::Name { id, .. } if id == &"Literal".into())
-            } =>
+            if matches!(&value.node, ast::ExprKind::Name { id, .. } if {
+                let name_expr = Expr {
+                    node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
+                    location: value.location,
+                    custom: (),
+                };
+                builtin_registry.match_builtin(&name_expr) == Some(BuiltinKind::Literal)
+            }) =>
         {
             let tup_elts = {
                 if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
@@ -443,6 +501,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                     _ => parse_ast_to_type_annotation_kinds(
                         resolver,
                         top_level_defs,
+                        builtin_registry,
                         unifier,
                         primitives,
                         e,
@@ -472,6 +531,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
             ast::ExprKind::Name { id, .. } => parse_class_id_as_type_annotation(
                 resolver,
                 top_level_defs,
+                builtin_registry,
                 unifier,
                 primitives,
                 locked,
@@ -486,6 +546,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                 class_def_id_to_type_annotation::<T, S>(
                     resolver,
                     top_level_defs,
+                    builtin_registry,
                     unifier,
                     primitives,
                     locked,
@@ -509,6 +570,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
             class_def_id_to_type_annotation::<T, S>(
                 resolver,
                 top_level_defs,
+                builtin_registry,
                 unifier,
                 primitives,
                 locked,

@@ -28,6 +28,7 @@ use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         FunAttribute, TopLevelContext, TopLevelDef,
+        composer::BuiltinKind,
         helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims, extract_ndims},
         numpy::{make_ndarray_ty, subst_ndarray_tvars, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
@@ -178,11 +179,13 @@ impl Fold<()> for Inferencer<'_> {
                     );
                 };
                 let top_level_defs = self.top_level.definitions.read();
+                let builtin_registry = self.top_level.builtin_registry.clone();
                 let annotation_type = self.function_data.resolver.parse_type_annotation(
                     top_level_defs.as_slice(),
                     self.unifier,
                     self.primitives,
                     annotation.as_ref(),
+                    &builtin_registry,
                 )?;
                 self.unify(annotation_type, target.custom.unwrap(), &node.location)?;
                 let annotation = Box::new(NaiveFolder().fold_expr(*annotation)?);
@@ -208,6 +211,7 @@ impl Fold<()> for Inferencer<'_> {
                 self.in_handler = true;
                 {
                     let top_level_defs = self.top_level.definitions.read();
+                    let builtin_registry = self.top_level.builtin_registry.clone();
                     let mut naive_folder = NaiveFolder();
                     for handler in handlers {
                         let ast::ExcepthandlerKind::ExceptHandler { type_, name, body } =
@@ -218,6 +222,7 @@ impl Fold<()> for Inferencer<'_> {
                                 self.unifier,
                                 self.primitives,
                                 &type_,
+                                &builtin_registry,
                             )?;
                             self.virtual_checks.push((
                                 typ,
@@ -1002,8 +1007,10 @@ impl Inferencer<'_> {
             return Ok(None);
         };
 
+        let builtin = self.top_level.builtin_registry.match_builtin(func);
+
         // handle special functions that cannot be typed in the usual way...
-        if id == &"virtual".into() {
+        if builtin == Some(BuiltinKind::Virtual) {
             if args.is_empty() || args.len() > 2 || !keywords.is_empty() {
                 return report_error(
                     "`virtual` can only accept 1/2 positional arguments",
@@ -1013,11 +1020,13 @@ impl Inferencer<'_> {
             let arg0 = self.fold_expr(args.remove(0))?;
             let ty = if let Some(arg) = args.pop() {
                 let top_level_defs = self.top_level.definitions.read();
+                let builtin_registry = self.top_level.builtin_registry.clone();
                 self.function_data.resolver.parse_type_annotation(
                     top_level_defs.as_slice(),
                     self.unifier,
                     self.primitives,
                     &arg,
+                    &builtin_registry,
                 )?
             } else {
                 self.unifier.get_dummy_var().ty
@@ -1039,7 +1048,7 @@ impl Inferencer<'_> {
             }));
         }
 
-        if id == &"len".into() && args.len() == 1 {
+        if builtin == Some(BuiltinKind::Len) && args.len() == 1 {
             let obj = self.fold_expr(args.remove(0))?;
             let obj_ty = obj.custom.unwrap();
 
@@ -1091,25 +1100,34 @@ impl Inferencer<'_> {
             }));
         }
 
-        if ["int32", "float", "bool", "round", "round64", "np_isnan", "np_isinf"]
-            .iter()
-            .any(|fun_id| id == &(*fun_id).into())
-            && args.len() == 1
+        if matches!(
+            builtin,
+            Some(
+                BuiltinKind::Int32
+                    | BuiltinKind::Float
+                    | BuiltinKind::Bool
+                    | BuiltinKind::Round
+                    | BuiltinKind::Round64
+                    | BuiltinKind::NpIsnan
+                    | BuiltinKind::NpIsinf
+            )
+        ) && args.len() == 1
         {
-            let target_ty = if id == &"int32".into()
-                || id == &"round".into()
-                || id == &"floor".into()
-                || id == &"ceil".into()
-            {
-                self.primitives.int32
-            } else if id == &"round64".into() || id == &"floor64".into() || id == &"ceil64".into() {
-                self.primitives.int64
-            } else if id == &"float".into() {
-                self.primitives.float
-            } else if id == &"bool".into() || id == &"np_isnan".into() || id == &"np_isinf".into() {
-                self.primitives.bool
-            } else {
-                unreachable!()
+            let target_ty = match builtin {
+                Some(
+                    BuiltinKind::Int32
+                    | BuiltinKind::Round
+                    | BuiltinKind::Floor
+                    | BuiltinKind::Ceil,
+                ) => self.primitives.int32,
+                Some(BuiltinKind::Round64 | BuiltinKind::Floor64 | BuiltinKind::Ceil64) => {
+                    self.primitives.int64
+                }
+                Some(BuiltinKind::Float) => self.primitives.float,
+                Some(BuiltinKind::Bool | BuiltinKind::NpIsnan | BuiltinKind::NpIsinf) => {
+                    self.primitives.bool
+                }
+                _ => unreachable!(),
             };
 
             let arg0 = self.fold_expr(args.remove(0))?;
@@ -1150,7 +1168,8 @@ impl Inferencer<'_> {
             }));
         }
 
-        if ["np_shape".into(), "np_strides".into()].contains(id) && args.len() == 1 {
+        if matches!(builtin, Some(BuiltinKind::NpShape | BuiltinKind::NpStrides)) && args.len() == 1
+        {
             let ndarray = self.fold_expr(args.remove(0))?;
 
             let ndims = arraylike_get_ndims(self.unifier, ndarray.custom.unwrap());
@@ -1189,7 +1208,7 @@ impl Inferencer<'_> {
             }));
         }
 
-        if id == &"np_dot".into() {
+        if builtin == Some(BuiltinKind::NpDot) {
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg1 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
@@ -1237,7 +1256,7 @@ impl Inferencer<'_> {
             }));
         }
 
-        if ["np_min", "np_max"].iter().any(|fun_id| id == &(*fun_id).into()) && args.len() == 1 {
+        if matches!(builtin, Some(BuiltinKind::NpMin | BuiltinKind::NpMax)) && args.len() == 1 {
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
 
@@ -1276,20 +1295,20 @@ impl Inferencer<'_> {
             }));
         }
 
-        if [
-            "np_minimum",
-            "np_maximum",
-            "np_arctan2",
-            "np_copysign",
-            "np_fmax",
-            "np_fmin",
-            "np_ldexp",
-            "np_hypot",
-            "np_nextafter",
-        ]
-        .iter()
-        .any(|fun_id| id == &(*fun_id).into())
-            && args.len() == 2
+        if matches!(
+            builtin,
+            Some(
+                BuiltinKind::NpMinimum
+                    | BuiltinKind::NpMaximum
+                    | BuiltinKind::NpArctan2
+                    | BuiltinKind::NpCopysign
+                    | BuiltinKind::NpFmax
+                    | BuiltinKind::NpFmin
+                    | BuiltinKind::NpLdexp
+                    | BuiltinKind::NpHypot
+                    | BuiltinKind::NpNextafter
+            )
+        ) && args.len() == 2
         {
             let arg0 = self.fold_expr(args.remove(0))?;
             let arg0_ty = arg0.custom.unwrap();
@@ -1310,8 +1329,11 @@ impl Inferencer<'_> {
                     arg1_ty
                 };
 
-            let expected_arg1_dtype =
-                if id == &"np_ldexp".into() { self.primitives.int32 } else { arg0_dtype };
+            let expected_arg1_dtype = if builtin == Some(BuiltinKind::NpLdexp) {
+                self.primitives.int32
+            } else {
+                arg0_dtype
+            };
             if !self.unifier.unioned(arg1_dtype, expected_arg1_dtype) {
                 return report_error(
                     format!(
@@ -1323,18 +1345,19 @@ impl Inferencer<'_> {
                 );
             }
 
-            let target_ty = if id == &"np_minimum".into() || id == &"np_maximum".into() {
-                arg0_dtype
-            } else {
-                self.primitives.float
-            };
+            let target_ty =
+                if matches!(builtin, Some(BuiltinKind::NpMinimum | BuiltinKind::NpMaximum)) {
+                    arg0_dtype
+                } else {
+                    self.primitives.float
+                };
 
             let ret = if [&arg0_ty, &arg1_ty].into_iter().any(|arg_ty| {
                 arg_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) {
                 // typeof_ndarray_broadcast requires both dtypes to be the same, but ldexp accepts
                 // (float, int32), so convert it to align with the dtype of the first arg
-                let arg1_ty = if id == &"np_ldexp".into() {
+                let arg1_ty = if builtin == Some(BuiltinKind::NpLdexp) {
                     if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
                         let (_, ndims) = unpack_ndarray_var_tys(self.unifier, arg1_ty);
 
@@ -1390,17 +1413,14 @@ impl Inferencer<'_> {
 
         // int64, uint32 and uint64 are special because their argument can be a constant outside the
         // range of int32s
-        if ["int64", "uint32", "uint64"].iter().any(|fun_id| id == &(*fun_id).into())
+        if matches!(builtin, Some(BuiltinKind::Int64 | BuiltinKind::Uint32 | BuiltinKind::Uint64))
             && args.len() == 1
         {
-            let target_ty = if id == &"int64".into() {
-                self.primitives.int64
-            } else if id == &"uint32".into() {
-                self.primitives.uint32
-            } else if id == &"uint64".into() {
-                self.primitives.uint64
-            } else {
-                unreachable!()
+            let target_ty = match builtin {
+                Some(BuiltinKind::Int64) => self.primitives.int64,
+                Some(BuiltinKind::Uint32) => self.primitives.uint32,
+                Some(BuiltinKind::Uint64) => self.primitives.uint64,
+                _ => unreachable!(),
             };
 
             // Handle constants first to ensure that their types are not defaulted to int32, which
@@ -1469,9 +1489,15 @@ impl Inferencer<'_> {
         }
 
         // 1-argument ndarray n-dimensional factory functions
-        if ["np_ndarray".into(), "np_empty".into(), "np_zeros".into(), "np_ones".into()]
-            .contains(id)
-            && args.len() == 1
+        if matches!(
+            builtin,
+            Some(
+                BuiltinKind::NpNDArray
+                    | BuiltinKind::NpEmpty
+                    | BuiltinKind::NpZeros
+                    | BuiltinKind::NpOnes
+            )
+        ) && args.len() == 1
         {
             let shape_expr = args.remove(0);
             let (ndims, shape) =
@@ -1510,7 +1536,9 @@ impl Inferencer<'_> {
             }));
         }
         // 2-argument ndarray n-dimensional factory functions
-        if ["np_reshape".into(), "np_broadcast_to".into()].contains(id) && args.len() == 2 {
+        if matches!(builtin, Some(BuiltinKind::NpReshape | BuiltinKind::NpBroadcastTo))
+            && args.len() == 2
+        {
             let arg0 = self.fold_expr(args.remove(0))?;
 
             let shape_expr = args.remove(0);
@@ -1555,7 +1583,7 @@ impl Inferencer<'_> {
             }));
         }
         // 2-argument ndarray n-dimensional creation functions
-        if id == &"np_full".into() && args.len() == 2 {
+        if builtin == Some(BuiltinKind::NpFull) && args.len() == 2 {
             // Parse arguments
             let shape_expr = args.remove(0);
             let (ndims, shape) =
@@ -1603,7 +1631,7 @@ impl Inferencer<'_> {
         }
 
         // 1-argument ndarray n-dimensional creation functions
-        if id == &"np_array".into() && args.len() == 1 {
+        if builtin == Some(BuiltinKind::NpArray) && args.len() == 1 {
             let arg0 = self.fold_expr(args.remove(0))?;
 
             let keywords = keywords

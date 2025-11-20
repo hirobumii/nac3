@@ -13,7 +13,7 @@ use nac3parser::ast::{self, Constant, ExprKind, Located, Location, Stmt, StrRef}
 
 use super::{
     DefinitionId, FunAttribute, TopLevelDef, check_overload_type_annotation_compatible,
-    composer::{DefAst, TopLevelComposer},
+    composer::{BuiltinKind, BuiltinRegistry, DefAst, TopLevelComposer},
     make_self_type_annotation,
     numpy::unpack_ndarray_var_tys,
     parse_ast_to_type_annotation_kinds,
@@ -21,7 +21,6 @@ use super::{
 };
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
-    toplevel::composer::ComposerConfig,
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{
@@ -445,7 +444,7 @@ impl TopLevelDef {
     }
 }
 
-impl TopLevelComposer<'_> {
+impl TopLevelComposer {
     #[must_use]
     pub fn make_primitives(size_t: u32) -> (PrimitiveStore, Unifier) {
         let mut unifier = Unifier::new();
@@ -935,8 +934,9 @@ impl TopLevelComposer<'_> {
     pub fn parse_parameter_default_value(
         default: &ast::Expr,
         resolver: &(dyn SymbolResolver + Send + Sync),
+        builtin_registry: &Arc<dyn BuiltinRegistry>,
     ) -> Result<SymbolValue, HashSet<String>> {
-        parse_parameter_default_value(default, resolver)
+        parse_parameter_default_value(default, resolver, builtin_registry)
     }
 
     pub fn check_default_param_type(
@@ -996,7 +996,7 @@ impl TopLevelComposer<'_> {
         temp_def_list: &[Arc<RwLock<TopLevelDef>>],
         unifier: &mut Unifier,
         primitives_store: &PrimitiveStore,
-        core_config: &ComposerConfig,
+        builtin_registry: &Arc<dyn BuiltinRegistry>,
     ) -> Result<(), HashSet<String>> {
         let mut class_def = class_def.write();
         let (class_def_id, class_ancestors, class_bases_ast, class_type_vars, class_resolver) = {
@@ -1023,7 +1023,9 @@ impl TopLevelComposer<'_> {
                 // i.e. only simple names are allowed in the subscript
                 // should update the TopLevelDef::Class.typevars and the TypeEnum::TObj.params
                 ast::ExprKind::Subscript { slice, .. }
-                    if core_config.has_generic_ann(b).map_err(|err| HashSet::from([err]))? =>
+                    if builtin_registry
+                        .has_generic_ann(b)
+                        .map_err(|err| HashSet::from([err.to_string()]))? =>
                 {
                     if is_generic {
                         return Err(HashSet::from([format!(
@@ -1050,6 +1052,7 @@ impl TopLevelComposer<'_> {
                                 unifier,
                                 primitives_store,
                                 e,
+                                builtin_registry,
                             )
                         })
                         .collect::<Result<Vec<_>, _>>()?;
@@ -1069,6 +1072,7 @@ impl TopLevelComposer<'_> {
                     let base_ty = parse_ast_to_type_annotation_kinds(
                         class_resolver,
                         temp_def_list,
+                        builtin_registry,
                         unifier,
                         primitives_store,
                         b,
@@ -1130,6 +1134,7 @@ impl TopLevelComposer<'_> {
 pub fn parse_parameter_default_value(
     default: &ast::Expr,
     resolver: &(dyn SymbolResolver + Send + Sync),
+    builtin_registry: &Arc<dyn BuiltinRegistry>,
 ) -> Result<SymbolValue, HashSet<String>> {
     fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, HashSet<String>> {
         match val {
@@ -1153,69 +1158,76 @@ pub fn parse_parameter_default_value(
     }
     match &default.node {
         ast::ExprKind::Constant { value, .. } => handle_constant(value, &default.location),
-        ast::ExprKind::Call { func, args, .. } if args.len() == 1 => match &func.node {
-            ast::ExprKind::Name { id, .. } if *id == "int64".into() => match &args[0].node {
-                ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
-                    let v: Result<i64, _> = (*v).try_into();
-                    match v {
-                        Ok(v) => Ok(SymbolValue::I64(v)),
-                        _ => Err(HashSet::from([format!(
-                            "default param value out of range at {}",
-                            default.location
-                        )])),
+        ast::ExprKind::Call { func, args, .. } if args.len() == 1 => {
+            let builtin = builtin_registry.match_builtin(func);
+            match builtin {
+                Some(BuiltinKind::Int64) => match &args[0].node {
+                    ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
+                        let v: Result<i64, _> = (*v).try_into();
+                        match v {
+                            Ok(v) => Ok(SymbolValue::I64(v)),
+                            _ => Err(HashSet::from([format!(
+                                "default param value out of range at {}",
+                                default.location
+                            )])),
+                        }
                     }
-                }
+                    _ => Err(HashSet::from([format!(
+                        "only allow constant integer here at {}",
+                        default.location
+                    )])),
+                },
+                Some(BuiltinKind::Uint32) => match &args[0].node {
+                    ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
+                        let v: Result<u32, _> = (*v).try_into();
+                        match v {
+                            Ok(v) => Ok(SymbolValue::U32(v)),
+                            _ => Err(HashSet::from([format!(
+                                "default param value out of range at {}",
+                                default.location
+                            )])),
+                        }
+                    }
+                    _ => Err(HashSet::from([format!(
+                        "only allow constant integer here at {}",
+                        default.location
+                    )])),
+                },
+                Some(BuiltinKind::Uint64) => match &args[0].node {
+                    ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
+                        let v: Result<u64, _> = (*v).try_into();
+                        match v {
+                            Ok(v) => Ok(SymbolValue::U64(v)),
+                            _ => Err(HashSet::from([format!(
+                                "default param value out of range at {}",
+                                default.location
+                            )])),
+                        }
+                    }
+                    _ => Err(HashSet::from([format!(
+                        "only allow constant integer here at {}",
+                        default.location
+                    )])),
+                },
+                Some(BuiltinKind::Some) => Ok(SymbolValue::OptionSome(Box::new(
+                    parse_parameter_default_value(&args[0], resolver, builtin_registry)?,
+                ))),
                 _ => Err(HashSet::from([format!(
-                    "only allow constant integer here at {}",
+                    "unsupported default parameter at {}",
                     default.location
                 )])),
-            },
-            ast::ExprKind::Name { id, .. } if *id == "uint32".into() => match &args[0].node {
-                ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
-                    let v: Result<u32, _> = (*v).try_into();
-                    match v {
-                        Ok(v) => Ok(SymbolValue::U32(v)),
-                        _ => Err(HashSet::from([format!(
-                            "default param value out of range at {}",
-                            default.location
-                        )])),
-                    }
-                }
-                _ => Err(HashSet::from([format!(
-                    "only allow constant integer here at {}",
-                    default.location
-                )])),
-            },
-            ast::ExprKind::Name { id, .. } if *id == "uint64".into() => match &args[0].node {
-                ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
-                    let v: Result<u64, _> = (*v).try_into();
-                    match v {
-                        Ok(v) => Ok(SymbolValue::U64(v)),
-                        _ => Err(HashSet::from([format!(
-                            "default param value out of range at {}",
-                            default.location
-                        )])),
-                    }
-                }
-                _ => Err(HashSet::from([format!(
-                    "only allow constant integer here at {}",
-                    default.location
-                )])),
-            },
-            ast::ExprKind::Name { id, .. } if *id == "Some".into() => Ok(SymbolValue::OptionSome(
-                Box::new(parse_parameter_default_value(&args[0], resolver)?),
-            )),
-            _ => Err(HashSet::from([format!(
-                "unsupported default parameter at {}",
-                default.location
-            )])),
-        },
+            }
+        }
         ast::ExprKind::Tuple { elts, .. } => Ok(SymbolValue::Tuple(
             elts.iter()
-                .map(|x| parse_parameter_default_value(x, resolver))
+                .map(|x| parse_parameter_default_value(x, resolver, builtin_registry))
                 .collect::<Result<Vec<_>, _>>()?,
         )),
-        ast::ExprKind::Name { id, .. } if id == &"none".into() => Ok(SymbolValue::OptionNone),
+        ast::ExprKind::Name { .. }
+            if builtin_registry.match_builtin(default) == Some(BuiltinKind::None) =>
+        {
+            Ok(SymbolValue::OptionNone)
+        }
         ast::ExprKind::Name { id, .. } => {
             resolver.get_default_param_value(default).ok_or_else(|| {
                 HashSet::from([format!(

@@ -13,7 +13,7 @@ use inkwell::{
 use parking_lot::RwLock;
 
 use nac3parser::{
-    ast::{FileName, StrRef, fold::Fold},
+    ast::{ExprKind, FileName, Located, StrRef, fold::Fold},
     parser::parse_program,
 };
 
@@ -28,13 +28,35 @@ use crate::{
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
         DefinitionId, FunInstance, TopLevelContext, TopLevelDef,
-        composer::{ComposerConfig, TopLevelComposer},
+        composer::{BuiltinKind, BuiltinRegistry, TopLevelComposer},
     },
     typecheck::{
         type_inferencer::{FunctionData, Inferencer, PrimitiveStore},
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap},
     },
 };
+
+struct TestBuiltinRegistry;
+impl BuiltinRegistry for TestBuiltinRegistry {
+    fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<BuiltinKind> {
+        let name = match &expr.node {
+            ExprKind::Name { id, .. } => id.to_string(),
+            ExprKind::Subscript { value, .. } => {
+                if let ExprKind::Name { id, .. } = &value.node {
+                    id.to_string()
+                } else {
+                    return None;
+                }
+            }
+            _ => return None,
+        };
+
+        match name.as_str() {
+            "virtual" => Some(BuiltinKind::Virtual),
+            _ => None,
+        }
+    }
+}
 
 struct Resolver {
     id_to_type: HashMap<StrRef, Type>,
@@ -109,8 +131,9 @@ fn test_primitives() {
         return d
         "};
     let statements = parse_program(source, FileName::default()).unwrap();
+    let builtin_registry = Arc::new(TestBuiltinRegistry);
 
-    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
+    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), builtin_registry.clone(), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
     let top_level = Arc::new(composer.make_top_level_context());
@@ -178,6 +201,7 @@ fn test_primitives() {
         definitions: Arc::new(RwLock::new(std::mem::take(&mut *top_level.definitions.write()))),
         unifiers: Arc::new(RwLock::new(vec![(unifier.get_shared_unifier(), primitives)])),
         personality_symbol: None,
+        builtin_registry: builtin_registry.clone(),
     });
 
     let task = CodeGenTask {
@@ -218,8 +242,9 @@ fn test_simple_call() {
         return a + 1
         "};
     let statements_2 = parse_program(source_2, FileName::default()).unwrap();
+    let builtin_registry = Arc::new(TestBuiltinRegistry);
 
-    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), ComposerConfig::default(), 64).0;
+    let composer = TopLevelComposer::new(Vec::new(), Vec::new(), builtin_registry.clone(), 64).0;
     let mut unifier = composer.unifier.clone();
     let primitives = composer.primitives_ty;
     let top_level = Arc::new(composer.make_top_level_context());
@@ -326,6 +351,7 @@ fn test_simple_call() {
         definitions: Arc::new(RwLock::new(std::mem::take(&mut *top_level.definitions.write()))),
         unifiers: Arc::new(RwLock::new(vec![(unifier.get_shared_unifier(), primitives)])),
         personality_symbol: None,
+        builtin_registry: builtin_registry.clone(),
     });
 
     let task = CodeGenTask {

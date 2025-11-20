@@ -33,7 +33,7 @@ use nac3core::{
     symbol_resolver::SymbolResolver,
     toplevel::{
         TopLevelDef,
-        composer::{ComposerConfig, TopLevelComposer},
+        composer::{BuiltinRegistry, TopLevelComposer},
         helper::parse_parameter_default_value,
         type_annotation::{
             get_type_from_type_annotation_kinds, parse_ast_to_type_annotation_kinds,
@@ -45,7 +45,7 @@ use nac3core::{
     },
 };
 
-use basic_symbol_resolver::{Resolver, ResolverInternal};
+use basic_symbol_resolver::{Resolver, ResolverInternal, StandaloneBuiltinRegistry};
 
 mod basic_symbol_resolver;
 
@@ -90,6 +90,7 @@ fn handle_typevar_definition(
     var: &Expr,
     resolver: &(dyn SymbolResolver + Send + Sync),
     def_list: &[Arc<RwLock<TopLevelDef>>],
+    builtin_registry: &Arc<dyn BuiltinRegistry>,
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
 ) -> Result<Type, HashSet<String>> {
@@ -116,6 +117,7 @@ fn handle_typevar_definition(
                     let ty = parse_ast_to_type_annotation_kinds(
                         resolver,
                         def_list,
+                        builtin_registry,
                         unifier,
                         primitives,
                         x,
@@ -156,6 +158,7 @@ fn handle_typevar_definition(
             let ty = parse_ast_to_type_annotation_kinds(
                 resolver,
                 def_list,
+                builtin_registry,
                 unifier,
                 primitives,
                 &args[1],
@@ -189,13 +192,21 @@ fn handle_assignment_pattern(
                 let def_list = composer.extract_def_list();
                 let unifier = &mut composer.unifier;
                 let primitives = &composer.primitives_ty;
+                let builtin_registry = &composer.builtin_registry;
 
-                if let Ok(var) =
-                    handle_typevar_definition(value, &*resolver, &def_list, unifier, primitives)
-                {
+                if let Ok(var) = handle_typevar_definition(
+                    value,
+                    &*resolver,
+                    &def_list,
+                    builtin_registry,
+                    unifier,
+                    primitives,
+                ) {
                     internal_resolver.add_id_type(*id, var);
                     Ok(())
-                } else if let Ok(val) = parse_parameter_default_value(value, &*resolver) {
+                } else if let Ok(val) =
+                    parse_parameter_default_value(value, &*resolver, builtin_registry)
+                {
                     internal_resolver.add_module_global(*id, val);
                     Ok(())
                 } else {
@@ -305,8 +316,10 @@ fn main() {
     let target_machine = target.create_target_machine();
     let size_t_bits = target_machine.get_target_data().get_pointer_byte_size(None) * 8;
 
+    let builtin_registry = Arc::new(StandaloneBuiltinRegistry);
+
     let (mut composer, builtins_def, builtins_ty) =
-        TopLevelComposer::new(vec![], vec![], ComposerConfig::default(), size_t_bits);
+        TopLevelComposer::new(vec![], vec![], builtin_registry.clone(), size_t_bits);
 
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
         id_to_type: builtins_ty.into(),

@@ -5,13 +5,45 @@ use indoc::indoc;
 use parking_lot::RwLock;
 use test_case::test_case;
 
-use nac3parser::{ast::FileName, parser::parse_program};
+use nac3parser::{
+    ast::{ExprKind, FileName, Located},
+    parser::parse_program,
+};
 
 use super::*;
+
+struct TestBuiltinRegistry;
+impl BuiltinRegistry for TestBuiltinRegistry {
+    fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<BuiltinKind> {
+        let name = match &expr.node {
+            ExprKind::Name { id, .. } => id.to_string(),
+            ExprKind::Subscript { value, .. } => {
+                if let ExprKind::Name { id, .. } = &value.node {
+                    id.to_string()
+                } else {
+                    return None;
+                }
+            }
+            _ => return None,
+        };
+        match name.as_str() {
+            "virtual" => Some(BuiltinKind::Virtual),
+            "int32" => Some(BuiltinKind::Int32),
+            "int64" => Some(BuiltinKind::Int64),
+            "float" => Some(BuiltinKind::Float),
+            "bool" => Some(BuiltinKind::Bool),
+            _ => None,
+        }
+    }
+}
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::ValueEnum,
-    toplevel::{DefinitionId, TopLevelDef, helper::PrimDef},
+    toplevel::{
+        DefinitionId, TopLevelDef,
+        composer::{BuiltinKind, BuiltinRegistry},
+        helper::PrimDef,
+    },
     typecheck::{
         magic_methods::{set_primitives_magic_methods, with_fields},
         typedef::AttrKind,
@@ -206,6 +238,7 @@ impl TestEnvironment {
                 definitions: Arc::default(),
                 unifiers: Arc::default(),
                 personality_symbol: None,
+                builtin_registry: Arc::new(TestBuiltinRegistry),
             },
             unifier,
             function_data: FunctionData {
@@ -493,6 +526,7 @@ impl TestEnvironment {
             definitions: Arc::new(top_level_defs.into()),
             unifiers: Arc::default(),
             personality_symbol: None,
+            builtin_registry: Arc::new(TestBuiltinRegistry),
         };
 
         let resolver = Arc::new(Resolver {

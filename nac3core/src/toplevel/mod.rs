@@ -8,6 +8,7 @@ use nac3parser::ast::{self, Location, Stmt, StrRef};
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::{SymbolResolver, ValueEnum},
+    toplevel::composer::BuiltinRegistry,
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FunSignature, SharedUnifier, Type, TypeVarId, VarMap},
@@ -170,4 +171,5 @@ pub struct TopLevelContext {
     pub definitions: Arc<RwLock<Vec<Arc<RwLock<TopLevelDef>>>>>,
     pub unifiers: Arc<RwLock<Vec<(SharedUnifier, PrimitiveStore)>>>,
     pub personality_symbol: Option<String>,
+    pub builtin_registry: Arc<dyn BuiltinRegistry>,
 }

@@ -3,7 +3,7 @@ from functools import wraps
 from math import floor, ceil
 from numpy import int32, int64, uint32, uint64, float64, bool_, str_, ndarray
 from types import GenericAlias, ModuleType, SimpleNamespace
-from typing import _GenericAlias, Generic, TypeVar
+from typing import _GenericAlias, Generic, Literal, TypeVar
 
 import nac3artiq
 
@@ -152,6 +152,9 @@ builtins = {
     "list": list,
     "tuple": tuple,
     "Exception": Exception,
+    "range": range,
+    "round": round,
+    "len": len,
     "staticmethod": staticmethod,
 
     "types": {
@@ -163,6 +166,7 @@ builtins = {
         "_GenericAlias": _GenericAlias,
         "Generic": Generic,
         "TypeVar": TypeVar,
+        "Literal": Literal,
     },
 
     "numpy": {

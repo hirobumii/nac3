@@ -8,7 +8,7 @@
 )]
 
 use std::{
-    cell::{LazyCell, OnceCell},
+    cell::OnceCell,
     collections::{HashMap, HashSet},
     fs,
     io::Write,
@@ -51,7 +51,10 @@ use nac3core::{
     toplevel::{
         DefinitionId, GenCall, TopLevelDef,
         builtins::get_exn_constructor,
-        composer::{BuiltinFuncCreator, BuiltinFuncSpec, ComposerConfig, TopLevelComposer},
+        composer::{
+            BuiltinFuncCreator, BuiltinFuncSpec, BuiltinKind, BuiltinMatchError, BuiltinRegistry,
+            TopLevelComposer,
+        },
         helper::get_decorator_flags,
     },
     typecheck::{
@@ -130,6 +133,148 @@ impl Isa {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PyId {
+    Type(u64),
+    Decorator(Vec<u64>),
+}
+
+impl From<u64> for PyId {
+    fn from(id: u64) -> Self {
+        PyId::Type(id)
+    }
+}
+
+/// ARTIQ mode builtin registry using Python object ID matching.
+///
+/// This implementation matches builtin identifiers by comparing Python object IDs
+pub struct ArtiqBuiltinRegistry {
+    /// Mapping from Python object ID to BuiltinKind
+    id_to_builtin: HashMap<u64, BuiltinKind>,
+    /// Mapping for decorators (which can have multiple IDs)
+    decorator_ids: HashMap<BuiltinKind, Vec<u64>>,
+    /// Python modules indexed by file for context resolution
+    modules: Arc<HashMap<FileName, Arc<Py<PyModule>>>>,
+}
+
+impl ArtiqBuiltinRegistry {
+    pub fn new(
+        primitive_ids: &PrimitivePythonId,
+        modules: Arc<HashMap<FileName, Arc<Py<PyModule>>>>,
+    ) -> Self {
+        let mut id_to_builtin = HashMap::new();
+        let mut decorator_ids = HashMap::new();
+
+        // Type annotations
+        id_to_builtin.insert(primitive_ids.artiq.kernel, BuiltinKind::Kernel);
+        id_to_builtin.insert(primitive_ids.artiq.kernel_invariant, BuiltinKind::KernelInvariant);
+        id_to_builtin.insert(primitive_ids.artiq.const_generic_marker, BuiltinKind::ConstGeneric);
+        id_to_builtin.insert(primitive_ids.artiq.none, BuiltinKind::None);
+        id_to_builtin.insert(primitive_ids.artiq.virtual_class, BuiltinKind::Virtual);
+        id_to_builtin.insert(primitive_ids.artiq.option, BuiltinKind::Option);
+
+        // Decorators (stored separately as they can have multiple IDs)
+        decorator_ids.insert(BuiltinKind::Compile, vec![primitive_ids.artiq.compile_decor_fn]);
+        decorator_ids.insert(
+            BuiltinKind::ExternFn,
+            vec![primitive_ids.artiq.extern_decor_fn, primitive_ids.artiq.rpc_decor_fn],
+        );
+        decorator_ids
+            .insert(BuiltinKind::KernelDecorator, vec![primitive_ids.artiq.kernel_decor_fn]);
+        decorator_ids.insert(BuiltinKind::Portable, vec![primitive_ids.artiq.portable_decor_fn]);
+        decorator_ids.insert(BuiltinKind::Rpc, vec![primitive_ids.artiq.rpc_decor_fn]);
+
+        // Core primitives
+        id_to_builtin.insert(primitive_ids.builtins.int, BuiltinKind::Int);
+        id_to_builtin.insert(primitive_ids.builtins.float, BuiltinKind::Float);
+        id_to_builtin.insert(primitive_ids.builtins.bool, BuiltinKind::Bool);
+        id_to_builtin.insert(primitive_ids.builtins.str_class, BuiltinKind::Str);
+        id_to_builtin.insert(primitive_ids.builtins.list, BuiltinKind::List);
+        id_to_builtin.insert(primitive_ids.builtins.tuple, BuiltinKind::Tuple);
+        id_to_builtin.insert(primitive_ids.builtins.exception, BuiltinKind::Exception);
+        id_to_builtin.insert(primitive_ids.builtins.range, BuiltinKind::Range);
+        id_to_builtin.insert(primitive_ids.builtins.round, BuiltinKind::Round);
+        id_to_builtin.insert(primitive_ids.builtins.len, BuiltinKind::Len);
+        id_to_builtin
+            .insert(primitive_ids.builtins.staticmethod_decor_fn, BuiltinKind::StaticMethod);
+
+        // Type system
+        id_to_builtin.insert(primitive_ids.typing.generic, BuiltinKind::Generic);
+        id_to_builtin.insert(primitive_ids.typing.typevar, BuiltinKind::TypeVar);
+        id_to_builtin.insert(primitive_ids.types.generic_alias, BuiltinKind::GenericAlias);
+        id_to_builtin
+            .insert(primitive_ids.typing.generic_alias, BuiltinKind::GenericAliasUnderscore);
+        id_to_builtin.insert(primitive_ids.types.module_type, BuiltinKind::ModuleType);
+        id_to_builtin.insert(primitive_ids.typing.literal, BuiltinKind::Literal);
+
+        // Sized types
+        id_to_builtin.insert(primitive_ids.numpy.int32, BuiltinKind::Int32);
+        id_to_builtin.insert(primitive_ids.numpy.int64, BuiltinKind::Int64);
+        id_to_builtin.insert(primitive_ids.numpy.uint32, BuiltinKind::Uint32);
+        id_to_builtin.insert(primitive_ids.numpy.uint64, BuiltinKind::Uint64);
+        id_to_builtin.insert(primitive_ids.numpy.float64, BuiltinKind::Float64);
+        id_to_builtin.insert(primitive_ids.numpy.bool_, BuiltinKind::BoolType);
+        id_to_builtin.insert(primitive_ids.numpy.str_, BuiltinKind::StrType);
+        id_to_builtin.insert(primitive_ids.numpy.ndarray, BuiltinKind::NDArray);
+
+        Self { id_to_builtin, decorator_ids, modules }
+    }
+
+    fn get_python_id(&self, expr: &Located<ExprKind>) -> Result<u64, BuiltinMatchError> {
+        let module = self
+            .modules
+            .get(&expr.location.file)
+            .ok_or(BuiltinMatchError::ModuleNotFound { file: expr.location.file })?;
+
+        Python::attach(|py| {
+            let module = module.bind(py);
+
+            // Try to resolve as a class
+            if let Some(class_obj) = get_class_type(expr, module)
+                .map_err(|e| BuiltinMatchError::PythonError(e.to_string()))?
+            {
+                return py_interp::extract_id(class_obj.as_any())
+                    .map_err(|e| BuiltinMatchError::PythonError(e.to_string()));
+            }
+
+            // If not a class, try to resolve as a func
+            if let Some(obj) = get_decorator_fn(expr, module)
+                .map_err(|e| BuiltinMatchError::PythonError(e.to_string()))?
+            {
+                return py_interp::extract_id(&obj)
+                    .map_err(|e| BuiltinMatchError::PythonError(e.to_string()));
+            }
+
+            // If it's neither a class nor a func, it's not a builtin we recognize
+            Err(BuiltinMatchError::ResolutionError(format!(
+                "Cannot resolve {:?} - not a class or func",
+                expr.node
+            )))
+        })
+    }
+}
+
+impl BuiltinRegistry for ArtiqBuiltinRegistry {
+    fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<BuiltinKind> {
+        let py_id = self.get_python_id(expr).ok()?;
+
+        if let Some(kind) = self.id_to_builtin.get(&py_id) {
+            return Some(*kind);
+        }
+
+        for (kind, ids) in &self.decorator_ids {
+            if ids.contains(&py_id) {
+                return Some(*kind);
+            }
+        }
+        None
+    }
+
+    fn supports_kernel_decorators(&self) -> bool {
+        true
+    }
+}
+
 #[derive(Clone)]
 pub struct BuiltinPythonId {
     int: u64,
@@ -139,6 +284,9 @@ pub struct BuiltinPythonId {
     list: u64,
     tuple: u64,
     exception: u64,
+    range: u64,
+    round: u64,
+    len: u64,
     staticmethod_decor_fn: u64,
 }
 
@@ -153,6 +301,7 @@ pub struct TypingPythonId {
     generic: u64,
     generic_alias: u64,
     typevar: u64,
+    literal: u64,
 }
 
 #[derive(Clone)]
@@ -513,72 +662,21 @@ impl Nac3 {
         let size_t = self.primitive.size_t;
 
         // Cache all imported modules indexed by their path for symbol resolution context
-        let modules_by_path = LazyCell::new(|| {
+        let modules_by_path = Arc::new(
             self.modules
                 .read()
                 .iter()
                 .map(|mod_info| (mod_info.file, mod_info.module.clone()))
-                .collect::<HashMap<_, _>>()
-        });
+                .collect(),
+        );
+
+        let builtin_registry: Arc<dyn BuiltinRegistry> =
+            Arc::new(ArtiqBuiltinRegistry::new(&self.primitive_ids, modules_by_path));
 
         let (mut composer, mut builtins_def, mut builtins_ty) = TopLevelComposer::new(
             self.builtins.clone(),
             Self::get_lateinit_builtins(),
-            ComposerConfig {
-                has_generic_ann_fn: Box::new(|ann| {
-                    Python::attach(|py| {
-                        is_class_ann_same(
-                            ann,
-                            modules_by_path[&ann.location.file].bind(py),
-                            self.primitive_ids.typing.generic,
-                        )
-                    })
-                    .map_err(|e| e.to_string())
-                }),
-                has_kernel_ann_fn: Some(Box::new(|ann| {
-                    Python::attach(|py| {
-                        is_class_ann_same(
-                            ann,
-                            modules_by_path[&ann.location.file].bind(py),
-                            self.primitive_ids.artiq.kernel,
-                        )
-                    })
-                    .map_err(|e| e.to_string())
-                })),
-                has_invariant_ann_fn: Box::new(|ann| {
-                    Python::attach(|py| {
-                        is_class_ann_same(
-                            ann,
-                            modules_by_path[&ann.location.file].bind(py),
-                            self.primitive_ids.artiq.kernel_invariant,
-                        )
-                    })
-                    .map_err(|e| e.to_string())
-                }),
-                is_extern_decorator_fn: Box::new(|decorator| {
-                    Python::attach(|py| -> PyResult<bool> {
-                        is_decor_fn_same(
-                            decorator,
-                            modules_by_path[&decorator.location.file].bind(py),
-                            &[
-                                self.primitive_ids.artiq.extern_decor_fn,
-                                self.primitive_ids.artiq.rpc_decor_fn,
-                            ],
-                        )
-                    })
-                    .map_err(|e| e.to_string())
-                }),
-                is_static_method_decorator_fn: Box::new(|decorator| {
-                    Python::attach(|py| -> PyResult<bool> {
-                        is_decor_fn_same(
-                            decorator,
-                            modules_by_path[&decorator.location.file].bind(py),
-                            &[self.primitive_ids.builtins.staticmethod_decor_fn],
-                        )
-                    })
-                    .map_err(|e| e.to_string())
-                }),
-            },
+            builtin_registry,
             size_t,
         );
 
@@ -1192,8 +1290,13 @@ fn get_class_type<'py>(
     let Some((path, id)) = class_expr_id_path(type_hint) else {
         return Ok(None);
     };
+    let obj = resolve_qname((path, id), ctx)?;
 
-    Ok(resolve_qname((path, id), ctx)?.map(Bound::cast_into).transpose()?)
+    if let Some(obj) = obj {
+        if obj.is_instance_of::<PyType>() { Ok(Some(obj.cast_into()?)) } else { Ok(None) }
+    } else {
+        Ok(None)
+    }
 }
 
 /// Returns the original function of the given `decorator` in the `ctx` global context.
@@ -1205,20 +1308,10 @@ fn get_decorator_fn<'py>(
         return Ok(None);
     };
 
-    resolve_qname((path, id), ctx).inspect(|decorator| {
-        assert!(decorator.as_ref().is_none_or(PyAnyMethods::is_callable));
-    })
-}
-
-fn is_class_ann_same(
-    type_hint: &Located<ExprKind>,
-    module: &Bound<'_, PyModule>,
-    ann_class_id: u64,
-) -> PyResult<bool> {
-    let class_obj = get_class_type(type_hint, module)?;
-    let class_id = py_interp::extract_id(&class_obj.into_pyobject(module.py())?)?;
-
-    Ok(class_id == ann_class_id)
+    resolve_qname((path, id), ctx).map(|obj| match obj {
+        Some(ref o) if o.is_callable() => Ok(obj),
+        Some(_) | None => Ok(None),
+    })?
 }
 
 /// Checks whether the decorator expression in the `module` context refers to the same function
@@ -1392,6 +1485,9 @@ impl Nac3 {
                 list: get_artiq_builtin_id(None, "list")?,
                 tuple: get_artiq_builtin_id(None, "tuple")?,
                 exception: get_artiq_builtin_id(None, "Exception")?,
+                range: get_artiq_builtin_id(None, "range")?,
+                round: get_artiq_builtin_id(None, "round")?,
+                len: get_artiq_builtin_id(None, "len")?,
                 staticmethod_decor_fn: get_artiq_builtin_id(None, "staticmethod")?,
             },
             types: TypesPythonId {
@@ -1402,6 +1498,7 @@ impl Nac3 {
                 generic: get_artiq_builtin_id(Some("typing"), "Generic")?,
                 generic_alias: get_artiq_builtin_id(Some("typing"), "_GenericAlias")?,
                 typevar: get_artiq_builtin_id(Some("typing"), "TypeVar")?,
+                literal: get_artiq_builtin_id(Some("typing"), "Literal")?,
             },
             numpy: NumpyPythonId {
                 int32: get_artiq_builtin_id(Some("numpy"), "int32")?,
