@@ -83,6 +83,10 @@ impl Relocatable for Elf32_Rela {
 // `__aeabi_unwind_cpp_pr0` in exception-throwing code.
 const R_TYPE_NONE: u8 = 0;
 
+// Number of program header
+const ELF_PHNUM: usize = 5;
+const DEBUG_PHNUM: usize = 0; // Debug image is not loadable
+
 struct SectionRecord<'a> {
     shdr: Elf32_Shdr,
     name: &'a str,
@@ -171,15 +175,103 @@ impl SymbolTableReader<'_> {
     }
 }
 
+struct Image {
+    data: mem::MaybeUninit<Vec<u8>>,
+    load_offset: u32,
+    shdr_offset: u32,
+}
+
+impl Image {
+    pub const fn register<'a>(
+        &mut self,
+        shdr: &Elf32_Shdr,
+        sh_name_str: &'a str,
+        data: Vec<u8>,
+    ) -> SectionRecord<'a> {
+        let mut elf_shdr = *shdr;
+
+        // Maintain alignment requirement specified in sh_addralign
+        let align = shdr.sh_addralign;
+        let load_padding = (align - (self.load_offset % align)) % align;
+        let image_padding = (align - (self.shdr_offset % align)) % align;
+
+        let section_load_offset = if (shdr.sh_flags as usize & SHF_ALLOC) == SHF_ALLOC {
+            self.load_offset + load_padding
+        } else {
+            0
+        };
+        let section_image_offset = self.shdr_offset + image_padding;
+
+        elf_shdr.sh_addr = section_load_offset;
+        elf_shdr.sh_offset = section_image_offset;
+
+        if (shdr.sh_flags as usize & SHF_ALLOC) == SHF_ALLOC {
+            self.load_offset = section_load_offset + shdr.sh_size;
+        }
+        if shdr.sh_type as usize != SHT_NOBITS {
+            self.shdr_offset = section_image_offset + shdr.sh_size;
+        }
+
+        SectionRecord { shdr: elf_shdr, name: sh_name_str, data }
+    }
+
+    pub fn finalize(&mut self, shdr_recs: &[SectionRecord]) {
+        let header_alignment = 4;
+
+        let mut final_len = self.shdr_offset;
+        final_len += (header_alignment - (final_len % header_alignment)) % header_alignment;
+        self.shdr_offset = final_len;
+        let final_len = final_len as usize + shdr_recs.len() * mem::size_of::<Elf32_Shdr>();
+
+        self.data.write({
+            // This leaks the memory, but ...
+            let mut temp_vec: mem::ManuallyDrop<Vec<u32>> =
+                mem::ManuallyDrop::new(Vec::with_capacity(final_len / header_alignment as usize));
+            // This new vector picks up the memory.
+            // The new vector is responsible to free the memory instead.
+            unsafe { Vec::from_raw_parts(temp_vec.as_mut_ptr().cast(), final_len, final_len) }
+        });
+        let owned_buffer = unsafe { self.data.assume_init_mut() };
+
+        let mut shdr_ptr =
+            unsafe { owned_buffer.as_mut_ptr().add(self.shdr_offset as usize).cast() };
+
+        for shdr_rec in shdr_recs {
+            if shdr_rec.shdr.sh_type as usize != SHT_NOBITS {
+                owned_buffer[shdr_rec.shdr.sh_offset as usize..][..shdr_rec.data.len()]
+                    .clone_from_slice(&shdr_rec.data);
+            }
+
+            unsafe {
+                *shdr_ptr = shdr_rec.shdr;
+                shdr_ptr = shdr_ptr.add(1);
+            }
+        }
+    }
+
+    pub fn get_mut_ref<T>(&mut self, offset: usize, len: usize) -> &mut [T] {
+        unsafe {
+            let borrowed_buf = self.data.assume_init_mut();
+            assert!(borrowed_buf.len() >= offset + len, "out of bound access to image buffer");
+            slice::from_raw_parts_mut(borrowed_buf.as_mut_ptr().add(offset).cast(), len)
+        }
+    }
+
+    pub const fn take(self) -> Vec<u8> {
+        unsafe { self.data.assume_init() }
+    }
+}
+
 pub struct Linker<'a> {
     isa: Isa,
     symtab: &'a [Elf32_Sym],
     strtab: &'a [u8],
     elf_shdrs: Vec<SectionRecord<'a>>,
+    debug_shdrs: Vec<SectionRecord<'a>>,
     section_map: HashMap<usize, usize>,
-    image: Vec<u8>,
-    load_offset: u32,
-    image_offset: u32,
+    debug_section_map: HashMap<usize, usize>,
+    dyn_lib_image: Image,
+    debug_image: Image,
     rela_dyn_relas: Vec<Elf32_Rela>,
 }
 
@@ -194,38 +286,24 @@ impl<'a> Linker<'a> {
     }
 
     fn load_section(&mut self, shdr: &Elf32_Shdr, sh_name_str: &'a str, data: Vec<u8>) -> usize {
-        let mut elf_shdr = *shdr;
-
-        // Maintain alignment requirement specified in sh_addralign
-        let align = shdr.sh_addralign;
-        let load_padding = (align - (self.load_offset % align)) % align;
-        let image_padding = (align - (self.image_offset % align)) % align;
-
-        let section_load_offset = if (shdr.sh_flags as usize & SHF_ALLOC) == SHF_ALLOC {
-            self.load_offset + load_padding
-        } else {
-            0
-        };
-        let section_image_offset = self.image_offset + image_padding;
-
-        elf_shdr.sh_addr = section_load_offset;
-        elf_shdr.sh_offset = section_image_offset;
-        self.elf_shdrs.push(SectionRecord { shdr: elf_shdr, name: sh_name_str, data });
-
-        if (shdr.sh_flags as usize & SHF_ALLOC) == SHF_ALLOC {
-            self.load_offset = section_load_offset + shdr.sh_size;
-        }
-        if shdr.sh_type as usize != SHT_NOBITS {
-            self.image_offset = section_image_offset + shdr.sh_size;
-        }
-
+        self.elf_shdrs.push(self.dyn_lib_image.register(shdr, sh_name_str, data));
         self.elf_shdrs.len() - 1
+    }
+
+    fn load_debug_section(
+        &mut self,
+        shdr: &Elf32_Shdr,
+        sh_name_str: &'a str,
+        data: Vec<u8>,
+    ) -> usize {
+        self.debug_shdrs.push(self.debug_image.register(shdr, sh_name_str, data));
+        self.debug_shdrs.len() - 1
     }
 
     // Perform relocation according to the relocation entries
     // Only symbols that support relative addressing would be resolved
     // This is because the loading address is not known yet
-    fn resolve_relocatables<R: Relocatable>(
+    fn resolve_relocatables<R: Relocatable + std::fmt::Debug>(
         &mut self,
         relocs: &[R],
         target_section: Elf32_Word,
@@ -239,14 +317,41 @@ impl<'a> Linker<'a> {
             pub relocate: Option<Box<RelocateFn>>,
         }
 
-        let target_index = self
-            .section_map
-            .get(&(target_section as usize))
-            .copied()
-            .ok_or(Error::Parsing("Cannot find section with matching sh_index"))?;
+        macro_rules! get_referred_section {
+            ($target_section: ident, $return_cb: expr) => {
+                if let Some(shdr_index) = self.section_map.get(&($target_section as usize)) {
+                    Ok($return_cb(true, &self.elf_shdrs[*shdr_index], *shdr_index))
+                } else if let Some(debug_index) =
+                    self.debug_section_map.get(&($target_section as usize))
+                {
+                    Ok($return_cb(false, &self.debug_shdrs[*debug_index], *debug_index))
+                } else {
+                    Err(Error::Parsing("Cannot find section with matching sh_index"))
+                }
+            };
+        }
+
+        let (loaded, target_index) =
+            get_referred_section!(target_section, |loaded, _, idx| (loaded, idx)).unwrap();
+
+        macro_rules! get_shdr_attr {
+            ($index: ident, $attr: ident) => {
+                if loaded { &self.elf_shdrs[$index].$attr } else { &self.debug_shdrs[$index].$attr }
+            };
+        }
+
+        macro_rules! get_mut_shdr_attr {
+            ($index: ident, $attr: ident) => {
+                if loaded {
+                    &mut self.elf_shdrs[$index].$attr
+                } else {
+                    &mut self.debug_shdrs[$index].$attr
+                }
+            };
+        }
 
         let target_section_alloc =
-            self.elf_shdrs[target_index].shdr.sh_flags as usize & SHF_ALLOC == SHF_ALLOC;
+            get_shdr_attr!(target_index, shdr).sh_flags as usize & SHF_ALLOC == SHF_ALLOC;
 
         for reloc in relocs {
             if reloc.type_info() == R_TYPE_NONE {
@@ -267,18 +372,13 @@ impl<'a> Linker<'a> {
                     match sym.st_shndx {
                         SHN_UNDEF => Err(Error::Lookup("undefined symbol")),
                         SHN_ABS => Ok(sym.st_value),
-                        sec_ind => self
-                            .section_map
-                            .get(&(sec_ind as usize))
-                            .map(|&elf_sec_ind: &usize| {
-                                // Unlike the code in artiq libdyld, the image offset value is
-                                // irrelevant in this case.
-                                // The .elf dynamic library can be linked to an arbitrary address
-                                // within the kernel address space
-                                self.elf_shdrs[elf_sec_ind].shdr.sh_addr as Elf32_Word
-                                    + sym.st_value
-                            })
-                            .ok_or(Error::Parsing("section not mapped to the ELF file")),
+                        // Section index may refer to either a debug section or a loaded section
+                        // A debug relocation can still refer to a loaded section for symbol resolution
+                        sec_ind => get_referred_section!(sec_ind, |_, rec: &SectionRecord, _| rec
+                            .shdr
+                            .sh_addr
+                            as Elf32_Word
+                            + sym.st_value),
                     }
                 };
 
@@ -543,7 +643,7 @@ impl<'a> Linker<'a> {
 
             let reloc_info =
                 classify(reloc, sym).ok_or(Error::Parsing("unsupported relocation"))?;
-            let target_sec_off = self.elf_shdrs[target_index].shdr.sh_offset;
+            let target_sec_off = get_shdr_attr!(target_index, shdr).sh_offset;
 
             if reloc_info.defined_val {
                 let (refed_sym, refed_reloc) =
@@ -555,7 +655,7 @@ impl<'a> Linker<'a> {
                 let sym_addr = resolve_symbol_addr(refed_sym)?;
                 let rela_off = target_sec_off + refed_reloc.offset();
 
-                let target_sec_image = &mut self.elf_shdrs[target_index].data;
+                let target_sec_image = get_mut_shdr_attr!(target_index, data);
                 let mut value =
                     sym_addr.wrapping_add(refed_reloc.addend(target_sec_image) as Elf32_Word);
                 if reloc_info.pc_relative {
@@ -579,7 +679,7 @@ impl<'a> Linker<'a> {
                     });
                 }
             } else {
-                let target_sec_image = &self.elf_shdrs[target_index].data;
+                let target_sec_image = &get_shdr_attr!(target_index, data);
 
                 let sym_name = name_starting_at_slice(self.strtab, sym.unwrap().st_name as usize)
                     .map_err(|_| "cannot read symbol name from original .strtab")?;
@@ -595,6 +695,7 @@ impl<'a> Linker<'a> {
                 });
             }
         }
+
         Ok(())
     }
 
@@ -636,7 +737,7 @@ impl<'a> Linker<'a> {
         Ok(())
     }
 
-    pub fn ld(data: &'a [u8]) -> Result<Vec<u8>, Error> {
+    pub fn ld(data: &'a [u8]) -> Result<(Vec<u8>, Vec<u8>), Error> {
         fn allocate_rela_dyn<R: Relocatable>(
             linker: &Linker,
             relocs: &[R],
@@ -763,15 +864,51 @@ impl<'a> Linker<'a> {
             name: "",
             data: vec![0; 0],
         }];
-        let elf_sh_data_off = mem::size_of::<Elf32_Ehdr>() + mem::size_of::<Elf32_Phdr>() * 5;
+        // Debug object also needs a starting NULL record
+        let debug_shdrs = vec![SectionRecord {
+            shdr: Elf32_Shdr {
+                sh_name: 0,
+                sh_type: 0,
+                sh_flags: 0,
+                sh_addr: 0,
+                sh_offset: 0,
+                sh_size: 0,
+                sh_link: 0,
+                sh_info: 0,
+                sh_addralign: 0,
+                sh_entsize: 0,
+            },
+            name: "",
+            data: vec![0; 0],
+        }];
+
+        let elf_sh_data_off =
+            mem::size_of::<Elf32_Ehdr>() + mem::size_of::<Elf32_Phdr>() * ELF_PHNUM;
+        let debug_sh_data_off =
+            mem::size_of::<Elf32_Ehdr>() + mem::size_of::<Elf32_Phdr>() * DEBUG_PHNUM;
 
         // Image of the linked dynamic library, to be formalized incrementally
         // just as the section table eventually does
-        let image: Vec<u8> = vec![0; elf_sh_data_off];
+        let dyn_lib_image = Image {
+            data: mem::MaybeUninit::uninit(),
+            load_offset: elf_sh_data_off as u32,
+            shdr_offset: elf_sh_data_off as u32,
+        };
+
+        // Debug image
+        // Only to the symbolizer for traceback generation
+        let debug_image = Image {
+            data: mem::MaybeUninit::uninit(),
+            load_offset: debug_sh_data_off as u32,
+            shdr_offset: debug_sh_data_off as u32,
+        };
 
         // Section relocation table
         // A map of the original index of copied sections to the new sections
         let section_map = HashMap::new();
+
+        // Section relocation table, but for debug sections
+        let debug_section_map = HashMap::new();
 
         // Vector of relocation entries in .rela.dyn
         let rela_dyn_relas = Vec::new();
@@ -781,10 +918,11 @@ impl<'a> Linker<'a> {
             symtab,
             strtab,
             elf_shdrs,
+            debug_shdrs,
             section_map,
-            image,
-            load_offset: elf_sh_data_off as u32,
-            image_offset: elf_sh_data_off as u32,
+            debug_section_map,
+            dyn_lib_image,
+            debug_image,
             rela_dyn_relas,
         };
 
@@ -1379,12 +1517,12 @@ impl<'a> Linker<'a> {
             }
             let section_name = name_starting_at_slice(strtab, shdr.sh_name as usize)
                 .map_err(|_| "cannot read section name")?;
-            let elf_shdrs_index = linker.load_section(
+            let elf_shdrs_index = linker.load_debug_section(
                 shdr,
                 str::from_utf8(section_name).unwrap(),
                 data[shdr.sh_offset as usize..(shdr.sh_offset + shdr.sh_size) as usize].to_vec(),
             );
-            linker.section_map.insert(i, elf_shdrs_index);
+            linker.debug_section_map.insert(i, elf_shdrs_index);
         }
 
         for shdr in shdrs
@@ -1434,140 +1572,171 @@ impl<'a> Linker<'a> {
             sh_entsize: 0,
         };
 
+        // Same for the debug sections
+        let mut debug_shstrtab = Vec::new();
+        for shdr_rec in &mut linker.debug_shdrs {
+            let shstrtab_index = debug_shstrtab.len();
+            debug_shstrtab.extend(shdr_rec.name.as_bytes());
+            debug_shstrtab.push(0);
+            shdr_rec.shdr.sh_name = shstrtab_index as Elf32_Word;
+        }
+        // Add en entry for .shstrtab
+        let debug_shstrtab_shdr_sh_name = debug_shstrtab.len();
+        debug_shstrtab.extend(b".shstrtab");
+        debug_shstrtab.push(0);
+
+        let debug_shstrtab_shdr = Elf32_Shdr {
+            sh_name: debug_shstrtab_shdr_sh_name as Elf32_Word,
+            sh_type: SHT_STRTAB as Elf32_Word,
+            sh_flags: 0,
+            sh_addr: 0,
+            sh_offset: 0,
+            sh_size: debug_shstrtab.len() as Elf32_Word,
+            sh_link: 0,
+            sh_info: 0,
+            sh_addralign: 1,
+            sh_entsize: 0,
+        };
+
         let shstrtab_elf_index = linker.load_section(&shstrtab_shdr, ".shstrtab", shstrtab);
+        let debug_shstrtab_elf_index =
+            linker.load_debug_section(&debug_shstrtab_shdr, ".shstrtab", debug_shstrtab);
 
         // Edit .eh_frame_hdr content
         if linker.isa == Isa::RiscV32 {
             linker.implement_eh_frame_hdr()?;
         }
 
-        // Load all non-NOBITS section data into the image
-        for rec in &linker.elf_shdrs[1..] {
-            if rec.shdr.sh_type as usize != SHT_NOBITS {
-                linker.image.extend(vec![0; (rec.shdr.sh_offset as usize) - linker.image.len()]);
-                linker.image.extend(&rec.data);
-            }
-        }
-
-        // Load all section headers to the image
-        let alignment = (4 - (linker.image.len() % 4)) % 4;
-        let sec_headers_offset = linker.image.len() + alignment;
-        linker.image.extend(vec![0; alignment]);
-        for rec in &linker.elf_shdrs {
-            let shdr = rec.shdr;
-            linker.image.extend(unsafe {
-                slice::from_raw_parts(ptr::addr_of!(shdr).cast(), mem::size_of::<Elf32_Shdr>())
-            });
-        }
+        linker.dyn_lib_image.finalize(&linker.elf_shdrs);
+        linker.debug_image.finalize(&linker.debug_shdrs);
 
         // Update the PHDRs
         let phdr_offset = mem::size_of::<Elf32_Ehdr>();
-        unsafe {
-            let phdr_ptr = linker.image.as_mut_ptr().add(phdr_offset).cast();
-            let phdr_slice = slice::from_raw_parts_mut(phdr_ptr, 5);
-            // List of program headers:
-            // 1. ELF headers & program headers
-            // 2. Read-only sections
-            // 3. All other A-flag sections
-            // 4. Dynamic
-            // 5. EH frame & its header
-            let header_size = mem::size_of::<Elf32_Ehdr>() + mem::size_of::<Elf32_Phdr>() * 5;
-            phdr_slice[0] = Elf32_Phdr {
-                p_type: PT_LOAD,
-                p_offset: 0,
-                p_vaddr: 0,
-                p_paddr: 0,
-                p_filesz: header_size as Elf32_Word,
-                p_memsz: header_size as Elf32_Word,
-                p_flags: PF_R as Elf32_Word,
-                p_align: 0x1000,
-            };
-            let last_ro_shdr = linker.elf_shdrs[first_writable_sec_elf_index - 1].shdr;
-            let last_ro_addr = last_ro_shdr.sh_offset + last_ro_shdr.sh_size;
-            let ro_load_size = last_ro_addr - header_size as Elf32_Word;
-            phdr_slice[1] = Elf32_Phdr {
-                p_type: PT_LOAD,
-                p_offset: header_size as Elf32_Off,
-                p_vaddr: header_size as Elf32_Addr,
-                p_paddr: header_size as Elf32_Addr,
-                p_filesz: ro_load_size,
-                p_memsz: ro_load_size,
-                p_flags: (PF_R | PF_X) as Elf32_Word,
-                p_align: 0x1000,
-            };
-            let first_w_shdr = linker.elf_shdrs[first_writable_sec_elf_index].shdr;
-            let first_w_addr = first_w_shdr.sh_offset;
-            let last_w_shdr = linker.elf_shdrs[last_w_sec_elf_index].shdr;
-            // According to the specification, regarding PT_LOAD program header when filesz < memsz:
-            // The ``extra`` bytes are defined to hold the value 0 and to follow the segment's initialized area.
-            //
-            // We use this specified behavior to handle NOBITS.
-            let w_fsize = last_w_shdr.sh_offset + last_w_shdr.sh_size - first_w_addr;
-            let w_msize = end_load_addr - first_w_addr;
-            phdr_slice[2] = Elf32_Phdr {
-                p_type: PT_LOAD,
-                p_offset: first_w_addr as Elf32_Off,
-                p_vaddr: first_w_addr as Elf32_Addr,
-                p_paddr: first_w_addr as Elf32_Addr,
-                p_filesz: w_fsize,
-                p_memsz: w_msize,
-                p_flags: (PF_R | PF_W) as Elf32_Word,
-                p_align: 0x1000,
-            };
-            let dynamic_shdr = linker.elf_shdrs[dynamic_elf_index].shdr;
-            phdr_slice[3] = Elf32_Phdr {
-                p_type: PT_DYNAMIC,
-                p_offset: dynamic_shdr.sh_offset,
-                p_vaddr: dynamic_shdr.sh_offset,
-                p_paddr: dynamic_shdr.sh_offset,
-                p_filesz: dynamic_shdr.sh_size,
-                p_memsz: dynamic_shdr.sh_size,
-                p_flags: (PF_R | PF_W) as Elf32_Word,
-                p_align: 4,
-            };
-            let (eh_type, eh_shdr_name) = match linker.isa {
-                Isa::CortexA9 => (PT_ARM_EXIDX, ".ARM.exidx"),
-                Isa::RiscV32 => (PT_GNU_EH_FRAME, ".eh_frame_hdr"),
-            };
-            let eh_shdr = get_section_by_name!(linker, eh_shdr_name)
-                .ok_or("cannot read error handling section when finalizing phdrs")?
-                .shdr;
-            phdr_slice[4] = Elf32_Phdr {
-                p_type: eh_type,
-                p_offset: eh_shdr.sh_offset,
-                p_vaddr: eh_shdr.sh_offset,
-                p_paddr: eh_shdr.sh_offset,
-                p_filesz: eh_shdr.sh_size,
-                p_memsz: eh_shdr.sh_size,
-                p_flags: PF_R as Elf32_Word,
-                p_align: 4,
-            };
-        }
+        let phdr_slice: &mut [Elf32_Phdr] =
+            linker.dyn_lib_image.get_mut_ref(phdr_offset, ELF_PHNUM);
+        // List of program headers:
+        // 1. ELF headers & program headers
+        // 2. Read-only sections
+        // 3. All other A-flag sections
+        // 4. Dynamic
+        // 5. EH frame & its header
+        let header_size = mem::size_of::<Elf32_Ehdr>() + mem::size_of::<Elf32_Phdr>() * 5;
+        phdr_slice[0] = Elf32_Phdr {
+            p_type: PT_LOAD,
+            p_offset: 0,
+            p_vaddr: 0,
+            p_paddr: 0,
+            p_filesz: header_size as Elf32_Word,
+            p_memsz: header_size as Elf32_Word,
+            p_flags: PF_R as Elf32_Word,
+            p_align: 0x1000,
+        };
+        let last_ro_shdr = linker.elf_shdrs[first_writable_sec_elf_index - 1].shdr;
+        let last_ro_addr = last_ro_shdr.sh_offset + last_ro_shdr.sh_size;
+        let ro_load_size = last_ro_addr - header_size as Elf32_Word;
+        phdr_slice[1] = Elf32_Phdr {
+            p_type: PT_LOAD,
+            p_offset: header_size as Elf32_Off,
+            p_vaddr: header_size as Elf32_Addr,
+            p_paddr: header_size as Elf32_Addr,
+            p_filesz: ro_load_size,
+            p_memsz: ro_load_size,
+            p_flags: (PF_R | PF_X) as Elf32_Word,
+            p_align: 0x1000,
+        };
+        let first_w_shdr = linker.elf_shdrs[first_writable_sec_elf_index].shdr;
+        let first_w_addr = first_w_shdr.sh_offset;
+        let last_w_shdr = linker.elf_shdrs[last_w_sec_elf_index].shdr;
+        // According to the specification, regarding PT_LOAD program header when filesz < memsz:
+        // The ``extra`` bytes are defined to hold the value 0 and to follow the segment's initialized area.
+        //
+        // We use this specified behavior to handle NOBITS.
+        let w_fsize = last_w_shdr.sh_offset + last_w_shdr.sh_size - first_w_addr;
+        let w_msize = end_load_addr - first_w_addr;
+        phdr_slice[2] = Elf32_Phdr {
+            p_type: PT_LOAD,
+            p_offset: first_w_addr as Elf32_Off,
+            p_vaddr: first_w_addr as Elf32_Addr,
+            p_paddr: first_w_addr as Elf32_Addr,
+            p_filesz: w_fsize,
+            p_memsz: w_msize,
+            p_flags: (PF_R | PF_W) as Elf32_Word,
+            p_align: 0x1000,
+        };
+        let dynamic_shdr = linker.elf_shdrs[dynamic_elf_index].shdr;
+        phdr_slice[3] = Elf32_Phdr {
+            p_type: PT_DYNAMIC,
+            p_offset: dynamic_shdr.sh_offset,
+            p_vaddr: dynamic_shdr.sh_offset,
+            p_paddr: dynamic_shdr.sh_offset,
+            p_filesz: dynamic_shdr.sh_size,
+            p_memsz: dynamic_shdr.sh_size,
+            p_flags: (PF_R | PF_W) as Elf32_Word,
+            p_align: 4,
+        };
+        let (eh_type, eh_shdr_name) = match linker.isa {
+            Isa::CortexA9 => (PT_ARM_EXIDX, ".ARM.exidx"),
+            Isa::RiscV32 => (PT_GNU_EH_FRAME, ".eh_frame_hdr"),
+        };
+        let eh_shdr = get_section_by_name!(linker, eh_shdr_name)
+            .ok_or("cannot read error handling section when finalizing phdrs")?
+            .shdr;
+        phdr_slice[4] = Elf32_Phdr {
+            p_type: eh_type,
+            p_offset: eh_shdr.sh_offset,
+            p_vaddr: eh_shdr.sh_offset,
+            p_paddr: eh_shdr.sh_offset,
+            p_filesz: eh_shdr.sh_size,
+            p_memsz: eh_shdr.sh_size,
+            p_flags: PF_R as Elf32_Word,
+            p_align: 4,
+        };
 
         // Update the EHDR
-        let ehdr_ptr = linker.image.as_mut_ptr().cast();
-        unsafe {
-            *ehdr_ptr = Elf32_Ehdr {
-                e_ident: ehdr.e_ident,
-                e_type: ET_DYN,
-                e_machine: ehdr.e_machine,
-                e_version: ehdr.e_version,
-                e_entry: elf_sh_data_off as Elf32_Addr,
-                e_phoff: phdr_offset as Elf32_Off,
-                e_shoff: sec_headers_offset as Elf32_Off,
-                e_flags: match linker.isa {
-                    Isa::RiscV32 => ehdr.e_flags,
-                    Isa::CortexA9 => ehdr.e_flags | EF_ARM_ABI_FLOAT_HARD as Elf32_Word,
-                },
-                e_ehsize: mem::size_of::<Elf32_Ehdr>() as Elf32_Half,
-                e_phentsize: mem::size_of::<Elf32_Phdr>() as Elf32_Half,
-                e_phnum: 5,
-                e_shentsize: mem::size_of::<Elf32_Shdr>() as Elf32_Half,
-                e_shnum: linker.elf_shdrs.len() as Elf32_Half,
-                e_shstrndx: shstrtab_elf_index as Elf32_Half,
-            }
-        }
+        let dyn_lib_e_shoff = linker.dyn_lib_image.shdr_offset;
+        let ehdr_ptr: &mut [Elf32_Ehdr] = linker.dyn_lib_image.get_mut_ref(0, 1);
+        ehdr_ptr[0] = Elf32_Ehdr {
+            e_ident: ehdr.e_ident,
+            e_type: ET_DYN,
+            e_machine: ehdr.e_machine,
+            e_version: ehdr.e_version,
+            e_entry: elf_sh_data_off as Elf32_Addr,
+            e_phoff: phdr_offset as Elf32_Off,
+            e_shoff: dyn_lib_e_shoff,
+            e_flags: match linker.isa {
+                Isa::RiscV32 => ehdr.e_flags,
+                Isa::CortexA9 => ehdr.e_flags | EF_ARM_ABI_FLOAT_HARD as Elf32_Word,
+            },
+            e_ehsize: mem::size_of::<Elf32_Ehdr>() as Elf32_Half,
+            e_phentsize: mem::size_of::<Elf32_Phdr>() as Elf32_Half,
+            e_phnum: ELF_PHNUM as Elf32_Half,
+            e_shentsize: mem::size_of::<Elf32_Shdr>() as Elf32_Half,
+            e_shnum: linker.elf_shdrs.len() as Elf32_Half,
+            e_shstrndx: shstrtab_elf_index as Elf32_Half,
+        };
 
-        Ok(linker.image)
+        let debug_e_shoff = linker.debug_image.shdr_offset;
+        let ehdr_ptr: &mut [Elf32_Ehdr] = linker.debug_image.get_mut_ref(0, 1);
+        ehdr_ptr[0] = Elf32_Ehdr {
+            e_ident: ehdr.e_ident,
+            e_type: ET_DYN,
+            e_machine: ehdr.e_machine,
+            e_version: ehdr.e_version,
+            e_entry: debug_sh_data_off as Elf32_Addr,
+            e_phoff: phdr_offset as Elf32_Off,
+            e_shoff: debug_e_shoff,
+            e_flags: match linker.isa {
+                Isa::RiscV32 => ehdr.e_flags,
+                Isa::CortexA9 => ehdr.e_flags | EF_ARM_ABI_FLOAT_HARD as Elf32_Word,
+            },
+            e_ehsize: mem::size_of::<Elf32_Ehdr>() as Elf32_Half,
+            e_phentsize: mem::size_of::<Elf32_Phdr>() as Elf32_Half,
+            e_phnum: DEBUG_PHNUM as Elf32_Half,
+            e_shentsize: mem::size_of::<Elf32_Shdr>() as Elf32_Half,
+            e_shnum: linker.debug_shdrs.len() as Elf32_Half,
+            e_shstrndx: debug_shstrtab_elf_index as Elf32_Half,
+        };
+
+        Ok((linker.dyn_lib_image.take(), linker.debug_image.take()))
     }
 }

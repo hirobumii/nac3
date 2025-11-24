@@ -25,7 +25,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyAnyMethods, PyBytes, PyDict, PyNone, PyType},
+    types::{PyAnyMethods, PyDict, PyNone, PyTuple, PyType},
 };
 use tempfile::{self, TempDir};
 
@@ -1889,12 +1889,14 @@ impl Nac3 {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn compile_method_to_file<'py>(
         &mut self,
         obj: &Bound<'py, PyAny>,
         method_name: &str,
         args: Vec<Bound<'py, PyAny>>,
-        filename: &str,
+        output_filename: &str,
+        debug_filename: Option<&str>,
         embedding_map: &Bound<'py, PyAny>,
         py: Python<'py>,
     ) -> PyResult<()> {
@@ -1906,7 +1908,7 @@ impl Nac3 {
                     .write_to_file(module, FileType::Object, &working_directory.join("module.o"))
                     .expect("couldn't write module to file");
                 link_with_lld(
-                    filename,
+                    output_filename,
                     working_directory.join("module.o").to_string_lossy().to_string().as_str(),
                 )?;
                 Ok(())
@@ -1919,21 +1921,35 @@ impl Nac3 {
                 }
                 Linker::ld(object_mem.as_slice()).map_or_else(
                     |_| Err(CompileError::new_err("linker failed to process object file")),
-                    |dyn_lib| {
-                        fs::File::create(filename).map_or_else(
-                            |_| Err(CompileError::new_err("failed to create file")),
-                            |mut file| {
-                                file.write_all(&dyn_lib)
-                                    .expect("couldn't write linked library to file");
-                                Ok(())
-                            },
-                        )
+                    |(dyn_lib, debug_lib)| {
+                        fs::File::create(output_filename)
+                            .map_or_else(
+                                |_| Err(CompileError::new_err("failed to create object file")),
+                                |mut elf_file| {
+                                    elf_file
+                                        .write_all(&dyn_lib)
+                                        .expect("couldn't write linked library to file");
+                                    Ok(())
+                                },
+                            )
+                            .and(debug_filename.map_or(Ok(()), |filename| {
+                                fs::File::create(filename).map_or_else(
+                                    |_| Err(CompileError::new_err("failed to create debug file")),
+                                    |mut debug_file| {
+                                        debug_file
+                                            .write_all(&debug_lib)
+                                            .expect("couldn't write debug library to file");
+                                        Ok(())
+                                    },
+                                )
+                            }))
                     },
                 )
             }
         };
 
-        self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)
+        self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)?;
+        Ok(())
     }
 
     fn compile_method_to_mem<'py>(
@@ -1943,7 +1959,7 @@ impl Nac3 {
         args: Vec<Bound<'py, PyAny>>,
         embedding_map: &Bound<'py, PyAny>,
         py: Python<'py>,
-    ) -> PyResult<Py<PyAny>> {
+    ) -> PyResult<Bound<'py, PyTuple>> {
         let target_machine = self.codegen_options.target.create_target_machine();
         let link_fn = |module: &Module| {
             if self.isa == Isa::Host {
@@ -1959,19 +1975,19 @@ impl Nac3 {
                     working_directory.join("module.o").to_string_lossy().to_string().as_str(),
                 )?;
 
-                Ok(PyBytes::new(py, &fs::read(filename).unwrap()).into())
+                Ok(PyTuple::new(py, vec![fs::read(filename).unwrap()]))
             } else {
                 let object_mem = target_machine
                     .write_to_memory_buffer(module, FileType::Object)
                     .expect("couldn't write module to object file buffer");
                 Linker::ld(object_mem.as_slice()).map_or_else(
                     |_| Err(CompileError::new_err("linker failed to process object file")),
-                    |dyn_lib| Ok(PyBytes::new(py, &dyn_lib).into()),
+                    |(dyn_lib, debug_lib)| Ok(PyTuple::new(py, vec![dyn_lib, debug_lib])),
                 )
             }
         };
 
-        self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)
+        self.compile_method(obj, method_name, args, embedding_map, py, &link_fn)?
     }
 }
 

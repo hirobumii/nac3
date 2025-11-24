@@ -396,7 +396,7 @@ class Core:
             obj = method
             name = ""
 
-        compiler.compile_method_to_file(obj, name, args, "module.elf", embedding)
+        compiler.compile_method_to_file(obj, name, args, "module.elf", "debug.elf", embedding)
 
     @kernel
     def reset(self):
