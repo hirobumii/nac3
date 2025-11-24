@@ -165,7 +165,23 @@ impl ArtiqBuiltinRegistry {
         let mut id_to_builtin = HashMap::new();
         let mut decorator_ids = HashMap::new();
 
-        // Type annotations
+        // Core primitives
+        id_to_builtin.insert(primitive_ids.builtins.int, BuiltinKind::Int);
+        id_to_builtin.insert(primitive_ids.builtins.float, BuiltinKind::Float);
+        id_to_builtin.insert(primitive_ids.builtins.bool, BuiltinKind::Bool);
+        id_to_builtin.insert(primitive_ids.builtins.str_class, BuiltinKind::Str);
+        id_to_builtin.insert(primitive_ids.builtins.list, BuiltinKind::List);
+        id_to_builtin.insert(primitive_ids.builtins.tuple, BuiltinKind::Tuple);
+        id_to_builtin.insert(primitive_ids.builtins.exception, BuiltinKind::Exception);
+
+        // Core functions
+        id_to_builtin.insert(primitive_ids.builtins.range, BuiltinKind::Range);
+        id_to_builtin.insert(primitive_ids.builtins.round, BuiltinKind::Round);
+        id_to_builtin.insert(primitive_ids.builtins.len, BuiltinKind::Len);
+        id_to_builtin
+            .insert(primitive_ids.builtins.staticmethod_decor_fn, BuiltinKind::StaticMethod);
+
+        // Type qualifier
         id_to_builtin.insert(primitive_ids.artiq.kernel, BuiltinKind::Kernel);
         id_to_builtin.insert(primitive_ids.artiq.kernel_invariant, BuiltinKind::KernelInvariant);
         id_to_builtin.insert(primitive_ids.artiq.const_generic_marker, BuiltinKind::ConstGeneric);
@@ -184,21 +200,7 @@ impl ArtiqBuiltinRegistry {
         decorator_ids.insert(BuiltinKind::Portable, vec![primitive_ids.artiq.portable_decor_fn]);
         decorator_ids.insert(BuiltinKind::Rpc, vec![primitive_ids.artiq.rpc_decor_fn]);
 
-        // Core primitives
-        id_to_builtin.insert(primitive_ids.builtins.int, BuiltinKind::Int);
-        id_to_builtin.insert(primitive_ids.builtins.float, BuiltinKind::Float);
-        id_to_builtin.insert(primitive_ids.builtins.bool, BuiltinKind::Bool);
-        id_to_builtin.insert(primitive_ids.builtins.str_class, BuiltinKind::Str);
-        id_to_builtin.insert(primitive_ids.builtins.list, BuiltinKind::List);
-        id_to_builtin.insert(primitive_ids.builtins.tuple, BuiltinKind::Tuple);
-        id_to_builtin.insert(primitive_ids.builtins.exception, BuiltinKind::Exception);
-        id_to_builtin.insert(primitive_ids.builtins.range, BuiltinKind::Range);
-        id_to_builtin.insert(primitive_ids.builtins.round, BuiltinKind::Round);
-        id_to_builtin.insert(primitive_ids.builtins.len, BuiltinKind::Len);
-        id_to_builtin
-            .insert(primitive_ids.builtins.staticmethod_decor_fn, BuiltinKind::StaticMethod);
-
-        // Type system
+        // Typing
         id_to_builtin.insert(primitive_ids.typing.generic, BuiltinKind::Generic);
         id_to_builtin.insert(primitive_ids.typing.typevar, BuiltinKind::TypeVar);
         id_to_builtin.insert(primitive_ids.types.generic_alias, BuiltinKind::GenericAlias);
@@ -207,7 +209,7 @@ impl ArtiqBuiltinRegistry {
         id_to_builtin.insert(primitive_ids.types.module_type, BuiltinKind::ModuleType);
         id_to_builtin.insert(primitive_ids.typing.literal, BuiltinKind::Literal);
 
-        // Sized types
+        // NumPy primitives
         id_to_builtin.insert(primitive_ids.numpy.int32, BuiltinKind::Int32);
         id_to_builtin.insert(primitive_ids.numpy.int64, BuiltinKind::Int64);
         id_to_builtin.insert(primitive_ids.numpy.uint32, BuiltinKind::Uint32);

@@ -33,7 +33,7 @@ use nac3core::{
     symbol_resolver::SymbolResolver,
     toplevel::{
         TopLevelDef,
-        composer::{BuiltinRegistry, TopLevelComposer},
+        composer::{BuiltinRegistry, DefaultBuiltinRegistry, TopLevelComposer},
         helper::parse_parameter_default_value,
         type_annotation::{
             get_type_from_type_annotation_kinds, parse_ast_to_type_annotation_kinds,
@@ -45,7 +45,7 @@ use nac3core::{
     },
 };
 
-use basic_symbol_resolver::{Resolver, ResolverInternal, StandaloneBuiltinRegistry};
+use basic_symbol_resolver::{Resolver, ResolverInternal};
 
 mod basic_symbol_resolver;
 
@@ -316,7 +316,7 @@ fn main() {
     let target_machine = target.create_target_machine();
     let size_t_bits = target_machine.get_target_data().get_pointer_byte_size(None) * 8;
 
-    let builtin_registry = Arc::new(StandaloneBuiltinRegistry);
+    let builtin_registry = Arc::new(DefaultBuiltinRegistry);
 
     let (mut composer, builtins_def, builtins_ty) =
         TopLevelComposer::new(vec![], vec![], builtin_registry.clone(), size_t_bits);
