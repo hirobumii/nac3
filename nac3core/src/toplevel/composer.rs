@@ -401,7 +401,8 @@ pub trait BuiltinRegistry: Send + Sync {
         &self,
         decorator: &Located<ExprKind>,
     ) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(decorator) == Some(BuiltinKind::ExternFn))
+        Ok(self.match_builtin(decorator) == Some(BuiltinKind::ExternFn)
+            || self.match_builtin(decorator) == Some(BuiltinKind::Rpc))
     }
 
     /// Checks whether the `decorator` indicates that the function is a static method, usually the

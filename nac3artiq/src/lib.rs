@@ -151,8 +151,6 @@ impl From<u64> for PyId {
 pub struct ArtiqBuiltinRegistry {
     /// Mapping from Python object ID to BuiltinKind
     id_to_builtin: HashMap<u64, BuiltinKind>,
-    /// Mapping for decorators (which can have multiple IDs)
-    decorator_ids: HashMap<BuiltinKind, Vec<u64>>,
     /// Python modules indexed by file for context resolution
     modules: Arc<HashMap<FileName, Arc<Py<PyModule>>>>,
 }
@@ -163,7 +161,6 @@ impl ArtiqBuiltinRegistry {
         modules: Arc<HashMap<FileName, Arc<Py<PyModule>>>>,
     ) -> Self {
         let mut id_to_builtin = HashMap::new();
-        let mut decorator_ids = HashMap::new();
 
         // Core primitives
         id_to_builtin.insert(primitive_ids.builtins.int, BuiltinKind::Int);
@@ -189,16 +186,12 @@ impl ArtiqBuiltinRegistry {
         id_to_builtin.insert(primitive_ids.artiq.virtual_class, BuiltinKind::Virtual);
         id_to_builtin.insert(primitive_ids.artiq.option, BuiltinKind::Option);
 
-        // Decorators (stored separately as they can have multiple IDs)
-        decorator_ids.insert(BuiltinKind::Compile, vec![primitive_ids.artiq.compile_decor_fn]);
-        decorator_ids.insert(
-            BuiltinKind::ExternFn,
-            vec![primitive_ids.artiq.extern_decor_fn, primitive_ids.artiq.rpc_decor_fn],
-        );
-        decorator_ids
-            .insert(BuiltinKind::KernelDecorator, vec![primitive_ids.artiq.kernel_decor_fn]);
-        decorator_ids.insert(BuiltinKind::Portable, vec![primitive_ids.artiq.portable_decor_fn]);
-        decorator_ids.insert(BuiltinKind::Rpc, vec![primitive_ids.artiq.rpc_decor_fn]);
+        // Decorators
+        id_to_builtin.insert(primitive_ids.artiq.compile_decor_fn, BuiltinKind::Compile);
+        id_to_builtin.insert(primitive_ids.artiq.extern_decor_fn, BuiltinKind::ExternFn);
+        id_to_builtin.insert(primitive_ids.artiq.kernel_decor_fn, BuiltinKind::KernelDecorator);
+        id_to_builtin.insert(primitive_ids.artiq.portable_decor_fn, BuiltinKind::Portable);
+        id_to_builtin.insert(primitive_ids.artiq.rpc_decor_fn, BuiltinKind::Rpc);
 
         // Typing
         id_to_builtin.insert(primitive_ids.typing.generic, BuiltinKind::Generic);
@@ -219,7 +212,7 @@ impl ArtiqBuiltinRegistry {
         id_to_builtin.insert(primitive_ids.numpy.str_, BuiltinKind::StrType);
         id_to_builtin.insert(primitive_ids.numpy.ndarray, BuiltinKind::NDArray);
 
-        Self { id_to_builtin, decorator_ids, modules }
+        Self { id_to_builtin, modules }
     }
 
     fn get_python_id(&self, expr: &Located<ExprKind>) -> Result<u64, BuiltinMatchError> {
@@ -264,11 +257,6 @@ impl BuiltinRegistry for ArtiqBuiltinRegistry {
             return Some(*kind);
         }
 
-        for (kind, ids) in &self.decorator_ids {
-            if ids.contains(&py_id) {
-                return Some(*kind);
-            }
-        }
         None
     }
 
