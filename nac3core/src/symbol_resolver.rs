@@ -400,22 +400,16 @@ pub fn parse_type_annotation<T>(
         };
 
         if let Some(builtin) = builtin_registry.match_builtin(&name_expr) {
-            if builtin == BuiltinKind::Int32 {
-                return Ok(primitives.int32);
-            } else if builtin == BuiltinKind::Int64 {
-                return Ok(primitives.int64);
-            } else if builtin == BuiltinKind::Uint32 {
-                return Ok(primitives.uint32);
-            } else if builtin == BuiltinKind::Uint64 {
-                return Ok(primitives.uint64);
-            } else if builtin == BuiltinKind::Float {
-                return Ok(primitives.float);
-            } else if builtin == BuiltinKind::Bool {
-                return Ok(primitives.bool);
-            } else if builtin == BuiltinKind::Str {
-                return Ok(primitives.str);
-            } else if builtin == BuiltinKind::Exception {
-                return Ok(primitives.exception);
+            match builtin {
+                BuiltinKind::Int32 => return Ok(primitives.int32),
+                BuiltinKind::Int64 => return Ok(primitives.int64),
+                BuiltinKind::Uint32 => return Ok(primitives.uint32),
+                BuiltinKind::Uint64 => return Ok(primitives.uint64),
+                BuiltinKind::Float => return Ok(primitives.float),
+                BuiltinKind::Bool => return Ok(primitives.bool),
+                BuiltinKind::Str => return Ok(primitives.str),
+                BuiltinKind::Exception => return Ok(primitives.exception),
+                _ => {}
             }
         }
 

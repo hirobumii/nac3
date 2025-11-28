@@ -189,25 +189,21 @@ fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
         custom: (),
     };
     if let Some(builtin) = builtin_registry.match_builtin(&name_expr) {
-        if builtin == BuiltinKind::Int32 {
-            return Ok(TypeAnnotation::Primitive(primitives.int32));
-        } else if builtin == BuiltinKind::Int64 {
-            return Ok(TypeAnnotation::Primitive(primitives.int64));
-        } else if builtin == BuiltinKind::Uint32 {
-            return Ok(TypeAnnotation::Primitive(primitives.uint32));
-        } else if builtin == BuiltinKind::Uint64 {
-            return Ok(TypeAnnotation::Primitive(primitives.uint64));
-        } else if builtin == BuiltinKind::Float {
-            return Ok(TypeAnnotation::Primitive(primitives.float));
-        } else if builtin == BuiltinKind::Bool {
-            return Ok(TypeAnnotation::Primitive(primitives.bool));
-        } else if builtin == BuiltinKind::Str {
-            return Ok(TypeAnnotation::Primitive(primitives.str));
-        } else if builtin == BuiltinKind::Exception {
-            return Ok(TypeAnnotation::CustomClass {
-                id: PrimDef::Exception.id(),
-                params: Vec::default(),
-            });
+        match builtin {
+            BuiltinKind::Int32 => return Ok(TypeAnnotation::Primitive(primitives.int32)),
+            BuiltinKind::Int64 => return Ok(TypeAnnotation::Primitive(primitives.int64)),
+            BuiltinKind::Uint32 => return Ok(TypeAnnotation::Primitive(primitives.uint32)),
+            BuiltinKind::Uint64 => return Ok(TypeAnnotation::Primitive(primitives.uint64)),
+            BuiltinKind::Float => return Ok(TypeAnnotation::Primitive(primitives.float)),
+            BuiltinKind::Bool => return Ok(TypeAnnotation::Primitive(primitives.bool)),
+            BuiltinKind::Str => return Ok(TypeAnnotation::Primitive(primitives.str)),
+            BuiltinKind::Exception => {
+                return Ok(TypeAnnotation::CustomClass {
+                    id: PrimDef::Exception.id(),
+                    params: Vec::default(),
+                });
+            }
+            _ => {}
         }
     }
     if let Ok(obj_id) = resolver.get_identifier_def(*id) {
@@ -280,6 +276,22 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
         (obj_id, Some(slice)),
         location,
     )
+}
+
+/// Helper function to check if a subscript expression matches a specific builtin kind.
+fn is_subscript_builtin<T>(
+    value: &Expr<T>,
+    builtin_registry: &Arc<dyn BuiltinRegistry>,
+    expected: BuiltinKind,
+) -> bool {
+    matches!(&value.node, ast::ExprKind::Name { id, .. } if {
+        let name_expr = Expr {
+            node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
+            location: value.location,
+            custom: (),
+        };
+        builtin_registry.match_builtin(&name_expr) == Some(expected)
+    })
 }
 
 /// Resolves an AST of a possibly-qualified class name into a [`DefinitionId`].
@@ -386,14 +398,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // virtual
         ast::ExprKind::Subscript { value, slice, .. }
-            if matches!(&value.node, ast::ExprKind::Name { id, .. } if {
-                let name_expr = Expr {
-                    node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
-                    location: value.location,
-                    custom: (),
-                };
-                builtin_registry.match_builtin(&name_expr) == Some(BuiltinKind::Virtual)
-            }) =>
+            if is_subscript_builtin(value, builtin_registry, BuiltinKind::Virtual) =>
         {
             let def = parse_ast_to_type_annotation_kinds(
                 resolver,
@@ -412,14 +417,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // option
         ast::ExprKind::Subscript { value, slice, .. }
-            if matches!(&value.node, ast::ExprKind::Name { id, .. } if {
-                let name_expr = Expr {
-                    node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
-                    location: value.location,
-                    custom: (),
-                };
-                builtin_registry.match_builtin(&name_expr) == Some(BuiltinKind::Option)
-            }) =>
+            if is_subscript_builtin(value, builtin_registry, BuiltinKind::Option) =>
         {
             let def_ann = parse_ast_to_type_annotation_kinds(
                 resolver,
@@ -441,14 +439,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // tuple
         ast::ExprKind::Subscript { value, slice, .. }
-            if matches!(&value.node, ast::ExprKind::Name { id, .. } if {
-                let name_expr = Expr {
-                    node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
-                    location: value.location,
-                    custom: (),
-                };
-                builtin_registry.match_builtin(&name_expr) == Some(BuiltinKind::Tuple)
-            }) =>
+            if is_subscript_builtin(value, builtin_registry, BuiltinKind::Tuple) =>
         {
             let tup_elts = {
                 if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
@@ -476,14 +467,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // Literal
         ast::ExprKind::Subscript { value, slice, .. }
-            if matches!(&value.node, ast::ExprKind::Name { id, .. } if {
-                let name_expr = Expr {
-                    node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
-                    location: value.location,
-                    custom: (),
-                };
-                builtin_registry.match_builtin(&name_expr) == Some(BuiltinKind::Literal)
-            }) =>
+            if is_subscript_builtin(value, builtin_registry, BuiltinKind::Literal) =>
         {
             let tup_elts = {
                 if let ast::ExprKind::Tuple { elts, .. } = &slice.node {

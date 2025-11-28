@@ -1100,205 +1100,213 @@ impl Inferencer<'_> {
             }));
         }
 
-        if matches!(
-            builtin,
-            Some(
-                BuiltinKind::Int32
+        match (builtin, args.len()) {
+            // 1-argument type conversion and query functions
+            (
+                Some(
+                    BuiltinKind::Int32
                     | BuiltinKind::Float
                     | BuiltinKind::Bool
                     | BuiltinKind::Round
                     | BuiltinKind::Round64
                     | BuiltinKind::NpIsnan
-                    | BuiltinKind::NpIsinf
-            )
-        ) && args.len() == 1
-        {
-            let target_ty = match builtin {
-                Some(
-                    BuiltinKind::Int32
-                    | BuiltinKind::Round
-                    | BuiltinKind::Floor
-                    | BuiltinKind::Ceil,
-                ) => self.primitives.int32,
-                Some(BuiltinKind::Round64 | BuiltinKind::Floor64 | BuiltinKind::Ceil64) => {
-                    self.primitives.int64
-                }
-                Some(BuiltinKind::Float) => self.primitives.float,
-                Some(BuiltinKind::Bool | BuiltinKind::NpIsnan | BuiltinKind::NpIsinf) => {
-                    self.primitives.bool
-                }
-                _ => unreachable!(),
-            };
+                    | BuiltinKind::NpIsinf,
+                ),
+                1,
+            ) => {
+                let target_ty = match builtin {
+                    Some(
+                        BuiltinKind::Int32
+                        | BuiltinKind::Round
+                        | BuiltinKind::Floor
+                        | BuiltinKind::Ceil,
+                    ) => self.primitives.int32,
+                    Some(BuiltinKind::Round64 | BuiltinKind::Floor64 | BuiltinKind::Ceil64) => {
+                        self.primitives.int64
+                    }
+                    Some(BuiltinKind::Float) => self.primitives.float,
+                    Some(BuiltinKind::Bool | BuiltinKind::NpIsnan | BuiltinKind::NpIsinf) => {
+                        self.primitives.bool
+                    }
+                    _ => unreachable!(),
+                };
 
-            let arg0 = self.fold_expr(args.remove(0))?;
-            let arg0_ty = arg0.custom.unwrap();
+                let arg0 = self.fold_expr(args.remove(0))?;
+                let arg0_ty = arg0.custom.unwrap();
 
-            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
-            {
-                let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+                let ret =
+                    if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
+                        let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
 
-                make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndarray_ndims))
-            } else {
-                target_ty
-            };
+                        make_ndarray_ty(
+                            self.unifier,
+                            self.primitives,
+                            Some(target_ty),
+                            Some(ndarray_ndims),
+                        )
+                    } else {
+                        target_ty
+                    };
 
-            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg {
-                    name: "n".into(),
-                    ty: arg0.custom.unwrap(),
-                    default_value: None,
-                    is_vararg: false,
-                }],
-                ret,
-                vars: VarMap::new(),
-            }));
-
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(custom),
-                        location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
-                    }),
-                    args: vec![arg0],
-                    keywords: vec![],
-                },
-            }));
-        }
-
-        if matches!(builtin, Some(BuiltinKind::NpShape | BuiltinKind::NpStrides)) && args.len() == 1
-        {
-            let ndarray = self.fold_expr(args.remove(0))?;
-
-            let ndims = arraylike_get_ndims(self.unifier, ndarray.custom.unwrap());
-
-            // Make a tuple of size `ndims` full of int32 (TODO: Make it usize)
-            let ret_ty = TypeEnum::TTuple {
-                ty: repeat_n(self.primitives.int32, ndims as usize).collect_vec(),
-                is_vararg_ctx: false,
-            };
-            let ret_ty = self.unifier.add_ty(ret_ty);
-
-            let func_ty = TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg {
-                    name: "a".into(),
-                    default_value: None,
-                    ty: ndarray.custom.unwrap(),
-                    is_vararg: false,
-                }],
-                ret: ret_ty,
-                vars: VarMap::new(),
-            });
-            let func_ty = self.unifier.add_ty(func_ty);
-
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret_ty),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(func_ty),
-                        location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
-                    }),
-                    args: vec![ndarray],
-                    keywords: vec![],
-                },
-            }));
-        }
-
-        if builtin == Some(BuiltinKind::NpDot) {
-            let arg0 = self.fold_expr(args.remove(0))?;
-            let arg1 = self.fold_expr(args.remove(0))?;
-            let arg0_ty = arg0.custom.unwrap();
-
-            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
-            {
-                let (ndarray_dtype, _) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
-
-                ndarray_dtype
-            } else {
-                arg0_ty
-            };
-
-            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![
-                    FuncArg {
-                        name: "x1".into(),
+                let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![FuncArg {
+                        name: "n".into(),
                         ty: arg0.custom.unwrap(),
                         default_value: None,
                         is_vararg: false,
+                    }],
+                    ret,
+                    vars: VarMap::new(),
+                }));
+
+                return Ok(Some(Located {
+                    location,
+                    custom: Some(ret),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(custom),
+                            location: func.location,
+                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                        }),
+                        args: vec![arg0],
+                        keywords: vec![],
                     },
-                    FuncArg {
-                        name: "x2".into(),
-                        ty: arg1.custom.unwrap(),
+                }));
+            }
+
+            // np.shape and np.strides
+            (Some(BuiltinKind::NpShape | BuiltinKind::NpStrides), 1) => {
+                let ndarray = self.fold_expr(args.remove(0))?;
+
+                let ndims = arraylike_get_ndims(self.unifier, ndarray.custom.unwrap());
+
+                // Make a tuple of size `ndims` full of int32 (TODO: Make it usize)
+                let ret_ty = TypeEnum::TTuple {
+                    ty: repeat_n(self.primitives.int32, ndims as usize).collect_vec(),
+                    is_vararg_ctx: false,
+                };
+                let ret_ty = self.unifier.add_ty(ret_ty);
+
+                let func_ty = TypeEnum::TFunc(FunSignature {
+                    args: vec![FuncArg {
+                        name: "a".into(),
+                        default_value: None,
+                        ty: ndarray.custom.unwrap(),
+                        is_vararg: false,
+                    }],
+                    ret: ret_ty,
+                    vars: VarMap::new(),
+                });
+                let func_ty = self.unifier.add_ty(func_ty);
+
+                return Ok(Some(Located {
+                    location,
+                    custom: Some(ret_ty),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(func_ty),
+                            location: func.location,
+                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                        }),
+                        args: vec![ndarray],
+                        keywords: vec![],
+                    },
+                }));
+            }
+
+            // np.dot
+            (Some(BuiltinKind::NpDot), _) if !args.is_empty() => {
+                let arg0 = self.fold_expr(args.remove(0))?;
+                let arg1 = self.fold_expr(args.remove(0))?;
+                let arg0_ty = arg0.custom.unwrap();
+
+                let ret =
+                    if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
+                        let (ndarray_dtype, _) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+
+                        ndarray_dtype
+                    } else {
+                        arg0_ty
+                    };
+
+                let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![
+                        FuncArg {
+                            name: "x1".into(),
+                            ty: arg0.custom.unwrap(),
+                            default_value: None,
+                            is_vararg: false,
+                        },
+                        FuncArg {
+                            name: "x2".into(),
+                            ty: arg1.custom.unwrap(),
+                            default_value: None,
+                            is_vararg: false,
+                        },
+                    ],
+                    ret,
+                    vars: VarMap::new(),
+                }));
+
+                return Ok(Some(Located {
+                    location,
+                    custom: Some(ret),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(custom),
+                            location: func.location,
+                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                        }),
+                        args: vec![arg0, arg1],
+                        keywords: vec![],
+                    },
+                }));
+            }
+
+            // np.min and np.max
+            (Some(BuiltinKind::NpMin | BuiltinKind::NpMax), 1) => {
+                let arg0 = self.fold_expr(args.remove(0))?;
+                let arg0_ty = arg0.custom.unwrap();
+
+                let ret =
+                    if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
+                        let (ndarray_dtype, _) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+
+                        ndarray_dtype
+                    } else {
+                        arg0_ty
+                    };
+
+                let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![FuncArg {
+                        name: "a".into(),
+                        ty: arg0.custom.unwrap(),
                         default_value: None,
                         is_vararg: false,
+                    }],
+                    ret,
+                    vars: VarMap::new(),
+                }));
+
+                return Ok(Some(Located {
+                    location,
+                    custom: Some(ret),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(custom),
+                            location: func.location,
+                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                        }),
+                        args: vec![arg0],
+                        keywords: vec![],
                     },
-                ],
-                ret,
-                vars: VarMap::new(),
-            }));
+                }));
+            }
 
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(custom),
-                        location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
-                    }),
-                    args: vec![arg0, arg1],
-                    keywords: vec![],
-                },
-            }));
-        }
-
-        if matches!(builtin, Some(BuiltinKind::NpMin | BuiltinKind::NpMax)) && args.len() == 1 {
-            let arg0 = self.fold_expr(args.remove(0))?;
-            let arg0_ty = arg0.custom.unwrap();
-
-            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
-            {
-                let (ndarray_dtype, _) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
-
-                ndarray_dtype
-            } else {
-                arg0_ty
-            };
-
-            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg {
-                    name: "a".into(),
-                    ty: arg0.custom.unwrap(),
-                    default_value: None,
-                    is_vararg: false,
-                }],
-                ret,
-                vars: VarMap::new(),
-            }));
-
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(custom),
-                        location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
-                    }),
-                    args: vec![arg0],
-                    keywords: vec![],
-                },
-            }));
-        }
-
-        if matches!(
-            builtin,
-            Some(
-                BuiltinKind::NpMinimum
+            // 2-argument broadcast-compatible NumPy functions
+            (
+                Some(
+                    BuiltinKind::NpMinimum
                     | BuiltinKind::NpMaximum
                     | BuiltinKind::NpArctan2
                     | BuiltinKind::NpCopysign
@@ -1306,396 +1314,404 @@ impl Inferencer<'_> {
                     | BuiltinKind::NpFmin
                     | BuiltinKind::NpLdexp
                     | BuiltinKind::NpHypot
-                    | BuiltinKind::NpNextafter
-            )
-        ) && args.len() == 2
-        {
-            let arg0 = self.fold_expr(args.remove(0))?;
-            let arg0_ty = arg0.custom.unwrap();
-            let arg1 = self.fold_expr(args.remove(0))?;
-            let arg1_ty = arg1.custom.unwrap();
+                    | BuiltinKind::NpNextafter,
+                ),
+                2,
+            ) => {
+                let arg0 = self.fold_expr(args.remove(0))?;
+                let arg0_ty = arg0.custom.unwrap();
+                let arg1 = self.fold_expr(args.remove(0))?;
+                let arg1_ty = arg1.custom.unwrap();
 
-            let arg0_dtype =
-                if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
-                    unpack_ndarray_var_tys(self.unifier, arg0_ty).0
-                } else {
-                    arg0_ty
-                };
-
-            let arg1_dtype =
-                if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
-                    unpack_ndarray_var_tys(self.unifier, arg1_ty).0
-                } else {
-                    arg1_ty
-                };
-
-            let expected_arg1_dtype = if builtin == Some(BuiltinKind::NpLdexp) {
-                self.primitives.int32
-            } else {
-                arg0_dtype
-            };
-            if !self.unifier.unioned(arg1_dtype, expected_arg1_dtype) {
-                return report_error(
-                    format!(
-                        "Expected broadcast-compatible type of ndarray[{}, N] for second argument of {id}, got {}",
-                        self.unifier.stringify(expected_arg1_dtype),
-                        self.unifier.stringify(arg1_dtype),
-                    ).as_str(),
-                    arg0.location,
-                );
-            }
-
-            let target_ty =
-                if matches!(builtin, Some(BuiltinKind::NpMinimum | BuiltinKind::NpMaximum)) {
-                    arg0_dtype
-                } else {
-                    self.primitives.float
-                };
-
-            let ret = if [&arg0_ty, &arg1_ty].into_iter().any(|arg_ty| {
-                arg_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
-            }) {
-                // typeof_ndarray_broadcast requires both dtypes to be the same, but ldexp accepts
-                // (float, int32), so convert it to align with the dtype of the first arg
-                let arg1_ty = if builtin == Some(BuiltinKind::NpLdexp) {
-                    if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
-                        let (_, ndims) = unpack_ndarray_var_tys(self.unifier, arg1_ty);
-
-                        make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndims))
+                let arg0_dtype =
+                    if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
+                        unpack_ndarray_var_tys(self.unifier, arg0_ty).0
                     } else {
-                        target_ty
+                        arg0_ty
+                    };
+
+                let arg1_dtype =
+                    if arg1_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
+                        unpack_ndarray_var_tys(self.unifier, arg1_ty).0
+                    } else {
+                        arg1_ty
+                    };
+
+                let expected_arg1_dtype = if builtin == Some(BuiltinKind::NpLdexp) {
+                    self.primitives.int32
+                } else {
+                    arg0_dtype
+                };
+                if !self.unifier.unioned(arg1_dtype, expected_arg1_dtype) {
+                    return report_error(
+                        format!(
+                            "Expected broadcast-compatible type of ndarray[{}, N] for second argument of {id}, got {}",
+                            self.unifier.stringify(expected_arg1_dtype),
+                            self.unifier.stringify(arg1_dtype),
+                        ).as_str(),
+                        arg0.location,
+                    );
+                }
+
+                let target_ty = match builtin {
+                    Some(BuiltinKind::NpMinimum | BuiltinKind::NpMaximum) => arg0_dtype,
+                    _ => self.primitives.float,
+                };
+
+                let ret = if [&arg0_ty, &arg1_ty].into_iter().any(|arg_ty| {
+                    arg_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
+                }) {
+                    // typeof_ndarray_broadcast requires both dtypes to be the same, but ldexp accepts
+                    // (float, int32), so convert it to align with the dtype of the first arg
+                    let arg1_ty = if builtin == Some(BuiltinKind::NpLdexp) {
+                        if arg1_ty
+                            .obj_id(self.unifier)
+                            .is_some_and(|id| id == PrimDef::NDArray.id())
+                        {
+                            let (_, ndims) = unpack_ndarray_var_tys(self.unifier, arg1_ty);
+
+                            make_ndarray_ty(
+                                self.unifier,
+                                self.primitives,
+                                Some(target_ty),
+                                Some(ndims),
+                            )
+                        } else {
+                            target_ty
+                        }
+                    } else {
+                        arg1_ty
+                    };
+
+                    match typeof_ndarray_broadcast(self.unifier, self.primitives, arg0_ty, arg1_ty)
+                    {
+                        Ok(broadcasted_ty) => broadcasted_ty,
+                        Err(err) => return report_error(err.as_str(), location),
                     }
                 } else {
-                    arg1_ty
+                    target_ty
                 };
 
-                match typeof_ndarray_broadcast(self.unifier, self.primitives, arg0_ty, arg1_ty) {
-                    Ok(broadcasted_ty) => broadcasted_ty,
-                    Err(err) => return report_error(err.as_str(), location),
-                }
-            } else {
-                target_ty
-            };
-
-            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![
-                    FuncArg {
-                        name: "x1".into(),
-                        ty: arg0.custom.unwrap(),
-                        default_value: None,
-                        is_vararg: false,
-                    },
-                    FuncArg {
-                        name: "x2".into(),
-                        ty: arg1.custom.unwrap(),
-                        default_value: None,
-                        is_vararg: false,
-                    },
-                ],
-                ret,
-                vars: VarMap::new(),
-            }));
-
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(custom),
-                        location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
-                    }),
-                    args: vec![arg0, arg1],
-                    keywords: vec![],
-                },
-            }));
-        }
-
-        // int64, uint32 and uint64 are special because their argument can be a constant outside the
-        // range of int32s
-        if matches!(builtin, Some(BuiltinKind::Int64 | BuiltinKind::Uint32 | BuiltinKind::Uint64))
-            && args.len() == 1
-        {
-            let target_ty = match builtin {
-                Some(BuiltinKind::Int64) => self.primitives.int64,
-                Some(BuiltinKind::Uint32) => self.primitives.uint32,
-                Some(BuiltinKind::Uint64) => self.primitives.uint64,
-                _ => unreachable!(),
-            };
-
-            // Handle constants first to ensure that their types are not defaulted to int32, which
-            // causes an "Integer out of bound" error
-            if let ExprKind::Constant { value: ast::Constant::Int(val), kind } = &args[0].node {
-                let conv_is_ok = if self.unifier.unioned(target_ty, self.primitives.int64) {
-                    i64::try_from(*val).is_ok()
-                } else if self.unifier.unioned(target_ty, self.primitives.uint32) {
-                    u32::try_from(*val).is_ok()
-                } else if self.unifier.unioned(target_ty, self.primitives.uint64) {
-                    u64::try_from(*val).is_ok()
-                } else {
-                    unreachable!()
-                };
-
-                return if conv_is_ok {
-                    Ok(Some(Located {
-                        location: args[0].location,
-                        custom: Some(target_ty),
-                        node: ExprKind::Constant {
-                            value: ast::Constant::Int(*val),
-                            kind: kind.clone(),
+                let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![
+                        FuncArg {
+                            name: "x1".into(),
+                            ty: arg0.custom.unwrap(),
+                            default_value: None,
+                            is_vararg: false,
                         },
-                    }))
-                } else {
-                    report_error("Integer out of bound", args[0].location)
-                };
+                        FuncArg {
+                            name: "x2".into(),
+                            ty: arg1.custom.unwrap(),
+                            default_value: None,
+                            is_vararg: false,
+                        },
+                    ],
+                    ret,
+                    vars: VarMap::new(),
+                }));
+
+                return Ok(Some(Located {
+                    location,
+                    custom: Some(ret),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(custom),
+                            location: func.location,
+                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                        }),
+                        args: vec![arg0, arg1],
+                        keywords: vec![],
+                    },
+                }));
             }
 
-            let arg0 = self.fold_expr(args.remove(0))?;
-            let arg0_ty = arg0.custom.unwrap();
+            (Some(BuiltinKind::Int64 | BuiltinKind::Uint32 | BuiltinKind::Uint64), 1) => {
+                let target_ty = match builtin {
+                    Some(BuiltinKind::Int64) => self.primitives.int64,
+                    Some(BuiltinKind::Uint32) => self.primitives.uint32,
+                    Some(BuiltinKind::Uint64) => self.primitives.uint64,
+                    _ => unreachable!(),
+                };
 
-            let ret = if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
-            {
-                let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
+                // Handle constants first to ensure that their types are not defaulted to int32, which
+                // causes an "Integer out of bound" error
+                if let ExprKind::Constant { value: ast::Constant::Int(val), kind } = &args[0].node {
+                    let conv_is_ok = if self.unifier.unioned(target_ty, self.primitives.int64) {
+                        i64::try_from(*val).is_ok()
+                    } else if self.unifier.unioned(target_ty, self.primitives.uint32) {
+                        u32::try_from(*val).is_ok()
+                    } else if self.unifier.unioned(target_ty, self.primitives.uint64) {
+                        u64::try_from(*val).is_ok()
+                    } else {
+                        unreachable!()
+                    };
 
-                make_ndarray_ty(self.unifier, self.primitives, Some(target_ty), Some(ndarray_ndims))
-            } else {
-                target_ty
-            };
+                    return if conv_is_ok {
+                        Ok(Some(Located {
+                            location: args[0].location,
+                            custom: Some(target_ty),
+                            node: ExprKind::Constant {
+                                value: ast::Constant::Int(*val),
+                                kind: kind.clone(),
+                            },
+                        }))
+                    } else {
+                        report_error("Integer out of bound", args[0].location)
+                    };
+                }
 
-            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg {
-                    name: "n".into(),
-                    ty: arg0.custom.unwrap(),
-                    default_value: None,
-                    is_vararg: false,
-                }],
-                ret,
-                vars: VarMap::new(),
-            }));
+                let arg0 = self.fold_expr(args.remove(0))?;
+                let arg0_ty = arg0.custom.unwrap();
 
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(custom),
-                        location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
-                    }),
-                    args: vec![arg0],
-                    keywords: vec![],
-                },
-            }));
-        }
+                let ret =
+                    if arg0_ty.obj_id(self.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
+                        let (_, ndarray_ndims) = unpack_ndarray_var_tys(self.unifier, arg0_ty);
 
-        // 1-argument ndarray n-dimensional factory functions
-        if matches!(
-            builtin,
-            Some(
-                BuiltinKind::NpNDArray
+                        make_ndarray_ty(
+                            self.unifier,
+                            self.primitives,
+                            Some(target_ty),
+                            Some(ndarray_ndims),
+                        )
+                    } else {
+                        target_ty
+                    };
+
+                let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![FuncArg {
+                        name: "n".into(),
+                        ty: arg0.custom.unwrap(),
+                        default_value: None,
+                        is_vararg: false,
+                    }],
+                    ret,
+                    vars: VarMap::new(),
+                }));
+
+                return Ok(Some(Located {
+                    location,
+                    custom: Some(ret),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(custom),
+                            location: func.location,
+                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                        }),
+                        args: vec![arg0],
+                        keywords: vec![],
+                    },
+                }));
+            }
+
+            (
+                Some(
+                    BuiltinKind::NpNDArray
                     | BuiltinKind::NpEmpty
                     | BuiltinKind::NpZeros
-                    | BuiltinKind::NpOnes
-            )
-        ) && args.len() == 1
-        {
-            let shape_expr = args.remove(0);
-            let (ndims, shape) =
-                self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
+                    | BuiltinKind::NpOnes,
+                ),
+                1,
+            ) => {
+                let shape_expr = args.remove(0);
+                let (ndims, shape) =
+                    self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
 
-            let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
-            let ret = make_ndarray_ty(
-                self.unifier,
-                self.primitives,
-                Some(self.primitives.float),
-                Some(ndims),
-            );
-            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg {
-                    name: "shape".into(),
-                    ty: shape.custom.unwrap(),
-                    default_value: None,
-                    is_vararg: false,
-                }],
-                ret,
-                vars: VarMap::new(),
-            }));
-
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(custom),
-                        location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
-                    }),
-                    args: vec![shape],
-                    keywords: vec![],
-                },
-            }));
-        }
-        // 2-argument ndarray n-dimensional factory functions
-        if matches!(builtin, Some(BuiltinKind::NpReshape | BuiltinKind::NpBroadcastTo))
-            && args.len() == 2
-        {
-            let arg0 = self.fold_expr(args.remove(0))?;
-
-            let shape_expr = args.remove(0);
-            let (ndims, shape) =
-                self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
-
-            let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
-            let (elem_ty, _) = unpack_ndarray_var_tys(self.unifier, arg0.custom.unwrap());
-            let ret = make_ndarray_ty(self.unifier, self.primitives, Some(elem_ty), Some(ndims));
-
-            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![
-                    FuncArg {
-                        name: "x1".into(),
-                        ty: arg0.custom.unwrap(),
-                        default_value: None,
-                        is_vararg: false,
-                    },
-                    FuncArg {
+                let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
+                let ret = make_ndarray_ty(
+                    self.unifier,
+                    self.primitives,
+                    Some(self.primitives.float),
+                    Some(ndims),
+                );
+                let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![FuncArg {
                         name: "shape".into(),
                         ty: shape.custom.unwrap(),
                         default_value: None,
                         is_vararg: false,
+                    }],
+                    ret,
+                    vars: VarMap::new(),
+                }));
+
+                return Ok(Some(Located {
+                    location,
+                    custom: Some(ret),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(custom),
+                            location: func.location,
+                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                        }),
+                        args: vec![shape],
+                        keywords: vec![],
                     },
-                ],
-                ret,
-                vars: VarMap::new(),
-            }));
+                }));
+            }
 
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(custom),
-                        location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
-                    }),
-                    args: vec![arg0, shape],
-                    keywords: vec![],
-                },
-            }));
-        }
-        // 2-argument ndarray n-dimensional creation functions
-        if builtin == Some(BuiltinKind::NpFull) && args.len() == 2 {
-            // Parse arguments
-            let shape_expr = args.remove(0);
-            let (ndims, shape) =
-                self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
+            (Some(BuiltinKind::NpReshape | BuiltinKind::NpBroadcastTo), 2) => {
+                let arg0 = self.fold_expr(args.remove(0))?;
 
-            let fill_value = self.fold_expr(args.remove(0))?;
+                let shape_expr = args.remove(0);
+                let (ndims, shape) =
+                    self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
 
-            // Build the return type
-            let dtype = fill_value.custom.unwrap();
-            let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
-            let ret = make_ndarray_ty(self.unifier, self.primitives, Some(dtype), Some(ndims));
+                let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
+                let (elem_ty, _) = unpack_ndarray_var_tys(self.unifier, arg0.custom.unwrap());
+                let ret =
+                    make_ndarray_ty(self.unifier, self.primitives, Some(elem_ty), Some(ndims));
 
-            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![
-                    FuncArg {
-                        name: "shape".into(),
-                        ty: shape.custom.unwrap(),
-                        default_value: None,
-                        is_vararg: false,
+                let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![
+                        FuncArg {
+                            name: "x1".into(),
+                            ty: arg0.custom.unwrap(),
+                            default_value: None,
+                            is_vararg: false,
+                        },
+                        FuncArg {
+                            name: "shape".into(),
+                            ty: shape.custom.unwrap(),
+                            default_value: None,
+                            is_vararg: false,
+                        },
+                    ],
+                    ret,
+                    vars: VarMap::new(),
+                }));
+
+                return Ok(Some(Located {
+                    location,
+                    custom: Some(ret),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(custom),
+                            location: func.location,
+                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                        }),
+                        args: vec![arg0, shape],
+                        keywords: vec![],
                     },
-                    FuncArg {
-                        name: "fill_value".into(),
-                        ty: fill_value.custom.unwrap(),
-                        default_value: None,
-                        is_vararg: false,
+                }));
+            }
+
+            // 2-argument ndarray n-dimensional creation functions
+            (Some(BuiltinKind::NpFull), 2) => {
+                // Parse arguments
+                let shape_expr = args.remove(0);
+                let (ndims, shape) =
+                    self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
+
+                let fill_value = self.fold_expr(args.remove(0))?;
+
+                // Build the return type
+                let dtype = fill_value.custom.unwrap();
+                let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
+                let ret = make_ndarray_ty(self.unifier, self.primitives, Some(dtype), Some(ndims));
+
+                let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![
+                        FuncArg {
+                            name: "shape".into(),
+                            ty: shape.custom.unwrap(),
+                            default_value: None,
+                            is_vararg: false,
+                        },
+                        FuncArg {
+                            name: "fill_value".into(),
+                            ty: fill_value.custom.unwrap(),
+                            default_value: None,
+                            is_vararg: false,
+                        },
+                    ],
+                    ret,
+                    vars: VarMap::new(),
+                }));
+
+                return Ok(Some(Located {
+                    location,
+                    custom: Some(ret),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(custom),
+                            location: func.location,
+                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                        }),
+                        args: vec![shape, fill_value],
+                        keywords: vec![],
                     },
-                ],
-                ret,
-                vars: VarMap::new(),
-            }));
+                }));
+            }
 
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(custom),
-                        location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
-                    }),
-                    args: vec![shape, fill_value],
-                    keywords: vec![],
-                },
-            }));
-        }
+            (Some(BuiltinKind::NpArray), 1) => {
+                let arg0 = self.fold_expr(args.remove(0))?;
 
-        // 1-argument ndarray n-dimensional creation functions
-        if builtin == Some(BuiltinKind::NpArray) && args.len() == 1 {
-            let arg0 = self.fold_expr(args.remove(0))?;
+                let keywords = keywords
+                    .iter()
+                    .map(|v| fold::fold_keyword(self, v.clone()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ndmin_kw = keywords
+                    .iter()
+                    .find(|kwarg| kwarg.node.arg.is_some_and(|id| id == "ndmin".into()));
 
-            let keywords = keywords
-                .iter()
-                .map(|v| fold::fold_keyword(self, v.clone()))
-                .collect::<Result<Vec<_>, _>>()?;
-            let ndmin_kw =
-                keywords.iter().find(|kwarg| kwarg.node.arg.is_some_and(|id| id == "ndmin".into()));
+                let ty = arraylike_flatten_element_type(self.unifier, arg0.custom.unwrap());
+                let arg0_ndims = arraylike_get_ndims(self.unifier, arg0.custom.unwrap());
+                let ndims = if let Some(ndmin_kw) = ndmin_kw {
+                    match &ndmin_kw.node.value.node {
+                        ExprKind::Constant { value, .. } => match value {
+                            ast::Constant::Int(value) => max(*value as u64, arg0_ndims),
+                            _ => return report_error("Expected uint64 for ndims", *func_location),
+                        },
 
-            let ty = arraylike_flatten_element_type(self.unifier, arg0.custom.unwrap());
-            let arg0_ndims = arraylike_get_ndims(self.unifier, arg0.custom.unwrap());
-            let ndims = if let Some(ndmin_kw) = ndmin_kw {
-                match &ndmin_kw.node.value.node {
-                    ExprKind::Constant { value, .. } => match value {
-                        ast::Constant::Int(value) => max(*value as u64, arg0_ndims),
-                        _ => return report_error("Expected uint64 for ndims", *func_location),
+                        _ => arg0_ndims,
+                    }
+                } else {
+                    arg0_ndims
+                };
+                let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
+                let ret = make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims));
+
+                let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![
+                        FuncArg {
+                            name: "object".into(),
+                            ty: arg0.custom.unwrap(),
+                            default_value: None,
+                            is_vararg: false,
+                        },
+                        FuncArg {
+                            name: "copy".into(),
+                            ty: self.primitives.bool,
+                            default_value: Some(SymbolValue::Bool(true)),
+                            is_vararg: false,
+                        },
+                        FuncArg {
+                            name: "ndmin".into(),
+                            ty: self.primitives.int32,
+                            default_value: Some(SymbolValue::U32(0)),
+                            is_vararg: false,
+                        },
+                    ],
+                    ret,
+                    vars: VarMap::new(),
+                }));
+
+                return Ok(Some(Located {
+                    location,
+                    custom: Some(ret),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(custom),
+                            location: func.location,
+                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                        }),
+                        args: vec![arg0],
+                        keywords,
                     },
-
-                    _ => arg0_ndims,
-                }
-            } else {
-                arg0_ndims
-            };
-            let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
-            let ret = make_ndarray_ty(self.unifier, self.primitives, Some(ty), Some(ndims));
-
-            let custom = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![
-                    FuncArg {
-                        name: "object".into(),
-                        ty: arg0.custom.unwrap(),
-                        default_value: None,
-                        is_vararg: false,
-                    },
-                    FuncArg {
-                        name: "copy".into(),
-                        ty: self.primitives.bool,
-                        default_value: Some(SymbolValue::Bool(true)),
-                        is_vararg: false,
-                    },
-                    FuncArg {
-                        name: "ndmin".into(),
-                        ty: self.primitives.int32,
-                        default_value: Some(SymbolValue::U32(0)),
-                        is_vararg: false,
-                    },
-                ],
-                ret,
-                vars: VarMap::new(),
-            }));
-
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(custom),
-                        location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
-                    }),
-                    args: vec![arg0],
-                    keywords,
-                },
-            }));
+                }));
+            }
+            _ => {}
         }
 
         Ok(None)
