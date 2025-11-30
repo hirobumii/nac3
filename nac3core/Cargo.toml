@@ -20,14 +20,14 @@ strum = "0.27"
 strum_macros = "0.27"
 
 [dependencies.inkwell]
-version = "0.6.0"
+version = "0.7"
 default-features = false
 features = ["llvm16-0-prefer-dynamic", "target-x86", "target-arm", "target-riscv", "no-libffi-linking", "typed-pointers"]
 
 [dev-dependencies]
 test-case = "3.3"
 indoc = "2.0"
-insta = "1.43"
+insta = "1.44"
 function_name = "0.3"
 
 [build-dependencies]

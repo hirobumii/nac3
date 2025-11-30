@@ -21,4 +21,4 @@ phf = { version = "0.13", features = ["macros"] }
 ahash = "0.8"
 
 [dev-dependencies]
-insta = "1.43"
+insta = "1.44"

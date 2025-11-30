@@ -19,7 +19,7 @@ fn call_intrinsic_impl<'ctx>(
         .and_then(|intrinsic| intrinsic.get_declaration(&ctx.module, type_params))
         .expect("intrinsic not found");
     let result = ctx.builder.build_call(intrin, args, call_name.unwrap_or_default()).unwrap();
-    result.try_as_basic_value().left()
+    result.try_as_basic_value().basic()
 }
 
 macro_rules! call_intrinsic {

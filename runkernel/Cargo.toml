@@ -5,4 +5,4 @@ authors = ["M-Labs"]
 edition = "2024"
 
 [dependencies]
-libloading = "0.8"
+libloading = "0.9"

@@ -277,7 +277,7 @@ impl<'ctx> FunctionStore<'ctx> {
                     result.add_attribute(loc, attr);
                 }
 
-                let mut result = result.try_as_basic_value().left();
+                let mut result = result.try_as_basic_value().basic();
                 if let Some((ptr, _)) = slot {
                     assert!(result.is_none());
                     result = Some(builder.build_load(ptr, "slot").unwrap());
@@ -302,7 +302,7 @@ impl<'ctx> FunctionStore<'ctx> {
 
                 let inst = call(value, &args);
                 inst.set_call_convention(INTERNAL_CALL_CONV);
-                let result = inst.try_as_basic_value().left();
+                let result = inst.try_as_basic_value().basic();
                 assert_eq!(result.map(|val| val.get_type()), *ret);
                 result
             }
