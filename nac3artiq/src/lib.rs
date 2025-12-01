@@ -174,7 +174,13 @@ impl ArtiqBuiltinRegistry {
         // Core functions
         id_to_builtin.insert(primitive_ids.builtins.range, BuiltinKind::Range);
         id_to_builtin.insert(primitive_ids.builtins.round, BuiltinKind::Round);
+        id_to_builtin.insert(primitive_ids.builtins.round64, BuiltinKind::Round64);
+        id_to_builtin.insert(primitive_ids.builtins.floor, BuiltinKind::Floor);
+        id_to_builtin.insert(primitive_ids.builtins.floor64, BuiltinKind::Floor64);
+        id_to_builtin.insert(primitive_ids.builtins.ceil, BuiltinKind::Ceil);
+        id_to_builtin.insert(primitive_ids.builtins.ceil64, BuiltinKind::Ceil64);
         id_to_builtin.insert(primitive_ids.builtins.len, BuiltinKind::Len);
+        id_to_builtin.insert(primitive_ids.builtins.some, BuiltinKind::Some);
         id_to_builtin
             .insert(primitive_ids.builtins.staticmethod_decor_fn, BuiltinKind::StaticMethod);
 
@@ -202,7 +208,7 @@ impl ArtiqBuiltinRegistry {
         id_to_builtin.insert(primitive_ids.types.module_type, BuiltinKind::ModuleType);
         id_to_builtin.insert(primitive_ids.typing.literal, BuiltinKind::Literal);
 
-        // NumPy primitives
+        // NumPy
         id_to_builtin.insert(primitive_ids.numpy.int32, BuiltinKind::Int32);
         id_to_builtin.insert(primitive_ids.numpy.int64, BuiltinKind::Int64);
         id_to_builtin.insert(primitive_ids.numpy.uint32, BuiltinKind::Uint32);
@@ -211,6 +217,34 @@ impl ArtiqBuiltinRegistry {
         id_to_builtin.insert(primitive_ids.numpy.bool_, BuiltinKind::BoolType);
         id_to_builtin.insert(primitive_ids.numpy.str_, BuiltinKind::StrType);
         id_to_builtin.insert(primitive_ids.numpy.ndarray, BuiltinKind::NDArray);
+
+        id_to_builtin.insert(primitive_ids.numpy.empty, BuiltinKind::NpEmpty);
+        id_to_builtin.insert(primitive_ids.numpy.zeros, BuiltinKind::NpZeros);
+        id_to_builtin.insert(primitive_ids.numpy.ones, BuiltinKind::NpOnes);
+        id_to_builtin.insert(primitive_ids.numpy.full, BuiltinKind::NpFull);
+        id_to_builtin.insert(primitive_ids.numpy.array, BuiltinKind::NpArray);
+
+        id_to_builtin.insert(primitive_ids.numpy.shape, BuiltinKind::NpShape);
+
+        id_to_builtin.insert(primitive_ids.numpy.broadcast_to, BuiltinKind::NpBroadcastTo);
+        id_to_builtin.insert(primitive_ids.numpy.reshape, BuiltinKind::NpReshape);
+
+        id_to_builtin.insert(primitive_ids.numpy.min, BuiltinKind::NpMin);
+        id_to_builtin.insert(primitive_ids.numpy.minimum, BuiltinKind::NpMinimum);
+        id_to_builtin.insert(primitive_ids.numpy.max, BuiltinKind::NpMax);
+        id_to_builtin.insert(primitive_ids.numpy.maximum, BuiltinKind::NpMaximum);
+        id_to_builtin.insert(primitive_ids.numpy.isnan, BuiltinKind::NpIsnan);
+        id_to_builtin.insert(primitive_ids.numpy.isinf, BuiltinKind::NpIsinf);
+
+        id_to_builtin.insert(primitive_ids.numpy.arctan2, BuiltinKind::NpArctan2);
+        id_to_builtin.insert(primitive_ids.numpy.copysign, BuiltinKind::NpCopysign);
+        id_to_builtin.insert(primitive_ids.numpy.fmax, BuiltinKind::NpFmax);
+        id_to_builtin.insert(primitive_ids.numpy.fmin, BuiltinKind::NpFmin);
+        id_to_builtin.insert(primitive_ids.numpy.ldexp, BuiltinKind::NpLdexp);
+        id_to_builtin.insert(primitive_ids.numpy.hypot, BuiltinKind::NpHypot);
+        id_to_builtin.insert(primitive_ids.numpy.nextafter, BuiltinKind::NpNextafter);
+
+        id_to_builtin.insert(primitive_ids.numpy.dot, BuiltinKind::NpDot);
 
         Self { id_to_builtin, modules }
     }
@@ -276,7 +310,13 @@ pub struct BuiltinPythonId {
     exception: u64,
     range: u64,
     round: u64,
+    round64: u64,
+    floor: u64,
+    floor64: u64,
+    ceil: u64,
+    ceil64: u64,
     len: u64,
+    some: u64,
     staticmethod_decor_fn: u64,
 }
 
@@ -304,6 +344,29 @@ pub struct NumpyPythonId {
     bool_: u64,
     str_: u64,
     ndarray: u64,
+
+    empty: u64,
+    zeros: u64,
+    ones: u64,
+    full: u64,
+    array: u64,
+    shape: u64,
+    broadcast_to: u64,
+    reshape: u64,
+    min: u64,
+    minimum: u64,
+    max: u64,
+    maximum: u64,
+    isnan: u64,
+    isinf: u64,
+    arctan2: u64,
+    copysign: u64,
+    fmax: u64,
+    fmin: u64,
+    ldexp: u64,
+    hypot: u64,
+    nextafter: u64,
+    dot: u64,
 }
 
 #[derive(Clone)]
@@ -1477,7 +1540,13 @@ impl Nac3 {
                 exception: get_artiq_builtin_id(None, "Exception")?,
                 range: get_artiq_builtin_id(None, "range")?,
                 round: get_artiq_builtin_id(None, "round")?,
+                round64: get_artiq_builtin_id(None, "round64")?,
+                floor: get_artiq_builtin_id(None, "floor")?,
+                floor64: get_artiq_builtin_id(None, "floor64")?,
+                ceil: get_artiq_builtin_id(None, "ceil")?,
+                ceil64: get_artiq_builtin_id(None, "ceil64")?,
                 len: get_artiq_builtin_id(None, "len")?,
+                some: get_artiq_builtin_id(None, "some")?,
                 staticmethod_decor_fn: get_artiq_builtin_id(None, "staticmethod")?,
             },
             types: TypesPythonId {
@@ -1499,6 +1568,29 @@ impl Nac3 {
                 bool_: get_artiq_builtin_id(Some("numpy"), "bool_")?,
                 str_: get_artiq_builtin_id(Some("numpy"), "str_")?,
                 ndarray: get_artiq_builtin_id(Some("numpy"), "ndarray")?,
+
+                empty: get_artiq_builtin_id(Some("numpy"), "empty")?,
+                zeros: get_artiq_builtin_id(Some("numpy"), "zeros")?,
+                ones: get_artiq_builtin_id(Some("numpy"), "ones")?,
+                full: get_artiq_builtin_id(Some("numpy"), "full")?,
+                array: get_artiq_builtin_id(Some("numpy"), "array")?,
+                shape: get_artiq_builtin_id(Some("numpy"), "shape")?,
+                broadcast_to: get_artiq_builtin_id(Some("numpy"), "broadcast_to")?,
+                reshape: get_artiq_builtin_id(Some("numpy"), "reshape")?,
+                min: get_artiq_builtin_id(Some("numpy"), "min")?,
+                minimum: get_artiq_builtin_id(Some("numpy"), "minimum")?,
+                max: get_artiq_builtin_id(Some("numpy"), "max")?,
+                maximum: get_artiq_builtin_id(Some("numpy"), "maximum")?,
+                isnan: get_artiq_builtin_id(Some("numpy"), "isnan")?,
+                isinf: get_artiq_builtin_id(Some("numpy"), "isinf")?,
+                arctan2: get_artiq_builtin_id(Some("numpy"), "arctan2")?,
+                copysign: get_artiq_builtin_id(Some("numpy"), "copysign")?,
+                fmax: get_artiq_builtin_id(Some("numpy"), "fmax")?,
+                fmin: get_artiq_builtin_id(Some("numpy"), "fmin")?,
+                ldexp: get_artiq_builtin_id(Some("numpy"), "ldexp")?,
+                hypot: get_artiq_builtin_id(Some("numpy"), "hypot")?,
+                nextafter: get_artiq_builtin_id(Some("numpy"), "nextafter")?,
+                dot: get_artiq_builtin_id(Some("numpy"), "dot")?,
             },
             artiq: ArtiqPythonId {
                 kernel: get_artiq_builtin_id(Some("artiq"), "Kernel")?,

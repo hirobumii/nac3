@@ -76,7 +76,7 @@ pub enum BuiltinKind {
     ModuleType,
     Literal,
 
-    // NumPy primitives
+    // NumPy
     Int32,
     Int64,
     Uint32,
@@ -86,7 +86,6 @@ pub enum BuiltinKind {
     StrType,
     NDArray,
 
-    // NumPy array creation
     NpNDArray,
     NpEmpty,
     NpZeros,
@@ -96,17 +95,14 @@ pub enum BuiltinKind {
     NpEye,
     NpIdentity,
 
-    // NumPy array properties
     NpSize,
     NpShape,
     NpStrides,
 
-    // NumPy array manipulation
     NpBroadcastTo,
     NpTranspose,
     NpReshape,
 
-    // NumPy math functions
     NpRound,
     NpFloor,
     NpCeil,
@@ -140,7 +136,6 @@ pub enum BuiltinKind {
     NpExpm1,
     NpCbrt,
 
-    // SciPy special functions
     SpSpecErf,
     SpSpecErfc,
     SpSpecGamma,
@@ -148,7 +143,6 @@ pub enum BuiltinKind {
     SpSpecJ0,
     SpSpecJ1,
 
-    // NumPy binary operations
     NpArctan2,
     NpCopysign,
     NpFmax,
@@ -157,11 +151,9 @@ pub enum BuiltinKind {
     NpHypot,
     NpNextafter,
 
-    // NumPy reduction operations
     NpAny,
     NpAll,
 
-    // NumPy linear algebra
     NpDot,
     NpLinalgCholesky,
     NpLinalgQr,
@@ -171,7 +163,6 @@ pub enum BuiltinKind {
     NpLinalgMatrixPower,
     NpLinalgDet,
 
-    // SciPy linear algebra
     SpLinalgLu,
     SpLinalgSchur,
     SpLinalgHessenberg,
@@ -261,7 +252,7 @@ pub trait BuiltinRegistry: Send + Sync {
             "ModuleType" => BuiltinKind::ModuleType,
             "Literal" => BuiltinKind::Literal,
 
-            // NumPy primitives
+            // NumPy
             "int32" => BuiltinKind::Int32,
             "int64" => BuiltinKind::Int64,
             "uint32" => BuiltinKind::Uint32,
@@ -269,7 +260,6 @@ pub trait BuiltinRegistry: Send + Sync {
             "float64" => BuiltinKind::Float64,
             "ndarray" => BuiltinKind::NDArray,
 
-            // NumPy array creation
             "np_ndarray" => BuiltinKind::NpNDArray,
             "np_empty" => BuiltinKind::NpEmpty,
             "np_zeros" => BuiltinKind::NpZeros,
@@ -279,17 +269,14 @@ pub trait BuiltinRegistry: Send + Sync {
             "np_eye" => BuiltinKind::NpEye,
             "np_identity" => BuiltinKind::NpIdentity,
 
-            // NumPy array properties
             "np_size" => BuiltinKind::NpSize,
             "np_shape" => BuiltinKind::NpShape,
             "np_strides" => BuiltinKind::NpStrides,
 
-            // NumPy array manipulation
             "np_broadcast_to" => BuiltinKind::NpBroadcastTo,
             "np_transpose" => BuiltinKind::NpTranspose,
             "np_reshape" => BuiltinKind::NpReshape,
 
-            // NumPy math functions
             "np_round" => BuiltinKind::NpRound,
             "np_floor" => BuiltinKind::NpFloor,
             "np_ceil" => BuiltinKind::NpCeil,
@@ -323,7 +310,6 @@ pub trait BuiltinRegistry: Send + Sync {
             "np_expm1" => BuiltinKind::NpExpm1,
             "np_cbrt" => BuiltinKind::NpCbrt,
 
-            // SciPy special functions
             "sp_spec_erf" => BuiltinKind::SpSpecErf,
             "sp_spec_erfc" => BuiltinKind::SpSpecErfc,
             "sp_spec_gamma" => BuiltinKind::SpSpecGamma,
@@ -331,7 +317,6 @@ pub trait BuiltinRegistry: Send + Sync {
             "sp_spec_j0" => BuiltinKind::SpSpecJ0,
             "sp_spec_j1" => BuiltinKind::SpSpecJ1,
 
-            // NumPy binary operations
             "np_arctan2" => BuiltinKind::NpArctan2,
             "np_copysign" => BuiltinKind::NpCopysign,
             "np_fmax" => BuiltinKind::NpFmax,
@@ -340,11 +325,9 @@ pub trait BuiltinRegistry: Send + Sync {
             "np_hypot" => BuiltinKind::NpHypot,
             "np_nextafter" => BuiltinKind::NpNextafter,
 
-            // NumPy reduction operations
             "np_any" => BuiltinKind::NpAny,
             "np_all" => BuiltinKind::NpAll,
 
-            // NumPy linear algebra
             "np_dot" => BuiltinKind::NpDot,
             "np_linalg_cholesky" => BuiltinKind::NpLinalgCholesky,
             "np_linalg_qr" => BuiltinKind::NpLinalgQr,
@@ -354,7 +337,6 @@ pub trait BuiltinRegistry: Send + Sync {
             "np_linalg_matrix_power" => BuiltinKind::NpLinalgMatrixPower,
             "np_linalg_det" => BuiltinKind::NpLinalgDet,
 
-            // SciPy linear algebra
             "sp_linalg_lu" => BuiltinKind::SpLinalgLu,
             "sp_linalg_schur" => BuiltinKind::SpLinalgSchur,
             "sp_linalg_hessenberg" => BuiltinKind::SpLinalgHessenberg,
