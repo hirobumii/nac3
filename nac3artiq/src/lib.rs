@@ -149,13 +149,14 @@ impl From<u64> for PyId {
 ///
 /// This implementation matches builtin identifiers by comparing Python object IDs
 pub struct ArtiqBuiltinRegistry {
-    /// Mapping from Python object ID to BuiltinKind
+    /// Mapping from Python object ID to `BuiltinKind`
     id_to_builtin: HashMap<u64, BuiltinKind>,
     /// Python modules indexed by file for context resolution
     modules: Arc<HashMap<FileName, Arc<Py<PyModule>>>>,
 }
 
 impl ArtiqBuiltinRegistry {
+    #[must_use]
     pub fn new(
         primitive_ids: &PrimitivePythonId,
         modules: Arc<HashMap<FileName, Arc<Py<PyModule>>>>,
