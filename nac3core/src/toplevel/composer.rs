@@ -86,7 +86,6 @@ pub enum BuiltinKind {
     StrType,
     NDArray,
 
-    NpNDArray,
     NpEmpty,
     NpZeros,
     NpOnes,
@@ -258,9 +257,8 @@ pub trait BuiltinRegistry: Send + Sync {
             "uint32" => BuiltinKind::Uint32,
             "uint64" => BuiltinKind::Uint64,
             "float64" => BuiltinKind::Float64,
-            "ndarray" => BuiltinKind::NDArray,
+            "np_ndarray" => BuiltinKind::NDArray,
 
-            "np_ndarray" => BuiltinKind::NpNDArray,
             "np_empty" => BuiltinKind::NpEmpty,
             "np_zeros" => BuiltinKind::NpZeros,
             "np_ones" => BuiltinKind::NpOnes,
