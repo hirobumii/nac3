@@ -13,7 +13,7 @@ use nac3parser::ast::{self, Expr, ExprKind, FileName, Located, StrRef, fold::Fol
 
 use super::{
     DefinitionId, FunInstance, GenCall, Location, builtins, get_type_from_type_annotation_kinds,
-    get_type_var_contained_in_type_annotation, make_self_type_annotation,
+    get_type_var_contained_in_type_annotation, helper::PrimDef, make_self_type_annotation,
     parse_ast_to_type_annotation_kinds, type_annotation::TypeAnnotation,
 };
 use crate::{
@@ -165,6 +165,123 @@ pub enum BuiltinKind {
     SpLinalgLu,
     SpLinalgSchur,
     SpLinalgHessenberg,
+}
+
+impl TryFrom<BuiltinKind> for PrimDef {
+    type Error = ();
+
+    fn try_from(builtin: BuiltinKind) -> Result<Self, Self::Error> {
+        match builtin {
+            BuiltinKind::Float => Ok(PrimDef::Float),
+            BuiltinKind::Bool => Ok(PrimDef::Bool),
+            BuiltinKind::Str => Ok(PrimDef::Str),
+            BuiltinKind::List => Ok(PrimDef::List),
+            BuiltinKind::Exception => Ok(PrimDef::Exception),
+
+            BuiltinKind::Range => Ok(PrimDef::Range),
+            BuiltinKind::Round => Ok(PrimDef::FunRound),
+            BuiltinKind::Round64 => Ok(PrimDef::FunRound64),
+            BuiltinKind::Floor => Ok(PrimDef::FunFloor),
+            BuiltinKind::Floor64 => Ok(PrimDef::FunFloor64),
+            BuiltinKind::Ceil => Ok(PrimDef::FunCeil),
+            BuiltinKind::Ceil64 => Ok(PrimDef::FunCeil64),
+            BuiltinKind::Len => Ok(PrimDef::FunLen),
+            BuiltinKind::Min => Ok(PrimDef::FunMin),
+            BuiltinKind::Max => Ok(PrimDef::FunMax),
+            BuiltinKind::Abs => Ok(PrimDef::FunAbs),
+            BuiltinKind::Some => Ok(PrimDef::FunSome),
+
+            BuiltinKind::Option => Ok(PrimDef::Option),
+
+            BuiltinKind::Int32 => Ok(PrimDef::Int32),
+            BuiltinKind::Int64 => Ok(PrimDef::Int64),
+            BuiltinKind::Uint32 => Ok(PrimDef::UInt32),
+            BuiltinKind::Uint64 => Ok(PrimDef::UInt64),
+            BuiltinKind::NDArray => Ok(PrimDef::FunNpNDArray),
+
+            BuiltinKind::NpEmpty => Ok(PrimDef::FunNpEmpty),
+            BuiltinKind::NpZeros => Ok(PrimDef::FunNpZeros),
+            BuiltinKind::NpOnes => Ok(PrimDef::FunNpOnes),
+            BuiltinKind::NpFull => Ok(PrimDef::FunNpFull),
+            BuiltinKind::NpArray => Ok(PrimDef::FunNpArray),
+            BuiltinKind::NpEye => Ok(PrimDef::FunNpEye),
+            BuiltinKind::NpIdentity => Ok(PrimDef::FunNpIdentity),
+
+            BuiltinKind::NpSize => Ok(PrimDef::FunNpSize),
+            BuiltinKind::NpShape => Ok(PrimDef::FunNpShape),
+            BuiltinKind::NpStrides => Ok(PrimDef::FunNpStrides),
+
+            BuiltinKind::NpBroadcastTo => Ok(PrimDef::FunNpBroadcastTo),
+            BuiltinKind::NpTranspose => Ok(PrimDef::FunNpTranspose),
+            BuiltinKind::NpReshape => Ok(PrimDef::FunNpReshape),
+
+            BuiltinKind::NpRound => Ok(PrimDef::FunNpRound),
+            BuiltinKind::NpFloor => Ok(PrimDef::FunNpFloor),
+            BuiltinKind::NpCeil => Ok(PrimDef::FunNpCeil),
+            BuiltinKind::NpMin => Ok(PrimDef::FunNpMin),
+            BuiltinKind::NpMinimum => Ok(PrimDef::FunNpMinimum),
+            BuiltinKind::NpMax => Ok(PrimDef::FunNpMax),
+            BuiltinKind::NpMaximum => Ok(PrimDef::FunNpMaximum),
+            BuiltinKind::NpArgmax => Ok(PrimDef::FunNpArgmax),
+            BuiltinKind::NpIsnan => Ok(PrimDef::FunNpIsNan),
+            BuiltinKind::NpIsinf => Ok(PrimDef::FunNpIsInf),
+            BuiltinKind::NpSin => Ok(PrimDef::FunNpSin),
+            BuiltinKind::NpCos => Ok(PrimDef::FunNpCos),
+            BuiltinKind::NpExp => Ok(PrimDef::FunNpExp),
+            BuiltinKind::NpExp2 => Ok(PrimDef::FunNpExp2),
+            BuiltinKind::NpLog => Ok(PrimDef::FunNpLog),
+            BuiltinKind::NpLog10 => Ok(PrimDef::FunNpLog10),
+            BuiltinKind::NpLog2 => Ok(PrimDef::FunNpLog2),
+            BuiltinKind::NpFabs => Ok(PrimDef::FunNpFabs),
+            BuiltinKind::NpSqrt => Ok(PrimDef::FunNpSqrt),
+            BuiltinKind::NpRint => Ok(PrimDef::FunNpRint),
+            BuiltinKind::NpTan => Ok(PrimDef::FunNpTan),
+            BuiltinKind::NpArcsin => Ok(PrimDef::FunNpArcsin),
+            BuiltinKind::NpArccos => Ok(PrimDef::FunNpArccos),
+            BuiltinKind::NpArctan => Ok(PrimDef::FunNpArctan),
+            BuiltinKind::NpSinh => Ok(PrimDef::FunNpSinh),
+            BuiltinKind::NpCosh => Ok(PrimDef::FunNpCosh),
+            BuiltinKind::NpTanh => Ok(PrimDef::FunNpTanh),
+            BuiltinKind::NpArcsinh => Ok(PrimDef::FunNpArcsinh),
+            BuiltinKind::NpArccosh => Ok(PrimDef::FunNpArccosh),
+            BuiltinKind::NpArctanh => Ok(PrimDef::FunNpArctanh),
+            BuiltinKind::NpExpm1 => Ok(PrimDef::FunNpExpm1),
+            BuiltinKind::NpCbrt => Ok(PrimDef::FunNpCbrt),
+
+            BuiltinKind::SpSpecErf => Ok(PrimDef::FunSpSpecErf),
+            BuiltinKind::SpSpecErfc => Ok(PrimDef::FunSpSpecErfc),
+            BuiltinKind::SpSpecGamma => Ok(PrimDef::FunSpSpecGamma),
+            BuiltinKind::SpSpecGammaln => Ok(PrimDef::FunSpSpecGammaln),
+            BuiltinKind::SpSpecJ0 => Ok(PrimDef::FunSpSpecJ0),
+            BuiltinKind::SpSpecJ1 => Ok(PrimDef::FunSpSpecJ1),
+
+            BuiltinKind::NpArctan2 => Ok(PrimDef::FunNpArctan2),
+            BuiltinKind::NpCopysign => Ok(PrimDef::FunNpCopysign),
+            BuiltinKind::NpFmax => Ok(PrimDef::FunNpFmax),
+            BuiltinKind::NpFmin => Ok(PrimDef::FunNpFmin),
+            BuiltinKind::NpLdexp => Ok(PrimDef::FunNpLdExp),
+            BuiltinKind::NpHypot => Ok(PrimDef::FunNpHypot),
+            BuiltinKind::NpNextafter => Ok(PrimDef::FunNpNextAfter),
+
+            BuiltinKind::NpAny => Ok(PrimDef::FunNpAny),
+            BuiltinKind::NpAll => Ok(PrimDef::FunNpAll),
+
+            BuiltinKind::NpDot => Ok(PrimDef::FunNpDot),
+            BuiltinKind::NpLinalgCholesky => Ok(PrimDef::FunNpLinalgCholesky),
+            BuiltinKind::NpLinalgQr => Ok(PrimDef::FunNpLinalgQr),
+            BuiltinKind::NpLinalgSvd => Ok(PrimDef::FunNpLinalgSvd),
+            BuiltinKind::NpLinalgInv => Ok(PrimDef::FunNpLinalgInv),
+            BuiltinKind::NpLinalgPinv => Ok(PrimDef::FunNpLinalgPinv),
+            BuiltinKind::NpLinalgMatrixPower => Ok(PrimDef::FunNpLinalgMatrixPower),
+            BuiltinKind::NpLinalgDet => Ok(PrimDef::FunNpLinalgDet),
+
+            BuiltinKind::SpLinalgLu => Ok(PrimDef::FunSpLinalgLu),
+            BuiltinKind::SpLinalgSchur => Ok(PrimDef::FunSpLinalgSchur),
+            BuiltinKind::SpLinalgHessenberg => Ok(PrimDef::FunSpLinalgHessenberg),
+
+            _ => Err(()),
+        }
+    }
 }
 
 /// Default implementation of [`BuiltinRegistry`] using string-based matching.

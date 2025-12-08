@@ -1003,9 +1003,21 @@ impl Inferencer<'_> {
         args: &mut Vec<ast::Expr<()>>,
         keywords: &[Located<ast::KeywordData>],
     ) -> Result<Option<ast::Expr<Option<Type>>>, InferenceError> {
-        let Located { location: func_location, node: ExprKind::Name { id, ctx }, .. } = func else {
+        let Some(builtin) = self.top_level.builtin_registry.match_builtin(func) else {
             return Ok(None);
         };
+        let prim = match PrimDef::try_from(builtin) {
+            Ok(prim) => prim,
+            Err(e) => {
+                return report_error(
+                    &format!("Internal error: builtin `{builtin:?}` is not a primitive ({e:?})"),
+                    func.location,
+                );
+            }
+        };
+        let id = prim.name().into();
+        let ctx = ExprContext::Load;
+        let func_location = func.location;
 
         let builtin = self.top_level.builtin_registry.match_builtin(func);
 
@@ -1014,7 +1026,7 @@ impl Inferencer<'_> {
             if args.is_empty() || args.len() > 2 || !keywords.is_empty() {
                 return report_error(
                     "`virtual` can only accept 1/2 positional arguments",
-                    *func_location,
+                    func_location,
                 );
             }
             let arg0 = self.fold_expr(args.remove(0))?;
@@ -1031,7 +1043,7 @@ impl Inferencer<'_> {
             } else {
                 self.unifier.get_dummy_var().ty
             };
-            self.virtual_checks.push((arg0.custom.unwrap(), ty, *func_location));
+            self.virtual_checks.push((arg0.custom.unwrap(), ty, func_location));
             let custom = Some(self.unifier.add_ty(TypeEnum::TVirtual { ty }));
             return Ok(Some(Located {
                 location,
@@ -1040,7 +1052,7 @@ impl Inferencer<'_> {
                     func: Box::new(Located {
                         custom: None,
                         location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
+                        node: ExprKind::Name { id, ctx },
                     }),
                     args: vec![arg0],
                     keywords: vec![],
@@ -1092,7 +1104,7 @@ impl Inferencer<'_> {
                     func: Box::new(Located {
                         custom: Some(func_ty),
                         location: func.location,
-                        node: ExprKind::Name { id: *id, ctx: *ctx },
+                        node: ExprKind::Name { id, ctx },
                     }),
                     args: vec![obj],
                     keywords: vec![],
@@ -1166,7 +1178,7 @@ impl Inferencer<'_> {
                         func: Box::new(Located {
                             custom: Some(custom),
                             location: func.location,
-                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                            node: ExprKind::Name { id, ctx },
                         }),
                         args: vec![arg0],
                         keywords: vec![],
@@ -1206,7 +1218,7 @@ impl Inferencer<'_> {
                         func: Box::new(Located {
                             custom: Some(func_ty),
                             location: func.location,
-                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                            node: ExprKind::Name { id, ctx },
                         }),
                         args: vec![ndarray],
                         keywords: vec![],
@@ -1255,7 +1267,7 @@ impl Inferencer<'_> {
                         func: Box::new(Located {
                             custom: Some(custom),
                             location: func.location,
-                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                            node: ExprKind::Name { id, ctx },
                         }),
                         args: vec![arg0, arg1],
                         keywords: vec![],
@@ -1295,7 +1307,7 @@ impl Inferencer<'_> {
                         func: Box::new(Located {
                             custom: Some(custom),
                             location: func.location,
-                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                            node: ExprKind::Name { id, ctx },
                         }),
                         args: vec![arg0],
                         keywords: vec![],
@@ -1418,7 +1430,7 @@ impl Inferencer<'_> {
                         func: Box::new(Located {
                             custom: Some(custom),
                             location: func.location,
-                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                            node: ExprKind::Name { id, ctx },
                         }),
                         args: vec![arg0, arg1],
                         keywords: vec![],
@@ -1496,7 +1508,7 @@ impl Inferencer<'_> {
                         func: Box::new(Located {
                             custom: Some(custom),
                             location: func.location,
-                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                            node: ExprKind::Name { id, ctx },
                         }),
                         args: vec![arg0],
                         keywords: vec![],
@@ -1515,7 +1527,7 @@ impl Inferencer<'_> {
             ) => {
                 let shape_expr = args.remove(0);
                 let (ndims, shape) =
-                    self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
+                    self.fold_numpy_function_call_shape_argument(id, 0, shape_expr)?; // Special handling for `shape`
 
                 let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
                 let ret = make_ndarray_ty(
@@ -1542,7 +1554,7 @@ impl Inferencer<'_> {
                         func: Box::new(Located {
                             custom: Some(custom),
                             location: func.location,
-                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                            node: ExprKind::Name { id, ctx },
                         }),
                         args: vec![shape],
                         keywords: vec![],
@@ -1555,7 +1567,7 @@ impl Inferencer<'_> {
 
                 let shape_expr = args.remove(0);
                 let (ndims, shape) =
-                    self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
+                    self.fold_numpy_function_call_shape_argument(id, 0, shape_expr)?; // Special handling for `shape`
 
                 let ndims = self.unifier.get_fresh_literal(vec![SymbolValue::U64(ndims)], None);
                 let (elem_ty, _) = unpack_ndarray_var_tys(self.unifier, arg0.custom.unwrap());
@@ -1588,7 +1600,7 @@ impl Inferencer<'_> {
                         func: Box::new(Located {
                             custom: Some(custom),
                             location: func.location,
-                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                            node: ExprKind::Name { id, ctx },
                         }),
                         args: vec![arg0, shape],
                         keywords: vec![],
@@ -1601,7 +1613,7 @@ impl Inferencer<'_> {
                 // Parse arguments
                 let shape_expr = args.remove(0);
                 let (ndims, shape) =
-                    self.fold_numpy_function_call_shape_argument(*id, 0, shape_expr)?; // Special handling for `shape`
+                    self.fold_numpy_function_call_shape_argument(id, 0, shape_expr)?; // Special handling for `shape`
 
                 let fill_value = self.fold_expr(args.remove(0))?;
 
@@ -1636,7 +1648,7 @@ impl Inferencer<'_> {
                         func: Box::new(Located {
                             custom: Some(custom),
                             location: func.location,
-                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                            node: ExprKind::Name { id, ctx },
                         }),
                         args: vec![shape, fill_value],
                         keywords: vec![],
@@ -1661,7 +1673,7 @@ impl Inferencer<'_> {
                     match &ndmin_kw.node.value.node {
                         ExprKind::Constant { value, .. } => match value {
                             ast::Constant::Int(value) => max(*value as u64, arg0_ndims),
-                            _ => return report_error("Expected uint64 for ndims", *func_location),
+                            _ => return report_error("Expected uint64 for ndims", func_location),
                         },
 
                         _ => arg0_ndims,
@@ -1704,7 +1716,7 @@ impl Inferencer<'_> {
                         func: Box::new(Located {
                             custom: Some(custom),
                             location: func.location,
-                            node: ExprKind::Name { id: *id, ctx: *ctx },
+                            node: ExprKind::Name { id, ctx },
                         }),
                         args: vec![arg0],
                         keywords,
