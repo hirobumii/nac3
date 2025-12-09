@@ -358,7 +358,12 @@ impl<'a> BuiltinBuilder<'a> {
             | PrimDef::Float
             | PrimDef::Bool
             | PrimDef::Str
-            | PrimDef::None => Self::build_simple_primitive_class(prim),
+            | PrimDef::None
+            | PrimDef::Tuple
+            | PrimDef::Kernel
+            | PrimDef::KernelInvariant
+            | PrimDef::Generic
+            | PrimDef::Virtual => Self::build_simple_primitive_class(prim),
 
             PrimDef::Range | PrimDef::FunRangeInit => self.build_range_class_related(prim),
 
@@ -524,6 +529,11 @@ impl<'a> BuiltinBuilder<'a> {
                 PrimDef::Bool,
                 PrimDef::Str,
                 PrimDef::None,
+                PrimDef::Tuple,
+                PrimDef::Kernel,
+                PrimDef::KernelInvariant,
+                PrimDef::Generic,
+                PrimDef::Virtual,
             ],
         );
 

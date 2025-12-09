@@ -47,6 +47,12 @@ pub enum PrimDef {
     Option,
     List,
     NDArray,
+    Tuple,
+
+    Kernel,
+    KernelInvariant,
+    Generic,
+    Virtual,
 
     // Option methods
     FunOptionIsSome,
@@ -243,6 +249,12 @@ impl PrimDef {
             PrimDef::Option => class("Option", |primitives| primitives.option),
             PrimDef::List => class("list", |primitives| primitives.list),
             PrimDef::NDArray => class("ndarray", |primitives| primitives.ndarray),
+            PrimDef::Tuple => class("tuple", |_| unimplemented!()),
+
+            PrimDef::Kernel => class("Kernel", |_| unimplemented!()),
+            PrimDef::KernelInvariant => class("KernelInvariant", |_| unimplemented!()),
+            PrimDef::Generic => class("Generic", |_| unimplemented!()),
+            PrimDef::Virtual => class("virtual", |_| unimplemented!()),
 
             // Option methods
             PrimDef::FunOptionIsSome => fun("Option.is_some", Some("is_some")),
