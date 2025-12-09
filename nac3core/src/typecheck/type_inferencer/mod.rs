@@ -1025,7 +1025,7 @@ impl Inferencer<'_> {
         if builtin == Some(BuiltinKind::Virtual) {
             if args.is_empty() || args.len() > 2 || !keywords.is_empty() {
                 return report_error(
-                    "`virtual` can only accept 1/2 positional arguments",
+                    "`virtual` can only accept 1 or 2 positional arguments",
                     func_location,
                 );
             }
