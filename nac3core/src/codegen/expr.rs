@@ -2628,13 +2628,11 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
 
     let ty = expr.custom.expect("expressions always have a well-defined type");
 
-    Ok(match &expr.node {
-        ExprKind::Constant { value, .. } => {
-            let Some(const_val) = ctx.gen_const(value, ty) else {
-                return Ok(RtValue::none(ty));
-            };
-            RtValue::dynamic(ty, const_val)
-        }
+    match &expr.node {
+        ExprKind::Constant { value, .. } => match ctx.gen_const(value, ty) {
+            Some(const_val) => Ok(RtValue::dynamic(ty, const_val)),
+            None => Ok(RtValue::none(ty)),
+        },
         ExprKind::Name { id, .. } if id == &"none".into() => match &*ctx.unifier.get_ty(ty) {
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
@@ -2642,70 +2640,54 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 let val = OptionType::from_unifier_type(ctx, ty)
                     .construct_empty(ctx, None)
                     .as_abi_value(ctx);
-                RtValue::dynamic(ty, val.into())
+                Ok(RtValue::dynamic(ty, val.into()))
             }
             _ => codegen_unreachable!(ctx, "must be option type"),
         },
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
             Some((ptr, None, _)) => {
                 let val = ctx.builder.build_load(*ptr, id.to_string().as_str()).unwrap();
-                RtValue::dynamic(ty, val)
+                Ok(RtValue::dynamic(ty, val))
             }
-            Some((_, Some(static_value), _)) => RtValue::r#static(ty, static_value.clone()),
+            Some((_, Some(static_value), _)) => Ok(RtValue::r#static(ty, static_value.clone())),
             None => {
                 let resolver = ctx.resolver.clone();
                 let val = resolver.get_symbol_value(*id, ctx).unwrap();
                 // get_symbol_value returns a ValueEnum
-                RtValue { ty, val: Some(val) }
+                Ok(RtValue { ty, val: Some(val) })
             }
         },
-        ExprKind::List { elts, .. } => {
-            return gen_list_expr(generator, ctx, ty, elts);
-        }
-        ExprKind::Tuple { elts, .. } => {
-            return gen_tuple_expr(generator, ctx, ty, elts);
-        }
+        ExprKind::List { elts, .. } => gen_list_expr(generator, ctx, ty, elts),
+        ExprKind::Tuple { elts, .. } => gen_tuple_expr(generator, ctx, ty, elts),
         ExprKind::Attribute { value, attr, .. } => {
-            return gen_attr_expr(generator, ctx, ty, expr, value, *attr);
+            gen_attr_expr(generator, ctx, ty, expr, value, *attr)
         }
-        ExprKind::BoolOp { op, values } => {
-            return gen_boolop_expr(generator, ctx, ty, *op, values);
-        }
+        ExprKind::BoolOp { op, values } => gen_boolop_expr(generator, ctx, ty, *op, values),
         ExprKind::BinOp { op, left, right } => {
-            return gen_binop_expr(
-                generator,
-                ctx,
-                left,
-                Binop::normal(*op),
-                right,
-                expr.location,
-                ty,
-            );
+            gen_binop_expr(generator, ctx, left, Binop::normal(*op), right, expr.location, ty)
         }
-        ExprKind::UnaryOp { op, operand } => {
-            return gen_unaryop_expr(generator, ctx, *op, operand, ty);
-        }
+        ExprKind::UnaryOp { op, operand } => gen_unaryop_expr(generator, ctx, *op, operand, ty),
         ExprKind::Compare { left, ops, comparators } => {
-            return gen_cmpop_expr(generator, ctx, left, ops, comparators, ty);
+            gen_cmpop_expr(generator, ctx, left, ops, comparators, ty)
         }
         ExprKind::IfExp { test, body, orelse } => {
-            return gen_ifexp_expr(generator, ctx, ty, test, body, orelse);
+            gen_ifexp_expr(generator, ctx, ty, test, body, orelse)
         }
         ExprKind::Call { func, args, keywords } => {
-            return gen_call_expr(generator, ctx, ty, expr, func, args, keywords);
+            gen_call_expr(generator, ctx, ty, expr, func, args, keywords)
         }
         ExprKind::Subscript { value, slice, .. } => {
-            return gen_subscript_expr(generator, ctx, ty, expr, value, slice);
+            gen_subscript_expr(generator, ctx, ty, expr, value, slice)
         }
         ExprKind::ListComp { .. } => {
             if let Some(v) = gen_comprehension(generator, ctx, expr)? {
-                RtValue::dynamic(ty, v)
+                Ok(RtValue::dynamic(ty, v))
             } else {
-                return Ok(RtValue::none(ty));
+                Ok(RtValue::none(ty))
             }
         }
         _ => unimplemented!(),
-    })
+    }
 }
 
 trait __ReturnType<'ctx> {
