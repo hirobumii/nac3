@@ -2044,6 +2044,37 @@ fn gen_list_expr<'ctx, G: CodeGenerator>(
     Ok(RtValue::dynamic(ty, arr_str_ptr.as_abi_value(ctx).into()))
 }
 
+fn gen_tuple_expr<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    elts: &[Expr<Option<Type>>],
+) -> Result<RtValue<'ctx>, String> {
+    let element_val = elts
+        .iter()
+        .map(|x| generator.gen_expr(ctx, x).and_then(|v| v.to_basic_value_enum(ctx)))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let element_ty = element_val.iter().map(BasicValueEnum::get_type).collect_vec();
+    let tuple_ty = ctx.ctx.struct_type(&element_ty, false);
+    let tuple_ptr = ctx.builder.build_alloca(tuple_ty, "tuple").unwrap();
+    for (i, v) in element_val.into_iter().enumerate() {
+        unsafe {
+            let ptr = ctx
+                .builder
+                .build_in_bounds_gep(
+                    tuple_ptr,
+                    &[ctx.i32.const_int(0, false), ctx.i32.const_int(i as u64, false)],
+                    "ptr",
+                )
+                .unwrap();
+            ctx.builder.build_store(ptr, v).unwrap();
+        }
+    }
+    let val = ctx.builder.build_load(tuple_ptr, "tup_val").unwrap();
+    Ok(RtValue::dynamic(ty, val))
+}
+
 /// See [`CodeGenerator::gen_expr`].
 pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
@@ -2101,29 +2132,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             return gen_list_expr(generator, ctx, ty, elts);
         }
         ExprKind::Tuple { elts, .. } => {
-            let element_val = elts
-                .iter()
-                .map(|x| generator.gen_expr(ctx, x).and_then(|v| v.to_basic_value_enum(ctx)))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            let element_ty = element_val.iter().map(BasicValueEnum::get_type).collect_vec();
-            let tuple_ty = ctx.ctx.struct_type(&element_ty, false);
-            let tuple_ptr = ctx.builder.build_alloca(tuple_ty, "tuple").unwrap();
-            for (i, v) in element_val.into_iter().enumerate() {
-                unsafe {
-                    let ptr = ctx
-                        .builder
-                        .build_in_bounds_gep(
-                            tuple_ptr,
-                            &[zero, int32.const_int(i as u64, false)],
-                            "ptr",
-                        )
-                        .unwrap();
-                    ctx.builder.build_store(ptr, v).unwrap();
-                }
-            }
-            let val = ctx.builder.build_load(tuple_ptr, "tup_val").unwrap();
-            RtValue::dynamic(ty, val)
+            return gen_tuple_expr(generator, ctx, ty, elts);
         }
         ExprKind::Attribute { value, attr, .. } => {
             // note that we would handle class methods directly in calls
