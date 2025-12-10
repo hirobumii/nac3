@@ -1999,6 +1999,51 @@ pub fn gen_cmpop_expr<'ctx, G: CodeGenerator>(
     Ok(RtValue::dynamic(result_ty, result))
 }
 
+fn gen_list_expr<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    elts: &[Expr<Option<Type>>],
+) -> Result<RtValue<'ctx>, String> {
+    // this shall be optimized later for constant primitive lists...
+    // we should use memcpy for that instead of generating thousands of stores
+    let elements = elts
+        .iter()
+        .map(|x| generator.gen_expr(ctx, x).and_then(|v| v.to_basic_value_enum(ctx)))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let ty_inner = if elements.is_empty() {
+        let ty_inner = if let TypeEnum::TObj { obj_id, params, .. } = &*ctx.unifier.get_ty(ty) {
+            assert_eq!(*obj_id, PrimDef::List.id());
+
+            *params.iter().next().unwrap().1
+        } else {
+            codegen_unreachable!(ctx)
+        };
+
+        if let TypeEnum::TVar { .. } = &*ctx.unifier.get_ty_immutable(ty_inner) {
+            None
+        } else {
+            Some(ctx.get_llvm_type(ty_inner))
+        }
+    } else {
+        Some(elements[0].get_type())
+    };
+    let length = ctx.size_t.const_int(elements.len() as u64, false);
+    let arr_str_ptr = if let Some(ty_inner) = ty_inner {
+        ListType::new(ctx, &ty_inner).construct(ctx, length, Some("list"))
+    } else {
+        ListType::new_untyped(ctx).construct_empty(ctx, Some("list"))
+    };
+    let arr_ptr = arr_str_ptr.data();
+    for (i, v) in elements.iter().enumerate() {
+        let elem_ptr =
+            arr_ptr.ptr_offset(ctx, &ctx.size_t.const_int(i as u64, false), Some("elem_ptr"));
+        ctx.builder.build_store(elem_ptr, *v).unwrap();
+    }
+    Ok(RtValue::dynamic(ty, arr_str_ptr.as_abi_value(ctx).into()))
+}
+
 /// See [`CodeGenerator::gen_expr`].
 pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
@@ -2053,44 +2098,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             }
         },
         ExprKind::List { elts, .. } => {
-            // this shall be optimized later for constant primitive lists...
-            // we should use memcpy for that instead of generating thousands of stores
-            let elements = elts
-                .iter()
-                .map(|x| generator.gen_expr(ctx, x).and_then(|v| v.to_basic_value_enum(ctx)))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            let ty_inner = if elements.is_empty() {
-                let ty_inner =
-                    if let TypeEnum::TObj { obj_id, params, .. } = &*ctx.unifier.get_ty(ty) {
-                        assert_eq!(*obj_id, PrimDef::List.id());
-
-                        *params.iter().next().unwrap().1
-                    } else {
-                        codegen_unreachable!(ctx)
-                    };
-
-                if let TypeEnum::TVar { .. } = &*ctx.unifier.get_ty_immutable(ty_inner) {
-                    None
-                } else {
-                    Some(ctx.get_llvm_type(ty_inner))
-                }
-            } else {
-                Some(elements[0].get_type())
-            };
-            let length = ctx.size_t.const_int(elements.len() as u64, false);
-            let arr_str_ptr = if let Some(ty_inner) = ty_inner {
-                ListType::new(ctx, &ty_inner).construct(ctx, length, Some("list"))
-            } else {
-                ListType::new_untyped(ctx).construct_empty(ctx, Some("list"))
-            };
-            let arr_ptr = arr_str_ptr.data();
-            for (i, v) in elements.iter().enumerate() {
-                let elem_ptr =
-                    arr_ptr.ptr_offset(ctx, &usize.const_int(i as u64, false), Some("elem_ptr"));
-                ctx.builder.build_store(elem_ptr, *v).unwrap();
-            }
-            RtValue::dynamic(ty, arr_str_ptr.as_abi_value(ctx).into())
+            return gen_list_expr(generator, ctx, ty, elts);
         }
         ExprKind::Tuple { elts, .. } => {
             let element_val = elts
