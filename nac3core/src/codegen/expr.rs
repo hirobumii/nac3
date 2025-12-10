@@ -2234,6 +2234,61 @@ fn gen_boolop_expr<'ctx, G: CodeGenerator>(
     Ok(RtValue::dynamic(ty, phi.as_basic_value()))
 }
 
+fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    test: &Expr<Option<Type>>,
+    body: &Expr<Option<Type>>,
+    orelse: &Expr<Option<Type>>,
+) -> Result<RtValue<'ctx>, String> {
+    let test = generator.gen_expr(ctx, test)?.to_basic_value_enum(ctx)?.into_int_value();
+    let test = bool_to_i1(ctx, test);
+    let body_ty = body.custom.unwrap();
+    let is_none = ctx.unifier.get_representative(body_ty) == ctx.primitives.none;
+    let result = if is_none {
+        None
+    } else {
+        let llvm_ty = ctx.get_llvm_type(body_ty);
+        Some(ctx.builder.build_alloca(llvm_ty, "if_exp_result").unwrap())
+    };
+    let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
+    let then_bb = ctx.ctx.append_basic_block(current, "then");
+    let else_bb = ctx.ctx.append_basic_block(current, "else");
+    let cont_bb = ctx.ctx.append_basic_block(current, "cont");
+    ctx.builder.build_conditional_branch(test, then_bb, else_bb).unwrap();
+
+    ctx.builder.position_at_end(then_bb);
+    let a = generator.gen_expr(ctx, body)?;
+    match result {
+        None => None,
+        Some(v) => {
+            let a = a.to_basic_value_enum(ctx)?;
+            Some(ctx.builder.build_store(v, a))
+        }
+    };
+    ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+
+    ctx.builder.position_at_end(else_bb);
+    let b = generator.gen_expr(ctx, orelse)?;
+    match result {
+        None => None,
+        Some(v) => {
+            let b = b.to_basic_value_enum(ctx)?;
+            Some(ctx.builder.build_store(v, b))
+        }
+    };
+    ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+
+    ctx.builder.position_at_end(cont_bb);
+    Ok(if let Some(v) = result {
+        let val = ctx.builder.build_load(v, "if_exp_val_load").unwrap();
+        RtValue::dynamic(ty, val)
+    } else {
+        RtValue::none(ty)
+    })
+}
+
 /// See [`CodeGenerator::gen_expr`].
 pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
@@ -2317,51 +2372,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             return gen_cmpop_expr(generator, ctx, left, ops, comparators, ty);
         }
         ExprKind::IfExp { test, body, orelse } => {
-            let test = generator.gen_expr(ctx, test)?.to_basic_value_enum(ctx)?.into_int_value();
-            let test = bool_to_i1(ctx, test);
-            let body_ty = body.custom.unwrap();
-            let is_none = ctx.unifier.get_representative(body_ty) == ctx.primitives.none;
-            let result = if is_none {
-                None
-            } else {
-                let llvm_ty = ctx.get_llvm_type(body_ty);
-                Some(ctx.builder.build_alloca(llvm_ty, "if_exp_result").unwrap())
-            };
-            let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-            let then_bb = ctx.ctx.append_basic_block(current, "then");
-            let else_bb = ctx.ctx.append_basic_block(current, "else");
-            let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-            ctx.builder.build_conditional_branch(test, then_bb, else_bb).unwrap();
-
-            ctx.builder.position_at_end(then_bb);
-            let a = generator.gen_expr(ctx, body)?;
-            match result {
-                None => None,
-                Some(v) => {
-                    let a = a.to_basic_value_enum(ctx)?;
-                    Some(ctx.builder.build_store(v, a))
-                }
-            };
-            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-
-            ctx.builder.position_at_end(else_bb);
-            let b = generator.gen_expr(ctx, orelse)?;
-            match result {
-                None => None,
-                Some(v) => {
-                    let b = b.to_basic_value_enum(ctx)?;
-                    Some(ctx.builder.build_store(v, b))
-                }
-            };
-            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-
-            ctx.builder.position_at_end(cont_bb);
-            if let Some(v) = result {
-                let val = ctx.builder.build_load(v, "if_exp_val_load").unwrap();
-                RtValue::dynamic(ty, val)
-            } else {
-                RtValue::none(ty)
-            }
+            return gen_ifexp_expr(generator, ctx, ty, test, body, orelse);
         }
         ExprKind::Call { func, args, keywords } => {
             let mut params = args
