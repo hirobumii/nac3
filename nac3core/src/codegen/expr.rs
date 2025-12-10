@@ -2468,27 +2468,23 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                 else {
                     return Ok(RtValue::none(ty));
                 };
-                let length = calculate_len_for_slice_range(
-                    ctx,
-                    start,
-                    ctx.builder
-                        .build_select(
-                            ctx.builder
-                                .build_int_compare(
-                                    IntPredicate::SLT,
-                                    step,
-                                    ctx.i32.const_int(0, false),
-                                    "is_neg",
-                                )
-                                .unwrap(),
-                            ctx.builder.build_int_sub(end, one, "e_min_one").unwrap(),
-                            ctx.builder.build_int_add(end, one, "e_add_one").unwrap(),
-                            "final_e",
-                        )
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap(),
-                    step,
-                );
+                let cond = ctx
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::SLT,
+                        step,
+                        ctx.i32.const_int(0, false),
+                        "is_neg",
+                    )
+                    .unwrap();
+                let then = ctx.builder.build_int_sub(end, one, "e_min_one").unwrap();
+                let else_ = ctx.builder.build_int_add(end, one, "e_add_one").unwrap();
+                let end_slice = ctx
+                    .builder
+                    .build_select(cond, then, else_, "final_e")
+                    .map(BasicValueEnum::into_int_value)
+                    .unwrap();
+                let length = calculate_len_for_slice_range(ctx, start, end_slice, step);
                 let res_array_ret =
                     ListType::new(ctx, &ty_elem_llvm).construct(ctx, length, Some("ret"));
                 let size = res_array_ret.load_size(ctx, None);
