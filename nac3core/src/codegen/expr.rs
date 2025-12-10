@@ -2179,6 +2179,61 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
     Ok(res)
 }
 
+fn gen_boolop_expr<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    op: Boolop,
+    values: &[Expr<Option<Type>>],
+) -> Result<RtValue<'ctx>, String> {
+    // requires conditional branches for short-circuiting...
+    let left = generator.gen_expr(ctx, &values[0])?.to_basic_value_enum(ctx)?.into_int_value();
+    let left = bool_to_i1(ctx, left);
+    let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
+    let a_begin_bb = ctx.ctx.append_basic_block(current, "a_begin");
+    let a_end_bb = ctx.ctx.append_basic_block(current, "a_end");
+    let b_begin_bb = ctx.ctx.append_basic_block(current, "b_begin");
+    let b_end_bb = ctx.ctx.append_basic_block(current, "b_end");
+    let cont_bb = ctx.ctx.append_basic_block(current, "cont");
+    ctx.builder.build_conditional_branch(left, a_begin_bb, b_begin_bb).unwrap();
+
+    ctx.builder.position_at_end(a_end_bb);
+    ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+    ctx.builder.position_at_end(b_end_bb);
+    ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+    let (a, b) = match op {
+        Boolop::Or => {
+            ctx.builder.position_at_end(a_begin_bb);
+            let a = ctx.i8.const_int(1, false);
+            ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
+
+            ctx.builder.position_at_end(b_begin_bb);
+            let b = generator.gen_expr(ctx, &values[1])?.to_basic_value_enum(ctx)?.into_int_value();
+            let b = bool_to_i8(ctx, b);
+            ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
+
+            (a, b)
+        }
+        Boolop::And => {
+            ctx.builder.position_at_end(a_begin_bb);
+            let a = generator.gen_expr(ctx, &values[1])?.to_basic_value_enum(ctx)?.into_int_value();
+            let a = bool_to_i8(ctx, a);
+            ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
+
+            ctx.builder.position_at_end(b_begin_bb);
+            let b = ctx.i8.const_zero();
+            ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
+
+            (a, b)
+        }
+    };
+
+    ctx.builder.position_at_end(cont_bb);
+    let phi = ctx.builder.build_phi(ctx.i8, "").unwrap();
+    phi.add_incoming(&[(&a, a_end_bb), (&b, b_end_bb)]);
+    Ok(RtValue::dynamic(ty, phi.as_basic_value()))
+}
+
 /// See [`CodeGenerator::gen_expr`].
 pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
@@ -2242,59 +2297,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             return gen_attr_expr(generator, ctx, ty, expr, value, *attr);
         }
         ExprKind::BoolOp { op, values } => {
-            // requires conditional branches for short-circuiting...
-            let left =
-                generator.gen_expr(ctx, &values[0])?.to_basic_value_enum(ctx)?.into_int_value();
-            let left = bool_to_i1(ctx, left);
-            let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
-            let a_begin_bb = ctx.ctx.append_basic_block(current, "a_begin");
-            let a_end_bb = ctx.ctx.append_basic_block(current, "a_end");
-            let b_begin_bb = ctx.ctx.append_basic_block(current, "b_begin");
-            let b_end_bb = ctx.ctx.append_basic_block(current, "b_end");
-            let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-            ctx.builder.build_conditional_branch(left, a_begin_bb, b_begin_bb).unwrap();
-
-            ctx.builder.position_at_end(a_end_bb);
-            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-            ctx.builder.position_at_end(b_end_bb);
-            ctx.builder.build_unconditional_branch(cont_bb).unwrap();
-            let (a, b) = match op {
-                Boolop::Or => {
-                    ctx.builder.position_at_end(a_begin_bb);
-                    let a = ctx.i8.const_int(1, false);
-                    ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
-
-                    ctx.builder.position_at_end(b_begin_bb);
-                    let b = generator
-                        .gen_expr(ctx, &values[1])?
-                        .to_basic_value_enum(ctx)?
-                        .into_int_value();
-                    let b = bool_to_i8(ctx, b);
-                    ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
-
-                    (a, b)
-                }
-                Boolop::And => {
-                    ctx.builder.position_at_end(a_begin_bb);
-                    let a = generator
-                        .gen_expr(ctx, &values[1])?
-                        .to_basic_value_enum(ctx)?
-                        .into_int_value();
-                    let a = bool_to_i8(ctx, a);
-                    ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
-
-                    ctx.builder.position_at_end(b_begin_bb);
-                    let b = ctx.i8.const_zero();
-                    ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
-
-                    (a, b)
-                }
-            };
-
-            ctx.builder.position_at_end(cont_bb);
-            let phi = ctx.builder.build_phi(ctx.i8, "").unwrap();
-            phi.add_incoming(&[(&a, a_end_bb), (&b, b_end_bb)]);
-            RtValue::dynamic(ty, phi.as_basic_value())
+            return gen_boolop_expr(generator, ctx, ty, *op, values);
         }
         ExprKind::BinOp { op, left, right } => {
             return gen_binop_expr(
