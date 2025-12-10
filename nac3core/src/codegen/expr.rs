@@ -2464,6 +2464,151 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
     }
 }
 
+fn gen_subscript_expr<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    expr: &Expr<Option<Type>>,
+    value: &Expr<Option<Type>>,
+    slice: &Expr<Option<Type>>,
+) -> Result<RtValue<'ctx>, String> {
+    let res = match &*ctx.unifier.get_ty(value.custom.unwrap()) {
+        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+            let ty_elem = params.iter().next().unwrap().1;
+
+            let v_rt = generator.gen_expr(ctx, value)?;
+            let v = v_rt.to_basic_value_enum(ctx)?.into_pointer_value();
+            let v = ListValue::from_pointer_value(v, ctx.size_t, Some("arr"));
+            let ty_elem_llvm = ctx.get_llvm_type(*ty_elem);
+            if let ExprKind::Slice { lower, upper, step } = &slice.node {
+                let one = ctx.i32.const_int(1, false);
+                let size = v.load_size(ctx, None);
+                let Some((start, end, step)) =
+                    handle_slice_indices(lower, upper, step, ctx, generator, size)?
+                else {
+                    return Ok(RtValue::none(ty));
+                };
+                let length = calculate_len_for_slice_range(
+                    ctx,
+                    start,
+                    ctx.builder
+                        .build_select(
+                            ctx.builder
+                                .build_int_compare(
+                                    IntPredicate::SLT,
+                                    step,
+                                    ctx.i32.const_int(0, false),
+                                    "is_neg",
+                                )
+                                .unwrap(),
+                            ctx.builder.build_int_sub(end, one, "e_min_one").unwrap(),
+                            ctx.builder.build_int_add(end, one, "e_add_one").unwrap(),
+                            "final_e",
+                        )
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap(),
+                    step,
+                );
+                let res_array_ret =
+                    ListType::new(ctx, &ty_elem_llvm).construct(ctx, length, Some("ret"));
+                let size = res_array_ret.load_size(ctx, None);
+                let Some(res_ind) =
+                    handle_slice_indices(&None, &None, &None, ctx, generator, size)?
+                else {
+                    return Ok(RtValue::none(ty));
+                };
+                list_slice_assignment(
+                    ctx,
+                    ty_elem_llvm,
+                    res_array_ret,
+                    res_ind,
+                    v,
+                    (start, end, step),
+                );
+                RtValue::dynamic(ty, res_array_ret.as_abi_value(ctx).into())
+            } else {
+                let len = v.load_size(ctx, Some("len"));
+                let raw_index =
+                    generator.gen_expr(ctx, slice)?.to_basic_value_enum(ctx)?.into_int_value();
+                let raw_index =
+                    ctx.builder.build_int_s_extend(raw_index, ctx.size_t, "sext").unwrap();
+                // handle negative index
+                let is_negative = ctx
+                    .builder
+                    .build_int_compare(
+                        IntPredicate::SLT,
+                        raw_index,
+                        ctx.size_t.const_zero(),
+                        "is_neg",
+                    )
+                    .unwrap();
+                let adjusted = ctx.builder.build_int_add(raw_index, len, "adjusted").unwrap();
+                let index = ctx
+                    .builder
+                    .build_select(is_negative, adjusted, raw_index, "index")
+                    .map(BasicValueEnum::into_int_value)
+                    .unwrap();
+                // unsigned less than is enough, because negative index after adjustment is
+                // bigger than the length (for unsigned cmp)
+                let bound_check = ctx
+                    .builder
+                    .build_int_compare(IntPredicate::ULT, index, len, "inbound")
+                    .unwrap();
+                ctx.make_assert(
+                    bound_check,
+                    "0:IndexError",
+                    "index {0} out of bounds 0:{1}",
+                    [Some(raw_index), Some(len), None],
+                    expr.location,
+                );
+                let result = v.data().get(ctx, &index, None);
+                RtValue::dynamic(ty, result)
+            }
+        }
+        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
+            let ndarray_ty = value.custom.unwrap();
+            let ndarray = generator.gen_expr(ctx, value)?.to_basic_value_enum(ctx)?;
+            let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
+                .map_pointer_value(ndarray.into_pointer_value(), None);
+
+            let indices = RustNDIndex::from_subscript_expr(generator, ctx, slice)?;
+            let result = ndarray.index(ctx, &indices).split_unsized(ctx).to_basic_value_enum();
+            return Ok(RtValue::dynamic(ty, result));
+        }
+        TypeEnum::TTuple { .. } => {
+            let index: u32 = if let ExprKind::Constant { value: Constant::Int(v), .. } = &slice.node
+            {
+                (*v).try_into().unwrap()
+            } else {
+                codegen_unreachable!(ctx, "tuple subscript must be const int after type check");
+            };
+            let rt_val = generator.gen_expr(ctx, value)?;
+            match rt_val.val {
+                Some(ValueEnum::Dynamic(v)) => {
+                    let v = v.into_struct_value();
+                    let result = ctx.builder.build_extract_value(v, index, "tup_elem").unwrap();
+                    RtValue::dynamic(ty, result)
+                }
+                Some(ValueEnum::Static(v)) => {
+                    if let Some(field_val) = v.get_tuple_element(index) {
+                        let result = field_val.to_basic_value_enum(ctx, ty)?;
+                        RtValue::dynamic(ty, result)
+                    } else {
+                        let tup =
+                            v.to_basic_value_enum(ctx, value.custom.unwrap())?.into_struct_value();
+                        let result =
+                            ctx.builder.build_extract_value(tup, index, "tup_elem").unwrap();
+                        RtValue::dynamic(ty, result)
+                    }
+                }
+                None => return Ok(RtValue::none(ty)),
+            }
+        }
+        _ => codegen_unreachable!(ctx, "should not be other subscriptable types after type check"),
+    };
+    Ok(res)
+}
+
 /// See [`CodeGenerator::gen_expr`].
 pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
@@ -2471,9 +2616,6 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
     expr: &Expr<Option<Type>>,
 ) -> Result<RtValue<'ctx>, String> {
     ctx.current_loc = expr.location;
-    let int32 = ctx.i32;
-    let usize = ctx.size_t;
-    let zero = int32.const_int(0, false);
 
     let loc = ctx.debug_info.0.create_debug_location(
         ctx.ctx,
@@ -2553,149 +2695,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             return gen_call_expr(generator, ctx, ty, expr, func, args, keywords);
         }
         ExprKind::Subscript { value, slice, .. } => {
-            match &*ctx.unifier.get_ty(value.custom.unwrap()) {
-                TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
-                    let ty_elem = params.iter().next().unwrap().1;
-
-                    let v_rt = generator.gen_expr(ctx, value)?;
-                    let v = v_rt.to_basic_value_enum(ctx)?.into_pointer_value();
-                    let v = ListValue::from_pointer_value(v, usize, Some("arr"));
-                    let ty_elem_llvm = ctx.get_llvm_type(*ty_elem);
-                    if let ExprKind::Slice { lower, upper, step } = &slice.node {
-                        let one = int32.const_int(1, false);
-                        let size = v.load_size(ctx, None);
-                        let Some((start, end, step)) =
-                            handle_slice_indices(lower, upper, step, ctx, generator, size)?
-                        else {
-                            return Ok(RtValue::none(ty));
-                        };
-                        let length = calculate_len_for_slice_range(
-                            ctx,
-                            start,
-                            ctx.builder
-                                .build_select(
-                                    ctx.builder
-                                        .build_int_compare(IntPredicate::SLT, step, zero, "is_neg")
-                                        .unwrap(),
-                                    ctx.builder.build_int_sub(end, one, "e_min_one").unwrap(),
-                                    ctx.builder.build_int_add(end, one, "e_add_one").unwrap(),
-                                    "final_e",
-                                )
-                                .map(BasicValueEnum::into_int_value)
-                                .unwrap(),
-                            step,
-                        );
-                        let res_array_ret =
-                            ListType::new(ctx, &ty_elem_llvm).construct(ctx, length, Some("ret"));
-                        let size = res_array_ret.load_size(ctx, None);
-                        let Some(res_ind) =
-                            handle_slice_indices(&None, &None, &None, ctx, generator, size)?
-                        else {
-                            return Ok(RtValue::none(ty));
-                        };
-                        list_slice_assignment(
-                            ctx,
-                            ty_elem_llvm,
-                            res_array_ret,
-                            res_ind,
-                            v,
-                            (start, end, step),
-                        );
-                        RtValue::dynamic(ty, res_array_ret.as_abi_value(ctx).into())
-                    } else {
-                        let len = v.load_size(ctx, Some("len"));
-                        let raw_index = generator
-                            .gen_expr(ctx, slice)?
-                            .to_basic_value_enum(ctx)?
-                            .into_int_value();
-                        let raw_index =
-                            ctx.builder.build_int_s_extend(raw_index, ctx.size_t, "sext").unwrap();
-                        // handle negative index
-                        let is_negative = ctx
-                            .builder
-                            .build_int_compare(
-                                IntPredicate::SLT,
-                                raw_index,
-                                ctx.size_t.const_zero(),
-                                "is_neg",
-                            )
-                            .unwrap();
-                        let adjusted =
-                            ctx.builder.build_int_add(raw_index, len, "adjusted").unwrap();
-                        let index = ctx
-                            .builder
-                            .build_select(is_negative, adjusted, raw_index, "index")
-                            .map(BasicValueEnum::into_int_value)
-                            .unwrap();
-                        // unsigned less than is enough, because negative index after adjustment is
-                        // bigger than the length (for unsigned cmp)
-                        let bound_check = ctx
-                            .builder
-                            .build_int_compare(IntPredicate::ULT, index, len, "inbound")
-                            .unwrap();
-                        ctx.make_assert(
-                            bound_check,
-                            "0:IndexError",
-                            "index {0} out of bounds 0:{1}",
-                            [Some(raw_index), Some(len), None],
-                            expr.location,
-                        );
-                        let result = v.data().get(ctx, &index, None);
-                        RtValue::dynamic(ty, result)
-                    }
-                }
-                TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                    let ndarray_ty = value.custom.unwrap();
-                    let ndarray = generator.gen_expr(ctx, value)?.to_basic_value_enum(ctx)?;
-                    let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
-                        .map_pointer_value(ndarray.into_pointer_value(), None);
-
-                    let indices = RustNDIndex::from_subscript_expr(generator, ctx, slice)?;
-                    let result =
-                        ndarray.index(ctx, &indices).split_unsized(ctx).to_basic_value_enum();
-                    return Ok(RtValue::dynamic(ty, result));
-                }
-                TypeEnum::TTuple { .. } => {
-                    let index: u32 =
-                        if let ExprKind::Constant { value: Constant::Int(v), .. } = &slice.node {
-                            (*v).try_into().unwrap()
-                        } else {
-                            codegen_unreachable!(
-                                ctx,
-                                "tuple subscript must be const int after type check"
-                            );
-                        };
-                    let rt_val = generator.gen_expr(ctx, value)?;
-                    match rt_val.val {
-                        Some(ValueEnum::Dynamic(v)) => {
-                            let v = v.into_struct_value();
-                            let result =
-                                ctx.builder.build_extract_value(v, index, "tup_elem").unwrap();
-                            RtValue::dynamic(ty, result)
-                        }
-                        Some(ValueEnum::Static(v)) => {
-                            if let Some(field_val) = v.get_tuple_element(index) {
-                                let result = field_val.to_basic_value_enum(ctx, ty)?;
-                                RtValue::dynamic(ty, result)
-                            } else {
-                                let tup = v
-                                    .to_basic_value_enum(ctx, value.custom.unwrap())?
-                                    .into_struct_value();
-                                let result = ctx
-                                    .builder
-                                    .build_extract_value(tup, index, "tup_elem")
-                                    .unwrap();
-                                RtValue::dynamic(ty, result)
-                            }
-                        }
-                        None => return Ok(RtValue::none(ty)),
-                    }
-                }
-                _ => codegen_unreachable!(
-                    ctx,
-                    "should not be other subscriptable types after type check"
-                ),
-            }
+            return gen_subscript_expr(generator, ctx, ty, expr, value, slice);
         }
         ExprKind::ListComp { .. } => {
             if let Some(v) = gen_comprehension(generator, ctx, expr)? {
