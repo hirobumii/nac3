@@ -2075,6 +2075,110 @@ fn gen_tuple_expr<'ctx, G: CodeGenerator>(
     Ok(RtValue::dynamic(ty, val))
 }
 
+fn gen_attr_expr<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    expr: &Expr<Option<Type>>,
+    value: &Expr<Option<Type>>,
+    attr: StrRef,
+) -> Result<RtValue<'ctx>, String> {
+    // note that we would handle class methods directly in calls
+
+    // Change Class attribute access requests to accessing constants from Class Definition
+    if let Some(c) = value.custom {
+        if let TypeEnum::TFunc(_) = &*ctx.unifier.get_ty(c) {
+            let defs = ctx.top_level.definitions.read();
+            let result = defs.iter().find_map(|def| {
+                if let Some(rear_guard) = def.try_read()
+                    && let TopLevelDef::Class { constructor: Some(constructor), attributes, .. } =
+                        &*rear_guard
+                    && *constructor == c
+                {
+                    return attributes.iter().find_map(|f| {
+                        if f.0 == attr {
+                            // All other checks performed by this point
+                            return Some(f.2.clone());
+                        }
+                        None
+                    });
+                }
+                None
+            });
+            match result {
+                Some(val) => {
+                    let mut modified_expr = expr.clone();
+                    modified_expr.node = ExprKind::Constant { value: val, kind: None };
+
+                    return generator.gen_expr(ctx, &modified_expr);
+                }
+                None => {
+                    codegen_unreachable!(ctx, "Function Type should not have attributes")
+                }
+            }
+        } else if let TypeEnum::TObj { obj_id, fields, params } = &*ctx.unifier.get_ty(c)
+            && fields.is_empty()
+            && params.is_empty()
+        {
+            let defs = ctx.top_level.definitions.read();
+            let def = defs[obj_id.0].read();
+            match if let TopLevelDef::Class { attributes, .. } = &*def {
+                attributes.iter().find_map(|f| {
+                    if f.0 == attr {
+                        return Some(f.2.clone());
+                    }
+                    None
+                })
+            } else {
+                None
+            } {
+                Some(val) => {
+                    let mut modified_expr = expr.clone();
+                    modified_expr.node = ExprKind::Constant { value: val, kind: None };
+
+                    return generator.gen_expr(ctx, &modified_expr);
+                }
+                None => codegen_unreachable!(ctx),
+            }
+        }
+    }
+
+    let res = match generator.gen_expr(ctx, value)?.val {
+        Some(ValueEnum::Static(v)) => match v.get_field(attr, ctx) {
+            Some(ValueEnum::Static(v)) => RtValue::r#static(ty, v),
+            Some(ValueEnum::Dynamic(v)) => RtValue::dynamic(ty, v),
+            None => {
+                let v = v.to_basic_value_enum(ctx, value.custom.unwrap())?;
+                let (index, _) = ctx.get_attr_index(value.custom.unwrap(), attr);
+                let val = ctx.build_gep_and_load(
+                    v.into_pointer_value(),
+                    &[ctx.i32.const_int(0, false), ctx.i32.const_int(index as u64, false)],
+                    None,
+                );
+                RtValue::dynamic(ty, val)
+            }
+        },
+        Some(ValueEnum::Dynamic(v)) => {
+            let (index, attr_value) = ctx.get_attr_index(value.custom.unwrap(), attr);
+            if let Some(val) = attr_value {
+                // Change to Constant Construct
+                let mut modified_expr = expr.clone();
+                modified_expr.node = ExprKind::Constant { value: val, kind: None };
+
+                return generator.gen_expr(ctx, &modified_expr);
+            }
+            let result = ctx.build_gep_and_load(
+                v.into_pointer_value(),
+                &[ctx.i32.const_int(0, false), ctx.i32.const_int(index as u64, false)],
+                None,
+            );
+            RtValue::dynamic(ty, result)
+        }
+        None => RtValue::none(ty),
+    };
+    Ok(res)
+}
+
 /// See [`CodeGenerator::gen_expr`].
 pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
@@ -2135,102 +2239,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             return gen_tuple_expr(generator, ctx, ty, elts);
         }
         ExprKind::Attribute { value, attr, .. } => {
-            // note that we would handle class methods directly in calls
-
-            // Change Class attribute access requests to accessing constants from Class Definition
-            if let Some(c) = value.custom {
-                if let TypeEnum::TFunc(_) = &*ctx.unifier.get_ty(c) {
-                    let defs = ctx.top_level.definitions.read();
-                    let result = defs.iter().find_map(|def| {
-                        if let Some(rear_guard) = def.try_read()
-                            && let TopLevelDef::Class {
-                                constructor: Some(constructor),
-                                attributes,
-                                ..
-                            } = &*rear_guard
-                            && *constructor == c
-                        {
-                            return attributes.iter().find_map(|f| {
-                                if f.0 == *attr {
-                                    // All other checks performed by this point
-                                    return Some(f.2.clone());
-                                }
-                                None
-                            });
-                        }
-                        None
-                    });
-                    match result {
-                        Some(val) => {
-                            let mut modified_expr = expr.clone();
-                            modified_expr.node = ExprKind::Constant { value: val, kind: None };
-
-                            return generator.gen_expr(ctx, &modified_expr);
-                        }
-                        None => {
-                            codegen_unreachable!(ctx, "Function Type should not have attributes")
-                        }
-                    }
-                } else if let TypeEnum::TObj { obj_id, fields, params } = &*ctx.unifier.get_ty(c)
-                    && fields.is_empty()
-                    && params.is_empty()
-                {
-                    let defs = ctx.top_level.definitions.read();
-                    let def = defs[obj_id.0].read();
-                    match if let TopLevelDef::Class { attributes, .. } = &*def {
-                        attributes.iter().find_map(|f| {
-                            if f.0 == *attr {
-                                return Some(f.2.clone());
-                            }
-                            None
-                        })
-                    } else {
-                        None
-                    } {
-                        Some(val) => {
-                            let mut modified_expr = expr.clone();
-                            modified_expr.node = ExprKind::Constant { value: val, kind: None };
-
-                            return generator.gen_expr(ctx, &modified_expr);
-                        }
-                        None => codegen_unreachable!(ctx),
-                    }
-                }
-            }
-
-            match generator.gen_expr(ctx, value)?.val {
-                Some(ValueEnum::Static(v)) => match v.get_field(*attr, ctx) {
-                    Some(ValueEnum::Static(v)) => RtValue::r#static(ty, v),
-                    Some(ValueEnum::Dynamic(v)) => RtValue::dynamic(ty, v),
-                    None => {
-                        let v = v.to_basic_value_enum(ctx, value.custom.unwrap())?;
-                        let (index, _) = ctx.get_attr_index(value.custom.unwrap(), *attr);
-                        let val = ctx.build_gep_and_load(
-                            v.into_pointer_value(),
-                            &[zero, int32.const_int(index as u64, false)],
-                            None,
-                        );
-                        RtValue::dynamic(ty, val)
-                    }
-                },
-                Some(ValueEnum::Dynamic(v)) => {
-                    let (index, attr_value) = ctx.get_attr_index(value.custom.unwrap(), *attr);
-                    if let Some(val) = attr_value {
-                        // Change to Constant Construct
-                        let mut modified_expr = expr.clone();
-                        modified_expr.node = ExprKind::Constant { value: val, kind: None };
-
-                        return generator.gen_expr(ctx, &modified_expr);
-                    }
-                    let result = ctx.build_gep_and_load(
-                        v.into_pointer_value(),
-                        &[zero, int32.const_int(index as u64, false)],
-                        None,
-                    );
-                    RtValue::dynamic(ty, result)
-                }
-                None => return Ok(RtValue::none(ty)),
-            }
+            return gen_attr_expr(generator, ctx, ty, expr, value, *attr);
         }
         ExprKind::BoolOp { op, values } => {
             // requires conditional branches for short-circuiting...
