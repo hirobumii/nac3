@@ -84,7 +84,7 @@ pub enum BuiltinKind {
     Float64,
     BoolType,
     StrType,
-    NDArray,
+    NpNDArray,
 
     NpEmpty,
     NpZeros,
@@ -176,6 +176,7 @@ impl TryFrom<BuiltinKind> for PrimDef {
             BuiltinKind::Bool => Ok(PrimDef::Bool),
             BuiltinKind::Str => Ok(PrimDef::Str),
             BuiltinKind::List => Ok(PrimDef::List),
+            BuiltinKind::Tuple => Ok(PrimDef::Tuple),
             BuiltinKind::Exception => Ok(PrimDef::Exception),
 
             BuiltinKind::Range => Ok(PrimDef::Range),
@@ -191,13 +192,19 @@ impl TryFrom<BuiltinKind> for PrimDef {
             BuiltinKind::Abs => Ok(PrimDef::FunAbs),
             BuiltinKind::Some => Ok(PrimDef::FunSome),
 
+            BuiltinKind::Kernel => Ok(PrimDef::Kernel),
+            BuiltinKind::KernelInvariant => Ok(PrimDef::KernelInvariant),
+            BuiltinKind::None => Ok(PrimDef::None),
+            BuiltinKind::Virtual => Ok(PrimDef::Virtual),
             BuiltinKind::Option => Ok(PrimDef::Option),
+
+            BuiltinKind::Generic => Ok(PrimDef::Generic),
 
             BuiltinKind::Int32 => Ok(PrimDef::Int32),
             BuiltinKind::Int64 => Ok(PrimDef::Int64),
             BuiltinKind::Uint32 => Ok(PrimDef::UInt32),
             BuiltinKind::Uint64 => Ok(PrimDef::UInt64),
-            BuiltinKind::NDArray => Ok(PrimDef::FunNpNDArray),
+            BuiltinKind::NpNDArray => Ok(PrimDef::FunNpNDArray),
 
             BuiltinKind::NpEmpty => Ok(PrimDef::FunNpEmpty),
             BuiltinKind::NpZeros => Ok(PrimDef::FunNpZeros),
@@ -374,7 +381,7 @@ pub trait BuiltinRegistry: Send + Sync {
             "uint32" => BuiltinKind::Uint32,
             "uint64" => BuiltinKind::Uint64,
             "float64" => BuiltinKind::Float64,
-            "np_ndarray" => BuiltinKind::NDArray,
+            "np_ndarray" => BuiltinKind::NpNDArray,
 
             "np_empty" => BuiltinKind::NpEmpty,
             "np_zeros" => BuiltinKind::NpZeros,

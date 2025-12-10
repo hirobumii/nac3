@@ -1518,7 +1518,7 @@ impl Inferencer<'_> {
 
             (
                 Some(
-                    BuiltinKind::NDArray
+                    BuiltinKind::NpNDArray
                     | BuiltinKind::NpEmpty
                     | BuiltinKind::NpZeros
                     | BuiltinKind::NpOnes,

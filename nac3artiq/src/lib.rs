@@ -217,7 +217,7 @@ impl ArtiqBuiltinRegistry {
         id_to_builtin.insert(primitive_ids.numpy.float64, BuiltinKind::Float64);
         id_to_builtin.insert(primitive_ids.numpy.bool_, BuiltinKind::BoolType);
         id_to_builtin.insert(primitive_ids.numpy.str_, BuiltinKind::StrType);
-        id_to_builtin.insert(primitive_ids.numpy.ndarray, BuiltinKind::NDArray);
+        id_to_builtin.insert(primitive_ids.numpy.ndarray, BuiltinKind::NpNDArray);
 
         id_to_builtin.insert(primitive_ids.numpy.empty, BuiltinKind::NpEmpty);
         id_to_builtin.insert(primitive_ids.numpy.zeros, BuiltinKind::NpZeros);
