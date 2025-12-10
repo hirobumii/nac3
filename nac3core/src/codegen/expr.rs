@@ -2342,24 +2342,26 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
             } else {
                 let defs = ctx.top_level.definitions.read();
                 let obj_def = defs.get(id.0).unwrap().read();
-                if let TopLevelDef::Class { methods, .. } = &*obj_def {
-                    let fun_id = methods.iter().find(|method| method.0 == *attr).unwrap().2;
+                match &*obj_def {
+                    TopLevelDef::Class { methods, .. } => {
+                        let fun_id = methods.iter().find(|method| method.0 == *attr).unwrap().2;
 
-                    // A method call on a class instance could still be to a static method
-                    // so we check if the function has been annotated as static
-                    is_static = is_static || {
-                        if let TopLevelDef::Function { attributes, .. } = &*defs[fun_id.0].read() {
+                        // A method call on a class instance could still be to a static method
+                        // so we check if the function has been annotated as static
+                        let is_static_method = if let TopLevelDef::Function { attributes, .. } =
+                            &*defs[fun_id.0].read()
+                        {
                             attributes.contains(&FunAttribute::StaticMethod)
                         } else {
                             false
-                        }
-                    };
-
-                    fun_id
-                } else if let TopLevelDef::Module { functions, .. } = &*obj_def {
-                    functions.iter().find(|method| method.0 == *attr).unwrap().1
-                } else {
-                    codegen_unreachable!(ctx)
+                        };
+                        is_static = is_static || is_static_method;
+                        fun_id
+                    }
+                    TopLevelDef::Module { functions, .. } => {
+                        functions.iter().find(|method| method.0 == *attr).unwrap().1
+                    }
+                    TopLevelDef::Function { .. } => codegen_unreachable!(ctx),
                 }
             };
 
