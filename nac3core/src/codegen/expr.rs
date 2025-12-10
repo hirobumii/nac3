@@ -2383,12 +2383,12 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
             if attr == &"unwrap".into()
                 && *id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap()
             {
-                match val {
+                let res = match val {
                     ValueEnum::Static(v) => {
                         let field_opt = v.get_field("_nac3_option".into(), ctx);
-                        return if let Some(field_val) = field_opt {
+                        if let Some(field_val) = field_opt {
                             let v_val = field_val.to_basic_value_enum(ctx, ty)?;
-                            Ok(RtValue::dynamic(ty, v_val))
+                            RtValue::dynamic(ty, v_val)
                         } else {
                             // if is none, raise exception directly
                             let err_msg = ctx.gen_string("");
@@ -2412,8 +2412,8 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                                 .builder
                                 .build_load(ptr, "unwrap_none_unreachable_load")
                                 .unwrap();
-                            Ok(RtValue::dynamic(ty, loaded_val))
-                        };
+                            RtValue::dynamic(ty, loaded_val)
+                        }
                     }
                     ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
                         let option = OptionType::from_pointer_type(ptr.get_type(), ctx.size_t)
@@ -2427,12 +2427,13 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                             expr.location,
                         );
                         let loaded = unsafe { option.load(ctx) };
-                        return Ok(RtValue::dynamic(ty, loaded));
+                        RtValue::dynamic(ty, loaded)
                     }
                     ValueEnum::Dynamic(_) => {
                         codegen_unreachable!(ctx, "option must be static or ptr")
                     }
-                }
+                };
+                return Ok(res);
             }
 
             // Reset current_loc back to the location of the call
@@ -2551,7 +2552,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
 
             let indices = RustNDIndex::from_subscript_expr(generator, ctx, slice)?;
             let result = ndarray.index(ctx, &indices).split_unsized(ctx).to_basic_value_enum();
-            return Ok(RtValue::dynamic(ty, result));
+            RtValue::dynamic(ty, result)
         }
         TypeEnum::TTuple { .. } => {
             let index: u32 = if let ExprKind::Constant { value: Constant::Int(v), .. } = &slice.node
@@ -2579,7 +2580,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                         RtValue::dynamic(ty, result)
                     }
                 }
-                None => return Ok(RtValue::none(ty)),
+                None => RtValue::none(ty),
             }
         }
         _ => codegen_unreachable!(ctx, "should not be other subscriptable types after type check"),
