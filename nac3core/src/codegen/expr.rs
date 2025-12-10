@@ -2285,22 +2285,15 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
     args: &[Expr<Option<Type>>],
     keywords: &[Keyword<Option<Type>>],
 ) -> Result<RtValue<'ctx>, String> {
-    let mut params = args
-        .iter()
-        .map(|arg| Ok((None, generator.gen_expr(ctx, arg)?.val.unwrap())))
-        .collect::<Result<Vec<_>, String>>()?;
-
-    params.extend(
-        keywords
-            .iter()
-            .map(|kw| {
-                Ok::<(Option<StrRef>, ValueEnum), String>((
-                    Some(*kw.node.arg.as_ref().unwrap()),
-                    generator.gen_expr(ctx, &kw.node.value)?.val.unwrap(),
-                ))
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-    );
+    let mut params: Vec<(Option<StrRef>, ValueEnum)> = vec![];
+    for arg in args {
+        let val = generator.gen_expr(ctx, arg)?.val.unwrap();
+        params.push((None, val));
+    }
+    for kw in keywords {
+        let val = generator.gen_expr(ctx, &kw.node.value)?.val.unwrap();
+        params.push((Some(*kw.node.arg.as_ref().unwrap()), val));
+    }
     let call = ctx.calls.get(&expr.location.into());
     let signature = if let Some(call) = call {
         ctx.unifier.get_call_signature(*call).unwrap()
