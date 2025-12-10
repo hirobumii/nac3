@@ -2095,13 +2095,7 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
                         &*rear_guard
                     && *constructor == c
                 {
-                    return attributes.iter().find_map(|f| {
-                        if f.0 == attr {
-                            // All other checks performed by this point
-                            return Some(f.2.clone());
-                        }
-                        None
-                    });
+                    return attributes.iter().find(|f| f.0 == attr).map(|f| f.2.clone());
                 }
                 None
             });
@@ -2122,24 +2116,17 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
         {
             let defs = ctx.top_level.definitions.read();
             let def = defs[obj_id.0].read();
-            match if let TopLevelDef::Class { attributes, .. } = &*def {
-                attributes.iter().find_map(|f| {
-                    if f.0 == attr {
-                        return Some(f.2.clone());
-                    }
-                    None
-                })
-            } else {
-                None
-            } {
-                Some(val) => {
-                    let mut modified_expr = expr.clone();
-                    modified_expr.node = ExprKind::Constant { value: val, kind: None };
+            let temp_def = &*def;
+            let TopLevelDef::Class { attributes, .. } = temp_def else {
+                codegen_unreachable!(ctx);
+            };
+            let Some(val) = attributes.iter().find(|f| f.0 == attr).map(|f| f.2.clone()) else {
+                codegen_unreachable!(ctx);
+            };
+            let mut modified_expr = expr.clone();
+            modified_expr.node = ExprKind::Constant { value: val, kind: None };
 
-                    return generator.gen_expr(ctx, &modified_expr);
-                }
-                None => codegen_unreachable!(ctx),
-            }
+            return generator.gen_expr(ctx, &modified_expr);
         }
     }
 
