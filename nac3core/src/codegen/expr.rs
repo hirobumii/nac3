@@ -15,8 +15,8 @@ use inkwell::{
 use itertools::{Itertools, izip};
 
 use nac3parser::ast::{
-    self, Boolop, Cmpop, Comprehension, Constant, Expr, ExprKind, Location, Operator, StrRef,
-    Unaryop,
+    self, Boolop, Cmpop, Comprehension, Constant, Expr, ExprKind, Keyword, Location, Operator,
+    StrRef, Unaryop,
 };
 
 use super::{
@@ -2289,6 +2289,181 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
     })
 }
 
+fn gen_call_expr<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ty: Type,
+    expr: &Expr<Option<Type>>,
+    func: &Expr<Option<Type>>,
+    args: &[Expr<Option<Type>>],
+    keywords: &[Keyword<Option<Type>>],
+) -> Result<RtValue<'ctx>, String> {
+    let mut params = args
+        .iter()
+        .map(|arg| Ok((None, generator.gen_expr(ctx, arg)?.val.unwrap())))
+        .collect::<Result<Vec<_>, String>>()?;
+
+    params.extend(
+        keywords
+            .iter()
+            .map(|kw| {
+                Ok::<(Option<StrRef>, ValueEnum), String>((
+                    Some(*kw.node.arg.as_ref().unwrap()),
+                    generator.gen_expr(ctx, &kw.node.value)?.val.unwrap(),
+                ))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    let call = ctx.calls.get(&expr.location.into());
+    let signature = if let Some(call) = call {
+        ctx.unifier.get_call_signature(*call).unwrap()
+    } else {
+        let func_ty = func.custom.unwrap();
+        let TypeEnum::TFunc(sign) = &*ctx.unifier.get_ty(func_ty) else {
+            codegen_unreachable!(ctx)
+        };
+
+        sign.clone()
+    };
+    match &func.node {
+        ExprKind::Name { id, .. } => {
+            // TODO: handle primitive casts and function pointers
+            let fun = ctx
+                .resolver
+                .get_identifier_def(*id)
+                .map_err(|e| format!("{} (at {})", e.iter().next().unwrap(), func.location))?;
+            let ret_val = generator.gen_call(ctx, None, (&signature, fun), params)?;
+            Ok(if let Some(val) = ret_val { RtValue::dynamic(ty, val) } else { RtValue::none(ty) })
+        }
+        ExprKind::Attribute { value, attr, .. } => {
+            // Handle Class Method calls
+            // The attribute will be `DefinitionId` of the method if the call is to one of the parent methods
+            let func_id = attr.to_string().parse::<usize>();
+
+            // For a static method the constructor hasn't always been called, so we get the
+            // class UnificationKey from the return type of the constructor signature.
+            let (key, mut is_static) =
+                if let TypeEnum::TFunc(sign) = &*ctx.unifier.get_ty(value.custom.unwrap()) {
+                    // The class is not instantiated yet, so we can assume the method is static
+                    (sign.ret, true)
+                } else {
+                    // The class is instantiated meaning the method may or may not be static;
+                    // for now assume it is not, but resolve once the method data is available
+                    (value.custom.unwrap(), false)
+                };
+
+            let TypeEnum::TObj { obj_id: id, .. } = &*ctx.unifier.get_ty(key) else {
+                codegen_unreachable!(ctx)
+            };
+
+            // Use the `DefinitionID` from attribute if it is available
+            let fun_id = if let Ok(func_id) = func_id {
+                DefinitionId(func_id)
+            } else {
+                let defs = ctx.top_level.definitions.read();
+                let obj_def = defs.get(id.0).unwrap().read();
+                if let TopLevelDef::Class { methods, .. } = &*obj_def {
+                    let fun_id = methods.iter().find(|method| method.0 == *attr).unwrap().2;
+
+                    // A method call on a class instance could still be to a static method
+                    // so we check if the function has been annotated as static
+                    is_static = is_static || {
+                        if let TopLevelDef::Function { attributes, .. } = &*defs[fun_id.0].read() {
+                            attributes.contains(&FunAttribute::StaticMethod)
+                        } else {
+                            false
+                        }
+                    };
+
+                    fun_id
+                } else if let TopLevelDef::Module { functions, .. } = &*obj_def {
+                    functions.iter().find(|method| method.0 == *attr).unwrap().1
+                } else {
+                    codegen_unreachable!(ctx)
+                }
+            };
+
+            // If the function is static, we can call it directly
+            if is_static {
+                ctx.current_loc = expr.location;
+                let ret_val = generator.gen_call(ctx, None, (&signature, fun_id), params)?;
+                return Ok(if let Some(val) = ret_val {
+                    RtValue::dynamic(ty, val)
+                } else {
+                    RtValue::none(ty)
+                });
+            }
+
+            let val = generator.gen_expr(ctx, value)?.val.unwrap();
+
+            // directly generate code for option.unwrap
+            // since it needs to return static value to optimize for kernel invariant
+            if attr == &"unwrap".into()
+                && *id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap()
+            {
+                match val {
+                    ValueEnum::Static(v) => {
+                        let field_opt = v.get_field("_nac3_option".into(), ctx);
+                        return if let Some(field_val) = field_opt {
+                            let v_val = field_val.to_basic_value_enum(ctx, ty)?;
+                            Ok(RtValue::dynamic(ty, v_val))
+                        } else {
+                            // if is none, raise exception directly
+                            let err_msg = ctx.gen_string("");
+                            let current_fun =
+                                ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
+                            let unreachable_block =
+                                ctx.ctx.append_basic_block(current_fun, "unwrap_none_unreachable");
+                            let exn_block =
+                                ctx.ctx.append_basic_block(current_fun, "unwrap_none_exception");
+                            ctx.builder.build_unconditional_branch(exn_block).unwrap();
+                            ctx.builder.position_at_end(exn_block);
+                            ctx.raise_exn(
+                                "0:UnwrapNoneError",
+                                err_msg.into(),
+                                [None, None, None],
+                                ctx.current_loc,
+                            );
+                            ctx.builder.position_at_end(unreachable_block);
+                            let ptr = ctx.get_llvm_type(key).into_pointer_type().const_null();
+                            let loaded_val = ctx
+                                .builder
+                                .build_load(ptr, "unwrap_none_unreachable_load")
+                                .unwrap();
+                            Ok(RtValue::dynamic(ty, loaded_val))
+                        };
+                    }
+                    ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
+                        let option = OptionType::from_pointer_type(ptr.get_type(), ctx.size_t)
+                            .map_pointer_value(ptr, None);
+                        let not_null = option.is_some(ctx);
+                        ctx.make_assert(
+                            not_null,
+                            "0:UnwrapNoneError",
+                            "",
+                            [None, None, None],
+                            expr.location,
+                        );
+                        let loaded = unsafe { option.load(ctx) };
+                        return Ok(RtValue::dynamic(ty, loaded));
+                    }
+                    ValueEnum::Dynamic(_) => {
+                        codegen_unreachable!(ctx, "option must be static or ptr")
+                    }
+                }
+            }
+
+            // Reset current_loc back to the location of the call
+            ctx.current_loc = expr.location;
+
+            let ret_val =
+                generator.gen_call(ctx, Some((key, val)), (&signature, fun_id), params)?;
+            Ok(if let Some(val) = ret_val { RtValue::dynamic(ty, val) } else { RtValue::none(ty) })
+        }
+        _ => unimplemented!(),
+    }
+}
+
 /// See [`CodeGenerator::gen_expr`].
 pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
@@ -2375,190 +2550,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             return gen_ifexp_expr(generator, ctx, ty, test, body, orelse);
         }
         ExprKind::Call { func, args, keywords } => {
-            let mut params = args
-                .iter()
-                .map(|arg| Ok((None, generator.gen_expr(ctx, arg)?.val.unwrap())))
-                .collect::<Result<Vec<_>, String>>()?;
-
-            params.extend(
-                keywords
-                    .iter()
-                    .map(|kw| {
-                        Ok::<(Option<StrRef>, ValueEnum), String>((
-                            Some(*kw.node.arg.as_ref().unwrap()),
-                            generator.gen_expr(ctx, &kw.node.value)?.val.unwrap(),
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
-            );
-            let call = ctx.calls.get(&expr.location.into());
-            let signature = if let Some(call) = call {
-                ctx.unifier.get_call_signature(*call).unwrap()
-            } else {
-                let func_ty = func.custom.unwrap();
-                let TypeEnum::TFunc(sign) = &*ctx.unifier.get_ty(func_ty) else {
-                    codegen_unreachable!(ctx)
-                };
-
-                sign.clone()
-            };
-            let func = func.as_ref();
-            match &func.node {
-                ExprKind::Name { id, .. } => {
-                    // TODO: handle primitive casts and function pointers
-                    let fun = ctx.resolver.get_identifier_def(*id).map_err(|e| {
-                        format!("{} (at {})", e.iter().next().unwrap(), func.location)
-                    })?;
-                    let ret_val = generator.gen_call(ctx, None, (&signature, fun), params)?;
-                    return Ok(if let Some(val) = ret_val {
-                        RtValue::dynamic(ty, val)
-                    } else {
-                        RtValue::none(ty)
-                    });
-                }
-                ExprKind::Attribute { value, attr, .. } => {
-                    // Handle Class Method calls
-                    // The attribute will be `DefinitionId` of the method if the call is to one of the parent methods
-                    let func_id = attr.to_string().parse::<usize>();
-
-                    // For a static method the constructor hasn't always been called, so we get the
-                    // class UnificationKey from the return type of the constructor signature.
-                    let (key, mut is_static) = if let TypeEnum::TFunc(sign) =
-                        &*ctx.unifier.get_ty(value.custom.unwrap())
-                    {
-                        // The class is not instantiated yet, so we can assume the method is static
-                        (sign.ret, true)
-                    } else {
-                        // The class is instantiated meaning the method may or may not be static;
-                        // for now assume it is not, but resolve once the method data is available
-                        (value.custom.unwrap(), false)
-                    };
-
-                    let TypeEnum::TObj { obj_id: id, .. } = &*ctx.unifier.get_ty(key) else {
-                        codegen_unreachable!(ctx)
-                    };
-
-                    // Use the `DefinitionID` from attribute if it is available
-                    let fun_id = if let Ok(func_id) = func_id {
-                        DefinitionId(func_id)
-                    } else {
-                        let defs = ctx.top_level.definitions.read();
-                        let obj_def = defs.get(id.0).unwrap().read();
-                        if let TopLevelDef::Class { methods, .. } = &*obj_def {
-                            let fun_id = methods.iter().find(|method| method.0 == *attr).unwrap().2;
-
-                            // A method call on a class instance could still be to a static method
-                            // so we check if the function has been annotated as static
-                            is_static = is_static || {
-                                if let TopLevelDef::Function { attributes, .. } =
-                                    &*defs[fun_id.0].read()
-                                {
-                                    attributes.contains(&FunAttribute::StaticMethod)
-                                } else {
-                                    false
-                                }
-                            };
-
-                            fun_id
-                        } else if let TopLevelDef::Module { functions, .. } = &*obj_def {
-                            functions.iter().find(|method| method.0 == *attr).unwrap().1
-                        } else {
-                            codegen_unreachable!(ctx)
-                        }
-                    };
-
-                    // If the function is static, we can call it directly
-                    if is_static {
-                        ctx.current_loc = expr.location;
-                        let ret_val =
-                            generator.gen_call(ctx, None, (&signature, fun_id), params)?;
-                        return Ok(if let Some(val) = ret_val {
-                            RtValue::dynamic(ty, val)
-                        } else {
-                            RtValue::none(ty)
-                        });
-                    }
-
-                    let val = generator.gen_expr(ctx, value)?.val.unwrap();
-
-                    // directly generate code for option.unwrap
-                    // since it needs to return static value to optimize for kernel invariant
-                    if attr == &"unwrap".into()
-                        && *id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap()
-                    {
-                        match val {
-                            ValueEnum::Static(v) => {
-                                let field_opt = v.get_field("_nac3_option".into(), ctx);
-                                return if let Some(field_val) = field_opt {
-                                    let v_val = field_val.to_basic_value_enum(ctx, ty)?;
-                                    Ok(RtValue::dynamic(ty, v_val))
-                                } else {
-                                    // if is none, raise exception directly
-                                    let err_msg = ctx.gen_string("");
-                                    let current_fun = ctx
-                                        .builder
-                                        .get_insert_block()
-                                        .unwrap()
-                                        .get_parent()
-                                        .unwrap();
-                                    let unreachable_block = ctx
-                                        .ctx
-                                        .append_basic_block(current_fun, "unwrap_none_unreachable");
-                                    let exn_block = ctx
-                                        .ctx
-                                        .append_basic_block(current_fun, "unwrap_none_exception");
-                                    ctx.builder.build_unconditional_branch(exn_block).unwrap();
-                                    ctx.builder.position_at_end(exn_block);
-                                    ctx.raise_exn(
-                                        "0:UnwrapNoneError",
-                                        err_msg.into(),
-                                        [None, None, None],
-                                        ctx.current_loc,
-                                    );
-                                    ctx.builder.position_at_end(unreachable_block);
-                                    let ptr =
-                                        ctx.get_llvm_type(key).into_pointer_type().const_null();
-                                    let loaded_val = ctx
-                                        .builder
-                                        .build_load(ptr, "unwrap_none_unreachable_load")
-                                        .unwrap();
-                                    Ok(RtValue::dynamic(ty, loaded_val))
-                                };
-                            }
-                            ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
-                                let option =
-                                    OptionType::from_pointer_type(ptr.get_type(), ctx.size_t)
-                                        .map_pointer_value(ptr, None);
-                                let not_null = option.is_some(ctx);
-                                ctx.make_assert(
-                                    not_null,
-                                    "0:UnwrapNoneError",
-                                    "",
-                                    [None, None, None],
-                                    expr.location,
-                                );
-                                let loaded = unsafe { option.load(ctx) };
-                                return Ok(RtValue::dynamic(ty, loaded));
-                            }
-                            ValueEnum::Dynamic(_) => {
-                                codegen_unreachable!(ctx, "option must be static or ptr")
-                            }
-                        }
-                    }
-
-                    // Reset current_loc back to the location of the call
-                    ctx.current_loc = expr.location;
-
-                    let ret_val =
-                        generator.gen_call(ctx, Some((key, val)), (&signature, fun_id), params)?;
-                    return Ok(if let Some(val) = ret_val {
-                        RtValue::dynamic(ty, val)
-                    } else {
-                        RtValue::none(ty)
-                    });
-                }
-                _ => unimplemented!(),
-            }
+            return gen_call_expr(generator, ctx, ty, expr, func, args, keywords);
         }
         ExprKind::Subscript { value, slice, .. } => {
             match &*ctx.unifier.get_ty(value.custom.unwrap()) {
