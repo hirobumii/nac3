@@ -562,8 +562,6 @@ pub struct TopLevelComposer {
     pub unifier: Unifier,
     // primitive store
     pub primitives_ty: PrimitiveStore,
-    // keyword list to prevent same user-defined name
-    pub keyword_list: HashSet<StrRef>,
     // to prevent duplicate definition
     pub defined_names: HashSet<String>,
     // get the class def id of a class method
@@ -602,27 +600,6 @@ impl TopLevelComposer {
     ) -> (Self, HashMap<StrRef, DefinitionId>, HashMap<StrRef, Type>) {
         let (primitives_ty, mut unifier) = Self::make_primitives(size_t);
         let mut definition_ast_list = builtins::get_builtins(&mut unifier, &primitives_ty);
-        let mut keyword_list: HashSet<StrRef> = HashSet::from_iter(vec![
-            "Generic".into(),
-            "virtual".into(),
-            "list".into(),
-            "tuple".into(),
-            "int32".into(),
-            "int64".into(),
-            "uint32".into(),
-            "uint64".into(),
-            "float".into(),
-            "bool".into(),
-            "none".into(),
-            "None".into(),
-            "range".into(),
-            "str".into(),
-            "self".into(),
-            "Kernel".into(),
-            "KernelInvariant".into(),
-            "Some".into(),
-            "Option".into(),
-        ]);
         let defined_names = HashSet::default();
         let method_class = HashMap::default();
 
@@ -693,7 +670,6 @@ impl TopLevelComposer {
                 })),
                 None,
             ));
-            keyword_list.insert(name);
         }
 
         (
@@ -702,7 +678,6 @@ impl TopLevelComposer {
                 definition_ast_list,
                 primitives_ty,
                 unifier,
-                keyword_list,
                 defined_names,
                 method_class,
                 builtin_registry,
@@ -803,12 +778,6 @@ impl TopLevelComposer {
         let defined_names = &mut self.defined_names;
         match &ast.node {
             ast::StmtKind::ClassDef { name: class_name, bases, body, .. } => {
-                if self.keyword_list.contains(class_name) {
-                    return Err(format!(
-                        "cannot use keyword `{}` as a class name (at {})",
-                        class_name, ast.location
-                    ));
-                }
                 let fully_qualified_class_name = if mod_path.is_empty() {
                     *class_name
                 } else {
@@ -859,12 +828,6 @@ impl TopLevelComposer {
                     {
                         if method_name == &init_id {
                             contains_constructor = true;
-                        }
-                        if self.keyword_list.contains(method_name) {
-                            return Err(format!(
-                                "cannot use keyword `{}` as a method name (at {})",
-                                method_name, b.location
-                            ));
                         }
                         let global_class_method_name = Self::make_class_method_name(
                             fully_qualified_class_name.into(),
@@ -1091,7 +1054,7 @@ impl TopLevelComposer {
                     unifier,
                     primitives_store,
                     &mut type_var_to_concrete_def,
-                    (&self.keyword_list, &self.builtin_registry),
+                    &self.builtin_registry,
                 ) {
                     errors.extend(e);
                 }
@@ -1188,7 +1151,6 @@ impl TopLevelComposer {
     /// step 3, after class methods are done, top level functions have nothing unknown
     fn analyze_top_level_function(&mut self) -> Result<(), HashSet<String>> {
         let def_list = &self.definition_ast_list;
-        let keyword_list = &self.keyword_list;
         let temp_def_list = self.extract_def_list();
         let unifier = &mut self.unifier;
         let primitives_store = &self.primitives_ty;
@@ -1291,9 +1253,7 @@ impl TopLevelComposer {
                 // make sure no duplicate parameter
                 let mut defined_parameter_name: HashSet<_> = HashSet::new();
                 for x in &args.args {
-                    if !defined_parameter_name.insert(x.node.arg)
-                        || keyword_list.contains(&x.node.arg)
-                    {
+                    if !defined_parameter_name.insert(x.node.arg) {
                         return Err(HashSet::from([format!(
                             "top level function must have unique parameter names \
                             and names should not be the same as the keywords (at {})",
@@ -1497,10 +1457,8 @@ impl TopLevelComposer {
         unifier: &mut Unifier,
         primitives: &PrimitiveStore,
         type_var_to_concrete_def: &mut HashMap<Type, TypeAnnotation>,
-        core_info: (&HashSet<StrRef>, &Arc<dyn BuiltinRegistry>),
+        builtin_registry: &Arc<dyn BuiltinRegistry>,
     ) -> Result<(), HashSet<String>> {
-        let (keyword_list, builtin_registry) = core_info;
-
         let mut class_def = class_def.write();
         let TopLevelDef::Class {
             object_id,
@@ -1574,9 +1532,6 @@ impl TopLevelComposer {
                         for arg in args.args.iter().skip(1) {
                             if !defined_parameter_name.insert(arg.node.arg) {
                                 return Err(HashSet::from([format!("class method must have a unique parameter names (at {})", b.location)]));
-                            }
-                            if keyword_list.contains(&arg.node.arg) {
-                                return Err(HashSet::from([format!("parameter names should not be the same as the keywords (at {})", b.location)]));
                             }
                         }
 
