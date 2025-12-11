@@ -28,7 +28,6 @@ use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         FunAttribute, TopLevelContext, TopLevelDef,
-        composer::BuiltinKind,
         helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims, extract_ndims},
         numpy::{make_ndarray_ty, subst_ndarray_tvars, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
@@ -1001,138 +1000,123 @@ impl Inferencer<'_> {
         let Some(builtin) = self.top_level.builtin_registry.match_builtin(func) else {
             return Ok(None);
         };
-        let prim = match PrimDef::try_from(builtin) {
-            Ok(prim) => prim,
-            Err(e) => {
-                return report_error(
-                    &format!("Internal error: builtin `{builtin:?}` is not a primitive ({e:?})"),
-                    func.location,
-                );
-            }
-        };
-        let id = prim.name().into();
+        let id = builtin.name().into();
         let ctx = ExprContext::Load;
         let func_location = func.location;
 
-        let builtin = self.top_level.builtin_registry.match_builtin(func);
-
-        // handle special functions that cannot be typed in the usual way...
-        if builtin == Some(BuiltinKind::Virtual) {
-            if args.is_empty() || args.len() > 2 || !keywords.is_empty() {
-                return report_error(
-                    "`virtual` can only accept 1 or 2 positional arguments",
-                    func_location,
-                );
-            }
-            let arg0 = self.fold_expr(args.remove(0))?;
-            let ty = if let Some(arg) = args.pop() {
-                let top_level_defs = self.top_level.definitions.read();
-                let builtin_registry = self.top_level.builtin_registry.clone();
-                self.function_data.resolver.parse_type_annotation(
-                    top_level_defs.as_slice(),
-                    self.unifier,
-                    self.primitives,
-                    &arg,
-                    &builtin_registry,
-                )?
-            } else {
-                self.unifier.get_dummy_var().ty
-            };
-            self.virtual_checks.push((arg0.custom.unwrap(), ty, func_location));
-            let custom = Some(self.unifier.add_ty(TypeEnum::TVirtual { ty }));
-            return Ok(Some(Located {
-                location,
-                custom,
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: None,
-                        location: func.location,
-                        node: ExprKind::Name { id, ctx },
-                    }),
-                    args: vec![arg0],
-                    keywords: vec![],
-                },
-            }));
-        }
-
-        if builtin == Some(BuiltinKind::Len) && args.len() == 1 {
-            let obj = self.fold_expr(args.remove(0))?;
-            let obj_ty = obj.custom.unwrap();
-
-            match &*self.unifier.get_ty(obj_ty) {
-                TypeEnum::TObj { obj_id, .. }
-                    if *obj_id == self.primitives.range.obj_id(self.unifier).unwrap() => {}
-                TypeEnum::TObj { obj_id, .. }
-                    if *obj_id == self.primitives.list.obj_id(self.unifier).unwrap() => {}
-                TypeEnum::TObj { obj_id, .. }
-                    if *obj_id == self.primitives.ndarray.obj_id(self.unifier).unwrap() => {}
-                TypeEnum::TTuple { .. } => {}
-                _ => {
+        match (builtin, args.len()) {
+            // Virtual
+            (PrimDef::Virtual, _) => {
+                if args.is_empty() || args.len() > 2 || !keywords.is_empty() {
                     return report_error(
-                        format!(
-                            "len() only accepts range, list, ndarray, or tuple. Got {}",
-                            self.unifier.stringify(obj_ty)
-                        )
-                        .as_str(),
-                        obj.location,
+                        "`virtual` can only accept 1 or 2 positional arguments",
+                        func_location,
                     );
                 }
+                let arg0 = self.fold_expr(args.remove(0))?;
+                let ty = if let Some(arg) = args.pop() {
+                    let top_level_defs = self.top_level.definitions.read();
+                    let builtin_registry = self.top_level.builtin_registry.clone();
+                    self.function_data.resolver.parse_type_annotation(
+                        top_level_defs.as_slice(),
+                        self.unifier,
+                        self.primitives,
+                        &arg,
+                        &builtin_registry,
+                    )?
+                } else {
+                    self.unifier.get_dummy_var().ty
+                };
+                self.virtual_checks.push((arg0.custom.unwrap(), ty, func_location));
+                let custom = Some(self.unifier.add_ty(TypeEnum::TVirtual { ty }));
+                Ok(Some(Located {
+                    location,
+                    custom,
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: None,
+                            location: func.location,
+                            node: ExprKind::Name { id, ctx },
+                        }),
+                        args: vec![arg0],
+                        keywords: vec![],
+                    },
+                }))
             }
 
-            let ret_ty = self.primitives.int32;
+            // len()
+            (PrimDef::FunLen, 1) => {
+                let obj = self.fold_expr(args.remove(0))?;
+                let obj_ty = obj.custom.unwrap();
 
-            let func_ty = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                args: vec![FuncArg {
-                    name: "obj".into(),
-                    ty: obj_ty,
-                    default_value: None,
-                    is_vararg: false,
-                }],
-                ret: ret_ty,
-                vars: VarMap::new(),
-            }));
+                match &*self.unifier.get_ty(obj_ty) {
+                    TypeEnum::TObj { obj_id, .. }
+                        if *obj_id == self.primitives.range.obj_id(self.unifier).unwrap() => {}
+                    TypeEnum::TObj { obj_id, .. }
+                        if *obj_id == self.primitives.list.obj_id(self.unifier).unwrap() => {}
+                    TypeEnum::TObj { obj_id, .. }
+                        if *obj_id == self.primitives.ndarray.obj_id(self.unifier).unwrap() => {}
+                    TypeEnum::TTuple { .. } => {}
+                    _ => {
+                        return report_error(
+                            format!(
+                                "len() only accepts range, list, ndarray, or tuple. Got {}",
+                                self.unifier.stringify(obj_ty)
+                            )
+                            .as_str(),
+                            obj.location,
+                        );
+                    }
+                }
 
-            return Ok(Some(Located {
-                location,
-                custom: Some(ret_ty),
-                node: ExprKind::Call {
-                    func: Box::new(Located {
-                        custom: Some(func_ty),
-                        location: func.location,
-                        node: ExprKind::Name { id, ctx },
-                    }),
-                    args: vec![obj],
-                    keywords: vec![],
-                },
-            }));
-        }
+                let ret_ty = self.primitives.int32;
 
-        match (builtin, args.len()) {
+                let func_ty = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+                    args: vec![FuncArg {
+                        name: "obj".into(),
+                        ty: obj_ty,
+                        default_value: None,
+                        is_vararg: false,
+                    }],
+                    ret: ret_ty,
+                    vars: VarMap::new(),
+                }));
+
+                Ok(Some(Located {
+                    location,
+                    custom: Some(ret_ty),
+                    node: ExprKind::Call {
+                        func: Box::new(Located {
+                            custom: Some(func_ty),
+                            location: func.location,
+                            node: ExprKind::Name { id, ctx },
+                        }),
+                        args: vec![obj],
+                        keywords: vec![],
+                    },
+                }))
+            }
+
             // 1-argument type conversion and query functions
             (
-                Some(
-                    BuiltinKind::Int32
-                    | BuiltinKind::Float
-                    | BuiltinKind::Bool
-                    | BuiltinKind::Round
-                    | BuiltinKind::Round64
-                    | BuiltinKind::NpIsnan
-                    | BuiltinKind::NpIsinf,
-                ),
+                PrimDef::Int32
+                | PrimDef::Float
+                | PrimDef::Bool
+                | PrimDef::FunRound
+                | PrimDef::FunRound64
+                | PrimDef::FunNpIsNan
+                | PrimDef::FunNpIsInf,
                 1,
             ) => {
                 let target_ty = match builtin {
-                    Some(
-                        BuiltinKind::Int32
-                        | BuiltinKind::Round
-                        | BuiltinKind::Floor
-                        | BuiltinKind::Ceil,
-                    ) => self.primitives.int32,
-                    Some(BuiltinKind::Round64 | BuiltinKind::Floor64 | BuiltinKind::Ceil64) => {
+                    PrimDef::Int32 | PrimDef::FunRound | PrimDef::FunFloor | PrimDef::FunCeil => {
+                        self.primitives.int32
+                    }
+                    PrimDef::FunRound64 | PrimDef::FunFloor64 | PrimDef::FunCeil64 => {
                         self.primitives.int64
                     }
-                    Some(BuiltinKind::Float) => self.primitives.float,
-                    Some(BuiltinKind::Bool | BuiltinKind::NpIsnan | BuiltinKind::NpIsinf) => {
+                    PrimDef::Float => self.primitives.float,
+                    PrimDef::Bool | PrimDef::FunNpIsNan | PrimDef::FunNpIsInf => {
                         self.primitives.bool
                     }
                     _ => unreachable!(),
@@ -1166,7 +1150,7 @@ impl Inferencer<'_> {
                     vars: VarMap::new(),
                 }));
 
-                return Ok(Some(Located {
+                Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
@@ -1178,11 +1162,11 @@ impl Inferencer<'_> {
                         args: vec![arg0],
                         keywords: vec![],
                     },
-                }));
+                }))
             }
 
             // np.shape and np.strides
-            (Some(BuiltinKind::NpShape | BuiltinKind::NpStrides), 1) => {
+            (PrimDef::FunNpShape | PrimDef::FunNpStrides, 1) => {
                 let ndarray = self.fold_expr(args.remove(0))?;
 
                 let ndims = arraylike_get_ndims(self.unifier, ndarray.custom.unwrap());
@@ -1206,7 +1190,7 @@ impl Inferencer<'_> {
                 });
                 let func_ty = self.unifier.add_ty(func_ty);
 
-                return Ok(Some(Located {
+                Ok(Some(Located {
                     location,
                     custom: Some(ret_ty),
                     node: ExprKind::Call {
@@ -1218,11 +1202,11 @@ impl Inferencer<'_> {
                         args: vec![ndarray],
                         keywords: vec![],
                     },
-                }));
+                }))
             }
 
             // np.dot
-            (Some(BuiltinKind::NpDot), _) if !args.is_empty() => {
+            (PrimDef::FunNpDot, _) if !args.is_empty() => {
                 let arg0 = self.fold_expr(args.remove(0))?;
                 let arg1 = self.fold_expr(args.remove(0))?;
                 let arg0_ty = arg0.custom.unwrap();
@@ -1255,7 +1239,7 @@ impl Inferencer<'_> {
                     vars: VarMap::new(),
                 }));
 
-                return Ok(Some(Located {
+                Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
@@ -1267,11 +1251,11 @@ impl Inferencer<'_> {
                         args: vec![arg0, arg1],
                         keywords: vec![],
                     },
-                }));
+                }))
             }
 
             // np.min and np.max
-            (Some(BuiltinKind::NpMin | BuiltinKind::NpMax), 1) => {
+            (PrimDef::FunNpMin | PrimDef::FunNpMax, 1) => {
                 let arg0 = self.fold_expr(args.remove(0))?;
                 let arg0_ty = arg0.custom.unwrap();
 
@@ -1295,7 +1279,7 @@ impl Inferencer<'_> {
                     vars: VarMap::new(),
                 }));
 
-                return Ok(Some(Located {
+                Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
@@ -1307,22 +1291,20 @@ impl Inferencer<'_> {
                         args: vec![arg0],
                         keywords: vec![],
                     },
-                }));
+                }))
             }
 
             // 2-argument broadcast-compatible NumPy functions
             (
-                Some(
-                    BuiltinKind::NpMinimum
-                    | BuiltinKind::NpMaximum
-                    | BuiltinKind::NpArctan2
-                    | BuiltinKind::NpCopysign
-                    | BuiltinKind::NpFmax
-                    | BuiltinKind::NpFmin
-                    | BuiltinKind::NpLdexp
-                    | BuiltinKind::NpHypot
-                    | BuiltinKind::NpNextafter,
-                ),
+                PrimDef::FunNpMinimum
+                | PrimDef::FunNpMaximum
+                | PrimDef::FunNpArctan2
+                | PrimDef::FunNpCopysign
+                | PrimDef::FunNpFmax
+                | PrimDef::FunNpFmin
+                | PrimDef::FunNpLdExp
+                | PrimDef::FunNpHypot
+                | PrimDef::FunNpNextAfter,
                 2,
             ) => {
                 let arg0 = self.fold_expr(args.remove(0))?;
@@ -1344,11 +1326,8 @@ impl Inferencer<'_> {
                         arg1_ty
                     };
 
-                let expected_arg1_dtype = if builtin == Some(BuiltinKind::NpLdexp) {
-                    self.primitives.int32
-                } else {
-                    arg0_dtype
-                };
+                let expected_arg1_dtype =
+                    if builtin == PrimDef::FunNpLdExp { self.primitives.int32 } else { arg0_dtype };
                 if !self.unifier.unioned(arg1_dtype, expected_arg1_dtype) {
                     return report_error(
                         format!(
@@ -1361,7 +1340,7 @@ impl Inferencer<'_> {
                 }
 
                 let target_ty = match builtin {
-                    Some(BuiltinKind::NpMinimum | BuiltinKind::NpMaximum) => arg0_dtype,
+                    PrimDef::FunNpMinimum | PrimDef::FunNpMaximum => arg0_dtype,
                     _ => self.primitives.float,
                 };
 
@@ -1370,7 +1349,7 @@ impl Inferencer<'_> {
                 }) {
                     // typeof_ndarray_broadcast requires both dtypes to be the same, but ldexp accepts
                     // (float, int32), so convert it to align with the dtype of the first arg
-                    let arg1_ty = if builtin == Some(BuiltinKind::NpLdexp) {
+                    let arg1_ty = if builtin == PrimDef::FunNpLdExp {
                         if arg1_ty
                             .obj_id(self.unifier)
                             .is_some_and(|id| id == PrimDef::NDArray.id())
@@ -1418,7 +1397,7 @@ impl Inferencer<'_> {
                     vars: VarMap::new(),
                 }));
 
-                return Ok(Some(Located {
+                Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
@@ -1430,14 +1409,14 @@ impl Inferencer<'_> {
                         args: vec![arg0, arg1],
                         keywords: vec![],
                     },
-                }));
+                }))
             }
 
-            (Some(BuiltinKind::Int64 | BuiltinKind::Uint32 | BuiltinKind::Uint64), 1) => {
+            (PrimDef::Int64 | PrimDef::UInt32 | PrimDef::UInt64, 1) => {
                 let target_ty = match builtin {
-                    Some(BuiltinKind::Int64) => self.primitives.int64,
-                    Some(BuiltinKind::Uint32) => self.primitives.uint32,
-                    Some(BuiltinKind::Uint64) => self.primitives.uint64,
+                    PrimDef::Int64 => self.primitives.int64,
+                    PrimDef::UInt32 => self.primitives.uint32,
+                    PrimDef::UInt64 => self.primitives.uint64,
                     _ => unreachable!(),
                 };
 
@@ -1496,7 +1475,7 @@ impl Inferencer<'_> {
                     vars: VarMap::new(),
                 }));
 
-                return Ok(Some(Located {
+                Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
@@ -1508,16 +1487,14 @@ impl Inferencer<'_> {
                         args: vec![arg0],
                         keywords: vec![],
                     },
-                }));
+                }))
             }
 
             (
-                Some(
-                    BuiltinKind::NpNDArray
-                    | BuiltinKind::NpEmpty
-                    | BuiltinKind::NpZeros
-                    | BuiltinKind::NpOnes,
-                ),
+                PrimDef::FunNpNDArray
+                | PrimDef::FunNpEmpty
+                | PrimDef::FunNpZeros
+                | PrimDef::FunNpOnes,
                 1,
             ) => {
                 let shape_expr = args.remove(0);
@@ -1542,7 +1519,7 @@ impl Inferencer<'_> {
                     vars: VarMap::new(),
                 }));
 
-                return Ok(Some(Located {
+                Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
@@ -1554,10 +1531,10 @@ impl Inferencer<'_> {
                         args: vec![shape],
                         keywords: vec![],
                     },
-                }));
+                }))
             }
 
-            (Some(BuiltinKind::NpReshape | BuiltinKind::NpBroadcastTo), 2) => {
+            (PrimDef::FunNpReshape | PrimDef::FunNpBroadcastTo, 2) => {
                 let arg0 = self.fold_expr(args.remove(0))?;
 
                 let shape_expr = args.remove(0);
@@ -1588,7 +1565,7 @@ impl Inferencer<'_> {
                     vars: VarMap::new(),
                 }));
 
-                return Ok(Some(Located {
+                Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
@@ -1600,11 +1577,11 @@ impl Inferencer<'_> {
                         args: vec![arg0, shape],
                         keywords: vec![],
                     },
-                }));
+                }))
             }
 
             // 2-argument ndarray n-dimensional creation functions
-            (Some(BuiltinKind::NpFull), 2) => {
+            (PrimDef::FunNpFull, 2) => {
                 // Parse arguments
                 let shape_expr = args.remove(0);
                 let (ndims, shape) =
@@ -1636,7 +1613,7 @@ impl Inferencer<'_> {
                     vars: VarMap::new(),
                 }));
 
-                return Ok(Some(Located {
+                Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
@@ -1648,10 +1625,10 @@ impl Inferencer<'_> {
                         args: vec![shape, fill_value],
                         keywords: vec![],
                     },
-                }));
+                }))
             }
 
-            (Some(BuiltinKind::NpArray), 1) => {
+            (PrimDef::FunNpArray, 1) => {
                 let arg0 = self.fold_expr(args.remove(0))?;
 
                 let keywords = keywords
@@ -1704,7 +1681,7 @@ impl Inferencer<'_> {
                     vars: VarMap::new(),
                 }));
 
-                return Ok(Some(Located {
+                Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
@@ -1716,12 +1693,10 @@ impl Inferencer<'_> {
                         args: vec![arg0],
                         keywords,
                     },
-                }));
+                }))
             }
-            _ => {}
+            _ => Ok(None),
         }
-
-        Ok(None)
     }
 
     /// Checks whether a class method is calling parent function

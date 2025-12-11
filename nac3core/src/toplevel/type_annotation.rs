@@ -15,7 +15,7 @@ use super::{
 };
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
-    toplevel::composer::{BuiltinKind, BuiltinRegistry},
+    toplevel::composer::BuiltinRegistry,
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{AttrKind, Type, TypeEnum, Unifier, VarMap},
@@ -193,14 +193,14 @@ fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     };
     if let Some(builtin) = builtin_registry.match_builtin(&name_expr) {
         match builtin {
-            BuiltinKind::Int32 => return Ok(TypeAnnotation::Primitive(primitives.int32)),
-            BuiltinKind::Int64 => return Ok(TypeAnnotation::Primitive(primitives.int64)),
-            BuiltinKind::Uint32 => return Ok(TypeAnnotation::Primitive(primitives.uint32)),
-            BuiltinKind::Uint64 => return Ok(TypeAnnotation::Primitive(primitives.uint64)),
-            BuiltinKind::Float => return Ok(TypeAnnotation::Primitive(primitives.float)),
-            BuiltinKind::Bool => return Ok(TypeAnnotation::Primitive(primitives.bool)),
-            BuiltinKind::Str => return Ok(TypeAnnotation::Primitive(primitives.str)),
-            BuiltinKind::Exception => {
+            PrimDef::Int32 => return Ok(TypeAnnotation::Primitive(primitives.int32)),
+            PrimDef::Int64 => return Ok(TypeAnnotation::Primitive(primitives.int64)),
+            PrimDef::UInt32 => return Ok(TypeAnnotation::Primitive(primitives.uint32)),
+            PrimDef::UInt64 => return Ok(TypeAnnotation::Primitive(primitives.uint64)),
+            PrimDef::Float => return Ok(TypeAnnotation::Primitive(primitives.float)),
+            PrimDef::Bool => return Ok(TypeAnnotation::Primitive(primitives.bool)),
+            PrimDef::Str => return Ok(TypeAnnotation::Primitive(primitives.str)),
+            PrimDef::Exception => {
                 return Ok(TypeAnnotation::CustomClass {
                     id: PrimDef::Exception.id(),
                     params: Vec::default(),
@@ -255,12 +255,12 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     if let Some(builtin) = builtin_registry.match_builtin(&name_expr)
         && matches!(
             builtin,
-            BuiltinKind::Kernel
-                | BuiltinKind::KernelInvariant
-                | BuiltinKind::ConstGeneric
-                | BuiltinKind::None
-                | BuiltinKind::Virtual
-                | BuiltinKind::Option
+            PrimDef::Kernel
+                | PrimDef::KernelInvariant
+                | PrimDef::ConstGeneric
+                | PrimDef::None
+                | PrimDef::Virtual
+                | PrimDef::Option
         )
     {
         return Err(HashSet::from([format!("keywords cannot be class name (at {location})")]));
@@ -285,7 +285,7 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
 fn is_subscript_builtin<T>(
     value: &Expr<T>,
     builtin_registry: &Arc<dyn BuiltinRegistry>,
-    expected: BuiltinKind,
+    expected: PrimDef,
 ) -> bool {
     matches!(&value.node, ast::ExprKind::Name { id, .. } if {
         let name_expr = Expr {
@@ -401,7 +401,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // virtual
         ast::ExprKind::Subscript { value, slice, .. }
-            if is_subscript_builtin(value, builtin_registry, BuiltinKind::Virtual) =>
+            if is_subscript_builtin(value, builtin_registry, PrimDef::Virtual) =>
         {
             let def = parse_ast_to_type_annotation_kinds(
                 resolver,
@@ -420,7 +420,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // option
         ast::ExprKind::Subscript { value, slice, .. }
-            if is_subscript_builtin(value, builtin_registry, BuiltinKind::Option) =>
+            if is_subscript_builtin(value, builtin_registry, PrimDef::Option) =>
         {
             let def_ann = parse_ast_to_type_annotation_kinds(
                 resolver,
@@ -442,7 +442,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // tuple
         ast::ExprKind::Subscript { value, slice, .. }
-            if is_subscript_builtin(value, builtin_registry, BuiltinKind::Tuple) =>
+            if is_subscript_builtin(value, builtin_registry, PrimDef::Tuple) =>
         {
             let tup_elts = {
                 if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
@@ -470,7 +470,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
 
         // Literal
         ast::ExprKind::Subscript { value, slice, .. }
-            if is_subscript_builtin(value, builtin_registry, BuiltinKind::Literal) =>
+            if is_subscript_builtin(value, builtin_registry, PrimDef::Literal) =>
         {
             let tup_elts = {
                 if let ast::ExprKind::Tuple { elts, .. } = &slice.node {

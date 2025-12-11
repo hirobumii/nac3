@@ -14,8 +14,7 @@ use nac3parser::ast::{self, Constant, Expr, ExprKind, Location, StrRef};
 use crate::{
     codegen::CodeGenContext,
     toplevel::{
-        DefinitionId, TopLevelDef,
-        composer::{BuiltinKind, BuiltinRegistry},
+        DefinitionId, TopLevelDef, composer::BuiltinRegistry, helper::PrimDef,
         type_annotation::TypeAnnotation,
     },
     typecheck::{
@@ -399,14 +398,14 @@ pub fn parse_type_annotation<T>(
 
         if let Some(builtin) = builtin_registry.match_builtin(&name_expr) {
             match builtin {
-                BuiltinKind::Int32 => return Ok(primitives.int32),
-                BuiltinKind::Int64 => return Ok(primitives.int64),
-                BuiltinKind::Uint32 => return Ok(primitives.uint32),
-                BuiltinKind::Uint64 => return Ok(primitives.uint64),
-                BuiltinKind::Float => return Ok(primitives.float),
-                BuiltinKind::Bool => return Ok(primitives.bool),
-                BuiltinKind::Str => return Ok(primitives.str),
-                BuiltinKind::Exception => return Ok(primitives.exception),
+                PrimDef::Int32 => return Ok(primitives.int32),
+                PrimDef::Int64 => return Ok(primitives.int64),
+                PrimDef::UInt32 => return Ok(primitives.uint32),
+                PrimDef::UInt64 => return Ok(primitives.uint64),
+                PrimDef::Float => return Ok(primitives.float),
+                PrimDef::Bool => return Ok(primitives.bool),
+                PrimDef::Str => return Ok(primitives.str),
+                PrimDef::Exception => return Ok(primitives.exception),
                 _ => {}
             }
         }
@@ -450,7 +449,7 @@ pub fn parse_type_annotation<T>(
         };
 
         if let Some(builtin) = builtin_registry.match_builtin(&name_expr) {
-            if builtin == BuiltinKind::Virtual {
+            if builtin == PrimDef::Virtual {
                 let ty = parse_type_annotation(
                     resolver,
                     top_level_defs,
@@ -460,7 +459,7 @@ pub fn parse_type_annotation<T>(
                     builtin_registry,
                 )?;
                 return Ok(unifier.add_ty(TypeEnum::TVirtual { ty }));
-            } else if builtin == BuiltinKind::Tuple {
+            } else if builtin == PrimDef::Tuple {
                 if let ExprKind::Tuple { elts, .. } = &slice.node {
                     let ty = elts
                         .iter()
@@ -478,7 +477,7 @@ pub fn parse_type_annotation<T>(
                     return Ok(unifier.add_ty(TypeEnum::TTuple { ty, is_vararg_ctx: false }));
                 }
                 return Err(HashSet::from(["Expected multiple elements for tuple".into()]));
-            } else if builtin == BuiltinKind::Literal {
+            } else if builtin == PrimDef::Literal {
                 let mut parse_literal = |elt: &Expr<T>| {
                     let ty = parse_type_annotation(
                         resolver,

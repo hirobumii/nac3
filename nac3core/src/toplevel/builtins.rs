@@ -351,19 +351,28 @@ impl<'a> BuiltinBuilder<'a> {
     /// Build the [`TopLevelDef`] associated of a [`PrimDef`].
     fn build_builtin_of_prim(&mut self, prim: PrimDef) -> TopLevelDef {
         let tld = match prim {
-            PrimDef::Int32
+            PrimDef::Float
+            | PrimDef::Bool
+            | PrimDef::Str
+            | PrimDef::Tuple
+            | PrimDef::StaticMethod
+            | PrimDef::Kernel
+            | PrimDef::KernelInvariant
+            | PrimDef::ConstGeneric
+            | PrimDef::None
+            | PrimDef::Virtual
+            | PrimDef::Compile
+            | PrimDef::ExternFn
+            | PrimDef::KernelDecorator
+            | PrimDef::Portable
+            | PrimDef::Rpc
+            | PrimDef::Generic
+            | PrimDef::Literal
+            | PrimDef::Int32
             | PrimDef::Int64
             | PrimDef::UInt32
             | PrimDef::UInt64
-            | PrimDef::Float
-            | PrimDef::Bool
-            | PrimDef::Str
-            | PrimDef::None
-            | PrimDef::Tuple
-            | PrimDef::Kernel
-            | PrimDef::KernelInvariant
-            | PrimDef::Generic
-            | PrimDef::Virtual => Self::build_simple_primitive_class(prim),
+            | PrimDef::Float64 => Self::build_simple_primitive_class(prim),
 
             PrimDef::Range | PrimDef::FunRangeInit => self.build_range_class_related(prim),
 
@@ -521,19 +530,28 @@ impl<'a> BuiltinBuilder<'a> {
         debug_assert_prim_is_allowed(
             prim,
             &[
+                PrimDef::Float,
+                PrimDef::Bool,
+                PrimDef::Str,
+                PrimDef::Tuple,
+                PrimDef::StaticMethod,
+                PrimDef::Kernel,
+                PrimDef::KernelInvariant,
+                PrimDef::ConstGeneric,
+                PrimDef::None,
+                PrimDef::Virtual,
+                PrimDef::Compile,
+                PrimDef::ExternFn,
+                PrimDef::KernelDecorator,
+                PrimDef::Portable,
+                PrimDef::Rpc,
+                PrimDef::Generic,
+                PrimDef::Literal,
                 PrimDef::Int32,
                 PrimDef::Int64,
                 PrimDef::UInt32,
                 PrimDef::UInt64,
-                PrimDef::Float,
-                PrimDef::Bool,
-                PrimDef::Str,
-                PrimDef::None,
-                PrimDef::Tuple,
-                PrimDef::Kernel,
-                PrimDef::KernelInvariant,
-                PrimDef::Generic,
-                PrimDef::Virtual,
+                PrimDef::Float64,
             ],
         );
 

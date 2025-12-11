@@ -13,7 +13,7 @@ use nac3parser::ast::{self, Constant, ExprKind, Located, Location, Stmt, StrRef}
 
 use super::{
     DefinitionId, FunAttribute, TopLevelDef, check_overload_type_annotation_compatible,
-    composer::{BuiltinKind, BuiltinRegistry, DefAst, TopLevelComposer},
+    composer::{BuiltinRegistry, DefAst, TopLevelComposer},
     make_self_type_annotation,
     numpy::unpack_ndarray_var_tys,
     parse_ast_to_type_annotation_kinds,
@@ -33,41 +33,55 @@ use crate::{
 /// All primitive types and functions in nac3core.
 #[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq)]
 pub enum PrimDef {
-    // Classes
-    Int32,
-    Int64,
+    // Core primitives
     Float,
     Bool,
-    None,
-    Range,
     Str,
-    Exception,
-    UInt32,
-    UInt64,
-    Option,
     List,
     NDArray,
     Tuple,
+    Exception,
 
+    // Core functions
+    Range,
+    FunRound,
+    FunRound64,
+    FunFloor,
+    FunFloor64,
+    FunCeil,
+    FunCeil64,
+    FunLen,
+    FunSome,
+    FunMin,
+    FunMax,
+    FunAbs,
+    StaticMethod,
+
+    // Type qualifiers
     Kernel,
     KernelInvariant,
-    Generic,
+    ConstGeneric,
+    None,
     Virtual,
+    Option,
 
-    // Option methods
-    FunOptionIsSome,
-    FunOptionIsNone,
-    FunOptionUnwrap,
+    // Decorators
+    Compile,
+    ExternFn,
+    KernelDecorator,
+    Portable,
+    Rpc,
 
-    // Option-related functions
-    FunSome,
+    // Typing constructs
+    Generic,
+    Literal,
 
-    // NDArray methods
-    FunNDArrayCopy,
-    FunNDArrayFill,
-
-    // Range methods
-    FunRangeInit,
+    // NumPy type aliases
+    Int32,
+    Int64,
+    UInt32,
+    UInt64,
+    Float64,
 
     // NumPy factory functions
     FunNpNDArray,
@@ -158,18 +172,20 @@ pub enum PrimDef {
     FunUInt32,
     FunUInt64,
     FunFloat,
-    FunRound,
-    FunRound64,
     FunStr,
     FunBool,
-    FunFloor,
-    FunFloor64,
-    FunCeil,
-    FunCeil64,
-    FunLen,
-    FunMin,
-    FunMax,
-    FunAbs,
+
+    // Option methods
+    FunOptionIsSome,
+    FunOptionIsNone,
+    FunOptionUnwrap,
+
+    // NDArray methods
+    FunNDArrayCopy,
+    FunNDArrayFill,
+
+    // Range methods
+    FunRangeInit,
 }
 
 /// Associated details of a [`PrimDef`]
@@ -235,41 +251,55 @@ impl PrimDef {
         }
 
         match self {
-            // Classes
-            Self::Int32 => class("int32", |primitives| primitives.int32),
-            Self::Int64 => class("int64", |primitives| primitives.int64),
+            // Core primitives
             Self::Float => class("float", |primitives| primitives.float),
             Self::Bool => class("bool", |primitives| primitives.bool),
-            Self::None => class("none", |primitives| primitives.none),
-            Self::Range => class("range", |primitives| primitives.range),
             Self::Str => class("str", |primitives| primitives.str),
-            Self::Exception => class("Exception", |primitives| primitives.exception),
-            Self::UInt32 => class("uint32", |primitives| primitives.uint32),
-            Self::UInt64 => class("uint64", |primitives| primitives.uint64),
-            Self::Option => class("Option", |primitives| primitives.option),
             Self::List => class("list", |primitives| primitives.list),
             Self::NDArray => class("ndarray", |primitives| primitives.ndarray),
             Self::Tuple => class("tuple", |_| unimplemented!()),
+            Self::Exception => class("Exception", |primitives| primitives.exception),
 
+            // Core functions
+            Self::Range => class("range", |primitives| primitives.range),
+            Self::FunRound => fun("round", None),
+            Self::FunRound64 => fun("round64", None),
+            Self::FunFloor => fun("floor", None),
+            Self::FunFloor64 => fun("floor64", None),
+            Self::FunCeil => fun("ceil", None),
+            Self::FunCeil64 => fun("ceil64", None),
+            Self::FunLen => fun("len", None),
+            Self::FunSome => fun("Some", None),
+            Self::FunMin => fun("min", None),
+            Self::FunMax => fun("max", None),
+            Self::FunAbs => fun("abs", None),
+            Self::StaticMethod => class("staticmethod", |_| unimplemented!()),
+
+            // Type qualifiers
             Self::Kernel => class("Kernel", |_| unimplemented!()),
             Self::KernelInvariant => class("KernelInvariant", |_| unimplemented!()),
-            Self::Generic => class("Generic", |_| unimplemented!()),
+            Self::ConstGeneric => class("ConstGeneric", |_| unimplemented!()),
+            Self::None => class("none", |primitives| primitives.none),
             Self::Virtual => class("virtual", |_| unimplemented!()),
+            Self::Option => class("Option", |primitives| primitives.option),
 
-            // Option methods
-            Self::FunOptionIsSome => fun("Option.is_some", Some("is_some")),
-            Self::FunOptionIsNone => fun("Option.is_none", Some("is_none")),
-            Self::FunOptionUnwrap => fun("Option.unwrap", Some("unwrap")),
+            // Decorators
+            Self::Compile => class("compile", |_| unimplemented!()),
+            Self::ExternFn => class("extern", |_| unimplemented!()),
+            Self::KernelDecorator => class("kernel", |_| unimplemented!()),
+            Self::Portable => class("portable", |_| unimplemented!()),
+            Self::Rpc => class("rpc", |_| unimplemented!()),
 
-            // Option-related functions
-            Self::FunSome => fun("Some", None),
+            // Typing constructs
+            Self::Generic => class("Generic", |_| unimplemented!()),
+            Self::Literal => class("Literal", |_| unimplemented!()),
 
-            // NDArray methods
-            Self::FunNDArrayCopy => fun("ndarray.copy", Some("copy")),
-            Self::FunNDArrayFill => fun("ndarray.fill", Some("fill")),
-
-            // Range methods
-            Self::FunRangeInit => fun("range.__init__", Some("__init__")),
+            // NumPy type aliases
+            Self::Int32 => class("int32", |primitives| primitives.int32),
+            Self::Int64 => class("int64", |primitives| primitives.int64),
+            Self::UInt32 => class("uint32", |primitives| primitives.uint32),
+            Self::UInt64 => class("uint64", |primitives| primitives.uint64),
+            Self::Float64 => class("float64", |primitives| primitives.float),
 
             // NumPy factory functions
             Self::FunNpNDArray => fun("np_ndarray", None),
@@ -360,18 +390,20 @@ impl PrimDef {
             Self::FunUInt32 => fun("uint32", None),
             Self::FunUInt64 => fun("uint64", None),
             Self::FunFloat => fun("float", None),
-            Self::FunRound => fun("round", None),
-            Self::FunRound64 => fun("round64", None),
             Self::FunStr => fun("str", None),
             Self::FunBool => fun("bool", None),
-            Self::FunFloor => fun("floor", None),
-            Self::FunFloor64 => fun("floor64", None),
-            Self::FunCeil => fun("ceil", None),
-            Self::FunCeil64 => fun("ceil64", None),
-            Self::FunLen => fun("len", None),
-            Self::FunMin => fun("min", None),
-            Self::FunMax => fun("max", None),
-            Self::FunAbs => fun("abs", None),
+
+            // Option methods
+            Self::FunOptionIsSome => fun("Option.is_some", Some("is_some")),
+            Self::FunOptionIsNone => fun("Option.is_none", Some("is_none")),
+            Self::FunOptionUnwrap => fun("Option.unwrap", Some("unwrap")),
+
+            // NDArray methods
+            Self::FunNDArrayCopy => fun("ndarray.copy", Some("copy")),
+            Self::FunNDArrayFill => fun("ndarray.fill", Some("fill")),
+
+            // Range methods
+            Self::FunRangeInit => fun("range.__init__", Some("__init__")),
         }
     }
 }
@@ -1171,7 +1203,7 @@ pub fn parse_parameter_default_value(
         ast::ExprKind::Call { func, args, .. } if args.len() == 1 => {
             let builtin = builtin_registry.match_builtin(func);
             match builtin {
-                Some(BuiltinKind::Int64) => match &args[0].node {
+                Some(PrimDef::Int64) => match &args[0].node {
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
                         (*v).try_into().map_or_else(
                             |_| {
@@ -1188,7 +1220,7 @@ pub fn parse_parameter_default_value(
                         default.location
                     )])),
                 },
-                Some(BuiltinKind::Uint32) => match &args[0].node {
+                Some(PrimDef::UInt32) => match &args[0].node {
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
                         (*v).try_into().map_or_else(
                             |_| {
@@ -1205,7 +1237,7 @@ pub fn parse_parameter_default_value(
                         default.location
                     )])),
                 },
-                Some(BuiltinKind::Uint64) => match &args[0].node {
+                Some(PrimDef::UInt64) => match &args[0].node {
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
                         (*v).try_into().map_or_else(
                             |_| {
@@ -1222,7 +1254,7 @@ pub fn parse_parameter_default_value(
                         default.location
                     )])),
                 },
-                Some(BuiltinKind::Some) => Ok(SymbolValue::OptionSome(Box::new(
+                Some(PrimDef::FunSome) => Ok(SymbolValue::OptionSome(Box::new(
                     parse_parameter_default_value(&args[0], resolver, builtin_registry)?,
                 ))),
                 _ => Err(HashSet::from([format!(
@@ -1237,7 +1269,7 @@ pub fn parse_parameter_default_value(
                 .collect::<Result<Vec<_>, _>>()?,
         )),
         ast::ExprKind::Name { .. }
-            if builtin_registry.match_builtin(default) == Some(BuiltinKind::None) =>
+            if builtin_registry.match_builtin(default) == Some(PrimDef::None) =>
         {
             Ok(SymbolValue::OptionNone)
         }

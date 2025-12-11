@@ -52,10 +52,10 @@ use nac3core::{
         DefinitionId, GenCall, TopLevelDef,
         builtins::get_exn_constructor,
         composer::{
-            BuiltinFuncCreator, BuiltinFuncSpec, BuiltinKind, BuiltinMatchError, BuiltinRegistry,
+            BuiltinFuncCreator, BuiltinFuncSpec, BuiltinMatchError, BuiltinRegistry,
             TopLevelComposer,
         },
-        helper::get_decorator_flags,
+        helper::{PrimDef, get_decorator_flags},
     },
     typecheck::{
         type_inferencer::PrimitiveStore,
@@ -149,8 +149,8 @@ impl From<u64> for PyId {
 ///
 /// This implementation matches builtin identifiers by comparing Python object IDs
 pub struct ArtiqBuiltinRegistry {
-    /// Mapping from Python object ID to `BuiltinKind`
-    id_to_builtin: HashMap<u64, BuiltinKind>,
+    /// Mapping from Python object ID to `PrimDef`
+    id_to_builtin: HashMap<u64, PrimDef>,
     /// Python modules indexed by file for context resolution
     modules: Arc<HashMap<FileName, Arc<Py<PyModule>>>>,
 }
@@ -164,89 +164,132 @@ impl ArtiqBuiltinRegistry {
         let mut id_to_builtin = HashMap::new();
 
         // Core primitives
-        id_to_builtin.insert(primitive_ids.builtins.int, BuiltinKind::Int);
-        id_to_builtin.insert(primitive_ids.builtins.float, BuiltinKind::Float);
-        id_to_builtin.insert(primitive_ids.builtins.bool, BuiltinKind::Bool);
-        id_to_builtin.insert(primitive_ids.builtins.str_class, BuiltinKind::Str);
-        id_to_builtin.insert(primitive_ids.builtins.list, BuiltinKind::List);
-        id_to_builtin.insert(primitive_ids.builtins.tuple, BuiltinKind::Tuple);
-        id_to_builtin.insert(primitive_ids.builtins.exception, BuiltinKind::Exception);
+        id_to_builtin.insert(primitive_ids.builtins.float, PrimDef::Float);
+        id_to_builtin.insert(primitive_ids.builtins.bool, PrimDef::Bool);
+        id_to_builtin.insert(primitive_ids.builtins.str_class, PrimDef::Str);
+        id_to_builtin.insert(primitive_ids.builtins.list, PrimDef::List);
+        id_to_builtin.insert(primitive_ids.builtins.tuple, PrimDef::Tuple);
+        id_to_builtin.insert(primitive_ids.builtins.exception, PrimDef::Exception);
 
         // Core functions
-        id_to_builtin.insert(primitive_ids.builtins.range, BuiltinKind::Range);
-        id_to_builtin.insert(primitive_ids.builtins.round, BuiltinKind::Round);
-        id_to_builtin.insert(primitive_ids.builtins.round64, BuiltinKind::Round64);
-        id_to_builtin.insert(primitive_ids.builtins.floor, BuiltinKind::Floor);
-        id_to_builtin.insert(primitive_ids.builtins.floor64, BuiltinKind::Floor64);
-        id_to_builtin.insert(primitive_ids.builtins.ceil, BuiltinKind::Ceil);
-        id_to_builtin.insert(primitive_ids.builtins.ceil64, BuiltinKind::Ceil64);
-        id_to_builtin.insert(primitive_ids.builtins.len, BuiltinKind::Len);
-        id_to_builtin.insert(primitive_ids.builtins.some, BuiltinKind::Some);
-        id_to_builtin
-            .insert(primitive_ids.builtins.staticmethod_decor_fn, BuiltinKind::StaticMethod);
+        id_to_builtin.insert(primitive_ids.builtins.range, PrimDef::Range);
+        id_to_builtin.insert(primitive_ids.builtins.round, PrimDef::FunRound);
+        id_to_builtin.insert(primitive_ids.builtins.round64, PrimDef::FunRound64);
+        id_to_builtin.insert(primitive_ids.builtins.floor, PrimDef::FunFloor);
+        id_to_builtin.insert(primitive_ids.builtins.floor64, PrimDef::FunFloor64);
+        id_to_builtin.insert(primitive_ids.builtins.ceil, PrimDef::FunCeil);
+        id_to_builtin.insert(primitive_ids.builtins.ceil64, PrimDef::FunCeil64);
+        id_to_builtin.insert(primitive_ids.builtins.len, PrimDef::FunLen);
+        id_to_builtin.insert(primitive_ids.builtins.some, PrimDef::FunSome);
+        id_to_builtin.insert(primitive_ids.builtins.staticmethod_decor_fn, PrimDef::StaticMethod);
 
         // Type qualifier
-        id_to_builtin.insert(primitive_ids.artiq.kernel, BuiltinKind::Kernel);
-        id_to_builtin.insert(primitive_ids.artiq.kernel_invariant, BuiltinKind::KernelInvariant);
-        id_to_builtin.insert(primitive_ids.artiq.const_generic_marker, BuiltinKind::ConstGeneric);
-        id_to_builtin.insert(primitive_ids.artiq.none, BuiltinKind::None);
-        id_to_builtin.insert(primitive_ids.artiq.virtual_class, BuiltinKind::Virtual);
-        id_to_builtin.insert(primitive_ids.artiq.option, BuiltinKind::Option);
+        id_to_builtin.insert(primitive_ids.artiq.kernel, PrimDef::Kernel);
+        id_to_builtin.insert(primitive_ids.artiq.kernel_invariant, PrimDef::KernelInvariant);
+        id_to_builtin.insert(primitive_ids.artiq.const_generic_marker, PrimDef::ConstGeneric);
+        id_to_builtin.insert(primitive_ids.artiq.none, PrimDef::None);
+        id_to_builtin.insert(primitive_ids.artiq.virtual_class, PrimDef::Virtual);
+        id_to_builtin.insert(primitive_ids.artiq.option, PrimDef::Option);
 
         // Decorators
-        id_to_builtin.insert(primitive_ids.artiq.compile_decor_fn, BuiltinKind::Compile);
-        id_to_builtin.insert(primitive_ids.artiq.extern_decor_fn, BuiltinKind::ExternFn);
-        id_to_builtin.insert(primitive_ids.artiq.kernel_decor_fn, BuiltinKind::KernelDecorator);
-        id_to_builtin.insert(primitive_ids.artiq.portable_decor_fn, BuiltinKind::Portable);
-        id_to_builtin.insert(primitive_ids.artiq.rpc_decor_fn, BuiltinKind::Rpc);
+        id_to_builtin.insert(primitive_ids.artiq.compile_decor_fn, PrimDef::Compile);
+        id_to_builtin.insert(primitive_ids.artiq.extern_decor_fn, PrimDef::ExternFn);
+        id_to_builtin.insert(primitive_ids.artiq.kernel_decor_fn, PrimDef::KernelDecorator);
+        id_to_builtin.insert(primitive_ids.artiq.portable_decor_fn, PrimDef::Portable);
+        id_to_builtin.insert(primitive_ids.artiq.rpc_decor_fn, PrimDef::Rpc);
 
         // Typing
-        id_to_builtin.insert(primitive_ids.typing.generic, BuiltinKind::Generic);
-        id_to_builtin.insert(primitive_ids.typing.typevar, BuiltinKind::TypeVar);
-        id_to_builtin.insert(primitive_ids.types.generic_alias, BuiltinKind::GenericAlias);
-        id_to_builtin
-            .insert(primitive_ids.typing.generic_alias, BuiltinKind::GenericAliasUnderscore);
-        id_to_builtin.insert(primitive_ids.types.module_type, BuiltinKind::ModuleType);
-        id_to_builtin.insert(primitive_ids.typing.literal, BuiltinKind::Literal);
+        id_to_builtin.insert(primitive_ids.typing.generic, PrimDef::Generic);
+        id_to_builtin.insert(primitive_ids.typing.literal, PrimDef::Literal);
 
         // NumPy
-        id_to_builtin.insert(primitive_ids.numpy.int32, BuiltinKind::Int32);
-        id_to_builtin.insert(primitive_ids.numpy.int64, BuiltinKind::Int64);
-        id_to_builtin.insert(primitive_ids.numpy.uint32, BuiltinKind::Uint32);
-        id_to_builtin.insert(primitive_ids.numpy.uint64, BuiltinKind::Uint64);
-        id_to_builtin.insert(primitive_ids.numpy.float64, BuiltinKind::Float64);
-        id_to_builtin.insert(primitive_ids.numpy.bool_, BuiltinKind::BoolType);
-        id_to_builtin.insert(primitive_ids.numpy.str_, BuiltinKind::StrType);
-        id_to_builtin.insert(primitive_ids.numpy.ndarray, BuiltinKind::NpNDArray);
+        id_to_builtin.insert(primitive_ids.numpy.int32, PrimDef::Int32);
+        id_to_builtin.insert(primitive_ids.numpy.int64, PrimDef::Int64);
+        id_to_builtin.insert(primitive_ids.numpy.uint32, PrimDef::UInt32);
+        id_to_builtin.insert(primitive_ids.numpy.uint64, PrimDef::UInt64);
+        id_to_builtin.insert(primitive_ids.numpy.float64, PrimDef::Float64);
+        id_to_builtin.insert(primitive_ids.numpy.ndarray, PrimDef::FunNpNDArray);
 
-        id_to_builtin.insert(primitive_ids.numpy.empty, BuiltinKind::NpEmpty);
-        id_to_builtin.insert(primitive_ids.numpy.zeros, BuiltinKind::NpZeros);
-        id_to_builtin.insert(primitive_ids.numpy.ones, BuiltinKind::NpOnes);
-        id_to_builtin.insert(primitive_ids.numpy.full, BuiltinKind::NpFull);
-        id_to_builtin.insert(primitive_ids.numpy.array, BuiltinKind::NpArray);
+        id_to_builtin.insert(primitive_ids.numpy.empty, PrimDef::FunNpEmpty);
+        id_to_builtin.insert(primitive_ids.numpy.zeros, PrimDef::FunNpZeros);
+        id_to_builtin.insert(primitive_ids.numpy.ones, PrimDef::FunNpOnes);
+        id_to_builtin.insert(primitive_ids.numpy.full, PrimDef::FunNpFull);
+        id_to_builtin.insert(primitive_ids.numpy.array, PrimDef::FunNpArray);
+        id_to_builtin.insert(primitive_ids.numpy.eye, PrimDef::FunNpEye);
+        id_to_builtin.insert(primitive_ids.numpy.identity, PrimDef::FunNpIdentity);
 
-        id_to_builtin.insert(primitive_ids.numpy.shape, BuiltinKind::NpShape);
+        id_to_builtin.insert(primitive_ids.numpy.size, PrimDef::FunNpSize);
+        id_to_builtin.insert(primitive_ids.numpy.shape, PrimDef::FunNpShape);
 
-        id_to_builtin.insert(primitive_ids.numpy.broadcast_to, BuiltinKind::NpBroadcastTo);
-        id_to_builtin.insert(primitive_ids.numpy.reshape, BuiltinKind::NpReshape);
+        id_to_builtin.insert(primitive_ids.numpy.broadcast_to, PrimDef::FunNpBroadcastTo);
+        id_to_builtin.insert(primitive_ids.numpy.transpose, PrimDef::FunNpTranspose);
+        id_to_builtin.insert(primitive_ids.numpy.reshape, PrimDef::FunNpReshape);
 
-        id_to_builtin.insert(primitive_ids.numpy.min, BuiltinKind::NpMin);
-        id_to_builtin.insert(primitive_ids.numpy.minimum, BuiltinKind::NpMinimum);
-        id_to_builtin.insert(primitive_ids.numpy.max, BuiltinKind::NpMax);
-        id_to_builtin.insert(primitive_ids.numpy.maximum, BuiltinKind::NpMaximum);
-        id_to_builtin.insert(primitive_ids.numpy.isnan, BuiltinKind::NpIsnan);
-        id_to_builtin.insert(primitive_ids.numpy.isinf, BuiltinKind::NpIsinf);
+        id_to_builtin.insert(primitive_ids.numpy.round, PrimDef::FunNpRound);
+        id_to_builtin.insert(primitive_ids.numpy.floor, PrimDef::FunNpFloor);
+        id_to_builtin.insert(primitive_ids.numpy.ceil, PrimDef::FunNpCeil);
+        id_to_builtin.insert(primitive_ids.numpy.min, PrimDef::FunNpMin);
+        id_to_builtin.insert(primitive_ids.numpy.minimum, PrimDef::FunNpMinimum);
+        id_to_builtin.insert(primitive_ids.numpy.max, PrimDef::FunNpMax);
+        id_to_builtin.insert(primitive_ids.numpy.maximum, PrimDef::FunNpMaximum);
+        id_to_builtin.insert(primitive_ids.numpy.argmin, PrimDef::FunNpArgmin);
+        id_to_builtin.insert(primitive_ids.numpy.argmax, PrimDef::FunNpArgmax);
+        id_to_builtin.insert(primitive_ids.numpy.isnan, PrimDef::FunNpIsNan);
+        id_to_builtin.insert(primitive_ids.numpy.isinf, PrimDef::FunNpIsInf);
+        id_to_builtin.insert(primitive_ids.numpy.sin, PrimDef::FunNpSin);
+        id_to_builtin.insert(primitive_ids.numpy.cos, PrimDef::FunNpCos);
+        id_to_builtin.insert(primitive_ids.numpy.exp, PrimDef::FunNpExp);
+        id_to_builtin.insert(primitive_ids.numpy.exp2, PrimDef::FunNpExp2);
+        id_to_builtin.insert(primitive_ids.numpy.log, PrimDef::FunNpLog);
+        id_to_builtin.insert(primitive_ids.numpy.log10, PrimDef::FunNpLog10);
+        id_to_builtin.insert(primitive_ids.numpy.log2, PrimDef::FunNpLog2);
+        id_to_builtin.insert(primitive_ids.numpy.fabs, PrimDef::FunNpFabs);
+        id_to_builtin.insert(primitive_ids.numpy.sqrt, PrimDef::FunNpSqrt);
+        id_to_builtin.insert(primitive_ids.numpy.rint, PrimDef::FunNpRint);
+        id_to_builtin.insert(primitive_ids.numpy.tan, PrimDef::FunNpTan);
+        id_to_builtin.insert(primitive_ids.numpy.arcsin, PrimDef::FunNpArcsin);
+        id_to_builtin.insert(primitive_ids.numpy.arccos, PrimDef::FunNpArccos);
+        id_to_builtin.insert(primitive_ids.numpy.arctan, PrimDef::FunNpArctan);
+        id_to_builtin.insert(primitive_ids.numpy.sinh, PrimDef::FunNpSinh);
+        id_to_builtin.insert(primitive_ids.numpy.cosh, PrimDef::FunNpCosh);
+        id_to_builtin.insert(primitive_ids.numpy.tanh, PrimDef::FunNpTanh);
+        id_to_builtin.insert(primitive_ids.numpy.arcsinh, PrimDef::FunNpArcsinh);
+        id_to_builtin.insert(primitive_ids.numpy.arccosh, PrimDef::FunNpArccosh);
+        id_to_builtin.insert(primitive_ids.numpy.arctanh, PrimDef::FunNpArctanh);
+        id_to_builtin.insert(primitive_ids.numpy.expm1, PrimDef::FunNpExpm1);
+        id_to_builtin.insert(primitive_ids.numpy.cbrt, PrimDef::FunNpCbrt);
 
-        id_to_builtin.insert(primitive_ids.numpy.arctan2, BuiltinKind::NpArctan2);
-        id_to_builtin.insert(primitive_ids.numpy.copysign, BuiltinKind::NpCopysign);
-        id_to_builtin.insert(primitive_ids.numpy.fmax, BuiltinKind::NpFmax);
-        id_to_builtin.insert(primitive_ids.numpy.fmin, BuiltinKind::NpFmin);
-        id_to_builtin.insert(primitive_ids.numpy.ldexp, BuiltinKind::NpLdexp);
-        id_to_builtin.insert(primitive_ids.numpy.hypot, BuiltinKind::NpHypot);
-        id_to_builtin.insert(primitive_ids.numpy.nextafter, BuiltinKind::NpNextafter);
+        id_to_builtin.insert(primitive_ids.numpy.spec_erf, PrimDef::FunSpSpecErf);
+        id_to_builtin.insert(primitive_ids.numpy.spec_erfc, PrimDef::FunSpSpecErfc);
+        id_to_builtin.insert(primitive_ids.numpy.spec_gamma, PrimDef::FunSpSpecGamma);
+        id_to_builtin.insert(primitive_ids.numpy.spec_gammaln, PrimDef::FunSpSpecGammaln);
+        id_to_builtin.insert(primitive_ids.numpy.spec_j0, PrimDef::FunSpSpecJ0);
+        id_to_builtin.insert(primitive_ids.numpy.spec_j1, PrimDef::FunSpSpecJ1);
 
-        id_to_builtin.insert(primitive_ids.numpy.dot, BuiltinKind::NpDot);
+        id_to_builtin.insert(primitive_ids.numpy.arctan2, PrimDef::FunNpArctan2);
+        id_to_builtin.insert(primitive_ids.numpy.copysign, PrimDef::FunNpCopysign);
+        id_to_builtin.insert(primitive_ids.numpy.fmax, PrimDef::FunNpFmax);
+        id_to_builtin.insert(primitive_ids.numpy.fmin, PrimDef::FunNpFmin);
+        id_to_builtin.insert(primitive_ids.numpy.ldexp, PrimDef::FunNpLdExp);
+        id_to_builtin.insert(primitive_ids.numpy.hypot, PrimDef::FunNpHypot);
+        id_to_builtin.insert(primitive_ids.numpy.nextafter, PrimDef::FunNpNextAfter);
 
+        id_to_builtin.insert(primitive_ids.numpy.any, PrimDef::FunNpAny);
+        id_to_builtin.insert(primitive_ids.numpy.all, PrimDef::FunNpAll);
+
+        id_to_builtin.insert(primitive_ids.numpy.dot, PrimDef::FunNpDot);
+        id_to_builtin.insert(primitive_ids.numpy.linalg_cholesky, PrimDef::FunNpLinalgCholesky);
+        id_to_builtin.insert(primitive_ids.numpy.linalg_qr, PrimDef::FunNpLinalgQr);
+        id_to_builtin.insert(primitive_ids.numpy.linalg_svd, PrimDef::FunNpLinalgSvd);
+        id_to_builtin.insert(primitive_ids.numpy.linalg_inv, PrimDef::FunNpLinalgInv);
+        id_to_builtin.insert(primitive_ids.numpy.linalg_pinv, PrimDef::FunNpLinalgPinv);
+        id_to_builtin
+            .insert(primitive_ids.numpy.linalg_matrix_power, PrimDef::FunNpLinalgMatrixPower);
+        id_to_builtin.insert(primitive_ids.numpy.linalg_det, PrimDef::FunNpLinalgDet);
+
+        id_to_builtin.insert(primitive_ids.numpy.linalg_lu, PrimDef::FunSpLinalgLu);
+        id_to_builtin.insert(primitive_ids.numpy.linalg_schur, PrimDef::FunSpLinalgSchur);
+        id_to_builtin.insert(primitive_ids.numpy.linalg_hessenberg, PrimDef::FunSpLinalgHessenberg);
         Self { id_to_builtin, modules }
     }
 
@@ -285,7 +328,7 @@ impl ArtiqBuiltinRegistry {
 }
 
 impl BuiltinRegistry for ArtiqBuiltinRegistry {
-    fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<BuiltinKind> {
+    fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<PrimDef> {
         let py_id = self.get_python_id(expr).ok()?;
 
         if let Some(kind) = self.id_to_builtin.get(&py_id) {

@@ -26,271 +26,6 @@ use crate::{
     },
 };
 
-/// Enumeration of all builtin identifiers recognized by the compiler.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BuiltinKind {
-    // Core primitives
-    Int,
-    Float,
-    Bool,
-    Str,
-    List,
-    Tuple,
-    Exception,
-
-    // Core functions
-    Range,
-    Round,
-    Round64,
-    Floor,
-    Floor64,
-    Ceil,
-    Ceil64,
-    Len,
-    Min,
-    Max,
-    Abs,
-    Some,
-    StaticMethod,
-
-    // Type qualifier
-    Kernel,
-    KernelInvariant,
-    ConstGeneric,
-    None,
-    Virtual,
-    Option,
-
-    // Decorators
-    Compile,
-    ExternFn,
-    KernelDecorator,
-    Portable,
-    Rpc,
-
-    // Typing
-    Generic,
-    TypeVar,
-    GenericAlias,
-    GenericAliasUnderscore,
-    ModuleType,
-    Literal,
-
-    // NumPy
-    Int32,
-    Int64,
-    Uint32,
-    Uint64,
-    Float64,
-    BoolType,
-    StrType,
-    NpNDArray,
-
-    NpEmpty,
-    NpZeros,
-    NpOnes,
-    NpFull,
-    NpArray,
-    NpEye,
-    NpIdentity,
-
-    NpSize,
-    NpShape,
-    NpStrides,
-
-    NpBroadcastTo,
-    NpTranspose,
-    NpReshape,
-
-    NpRound,
-    NpFloor,
-    NpCeil,
-    NpMin,
-    NpMinimum,
-    NpMax,
-    NpMaximum,
-    NpArgmax,
-    NpIsnan,
-    NpIsinf,
-    NpSin,
-    NpCos,
-    NpExp,
-    NpExp2,
-    NpLog,
-    NpLog10,
-    NpLog2,
-    NpFabs,
-    NpSqrt,
-    NpRint,
-    NpTan,
-    NpArcsin,
-    NpArccos,
-    NpArctan,
-    NpSinh,
-    NpCosh,
-    NpTanh,
-    NpArcsinh,
-    NpArccosh,
-    NpArctanh,
-    NpExpm1,
-    NpCbrt,
-
-    SpSpecErf,
-    SpSpecErfc,
-    SpSpecGamma,
-    SpSpecGammaln,
-    SpSpecJ0,
-    SpSpecJ1,
-
-    NpArctan2,
-    NpCopysign,
-    NpFmax,
-    NpFmin,
-    NpLdexp,
-    NpHypot,
-    NpNextafter,
-
-    NpAny,
-    NpAll,
-
-    NpDot,
-    NpLinalgCholesky,
-    NpLinalgQr,
-    NpLinalgSvd,
-    NpLinalgInv,
-    NpLinalgPinv,
-    NpLinalgMatrixPower,
-    NpLinalgDet,
-
-    SpLinalgLu,
-    SpLinalgSchur,
-    SpLinalgHessenberg,
-}
-
-impl TryFrom<BuiltinKind> for PrimDef {
-    type Error = ();
-
-    fn try_from(builtin: BuiltinKind) -> Result<Self, Self::Error> {
-        match builtin {
-            BuiltinKind::Float => Ok(Self::Float),
-            BuiltinKind::Bool => Ok(Self::Bool),
-            BuiltinKind::Str => Ok(Self::Str),
-            BuiltinKind::List => Ok(Self::List),
-            BuiltinKind::Tuple => Ok(Self::Tuple),
-            BuiltinKind::Exception => Ok(Self::Exception),
-
-            BuiltinKind::Range => Ok(Self::Range),
-            BuiltinKind::Round => Ok(Self::FunRound),
-            BuiltinKind::Round64 => Ok(Self::FunRound64),
-            BuiltinKind::Floor => Ok(Self::FunFloor),
-            BuiltinKind::Floor64 => Ok(Self::FunFloor64),
-            BuiltinKind::Ceil => Ok(Self::FunCeil),
-            BuiltinKind::Ceil64 => Ok(Self::FunCeil64),
-            BuiltinKind::Len => Ok(Self::FunLen),
-            BuiltinKind::Min => Ok(Self::FunMin),
-            BuiltinKind::Max => Ok(Self::FunMax),
-            BuiltinKind::Abs => Ok(Self::FunAbs),
-            BuiltinKind::Some => Ok(Self::FunSome),
-
-            BuiltinKind::Kernel => Ok(Self::Kernel),
-            BuiltinKind::KernelInvariant => Ok(Self::KernelInvariant),
-            BuiltinKind::None => Ok(Self::None),
-            BuiltinKind::Virtual => Ok(Self::Virtual),
-            BuiltinKind::Option => Ok(Self::Option),
-
-            BuiltinKind::Generic => Ok(Self::Generic),
-
-            BuiltinKind::Int32 => Ok(Self::Int32),
-            BuiltinKind::Int64 => Ok(Self::Int64),
-            BuiltinKind::Uint32 => Ok(Self::UInt32),
-            BuiltinKind::Uint64 => Ok(Self::UInt64),
-            BuiltinKind::NpNDArray => Ok(Self::FunNpNDArray),
-
-            BuiltinKind::NpEmpty => Ok(Self::FunNpEmpty),
-            BuiltinKind::NpZeros => Ok(Self::FunNpZeros),
-            BuiltinKind::NpOnes => Ok(Self::FunNpOnes),
-            BuiltinKind::NpFull => Ok(Self::FunNpFull),
-            BuiltinKind::NpArray => Ok(Self::FunNpArray),
-            BuiltinKind::NpEye => Ok(Self::FunNpEye),
-            BuiltinKind::NpIdentity => Ok(Self::FunNpIdentity),
-
-            BuiltinKind::NpSize => Ok(Self::FunNpSize),
-            BuiltinKind::NpShape => Ok(Self::FunNpShape),
-            BuiltinKind::NpStrides => Ok(Self::FunNpStrides),
-
-            BuiltinKind::NpBroadcastTo => Ok(Self::FunNpBroadcastTo),
-            BuiltinKind::NpTranspose => Ok(Self::FunNpTranspose),
-            BuiltinKind::NpReshape => Ok(Self::FunNpReshape),
-
-            BuiltinKind::NpRound => Ok(Self::FunNpRound),
-            BuiltinKind::NpFloor => Ok(Self::FunNpFloor),
-            BuiltinKind::NpCeil => Ok(Self::FunNpCeil),
-            BuiltinKind::NpMin => Ok(Self::FunNpMin),
-            BuiltinKind::NpMinimum => Ok(Self::FunNpMinimum),
-            BuiltinKind::NpMax => Ok(Self::FunNpMax),
-            BuiltinKind::NpMaximum => Ok(Self::FunNpMaximum),
-            BuiltinKind::NpArgmax => Ok(Self::FunNpArgmax),
-            BuiltinKind::NpIsnan => Ok(Self::FunNpIsNan),
-            BuiltinKind::NpIsinf => Ok(Self::FunNpIsInf),
-            BuiltinKind::NpSin => Ok(Self::FunNpSin),
-            BuiltinKind::NpCos => Ok(Self::FunNpCos),
-            BuiltinKind::NpExp => Ok(Self::FunNpExp),
-            BuiltinKind::NpExp2 => Ok(Self::FunNpExp2),
-            BuiltinKind::NpLog => Ok(Self::FunNpLog),
-            BuiltinKind::NpLog10 => Ok(Self::FunNpLog10),
-            BuiltinKind::NpLog2 => Ok(Self::FunNpLog2),
-            BuiltinKind::NpFabs => Ok(Self::FunNpFabs),
-            BuiltinKind::NpSqrt => Ok(Self::FunNpSqrt),
-            BuiltinKind::NpRint => Ok(Self::FunNpRint),
-            BuiltinKind::NpTan => Ok(Self::FunNpTan),
-            BuiltinKind::NpArcsin => Ok(Self::FunNpArcsin),
-            BuiltinKind::NpArccos => Ok(Self::FunNpArccos),
-            BuiltinKind::NpArctan => Ok(Self::FunNpArctan),
-            BuiltinKind::NpSinh => Ok(Self::FunNpSinh),
-            BuiltinKind::NpCosh => Ok(Self::FunNpCosh),
-            BuiltinKind::NpTanh => Ok(Self::FunNpTanh),
-            BuiltinKind::NpArcsinh => Ok(Self::FunNpArcsinh),
-            BuiltinKind::NpArccosh => Ok(Self::FunNpArccosh),
-            BuiltinKind::NpArctanh => Ok(Self::FunNpArctanh),
-            BuiltinKind::NpExpm1 => Ok(Self::FunNpExpm1),
-            BuiltinKind::NpCbrt => Ok(Self::FunNpCbrt),
-
-            BuiltinKind::SpSpecErf => Ok(Self::FunSpSpecErf),
-            BuiltinKind::SpSpecErfc => Ok(Self::FunSpSpecErfc),
-            BuiltinKind::SpSpecGamma => Ok(Self::FunSpSpecGamma),
-            BuiltinKind::SpSpecGammaln => Ok(Self::FunSpSpecGammaln),
-            BuiltinKind::SpSpecJ0 => Ok(Self::FunSpSpecJ0),
-            BuiltinKind::SpSpecJ1 => Ok(Self::FunSpSpecJ1),
-
-            BuiltinKind::NpArctan2 => Ok(Self::FunNpArctan2),
-            BuiltinKind::NpCopysign => Ok(Self::FunNpCopysign),
-            BuiltinKind::NpFmax => Ok(Self::FunNpFmax),
-            BuiltinKind::NpFmin => Ok(Self::FunNpFmin),
-            BuiltinKind::NpLdexp => Ok(Self::FunNpLdExp),
-            BuiltinKind::NpHypot => Ok(Self::FunNpHypot),
-            BuiltinKind::NpNextafter => Ok(Self::FunNpNextAfter),
-
-            BuiltinKind::NpAny => Ok(Self::FunNpAny),
-            BuiltinKind::NpAll => Ok(Self::FunNpAll),
-
-            BuiltinKind::NpDot => Ok(Self::FunNpDot),
-            BuiltinKind::NpLinalgCholesky => Ok(Self::FunNpLinalgCholesky),
-            BuiltinKind::NpLinalgQr => Ok(Self::FunNpLinalgQr),
-            BuiltinKind::NpLinalgSvd => Ok(Self::FunNpLinalgSvd),
-            BuiltinKind::NpLinalgInv => Ok(Self::FunNpLinalgInv),
-            BuiltinKind::NpLinalgPinv => Ok(Self::FunNpLinalgPinv),
-            BuiltinKind::NpLinalgMatrixPower => Ok(Self::FunNpLinalgMatrixPower),
-            BuiltinKind::NpLinalgDet => Ok(Self::FunNpLinalgDet),
-
-            BuiltinKind::SpLinalgLu => Ok(Self::FunSpLinalgLu),
-            BuiltinKind::SpLinalgSchur => Ok(Self::FunSpLinalgSchur),
-            BuiltinKind::SpLinalgHessenberg => Ok(Self::FunSpLinalgHessenberg),
-
-            _ => Err(()),
-        }
-    }
-}
-
 /// Default implementation of [`BuiltinRegistry`] using string-based matching.
 ///
 /// This zero-sized struct provides the standard builtin matching behavior
@@ -305,12 +40,12 @@ impl BuiltinRegistry for DefaultBuiltinRegistry {}
 pub trait BuiltinRegistry: Send + Sync {
     /// Match an AST expression against known builtin identifiers.
     ///
-    /// Returns `Some(BuiltinKind)` if the expression matches a recognized builtin,
+    /// Returns `Some(PrimDef)` if the expression matches a recognized builtin,
     /// otherwise returns `None`.
     ///
     /// # Arguments
     /// * `expr` - The AST expression to match
-    fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<BuiltinKind> {
+    fn match_builtin(&self, expr: &Located<ExprKind>) -> Option<PrimDef> {
         let get_name = |e: &ExprKind| -> Option<String> {
             match e {
                 ExprKind::Name { id, .. } => Some(id.to_string()),
@@ -329,139 +64,130 @@ pub trait BuiltinRegistry: Send + Sync {
 
         Some(match name.as_str() {
             // Core primitives
-            "int" => BuiltinKind::Int,
-            "float" => BuiltinKind::Float,
-            "bool" => BuiltinKind::Bool,
-            "str" => BuiltinKind::Str,
-            "list" => BuiltinKind::List,
-            "tuple" => BuiltinKind::Tuple,
-            "Exception" => BuiltinKind::Exception,
+            "float" => PrimDef::Float,
+            "bool" => PrimDef::Bool,
+            "str" => PrimDef::Str,
+            "list" => PrimDef::List,
+            "tuple" => PrimDef::Tuple,
+            "Exception" => PrimDef::Exception,
 
             // Core functions
-            "range" => BuiltinKind::Range,
-            "round" => BuiltinKind::Round,
-            "round64" => BuiltinKind::Round64,
-            "floor" => BuiltinKind::Floor,
-            "floor64" => BuiltinKind::Floor64,
-            "ceil" => BuiltinKind::Ceil,
-            "ceil64" => BuiltinKind::Ceil64,
-            "len" => BuiltinKind::Len,
-            "min" => BuiltinKind::Min,
-            "max" => BuiltinKind::Max,
-            "abs" => BuiltinKind::Abs,
-            "Some" => BuiltinKind::Some,
-            "staticmethod" => BuiltinKind::StaticMethod,
+            "range" => PrimDef::Range,
+            "round" => PrimDef::FunRound,
+            "round64" => PrimDef::FunRound64,
+            "floor" => PrimDef::FunFloor,
+            "floor64" => PrimDef::FunFloor64,
+            "ceil" => PrimDef::FunCeil,
+            "ceil64" => PrimDef::FunCeil64,
+            "len" => PrimDef::FunLen,
+            "min" => PrimDef::FunMin,
+            "max" => PrimDef::FunMax,
+            "abs" => PrimDef::FunAbs,
+            "Some" => PrimDef::FunSome,
+            "staticmethod" => PrimDef::StaticMethod,
 
             // Type qualifier
-            "Kernel" => BuiltinKind::Kernel,
-            "KernelInvariant" => BuiltinKind::KernelInvariant,
-            "ConstGeneric" => BuiltinKind::ConstGeneric,
-            "none" => BuiltinKind::None,
-            "virtual" => BuiltinKind::Virtual,
-            "Option" => BuiltinKind::Option,
+            "Kernel" => PrimDef::Kernel,
+            "KernelInvariant" => PrimDef::KernelInvariant,
+            "ConstGeneric" => PrimDef::ConstGeneric,
+            "none" => PrimDef::None,
+            "virtual" => PrimDef::Virtual,
+            "Option" => PrimDef::Option,
 
             // Decorators
-            "compile" => BuiltinKind::Compile,
-            "extern" => BuiltinKind::ExternFn,
-            "kernel" => BuiltinKind::KernelDecorator,
-            "portable" => BuiltinKind::Portable,
-            "rpc" => BuiltinKind::Rpc,
+            "compile" => PrimDef::Compile,
+            "extern" => PrimDef::ExternFn,
+            "kernel" => PrimDef::KernelDecorator,
+            "portable" => PrimDef::Portable,
+            "rpc" => PrimDef::Rpc,
 
             // Typing
-            "Generic" => BuiltinKind::Generic,
-            "TypeVar" => BuiltinKind::TypeVar,
-            "GenericAlias" => BuiltinKind::GenericAlias,
-            "_GenericAlias" => BuiltinKind::GenericAliasUnderscore,
-            "ModuleType" => BuiltinKind::ModuleType,
-            "Literal" => BuiltinKind::Literal,
+            "Generic" => PrimDef::Generic,
+            "Literal" => PrimDef::Literal,
 
             // NumPy
-            "int32" => BuiltinKind::Int32,
-            "int64" => BuiltinKind::Int64,
-            "uint32" => BuiltinKind::Uint32,
-            "uint64" => BuiltinKind::Uint64,
-            "float64" => BuiltinKind::Float64,
-            "np_ndarray" => BuiltinKind::NpNDArray,
+            "int32" => PrimDef::Int32,
+            "int64" => PrimDef::Int64,
+            "uint32" => PrimDef::UInt32,
+            "uint64" => PrimDef::UInt64,
+            "float64" => PrimDef::Float64,
 
-            "np_empty" => BuiltinKind::NpEmpty,
-            "np_zeros" => BuiltinKind::NpZeros,
-            "np_ones" => BuiltinKind::NpOnes,
-            "np_full" => BuiltinKind::NpFull,
-            "np_array" => BuiltinKind::NpArray,
-            "np_eye" => BuiltinKind::NpEye,
-            "np_identity" => BuiltinKind::NpIdentity,
+            "np_ndarray" => PrimDef::FunNpNDArray,
+            "np_empty" => PrimDef::FunNpEmpty,
+            "np_zeros" => PrimDef::FunNpZeros,
+            "np_ones" => PrimDef::FunNpOnes,
+            "np_full" => PrimDef::FunNpFull,
+            "np_array" => PrimDef::FunNpArray,
+            "np_eye" => PrimDef::FunNpEye,
+            "np_identity" => PrimDef::FunNpIdentity,
 
-            "np_size" => BuiltinKind::NpSize,
-            "np_shape" => BuiltinKind::NpShape,
-            "np_strides" => BuiltinKind::NpStrides,
+            "np_size" => PrimDef::FunNpSize,
+            "np_shape" => PrimDef::FunNpShape,
+            "np_strides" => PrimDef::FunNpStrides,
 
-            "np_broadcast_to" => BuiltinKind::NpBroadcastTo,
-            "np_transpose" => BuiltinKind::NpTranspose,
-            "np_reshape" => BuiltinKind::NpReshape,
+            "np_broadcast_to" => PrimDef::FunNpBroadcastTo,
+            "np_transpose" => PrimDef::FunNpTranspose,
+            "np_reshape" => PrimDef::FunNpReshape,
 
-            "np_round" => BuiltinKind::NpRound,
-            "np_floor" => BuiltinKind::NpFloor,
-            "np_ceil" => BuiltinKind::NpCeil,
-            "np_min" => BuiltinKind::NpMin,
-            "np_minimum" => BuiltinKind::NpMinimum,
-            "np_max" => BuiltinKind::NpMax,
-            "np_maximum" => BuiltinKind::NpMaximum,
-            "np_argmax" => BuiltinKind::NpArgmax,
-            "np_isnan" => BuiltinKind::NpIsnan,
-            "np_isinf" => BuiltinKind::NpIsinf,
-            "np_sin" => BuiltinKind::NpSin,
-            "np_cos" => BuiltinKind::NpCos,
-            "np_exp" => BuiltinKind::NpExp,
-            "np_exp2" => BuiltinKind::NpExp2,
-            "np_log" => BuiltinKind::NpLog,
-            "np_log10" => BuiltinKind::NpLog10,
-            "np_log2" => BuiltinKind::NpLog2,
-            "np_fabs" => BuiltinKind::NpFabs,
-            "np_sqrt" => BuiltinKind::NpSqrt,
-            "np_rint" => BuiltinKind::NpRint,
-            "np_tan" => BuiltinKind::NpTan,
-            "np_arcsin" => BuiltinKind::NpArcsin,
-            "np_arccos" => BuiltinKind::NpArccos,
-            "np_arctan" => BuiltinKind::NpArctan,
-            "np_sinh" => BuiltinKind::NpSinh,
-            "np_cosh" => BuiltinKind::NpCosh,
-            "np_tanh" => BuiltinKind::NpTanh,
-            "np_arcsinh" => BuiltinKind::NpArcsinh,
-            "np_arccosh" => BuiltinKind::NpArccosh,
-            "np_arctanh" => BuiltinKind::NpArctanh,
-            "np_expm1" => BuiltinKind::NpExpm1,
-            "np_cbrt" => BuiltinKind::NpCbrt,
+            "np_round" => PrimDef::FunNpRound,
+            "np_floor" => PrimDef::FunNpFloor,
+            "np_ceil" => PrimDef::FunNpCeil,
+            "np_min" => PrimDef::FunNpMin,
+            "np_minimum" => PrimDef::FunNpMinimum,
+            "np_max" => PrimDef::FunNpMax,
+            "np_maximum" => PrimDef::FunNpMaximum,
+            "np_argmax" => PrimDef::FunNpArgmax,
+            "np_isnan" => PrimDef::FunNpIsNan,
+            "np_isinf" => PrimDef::FunNpIsInf,
+            "np_sin" => PrimDef::FunNpSin,
+            "np_cos" => PrimDef::FunNpCos,
+            "np_exp" => PrimDef::FunNpExp,
+            "np_exp2" => PrimDef::FunNpExp2,
+            "np_log" => PrimDef::FunNpLog,
+            "np_log10" => PrimDef::FunNpLog10,
+            "np_log2" => PrimDef::FunNpLog2,
+            "np_fabs" => PrimDef::FunNpFabs,
+            "np_sqrt" => PrimDef::FunNpSqrt,
+            "np_rint" => PrimDef::FunNpRint,
+            "np_tan" => PrimDef::FunNpTan,
+            "np_arcsin" => PrimDef::FunNpArcsin,
+            "np_arccos" => PrimDef::FunNpArccos,
+            "np_arctan" => PrimDef::FunNpArctan,
+            "np_sinh" => PrimDef::FunNpSinh,
+            "np_cosh" => PrimDef::FunNpCosh,
+            "np_tanh" => PrimDef::FunNpTanh,
+            "np_arcsinh" => PrimDef::FunNpArcsinh,
+            "np_arccosh" => PrimDef::FunNpArccosh,
+            "np_arctanh" => PrimDef::FunNpArctanh,
+            "np_expm1" => PrimDef::FunNpExpm1,
+            "np_cbrt" => PrimDef::FunNpCbrt,
+            "sp_spec_erf" => PrimDef::FunSpSpecErf,
+            "sp_spec_erfc" => PrimDef::FunSpSpecErfc,
+            "sp_spec_gamma" => PrimDef::FunSpSpecGamma,
+            "sp_spec_gammaln" => PrimDef::FunSpSpecGammaln,
+            "sp_spec_j0" => PrimDef::FunSpSpecJ0,
+            "sp_spec_j1" => PrimDef::FunSpSpecJ1,
+            "np_arctan2" => PrimDef::FunNpArctan2,
+            "np_copysign" => PrimDef::FunNpCopysign,
+            "np_fmax" => PrimDef::FunNpFmax,
+            "np_fmin" => PrimDef::FunNpFmin,
+            "np_ldexp" => PrimDef::FunNpLdExp,
+            "np_hypot" => PrimDef::FunNpHypot,
+            "np_nextafter" => PrimDef::FunNpNextAfter,
+            "np_any" => PrimDef::FunNpAny,
+            "np_all" => PrimDef::FunNpAll,
 
-            "sp_spec_erf" => BuiltinKind::SpSpecErf,
-            "sp_spec_erfc" => BuiltinKind::SpSpecErfc,
-            "sp_spec_gamma" => BuiltinKind::SpSpecGamma,
-            "sp_spec_gammaln" => BuiltinKind::SpSpecGammaln,
-            "sp_spec_j0" => BuiltinKind::SpSpecJ0,
-            "sp_spec_j1" => BuiltinKind::SpSpecJ1,
-
-            "np_arctan2" => BuiltinKind::NpArctan2,
-            "np_copysign" => BuiltinKind::NpCopysign,
-            "np_fmax" => BuiltinKind::NpFmax,
-            "np_fmin" => BuiltinKind::NpFmin,
-            "np_ldexp" => BuiltinKind::NpLdexp,
-            "np_hypot" => BuiltinKind::NpHypot,
-            "np_nextafter" => BuiltinKind::NpNextafter,
-
-            "np_any" => BuiltinKind::NpAny,
-            "np_all" => BuiltinKind::NpAll,
-
-            "np_dot" => BuiltinKind::NpDot,
-            "np_linalg_cholesky" => BuiltinKind::NpLinalgCholesky,
-            "np_linalg_qr" => BuiltinKind::NpLinalgQr,
-            "np_linalg_svd" => BuiltinKind::NpLinalgSvd,
-            "np_linalg_inv" => BuiltinKind::NpLinalgInv,
-            "np_linalg_pinv" => BuiltinKind::NpLinalgPinv,
-            "np_linalg_matrix_power" => BuiltinKind::NpLinalgMatrixPower,
-            "np_linalg_det" => BuiltinKind::NpLinalgDet,
-
-            "sp_linalg_lu" => BuiltinKind::SpLinalgLu,
-            "sp_linalg_schur" => BuiltinKind::SpLinalgSchur,
-            "sp_linalg_hessenberg" => BuiltinKind::SpLinalgHessenberg,
+            "np_dot" => PrimDef::FunNpDot,
+            "np_linalg_cholesky" => PrimDef::FunNpLinalgCholesky,
+            "np_linalg_qr" => PrimDef::FunNpLinalgQr,
+            "np_linalg_svd" => PrimDef::FunNpLinalgSvd,
+            "np_linalg_inv" => PrimDef::FunNpLinalgInv,
+            "np_linalg_pinv" => PrimDef::FunNpLinalgPinv,
+            "np_linalg_matrix_power" => PrimDef::FunNpLinalgMatrixPower,
+            "np_linalg_det" => PrimDef::FunNpLinalgDet,
+            "sp_linalg_lu" => PrimDef::FunSpLinalgLu,
+            "sp_linalg_schur" => PrimDef::FunSpLinalgSchur,
+            "sp_linalg_hessenberg" => PrimDef::FunSpLinalgHessenberg,
 
             _ => return None,
         })
@@ -472,7 +198,7 @@ pub trait BuiltinRegistry: Send + Sync {
     ///
     /// The type annotation is resolved in the decorator's global module context.
     fn has_generic_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(type_ann) == Some(BuiltinKind::Generic))
+        Ok(self.match_builtin(type_ann) == Some(PrimDef::Generic))
     }
 
     /// Checks whether the type annotation expression `type_ann` indicates that the variable is
@@ -482,7 +208,7 @@ pub trait BuiltinRegistry: Send + Sync {
     ///
     /// Returns `Ok(None)` if this functionality is not supported.
     fn has_kernel_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(type_ann) == Some(BuiltinKind::Kernel))
+        Ok(self.match_builtin(type_ann) == Some(PrimDef::Kernel))
     }
 
     /// Checks whether the type annotation expression `type_ann` indicates that the variable is
@@ -490,7 +216,7 @@ pub trait BuiltinRegistry: Send + Sync {
     ///
     /// The type annotation is resolved in the decorator's global module context.
     fn has_invariant_ann(&self, type_ann: &Located<ExprKind>) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(type_ann) == Some(BuiltinKind::KernelInvariant))
+        Ok(self.match_builtin(type_ann) == Some(PrimDef::KernelInvariant))
     }
 
     /// Checks whether the `decorator` indicates that the function should be an `extern` function,
@@ -505,8 +231,8 @@ pub trait BuiltinRegistry: Send + Sync {
         &self,
         decorator: &Located<ExprKind>,
     ) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(decorator) == Some(BuiltinKind::ExternFn)
-            || self.match_builtin(decorator) == Some(BuiltinKind::Rpc))
+        Ok(self.match_builtin(decorator) == Some(PrimDef::ExternFn)
+            || self.match_builtin(decorator) == Some(PrimDef::Rpc))
     }
 
     /// Checks whether the `decorator` indicates that the function is a static method, usually the
@@ -518,7 +244,7 @@ pub trait BuiltinRegistry: Send + Sync {
         &self,
         decorator: &Located<ExprKind>,
     ) -> Result<bool, BuiltinMatchError> {
-        Ok(self.match_builtin(decorator) == Some(BuiltinKind::StaticMethod))
+        Ok(self.match_builtin(decorator) == Some(PrimDef::StaticMethod))
     }
 
     /// Returns true if kernel decorators are supported (ARTIQ mode).
@@ -822,7 +548,7 @@ impl TopLevelComposer {
                 // from Exception class (directly or indirectly), but this code cannot handle
                 // subclass of other exception classes.
                 let mut contains_constructor = bases.iter().any(|base| {
-                    self.builtin_registry.match_builtin(base) == Some(BuiltinKind::Exception)
+                    self.builtin_registry.match_builtin(base) == Some(PrimDef::Exception)
                 });
                 for b in body {
                     if let ast::StmtKind::FunctionDef {
@@ -997,7 +723,7 @@ impl TopLevelComposer {
 
                 if class_ancestors
                     .iter()
-                    .any(|ann| matches!(ann, TypeAnnotation::CustomClass { id, .. } if id.0 == 7))
+                    .any(|ann| matches!(ann, TypeAnnotation::CustomClass { id, .. } if *id == PrimDef::Exception.id()))
                 {
                     // if inherited from Exception, the body should be a pass
                     let ast::StmtKind::ClassDef { body, .. } = &class_ast.as_ref().unwrap().node
@@ -1018,7 +744,9 @@ impl TopLevelComposer {
         }
 
         // deal with ancestors of Exception object
-        let TopLevelDef::Class { name, ancestors, object_id, .. } = &mut *def_list[7].0.write()
+        let exception_id = PrimDef::Exception.id();
+        let TopLevelDef::Class { name, ancestors, object_id, .. } =
+            &mut *def_list[exception_id.0].0.write()
         else {
             unreachable!()
         };
