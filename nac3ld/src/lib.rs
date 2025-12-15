@@ -1,9 +1,10 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic)]
+#![warn(clippy::pedantic, clippy::nursery)]
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss,
+    clippy::cognitive_complexity,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
     clippy::similar_names,
@@ -21,7 +22,7 @@ use elf::*;
 mod dwarf;
 mod elf;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Isa {
     CortexA9,
     RiscV32,
@@ -34,8 +35,8 @@ pub enum Error {
 }
 
 impl From<&'static str> for Error {
-    fn from(desc: &'static str) -> Error {
-        Error::Parsing(desc)
+    fn from(desc: &'static str) -> Self {
+        Self::Parsing(desc)
     }
 }
 
@@ -88,7 +89,7 @@ struct SectionRecord<'a> {
     data: Vec<u8>,
 }
 
-fn read_unaligned<T: Copy>(data: &[u8], offset: usize) -> Option<T> {
+const fn read_unaligned<T: Copy>(data: &[u8], offset: usize) -> Option<T> {
     if data.len() < offset + mem::size_of::<T>() {
         None
     } else {
@@ -98,7 +99,7 @@ fn read_unaligned<T: Copy>(data: &[u8], offset: usize) -> Option<T> {
 }
 
 #[must_use]
-pub fn get_ref_slice<T: Copy>(data: &[u8], offset: usize, len: usize) -> Option<&[T]> {
+pub const fn get_ref_slice<T: Copy>(data: &[u8], offset: usize, len: usize) -> Option<&[T]> {
     if data.len() < offset + mem::size_of::<T>() * len {
         None
     } else {
@@ -112,11 +113,11 @@ fn from_struct_slice<T>(struct_vec: &[T]) -> Vec<u8> {
     unsafe { slice::from_raw_parts(ptr.cast(), mem::size_of_val(struct_vec)) }.to_vec()
 }
 
-fn to_struct_slice<T>(bytes: &[u8]) -> &[T] {
+const fn to_struct_slice<T>(bytes: &[u8]) -> &[T] {
     unsafe { slice::from_raw_parts(bytes.as_ptr().cast(), bytes.len() / mem::size_of::<T>()) }
 }
 
-fn to_struct_mut_slice<T>(bytes: &mut [u8]) -> &mut [T] {
+const fn to_struct_mut_slice<T>(bytes: &mut [u8]) -> &mut [T] {
     unsafe {
         slice::from_raw_parts_mut(bytes.as_mut_ptr().cast(), bytes.len() / mem::size_of::<T>())
     }
@@ -164,11 +165,8 @@ struct SymbolTableReader<'a> {
 impl SymbolTableReader<'_> {
     pub fn find_index_by_name(&self, sym_name: &[u8]) -> Option<usize> {
         self.symtab.iter().position(|sym| {
-            if let Ok(dynsym_name) = name_starting_at_slice(self.strtab, sym.st_name as usize) {
-                sym_name == dynsym_name
-            } else {
-                false
-            }
+            name_starting_at_slice(self.strtab, sym.st_name as usize)
+                .is_ok_and(|dynsym_name| sym_name == dynsym_name)
         })
     }
 }

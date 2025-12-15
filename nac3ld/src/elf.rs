@@ -2872,22 +2872,22 @@ impl Clone for Elf64_Lib {
 }
 pub type Elf32_Conflict = Elf32_Addr;
 
-pub fn ELF32_R_SYM(info: Elf32_Word) -> Elf32_Word {
+pub const fn ELF32_R_SYM(info: Elf32_Word) -> Elf32_Word {
     info >> 8
 }
-pub fn ELF32_R_TYPE(info: Elf32_Word) -> u8 {
+pub const fn ELF32_R_TYPE(info: Elf32_Word) -> u8 {
     info as u8
 }
-pub fn ELF32_R_INFO(sym: Elf32_Word, ty: u8) -> Elf32_Word {
+pub const fn ELF32_R_INFO(sym: Elf32_Word, ty: u8) -> Elf32_Word {
     (sym << 8) | ty as Elf32_Word
 }
 
-pub fn ELF32_ST_BIND(info: u8) -> u8 {
+pub const fn ELF32_ST_BIND(info: u8) -> u8 {
     info >> 4
 }
-pub fn ELF32_ST_TYPE(info: u8) -> u8 {
+pub const fn ELF32_ST_TYPE(info: u8) -> u8 {
     info & 0xf
 }
-pub fn ELF32_ST_INFO(bind: u8, ty: u8) -> u8 {
+pub const fn ELF32_ST_INFO(bind: u8, ty: u8) -> u8 {
     (bind << 4) | (ty & 0xf)
 }

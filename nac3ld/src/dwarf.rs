@@ -31,7 +31,7 @@ pub struct DwarfReader<'a> {
 }
 
 impl DwarfReader<'_> {
-    pub fn new(slice: &[u8], virt_addr: u32) -> DwarfReader<'_> {
+    pub const fn new(slice: &[u8], virt_addr: u32) -> DwarfReader<'_> {
         DwarfReader { slice, virt_addr }
     }
 
@@ -114,7 +114,7 @@ pub struct DwarfWriter<'a> {
 }
 
 impl DwarfWriter<'_> {
-    pub fn new(slice: &mut [u8]) -> DwarfWriter<'_> {
+    pub const fn new(slice: &mut [u8]) -> DwarfWriter<'_> {
         DwarfWriter { slice, offset: 0 }
     }
 
@@ -191,7 +191,7 @@ fn read_encoded_pointer_with_pc(reader: &mut DwarfReader, encoding: u8) -> Resul
 }
 
 #[inline]
-fn round_up(unrounded: usize, align: usize) -> Result<usize, ()> {
+const fn round_up(unrounded: usize, align: usize) -> Result<usize, ()> {
     if align.is_power_of_two() { Ok((unrounded + align - 1) & !(align - 1)) } else { Err(()) }
 }
 
@@ -207,7 +207,7 @@ pub struct EH_Frame<'a> {
 impl<'a> EH_Frame<'a> {
     /// Creates an [`EH_Frame`] using the bytes in the `.eh_frame` section and its address in the
     /// ELF file.
-    pub fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> EH_Frame<'_> {
+    pub const fn new(eh_frame_slice: &[u8], eh_frame_addr: u32) -> EH_Frame<'_> {
         EH_Frame { reader: DwarfReader::new(eh_frame_slice, eh_frame_addr) }
     }
 
@@ -233,7 +233,7 @@ pub struct CFI_Record<'a> {
 }
 
 impl<'a> CFI_Record<'a> {
-    pub fn from_reader(cie_reader: &mut DwarfReader<'a>) -> Result<CFI_Record<'a>, ()> {
+    pub fn from_reader(cie_reader: &mut DwarfReader<'a>) -> Result<Self, ()> {
         let length = cie_reader.read_u32();
         let fde_reader = match length {
             // eh_frame with 0 lengths means the CIE is terminated
@@ -445,7 +445,7 @@ impl EH_Frame_Hdr<'_> {
 
     /// The offset of the `fde_count` value relative to the start of the `.eh_frame_hdr` section in
     /// bytes.
-    fn fde_count_offset() -> usize {
+    const fn fde_count_offset() -> usize {
         8
     }
 
