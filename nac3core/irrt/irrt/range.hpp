@@ -1,6 +1,7 @@
 #pragma once
 
 #include "irrt/debug.hpp"
+#include "irrt/exception.hpp"
 #include "irrt/int_types.hpp"
 
 namespace {
