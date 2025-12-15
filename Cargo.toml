@@ -9,7 +9,7 @@ members = [
   "nac3artiq",
   "runkernel",
 ]
-resolver = "2"
+resolver = "3"
 
 [profile.release]
 strip = true
