@@ -1,7 +1,7 @@
 #![allow(nonstandard_style, non_upper_case_globals)]
 
-use std::{mem, slice};
 use crate::dwarf_include::*;
+use std::{mem, slice};
 
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -103,12 +103,12 @@ impl DwarfReader<'_> {
 
     pub fn read_str(&mut self) -> &[u8] {
         println!("virt_addr: {:?}", self.virt_addr);
-        let str_len = self.slice.iter().position(|byte| *byte == 0).expect("string should be null-terminated");
-        // let trimmed_str = &self.read_slice(str_len + 1)[..str_len]; // null-terminator
-        // unsafe {
-        //     slice::from_raw_parts(trimmed_str.as_ptr(), str_len)
-        // }
-        &self.read_slice(str_len + 1)[..str_len]    // null-terminator
+        let str_len = self
+            .slice
+            .iter()
+            .position(|byte| *byte == 0)
+            .expect("string should be null-terminated");
+        &self.read_slice(str_len + 1)[..str_len] // null-terminator
     }
 }
 
@@ -193,28 +193,54 @@ impl DwarfReader<'_> {
             DW_FORM_data8 => self.read_form_data8() as u64,
             DW_FORM_sdata => self.read_form_sdata() as u64,
             DW_FORM_udata => self.read_form_udata() as u64,
-            _ => panic!("form should be a constant")
+            _ => panic!("form should be a constant"),
         }
     }
 
     pub fn skip_form(&mut self, attr_form: u64) {
         match attr_form {
-            DW_FORM_addr | DW_FORM_ref_addr | DW_FORM_strp => { self.read_form_addr(); },
-            DW_FORM_data1 | DW_FORM_ref1 | DW_FORM_flag => { self.read_form_data1(); },
-            DW_FORM_data2 | DW_FORM_ref2 => { self.read_form_data2(); },
-            DW_FORM_data4 | DW_FORM_ref4 => { self.read_form_data4(); },
-            DW_FORM_data8 | DW_FORM_ref8 => { self.read_form_data8(); },
-            DW_FORM_sdata => { self.read_form_sdata(); },
-            DW_FORM_udata | DW_FORM_ref_udata=> { self.read_form_udata(); },
-            DW_FORM_block | DW_FORM_exprloc => { self.read_form_block(); },
-            DW_FORM_block1 => { self.read_form_block1(); },
-            DW_FORM_block2 => { self.read_form_block2(); },
-            DW_FORM_block4 => { self.read_form_block4(); },
-            DW_FORM_string => { self.read_str(); },
-            DW_FORM_ref_sig8 => { self.read_u64(); },
+            DW_FORM_addr | DW_FORM_ref_addr | DW_FORM_strp => {
+                self.read_form_addr();
+            }
+            DW_FORM_data1 | DW_FORM_ref1 | DW_FORM_flag => {
+                self.read_form_data1();
+            }
+            DW_FORM_data2 | DW_FORM_ref2 => {
+                self.read_form_data2();
+            }
+            DW_FORM_data4 | DW_FORM_ref4 => {
+                self.read_form_data4();
+            }
+            DW_FORM_data8 | DW_FORM_ref8 => {
+                self.read_form_data8();
+            }
+            DW_FORM_sdata => {
+                self.read_form_sdata();
+            }
+            DW_FORM_udata | DW_FORM_ref_udata => {
+                self.read_form_udata();
+            }
+            DW_FORM_block | DW_FORM_exprloc => {
+                self.read_form_block();
+            }
+            DW_FORM_block1 => {
+                self.read_form_block1();
+            }
+            DW_FORM_block2 => {
+                self.read_form_block2();
+            }
+            DW_FORM_block4 => {
+                self.read_form_block4();
+            }
+            DW_FORM_string => {
+                self.read_str();
+            }
+            DW_FORM_ref_sig8 => {
+                self.read_u64();
+            }
             DW_FORM_flag_present => (),
-            
-            _ => todo!("we should know how to skip every data forms")
+
+            _ => todo!("we should know how to skip every data forms"),
         }
     }
 }

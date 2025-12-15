@@ -1,13 +1,12 @@
 #![allow(nonstandard_style)]
 
-use std::{mem, slice, ptr, io, collections::HashMap};
-use pyo3::{pyfunction, pyclass, pymodule, PyResult};
+use pyo3::{PyResult, pyclass, pyfunction, pymodule};
+use std::{collections::HashMap, io, mem, ptr, slice};
 
-use crate::elf::*;
-use crate::dwarf::DwarfReader;
 use crate::Error;
+use crate::dwarf::DwarfReader;
 use crate::dwarf_include::*;
-
+use crate::elf::*;
 
 #[derive(Debug, PartialEq)]
 enum NameRef {
@@ -57,11 +56,7 @@ impl AbbreviationEntry {
     pub fn new(reader: &mut DwarfReader) -> Option<(u64, Self)> {
         let abbrev_code = reader.read_uleb128();
         if abbrev_code != 0 {
-            let mut entry = Self {
-                tag: 0,
-                has_child: 0,
-                attribute_specs: Vec::new(),
-            };
+            let mut entry = Self { tag: 0, has_child: 0, attribute_specs: Vec::new() };
             entry.tag = reader.read_uleb128();
             entry.has_child = reader.read_u8();
             let mut attr = (reader.read_uleb128(), reader.read_uleb128());
@@ -91,7 +86,14 @@ impl<'a> DebugInfoReader<'a> {
         self.search_compilation_units(DwarfReader::new(self.debug_info, 0), pc)
     }
 
-    fn parse_die_attributes(&self, reader: &mut DwarfReader<'a>, attr_specs: &Vec<(DW_AT, DW_FORM)>, file_ptrs: &Vec<(&'static str, Option<&'static str>)>, pc: u32, start_addr: u32) -> (bool, u32, NameRef, Option<u32>, CallRecord) {
+    fn parse_die_attributes(
+        &self,
+        reader: &mut DwarfReader<'a>,
+        attr_specs: &Vec<(DW_AT, DW_FORM)>,
+        file_ptrs: &Vec<(&'static str, Option<&'static str>)>,
+        pc: u32,
+        start_addr: u32,
+    ) -> (bool, u32, NameRef, Option<u32>, CallRecord) {
         // Compute PC range
         let mut in_range = false;
         let mut low_pc: Option<u32> = None;
@@ -107,25 +109,32 @@ impl<'a> DebugInfoReader<'a> {
             println!("attr_name, attr_form: {:x?}", (attr_name, attr_form));
             match *attr_name {
                 DW_AT_low_pc => {
-                    assert_eq!(*attr_form, DW_FORM_addr, "DW_AT_low_pc should be specified by an address");
+                    assert_eq!(
+                        *attr_form, DW_FORM_addr,
+                        "DW_AT_low_pc should be specified by an address"
+                    );
                     low_pc = Some(reader.read_form_addr());
-                },
-                DW_AT_high_pc => {
-                    match *attr_form {
-                        DW_FORM_addr => {
-                            high_pc = Some(reader.read_form_addr());
-                        },
-                        DW_FORM_data1 | DW_FORM_data2 | DW_FORM_data4 | DW_FORM_data8 | DW_FORM_sdata | DW_FORM_udata => {
-                            high_pc_relative = true;
-                            high_pc = Some(reader.read_form_constant(*attr_form) as u32);
-                        },
-                        _ => panic!("DW_AT_high_pc value should either be an address or a constant")
+                }
+                DW_AT_high_pc => match *attr_form {
+                    DW_FORM_addr => {
+                        high_pc = Some(reader.read_form_addr());
                     }
+                    DW_FORM_data1 | DW_FORM_data2 | DW_FORM_data4 | DW_FORM_data8
+                    | DW_FORM_sdata | DW_FORM_udata => {
+                        high_pc_relative = true;
+                        high_pc = Some(reader.read_form_constant(*attr_form) as u32);
+                    }
+                    _ => panic!("DW_AT_high_pc value should either be an address or a constant"),
                 },
                 DW_AT_ranges => {
-                    assert_eq!(*attr_form, DW_FORM_sec_offset, "DW_AT_ranges should be specified by an address");
-                    let mut debug_ranges_offset = reader.read_form_addr() as usize / mem::size_of::<u32>();
-                    let mut range_reader = DwarfReader::new(&self.debug_ranges[debug_ranges_offset..], 0);
+                    assert_eq!(
+                        *attr_form, DW_FORM_sec_offset,
+                        "DW_AT_ranges should be specified by an address"
+                    );
+                    let mut debug_ranges_offset =
+                        reader.read_form_addr() as usize / mem::size_of::<u32>();
+                    let mut range_reader =
+                        DwarfReader::new(&self.debug_ranges[debug_ranges_offset..], 0);
                     let mut begin_offset = range_reader.read_u32();
                     let mut end_offset = range_reader.read_u32();
                     while (begin_offset, end_offset) != (0, 0) {
@@ -138,50 +147,61 @@ impl<'a> DebugInfoReader<'a> {
                         begin_offset = range_reader.read_u32();
                         end_offset = range_reader.read_u32();
                     }
-                },
+                }
                 DW_AT_stmt_list => {
-                    assert_eq!(*attr_form, DW_FORM_sec_offset, "DW_AT_ranges should be specified by an address");
+                    assert_eq!(
+                        *attr_form, DW_FORM_sec_offset,
+                        "DW_AT_ranges should be specified by an address"
+                    );
                     stmt_list_offset = reader.read_form_addr();
-                },
-                DW_AT_name => {
-                    match *attr_form {
-                        DW_FORM_string => {
-                            name_ref = unsafe { NameRef::Concrete(
-                                mem::transmute::<&'_ [u8], &'static str>(reader.read_str())
-                            )};
-                        },
-                        DW_FORM_strp => {
-                            let debug_str_offset = reader.read_form_addr() as usize;
-                            println!("debug_str_offset: {:x}", debug_str_offset);
-                            let str_head = &self.debug_str[debug_str_offset..];
-                            let str_len = str_head.iter().position(|byte| *byte == 0).expect("string should be null terminated");
-                            name_ref = unsafe { NameRef::Concrete(
-                                mem::transmute::<&'_ [u8], &'static str>(&str_head[..str_len])
-                            )};
-                        },
-                        _ => panic!("name should be a string")
+                }
+                DW_AT_name => match *attr_form {
+                    DW_FORM_string => {
+                        name_ref = unsafe {
+                            NameRef::Concrete(mem::transmute::<&'_ [u8], &'static str>(
+                                reader.read_str(),
+                            ))
+                        };
                     }
+                    DW_FORM_strp => {
+                        let debug_str_offset = reader.read_form_addr() as usize;
+                        println!("debug_str_offset: {:x}", debug_str_offset);
+                        let str_head = &self.debug_str[debug_str_offset..];
+                        let str_len = str_head
+                            .iter()
+                            .position(|byte| *byte == 0)
+                            .expect("string should be null terminated");
+                        name_ref = unsafe {
+                            NameRef::Concrete(mem::transmute::<&'_ [u8], &'static str>(
+                                &str_head[..str_len],
+                            ))
+                        };
+                    }
+                    _ => panic!("name should be a string"),
                 },
                 // Inlined procedure may only invlude an abstract reference to another DIE
                 // This replaces DW_AT_name, so we fetch DW_AT_name from that referred entry
                 DW_AT_abstract_origin => {
-                    assert_eq!(*attr_form, DW_FORM_ref_addr, "DW_AT_abstract_origin should be a pointer to a DIE, only .debug_info DIEs are supported");
+                    assert_eq!(
+                        *attr_form, DW_FORM_ref_addr,
+                        "DW_AT_abstract_origin should be a pointer to a DIE, only .debug_info DIEs are supported"
+                    );
                     let referred_die_addr = reader.read_form_addr() as usize;
                     name_ref = NameRef::Abstract(referred_die_addr);
-                },
+                }
                 DW_AT_call_file => {
                     // call_record.file_idx = reader.read_form_constant(*attr_form) as u32;
                     let file_idx = reader.read_form_constant(*attr_form) as usize;
                     (call_record.file, call_record.dir) = file_ptrs[file_idx - 1];
-                },
+                }
                 DW_AT_call_line => {
                     call_record.line = reader.read_form_constant(*attr_form) as u32;
                     println!("line: {:?}", call_record.line);
-                },
+                }
                 DW_AT_call_column => {
                     call_record.column = reader.read_form_constant(*attr_form) as u32;
                     println!("column: {:x?}", call_record.column);
-                },
+                }
                 _ => {
                     println!("unrecognized attribute: {:?}", attr_name);
                     reader.skip_form(*attr_form)
@@ -193,11 +213,7 @@ impl<'a> DebugInfoReader<'a> {
         let die_relevant = in_range || {
             if let Some(low_pc) = low_pc {
                 let high_pc = if let Some(high_pc) = high_pc {
-                    if high_pc_relative {
-                        low_pc + high_pc
-                    } else {
-                        high_pc
-                    }
+                    if high_pc_relative { low_pc + high_pc } else { high_pc }
                 } else {
                     low_pc + 4
                 };
@@ -226,23 +242,36 @@ impl<'a> DebugInfoReader<'a> {
             // Parse the actual DW_TAG_compile_unit, skip the partially parsed unit if irrelevant
             let compile_unit_abbrev_code = reader.read_uleb128();
             println!("compile_unit_abbrev_code: {}", compile_unit_abbrev_code);
-            let abbrev_entry = abbrev_table.get(&compile_unit_abbrev_code).expect("all non-zero abbreviation code should be resolvable by the abbreviation table");
-            assert_eq!(abbrev_entry.tag, DW_TAG_compile_unit, "a normal compile unit should start with DW_TAG_compile_unit");
+            let abbrev_entry = abbrev_table.get(&compile_unit_abbrev_code).expect(
+                "all non-zero abbreviation code should be resolvable by the abbreviation table",
+            );
+            assert_eq!(
+                abbrev_entry.tag, DW_TAG_compile_unit,
+                "a normal compile unit should start with DW_TAG_compile_unit"
+            );
 
             // FIXME: The start address is called base address in the docs
             //
             // The base address of a compilation unit is defined as the value of the DW_AT_low_pc attribute,
             // if present; otherwise, it is undefined
-            let (die_relevant, stmt_list_offset, name_ref, start_addr, _call_record) = self.parse_die_attributes(&mut reader, &abbrev_entry.attribute_specs, &vec![], pc, 0);
+            let (die_relevant, stmt_list_offset, name_ref, start_addr, _call_record) = self
+                .parse_die_attributes(&mut reader, &abbrev_entry.attribute_specs, &vec![], pc, 0);
 
             println!("stmt_list_offset: {:?}", stmt_list_offset);
 
-            let (call_record, file_ptrs) = self.parse_line_info(stmt_list_offset as usize, pc, start_addr.unwrap());
+            let (call_record, file_ptrs) =
+                self.parse_line_info(stmt_list_offset as usize, pc, start_addr.unwrap());
             println!("call record: {:?}", call_record);
 
             if die_relevant {
                 println!("stmt_list_offset: {:?}", stmt_list_offset);
-                let mut call_records = self.search_dies(&mut reader, &abbrev_table, &file_ptrs, pc, start_addr.unwrap());
+                let mut call_records = self.search_dies(
+                    &mut reader,
+                    &abbrev_table,
+                    &file_ptrs,
+                    pc,
+                    start_addr.unwrap(),
+                );
 
                 println!("call records: {:?}", call_records);
 
@@ -253,7 +282,14 @@ impl<'a> DebugInfoReader<'a> {
                         let mut referred_reader = DwarfReader::new(referred_die, 0);
                         let abbrev_code = referred_reader.read_uleb128();
                         let abbrev_entry = abbrev_table.get(&abbrev_code).expect("all non-zero abbreviation code should be resolvable by the abbreviation table");
-                        let (_die_relevant, _stmt_list_offset, name_ref, _low_pc, _call_record) = self.parse_die_attributes(&mut referred_reader, &abbrev_entry.attribute_specs, &file_ptrs, pc, start_addr.unwrap());
+                        let (_die_relevant, _stmt_list_offset, name_ref, _low_pc, _call_record) =
+                            self.parse_die_attributes(
+                                &mut referred_reader,
+                                &abbrev_entry.attribute_specs,
+                                &file_ptrs,
+                                pc,
+                                start_addr.unwrap(),
+                            );
                         rec.name = name_ref;
                     }
                     if rec.name == NameRef::Unknown {
@@ -271,19 +307,36 @@ impl<'a> DebugInfoReader<'a> {
         unreachable!("no relevant debugging info to pc: {}", pc);
     }
 
-    fn search_dies(&self, reader: &mut DwarfReader<'a>, abbrev_table: &HashMap<u64, AbbreviationEntry>, file_ptrs: &Vec<(&'static str, Option<&'static str>)>, pc: u32, start_addr: u32) -> Vec<CallRecord> {
+    fn search_dies(
+        &self,
+        reader: &mut DwarfReader<'a>,
+        abbrev_table: &HashMap<u64, AbbreviationEntry>,
+        file_ptrs: &Vec<(&'static str, Option<&'static str>)>,
+        pc: u32,
+        start_addr: u32,
+    ) -> Vec<CallRecord> {
         let mut abbrev_code = reader.read_uleb128();
         while abbrev_code != 0 {
             println!("abbrev_code: {}", abbrev_code);
-            let abbrev_entry = abbrev_table.get(&abbrev_code).expect("all non-zero abbreviation code should be resolvable by the abbreviation table");
-            let (die_relevant, _stmt_list_offset, name_ref, _start_addr, call_record) = self.parse_die_attributes(reader, &abbrev_entry.attribute_specs, file_ptrs, pc, start_addr);
+            let abbrev_entry = abbrev_table.get(&abbrev_code).expect(
+                "all non-zero abbreviation code should be resolvable by the abbreviation table",
+            );
+            let (die_relevant, _stmt_list_offset, name_ref, _start_addr, call_record) = self
+                .parse_die_attributes(
+                    reader,
+                    &abbrev_entry.attribute_specs,
+                    file_ptrs,
+                    pc,
+                    start_addr,
+                );
 
             println!("relevance: {}, name_ref: {:?}", die_relevant, name_ref);
 
             let mut returned_vec: Vec<CallRecord> = if abbrev_entry.has_child != 0 {
                 // Moving directly to its sibling is impossible if there are children
                 // The entries are arranged with prefix ordering
-                let mut returned_vec = self.search_dies(reader, abbrev_table, file_ptrs, pc, start_addr);
+                let mut returned_vec =
+                    self.search_dies(reader, abbrev_table, file_ptrs, pc, start_addr);
                 // Note that the return value is garbage if this branch is actually irrelevant
                 // And, only inlined subprogram has a call record
                 if die_relevant {
@@ -297,7 +350,11 @@ impl<'a> DebugInfoReader<'a> {
                 }
                 returned_vec
             } else {
-                if die_relevant { vec![call_record] } else { unsafe { mem::MaybeUninit::uninit().assume_init() } }
+                if die_relevant {
+                    vec![call_record]
+                } else {
+                    unsafe { mem::MaybeUninit::uninit().assume_init() }
+                }
             };
 
             if die_relevant {
@@ -332,7 +389,12 @@ impl<'a> DebugInfoReader<'a> {
         table
     }
 
-    fn parse_line_info(&self, stmt_list_offset: usize, pc: u32, start_addr: u32) -> (CallRecord, Vec<(&'static str, Option<&'static str>)>) {
+    fn parse_line_info(
+        &self,
+        stmt_list_offset: usize,
+        pc: u32,
+        start_addr: u32,
+    ) -> (CallRecord, Vec<(&'static str, Option<&'static str>)>) {
         let mut header_reader = DwarfReader::new(&self.debug_line[stmt_list_offset..], 0);
 
         // header begins
@@ -372,9 +434,8 @@ impl<'a> DebugInfoReader<'a> {
 
         let mut file_ptrs: Vec<(&'static str, Option<&'static str>)> = vec![];
         loop {
-            let path_name = unsafe {
-                mem::transmute::<&'_ [u8], &'static str>(header_reader.read_str())
-            };
+            let path_name =
+                unsafe { mem::transmute::<&'_ [u8], &'static str>(header_reader.read_str()) };
             if path_name.len() == 0 {
                 break;
             }
@@ -382,7 +443,11 @@ impl<'a> DebugInfoReader<'a> {
             let dir_name = if dir_index == 0 {
                 None
             } else {
-                unsafe { Some(mem::transmute::<&'_ [u8], &'static str>(include_directories[dir_index as usize - 1])) }
+                unsafe {
+                    Some(mem::transmute::<&'_ [u8], &'static str>(
+                        include_directories[dir_index as usize - 1],
+                    ))
+                }
             };
             let _last_modified = header_reader.read_uleb128();
             let _file_len = header_reader.read_uleb128();
@@ -436,11 +501,10 @@ impl<'a> DebugInfoReader<'a> {
             ($operation_advance: ident) => {
                 let unadjusted_op_index = curr_entry.op_index + $operation_advance;
 
-                curr_entry.address += minimum_instruction_length * (
-                    unadjusted_op_index / maximum_operations_per_instruction
-                );
+                curr_entry.address += minimum_instruction_length
+                    * (unadjusted_op_index / maximum_operations_per_instruction);
                 curr_entry.op_index += unadjusted_op_index % maximum_operations_per_instruction;
-            }
+            };
         }
 
         macro_rules! handle_special_opcode {
@@ -451,9 +515,12 @@ impl<'a> DebugInfoReader<'a> {
                 advance_address!(operation_advance);
 
                 if $update_line {
-                    curr_entry.line = curr_entry.line.wrapping_add_signed(line_base as i32).wrapping_add((adjusted_opcode % line_range) as u32);
+                    curr_entry.line = curr_entry
+                        .line
+                        .wrapping_add_signed(line_base as i32)
+                        .wrapping_add((adjusted_opcode % line_range) as u32);
                 }
-            }
+            };
         }
 
         loop {
@@ -465,7 +532,8 @@ impl<'a> DebugInfoReader<'a> {
                 0 => {
                     let insn_len = program_reader.read_uleb128();
                     let mut extended_opcode_reader = program_reader.clone();
-                    extended_opcode_reader.slice = &extended_opcode_reader.slice[..insn_len as usize];
+                    extended_opcode_reader.slice =
+                        &extended_opcode_reader.slice[..insn_len as usize];
                     program_reader.offset(insn_len as u32);
 
                     let extended_opcode = extended_opcode_reader.read_u8();
@@ -477,7 +545,9 @@ impl<'a> DebugInfoReader<'a> {
 
                             // curr_entry is pushed to the matrix
                             // We need to determine if we use curr_entry or last_entry
-                            if !(last_entry.address..curr_entry.address).contains(&(pc - start_addr)) {
+                            if !(last_entry.address..curr_entry.address)
+                                .contains(&(pc - start_addr))
+                            {
                                 last_entry = curr_entry;
                                 break;
                             }
@@ -491,13 +561,19 @@ impl<'a> DebugInfoReader<'a> {
                         }
                         DW_LNE_define_file => {
                             let path_name = unsafe {
-                                mem::transmute::<&'_ [u8], &'static str>(extended_opcode_reader.read_str())
+                                mem::transmute::<&'_ [u8], &'static str>(
+                                    extended_opcode_reader.read_str(),
+                                )
                             };
                             let dir_index = extended_opcode_reader.read_uleb128();
                             let dir_name = if dir_index == 0 {
                                 None
                             } else {
-                                unsafe { Some(mem::transmute::<&'_ [u8], &'static str>(include_directories[dir_index as usize - 1])) }
+                                unsafe {
+                                    Some(mem::transmute::<&'_ [u8], &'static str>(
+                                        include_directories[dir_index as usize - 1],
+                                    ))
+                                }
                             };
                             let _last_modified = extended_opcode_reader.read_uleb128();
                             let _file_len = extended_opcode_reader.read_uleb128();
@@ -518,7 +594,7 @@ impl<'a> DebugInfoReader<'a> {
                 DW_LNS_copy if DW_LNS_copy < opcode_base => {
                     // No operands
                     println!("address range: {:x?}", (last_entry.address..curr_entry.address));
-                    
+
                     // This is the moment that we know if we have found the entry
                     // Indicated by the address overtaking pc
                     if (last_entry.address..curr_entry.address).contains(&(pc - start_addr)) {
@@ -578,7 +654,7 @@ impl<'a> DebugInfoReader<'a> {
                     handle_special_opcode!(opcode, true);
                 }
 
-                _ => unreachable!()
+                _ => unreachable!(),
             }
         }
 
@@ -596,22 +672,34 @@ impl<'a> DebugInfoReader<'a> {
     }
 }
 
-
 #[pyfunction]
 pub fn symbolize(elf_byte: &[u8], pc: u32) -> PyResult<Vec<CallRecord>> {
     let elf_ptr = elf_byte.as_ptr();
     let ehdr = unsafe { ptr::read::<Elf32_Ehdr>(elf_ptr.cast()) };
-    let shdrs = unsafe { slice::from_raw_parts::<Elf32_Shdr>(elf_ptr.add(ehdr.e_shoff as usize).cast(), ehdr.e_shnum as usize) };
+    let shdrs = unsafe {
+        slice::from_raw_parts::<Elf32_Shdr>(
+            elf_ptr.add(ehdr.e_shoff as usize).cast(),
+            ehdr.e_shnum as usize,
+        )
+    };
 
     // Read .strtab
     let strtab = {
         let strtab_shdr = shdrs[ehdr.e_shstrndx as usize];
-        unsafe { slice::from_raw_parts::<u8>(elf_ptr.add(strtab_shdr.sh_offset as usize).cast(), strtab_shdr.sh_size as usize) }
+        unsafe {
+            slice::from_raw_parts::<u8>(
+                elf_ptr.add(strtab_shdr.sh_offset as usize).cast(),
+                strtab_shdr.sh_size as usize,
+            )
+        }
     };
 
     let get_str = |str_offset: usize| -> Result<&[u8], Error> {
         let strtab_trimmed = &strtab[str_offset..];
-        let str_len = strtab_trimmed.iter().position(|&x| x == 0).expect("string in string table should be null-terminated");
+        let str_len = strtab_trimmed
+            .iter()
+            .position(|&x| x == 0)
+            .expect("string in string table should be null-terminated");
         Ok(&strtab_trimmed[..str_len])
     };
 
@@ -623,18 +711,42 @@ pub fn symbolize(elf_byte: &[u8], pc: u32) -> PyResult<Vec<CallRecord>> {
     // .debug_str
 
     let debug_info = {
-        let debug_info_shdr = shdrs.iter().find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_info".as_bytes()).expect("missing .debug_info section");
-        unsafe { slice::from_raw_parts::<u8>(elf_ptr.add(debug_info_shdr.sh_offset as usize), debug_info_shdr.sh_size as usize) }
+        let debug_info_shdr = shdrs
+            .iter()
+            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_info".as_bytes())
+            .expect("missing .debug_info section");
+        unsafe {
+            slice::from_raw_parts::<u8>(
+                elf_ptr.add(debug_info_shdr.sh_offset as usize),
+                debug_info_shdr.sh_size as usize,
+            )
+        }
     };
 
     let debug_line = {
-        let debug_line_shdr = shdrs.iter().find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_line".as_bytes()).expect("missing .debug_line section");
-        unsafe { slice::from_raw_parts::<u8>(elf_ptr.add(debug_line_shdr.sh_offset as usize), debug_line_shdr.sh_size as usize) }
+        let debug_line_shdr = shdrs
+            .iter()
+            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_line".as_bytes())
+            .expect("missing .debug_line section");
+        unsafe {
+            slice::from_raw_parts::<u8>(
+                elf_ptr.add(debug_line_shdr.sh_offset as usize),
+                debug_line_shdr.sh_size as usize,
+            )
+        }
     };
 
     let debug_abbrev = {
-        let debug_abbrev_shdr = shdrs.iter().find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_abbrev".as_bytes()).expect("missing .debug_abbrev section");
-        unsafe { slice::from_raw_parts::<u8>(elf_ptr.add(debug_abbrev_shdr.sh_offset as usize), debug_abbrev_shdr.sh_size as usize) }
+        let debug_abbrev_shdr = shdrs
+            .iter()
+            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_abbrev".as_bytes())
+            .expect("missing .debug_abbrev section");
+        unsafe {
+            slice::from_raw_parts::<u8>(
+                elf_ptr.add(debug_abbrev_shdr.sh_offset as usize),
+                debug_abbrev_shdr.sh_size as usize,
+            )
+        }
     };
 
     let debug_ranges = {
@@ -642,25 +754,36 @@ pub fn symbolize(elf_byte: &[u8], pc: u32) -> PyResult<Vec<CallRecord>> {
         // .debug_* sections do not have the concept of alignment
         //
         // TODO: Coerce nac3ld to align the debug sections.
-        if let Some(debug_ranges_shdr) = shdrs.iter().find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_ranges".as_bytes()) {
-            unsafe { slice::from_raw_parts::<u8>(elf_ptr.add(debug_ranges_shdr.sh_offset as usize).cast(), debug_ranges_shdr.sh_size as usize) }
+        if let Some(debug_ranges_shdr) = shdrs
+            .iter()
+            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_ranges".as_bytes())
+        {
+            unsafe {
+                slice::from_raw_parts::<u8>(
+                    elf_ptr.add(debug_ranges_shdr.sh_offset as usize).cast(),
+                    debug_ranges_shdr.sh_size as usize,
+                )
+            }
         } else {
             unsafe { slice::from_raw_parts::<u8>(elf_ptr.cast(), 0) }
         }
     };
 
     let debug_str = {
-        let debug_str_shdr = shdrs.iter().find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_str".as_bytes()).expect("missing .debug_str section");
-        unsafe { slice::from_raw_parts::<u8>(elf_ptr.add(debug_str_shdr.sh_offset as usize).cast(), debug_str_shdr.sh_size as usize) }
+        let debug_str_shdr = shdrs
+            .iter()
+            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_str".as_bytes())
+            .expect("missing .debug_str section");
+        unsafe {
+            slice::from_raw_parts::<u8>(
+                elf_ptr.add(debug_str_shdr.sh_offset as usize).cast(),
+                debug_str_shdr.sh_size as usize,
+            )
+        }
     };
 
-    let info_reader = DebugInfoReader {
-        debug_info,
-        debug_line,
-        debug_abbrev,
-        debug_ranges,
-        debug_str,
-    };
+    let info_reader =
+        DebugInfoReader { debug_info, debug_line, debug_abbrev, debug_ranges, debug_str };
 
     Ok(info_reader.search(pc))
 }

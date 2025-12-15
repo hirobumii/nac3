@@ -88,11 +88,11 @@ pub const DW_TAG_GNU_formal_parameter_pack: DW_TAG = 16648;
 pub const DW_TAG_GNU_call_site: DW_TAG = 16649;
 pub const DW_TAG_GNU_call_site_parameter: DW_TAG = 16650;
 pub const DW_TAG_hi_user: DW_TAG = 65535;
-pub type DW_TAG = u64;  // ULEB128
+pub type DW_TAG = u64; // ULEB128
 
 pub const DW_CHILDREN_no: DW_CHILDREN = 0;
 pub const DW_CHILDREN_yes: DW_CHILDREN = 1;
-pub type DW_CHILDREN = u8;  // 7.5.3 Abbreviations Tables: Encoded as a byte
+pub type DW_CHILDREN = u8; // 7.5.3 Abbreviations Tables: Encoded as a byte
 
 pub const DW_AT_sibling: DW_AT = 1;
 pub const DW_AT_location: DW_AT = 2;
@@ -271,8 +271,8 @@ pub const DW_AT_GNU_numerator: DW_AT = 8963;
 pub const DW_AT_GNU_denominator: DW_AT = 8964;
 pub const DW_AT_GNU_bias: DW_AT = 8965;
 pub const DW_AT_hi_user: DW_AT = 16383;
-pub type DW_AT = u64;   // ULEB128
-                        // By attribute specifications in 7.5.3 Abbreviations Tables.
+pub type DW_AT = u64; // ULEB128
+// By attribute specifications in 7.5.3 Abbreviations Tables.
 
 pub const DW_FORM_addr: DW_FORM = 1;
 pub const DW_FORM_block2: DW_FORM = 3;
@@ -322,7 +322,7 @@ pub const DW_FORM_GNU_str_index: DW_FORM = 7938;
 pub const DW_FORM_GNU_ref_alt: DW_FORM = 7968;
 pub const DW_FORM_GNU_strp_alt: DW_FORM = 7969;
 pub type DW_FORM = u64; // ULEB128
-                        // By attribute specifications in 7.5.3 Abbreviations Tables.
+// By attribute specifications in 7.5.3 Abbreviations Tables.
 
 pub const DW_LNS_copy: DW_LNS = 1;
 pub const DW_LNS_advance_pc: DW_LNS = 2;
