@@ -776,9 +776,3 @@ pub fn symbolize(elf_byte: &[u8], pc: u32) -> PyResult<Vec<CallRecord>> {
 
     Ok(info_reader.search(pc))
 }
-
-#[pymodule]
-mod symbolizer {
-    #[pymodule_export]
-    use super::symbolize;
-}
