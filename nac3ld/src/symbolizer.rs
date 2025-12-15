@@ -527,7 +527,7 @@ impl<'a> DebugInfoReader<'a> {
 
                     let extended_opcode = extended_opcode_reader.read_u8();
                     println!("extended_opcode: {}", extended_opcode);
-                    match extended_opcode_reader.read_u8() {
+                    match extended_opcode {
                         DW_LNE_end_sequence => {
                             // No operands
                             curr_entry.end_sequence = true;
@@ -535,7 +535,7 @@ impl<'a> DebugInfoReader<'a> {
                             // curr_entry is pushed to the matrix
                             // We need to determine if we use curr_entry or last_entry
                             if !(last_entry.address..curr_entry.address)
-                                .contains(&(pc - start_addr))
+                                .contains(&pc)
                             {
                                 last_entry = curr_entry;
                                 break;
@@ -582,11 +582,10 @@ impl<'a> DebugInfoReader<'a> {
                 // Standard opcode
                 DW_LNS_copy if DW_LNS_copy < opcode_base => {
                     // No operands
-                    println!("address range: {:x?}", (last_entry.address..curr_entry.address));
 
                     // This is the moment that we know if we have found the entry
                     // Indicated by the address overtaking pc
-                    if (last_entry.address..curr_entry.address).contains(&(pc - start_addr)) {
+                    if (last_entry.address..curr_entry.address).contains(&pc) {
                         break;
                     }
 
