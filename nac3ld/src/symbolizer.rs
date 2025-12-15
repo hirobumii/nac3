@@ -8,23 +8,6 @@ use crate::dwarf::DwarfReader;
 use crate::Error;
 use crate::dwarf_include::*;
 
-#[derive(Debug, PartialEq)]
-struct StrRecord {
-    ptr: *const u8,
-    len: usize,
-}
-
-impl From<&[u8]> for StrRecord {
-    fn from(item: &[u8]) -> Self {
-        StrRecord { ptr: item.as_ptr(), len: item.len() }
-    }
-}
-
-impl Into<&[u8]> for StrRecord {
-    fn into(self) -> &'static [u8] {
-        unsafe { slice::from_raw_parts(self.ptr, self.len) }
-    }
-}
 
 #[derive(Debug, PartialEq)]
 enum NameRef {
@@ -45,7 +28,9 @@ pub struct CallRecord {
     #[pyo3(get)]
     column: u32,
     #[pyo3(get)]
-    file_idx: u32,
+    file: &'static str,
+    #[pyo3(get)]
+    dir: Option<&'static str>,
 }
 
 #[pyo3::pymethods]
@@ -106,7 +91,7 @@ impl<'a> DebugInfoReader<'a> {
         self.search_compilation_units(DwarfReader::new(self.debug_info, 0), pc)
     }
 
-    fn parse_die_attributes(&self, reader: &mut DwarfReader<'a>, attr_specs: &Vec<(DW_AT, DW_FORM)>, file_ptrs: &Vec<(StrRecord, Option<StrRecord>)>, pc: u32, start_addr: u32) -> (bool, u32, NameRef, Option<u32>, CallRecord) {
+    fn parse_die_attributes(&self, reader: &mut DwarfReader<'a>, attr_specs: &Vec<(DW_AT, DW_FORM)>, file_ptrs: &Vec<(&'static str, Option<&'static str>)>, pc: u32, start_addr: u32) -> (bool, u32, NameRef, Option<u32>, CallRecord) {
         // Compute PC range
         let mut in_range = false;
         let mut low_pc: Option<u32> = None;
@@ -185,7 +170,9 @@ impl<'a> DebugInfoReader<'a> {
                     name_ref = NameRef::Abstract(referred_die_addr);
                 },
                 DW_AT_call_file => {
-                    call_record.file_idx = reader.read_form_constant(*attr_form) as u32;
+                    // call_record.file_idx = reader.read_form_constant(*attr_form) as u32;
+                    let file_idx = reader.read_form_constant(*attr_form) as usize;
+                    (call_record.file, call_record.dir) = file_ptrs[file_idx - 1];
                 },
                 DW_AT_call_line => {
                     call_record.line = reader.read_form_constant(*attr_form) as u32;
@@ -284,7 +271,7 @@ impl<'a> DebugInfoReader<'a> {
         unreachable!("no relevant debugging info to pc: {}", pc);
     }
 
-    fn search_dies(&self, reader: &mut DwarfReader<'a>, abbrev_table: &HashMap<u64, AbbreviationEntry>, file_ptrs: &Vec<(StrRecord, Option<StrRecord>)>, pc: u32, start_addr: u32) -> Vec<CallRecord> {
+    fn search_dies(&self, reader: &mut DwarfReader<'a>, abbrev_table: &HashMap<u64, AbbreviationEntry>, file_ptrs: &Vec<(&'static str, Option<&'static str>)>, pc: u32, start_addr: u32) -> Vec<CallRecord> {
         let mut abbrev_code = reader.read_uleb128();
         while abbrev_code != 0 {
             println!("abbrev_code: {}", abbrev_code);
@@ -345,7 +332,7 @@ impl<'a> DebugInfoReader<'a> {
         table
     }
 
-    fn parse_line_info(&self, stmt_list_offset: usize, pc: u32, start_addr: u32) -> (CallRecord, Vec<(StrRecord, Option<StrRecord>)>) {
+    fn parse_line_info(&self, stmt_list_offset: usize, pc: u32, start_addr: u32) -> (CallRecord, Vec<(&'static str, Option<&'static str>)>) {
         let mut header_reader = DwarfReader::new(&self.debug_line[stmt_list_offset..], 0);
 
         // header begins
@@ -383,17 +370,19 @@ impl<'a> DebugInfoReader<'a> {
             dir_str = header_reader.read_str();
         }
 
-        let mut file_ptrs: Vec<(StrRecord, Option<StrRecord>)> = vec![];
+        let mut file_ptrs: Vec<(&'static str, Option<&'static str>)> = vec![];
         loop {
-            let path_name: StrRecord = header_reader.read_str().into();
-            if path_name.len == 0 {
+            let path_name = unsafe {
+                mem::transmute::<&'_ [u8], &'static str>(header_reader.read_str())
+            };
+            if path_name.len() == 0 {
                 break;
             }
             let dir_index = header_reader.read_uleb128();
-            let dir_name: Option<StrRecord> = if dir_index == 0 {
+            let dir_name = if dir_index == 0 {
                 None
             } else {
-                Some(include_directories[dir_index as usize - 1].into())
+                unsafe { Some(mem::transmute::<&'_ [u8], &'static str>(include_directories[dir_index as usize - 1])) }
             };
             let _last_modified = header_reader.read_uleb128();
             let _file_len = header_reader.read_uleb128();
@@ -501,12 +490,14 @@ impl<'a> DebugInfoReader<'a> {
                             curr_entry.op_index = 0;
                         }
                         DW_LNE_define_file => {
-                            let path_name: StrRecord = extended_opcode_reader.read_str().into();
+                            let path_name = unsafe {
+                                mem::transmute::<&'_ [u8], &'static str>(extended_opcode_reader.read_str())
+                            };
                             let dir_index = extended_opcode_reader.read_uleb128();
-                            let dir_name: Option<StrRecord> = if dir_index == 0 {
+                            let dir_name = if dir_index == 0 {
                                 None
                             } else {
-                                Some(include_directories[dir_index as usize - 1].into())
+                                unsafe { Some(mem::transmute::<&'_ [u8], &'static str>(include_directories[dir_index as usize - 1])) }
                             };
                             let _last_modified = extended_opcode_reader.read_uleb128();
                             let _file_len = extended_opcode_reader.read_uleb128();
@@ -596,7 +587,8 @@ impl<'a> DebugInfoReader<'a> {
                 name: NameRef::Unknown,
                 address: Some(pc),
                 line: last_entry.line,
-                file_idx: last_entry.file,
+                file: file_ptrs[last_entry.file as usize - 1].0,
+                dir: file_ptrs[last_entry.file as usize - 1].1,
                 column: last_entry.column,
             },
             file_ptrs,
