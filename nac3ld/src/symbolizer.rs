@@ -259,24 +259,27 @@ impl<'a> DebugInfoReader<'a> {
 
             println!("stmt_list_offset: {:?}", stmt_list_offset);
 
-            let (call_record, file_ptrs) =
+            let (immediate_call_record, file_ptrs) =
                 self.parse_line_info(stmt_list_offset as usize, pc, start_addr.unwrap());
-            println!("call record: {:?}", call_record);
+            println!("call record: {:?}", immediate_call_record);
+
+            let mut call_sites = vec![immediate_call_record];
 
             if die_relevant {
                 println!("stmt_list_offset: {:?}", stmt_list_offset);
-                let mut call_records = self.search_dies(
+                self.search_dies(
                     &mut reader,
                     &abbrev_table,
                     &file_ptrs,
                     pc,
                     start_addr.unwrap(),
+                    &mut call_sites,
                 );
 
-                println!("call records: {:?}", call_records);
+                println!("call records: {:?}", call_sites);
 
                 // Resolve name references
-                for rec in &mut call_records {
+                for rec in &mut call_sites {
                     while let NameRef::Abstract(die_offset) = rec.name {
                         let referred_die = &self.debug_info[die_offset..];
                         let mut referred_reader = DwarfReader::new(referred_die, 0);
@@ -297,8 +300,8 @@ impl<'a> DebugInfoReader<'a> {
                     }
                 }
 
-                println!("final call records: {:?}", call_records);
-                return call_records;
+                println!("final call records: {:#?}", call_sites);
+                return call_sites;
             }
 
             reader = next_reader;
@@ -314,7 +317,8 @@ impl<'a> DebugInfoReader<'a> {
         file_ptrs: &Vec<(&'static str, Option<&'static str>)>,
         pc: u32,
         start_addr: u32,
-    ) -> Vec<CallRecord> {
+        call_sites: &mut Vec<CallRecord>,
+    ) {
         let mut abbrev_code = reader.read_uleb128();
         while abbrev_code != 0 {
             println!("abbrev_code: {}", abbrev_code);
@@ -332,39 +336,24 @@ impl<'a> DebugInfoReader<'a> {
 
             println!("relevance: {}, name_ref: {:?}", die_relevant, name_ref);
 
-            let mut returned_vec: Vec<CallRecord> = if abbrev_entry.has_child != 0 {
+            if abbrev_entry.has_child != 0 {
                 // Moving directly to its sibling is impossible if there are children
                 // The entries are arranged with prefix ordering
-                let mut returned_vec =
-                    self.search_dies(reader, abbrev_table, file_ptrs, pc, start_addr);
-                // Note that the return value is garbage if this branch is actually irrelevant
-                // And, only inlined subprogram has a call record
-                if die_relevant {
-                    let last_name_ref = returned_vec.last_mut().unwrap();
-                    if last_name_ref.name == NameRef::Unknown {
-                        last_name_ref.name = name_ref;
-                    }
-                    if abbrev_entry.tag == DW_TAG_inlined_subroutine {
-                        returned_vec.push(call_record);
-                    }
-                }
-                returned_vec
-            } else {
-                if die_relevant {
-                    vec![call_record]
-                } else {
-                    unsafe { mem::MaybeUninit::uninit().assume_init() }
-                }
-            };
-
+                self.search_dies(reader, abbrev_table, file_ptrs, pc, start_addr, call_sites);
+            }
             if die_relevant {
-                println!("found die relevant call_record: {:?}", &returned_vec);
-                return returned_vec;
+                let last_name_ref = call_sites.last_mut().unwrap();
+                if last_name_ref.name == NameRef::Unknown {
+                    last_name_ref.name = name_ref;
+                }
+                // Only inlined subprogram has a call record
+                if abbrev_entry.tag == DW_TAG_inlined_subroutine {
+                    call_sites.push(call_record);
+                }
+                println!("found die relevant call_record: {:?}", &call_sites);
+                return;
             } else {
                 println!("irrelevant die");
-                // The vector is definitely invalid
-                // DO NOT FREE
-                mem::forget(returned_vec);
             }
 
             println!("remaining reader len: {}", reader.slice.len());
