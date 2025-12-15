@@ -25,7 +25,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyAnyMethods, PyDict, PyNone, PyTuple, PyType},
+    types::{PyAnyMethods, PyDict, PyNone, PyTuple, PyType, PyBytes},
 };
 use tempfile::{self, TempDir};
 
@@ -62,7 +62,7 @@ use nac3core::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
     },
 };
-use nac3ld::Linker;
+use nac3ld::{Linker, symbolizer, symbolizer::CallRecord};
 
 use codegen::{
     ArtiqCodeGenerator, attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback,
@@ -1991,6 +1991,11 @@ impl Nac3 {
     }
 }
 
+#[pyo3::pyfunction]
+fn symbolize<'py>(elf_bin: &Bound<'_, PyBytes>, pc: u32, py: Python<'py>,) -> PyResult<Vec<CallRecord>> {
+    symbolizer::symbolize(elf_bin.extract()?, pc)
+}
+
 #[cfg(feature = "init-llvm-profile")]
 unsafe extern "C" {
     fn __llvm_profile_initialize();
@@ -2006,5 +2011,6 @@ fn nac3artiq<'py>(py: Python<'py>, m: &Bound<'py, PyModule>) -> PyResult<()> {
     Target::initialize_all(&InitializationConfig::default());
     m.add("CompileError", py.get_type::<CompileError>())?;
     m.add_class::<Nac3>()?;
+    m.add_function(wrap_pyfunction!(symbolize, m)?)?;
     Ok(())
 }

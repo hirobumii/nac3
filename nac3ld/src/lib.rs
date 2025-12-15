@@ -20,7 +20,9 @@ use dwarf::{EH_Frame, EH_Frame_Hdr};
 use elf::*;
 
 mod dwarf;
+mod dwarf_include;
 mod elf;
+pub mod symbolizer;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Isa {

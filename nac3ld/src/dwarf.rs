@@ -1,6 +1,7 @@
-#![allow(non_camel_case_types, non_upper_case_globals)]
+#![allow(nonstandard_style, non_upper_case_globals)]
 
-use std::mem;
+use std::{mem, slice};
+use crate::dwarf_include::*;
 
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -82,6 +83,33 @@ impl DwarfReader<'_> {
         self.virt_addr += 1;
         val
     }
+
+    pub fn read_i8(&mut self) -> i8 {
+        let val = self.slice[0] as i8;
+        self.slice = &self.slice[1..];
+        self.virt_addr += 1;
+        val
+    }
+
+    pub fn read_slice(&mut self, len: usize) -> &[u8] {
+        let (slice, remaining) = self.slice.split_at(len);
+        self.slice = remaining;
+        self.virt_addr += len as u32;
+        // unsafe {
+        //     slice::from_raw_parts(slice.as_ptr(), len)
+        // }
+        slice
+    }
+
+    pub fn read_str(&mut self) -> &[u8] {
+        println!("virt_addr: {:?}", self.virt_addr);
+        let str_len = self.slice.iter().position(|byte| *byte == 0).expect("string should be null-terminated");
+        // let trimmed_str = &self.read_slice(str_len + 1)[..str_len]; // null-terminator
+        // unsafe {
+        //     slice::from_raw_parts(trimmed_str.as_ptr(), str_len)
+        // }
+        &self.read_slice(str_len + 1)[..str_len]    // null-terminator
+    }
 }
 
 macro_rules! impl_read_fn {
@@ -107,6 +135,89 @@ impl_read_fn!(
     i32,    read_i32;
     i64,    read_i64
 );
+
+macro_rules! read_block_fn {
+    ( $($read_block_fn: ident, $read_length_fn: ident);* ) => {
+        impl<'a> DwarfReader<'a> {
+            $(
+                pub fn $read_block_fn(&mut self) -> &[u8] {
+                    let len = self.$read_length_fn() as usize;
+                    self.read_slice(len)
+                }
+            )*
+        }
+    }
+}
+
+read_block_fn!(
+    read_form_block,    read_uleb128;
+    read_form_block1,   read_u8;
+    read_form_block2,   read_u16;
+    read_form_block4,   read_u32
+);
+
+macro_rules! alias_read_fn {
+    ( $($type: ty, $read_form_fn: ident, $aliased_fn: ident);* ) => {
+        impl<'a> DwarfReader<'a> {
+            $(
+                pub fn $read_form_fn(&mut self) -> $type {
+                    self.$aliased_fn()
+                }
+            )*
+        }
+    }
+}
+
+alias_read_fn!(
+    u32,    read_form_addr,         read_u32;
+    u8,     read_form_data1,        read_u8;
+    u16,    read_form_data2,        read_u16;
+    u32,    read_form_data4,        read_u32;
+    u64,    read_form_data8,        read_u64;
+    i64,    read_form_sdata,        read_i64;
+    u64,    read_form_udata,        read_u64;
+    &[u8],  read_form_exprloc,      read_form_block;
+    u8,     read_form_flag,         read_u8;
+    u32,    read_form_sec_offset,   read_u32
+);
+
+impl DwarfReader<'_> {
+    // Helper to perform constant read
+    // Everything is casted as u64 (as the broadest type).
+    // Use at your own risk.
+    pub fn read_form_constant(&mut self, attr_form: u64) -> u64 {
+        match attr_form {
+            DW_FORM_data1 => self.read_form_data1() as u64,
+            DW_FORM_data2 => self.read_form_data2() as u64,
+            DW_FORM_data4 => self.read_form_data4() as u64,
+            DW_FORM_data8 => self.read_form_data8() as u64,
+            DW_FORM_sdata => self.read_form_sdata() as u64,
+            DW_FORM_udata => self.read_form_udata() as u64,
+            _ => panic!("form should be a constant")
+        }
+    }
+
+    pub fn skip_form(&mut self, attr_form: u64) {
+        match attr_form {
+            DW_FORM_addr | DW_FORM_ref_addr | DW_FORM_strp => { self.read_form_addr(); },
+            DW_FORM_data1 | DW_FORM_ref1 | DW_FORM_flag => { self.read_form_data1(); },
+            DW_FORM_data2 | DW_FORM_ref2 => { self.read_form_data2(); },
+            DW_FORM_data4 | DW_FORM_ref4 => { self.read_form_data4(); },
+            DW_FORM_data8 | DW_FORM_ref8 => { self.read_form_data8(); },
+            DW_FORM_sdata => { self.read_form_sdata(); },
+            DW_FORM_udata | DW_FORM_ref_udata=> { self.read_form_udata(); },
+            DW_FORM_block | DW_FORM_exprloc => { self.read_form_block(); },
+            DW_FORM_block1 => { self.read_form_block1(); },
+            DW_FORM_block2 => { self.read_form_block2(); },
+            DW_FORM_block4 => { self.read_form_block4(); },
+            DW_FORM_string => { self.read_str(); },
+            DW_FORM_ref_sig8 => { self.read_u64(); },
+            DW_FORM_flag_present => (),
+            
+            _ => todo!("we should know how to skip every data forms")
+        }
+    }
+}
 
 pub struct DwarfWriter<'a> {
     pub slice: &'a mut [u8],
