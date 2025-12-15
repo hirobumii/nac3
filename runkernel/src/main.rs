@@ -1,5 +1,5 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic)]
+#![warn(clippy::pedantic, clippy::nursery)]
 
 use std::env;
 
@@ -26,7 +26,7 @@ pub extern "C" fn rtio_init() {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rtio_get_counter() -> i64 {
+pub const extern "C" fn rtio_get_counter() -> i64 {
     0
 }
 
