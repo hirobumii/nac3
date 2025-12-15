@@ -661,8 +661,7 @@ impl<'a> DebugInfoReader<'a> {
     }
 }
 
-#[pyfunction]
-pub fn symbolize(elf_byte: &[u8], pc: u32) -> PyResult<Vec<CallRecord>> {
+pub fn symbolize(elf_byte: &[u8], pc_list: Vec<u32>) -> Vec<CallRecord> {
     let elf_ptr = elf_byte.as_ptr();
     let ehdr = unsafe { ptr::read::<Elf32_Ehdr>(elf_ptr.cast()) };
     let shdrs = unsafe {
@@ -773,6 +772,10 @@ pub fn symbolize(elf_byte: &[u8], pc: u32) -> PyResult<Vec<CallRecord>> {
 
     let info_reader =
         DebugInfoReader { debug_info, debug_line, debug_abbrev, debug_ranges, debug_str };
-
-    Ok(info_reader.search(pc))
+    
+    let mut call_sites: Vec<CallRecord> = vec![];
+    for pc in pc_list {
+        call_sites.append(&mut info_reader.search(pc));
+    }
+    call_sites
 }

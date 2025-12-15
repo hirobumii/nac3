@@ -1992,8 +1992,8 @@ impl Nac3 {
 }
 
 #[pyo3::pyfunction]
-fn symbolize<'py>(elf_bin: &Bound<'_, PyBytes>, pc: u32, py: Python<'py>,) -> PyResult<Vec<CallRecord>> {
-    symbolizer::symbolize(elf_bin.extract()?, pc)
+fn symbolize<'py>(elf_bin: &Bound<'_, PyBytes>, pc: &Bound<'_, PyList>) -> PyResult<Vec<CallRecord>> {
+    Ok(symbolizer::symbolize(elf_bin.extract()?, pc.extract()?))
 }
 
 #[cfg(feature = "init-llvm-profile")]
