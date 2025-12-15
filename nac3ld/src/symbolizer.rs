@@ -106,7 +106,6 @@ impl<'a> DebugInfoReader<'a> {
         call_record.address = None;
 
         for (attr_name, attr_form) in attr_specs {
-            println!("attr_name, attr_form: {:x?}", (attr_name, attr_form));
             match *attr_name {
                 DW_AT_low_pc => {
                     assert_eq!(
@@ -138,7 +137,6 @@ impl<'a> DebugInfoReader<'a> {
                     let mut begin_offset = range_reader.read_u32();
                     let mut end_offset = range_reader.read_u32();
                     while (begin_offset, end_offset) != (0, 0) {
-                        println!("range = {:x?}", (begin_offset..end_offset));
                         if (begin_offset..end_offset).contains(&(pc - start_addr)) {
                             in_range = true;
                             break;
@@ -165,7 +163,6 @@ impl<'a> DebugInfoReader<'a> {
                     }
                     DW_FORM_strp => {
                         let debug_str_offset = reader.read_form_addr() as usize;
-                        println!("debug_str_offset: {:x}", debug_str_offset);
                         let str_head = &self.debug_str[debug_str_offset..];
                         let str_len = str_head
                             .iter()
@@ -196,14 +193,13 @@ impl<'a> DebugInfoReader<'a> {
                 }
                 DW_AT_call_line => {
                     call_record.line = reader.read_form_constant(*attr_form) as u32;
-                    println!("line: {:?}", call_record.line);
                 }
                 DW_AT_call_column => {
                     call_record.column = reader.read_form_constant(*attr_form) as u32;
-                    println!("column: {:x?}", call_record.column);
                 }
                 _ => {
-                    println!("unrecognized attribute: {:?}", attr_name);
+                    // Unrecognized attributes
+                    // They are valid, but we cannot process them
                     reader.skip_form(*attr_form)
                 }
             }
@@ -234,14 +230,12 @@ impl<'a> DebugInfoReader<'a> {
             next_reader.offset(unit_length);
             assert_eq!(reader.read_u16(), 4, "expected DWARF version 4");
             let debug_abbrev_offset = reader.read_u32() as usize;
-            println!("debug_abbrev_offset: {}", debug_abbrev_offset);
             assert_eq!(reader.read_u8(), 4, "only 32-bit system is supported");
 
             let abbrev_table = self.parse_abbrev(debug_abbrev_offset);
 
             // Parse the actual DW_TAG_compile_unit, skip the partially parsed unit if irrelevant
             let compile_unit_abbrev_code = reader.read_uleb128();
-            println!("compile_unit_abbrev_code: {}", compile_unit_abbrev_code);
             let abbrev_entry = abbrev_table.get(&compile_unit_abbrev_code).expect(
                 "all non-zero abbreviation code should be resolvable by the abbreviation table",
             );
@@ -257,16 +251,12 @@ impl<'a> DebugInfoReader<'a> {
             let (die_relevant, stmt_list_offset, name_ref, start_addr, _call_record) = self
                 .parse_die_attributes(&mut reader, &abbrev_entry.attribute_specs, &vec![], pc, 0);
 
-            println!("stmt_list_offset: {:?}", stmt_list_offset);
-
             let (immediate_call_record, file_ptrs) =
                 self.parse_line_info(stmt_list_offset as usize, pc, start_addr.unwrap());
-            println!("call record: {:?}", immediate_call_record);
 
             let mut call_sites = vec![immediate_call_record];
 
             if die_relevant {
-                println!("stmt_list_offset: {:?}", stmt_list_offset);
                 self.search_dies(
                     &mut reader,
                     &abbrev_table,
@@ -275,8 +265,6 @@ impl<'a> DebugInfoReader<'a> {
                     start_addr.unwrap(),
                     &mut call_sites,
                 );
-
-                println!("call records: {:?}", call_sites);
 
                 // Resolve name references
                 for rec in &mut call_sites {
@@ -300,7 +288,6 @@ impl<'a> DebugInfoReader<'a> {
                     }
                 }
 
-                println!("final call records: {:#?}", call_sites);
                 return call_sites;
             }
 
@@ -321,7 +308,6 @@ impl<'a> DebugInfoReader<'a> {
     ) {
         let mut abbrev_code = reader.read_uleb128();
         while abbrev_code != 0 {
-            println!("abbrev_code: {}", abbrev_code);
             let abbrev_entry = abbrev_table.get(&abbrev_code).expect(
                 "all non-zero abbreviation code should be resolvable by the abbreviation table",
             );
@@ -333,8 +319,6 @@ impl<'a> DebugInfoReader<'a> {
                     pc,
                     start_addr,
                 );
-
-            println!("relevance: {}, name_ref: {:?}", die_relevant, name_ref);
 
             if abbrev_entry.has_child != 0 {
                 // Moving directly to its sibling is impossible if there are children
@@ -350,16 +334,10 @@ impl<'a> DebugInfoReader<'a> {
                 if abbrev_entry.tag == DW_TAG_inlined_subroutine {
                     call_sites.push(call_record);
                 }
-                println!("found die relevant call_record: {:?}", &call_sites);
                 return;
-            } else {
-                println!("irrelevant die");
             }
 
-            println!("remaining reader len: {}", reader.slice.len());
-
             abbrev_code = reader.read_uleb128();
-            println!("process sibling with abbrev_code: {}", abbrev_code);
         }
 
         unreachable!("exhausted all debugging informatio entries (DIE)")
@@ -367,11 +345,9 @@ impl<'a> DebugInfoReader<'a> {
 
     fn parse_abbrev(&self, abbrev_offset: usize) -> HashMap<u64, AbbreviationEntry> {
         let mut reader = DwarfReader::new(&self.debug_abbrev[abbrev_offset..], 0);
-        println!("reader.slice: {:?}", reader.slice);
         let mut table: HashMap<u64, AbbreviationEntry> = HashMap::new();
 
         while let Some((code, entry)) = AbbreviationEntry::new(&mut reader) {
-            println!("code: {} entry: {:?}", code, entry);
             table.insert(code, entry);
         }
 
@@ -515,7 +491,6 @@ impl<'a> DebugInfoReader<'a> {
         loop {
             // Decode opcode
             let opcode = program_reader.read_u8();
-            println!("opcode: {}", opcode);
             match opcode {
                 // Extended opcode
                 0 => {
@@ -526,7 +501,6 @@ impl<'a> DebugInfoReader<'a> {
                     program_reader.offset(insn_len as u32);
 
                     let extended_opcode = extended_opcode_reader.read_u8();
-                    println!("extended_opcode: {}", extended_opcode);
                     match extended_opcode {
                         DW_LNE_end_sequence => {
                             // No operands
@@ -544,7 +518,6 @@ impl<'a> DebugInfoReader<'a> {
                         }
                         DW_LNE_set_address => {
                             let address = extended_opcode_reader.read_u32();
-                            println!("address: {}", address);
                             curr_entry.address = address;
                             curr_entry.op_index = 0;
                         }

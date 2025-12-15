@@ -25,7 +25,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyAnyMethods, PyDict, PyNone, PyTuple, PyType, PyBytes},
+    types::{PyAnyMethods, PyDict, PyNone, PyTuple, PyType, PyBytes, PyList},
 };
 use tempfile::{self, TempDir};
 

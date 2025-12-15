@@ -95,14 +95,10 @@ impl DwarfReader<'_> {
         let (slice, remaining) = self.slice.split_at(len);
         self.slice = remaining;
         self.virt_addr += len as u32;
-        // unsafe {
-        //     slice::from_raw_parts(slice.as_ptr(), len)
-        // }
         slice
     }
 
     pub fn read_str(&mut self) -> &[u8] {
-        println!("virt_addr: {:?}", self.virt_addr);
         let str_len = self
             .slice
             .iter()
