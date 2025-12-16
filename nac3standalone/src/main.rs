@@ -1,5 +1,5 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic)]
+#![warn(clippy::pedantic, clippy::nursery)]
 #![allow(clippy::too_many_lines)]
 
 use std::{
@@ -108,7 +108,7 @@ fn handle_typevar_definition(
                     &args[0].node
                 )]));
             };
-            let generic_name: StrRef = ty_name.to_string().into();
+            let generic_name: StrRef = ty_name.clone().into();
 
             let constraints = args
                 .iter()
@@ -153,7 +153,7 @@ fn handle_typevar_definition(
                     &args[0].node
                 )]));
             };
-            let generic_name: StrRef = ty_name.to_string().into();
+            let generic_name: StrRef = ty_name.clone().into();
 
             let ty = parse_ast_to_type_annotation_kinds(
                 resolver,
@@ -194,27 +194,23 @@ fn handle_assignment_pattern(
                 let primitives = &composer.primitives_ty;
                 let builtin_registry = &composer.builtin_registry;
 
-                if let Ok(var) = handle_typevar_definition(
+                handle_typevar_definition(
                     value,
                     &*resolver,
                     &def_list,
                     builtin_registry,
                     unifier,
                     primitives,
-                ) {
-                    internal_resolver.add_id_type(*id, var);
-                    Ok(())
-                } else if let Ok(val) =
-                    parse_parameter_default_value(value, &*resolver, builtin_registry)
-                {
-                    internal_resolver.add_module_global(*id, val);
-                    Ok(())
-                } else {
-                    Err(format!(
+                ).map_or_else(|_| parse_parameter_default_value(value, &*resolver, builtin_registry).map_or_else(|_| Err(format!(
                         "fails to evaluate this expression `{:?}` as a constant or generic parameter at {}",
                         target.node, target.location,
-                    ))
-                }
+                    )), |val| {
+                    internal_resolver.add_module_global(*id, val);
+                    Ok(())
+                }), |var| {
+                    internal_resolver.add_id_type(*id, var);
+                    Ok(())
+                })
             }
             ExprKind::List { elts, .. } | ExprKind::Tuple { elts, .. } => {
                 handle_assignment_pattern(elts, value, resolver, internal_resolver, composer)?;
@@ -284,7 +280,7 @@ fn main() {
     };
 
     let host_target_machine = TargetMachineOptions::from_host(target_opt_level);
-    let triple = triple.unwrap_or(host_target_machine.triple.clone());
+    let triple = triple.unwrap_or_else(|| host_target_machine.triple.clone());
     let mcpu = mcpu
         .map(|arg| if arg == "native" { host_target_machine.cpu.clone() } else { arg })
         .unwrap_or_default();
@@ -319,7 +315,7 @@ fn main() {
     let builtin_registry = Arc::new(DefaultBuiltinRegistry);
 
     let (mut composer, builtins_def, builtins_ty) =
-        TopLevelComposer::new(vec![], vec![], builtin_registry.clone(), size_t_bits);
+        TopLevelComposer::new(vec![], vec![], builtin_registry, size_t_bits);
 
     let internal_resolver: Arc<ResolverInternal> = ResolverInternal {
         id_to_type: builtins_ty.into(),
@@ -409,15 +405,16 @@ fn main() {
 
     let instance = {
         let defs = top_level.definitions.read();
-        let mut instance = defs[resolver
-            .get_identifier_def("run".into())
-            .unwrap_or_else(|_| panic!("cannot find run() entry point"))
-            .0]
-            .write();
-        let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } = &mut *instance
+        let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } = &mut *defs
+            [resolver
+                .get_identifier_def("run".into())
+                .unwrap_or_else(|_| panic!("cannot find run() entry point"))
+                .0]
+            .write()
         else {
             unreachable!()
         };
+
         instance_to_symbol.insert(String::new(), "run".to_string());
         instance_to_stmt[""].clone()
     };
@@ -465,6 +462,7 @@ fn main() {
 
         main.link_in_module(other).unwrap();
     }
+    drop(buffers);
     emit_llvm(&main, "main.merged");
 
     main.link_in_module(irrt).unwrap();

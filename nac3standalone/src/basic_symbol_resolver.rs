@@ -68,7 +68,7 @@ impl SymbolResolver for Resolver {
                     .cloned()
                     .map(|v| v.get_type(primitives, unifier))
             })
-            .ok_or(format!("cannot get type of {str}"))
+            .ok_or_else(|| format!("cannot get type of {str}"))
     }
 
     fn get_symbol_value<'ctx>(
@@ -107,14 +107,11 @@ impl SymbolResolver for Resolver {
 
     fn get_string_id(&self, s: &str) -> i32 {
         let mut str_store = self.0.str_store.lock();
-        if let Some(id) = str_store.get(s) {
-            *id
-        } else {
-            let id = i32::try_from(str_store.len())
-                .expect("Symbol resolver string store size exceeds max capacity (i32::MAX)");
-            str_store.insert(s.to_string(), id);
-            id
-        }
+        let str_store_len = str_store.len();
+        *str_store.entry(s.to_string()).or_insert_with(|| {
+            i32::try_from(str_store_len)
+                .expect("Symbol resolver string store size exceeds max capacity (i32::MAX)")
+        })
     }
 
     fn get_exception_id(&self, _: usize) -> usize {
