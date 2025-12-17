@@ -13,7 +13,7 @@ use nac3parser::ast::{ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKin
 
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator, ModuleContext, bool_to_i1, bool_to_i8,
+        CodeGenContext, CodeGenerator, ModuleContext, VarValue, bool_to_i1, bool_to_i8,
         expr::{destructure_range, gen_binop_expr},
         gen_in_range_check,
         irrt::{handle_slice_indices, list_slice_assignment},
@@ -159,12 +159,12 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             None => {
                 let ptr_ty = ctx.get_llvm_type(pattern.custom.unwrap());
                 let ptr = gen_var(ctx, ptr_ty, name);
-                ctx.var_assignment.insert(*id, (ptr, None, 0));
+                ctx.var_assignment.insert(*id, VarValue::new(ptr));
                 ptr
             }
             Some(v) => {
-                let (ptr, counter) = (v.0, v.2);
-                ctx.var_assignment.insert(*id, (ptr, None, counter));
+                let VarValue { ptr, counter, .. } = *v;
+                ctx.var_assignment.insert(*id, VarValue { ptr, static_value: None, counter });
                 ptr
             }
         },
@@ -223,7 +223,8 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
             };
 
             if let ExprKind::Name { id, .. } = &target.node {
-                let (_, static_value, counter) = ctx.var_assignment.get_mut(id).unwrap();
+                let VarValue { static_value, counter, .. } =
+                    ctx.var_assignment.get_mut(id).unwrap();
                 *counter += 1;
                 if let ValueEnum::Static(s) = &value {
                     *static_value = Some(s.clone());
@@ -608,8 +609,9 @@ where
     // if so, remove the static value as it may not be correct in this branch
     let var_assignment = ctx.var_assignment.clone();
     let restore_var_assignment = |ctx: &mut CodeGenContext<'ctx, 'a>| {
-        for (k, (_, _, counter)) in &var_assignment {
-            let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
+        for (k, VarValue { counter, .. }) in &var_assignment {
+            let VarValue { static_value: static_val, counter: counter2, .. } =
+                ctx.var_assignment.get_mut(k).unwrap();
             if counter != counter2 {
                 *static_val = None;
             }
@@ -1176,8 +1178,9 @@ where
     // if so, remove the static value as it may not be correct in this branch
     let var_assignment = ctx.var_assignment.clone();
     let restore_var_assignment = |ctx: &mut CodeGenContext<'ctx, 'a>| {
-        for (k, (_, _, counter)) in &var_assignment {
-            let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
+        for (k, VarValue { counter, .. }) in &var_assignment {
+            let VarValue { static_value: static_val, counter: counter2, .. } =
+                ctx.var_assignment.get_mut(k).unwrap();
             if counter != counter2 {
                 *static_val = None;
             }
@@ -1391,8 +1394,9 @@ pub fn gen_if<G: CodeGenerator>(
     }
     ctx.builder.position_at_end(body_bb);
     generator.gen_block(ctx, body.iter())?;
-    for (k, (_, _, counter)) in &var_assignment {
-        let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
+    for (k, VarValue { counter, .. }) in &var_assignment {
+        let VarValue { static_value: static_val, counter: counter2, .. } =
+            ctx.var_assignment.get_mut(k).unwrap();
         if counter != counter2 {
             *static_val = None;
         }
@@ -1417,8 +1421,9 @@ pub fn gen_if<G: CodeGenerator>(
     if let Some(cont_bb) = cont_bb {
         ctx.builder.position_at_end(cont_bb);
     }
-    for (k, (_, _, counter)) in &var_assignment {
-        let (_, static_val, counter2) = ctx.var_assignment.get_mut(k).unwrap();
+    for (k, VarValue { counter, .. }) in &var_assignment {
+        let VarValue { static_value: static_val, counter: counter2, .. } =
+            ctx.var_assignment.get_mut(k).unwrap();
         if counter != counter2 {
             *static_val = None;
         }
@@ -1742,7 +1747,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         if let Some(name) = name {
             let exn_ty = ctx.get_llvm_type(type_.as_ref().unwrap().custom.unwrap());
             let exn_store = gen_var(ctx, exn_ty, Some("try.exn_store.addr"));
-            ctx.var_assignment.insert(*name, (exn_store, None, 0));
+            ctx.var_assignment.insert(*name, VarValue::new(exn_store));
             typed_store(&ctx.builder, exn_store, exn.as_basic_value());
         }
         generator.gen_block(ctx, body.iter())?;

@@ -21,7 +21,8 @@ use nac3parser::ast::{
 
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenTask, CodeGenerator, bool_to_i1, bool_to_i8, bool_to_int_type,
+        CodeGenContext, CodeGenTask, CodeGenerator, VarValue, bool_to_i1, bool_to_i8,
+        bool_to_int_type,
         concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
         gen_in_range_check, get_alloca_type, get_llvm_abi_type, get_llvm_type,
         irrt::{
@@ -2399,11 +2400,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
         ExprKind::Name { id, .. } => {
             let llvm_ty = ctx.get_llvm_type(ty);
             match ctx.var_assignment.get(id) {
-                Some((ptr, None, _)) => {
+                Some(VarValue { ptr, static_value: None, .. }) => {
                     let val = typed_load(&ctx.builder, *ptr, llvm_ty, id.to_string().as_str());
                     Ok(RtValue::dynamic(ty, val))
                 }
-                Some((_, Some(static_value), _)) => Ok(RtValue::r#static(ty, static_value.clone())),
+                Some(VarValue { static_value: Some(static_value), .. }) => {
+                    Ok(RtValue::r#static(ty, static_value.clone()))
+                }
                 None => {
                     let resolver = ctx.resolver.clone();
                     let val = resolver.get_symbol_value(*id, ctx).unwrap();

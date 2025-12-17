@@ -14,7 +14,7 @@ use pyo3::{
 
 use nac3core::{
     codegen::{
-        CodeGenContext, CodeGenerator, basic_type_all, bool_to_i1,
+        CodeGenContext, CodeGenerator, VarValue, basic_type_all, bool_to_i1,
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{
@@ -234,7 +234,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
             // parallel block, and we should update the max end value.
             if let ExprKind::Name { id, ctx: name_ctx } = &item.context_expr.node {
                 let resolver = ctx.resolver.clone();
-                if let Some(static_value) = if let Some((_ptr, static_value, _counter)) =
+                if let Some(static_value) = if let Some(VarValue { static_value, .. }) =
                     ctx.var_assignment.get(id)
                 {
                     static_value.clone()

@@ -112,7 +112,37 @@ impl StaticValueStore {
     }
 }
 
-pub type VarValue<'ctx> = (PointerValue<'ctx>, Option<Arc<dyn StaticValue + Send + Sync>>, i64);
+/// A local variable within a function.
+#[derive(Clone)]
+pub struct VarValue<'ctx> {
+    /// The pointer to the variable's storage.
+    pub ptr: PointerValue<'ctx>,
+
+    /// The static value of the variable, if any.
+    pub static_value: Option<Arc<dyn StaticValue + Send + Sync>>,
+
+    /// A counter for tracking usage or modifications of the variable.
+    ///
+    /// Shadowing a variable will increment this counter.
+    pub counter: i64,
+}
+
+impl<'ctx> VarValue<'ctx> {
+    /// Creates a new [`VarValue`] with a static value.
+    #[must_use]
+    pub fn new_static(
+        ptr: PointerValue<'ctx>,
+        static_value: Arc<dyn StaticValue + Send + Sync>,
+    ) -> Self {
+        Self { ptr, static_value: Some(static_value), counter: 0 }
+    }
+
+    /// Creates a new [`VarValue`] with a dynamic value.
+    #[must_use]
+    pub fn new(ptr: PointerValue<'ctx>) -> Self {
+        Self { ptr, static_value: None, counter: 0 }
+    }
+}
 
 /// Additional options for LLVM during codegen.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -826,7 +856,7 @@ pub fn gen_func_impl<
         };
 
         typed_store(&builder, alloca, param);
-        var_assignment.insert(arg.name, (alloca, None, 0));
+        var_assignment.insert(arg.name, VarValue::new(alloca));
     }
 
     // TODO: Save vararg parameters as list
@@ -838,7 +868,8 @@ pub fn gen_func_impl<
         store.store[task.id].clone()
     };
     for (k, v) in static_values {
-        let (_, static_val, _) = var_assignment.get_mut(&params[k].name).unwrap();
+        let VarValue { static_value: static_val, .. } =
+            var_assignment.get_mut(&params[k].name).unwrap();
         *static_val = Some(v);
     }
 
