@@ -1,5 +1,5 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic)]
+#![warn(clippy::pedantic, clippy::nursery)]
 
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
@@ -64,11 +64,8 @@ fn replace_top_level_receiver(expr: &mut Expr, ident: Ident) -> Option<&mut Expr
         return if extract_dot_operand(operand).is_some() {
             if replace_top_level_receiver(operand, ident).is_some() { Some(expr) } else { None }
         } else {
-            *operand = Box::new(Expr::Path(ExprPath {
-                attrs: Vec::default(),
-                qself: None,
-                path: ident.into(),
-            }));
+            **operand =
+                Expr::Path(ExprPath { attrs: Vec::default(), qself: None, path: ident.into() });
 
             Some(expr)
         };
@@ -98,9 +95,7 @@ fn iter_dot_operands(expr: &Expr) -> impl Iterator<Item = &Expr> {
 fn normalize_value_expr(expr: &Expr) -> proc_macro2::TokenStream {
     match &expr {
         Expr::Path(ExprPath { qself: None, path, .. }) => {
-            if let Some(ident) = map_path_to_ident(path, &["usize", "size_t"], "llvm_usize") {
-                quote! { #ident }
-            } else {
+            let Some(ident) = map_path_to_ident(path, &["usize", "size_t"], "llvm_usize") else {
                 abort!(
                     path,
                     format!(
@@ -108,7 +103,9 @@ fn normalize_value_expr(expr: &Expr) -> proc_macro2::TokenStream {
                         quote!(#expr).to_string(),
                     )
                 )
-            }
+            };
+
+            quote! { #ident }
         }
 
         Expr::Call(_) => {
