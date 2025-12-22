@@ -1,6 +1,6 @@
 use crate::{StrRef, constant, fold::Fold};
 
-pub(crate) trait Foldable<T, U> {
+pub trait Foldable<T, U> {
     type Mapped;
     fn fold<F: Fold<T, TargetU = U> + ?Sized>(
         self,

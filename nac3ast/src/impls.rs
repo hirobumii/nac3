@@ -5,16 +5,14 @@ impl<U> ExprKind<U> {
     #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
-            ExprKind::BoolOp { .. } | ExprKind::BinOp { .. } | ExprKind::UnaryOp { .. } => {
-                "operator"
-            }
-            ExprKind::Subscript { .. } => "subscript",
-            ExprKind::Await { .. } => "await expression",
-            ExprKind::Yield { .. } | ExprKind::YieldFrom { .. } => "yield expression",
-            ExprKind::Compare { .. } => "comparison",
-            ExprKind::Attribute { .. } => "attribute",
-            ExprKind::Call { .. } => "function call",
-            ExprKind::Constant { value, .. } => match value {
+            Self::BoolOp { .. } | Self::BinOp { .. } | Self::UnaryOp { .. } => "operator",
+            Self::Subscript { .. } => "subscript",
+            Self::Await { .. } => "await expression",
+            Self::Yield { .. } | Self::YieldFrom { .. } => "yield expression",
+            Self::Compare { .. } => "comparison",
+            Self::Attribute { .. } => "attribute",
+            Self::Call { .. } => "function call",
+            Self::Constant { value, .. } => match value {
                 Constant::Str(_)
                 | Constant::Int(_)
                 | Constant::Float(_)
@@ -24,28 +22,28 @@ impl<U> ExprKind<U> {
                 Constant::Bool(_) | Constant::None => "keyword",
                 Constant::Ellipsis => "ellipsis",
             },
-            ExprKind::List { .. } => "list",
-            ExprKind::Tuple { .. } => "tuple",
-            ExprKind::Dict { .. } => "dict display",
-            ExprKind::Set { .. } => "set display",
-            ExprKind::ListComp { .. } => "list comprehension",
-            ExprKind::DictComp { .. } => "dict comprehension",
-            ExprKind::SetComp { .. } => "set comprehension",
-            ExprKind::GeneratorExp { .. } => "generator expression",
-            ExprKind::Starred { .. } => "starred",
-            ExprKind::Slice { .. } => "slice",
-            ExprKind::JoinedStr { values } => {
-                if values.iter().any(|e| matches!(e.node, ExprKind::JoinedStr { .. })) {
+            Self::List { .. } => "list",
+            Self::Tuple { .. } => "tuple",
+            Self::Dict { .. } => "dict display",
+            Self::Set { .. } => "set display",
+            Self::ListComp { .. } => "list comprehension",
+            Self::DictComp { .. } => "dict comprehension",
+            Self::SetComp { .. } => "set comprehension",
+            Self::GeneratorExp { .. } => "generator expression",
+            Self::Starred { .. } => "starred",
+            Self::Slice { .. } => "slice",
+            Self::JoinedStr { values } => {
+                if values.iter().any(|e| matches!(e.node, Self::JoinedStr { .. })) {
                     "f-string expression"
                 } else {
                     "literal"
                 }
             }
-            ExprKind::FormattedValue { .. } => "f-string expression",
-            ExprKind::Name { .. } => "name",
-            ExprKind::Lambda { .. } => "lambda",
-            ExprKind::IfExp { .. } => "conditional expression",
-            ExprKind::NamedExpr { .. } => "named expression",
+            Self::FormattedValue { .. } => "f-string expression",
+            Self::Name { .. } => "name",
+            Self::Lambda { .. } => "lambda",
+            Self::IfExp { .. } => "conditional expression",
+            Self::NamedExpr { .. } => "named expression",
         }
     }
 }

@@ -7,13 +7,13 @@ use crate::StrRef;
 pub struct FileName(pub StrRef);
 impl Default for FileName {
     fn default() -> Self {
-        FileName("unknown".into())
+        Self("unknown".into())
     }
 }
 
 impl From<String> for FileName {
     fn from(s: String) -> Self {
-        FileName(s.into())
+        Self(s.into())
     }
 }
 
@@ -82,34 +82,34 @@ impl Location {
 
 impl Location {
     #[must_use]
-    pub fn new(row: usize, column: usize, file: FileName) -> Self {
-        Location { row, column, file }
+    pub const fn new(row: usize, column: usize, file: FileName) -> Self {
+        Self { row, column, file }
     }
 
     #[must_use]
-    pub fn row(&self) -> usize {
+    pub const fn row(&self) -> usize {
         self.row
     }
 
     #[must_use]
-    pub fn column(&self) -> usize {
+    pub const fn column(&self) -> usize {
         self.column
     }
 
-    pub fn reset(&mut self) {
+    pub const fn reset(&mut self) {
         self.row = 1;
         self.column = 1;
     }
 
-    pub fn go_right(&mut self) {
+    pub const fn go_right(&mut self) {
         self.column += 1;
     }
 
-    pub fn go_left(&mut self) {
+    pub const fn go_left(&mut self) {
         self.column -= 1;
     }
 
-    pub fn newline(&mut self) {
+    pub const fn newline(&mut self) {
         self.row += 1;
         self.column = 1;
     }

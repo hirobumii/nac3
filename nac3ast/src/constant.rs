@@ -5,40 +5,40 @@ pub enum Constant {
     Str(String),
     Bytes(Vec<u8>),
     Int(i128),
-    Tuple(Vec<Constant>),
+    Tuple(Vec<Self>),
     Float(f64),
     Complex { real: f64, imag: f64 },
     Ellipsis,
 }
 
 impl From<String> for Constant {
-    fn from(s: String) -> Constant {
+    fn from(s: String) -> Self {
         Self::Str(s)
     }
 }
 impl From<Vec<u8>> for Constant {
-    fn from(b: Vec<u8>) -> Constant {
+    fn from(b: Vec<u8>) -> Self {
         Self::Bytes(b)
     }
 }
 impl From<bool> for Constant {
-    fn from(b: bool) -> Constant {
+    fn from(b: bool) -> Self {
         Self::Bool(b)
     }
 }
 impl From<i32> for Constant {
-    fn from(i: i32) -> Constant {
+    fn from(i: i32) -> Self {
         Self::Int(i128::from(i))
     }
 }
 impl From<i64> for Constant {
-    fn from(i: i64) -> Constant {
+    fn from(i: i64) -> Self {
         Self::Int(i128::from(i))
     }
 }
 
 /// Transforms a value prior to formatting it.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ConversionFlag {
     /// Converts by calling `str(<value>)`.
@@ -51,7 +51,7 @@ pub enum ConversionFlag {
 
 impl ConversionFlag {
     #[must_use]
-    pub fn try_from_byte(b: u8) -> Option<Self> {
+    pub const fn try_from_byte(b: u8) -> Option<Self> {
         match b {
             b's' => Some(Self::Str),
             b'a' => Some(Self::Ascii),
@@ -71,7 +71,7 @@ pub struct ConstantOptimizer {
 impl ConstantOptimizer {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _priv: () }
     }
 }
