@@ -21,7 +21,7 @@ struct IndentationLevel {
 impl IndentationLevel {
     fn compare_strict(
         &self,
-        other: &IndentationLevel,
+        other: &Self,
         location: Location,
     ) -> Result<Ordering, LexicalError> {
         // We only know for sure that we're smaller or bigger if tabs
@@ -130,7 +130,7 @@ where
     T: Iterator<Item = char>,
 {
     pub fn new(source: T) -> Self {
-        let mut nlh = NewlineHandler { source, chr0: None, chr1: None };
+        let mut nlh = Self { source, chr0: None, chr1: None };
         nlh.shift();
         nlh.shift();
         nlh
@@ -175,7 +175,7 @@ where
     T: Iterator<Item = char>,
 {
     pub fn new(input: T, start: Location) -> Self {
-        let mut lxr = Lexer {
+        let mut lxr = Self {
             chars: input,
             at_begin_of_line: true,
             nesting: 0,
@@ -235,11 +235,10 @@ where
         }
         let end_pos = self.get_pos();
 
-        if let Some(tok) = KEYWORDS.get(name.as_str()) {
-            Ok((start_pos, tok.clone(), end_pos))
-        } else {
-            Ok((start_pos, Tok::Name { name: name.into() }, end_pos))
-        }
+        KEYWORDS.get(name.as_str()).map_or_else(
+            || Ok((start_pos, Tok::Name { name: name.into() }, end_pos)),
+            |tok| Ok((start_pos, tok.clone(), end_pos)),
+        )
     }
 
     /// Numeric lexing. The feast can start!
@@ -343,10 +342,7 @@ where
                 // assumption: value_text contains a valid integer.
                 // parse should only fail because of overflow.
                 let value = value_text.parse::<i128>().ok();
-                let nonzero = match value {
-                    Some(value) => value != 0i128,
-                    None => true,
-                };
+                let nonzero = value != Some(0i128);
                 if start_is_zero && nonzero {
                     return Err(LexicalError {
                         error: LexicalErrorType::OtherError("Invalid Token".to_owned()),
@@ -367,7 +363,7 @@ where
         loop {
             if let Some(c) = self.take_number(radix) {
                 value_text.push(c);
-            } else if self.chr0 == Some('_') && Lexer::<T>::is_digit_of_radix(self.chr1, radix) {
+            } else if self.chr0 == Some('_') && Self::is_digit_of_radix(self.chr1, radix) {
                 self.next_char();
             } else {
                 break;
@@ -378,7 +374,7 @@ where
 
     /// Consume a single character with the given radix.
     fn take_number(&mut self, radix: u32) -> Option<char> {
-        let take_char = Lexer::<T>::is_digit_of_radix(self.chr0, radix);
+        let take_char = Self::is_digit_of_radix(self.chr0, radix);
 
         if take_char { Some(self.next_char().unwrap()) } else { None }
     }
@@ -395,7 +391,7 @@ where
     }
 
     /// Test if we face '[eE][-+]?[0-9]+'
-    fn at_exponent(&self) -> bool {
+    const fn at_exponent(&self) -> bool {
         match self.chr0 {
             Some('e' | 'E') => match self.chr1 {
                 Some('+' | '-') => matches!(self.chr2, Some('0'..='9')),
@@ -638,15 +634,11 @@ where
     }
 
     fn is_identifier_continuation(&self) -> bool {
-        if let Some(c) = self.chr0 {
-            match c {
-                '_' | '0'..='9' | 'a'..='z' | 'A'..='Z' => true,
-                '+' | '-' | '*' | '/' | '=' | ' ' | '<' | '>' => false,
-                c => is_xid_continue(c),
-            }
-        } else {
-            false
-        }
+        self.chr0.is_some_and(|c| match c {
+            '_' | '0'..='9' | 'a'..='z' | 'A'..='Z' => true,
+            '+' | '-' | '*' | '/' | '=' | ' ' | '<' | '>' => false,
+            c => is_xid_continue(c),
+        })
     }
 
     /// This is the main entry point. Call this function to retrieve the next token.
@@ -861,7 +853,7 @@ where
             '=' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if self.chr0 == Some('=') {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::EqEqual, tok_end));
@@ -873,7 +865,7 @@ where
             '+' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if self.chr0 == Some('=') {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::PlusEqual, tok_end));
@@ -893,7 +885,7 @@ where
                     }
                     Some('*') => {
                         self.next_char();
-                        if let Some('=') = self.chr0 {
+                        if self.chr0 == Some('=') {
                             self.next_char();
                             let tok_end = self.get_pos();
                             self.emit((tok_start, Tok::DoubleStarEqual, tok_end));
@@ -919,7 +911,7 @@ where
                     }
                     Some('/') => {
                         self.next_char();
-                        if let Some('=') = self.chr0 {
+                        if self.chr0 == Some('=') {
                             self.next_char();
                             let tok_end = self.get_pos();
                             self.emit((tok_start, Tok::DoubleSlashEqual, tok_end));
@@ -937,7 +929,7 @@ where
             '%' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if self.chr0 == Some('=') {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::PercentEqual, tok_end));
@@ -949,7 +941,7 @@ where
             '|' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if self.chr0 == Some('=') {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::VbarEqual, tok_end));
@@ -961,7 +953,7 @@ where
             '^' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if self.chr0 == Some('=') {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::CircumflexEqual, tok_end));
@@ -973,7 +965,7 @@ where
             '&' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if self.chr0 == Some('=') {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::AmperEqual, tok_end));
@@ -1005,7 +997,7 @@ where
             '@' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if self.chr0 == Some('=') {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::AtEqual, tok_end));
@@ -1017,7 +1009,7 @@ where
             '!' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if self.chr0 == Some('=') {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::NotEqual, tok_end));
@@ -1076,7 +1068,7 @@ where
             ':' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if self.chr0 == Some('=') {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::ColonEqual, tok_end));
@@ -1094,7 +1086,7 @@ where
                 match self.chr0 {
                     Some('<') => {
                         self.next_char();
-                        if let Some('=') = self.chr0 {
+                        if self.chr0 == Some('=') {
                             self.next_char();
                             let tok_end = self.get_pos();
                             self.emit((tok_start, Tok::LeftShiftEqual, tok_end));
@@ -1120,7 +1112,7 @@ where
                 match self.chr0 {
                     Some('>') => {
                         self.next_char();
-                        if let Some('=') = self.chr0 {
+                        if self.chr0 == Some('=') {
                             self.next_char();
                             let tok_end = self.get_pos();
                             self.emit((tok_start, Tok::RightShiftEqual, tok_end));
@@ -1153,7 +1145,7 @@ where
                 } else {
                     let tok_start = self.get_pos();
                     self.next_char();
-                    if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
+                    if matches!((&self.chr0, &self.chr1), (Some('.'), Some('.'))) {
                         self.next_char();
                         self.next_char();
                         let tok_end = self.get_pos();
@@ -1185,7 +1177,7 @@ where
             }
             '\\' => {
                 self.next_char();
-                if let Some('\n') = self.chr0 {
+                if self.chr0 == Some('\n') {
                     self.next_char();
                 } else {
                     return Err(LexicalError {
@@ -1237,7 +1229,7 @@ where
     }
 
     /// Helper function to retrieve the current position.
-    fn get_pos(&self) -> Location {
+    const fn get_pos(&self) -> Location {
         self.location
     }
 

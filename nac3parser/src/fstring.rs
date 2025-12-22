@@ -82,7 +82,7 @@ impl<'a> FStringParser<'a> {
                 // match a python 3.8 self documenting expression
                 // format '{' PYTHON_EXPRESSION '=' FORMAT_SPECIFIER? '}'
                 '=' if self.chars.peek() != Some(&'=') && delims.is_empty() => {
-                    pred_expression_text = expression.to_string(); // safe expression before = to print it
+                    pred_expression_text.clone_from(&expression); // safe expression before = to print it
                 }
 
                 ':' if delims.is_empty() => {
@@ -212,7 +212,7 @@ impl<'a> FStringParser<'a> {
         while let Some(ch) = self.chars.next() {
             match ch {
                 '{' => {
-                    if let Some('{') = self.chars.peek() {
+                    if self.chars.peek() == Some(&'{') {
                         self.chars.next();
                         content.push('{');
                     } else {
@@ -227,7 +227,7 @@ impl<'a> FStringParser<'a> {
                     }
                 }
                 '}' => {
-                    if let Some('}') = self.chars.peek() {
+                    if self.chars.peek() == Some(&'}') {
                         self.chars.next();
                         content.push('}');
                     } else {
@@ -326,6 +326,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::literal_string_with_formatting_args)]
     fn test_parse_invalid_fstring() {
         assert_eq!(parse_fstring("{5!a"), Err(FStringErrorType::ExpectedRbrace));
         assert_eq!(parse_fstring("{5!a1}"), Err(FStringErrorType::ExpectedRbrace));

@@ -16,7 +16,7 @@
 //! ```
 
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic)]
+#![warn(clippy::pedantic, clippy::nursery)]
 #![allow(
     clippy::fn_params_excessive_bools,
     clippy::missing_errors_doc,
@@ -36,7 +36,7 @@ pub mod lexer;
 pub mod mode;
 pub mod parser;
 lalrpop_mod!(
-    #[allow(unused, clippy::all, clippy::pedantic)]
+    #[allow(unused, clippy::all, clippy::pedantic, clippy::nursery)]
     python
 );
 pub mod config_comment_helper;

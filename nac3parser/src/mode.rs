@@ -8,7 +8,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub(crate) fn to_marker(self) -> Tok {
+    pub(crate) const fn to_marker(self) -> Tok {
         match self {
             Self::Module => Tok::StartModule,
             Self::Interactive => Tok::StartInteractive,
@@ -21,8 +21,8 @@ impl std::str::FromStr for Mode {
     type Err = ModeParseError;
     fn from_str(s: &str) -> Result<Self, ModeParseError> {
         match s {
-            "exec" | "single" => Ok(Mode::Module),
-            "eval" => Ok(Mode::Expression),
+            "exec" | "single" => Ok(Self::Module),
+            "eval" => Ok(Self::Expression),
             _ => Err(ModeParseError { _priv: () }),
         }
     }

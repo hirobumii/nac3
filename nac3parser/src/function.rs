@@ -88,6 +88,6 @@ pub fn parse_args(func_args: Vec<FunctionArgument>) -> Result<ArgumentList, Lexi
     Ok(ArgumentList { args, keywords })
 }
 
-fn is_starred(exp: &ast::Expr) -> bool {
+const fn is_starred(exp: &ast::Expr) -> bool {
     matches!(exp.node, ast::ExprKind::Starred { .. })
 }
