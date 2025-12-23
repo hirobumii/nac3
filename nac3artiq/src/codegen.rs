@@ -92,7 +92,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
         name: String,
         timeline: &'a (dyn TimeFns + Sync),
         special_ids: SpecialPythonId,
-    ) -> ArtiqCodeGenerator<'a> {
+    ) -> Self {
         ArtiqCodeGenerator {
             name,
             name_counter: 0,
@@ -899,8 +899,6 @@ pub fn attributes_writeback<'ctx>(
 ) -> Result<(), String> {
     Python::attach(|py| -> PyResult<Result<(), String>> {
         let host_attributes = host_attributes.cast_bound::<PyList>(py)?;
-        let top_levels = ctx.top_level.definitions.read();
-        let globals = inner_resolver.global_value_ids.read();
         let int32 = ctx.i32;
         let zero = int32.const_zero();
         let mut values = Vec::new();
@@ -910,13 +908,13 @@ pub fn attributes_writeback<'ctx>(
             values.push((ty, obj.to_basic_value_enum(ctx, ty).unwrap()));
         }
 
-        for val in (*globals).values() {
+        for val in (*inner_resolver.global_value_ids.read()).values() {
             let val = val.bind(py);
             let ty = inner_resolver.get_obj_type(
                 py,
                 val,
                 &mut ctx.unifier,
-                &top_levels,
+                &ctx.top_level.definitions.read(),
                 &ctx.primitives,
             )?;
             if let Err(ty) = ty {

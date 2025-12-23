@@ -1,5 +1,5 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic)]
+#![warn(clippy::pedantic, clippy::nursery)]
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
@@ -92,28 +92,28 @@ impl Isa {
     /// Returns the [`TargetTriple`] used for compiling to this ISA.
     pub fn get_llvm_target_triple(self) -> TargetTriple {
         match self {
-            Isa::Host => TargetMachine::get_default_triple(),
-            Isa::RiscV32G | Isa::RiscV32IMA => TargetTriple::create("riscv32-unknown-linux"),
-            Isa::CortexA9 => TargetTriple::create("armv7-unknown-linux-eabihf"),
+            Self::Host => TargetMachine::get_default_triple(),
+            Self::RiscV32G | Self::RiscV32IMA => TargetTriple::create("riscv32-unknown-linux"),
+            Self::CortexA9 => TargetTriple::create("armv7-unknown-linux-eabihf"),
         }
     }
 
     /// Returns the [`String`] representing the target CPU used for compiling to this ISA.
     pub fn get_llvm_target_cpu(self) -> String {
         match self {
-            Isa::Host => TargetMachine::get_host_cpu_name().to_string(),
-            Isa::RiscV32G | Isa::RiscV32IMA => "generic-rv32".to_string(),
-            Isa::CortexA9 => "cortex-a9".to_string(),
+            Self::Host => TargetMachine::get_host_cpu_name().to_string(),
+            Self::RiscV32G | Self::RiscV32IMA => "generic-rv32".to_string(),
+            Self::CortexA9 => "cortex-a9".to_string(),
         }
     }
 
     /// Returns the [`String`] representing the target features used for compiling to this ISA.
     pub fn get_llvm_target_features(self) -> String {
         match self {
-            Isa::Host => TargetMachine::get_host_cpu_features().to_string(),
-            Isa::RiscV32G => "+a,+m,+f,+d".to_string(),
-            Isa::RiscV32IMA => "+a,+m".to_string(),
-            Isa::CortexA9 => "+dsp,+fp16,+neon,+vfp3,+long-calls".to_string(),
+            Self::Host => TargetMachine::get_host_cpu_features().to_string(),
+            Self::RiscV32G => "+a,+m,+f,+d".to_string(),
+            Self::RiscV32IMA => "+a,+m".to_string(),
+            Self::CortexA9 => "+dsp,+fp16,+neon,+vfp3,+long-calls".to_string(),
         }
     }
 
@@ -141,7 +141,7 @@ pub enum PyId {
 
 impl From<u64> for PyId {
     fn from(id: u64) -> Self {
-        PyId::Type(id)
+        Self::Type(id)
     }
 }
 
@@ -1040,7 +1040,7 @@ impl Nac3 {
                 );
                 Err(CompileError::new_err(format!(
                     "compilation failed\n----------\n{}",
-                    msg.unwrap_or(e.iter().sorted().join("\n----------\n"))
+                    msg.unwrap_or_else(|| e.iter().sorted().join("\n----------\n"))
                 )))
             } else {
                 Err(CompileError::new_err(format!(
@@ -1054,8 +1054,7 @@ impl Nac3 {
         {
             let defs = top_level.definitions.read();
             for (class_data, id, is_async) in &rpc_ids {
-                let mut def = defs[id.0].write();
-                match &mut *def {
+                match &mut *defs[id.0].write() {
                     TopLevelDef::Function { codegen_callback, .. } => {
                         *codegen_callback = Some(rpc_codegen_callback(*is_async));
                     }
@@ -1090,9 +1089,8 @@ impl Nac3 {
 
         let instance = {
             let defs = top_level.definitions.read();
-            let mut definition = defs[def_id.0].write();
             let TopLevelDef::Function { instance_to_stmt, instance_to_symbol, .. } =
-                &mut *definition
+                &mut *defs[def_id.0].write()
             else {
                 unreachable!()
             };
@@ -1129,7 +1127,7 @@ impl Nac3 {
             .iter()
             .map(|s| {
                 Box::new(ArtiqCodeGenerator::new(
-                    s.to_string(),
+                    s.clone(),
                     self.time_fns,
                     self.special_ids.clone(),
                 ))
@@ -1218,6 +1216,7 @@ impl Nac3 {
 
             main.link_in_module(other).map_err(|err| CompileError::new_err(err.to_string()))?;
         }
+        drop(buffers);
         emit_llvm(&main, "main.merged");
 
         main.link_in_module(irrt).map_err(|err| CompileError::new_err(err.to_string()))?;
@@ -1267,6 +1266,7 @@ impl Nac3 {
                     the internal string store (key={key})"
                 );
             }
+            drop(string_store);
         });
 
         link_fn(&main)
@@ -1657,7 +1657,7 @@ impl Nac3 {
         let codegen_options =
             CodeGenOptions { debug: opt_level == "0", target: target_options, opt_level };
 
-        Ok(Nac3 {
+        Ok(Self {
             isa,
             time_fns,
             primitive,
@@ -1751,16 +1751,19 @@ impl Nac3 {
                 if let Some(path) = std::env::var_os("NAC3_EMIT_OBJ") {
                     std::fs::write(&path, object_mem.as_slice()).map_err(CompileError::new_err)?;
                 }
-                if let Ok(dyn_lib) = Linker::ld(object_mem.as_slice()) {
-                    if let Ok(mut file) = fs::File::create(filename) {
-                        file.write_all(&dyn_lib).expect("couldn't write linked library to file");
-                        Ok(())
-                    } else {
-                        Err(CompileError::new_err("failed to create file"))
-                    }
-                } else {
-                    Err(CompileError::new_err("linker failed to process object file"))
-                }
+                Linker::ld(object_mem.as_slice()).map_or_else(
+                    |_| Err(CompileError::new_err("linker failed to process object file")),
+                    |dyn_lib| {
+                        fs::File::create(filename).map_or_else(
+                            |_| Err(CompileError::new_err("failed to create file")),
+                            |mut file| {
+                                file.write_all(&dyn_lib)
+                                    .expect("couldn't write linked library to file");
+                                Ok(())
+                            },
+                        )
+                    },
+                )
             }
         };
 
@@ -1795,11 +1798,10 @@ impl Nac3 {
                 let object_mem = target_machine
                     .write_to_memory_buffer(module, FileType::Object)
                     .expect("couldn't write module to object file buffer");
-                if let Ok(dyn_lib) = Linker::ld(object_mem.as_slice()) {
-                    Ok(PyBytes::new(py, &dyn_lib).into())
-                } else {
-                    Err(CompileError::new_err("linker failed to process object file"))
-                }
+                Linker::ld(object_mem.as_slice()).map_or_else(
+                    |_| Err(CompileError::new_err("linker failed to process object file")),
+                    |dyn_lib| Ok(PyBytes::new(py, &dyn_lib).into()),
+                )
             }
         };
 

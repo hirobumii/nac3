@@ -70,7 +70,7 @@ pub struct DeferredEvaluationStore {
 
 impl DeferredEvaluationStore {
     pub fn new() -> Self {
-        DeferredEvaluationStore {
+        Self {
             needs_defer: Arc::new(AtomicBool::new(true)),
             store: Arc::new(RwLock::new(Vec::new())),
         }
@@ -79,10 +79,10 @@ impl DeferredEvaluationStore {
 
 /// A class field as stored in the [`InnerResolver`], represented by the ID and name of the
 /// associated [`PythonValue`].
-pub(crate) type ResolverField = (u64, StrRef);
+pub type ResolverField = (u64, StrRef);
 
 /// A value as stored in Python, represented by the `id()` and [`PyObject`] of the value.
-pub(crate) type PyValueHandle = (u64, Arc<Py<PyAny>>);
+pub type PyValueHandle = (u64, Arc<Py<PyAny>>);
 
 pub struct InnerResolver {
     pub id_to_type: RwLock<HashMap<StrRef, Type>>,
@@ -213,8 +213,9 @@ impl StaticValue for PythonValue {
                     };
                 }
 
-                let result =
-                    if let Some(def_id) = self.resolver.pyid_to_def.read().get(&ty_id).copied() {
+                let result = {
+                    let pyid_to_def = self.resolver.pyid_to_def.read();
+                    if let Some(def_id) = pyid_to_def.get(&ty_id).copied() {
                         let mut mutable = true;
                         let defs = ctx.top_level.definitions.read();
                         if let TopLevelDef::Class { fields, .. } = &*defs[def_id.0].read() {
@@ -234,8 +235,7 @@ impl StaticValue for PythonValue {
                             let obj = Arc::new(obj.into_py_any(py)?);
                             Some((id, obj))
                         }
-                    } else if let Some(def_id) = self.resolver.pyid_to_def.read().get(&id).copied()
-                    {
+                    } else if let Some(def_id) = pyid_to_def.get(&id).copied() {
                         // Check if self.value is a module
                         let in_mod_ctx =
                             ctx.top_level.definitions.read().get(def_id.0).is_some_and(|def| {
@@ -252,7 +252,8 @@ impl StaticValue for PythonValue {
                         }
                     } else {
                         None
-                    };
+                    }
+                };
 
                 self.resolver.field_to_val.write().insert((self.id, name), result.clone());
                 Ok(result)
@@ -260,7 +261,7 @@ impl StaticValue for PythonValue {
             .unwrap()
         })
         .map(|(id, obj)| {
-            ValueEnum::Static(Arc::new(PythonValue {
+            ValueEnum::Static(Arc::new(Self {
                 id,
                 value: obj,
                 store_obj: self.store_obj.clone(),
@@ -281,7 +282,7 @@ impl StaticValue for PythonValue {
         })
         .unwrap()
         .map(|(id, obj)| {
-            ValueEnum::Static(Arc::new(PythonValue {
+            ValueEnum::Static(Arc::new(Self {
                 id,
                 value: obj,
                 store_obj: self.store_obj.clone(),
@@ -393,9 +394,10 @@ impl InnerResolver {
             Ok(Ok((primitives.option, false)))
         } else if ty_id == self.primitive_ids.artiq.none {
             unreachable!("none cannot be typeid")
-        } else if let Some(def_id) = self.pyid_to_def.read().get(&ty_id).copied() {
-            let def = defs[def_id.0].read();
-            let TopLevelDef::Class { object_id, type_vars, fields, methods, .. } = &*def else {
+        } else if let Some(def_id) = { self.pyid_to_def.read().get(&ty_id).copied() } {
+            let TopLevelDef::Class { object_id, type_vars, fields, methods, .. } =
+                &*defs[def_id.0].read()
+            else {
                 // only object is supported, functions are not supported
                 unreachable!("function type is not supported, should not be queried")
             };
@@ -690,8 +692,7 @@ impl InnerResolver {
         }
 
         // check if constructor function exists in the methods list
-        let pyid_to_def = self.pyid_to_def.read();
-        let constructor_ty = pyid_to_def.get(&py_obj_id).and_then(|def_id| {
+        let constructor_ty = self.pyid_to_def.read().get(&py_obj_id).and_then(|def_id| {
             defs.iter().find_map(|def| {
                 if let Some(rear_guard) = def.try_read()
                     && let TopLevelDef::Class { object_id, methods, constructor, .. } = &*rear_guard
@@ -710,9 +711,8 @@ impl InnerResolver {
             && self.pyid_to_def.read().contains_key(&py_obj_id)
         {
             let def_id = self.pyid_to_def.read()[&py_obj_id];
-            let def = defs[def_id.0].read();
             let TopLevelDef::Module { name: module_name, module_id, classes, functions, .. } =
-                &*def
+                &*defs[def_id.0].read()
             else {
                 unreachable!("must be a module here");
             };
@@ -777,9 +777,8 @@ impl InnerResolver {
             Err(e) => {
                 // Allow access to Class Attributes of Classes without having to initialize Objects
                 if self.pyid_to_def.read().contains_key(&py_obj_id) {
-                    if let Some(def_id) = self.pyid_to_def.read().get(&py_obj_id).copied() {
-                        let def = defs[def_id.0].read();
-                        let TopLevelDef::Class { object_id, .. } = &*def else {
+                    if let Some(def_id) = { self.pyid_to_def.read().get(&py_obj_id).copied() } {
+                        let TopLevelDef::Class { object_id, .. } = &*defs[def_id.0].read() else {
                             // only object is supported, functions are not supported
                             unreachable!("function type is not supported, should not be queried")
                         };
@@ -1452,9 +1451,14 @@ impl InnerResolver {
                 return Ok(Some(global.as_pointer_value().into()));
             }
 
-            let top_level_defs = ctx.top_level.definitions.read();
             let ty = self
-                .get_obj_type(py, obj, &mut ctx.unifier, &top_level_defs, &ctx.primitives)?
+                .get_obj_type(
+                    py,
+                    obj,
+                    &mut ctx.unifier,
+                    &ctx.top_level.definitions.read(),
+                    &ctx.primitives,
+                )?
                 .unwrap();
             let ty =
                 ctx.get_llvm_type(ty).into_pointer_type().get_element_type().into_struct_type();
@@ -1468,9 +1472,12 @@ impl InnerResolver {
                 self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
             // should be classes
-            let definition =
-                top_level_defs.get(self.pyid_to_def.read().get(&ty_id).unwrap().0).unwrap().read();
-            let TopLevelDef::Class { fields, .. } = &*definition else { unreachable!() };
+            let top_level_defs = ctx.top_level.definitions.read();
+            let TopLevelDef::Class { fields, .. } =
+                &*top_level_defs[self.pyid_to_def.read()[&ty_id].0].read()
+            else {
+                unreachable!()
+            };
 
             let values: Result<Option<Vec<_>>, _> = fields
                 .iter()
@@ -1589,33 +1596,32 @@ impl SymbolResolver for Resolver {
                 return Err(format!("cannot find symbol `{str}`"));
             };
 
-            if let Some(t) = {
-                let pyid_to_type = self.0.pyid_to_type.read();
-                pyid_to_type.get(id).copied()
-            } {
-                Ok(t)
-            } else {
-                Python::attach(|py| -> PyResult<Result<Type, String>> {
-                    let obj = self.0.module.bind(py);
-                    let mut sym_ty = Err(format!("cannot find symbol `{str}`"));
-                    let members = obj.getattr("__dict__").unwrap();
-                    let members = members.cast::<PyDict>().unwrap();
-                    for (key, val) in members {
-                        let key: &str = key.extract()?;
-                        if key == str.to_string() {
-                            sym_ty = self.0.get_obj_type(py, &val, unifier, defs, primitives)?;
-                            break;
+            { self.0.pyid_to_type.read().get(id).copied() }.map_or_else(
+                || {
+                    Python::attach(|py| -> PyResult<Result<Type, String>> {
+                        let obj = self.0.module.bind(py);
+                        let mut sym_ty = Err(format!("cannot find symbol `{str}`"));
+                        let members = obj.getattr("__dict__").unwrap();
+                        let members = members.cast::<PyDict>().unwrap();
+                        for (key, val) in members {
+                            let key: &str = key.extract()?;
+                            if key == str.to_string() {
+                                sym_ty =
+                                    self.0.get_obj_type(py, &val, unifier, defs, primitives)?;
+                                break;
+                            }
                         }
-                    }
-                    if let Ok(t) = sym_ty
-                        && let TypeEnum::TVar { .. } = &*unifier.get_ty(t)
-                    {
-                        self.0.pyid_to_type.write().insert(*id, t);
-                    }
-                    Ok(sym_ty)
-                })
-                .unwrap()
-            }
+                        if let Ok(t) = sym_ty
+                            && let TypeEnum::TVar { .. } = &*unifier.get_ty(t)
+                        {
+                            self.0.pyid_to_type.write().insert(*id, t);
+                        }
+                        Ok(sym_ty)
+                    })
+                    .unwrap()
+                },
+                Ok,
+            )
         }
     }
 
@@ -1682,13 +1688,8 @@ impl SymbolResolver for Resolver {
 
     fn get_string_id(&self, s: &str) -> i32 {
         let mut string_store = self.0.string_store.write();
-        if let Some(id) = string_store.get(s) {
-            *id
-        } else {
-            let id = i32::try_from(string_store.len()).unwrap();
-            string_store.insert(s.into(), id);
-            id
-        }
+        let new_id = i32::try_from(string_store.len()).unwrap();
+        *string_store.entry(s.to_string()).or_insert(new_id)
     }
 
     fn handle_deferred_eval(
