@@ -66,18 +66,18 @@ pub struct TypeError {
 
 impl TypeError {
     #[must_use]
-    pub fn new(kind: TypeErrorKind, loc: Option<Location>) -> TypeError {
-        TypeError { kind, loc }
+    pub const fn new(kind: TypeErrorKind, loc: Option<Location>) -> Self {
+        Self { kind, loc }
     }
 
     #[must_use]
-    pub fn at(mut self, loc: Option<Location>) -> TypeError {
+    pub fn at(mut self, loc: Option<Location>) -> Self {
         self.loc = self.loc.or(loc);
         self
     }
 
     #[must_use]
-    pub fn to_display(self, unifier: &Unifier) -> DisplayTypeError<'_> {
+    pub const fn to_display(self, unifier: &Unifier) -> DisplayTypeError<'_> {
         DisplayTypeError { err: self, unifier }
     }
 }
@@ -88,10 +88,7 @@ pub struct DisplayTypeError<'a> {
 }
 
 fn loc_to_str(loc: Option<Location>) -> String {
-    match loc {
-        Some(loc) => format!("(in {loc})"),
-        None => String::new(),
-    }
+    loc.map_or_else(String::new, |loc| format!("(in {loc})"))
 }
 
 impl Display for DisplayTypeError<'_> {

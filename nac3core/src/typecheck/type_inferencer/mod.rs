@@ -45,8 +45,8 @@ pub struct CodeLocation {
 }
 
 impl From<Location> for CodeLocation {
-    fn from(loc: Location) -> CodeLocation {
-        CodeLocation { row: loc.row(), col: loc.column() }
+    fn from(loc: Location) -> Self {
+        Self { row: loc.row(), col: loc.column() }
     }
 }
 
@@ -178,10 +178,9 @@ impl Fold<()> for Inferencer<'_> {
                         node.location,
                     );
                 };
-                let top_level_defs = self.top_level.definitions.read();
                 let builtin_registry = self.top_level.builtin_registry.clone();
                 let annotation_type = self.function_data.resolver.parse_type_annotation(
-                    top_level_defs.as_slice(),
+                    self.top_level.definitions.read().as_slice(),
                     self.unifier,
                     self.primitives,
                     annotation.as_ref(),
@@ -210,7 +209,6 @@ impl Fold<()> for Inferencer<'_> {
                 let mut exception_handlers = Vec::with_capacity(handlers.len());
                 self.in_handler = true;
                 {
-                    let top_level_defs = self.top_level.definitions.read();
                     let builtin_registry = self.top_level.builtin_registry.clone();
                     let mut naive_folder = NaiveFolder();
                     for handler in handlers {
@@ -218,7 +216,7 @@ impl Fold<()> for Inferencer<'_> {
                             handler.node;
                         let type_ = if let Some(type_) = type_ {
                             let typ = self.function_data.resolver.parse_type_annotation(
-                                top_level_defs.as_slice(),
+                                self.top_level.definitions.read().as_slice(),
                                 self.unifier,
                                 self.primitives,
                                 &type_,
@@ -577,22 +575,19 @@ impl Fold<()> for Inferencer<'_> {
                         unreachable!("must be tobj")
                     }
                 } else {
-                    if !self.defined_identifiers.contains(id) {
-                        match self.function_data.resolver.get_symbol_type(
+                    if self.defined_identifiers.insert(*id) {
+                        let value = self.function_data.resolver.get_symbol_type(
                             self.unifier,
                             &self.top_level.definitions.read(),
                             self.primitives,
                             *id,
-                        ) {
-                            Ok(_) => {
-                                self.defined_identifiers.insert(*id);
-                            }
-                            Err(e) => {
-                                return report_error(
-                                    &format!("type error at identifier `{id}` ({e})"),
-                                    expr.location,
-                                );
-                            }
+                        );
+                        if let Err(e) = value {
+                            self.defined_identifiers.remove(id);
+                            return report_error(
+                                &format!("type error at identifier `{id}` ({e})"),
+                                expr.location,
+                            );
                         }
                     }
                     Some(self.infer_identifier(*id)?)
@@ -1784,7 +1779,7 @@ impl Inferencer<'_> {
                 let mut new_value = value.clone();
                 new_value.node = ExprKind::Name { id: "self".into(), ctx: *class_ctx };
                 new_func.node =
-                    ExprKind::Attribute { value: new_value.clone(), attr: *method_name, ctx: *ctx };
+                    ExprKind::Attribute { value: new_value, attr: *method_name, ctx: *ctx };
 
                 let mut new_func = self.fold_expr(new_func)?;
 
@@ -2064,8 +2059,8 @@ impl Inferencer<'_> {
                 let result = {
                     let defs = self.top_level.definitions.read();
                     defs.iter().find_map(|def| {
-                        let rear_guard = def.try_read()?;
-                        let TopLevelDef::Class { name, attributes, methods, .. } = &*rear_guard
+                        let TopLevelDef::Class { name, attributes, methods, .. } =
+                            &*def.try_read()?
                         else {
                             return None;
                         };

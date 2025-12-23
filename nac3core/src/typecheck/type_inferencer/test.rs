@@ -78,7 +78,7 @@ struct TestEnvironment {
 }
 
 impl TestEnvironment {
-    pub fn basic_test_env() -> TestEnvironment {
+    pub fn basic_test_env() -> Self {
         let mut unifier = Unifier::new();
 
         let int32 = unifier.add_ty(TypeEnum::TObj {
@@ -202,7 +202,7 @@ impl TestEnvironment {
             id_to_def: HashMap::default(),
         }) as Arc<dyn SymbolResolver + Send + Sync>;
 
-        TestEnvironment {
+        Self {
             top_level: TopLevelContext {
                 definitions: Arc::default(),
                 unifiers: Arc::default(),
@@ -223,7 +223,7 @@ impl TestEnvironment {
         }
     }
 
-    fn new() -> TestEnvironment {
+    fn new() -> Self {
         let mut unifier = Unifier::new();
         let mut identifier_mapping = HashMap::new();
         let mut top_level_defs: Vec<Arc<RwLock<TopLevelDef>>> = Vec::new();
@@ -508,7 +508,7 @@ impl TestEnvironment {
             .into(),
         }) as Arc<dyn SymbolResolver + Send + Sync>;
 
-        TestEnvironment {
+        Self {
             unifier,
             top_level,
             function_data: FunctionData {

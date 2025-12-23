@@ -40,14 +40,14 @@ pub struct Binop {
 impl Binop {
     /// Make a [`Binop`] of the normal variant from an [`Operator`].
     #[must_use]
-    pub fn normal(base: Operator) -> Self {
-        Binop { base, variant: BinopVariant::Normal }
+    pub const fn normal(base: Operator) -> Self {
+        Self { base, variant: BinopVariant::Normal }
     }
 
     /// Make a [`Binop`] of the aug assign variant from an [`Operator`].
     #[must_use]
-    pub fn aug_assign(base: Operator) -> Self {
-        Binop { base, variant: BinopVariant::AugAssign }
+    pub const fn aug_assign(base: Operator) -> Self {
+        Self { base, variant: BinopVariant::AugAssign }
     }
 }
 
@@ -77,7 +77,7 @@ pub trait HasOpInfo {
     fn op_info(&self) -> OpInfo;
 }
 
-fn try_get_cmpop_info(op: Cmpop) -> Option<OpInfo> {
+const fn try_get_cmpop_info(op: Cmpop) -> Option<OpInfo> {
     match op {
         Cmpop::Lt => Some(make_op_info!("lt", "<")),
         Cmpop::LtE => Some(make_op_info!("le", "<=")),
@@ -91,7 +91,7 @@ fn try_get_cmpop_info(op: Cmpop) -> Option<OpInfo> {
 
 impl OpInfo {
     #[must_use]
-    pub fn supports_cmpop(op: Cmpop) -> bool {
+    pub const fn supports_cmpop(op: Cmpop) -> bool {
         try_get_cmpop_info(op).is_some()
     }
 }
@@ -141,10 +141,10 @@ impl HasOpInfo for Binop {
 impl HasOpInfo for Unaryop {
     fn op_info(&self) -> OpInfo {
         match self {
-            Unaryop::UAdd => make_op_info!("pos", "+"),
-            Unaryop::USub => make_op_info!("neg", "-"),
-            Unaryop::Not => make_op_info!("not", "not"), // i.e., `not False`, so the symbol is just `not`.
-            Unaryop::Invert => make_op_info!("inv", "~"),
+            Self::UAdd => make_op_info!("pos", "+"),
+            Self::USub => make_op_info!("neg", "-"),
+            Self::Not => make_op_info!("not", "not"), // i.e., `not False`, so the symbol is just `not`.
+            Self::Invert => make_op_info!("inv", "~"),
         }
     }
 }
@@ -236,11 +236,9 @@ pub fn impl_cmpop(
             (tvar.ty, Some(tvar.id))
         };
 
-        let function_vars = if let Some(var_id) = other_var_id {
+        let function_vars = other_var_id.map_or_else(VarMap::new, |var_id| {
             vec![(var_id, other_ty)].into_iter().collect::<VarMap>()
-        } else {
-            VarMap::new()
-        };
+        });
 
         let ret_ty = ret_ty.unwrap_or_else(|| unifier.get_fresh_var(None, None).ty);
 

@@ -29,41 +29,44 @@ pub enum TypeAnnotation {
     CustomClass {
         id: DefinitionId,
         // params can also be type var
-        params: Vec<TypeAnnotation>,
+        params: Vec<Self>,
     },
     // can only be CustomClassKind
-    Virtual(Box<TypeAnnotation>),
+    Virtual(Box<Self>),
     TypeVar(Type),
     /// A `Literal` allowing a subset of literals.
     Literal(Vec<Constant>),
-    Tuple(Vec<TypeAnnotation>),
+    Tuple(Vec<Self>),
 }
 
 impl TypeAnnotation {
     pub fn stringify(&self, unifier: &mut Unifier) -> String {
         match self {
-            TypeAnnotation::Primitive(ty) | TypeAnnotation::TypeVar(ty) => unifier.stringify(*ty),
-            TypeAnnotation::CustomClass { id, params } => {
-                let class_name = if let Some(ref top) = unifier.top_level {
-                    if let TopLevelDef::Class { name, .. } = &*top.definitions.read()[id.0].read() {
-                        (*name).into()
-                    } else {
-                        unreachable!()
-                    }
-                } else {
-                    format!("class_def_{}", id.0)
-                };
+            Self::Primitive(ty) | Self::TypeVar(ty) => unifier.stringify(*ty),
+            Self::CustomClass { id, params } => {
+                let class_name = unifier.top_level.as_ref().map_or_else(
+                    || format!("class_def_{}", id.0),
+                    |top| {
+                        if let TopLevelDef::Class { name, .. } =
+                            &*top.definitions.read()[id.0].read()
+                        {
+                            (*name).into()
+                        } else {
+                            unreachable!()
+                        }
+                    },
+                );
                 format!("{}{}", class_name, {
                     let param_list =
                         params.iter().map(|p| p.stringify(unifier)).collect_vec().join(", ");
                     if param_list.is_empty() { String::new() } else { format!("[{param_list}]") }
                 })
             }
-            TypeAnnotation::Literal(values) => {
+            Self::Literal(values) => {
                 format!("Literal({})", values.iter().map(|v| format!("{v:?}")).join(", "))
             }
-            TypeAnnotation::Virtual(ty) => format!("virtual[{}]", ty.stringify(unifier)),
-            TypeAnnotation::Tuple(types) => {
+            Self::Virtual(ty) => format!("virtual[{}]", ty.stringify(unifier)),
+            Self::Tuple(types) => {
                 format!(
                     "tuple[{}]",
                     types.iter().map(|p| p.stringify(unifier)).collect_vec().join(", ")
@@ -583,8 +586,8 @@ pub fn get_type_from_type_annotation_kinds(
 ) -> Result<Type, HashSet<String>> {
     match ann {
         TypeAnnotation::CustomClass { id: obj_id, params } => {
-            let def_read = top_level_defs[obj_id.0].read();
-            let class_def: &TopLevelDef = &def_read;
+            // let def_read = top_level_defs[obj_id.0].read();
+            let class_def: &TopLevelDef = &top_level_defs[obj_id.0].read();
             let TopLevelDef::Class { fields, methods, type_vars, .. } = class_def else {
                 unreachable!("should be class def here")
             };

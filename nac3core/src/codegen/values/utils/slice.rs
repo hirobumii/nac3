@@ -205,7 +205,7 @@ impl<'ctx> RustSlice<'ctx> {
         lower: &Option<Box<Expr<Option<Type>>>>,
         upper: &Option<Box<Expr<Option<Type>>>>,
         step: &Option<Box<Expr<Option<Type>>>>,
-    ) -> Result<RustSlice<'ctx>, String> {
+    ) -> Result<Self, String> {
         let mut value_mapper = |value_expr: &Option<Box<Expr<Option<Type>>>>| -> Result<_, String> {
             Ok(match value_expr {
                 None => None,

@@ -33,8 +33,8 @@ pub enum SymbolValue {
     Str(String),
     Double(f64),
     Bool(bool),
-    Tuple(Vec<SymbolValue>),
-    OptionSome(Box<SymbolValue>),
+    Tuple(Vec<Self>),
+    OptionSome(Box<Self>),
     OptionNone,
 }
 
@@ -52,34 +52,34 @@ impl SymbolValue {
         match constant {
             Constant::None => {
                 if unifier.unioned(expected_ty, primitives.option) {
-                    Ok(SymbolValue::OptionNone)
+                    Ok(Self::OptionNone)
                 } else {
                     Err(format!("Expected {expected_ty:?}, but got Option"))
                 }
             }
             Constant::Bool(b) => {
                 if unifier.unioned(expected_ty, primitives.bool) {
-                    Ok(SymbolValue::Bool(*b))
+                    Ok(Self::Bool(*b))
                 } else {
                     Err(format!("Expected {expected_ty:?}, but got bool"))
                 }
             }
             Constant::Str(s) => {
                 if unifier.unioned(expected_ty, primitives.str) {
-                    Ok(SymbolValue::Str(s.to_string()))
+                    Ok(Self::Str(s.clone()))
                 } else {
                     Err(format!("Expected {expected_ty:?}, but got str"))
                 }
             }
             Constant::Int(i) => {
                 if unifier.unioned(expected_ty, primitives.int32) {
-                    i32::try_from(*i).map(SymbolValue::I32).map_err(|e| e.to_string())
+                    i32::try_from(*i).map(Self::I32).map_err(|e| e.to_string())
                 } else if unifier.unioned(expected_ty, primitives.int64) {
-                    i64::try_from(*i).map(SymbolValue::I64).map_err(|e| e.to_string())
+                    i64::try_from(*i).map(Self::I64).map_err(|e| e.to_string())
                 } else if unifier.unioned(expected_ty, primitives.uint32) {
-                    u32::try_from(*i).map(SymbolValue::U32).map_err(|e| e.to_string())
+                    u32::try_from(*i).map(Self::U32).map_err(|e| e.to_string())
                 } else if unifier.unioned(expected_ty, primitives.uint64) {
-                    u64::try_from(*i).map(SymbolValue::U64).map_err(|e| e.to_string())
+                    u64::try_from(*i).map(Self::U64).map_err(|e| e.to_string())
                 } else {
                     Err(format!("Expected {}, but got int", unifier.stringify(expected_ty)))
                 }
@@ -99,12 +99,12 @@ impl SymbolValue {
                     .iter()
                     .zip(ty)
                     .map(|(constant, ty)| Self::from_constant(constant, *ty, primitives, unifier))
-                    .collect::<Result<Vec<SymbolValue>, _>>()?;
-                Ok(SymbolValue::Tuple(elems))
+                    .collect::<Result<Vec<Self>, _>>()?;
+                Ok(Self::Tuple(elems))
             }
             Constant::Float(f) => {
                 if unifier.unioned(expected_ty, primitives.float) {
-                    Ok(SymbolValue::Double(*f))
+                    Ok(Self::Double(*f))
                 } else {
                     Err(format!("Expected {expected_ty:?}, but got float"))
                 }
@@ -118,35 +118,33 @@ impl SymbolValue {
     /// * `constant` - The constant to create the value from.
     pub fn from_constant_inferred(constant: &Constant) -> Result<Self, String> {
         match constant {
-            Constant::None => Ok(SymbolValue::OptionNone),
-            Constant::Bool(b) => Ok(SymbolValue::Bool(*b)),
-            Constant::Str(s) => Ok(SymbolValue::Str(s.to_string())),
+            Constant::None => Ok(Self::OptionNone),
+            Constant::Bool(b) => Ok(Self::Bool(*b)),
+            Constant::Str(s) => Ok(Self::Str(s.clone())),
             Constant::Int(i) => {
                 let i = *i;
                 if i >= 0 {
                     i32::try_from(i)
-                        .map(SymbolValue::I32)
-                        .or_else(|_| i64::try_from(i).map(SymbolValue::I64))
+                        .map(Self::I32)
+                        .or_else(|_| i64::try_from(i).map(Self::I64))
                         .map_err(|_| {
                             format!("Literal cannot be expressed as any integral type: {i}")
                         })
                 } else {
                     u32::try_from(i)
-                        .map(SymbolValue::U32)
-                        .or_else(|_| u64::try_from(i).map(SymbolValue::U64))
+                        .map(Self::U32)
+                        .or_else(|_| u64::try_from(i).map(Self::U64))
                         .map_err(|_| {
                             format!("Literal cannot be expressed as any integral type: {i}")
                         })
                 }
             }
             Constant::Tuple(t) => {
-                let elems = t
-                    .iter()
-                    .map(Self::from_constant_inferred)
-                    .collect::<Result<Vec<SymbolValue>, _>>()?;
-                Ok(SymbolValue::Tuple(elems))
+                let elems =
+                    t.iter().map(Self::from_constant_inferred).collect::<Result<Vec<Self>, _>>()?;
+                Ok(Self::Tuple(elems))
             }
-            Constant::Float(f) => Ok(SymbolValue::Double(*f)),
+            Constant::Float(f) => Ok(Self::Double(*f)),
             _ => Err(format!("Unsupported value type {constant:?}")),
         }
     }
@@ -154,18 +152,18 @@ impl SymbolValue {
     /// Returns the [`Type`] representing the data type of this value.
     pub fn get_type(&self, primitives: &PrimitiveStore, unifier: &mut Unifier) -> Type {
         match self {
-            SymbolValue::I32(_) => primitives.int32,
-            SymbolValue::I64(_) => primitives.int64,
-            SymbolValue::U32(_) => primitives.uint32,
-            SymbolValue::U64(_) => primitives.uint64,
-            SymbolValue::Str(_) => primitives.str,
-            SymbolValue::Double(_) => primitives.float,
-            SymbolValue::Bool(_) => primitives.bool,
-            SymbolValue::Tuple(vs) => {
+            Self::I32(_) => primitives.int32,
+            Self::I64(_) => primitives.int64,
+            Self::U32(_) => primitives.uint32,
+            Self::U64(_) => primitives.uint64,
+            Self::Str(_) => primitives.str,
+            Self::Double(_) => primitives.float,
+            Self::Bool(_) => primitives.bool,
+            Self::Tuple(vs) => {
                 let vs_tys = vs.iter().map(|v| v.get_type(primitives, unifier)).collect::<Vec<_>>();
                 unifier.add_ty(TypeEnum::TTuple { ty: vs_tys, is_vararg_ctx: false })
             }
-            SymbolValue::OptionSome(_) | SymbolValue::OptionNone => primitives.option,
+            Self::OptionSome(_) | Self::OptionNone => primitives.option,
         }
     }
 
@@ -176,25 +174,25 @@ impl SymbolValue {
         unifier: &mut Unifier,
     ) -> TypeAnnotation {
         match self {
-            SymbolValue::Bool(..)
-            | SymbolValue::Double(..)
-            | SymbolValue::I32(..)
-            | SymbolValue::I64(..)
-            | SymbolValue::U32(..)
-            | SymbolValue::U64(..)
-            | SymbolValue::Str(..) => TypeAnnotation::Primitive(self.get_type(primitives, unifier)),
-            SymbolValue::Tuple(vs) => {
+            Self::Bool(..)
+            | Self::Double(..)
+            | Self::I32(..)
+            | Self::I64(..)
+            | Self::U32(..)
+            | Self::U64(..)
+            | Self::Str(..) => TypeAnnotation::Primitive(self.get_type(primitives, unifier)),
+            Self::Tuple(vs) => {
                 let vs_tys = vs
                     .iter()
                     .map(|v| v.get_type_annotation(primitives, unifier))
                     .collect::<Vec<_>>();
                 TypeAnnotation::Tuple(vs_tys)
             }
-            SymbolValue::OptionNone => TypeAnnotation::CustomClass {
+            Self::OptionNone => TypeAnnotation::CustomClass {
                 id: primitives.option.obj_id(unifier).unwrap(),
                 params: Vec::default(),
             },
-            SymbolValue::OptionSome(v) => {
+            Self::OptionSome(v) => {
                 let ty = v.get_type_annotation(primitives, unifier);
                 TypeAnnotation::CustomClass {
                     id: primitives.option.obj_id(unifier).unwrap(),
@@ -218,24 +216,24 @@ impl SymbolValue {
 impl Display for SymbolValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SymbolValue::I32(i) => write!(f, "{i}"),
-            SymbolValue::I64(i) => write!(f, "int64({i})"),
-            SymbolValue::U32(i) => write!(f, "uint32({i})"),
-            SymbolValue::U64(i) => write!(f, "uint64({i})"),
-            SymbolValue::Str(s) => write!(f, "\"{s}\""),
-            SymbolValue::Double(d) => write!(f, "{d}"),
-            SymbolValue::Bool(b) => {
+            Self::I32(i) => write!(f, "{i}"),
+            Self::I64(i) => write!(f, "int64({i})"),
+            Self::U32(i) => write!(f, "uint32({i})"),
+            Self::U64(i) => write!(f, "uint64({i})"),
+            Self::Str(s) => write!(f, "\"{s}\""),
+            Self::Double(d) => write!(f, "{d}"),
+            Self::Bool(b) => {
                 if *b {
                     write!(f, "True")
                 } else {
                     write!(f, "False")
                 }
             }
-            SymbolValue::Tuple(t) => {
+            Self::Tuple(t) => {
                 write!(f, "({})", t.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", "))
             }
-            SymbolValue::OptionSome(v) => write!(f, "Some({v})"),
-            SymbolValue::OptionNone => write!(f, "none"),
+            Self::OptionSome(v) => write!(f, "Some({v})"),
+            Self::OptionNone => write!(f, "none"),
         }
     }
 }
@@ -247,9 +245,9 @@ impl TryFrom<SymbolValue> for u64 {
     /// numeric or if the value cannot be converted into a `u64` without overflow.
     fn try_from(value: SymbolValue) -> Result<Self, Self::Error> {
         match value {
-            SymbolValue::I32(v) => u64::try_from(v).map_err(|_| ()),
-            SymbolValue::I64(v) => u64::try_from(v).map_err(|_| ()),
-            SymbolValue::U32(v) => Ok(u64::from(v)),
+            SymbolValue::I32(v) => Self::try_from(v).map_err(|_| ()),
+            SymbolValue::I64(v) => Self::try_from(v).map_err(|_| ()),
+            SymbolValue::U32(v) => Ok(Self::from(v)),
             SymbolValue::U64(v) => Ok(v),
             _ => Err(()),
         }
@@ -263,10 +261,10 @@ impl TryFrom<SymbolValue> for i128 {
     /// numeric.
     fn try_from(value: SymbolValue) -> Result<Self, Self::Error> {
         match value {
-            SymbolValue::I32(v) => Ok(i128::from(v)),
-            SymbolValue::I64(v) => Ok(i128::from(v)),
-            SymbolValue::U32(v) => Ok(i128::from(v)),
-            SymbolValue::U64(v) => Ok(i128::from(v)),
+            SymbolValue::I32(v) => Ok(Self::from(v)),
+            SymbolValue::I64(v) => Ok(Self::from(v)),
+            SymbolValue::U32(v) => Ok(Self::from(v)),
+            SymbolValue::U64(v) => Ok(Self::from(v)),
             _ => Err(()),
         }
     }

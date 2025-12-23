@@ -1,3 +1,7 @@
+#![deny(clippy::all)]
+#![warn(clippy::cargo, clippy::pedantic, clippy::nursery)]
+#![allow(clippy::cargo_common_metadata)]
+
 use std::{
     env,
     fs::File,
@@ -9,6 +13,10 @@ use std::{
 use regex::Regex;
 
 fn main() {
+    // For debugging
+    // Doing `DEBUG_DUMP_IRRT=1 cargo build -p nac3core` dumps the LLVM IR generated
+    const DEBUG_DUMP_IRRT: &str = "DEBUG_DUMP_IRRT";
+
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_dir = Path::new(&out_dir);
     let irrt_dir = Path::new("irrt");
@@ -88,9 +96,6 @@ fn main() {
         .unwrap()
         .replace_all(&filtered_output, "");
 
-    // For debugging
-    // Doing `DEBUG_DUMP_IRRT=1 cargo build -p nac3core` dumps the LLVM IR generated
-    const DEBUG_DUMP_IRRT: &str = "DEBUG_DUMP_IRRT";
     println!("cargo:rerun-if-env-changed={DEBUG_DUMP_IRRT}");
     if env::var(DEBUG_DUMP_IRRT).is_ok() {
         let mut file = File::create(out_dir.join("irrt.ll")).unwrap();

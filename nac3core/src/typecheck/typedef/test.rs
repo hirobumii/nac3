@@ -84,7 +84,7 @@ struct TestEnvironment {
 }
 
 impl TestEnvironment {
-    fn new() -> TestEnvironment {
+    fn new() -> Self {
         let mut unifier = Unifier::new();
         let mut type_mapping = HashMap::new();
 
@@ -131,7 +131,7 @@ impl TestEnvironment {
             }),
         );
 
-        TestEnvironment { unifier, type_mapping }
+        Self { unifier, type_mapping }
     }
 
     fn parse(&mut self, typ: &str, mapping: &Mapping<String>) -> Type {

@@ -179,7 +179,7 @@ fn test_primitives() {
         definitions: Arc::new(RwLock::new(std::mem::take(&mut *top_level.definitions.write()))),
         unifiers: Arc::new(RwLock::new(vec![(unifier.get_shared_unifier(), primitives)])),
         personality_symbol: None,
-        builtin_registry: builtin_registry.clone(),
+        builtin_registry,
     });
 
     let task = CodeGenTask {
@@ -329,7 +329,7 @@ fn test_simple_call() {
         definitions: Arc::new(RwLock::new(std::mem::take(&mut *top_level.definitions.write()))),
         unifiers: Arc::new(RwLock::new(vec![(unifier.get_shared_unifier(), primitives)])),
         personality_symbol: None,
-        builtin_registry: builtin_registry.clone(),
+        builtin_registry,
     });
 
     let task = CodeGenTask {

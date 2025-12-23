@@ -88,6 +88,22 @@ pub struct StaticValueStore {
     pub store: Vec<HashMap<usize, Arc<dyn StaticValue + Send + Sync>>>,
 }
 
+impl StaticValueStore {
+    /// Returns the [`StaticValue`] instance corresponding to `ids`, inserting a new entry if the
+    /// entry does not exist.
+    pub fn get_or_insert<F: FnOnce() -> HashMap<usize, Arc<dyn StaticValue + Send + Sync>>>(
+        &mut self,
+        ids: Vec<(usize, u64)>,
+        static_params: F,
+    ) -> usize {
+        *self.lookup.entry(ids).or_insert_with(|| {
+            let index = self.store.len();
+            self.store.push(static_params());
+            index
+        })
+    }
+}
+
 pub type VarValue<'ctx> = (PointerValue<'ctx>, Option<Arc<dyn StaticValue + Send + Sync>>, i64);
 
 /// Additional options for LLVM during codegen.
@@ -131,8 +147,8 @@ impl TargetMachineOptions {
     /// Creates an instance of [`CodeGenTargetMachineOptions`] using the triple of the host machine.
     /// Other options are set to defaults.
     #[must_use]
-    pub fn from_host_triple(level: OptimizationLevel) -> TargetMachineOptions {
-        TargetMachineOptions {
+    pub fn from_host_triple(level: OptimizationLevel) -> Self {
+        Self {
             triple: TargetMachine::get_default_triple().as_str().to_string_lossy().into_owned(),
             cpu: String::default(),
             features: String::default(),
@@ -145,11 +161,11 @@ impl TargetMachineOptions {
     /// Creates an instance of [`CodeGenTargetMachineOptions`] using the properties of the host
     /// machine. Other options are set to defaults.
     #[must_use]
-    pub fn from_host(level: OptimizationLevel) -> TargetMachineOptions {
-        TargetMachineOptions {
+    pub fn from_host(level: OptimizationLevel) -> Self {
+        Self {
             cpu: TargetMachine::get_host_cpu_name().to_string(),
             features: TargetMachine::get_host_cpu_features().to_string(),
-            ..TargetMachineOptions::from_host_triple(level)
+            ..Self::from_host_triple(level)
         }
     }
 
@@ -262,8 +278,8 @@ pub struct WithCall {
 
 impl WithCall {
     #[must_use]
-    pub fn new(fp: Fp) -> WithCall {
-        WithCall { fp }
+    pub fn new(fp: Fp) -> Self {
+        Self { fp }
     }
 
     pub fn run(&self, m: &Module) {
@@ -299,7 +315,7 @@ impl WorkerRegistry {
         top_level_ctx: Arc<TopLevelContext>,
         codegen_options: &CodeGenOptions,
         f: &Arc<WithCall>,
-    ) -> (Arc<WorkerRegistry>, Vec<thread::JoinHandle<()>>) {
+    ) -> (Arc<Self>, Vec<thread::JoinHandle<()>>) {
         let (sender, receiver) = unbounded();
         let task_count = Mutex::new(0);
         let wait_condvar = Condvar::new();
@@ -309,7 +325,7 @@ impl WorkerRegistry {
         static_value_store.lookup.insert(Vec::default(), 0);
         static_value_store.store.push(HashMap::default());
 
-        let registry = Arc::new(WorkerRegistry {
+        let registry = Arc::new(Self {
             sender: Arc::new(sender),
             receiver: Arc::new(receiver),
             thread_count: generators.len(),
@@ -436,8 +452,7 @@ impl WorkerRegistry {
         }
 
         f.run(&context.module);
-        let mut lock = self.task_count.lock();
-        *lock += 1;
+        *self.task_count.lock() += 1;
         self.wait_condvar.notify_all();
     }
 }
@@ -518,15 +533,12 @@ fn get_llvm_type<'ctx>(
                 }
                 // a struct with fields in the order of declaration
                 let top_level_defs = top_level.definitions.read();
-                let definition = top_level_defs.get(obj_id.0).unwrap();
-                let TopLevelDef::Class { fields: fields_list, .. } = &*definition.read() else {
+                let TopLevelDef::Class { fields: fields_list, .. } = &*top_level_defs[obj_id.0].read() else {
                     unreachable!()
                 };
 
                 let name = unifier.stringify(ty);
-                let ty = if let Some(t) = ctx.module.get_struct_type(&name) {
-                    t.ptr_type(AddressSpace::default()).into()
-                } else {
+                let ty = ctx.module.get_struct_type(&name).unwrap_or_else(|| {
                     let struct_type = ctx.ctx.opaque_struct_type(&name);
                     type_cache.insert(
                         unifier.get_representative(ty),
@@ -545,8 +557,8 @@ fn get_llvm_type<'ctx>(
                         })
                         .collect_vec();
                     struct_type.set_body(&fields, false);
-                    struct_type.ptr_type(AddressSpace::default()).into()
-                };
+                    struct_type
+                }).ptr_type(AddressSpace::default()).into();
                 return ty;
             }
             TypeEnum::TTuple { ty, is_vararg_ctx } => {

@@ -113,7 +113,7 @@ impl<'ctx> SliceType<'ctx> {
     }
 
     #[must_use]
-    pub fn element_type(&self) -> IntType<'ctx> {
+    pub const fn element_type(&self) -> IntType<'ctx> {
         self.int_ty
     }
 

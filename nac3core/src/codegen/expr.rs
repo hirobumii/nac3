@@ -78,7 +78,7 @@ impl<'ctx> RtValue<'ctx> {
         Self { ty, val: Some(val.into()) }
     }
     #[must_use]
-    pub fn none(none: Type) -> Self {
+    pub const fn none(none: Type) -> Self {
         Self { ty: none, val: None }
     }
     pub fn to_basic_value_enum(
@@ -164,12 +164,13 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         };
         let def = &self.top_level.definitions.read()[obj_id.0];
         let (index, value) = if let TopLevelDef::Class { fields, attributes, .. } = &*def.read() {
-            if let Some(field_index) = fields.iter().find_position(|x| x.0 == attr) {
-                (field_index.0, None)
-            } else {
-                let attribute_index = attributes.iter().find_position(|x| x.0 == attr).unwrap();
-                (attribute_index.0, Some(attribute_index.1.2.clone()))
-            }
+            fields.iter().find_position(|x| x.0 == attr).map_or_else(
+                || {
+                    let attribute_index = attributes.iter().find_position(|x| x.0 == attr).unwrap();
+                    (attribute_index.0, Some(attribute_index.1.2.clone()))
+                },
+                |field_index| (field_index.0, None),
+            )
         } else {
             codegen_unreachable!(self)
         };
@@ -289,7 +290,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                         .construct_constant(self, v, None)
                         .as_abi_value(self)
                         .into();
-                    self.const_strings.insert(v.to_string(), val);
+                    self.const_strings.insert(v.clone(), val);
                     Some(val)
                 }
             }
@@ -467,30 +468,36 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
 
         let alloca = |ty| gen_var(self, ty, Some(call_name)).unwrap();
 
-        if let Some(target) = unwind_target {
-            let current = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-            let then_block = self.ctx.append_basic_block(current, &format!("after.{call_name}"));
-            let result = self.fn_store.do_call(
-                fun,
-                &self.builder,
-                args,
-                |value, args| {
-                    self.builder.build_invoke(value, args, then_block, target, call_name).unwrap()
-                },
-                alloca,
-            );
-            self.builder.position_at_end(then_block);
-            result
-        } else {
-            let args: Vec<_> = args.iter().map(|v| (*v).into()).collect();
-            self.fn_store.do_call(
-                fun,
-                &self.builder,
-                &args,
-                |value, args| self.builder.build_call(value, args, call_name).unwrap(),
-                alloca,
-            )
-        }
+        unwind_target.map_or_else(
+            || {
+                let args: Vec<_> = args.iter().map(|v| (*v).into()).collect();
+                self.fn_store.do_call(
+                    fun,
+                    &self.builder,
+                    &args,
+                    |value, args| self.builder.build_call(value, args, call_name).unwrap(),
+                    alloca,
+                )
+            },
+            |target| {
+                let current = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let then_block =
+                    self.ctx.append_basic_block(current, &format!("after.{call_name}"));
+                let result = self.fn_store.do_call(
+                    fun,
+                    &self.builder,
+                    args,
+                    |value, args| {
+                        self.builder
+                            .build_invoke(value, args, then_block, target, call_name)
+                            .unwrap()
+                    },
+                    alloca,
+                );
+                self.builder.position_at_end(then_block);
+                result
+            },
+        )
     }
 
     /// Calls a declared function.
@@ -773,14 +780,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                         .map(|(i, v)| (*i, v.get_unique_identifier()))
                         .collect_vec();
                     let mut store = ctx.static_value_store.lock();
-                    if let Some(index) = store.lookup.get(&ids) {
-                        *index
-                    } else {
-                        let length = store.store.len();
-                        store.lookup.insert(ids, length);
-                        store.store.push(static_params.into_iter().collect());
-                        length
-                    }
+                    store.get_or_insert(ids, || static_params.into_iter().collect())
                 };
                 is_extern = instance_to_stmt.is_empty();
                 // special case: extern functions
@@ -1260,9 +1260,10 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             }
         };
 
+        let left = left.to_ndarray(ctx);
+        let right = right.to_ndarray(ctx);
+
         if op.base == Operator::MatMult {
-            let left = left.to_ndarray(ctx);
-            let right = right.to_ndarray(ctx);
             let result =
                 left.matmul(ctx, ty1, (ty2, right), (common_dtype, out)).split_unsized(ctx);
             Ok(result.to_basic_value_enum())
@@ -1276,9 +1277,6 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             //
             // For all cases, the scalar operand is promoted to an ndarray,
             // the two are then broadcasted, and starmapped through.
-
-            let left = left.to_ndarray(ctx);
-            let right = right.to_ndarray(ctx);
 
             let result = NDArrayType::new_broadcast(
                 ctx,
@@ -1338,8 +1336,9 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
         };
         let fun_id = {
             let defs = ctx.top_level.definitions.read();
-            let obj_def = defs.get(id.0).unwrap().read();
-            let TopLevelDef::Class { methods, .. } = &*obj_def else { codegen_unreachable!(ctx) };
+            let TopLevelDef::Class { methods, .. } = &*defs[id.0].read() else {
+                codegen_unreachable!(ctx)
+            };
 
             methods.iter().find(|method| method.0 == op_name).unwrap().2
         };
@@ -2088,8 +2087,7 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
     // Change Class attribute access requests to accessing constants from Class Definition
     if let Some(c) = value.custom {
         if let TypeEnum::TFunc(_) = &*ctx.unifier.get_ty(c) {
-            let defs = ctx.top_level.definitions.read();
-            let result = defs.iter().find_map(|def| {
+            let result = ctx.top_level.definitions.read().iter().find_map(|def| {
                 if let Some(rear_guard) = def.try_read()
                     && let TopLevelDef::Class { constructor: Some(constructor), attributes, .. } =
                         &*rear_guard
@@ -2115,9 +2113,7 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
             && params.is_empty()
         {
             let defs = ctx.top_level.definitions.read();
-            let def = defs[obj_id.0].read();
-            let temp_def = &*def;
-            let TopLevelDef::Class { attributes, .. } = temp_def else {
+            let TopLevelDef::Class { attributes, .. } = &*defs[obj_id.0].read() else {
                 codegen_unreachable!(ctx);
             };
             let Some(val) = attributes.iter().find(|f| f.0 == attr).map(|f| f.2.clone()) else {
@@ -2313,7 +2309,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                 .get_identifier_def(*id)
                 .map_err(|e| format!("{} (at {})", e.iter().next().unwrap(), func.location))?;
             let ret_val = generator.gen_call(ctx, None, (&signature, fun), params)?;
-            Ok(if let Some(val) = ret_val { RtValue::dynamic(ty, val) } else { RtValue::none(ty) })
+            Ok(ret_val.map_or_else(|| RtValue::none(ty), |val| RtValue::dynamic(ty, val)))
         }
         ExprKind::Attribute { value, attr, .. } => {
             // Handle Class Method calls
@@ -2340,16 +2336,14 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
             let fun_id = if let Ok(func_id) = func_id {
                 DefinitionId(func_id)
             } else {
-                let defs = ctx.top_level.definitions.read();
-                let obj_def = defs.get(id.0).unwrap().read();
-                match &*obj_def {
+                match &*ctx.top_level.definitions.read()[id.0].read() {
                     TopLevelDef::Class { methods, .. } => {
                         let fun_id = methods.iter().find(|method| method.0 == *attr).unwrap().2;
 
                         // A method call on a class instance could still be to a static method
                         // so we check if the function has been annotated as static
                         let is_static_method = if let TopLevelDef::Function { attributes, .. } =
-                            &*defs[fun_id.0].read()
+                            &*ctx.top_level.definitions.read()[fun_id.0].read()
                         {
                             attributes.contains(&FunAttribute::StaticMethod)
                         } else {
@@ -2369,11 +2363,9 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
             if is_static {
                 ctx.current_loc = expr.location;
                 let ret_val = generator.gen_call(ctx, None, (&signature, fun_id), params)?;
-                return Ok(if let Some(val) = ret_val {
-                    RtValue::dynamic(ty, val)
-                } else {
-                    RtValue::none(ty)
-                });
+                return Ok(
+                    ret_val.map_or_else(|| RtValue::none(ty), |val| RtValue::dynamic(ty, val))
+                );
             }
 
             let val = generator.gen_expr(ctx, value)?.val.unwrap();
@@ -2441,7 +2433,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
 
             let ret_val =
                 generator.gen_call(ctx, Some((key, val)), (&signature, fun_id), params)?;
-            Ok(if let Some(val) = ret_val { RtValue::dynamic(ty, val) } else { RtValue::none(ty) })
+            Ok(ret_val.map_or_else(|| RtValue::none(ty), |val| RtValue::dynamic(ty, val)))
         }
         _ => unimplemented!(),
     }
@@ -2608,10 +2600,9 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
     let ty = expr.custom.expect("expressions always have a well-defined type");
 
     match &expr.node {
-        ExprKind::Constant { value, .. } => match ctx.gen_const(value, ty) {
-            Some(const_val) => Ok(RtValue::dynamic(ty, const_val)),
-            None => Ok(RtValue::none(ty)),
-        },
+        ExprKind::Constant { value, .. } => ctx
+            .gen_const(value, ty)
+            .map_or_else(|| Ok(RtValue::none(ty)), |const_val| Ok(RtValue::dynamic(ty, const_val))),
         ExprKind::Name { id, .. } if id == &"none".into() => match &*ctx.unifier.get_ty(ty) {
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
@@ -2658,13 +2649,8 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
         ExprKind::Subscript { value, slice, .. } => {
             gen_subscript_expr(generator, ctx, ty, expr, value, slice)
         }
-        ExprKind::ListComp { .. } => {
-            if let Some(v) = gen_comprehension(generator, ctx, expr)? {
-                Ok(RtValue::dynamic(ty, v))
-            } else {
-                Ok(RtValue::none(ty))
-            }
-        }
+        ExprKind::ListComp { .. } => (gen_comprehension(generator, ctx, expr)?)
+            .map_or_else(|| Ok(RtValue::none(ty)), |v| Ok(RtValue::dynamic(ty, v))),
         _ => unimplemented!(),
     }
 }

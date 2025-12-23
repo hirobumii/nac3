@@ -184,7 +184,7 @@ impl PrimDef {
     /// The assigned definition ID is defined by the position this [`PrimDef`] enum unit variant is defined at,
     /// with the first `PrimDef`'s definition id being `0`.
     #[must_use]
-    pub fn id(&self) -> DefinitionId {
+    pub const fn id(&self) -> DefinitionId {
         DefinitionId(*self as usize)
     }
 
@@ -236,142 +236,142 @@ impl PrimDef {
 
         match self {
             // Classes
-            PrimDef::Int32 => class("int32", |primitives| primitives.int32),
-            PrimDef::Int64 => class("int64", |primitives| primitives.int64),
-            PrimDef::Float => class("float", |primitives| primitives.float),
-            PrimDef::Bool => class("bool", |primitives| primitives.bool),
-            PrimDef::None => class("none", |primitives| primitives.none),
-            PrimDef::Range => class("range", |primitives| primitives.range),
-            PrimDef::Str => class("str", |primitives| primitives.str),
-            PrimDef::Exception => class("Exception", |primitives| primitives.exception),
-            PrimDef::UInt32 => class("uint32", |primitives| primitives.uint32),
-            PrimDef::UInt64 => class("uint64", |primitives| primitives.uint64),
-            PrimDef::Option => class("Option", |primitives| primitives.option),
-            PrimDef::List => class("list", |primitives| primitives.list),
-            PrimDef::NDArray => class("ndarray", |primitives| primitives.ndarray),
-            PrimDef::Tuple => class("tuple", |_| unimplemented!()),
+            Self::Int32 => class("int32", |primitives| primitives.int32),
+            Self::Int64 => class("int64", |primitives| primitives.int64),
+            Self::Float => class("float", |primitives| primitives.float),
+            Self::Bool => class("bool", |primitives| primitives.bool),
+            Self::None => class("none", |primitives| primitives.none),
+            Self::Range => class("range", |primitives| primitives.range),
+            Self::Str => class("str", |primitives| primitives.str),
+            Self::Exception => class("Exception", |primitives| primitives.exception),
+            Self::UInt32 => class("uint32", |primitives| primitives.uint32),
+            Self::UInt64 => class("uint64", |primitives| primitives.uint64),
+            Self::Option => class("Option", |primitives| primitives.option),
+            Self::List => class("list", |primitives| primitives.list),
+            Self::NDArray => class("ndarray", |primitives| primitives.ndarray),
+            Self::Tuple => class("tuple", |_| unimplemented!()),
 
-            PrimDef::Kernel => class("Kernel", |_| unimplemented!()),
-            PrimDef::KernelInvariant => class("KernelInvariant", |_| unimplemented!()),
-            PrimDef::Generic => class("Generic", |_| unimplemented!()),
-            PrimDef::Virtual => class("virtual", |_| unimplemented!()),
+            Self::Kernel => class("Kernel", |_| unimplemented!()),
+            Self::KernelInvariant => class("KernelInvariant", |_| unimplemented!()),
+            Self::Generic => class("Generic", |_| unimplemented!()),
+            Self::Virtual => class("virtual", |_| unimplemented!()),
 
             // Option methods
-            PrimDef::FunOptionIsSome => fun("Option.is_some", Some("is_some")),
-            PrimDef::FunOptionIsNone => fun("Option.is_none", Some("is_none")),
-            PrimDef::FunOptionUnwrap => fun("Option.unwrap", Some("unwrap")),
+            Self::FunOptionIsSome => fun("Option.is_some", Some("is_some")),
+            Self::FunOptionIsNone => fun("Option.is_none", Some("is_none")),
+            Self::FunOptionUnwrap => fun("Option.unwrap", Some("unwrap")),
 
             // Option-related functions
-            PrimDef::FunSome => fun("Some", None),
+            Self::FunSome => fun("Some", None),
 
             // NDArray methods
-            PrimDef::FunNDArrayCopy => fun("ndarray.copy", Some("copy")),
-            PrimDef::FunNDArrayFill => fun("ndarray.fill", Some("fill")),
+            Self::FunNDArrayCopy => fun("ndarray.copy", Some("copy")),
+            Self::FunNDArrayFill => fun("ndarray.fill", Some("fill")),
 
             // Range methods
-            PrimDef::FunRangeInit => fun("range.__init__", Some("__init__")),
+            Self::FunRangeInit => fun("range.__init__", Some("__init__")),
 
             // NumPy factory functions
-            PrimDef::FunNpNDArray => fun("np_ndarray", None),
-            PrimDef::FunNpEmpty => fun("np_empty", None),
-            PrimDef::FunNpZeros => fun("np_zeros", None),
-            PrimDef::FunNpOnes => fun("np_ones", None),
-            PrimDef::FunNpFull => fun("np_full", None),
-            PrimDef::FunNpArray => fun("np_array", None),
-            PrimDef::FunNpEye => fun("np_eye", None),
-            PrimDef::FunNpIdentity => fun("np_identity", None),
+            Self::FunNpNDArray => fun("np_ndarray", None),
+            Self::FunNpEmpty => fun("np_empty", None),
+            Self::FunNpZeros => fun("np_zeros", None),
+            Self::FunNpOnes => fun("np_ones", None),
+            Self::FunNpFull => fun("np_full", None),
+            Self::FunNpArray => fun("np_array", None),
+            Self::FunNpEye => fun("np_eye", None),
+            Self::FunNpIdentity => fun("np_identity", None),
 
             // NumPy NDArray property getters,
-            PrimDef::FunNpSize => fun("np_size", None),
-            PrimDef::FunNpShape => fun("np_shape", None),
-            PrimDef::FunNpStrides => fun("np_strides", None),
+            Self::FunNpSize => fun("np_size", None),
+            Self::FunNpShape => fun("np_shape", None),
+            Self::FunNpStrides => fun("np_strides", None),
 
             // NumPy NDArray view functions
-            PrimDef::FunNpBroadcastTo => fun("np_broadcast_to", None),
-            PrimDef::FunNpTranspose => fun("np_transpose", None),
-            PrimDef::FunNpReshape => fun("np_reshape", None),
+            Self::FunNpBroadcastTo => fun("np_broadcast_to", None),
+            Self::FunNpTranspose => fun("np_transpose", None),
+            Self::FunNpReshape => fun("np_reshape", None),
 
             // Miscellaneous NumPy & SciPy functions
-            PrimDef::FunNpRound => fun("np_round", None),
-            PrimDef::FunNpFloor => fun("np_floor", None),
-            PrimDef::FunNpCeil => fun("np_ceil", None),
-            PrimDef::FunNpMin => fun("np_min", None),
-            PrimDef::FunNpMinimum => fun("np_minimum", None),
-            PrimDef::FunNpArgmin => fun("np_argmin", None),
-            PrimDef::FunNpMax => fun("np_max", None),
-            PrimDef::FunNpMaximum => fun("np_maximum", None),
-            PrimDef::FunNpArgmax => fun("np_argmax", None),
-            PrimDef::FunNpIsNan => fun("np_isnan", None),
-            PrimDef::FunNpIsInf => fun("np_isinf", None),
-            PrimDef::FunNpSin => fun("np_sin", None),
-            PrimDef::FunNpCos => fun("np_cos", None),
-            PrimDef::FunNpExp => fun("np_exp", None),
-            PrimDef::FunNpExp2 => fun("np_exp2", None),
-            PrimDef::FunNpLog => fun("np_log", None),
-            PrimDef::FunNpLog10 => fun("np_log10", None),
-            PrimDef::FunNpLog2 => fun("np_log2", None),
-            PrimDef::FunNpFabs => fun("np_fabs", None),
-            PrimDef::FunNpSqrt => fun("np_sqrt", None),
-            PrimDef::FunNpRint => fun("np_rint", None),
-            PrimDef::FunNpTan => fun("np_tan", None),
-            PrimDef::FunNpArcsin => fun("np_arcsin", None),
-            PrimDef::FunNpArccos => fun("np_arccos", None),
-            PrimDef::FunNpArctan => fun("np_arctan", None),
-            PrimDef::FunNpSinh => fun("np_sinh", None),
-            PrimDef::FunNpCosh => fun("np_cosh", None),
-            PrimDef::FunNpTanh => fun("np_tanh", None),
-            PrimDef::FunNpArcsinh => fun("np_arcsinh", None),
-            PrimDef::FunNpArccosh => fun("np_arccosh", None),
-            PrimDef::FunNpArctanh => fun("np_arctanh", None),
-            PrimDef::FunNpExpm1 => fun("np_expm1", None),
-            PrimDef::FunNpCbrt => fun("np_cbrt", None),
-            PrimDef::FunSpSpecErf => fun("sp_spec_erf", None),
-            PrimDef::FunSpSpecErfc => fun("sp_spec_erfc", None),
-            PrimDef::FunSpSpecGamma => fun("sp_spec_gamma", None),
-            PrimDef::FunSpSpecGammaln => fun("sp_spec_gammaln", None),
-            PrimDef::FunSpSpecJ0 => fun("sp_spec_j0", None),
-            PrimDef::FunSpSpecJ1 => fun("sp_spec_j1", None),
-            PrimDef::FunNpArctan2 => fun("np_arctan2", None),
-            PrimDef::FunNpCopysign => fun("np_copysign", None),
-            PrimDef::FunNpFmax => fun("np_fmax", None),
-            PrimDef::FunNpFmin => fun("np_fmin", None),
-            PrimDef::FunNpLdExp => fun("np_ldexp", None),
-            PrimDef::FunNpHypot => fun("np_hypot", None),
-            PrimDef::FunNpNextAfter => fun("np_nextafter", None),
-            PrimDef::FunNpAny => fun("np_any", None),
-            PrimDef::FunNpAll => fun("np_all", None),
+            Self::FunNpRound => fun("np_round", None),
+            Self::FunNpFloor => fun("np_floor", None),
+            Self::FunNpCeil => fun("np_ceil", None),
+            Self::FunNpMin => fun("np_min", None),
+            Self::FunNpMinimum => fun("np_minimum", None),
+            Self::FunNpArgmin => fun("np_argmin", None),
+            Self::FunNpMax => fun("np_max", None),
+            Self::FunNpMaximum => fun("np_maximum", None),
+            Self::FunNpArgmax => fun("np_argmax", None),
+            Self::FunNpIsNan => fun("np_isnan", None),
+            Self::FunNpIsInf => fun("np_isinf", None),
+            Self::FunNpSin => fun("np_sin", None),
+            Self::FunNpCos => fun("np_cos", None),
+            Self::FunNpExp => fun("np_exp", None),
+            Self::FunNpExp2 => fun("np_exp2", None),
+            Self::FunNpLog => fun("np_log", None),
+            Self::FunNpLog10 => fun("np_log10", None),
+            Self::FunNpLog2 => fun("np_log2", None),
+            Self::FunNpFabs => fun("np_fabs", None),
+            Self::FunNpSqrt => fun("np_sqrt", None),
+            Self::FunNpRint => fun("np_rint", None),
+            Self::FunNpTan => fun("np_tan", None),
+            Self::FunNpArcsin => fun("np_arcsin", None),
+            Self::FunNpArccos => fun("np_arccos", None),
+            Self::FunNpArctan => fun("np_arctan", None),
+            Self::FunNpSinh => fun("np_sinh", None),
+            Self::FunNpCosh => fun("np_cosh", None),
+            Self::FunNpTanh => fun("np_tanh", None),
+            Self::FunNpArcsinh => fun("np_arcsinh", None),
+            Self::FunNpArccosh => fun("np_arccosh", None),
+            Self::FunNpArctanh => fun("np_arctanh", None),
+            Self::FunNpExpm1 => fun("np_expm1", None),
+            Self::FunNpCbrt => fun("np_cbrt", None),
+            Self::FunSpSpecErf => fun("sp_spec_erf", None),
+            Self::FunSpSpecErfc => fun("sp_spec_erfc", None),
+            Self::FunSpSpecGamma => fun("sp_spec_gamma", None),
+            Self::FunSpSpecGammaln => fun("sp_spec_gammaln", None),
+            Self::FunSpSpecJ0 => fun("sp_spec_j0", None),
+            Self::FunSpSpecJ1 => fun("sp_spec_j1", None),
+            Self::FunNpArctan2 => fun("np_arctan2", None),
+            Self::FunNpCopysign => fun("np_copysign", None),
+            Self::FunNpFmax => fun("np_fmax", None),
+            Self::FunNpFmin => fun("np_fmin", None),
+            Self::FunNpLdExp => fun("np_ldexp", None),
+            Self::FunNpHypot => fun("np_hypot", None),
+            Self::FunNpNextAfter => fun("np_nextafter", None),
+            Self::FunNpAny => fun("np_any", None),
+            Self::FunNpAll => fun("np_all", None),
 
             // Linalg functions
-            PrimDef::FunNpDot => fun("np_dot", None),
-            PrimDef::FunNpLinalgCholesky => fun("np_linalg_cholesky", None),
-            PrimDef::FunNpLinalgQr => fun("np_linalg_qr", None),
-            PrimDef::FunNpLinalgSvd => fun("np_linalg_svd", None),
-            PrimDef::FunNpLinalgInv => fun("np_linalg_inv", None),
-            PrimDef::FunNpLinalgPinv => fun("np_linalg_pinv", None),
-            PrimDef::FunNpLinalgMatrixPower => fun("np_linalg_matrix_power", None),
-            PrimDef::FunNpLinalgDet => fun("np_linalg_det", None),
-            PrimDef::FunSpLinalgLu => fun("sp_linalg_lu", None),
-            PrimDef::FunSpLinalgSchur => fun("sp_linalg_schur", None),
-            PrimDef::FunSpLinalgHessenberg => fun("sp_linalg_hessenberg", None),
+            Self::FunNpDot => fun("np_dot", None),
+            Self::FunNpLinalgCholesky => fun("np_linalg_cholesky", None),
+            Self::FunNpLinalgQr => fun("np_linalg_qr", None),
+            Self::FunNpLinalgSvd => fun("np_linalg_svd", None),
+            Self::FunNpLinalgInv => fun("np_linalg_inv", None),
+            Self::FunNpLinalgPinv => fun("np_linalg_pinv", None),
+            Self::FunNpLinalgMatrixPower => fun("np_linalg_matrix_power", None),
+            Self::FunNpLinalgDet => fun("np_linalg_det", None),
+            Self::FunSpLinalgLu => fun("sp_linalg_lu", None),
+            Self::FunSpLinalgSchur => fun("sp_linalg_schur", None),
+            Self::FunSpLinalgHessenberg => fun("sp_linalg_hessenberg", None),
 
             // Miscellaneous Python & NAC3 functions
-            PrimDef::FunInt32 => fun("int32", None),
-            PrimDef::FunInt64 => fun("int64", None),
-            PrimDef::FunUInt32 => fun("uint32", None),
-            PrimDef::FunUInt64 => fun("uint64", None),
-            PrimDef::FunFloat => fun("float", None),
-            PrimDef::FunRound => fun("round", None),
-            PrimDef::FunRound64 => fun("round64", None),
-            PrimDef::FunStr => fun("str", None),
-            PrimDef::FunBool => fun("bool", None),
-            PrimDef::FunFloor => fun("floor", None),
-            PrimDef::FunFloor64 => fun("floor64", None),
-            PrimDef::FunCeil => fun("ceil", None),
-            PrimDef::FunCeil64 => fun("ceil64", None),
-            PrimDef::FunLen => fun("len", None),
-            PrimDef::FunMin => fun("min", None),
-            PrimDef::FunMax => fun("max", None),
-            PrimDef::FunAbs => fun("abs", None),
+            Self::FunInt32 => fun("int32", None),
+            Self::FunInt64 => fun("int64", None),
+            Self::FunUInt32 => fun("uint32", None),
+            Self::FunUInt64 => fun("uint64", None),
+            Self::FunFloat => fun("float", None),
+            Self::FunRound => fun("round", None),
+            Self::FunRound64 => fun("round64", None),
+            Self::FunStr => fun("str", None),
+            Self::FunBool => fun("bool", None),
+            Self::FunFloor => fun("floor", None),
+            Self::FunFloor64 => fun("floor64", None),
+            Self::FunCeil => fun("ceil", None),
+            Self::FunCeil64 => fun("ceil64", None),
+            Self::FunLen => fun("len", None),
+            Self::FunMin => fun("min", None),
+            Self::FunMax => fun("max", None),
+            Self::FunAbs => fun("abs", None),
         }
     }
 }
@@ -407,16 +407,14 @@ pub fn make_exception_fields(int32: Type, int64: Type, str: Type) -> Vec<(StrRef
 impl TopLevelDef {
     pub fn to_string(&self, unifier: &mut Unifier) -> String {
         match self {
-            TopLevelDef::Module { name, functions, .. } => {
+            Self::Module { name, functions, .. } => {
                 format!(
                     "Module {{\nname: {:?},\nmethods: {:?}\n}}",
                     name,
                     functions.iter().map(|(n, _)| n.to_string()).collect_vec()
                 )
             }
-            TopLevelDef::Class {
-                name, ancestors, fields, methods, attributes, type_vars, ..
-            } => {
+            Self::Class { name, ancestors, fields, methods, attributes, type_vars, .. } => {
                 let fields_str = fields
                     .iter()
                     .map(|(n, ty, _)| (n.to_string(), unifier.stringify(*ty)))
@@ -441,7 +439,7 @@ impl TopLevelDef {
                     type_vars.iter().map(|id| unifier.stringify(*id)).collect_vec(),
                 )
             }
-            TopLevelDef::Function { name, signature, var_id, .. } => format!(
+            Self::Function { name, signature, var_id, .. } => format!(
                 "Function {{\nname: {:?},\nsig: {:?},\nvar_id: {:?}\n}}",
                 name,
                 unifier.stringify(*signature),
@@ -1010,19 +1008,23 @@ impl TopLevelComposer {
         primitives_store: &PrimitiveStore,
         builtin_registry: &Arc<dyn BuiltinRegistry>,
     ) -> Result<(), HashSet<String>> {
-        let mut class_def = class_def.write();
-        let (class_def_id, class_ancestors, class_bases_ast, class_type_vars, class_resolver) = {
-            let TopLevelDef::Class { object_id, ancestors, type_vars, resolver, .. } =
-                &mut *class_def
-            else {
-                unreachable!()
-            };
-            let Some(ast::Located { node: ast::StmtKind::ClassDef { bases, .. }, .. }) = class_ast
-            else {
-                unreachable!()
-            };
-            (object_id, ancestors, bases, type_vars, resolver.as_ref().unwrap().as_ref())
+        let TopLevelDef::Class {
+            object_id: class_def_id,
+            ancestors: class_ancestors,
+            type_vars: class_type_vars,
+            resolver,
+            ..
+        } = &mut *class_def.write()
+        else {
+            unreachable!()
         };
+        let Some(ast::Located {
+            node: ast::StmtKind::ClassDef { bases: class_bases_ast, .. }, ..
+        }) = class_ast
+        else {
+            unreachable!()
+        };
+        let class_resolver = resolver.as_ref().unwrap().as_ref();
 
         let mut is_generic = false;
         let mut has_base = false;
@@ -1047,14 +1049,13 @@ impl TopLevelComposer {
                     }
                     is_generic = true;
 
-                    let type_var_list: Vec<&ast::Expr<()>>;
-                    // if `class A(Generic[T, V, G])`
-                    if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
-                        type_var_list = elts.iter().collect_vec();
-                    // `class A(Generic[T])`
+                    let type_var_list = if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
+                        // if `class A(Generic[T, V, G])`
+                        elts.iter().collect_vec()
                     } else {
-                        type_var_list = vec![&**slice];
-                    }
+                        // `class A(Generic[T])`
+                        vec![&**slice]
+                    };
 
                     let type_vars = type_var_list
                         .into_iter()
@@ -1119,8 +1120,8 @@ impl TopLevelComposer {
         temp_def_list: &[Arc<RwLock<TopLevelDef>>],
     ) {
         // Check if class has a direct parent
-        let mut class_def = class_def.write();
-        let TopLevelDef::Class { ancestors, type_vars, object_id, .. } = &mut *class_def else {
+        let TopLevelDef::Class { ancestors, type_vars, object_id, .. } = &mut *class_def.write()
+        else {
             unreachable!()
         };
         let mut anc_set = HashMap::new();
@@ -1150,13 +1151,10 @@ pub fn parse_parameter_default_value(
 ) -> Result<SymbolValue, HashSet<String>> {
     fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, HashSet<String>> {
         match val {
-            Constant::Int(v) => {
-                if let Ok(v) = (*v).try_into() {
-                    Ok(SymbolValue::I32(v))
-                } else {
-                    Err(HashSet::from([format!("integer value out of range at {loc}")]))
-                }
-            }
+            Constant::Int(v) => (*v).try_into().map_or_else(
+                |_| Err(HashSet::from([format!("integer value out of range at {loc}")])),
+                |v| Ok(SymbolValue::I32(v)),
+            ),
             Constant::Float(v) => Ok(SymbolValue::Double(*v)),
             Constant::Bool(v) => Ok(SymbolValue::Bool(*v)),
             Constant::Tuple(tuple) => Ok(SymbolValue::Tuple(
@@ -1175,14 +1173,15 @@ pub fn parse_parameter_default_value(
             match builtin {
                 Some(BuiltinKind::Int64) => match &args[0].node {
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
-                        let v: Result<i64, _> = (*v).try_into();
-                        match v {
-                            Ok(v) => Ok(SymbolValue::I64(v)),
-                            _ => Err(HashSet::from([format!(
-                                "default param value out of range at {}",
-                                default.location
-                            )])),
-                        }
+                        (*v).try_into().map_or_else(
+                            |_| {
+                                Err(HashSet::from([format!(
+                                    "default param value out of range at {}",
+                                    default.location
+                                )]))
+                            },
+                            |v| Ok(SymbolValue::I64(v)),
+                        )
                     }
                     _ => Err(HashSet::from([format!(
                         "only allow constant integer here at {}",
@@ -1191,14 +1190,15 @@ pub fn parse_parameter_default_value(
                 },
                 Some(BuiltinKind::Uint32) => match &args[0].node {
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
-                        let v: Result<u32, _> = (*v).try_into();
-                        match v {
-                            Ok(v) => Ok(SymbolValue::U32(v)),
-                            _ => Err(HashSet::from([format!(
-                                "default param value out of range at {}",
-                                default.location
-                            )])),
-                        }
+                        (*v).try_into().map_or_else(
+                            |_| {
+                                Err(HashSet::from([format!(
+                                    "default param value out of range at {}",
+                                    default.location
+                                )]))
+                            },
+                            |v| Ok(SymbolValue::U32(v)),
+                        )
                     }
                     _ => Err(HashSet::from([format!(
                         "only allow constant integer here at {}",
@@ -1207,14 +1207,15 @@ pub fn parse_parameter_default_value(
                 },
                 Some(BuiltinKind::Uint64) => match &args[0].node {
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
-                        let v: Result<u64, _> = (*v).try_into();
-                        match v {
-                            Ok(v) => Ok(SymbolValue::U64(v)),
-                            _ => Err(HashSet::from([format!(
-                                "default param value out of range at {}",
-                                default.location
-                            )])),
-                        }
+                        (*v).try_into().map_or_else(
+                            |_| {
+                                Err(HashSet::from([format!(
+                                    "default param value out of range at {}",
+                                    default.location
+                                )]))
+                            },
+                            |v| Ok(SymbolValue::U64(v)),
+                        )
                     }
                     _ => Err(HashSet::from([format!(
                         "only allow constant integer here at {}",

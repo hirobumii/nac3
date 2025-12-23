@@ -231,8 +231,8 @@ pub struct DefaultCodeGenerator {
 
 impl DefaultCodeGenerator {
     #[must_use]
-    pub fn new(name: String) -> DefaultCodeGenerator {
-        DefaultCodeGenerator { name }
+    pub const fn new(name: String) -> Self {
+        Self { name }
     }
 }
 

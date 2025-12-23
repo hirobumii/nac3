@@ -172,119 +172,119 @@ impl TryFrom<BuiltinKind> for PrimDef {
 
     fn try_from(builtin: BuiltinKind) -> Result<Self, Self::Error> {
         match builtin {
-            BuiltinKind::Float => Ok(PrimDef::Float),
-            BuiltinKind::Bool => Ok(PrimDef::Bool),
-            BuiltinKind::Str => Ok(PrimDef::Str),
-            BuiltinKind::List => Ok(PrimDef::List),
-            BuiltinKind::Tuple => Ok(PrimDef::Tuple),
-            BuiltinKind::Exception => Ok(PrimDef::Exception),
+            BuiltinKind::Float => Ok(Self::Float),
+            BuiltinKind::Bool => Ok(Self::Bool),
+            BuiltinKind::Str => Ok(Self::Str),
+            BuiltinKind::List => Ok(Self::List),
+            BuiltinKind::Tuple => Ok(Self::Tuple),
+            BuiltinKind::Exception => Ok(Self::Exception),
 
-            BuiltinKind::Range => Ok(PrimDef::Range),
-            BuiltinKind::Round => Ok(PrimDef::FunRound),
-            BuiltinKind::Round64 => Ok(PrimDef::FunRound64),
-            BuiltinKind::Floor => Ok(PrimDef::FunFloor),
-            BuiltinKind::Floor64 => Ok(PrimDef::FunFloor64),
-            BuiltinKind::Ceil => Ok(PrimDef::FunCeil),
-            BuiltinKind::Ceil64 => Ok(PrimDef::FunCeil64),
-            BuiltinKind::Len => Ok(PrimDef::FunLen),
-            BuiltinKind::Min => Ok(PrimDef::FunMin),
-            BuiltinKind::Max => Ok(PrimDef::FunMax),
-            BuiltinKind::Abs => Ok(PrimDef::FunAbs),
-            BuiltinKind::Some => Ok(PrimDef::FunSome),
+            BuiltinKind::Range => Ok(Self::Range),
+            BuiltinKind::Round => Ok(Self::FunRound),
+            BuiltinKind::Round64 => Ok(Self::FunRound64),
+            BuiltinKind::Floor => Ok(Self::FunFloor),
+            BuiltinKind::Floor64 => Ok(Self::FunFloor64),
+            BuiltinKind::Ceil => Ok(Self::FunCeil),
+            BuiltinKind::Ceil64 => Ok(Self::FunCeil64),
+            BuiltinKind::Len => Ok(Self::FunLen),
+            BuiltinKind::Min => Ok(Self::FunMin),
+            BuiltinKind::Max => Ok(Self::FunMax),
+            BuiltinKind::Abs => Ok(Self::FunAbs),
+            BuiltinKind::Some => Ok(Self::FunSome),
 
-            BuiltinKind::Kernel => Ok(PrimDef::Kernel),
-            BuiltinKind::KernelInvariant => Ok(PrimDef::KernelInvariant),
-            BuiltinKind::None => Ok(PrimDef::None),
-            BuiltinKind::Virtual => Ok(PrimDef::Virtual),
-            BuiltinKind::Option => Ok(PrimDef::Option),
+            BuiltinKind::Kernel => Ok(Self::Kernel),
+            BuiltinKind::KernelInvariant => Ok(Self::KernelInvariant),
+            BuiltinKind::None => Ok(Self::None),
+            BuiltinKind::Virtual => Ok(Self::Virtual),
+            BuiltinKind::Option => Ok(Self::Option),
 
-            BuiltinKind::Generic => Ok(PrimDef::Generic),
+            BuiltinKind::Generic => Ok(Self::Generic),
 
-            BuiltinKind::Int32 => Ok(PrimDef::Int32),
-            BuiltinKind::Int64 => Ok(PrimDef::Int64),
-            BuiltinKind::Uint32 => Ok(PrimDef::UInt32),
-            BuiltinKind::Uint64 => Ok(PrimDef::UInt64),
-            BuiltinKind::NpNDArray => Ok(PrimDef::FunNpNDArray),
+            BuiltinKind::Int32 => Ok(Self::Int32),
+            BuiltinKind::Int64 => Ok(Self::Int64),
+            BuiltinKind::Uint32 => Ok(Self::UInt32),
+            BuiltinKind::Uint64 => Ok(Self::UInt64),
+            BuiltinKind::NpNDArray => Ok(Self::FunNpNDArray),
 
-            BuiltinKind::NpEmpty => Ok(PrimDef::FunNpEmpty),
-            BuiltinKind::NpZeros => Ok(PrimDef::FunNpZeros),
-            BuiltinKind::NpOnes => Ok(PrimDef::FunNpOnes),
-            BuiltinKind::NpFull => Ok(PrimDef::FunNpFull),
-            BuiltinKind::NpArray => Ok(PrimDef::FunNpArray),
-            BuiltinKind::NpEye => Ok(PrimDef::FunNpEye),
-            BuiltinKind::NpIdentity => Ok(PrimDef::FunNpIdentity),
+            BuiltinKind::NpEmpty => Ok(Self::FunNpEmpty),
+            BuiltinKind::NpZeros => Ok(Self::FunNpZeros),
+            BuiltinKind::NpOnes => Ok(Self::FunNpOnes),
+            BuiltinKind::NpFull => Ok(Self::FunNpFull),
+            BuiltinKind::NpArray => Ok(Self::FunNpArray),
+            BuiltinKind::NpEye => Ok(Self::FunNpEye),
+            BuiltinKind::NpIdentity => Ok(Self::FunNpIdentity),
 
-            BuiltinKind::NpSize => Ok(PrimDef::FunNpSize),
-            BuiltinKind::NpShape => Ok(PrimDef::FunNpShape),
-            BuiltinKind::NpStrides => Ok(PrimDef::FunNpStrides),
+            BuiltinKind::NpSize => Ok(Self::FunNpSize),
+            BuiltinKind::NpShape => Ok(Self::FunNpShape),
+            BuiltinKind::NpStrides => Ok(Self::FunNpStrides),
 
-            BuiltinKind::NpBroadcastTo => Ok(PrimDef::FunNpBroadcastTo),
-            BuiltinKind::NpTranspose => Ok(PrimDef::FunNpTranspose),
-            BuiltinKind::NpReshape => Ok(PrimDef::FunNpReshape),
+            BuiltinKind::NpBroadcastTo => Ok(Self::FunNpBroadcastTo),
+            BuiltinKind::NpTranspose => Ok(Self::FunNpTranspose),
+            BuiltinKind::NpReshape => Ok(Self::FunNpReshape),
 
-            BuiltinKind::NpRound => Ok(PrimDef::FunNpRound),
-            BuiltinKind::NpFloor => Ok(PrimDef::FunNpFloor),
-            BuiltinKind::NpCeil => Ok(PrimDef::FunNpCeil),
-            BuiltinKind::NpMin => Ok(PrimDef::FunNpMin),
-            BuiltinKind::NpMinimum => Ok(PrimDef::FunNpMinimum),
-            BuiltinKind::NpMax => Ok(PrimDef::FunNpMax),
-            BuiltinKind::NpMaximum => Ok(PrimDef::FunNpMaximum),
-            BuiltinKind::NpArgmax => Ok(PrimDef::FunNpArgmax),
-            BuiltinKind::NpIsnan => Ok(PrimDef::FunNpIsNan),
-            BuiltinKind::NpIsinf => Ok(PrimDef::FunNpIsInf),
-            BuiltinKind::NpSin => Ok(PrimDef::FunNpSin),
-            BuiltinKind::NpCos => Ok(PrimDef::FunNpCos),
-            BuiltinKind::NpExp => Ok(PrimDef::FunNpExp),
-            BuiltinKind::NpExp2 => Ok(PrimDef::FunNpExp2),
-            BuiltinKind::NpLog => Ok(PrimDef::FunNpLog),
-            BuiltinKind::NpLog10 => Ok(PrimDef::FunNpLog10),
-            BuiltinKind::NpLog2 => Ok(PrimDef::FunNpLog2),
-            BuiltinKind::NpFabs => Ok(PrimDef::FunNpFabs),
-            BuiltinKind::NpSqrt => Ok(PrimDef::FunNpSqrt),
-            BuiltinKind::NpRint => Ok(PrimDef::FunNpRint),
-            BuiltinKind::NpTan => Ok(PrimDef::FunNpTan),
-            BuiltinKind::NpArcsin => Ok(PrimDef::FunNpArcsin),
-            BuiltinKind::NpArccos => Ok(PrimDef::FunNpArccos),
-            BuiltinKind::NpArctan => Ok(PrimDef::FunNpArctan),
-            BuiltinKind::NpSinh => Ok(PrimDef::FunNpSinh),
-            BuiltinKind::NpCosh => Ok(PrimDef::FunNpCosh),
-            BuiltinKind::NpTanh => Ok(PrimDef::FunNpTanh),
-            BuiltinKind::NpArcsinh => Ok(PrimDef::FunNpArcsinh),
-            BuiltinKind::NpArccosh => Ok(PrimDef::FunNpArccosh),
-            BuiltinKind::NpArctanh => Ok(PrimDef::FunNpArctanh),
-            BuiltinKind::NpExpm1 => Ok(PrimDef::FunNpExpm1),
-            BuiltinKind::NpCbrt => Ok(PrimDef::FunNpCbrt),
+            BuiltinKind::NpRound => Ok(Self::FunNpRound),
+            BuiltinKind::NpFloor => Ok(Self::FunNpFloor),
+            BuiltinKind::NpCeil => Ok(Self::FunNpCeil),
+            BuiltinKind::NpMin => Ok(Self::FunNpMin),
+            BuiltinKind::NpMinimum => Ok(Self::FunNpMinimum),
+            BuiltinKind::NpMax => Ok(Self::FunNpMax),
+            BuiltinKind::NpMaximum => Ok(Self::FunNpMaximum),
+            BuiltinKind::NpArgmax => Ok(Self::FunNpArgmax),
+            BuiltinKind::NpIsnan => Ok(Self::FunNpIsNan),
+            BuiltinKind::NpIsinf => Ok(Self::FunNpIsInf),
+            BuiltinKind::NpSin => Ok(Self::FunNpSin),
+            BuiltinKind::NpCos => Ok(Self::FunNpCos),
+            BuiltinKind::NpExp => Ok(Self::FunNpExp),
+            BuiltinKind::NpExp2 => Ok(Self::FunNpExp2),
+            BuiltinKind::NpLog => Ok(Self::FunNpLog),
+            BuiltinKind::NpLog10 => Ok(Self::FunNpLog10),
+            BuiltinKind::NpLog2 => Ok(Self::FunNpLog2),
+            BuiltinKind::NpFabs => Ok(Self::FunNpFabs),
+            BuiltinKind::NpSqrt => Ok(Self::FunNpSqrt),
+            BuiltinKind::NpRint => Ok(Self::FunNpRint),
+            BuiltinKind::NpTan => Ok(Self::FunNpTan),
+            BuiltinKind::NpArcsin => Ok(Self::FunNpArcsin),
+            BuiltinKind::NpArccos => Ok(Self::FunNpArccos),
+            BuiltinKind::NpArctan => Ok(Self::FunNpArctan),
+            BuiltinKind::NpSinh => Ok(Self::FunNpSinh),
+            BuiltinKind::NpCosh => Ok(Self::FunNpCosh),
+            BuiltinKind::NpTanh => Ok(Self::FunNpTanh),
+            BuiltinKind::NpArcsinh => Ok(Self::FunNpArcsinh),
+            BuiltinKind::NpArccosh => Ok(Self::FunNpArccosh),
+            BuiltinKind::NpArctanh => Ok(Self::FunNpArctanh),
+            BuiltinKind::NpExpm1 => Ok(Self::FunNpExpm1),
+            BuiltinKind::NpCbrt => Ok(Self::FunNpCbrt),
 
-            BuiltinKind::SpSpecErf => Ok(PrimDef::FunSpSpecErf),
-            BuiltinKind::SpSpecErfc => Ok(PrimDef::FunSpSpecErfc),
-            BuiltinKind::SpSpecGamma => Ok(PrimDef::FunSpSpecGamma),
-            BuiltinKind::SpSpecGammaln => Ok(PrimDef::FunSpSpecGammaln),
-            BuiltinKind::SpSpecJ0 => Ok(PrimDef::FunSpSpecJ0),
-            BuiltinKind::SpSpecJ1 => Ok(PrimDef::FunSpSpecJ1),
+            BuiltinKind::SpSpecErf => Ok(Self::FunSpSpecErf),
+            BuiltinKind::SpSpecErfc => Ok(Self::FunSpSpecErfc),
+            BuiltinKind::SpSpecGamma => Ok(Self::FunSpSpecGamma),
+            BuiltinKind::SpSpecGammaln => Ok(Self::FunSpSpecGammaln),
+            BuiltinKind::SpSpecJ0 => Ok(Self::FunSpSpecJ0),
+            BuiltinKind::SpSpecJ1 => Ok(Self::FunSpSpecJ1),
 
-            BuiltinKind::NpArctan2 => Ok(PrimDef::FunNpArctan2),
-            BuiltinKind::NpCopysign => Ok(PrimDef::FunNpCopysign),
-            BuiltinKind::NpFmax => Ok(PrimDef::FunNpFmax),
-            BuiltinKind::NpFmin => Ok(PrimDef::FunNpFmin),
-            BuiltinKind::NpLdexp => Ok(PrimDef::FunNpLdExp),
-            BuiltinKind::NpHypot => Ok(PrimDef::FunNpHypot),
-            BuiltinKind::NpNextafter => Ok(PrimDef::FunNpNextAfter),
+            BuiltinKind::NpArctan2 => Ok(Self::FunNpArctan2),
+            BuiltinKind::NpCopysign => Ok(Self::FunNpCopysign),
+            BuiltinKind::NpFmax => Ok(Self::FunNpFmax),
+            BuiltinKind::NpFmin => Ok(Self::FunNpFmin),
+            BuiltinKind::NpLdexp => Ok(Self::FunNpLdExp),
+            BuiltinKind::NpHypot => Ok(Self::FunNpHypot),
+            BuiltinKind::NpNextafter => Ok(Self::FunNpNextAfter),
 
-            BuiltinKind::NpAny => Ok(PrimDef::FunNpAny),
-            BuiltinKind::NpAll => Ok(PrimDef::FunNpAll),
+            BuiltinKind::NpAny => Ok(Self::FunNpAny),
+            BuiltinKind::NpAll => Ok(Self::FunNpAll),
 
-            BuiltinKind::NpDot => Ok(PrimDef::FunNpDot),
-            BuiltinKind::NpLinalgCholesky => Ok(PrimDef::FunNpLinalgCholesky),
-            BuiltinKind::NpLinalgQr => Ok(PrimDef::FunNpLinalgQr),
-            BuiltinKind::NpLinalgSvd => Ok(PrimDef::FunNpLinalgSvd),
-            BuiltinKind::NpLinalgInv => Ok(PrimDef::FunNpLinalgInv),
-            BuiltinKind::NpLinalgPinv => Ok(PrimDef::FunNpLinalgPinv),
-            BuiltinKind::NpLinalgMatrixPower => Ok(PrimDef::FunNpLinalgMatrixPower),
-            BuiltinKind::NpLinalgDet => Ok(PrimDef::FunNpLinalgDet),
+            BuiltinKind::NpDot => Ok(Self::FunNpDot),
+            BuiltinKind::NpLinalgCholesky => Ok(Self::FunNpLinalgCholesky),
+            BuiltinKind::NpLinalgQr => Ok(Self::FunNpLinalgQr),
+            BuiltinKind::NpLinalgSvd => Ok(Self::FunNpLinalgSvd),
+            BuiltinKind::NpLinalgInv => Ok(Self::FunNpLinalgInv),
+            BuiltinKind::NpLinalgPinv => Ok(Self::FunNpLinalgPinv),
+            BuiltinKind::NpLinalgMatrixPower => Ok(Self::FunNpLinalgMatrixPower),
+            BuiltinKind::NpLinalgDet => Ok(Self::FunNpLinalgDet),
 
-            BuiltinKind::SpLinalgLu => Ok(PrimDef::FunSpLinalgLu),
-            BuiltinKind::SpLinalgSchur => Ok(PrimDef::FunSpLinalgSchur),
-            BuiltinKind::SpLinalgHessenberg => Ok(PrimDef::FunSpLinalgHessenberg),
+            BuiltinKind::SpLinalgLu => Ok(Self::FunSpLinalgLu),
+            BuiltinKind::SpLinalgSchur => Ok(Self::FunSpLinalgSchur),
+            BuiltinKind::SpLinalgHessenberg => Ok(Self::FunSpLinalgHessenberg),
 
             _ => Err(()),
         }
@@ -539,13 +539,13 @@ pub enum BuiltinMatchError {
 impl fmt::Display for BuiltinMatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BuiltinMatchError::ModuleNotFound { file } => {
+            Self::ModuleNotFound { file } => {
                 write!(f, "No module found for file {file:?}")
             }
-            BuiltinMatchError::PythonError(err) => {
+            Self::PythonError(err) => {
                 write!(f, "Python error: {err}")
             }
-            BuiltinMatchError::ResolutionError(err) => {
+            Self::ResolutionError(err) => {
                 write!(f, "Resolution error: {err}")
             }
         }
@@ -618,30 +618,33 @@ impl TopLevelComposer {
 
         for (id, name) in builtin_name_list.iter().enumerate() {
             let name = (**name).into();
-            let def = definition_ast_list[id].0.read();
-            if let TopLevelDef::Function { name: func_name, simple_name, signature, .. } = &*def {
-                assert_eq!(
-                    name, *simple_name,
-                    "Simple name of builtin function should match builtin name list"
-                );
+            match &*definition_ast_list[id].0.read() {
+                TopLevelDef::Function { name: func_name, simple_name, signature, .. } => {
+                    assert_eq!(
+                        name, *simple_name,
+                        "Simple name of builtin function should match builtin name list"
+                    );
 
-                // Do not add member functions into the list of builtin IDs;
-                // Here we assume that all builtin top-level functions have the same name and simple
-                // name, and all member functions have something prefixed to its name
-                if *func_name != simple_name.to_string() {
-                    continue;
+                    // Do not add member functions into the list of builtin IDs;
+                    // Here we assume that all builtin top-level functions have the same name and simple
+                    // name, and all member functions have something prefixed to its name
+                    if *func_name != simple_name.to_string() {
+                        continue;
+                    }
+                    builtin_ty.insert(name, *signature);
+                    builtin_id.insert(name, DefinitionId(id));
                 }
-                builtin_ty.insert(name, *signature);
-                builtin_id.insert(name, DefinitionId(id));
-            } else if let TopLevelDef::Class { name, constructor, object_id, .. } = &*def {
-                assert_eq!(
-                    id, object_id.0,
-                    "Object id of class '{name}' should match its index in builtin name list"
-                );
-                if let Some(constructor) = constructor {
-                    builtin_ty.insert(*name, *constructor);
+                TopLevelDef::Class { name, constructor, object_id, .. } => {
+                    assert_eq!(
+                        id, object_id.0,
+                        "Object id of class '{name}' should match its index in builtin name list"
+                    );
+                    if let Some(constructor) = constructor {
+                        builtin_ty.insert(*name, *constructor);
+                    }
+                    builtin_id.insert(*name, DefinitionId(id));
                 }
-                builtin_id.insert(*name, DefinitionId(id));
+                TopLevelDef::Module { .. } => {}
             }
         }
 
@@ -673,7 +676,7 @@ impl TopLevelComposer {
         }
 
         (
-            TopLevelComposer {
+            Self {
                 builtin_num: definition_ast_list.len(),
                 definition_ast_list,
                 primitives_ty,
@@ -876,8 +879,7 @@ impl TopLevelComposer {
                 class_def_ast.1 = Some(ast);
                 // get the methods into the top level class_def
                 for (name, _, id, ty, ..) in &class_method_name_def_ids {
-                    let mut class_def = class_def_ast.0.write();
-                    let TopLevelDef::Class { methods, .. } = &mut *class_def else {
+                    let TopLevelDef::Class { methods, .. } = &mut *class_def_ast.0.write() else {
                         unreachable!()
                     };
 
@@ -1064,22 +1066,23 @@ impl TopLevelComposer {
                     return Err(errors);
                 }
 
-                // The lock on `class_def` must be released once the ancestors are updated
+                let ancestor_count =
+                    if let TopLevelDef::Class { ancestors, .. } = &*class_def.read() {
+                        ancestors.len()
+                    } else {
+                        unreachable!()
+                    };
+                // Methods/fields needs to be processed only if class inherits from another class
+                if ancestor_count > 1
+                    && let Err(e) = Self::analyze_single_class_ancestors(
+                        &mut class_def.write(),
+                        &temp_def_list,
+                        unifier,
+                        primitives_store,
+                        &type_var_to_concrete_def,
+                    )
                 {
-                    let mut class_def = class_def.write();
-                    let TopLevelDef::Class { ancestors, .. } = &*class_def else { unreachable!() };
-                    // Methods/fields needs to be processed only if class inherits from another class
-                    if ancestors.len() > 1
-                        && let Err(e) = Self::analyze_single_class_ancestors(
-                            &mut class_def,
-                            &temp_def_list,
-                            unifier,
-                            primitives_store,
-                            &mut type_var_to_concrete_def,
-                        )
-                    {
-                        errors.extend(e);
-                    }
+                    errors.extend(e);
                 }
 
                 let mut subst_list = Some(Vec::new());
@@ -1156,8 +1159,7 @@ impl TopLevelComposer {
         let primitives_store = &self.primitives_ty;
 
         let mut analyze = |function_def: &Arc<RwLock<TopLevelDef>>, function_ast: &Option<Stmt>| {
-            let mut function_def = function_def.write();
-            let function_def = &mut *function_def;
+            let function_def = &mut *function_def.write();
             let Some(function_ast) = function_ast.as_ref() else {
                 // if let TopLevelDef::Function { name, .. } = ``
                 return Ok(());
@@ -1459,7 +1461,6 @@ impl TopLevelComposer {
         type_var_to_concrete_def: &mut HashMap<Type, TypeAnnotation>,
         builtin_registry: &Arc<dyn BuiltinRegistry>,
     ) -> Result<(), HashSet<String>> {
-        let mut class_def = class_def.write();
         let TopLevelDef::Class {
             object_id,
             ancestors,
@@ -1469,7 +1470,7 @@ impl TopLevelComposer {
             resolver,
             type_vars,
             ..
-        } = &mut *class_def
+        } = &mut *class_def.write()
         else {
             unreachable!("here must be toplevel class def");
         };
@@ -1803,7 +1804,7 @@ impl TopLevelComposer {
         temp_def_list: &[Arc<RwLock<TopLevelDef>>],
         unifier: &mut Unifier,
         _primitives: &PrimitiveStore,
-        type_var_to_concrete_def: &mut HashMap<Type, TypeAnnotation>,
+        type_var_to_concrete_def: &HashMap<Type, TypeAnnotation>,
     ) -> Result<(), HashSet<String>> {
         let TopLevelDef::Class {
             object_id,
@@ -1834,9 +1835,9 @@ impl TopLevelComposer {
         let TypeAnnotation::CustomClass { id, params: _ } = base else {
             unreachable!("must be class type annotation")
         };
-        let base = temp_def_list.get(id.0).unwrap();
-        let base = base.read();
-        let TopLevelDef::Class { methods, fields, attributes, .. } = &*base else {
+        let TopLevelDef::Class { methods, fields, attributes, .. } =
+            &*temp_def_list.get(id.0).unwrap().read()
+        else {
             unreachable!("must be top level class def")
         };
 
@@ -1948,7 +1949,6 @@ impl TopLevelComposer {
         }
 
         let mut analyze = |i, def: &Arc<RwLock<TopLevelDef>>, ast: &Option<Stmt>| {
-            let class_def = def.read();
             if let TopLevelDef::Class {
                 constructor,
                 ancestors,
@@ -1959,7 +1959,7 @@ impl TopLevelComposer {
                 object_id,
                 resolver: _,
                 ..
-            } = &*class_def
+            } = &*def.read()
             {
                 let self_type = get_type_from_type_annotation_kinds(
                     &def_list,
@@ -2126,9 +2126,8 @@ impl TopLevelComposer {
             }
 
             let (name, simple_name, signature, resolver) = {
-                let function_def = def.read();
                 let TopLevelDef::Function { name, simple_name, signature, resolver, .. } =
-                    &*function_def
+                    &*def.read()
                 else {
                     return Ok(());
                 };
@@ -2146,9 +2145,9 @@ impl TopLevelComposer {
             // None if is not class method
             let uninst_self_type = {
                 if let Some(class_id) = method_class.get(&DefinitionId(id)) {
-                    let class_def = definition_ast_list.get(class_id.0).unwrap();
-                    let class_def = class_def.0.read();
-                    let TopLevelDef::Class { type_vars, .. } = &*class_def else {
+                    let TopLevelDef::Class { type_vars, .. } =
+                        &*definition_ast_list.get(class_id.0).unwrap().0.read()
+                    else {
                         unreachable!("must be class def")
                     };
 
@@ -2334,8 +2333,8 @@ impl TopLevelComposer {
                                 )]));
                             }
                         };
-                        let subtype_entry = defs[subtype_id.0].read();
-                        let TopLevelDef::Class { ancestors, .. } = &*subtype_entry else {
+                        let TopLevelDef::Class { ancestors, .. } = &*defs[subtype_id.0].read()
+                        else {
                             unreachable!()
                         };
 

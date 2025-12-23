@@ -46,14 +46,14 @@ pub struct GenCall {
 
 impl GenCall {
     #[must_use]
-    pub fn new(fp: Box<GenCallCallback>) -> GenCall {
-        GenCall { fp }
+    pub fn new(fp: Box<GenCallCallback>) -> Self {
+        Self { fp }
     }
 
     /// Creates a dummy instance of [`GenCall`], which invokes [`unreachable!()`] with the given
     /// `reason`.
     #[must_use]
-    pub fn create_dummy(reason: String) -> GenCall {
+    pub fn create_dummy(reason: String) -> Self {
         Self::new(Box::new(move |_, _, _, _| unreachable!("{reason}")))
     }
 
@@ -82,7 +82,7 @@ pub struct FunInstance {
     pub unifier_id: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunAttribute {
     StaticMethod,
 }

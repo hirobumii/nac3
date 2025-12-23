@@ -162,7 +162,7 @@ where
 
     /// Returns the name of this field.
     #[must_use]
-    pub fn name(&self) -> &'static str {
+    pub const fn name(&self) -> &'static str {
         self.name
     }
 
@@ -279,7 +279,7 @@ impl FieldIndexCounter {
     /// Increments the number stored by this counter, returning the previous value.
     ///
     /// Functionally equivalent to `i++` in C-based languages.
-    pub fn increment(&mut self) -> u32 {
+    pub const fn increment(&mut self) -> u32 {
         let v = self.0;
         self.0 += 1;
         v

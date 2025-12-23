@@ -29,8 +29,8 @@ impl<V> Default for UnificationTable<V> {
 }
 
 impl<V> UnificationTable<V> {
-    pub fn new() -> UnificationTable<V> {
-        UnificationTable {
+    pub const fn new() -> Self {
+        Self {
             parents: Vec::new(),
             ranks: Vec::new(),
             values: Vec::new(),
@@ -169,9 +169,9 @@ where
         }
     }
 
-    pub fn from_send(table: &UnificationTable<V>) -> UnificationTable<Rc<V>> {
+    pub fn from_send(table: &UnificationTable<V>) -> Self {
         let values = table.values.iter().cloned().map(|v| v.map(Rc::new)).collect();
-        UnificationTable {
+        Self {
             parents: table.parents.clone(),
             ranks: table.ranks.clone(),
             values,

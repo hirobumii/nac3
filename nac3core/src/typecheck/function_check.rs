@@ -90,22 +90,19 @@ impl Inferencer<'_> {
                     return Ok(());
                 }
                 self.should_have_value(expr)?;
-                if !defined_identifiers.contains(id) {
-                    match self.function_data.resolver.get_symbol_type(
+                if defined_identifiers.insert(*id) {
+                    let value = self.function_data.resolver.get_symbol_type(
                         self.unifier,
                         &self.top_level.definitions.read(),
                         self.primitives,
                         *id,
-                    ) {
-                        Ok(_) => {
-                            defined_identifiers.insert(*id);
-                        }
-                        Err(e) => {
-                            return Err(HashSet::from([format!(
-                                "type error at identifier `{}` ({}) at {}",
-                                id, e, expr.location
-                            )]));
-                        }
+                    );
+                    if let Err(e) = value {
+                        defined_identifiers.remove(id);
+                        return Err(HashSet::from([format!(
+                            "type error at identifier `{id}` ({e}) at {}",
+                            expr.location
+                        )]));
                     }
                 }
             }

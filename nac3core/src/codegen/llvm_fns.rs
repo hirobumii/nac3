@@ -32,7 +32,7 @@ pub struct FunctionDecl<'ctx> {
 }
 
 impl FunctionDecl<'_> {
-    fn new(name: String) -> Self {
+    const fn new(name: String) -> Self {
         Self { name, _phantom: PhantomData }
     }
 }
@@ -108,10 +108,10 @@ impl<'ctx> ModuleContext<'ctx> {
         fn_store.functions.entry(name.to_owned()).or_insert_with(|| {
             let f = module.add_function(
                 name,
-                match ret {
-                    Some(ret) => ret.fn_type(params, false),
-                    None => ctx.void_type().fn_type(params, false),
-                },
+                ret.map_or_else(
+                    || ctx.void_type().fn_type(params, false),
+                    |ret| ret.fn_type(params, false),
+                ),
                 None,
             );
             if !export {
@@ -178,10 +178,10 @@ impl<'ctx> ModuleContext<'ctx> {
             })
             .unzip();
 
-        let fn_ty = match llvm_ret {
-            None => ctx.void_type().fn_type(&llvm_params, is_c_varargs),
-            Some(ret) => ret.fn_type(&llvm_params, is_c_varargs),
-        };
+        let fn_ty = llvm_ret.map_or_else(
+            || ctx.void_type().fn_type(&llvm_params, is_c_varargs),
+            |ret| ret.fn_type(&llvm_params, is_c_varargs),
+        );
         let f = module.add_function(name, fn_ty, Some(Linkage::External));
         for (loc, attr) in get_attrs(attrs) {
             f.add_attribute(loc, attr);

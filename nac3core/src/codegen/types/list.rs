@@ -70,7 +70,8 @@ impl<'ctx> ListType<'ctx> {
         element_type: Option<BasicTypeEnum<'ctx>>,
         llvm_usize: IntType<'ctx>,
     ) -> PointerType<'ctx> {
-        let element_type = element_type.map_or(llvm_usize.into(), |ty| ty.as_basic_type_enum());
+        let element_type =
+            element_type.map_or_else(|| llvm_usize.into(), |ty| ty.as_basic_type_enum());
 
         let field_tys =
             Self::fields(element_type, llvm_usize).into_iter().map(|field| field.1).collect_vec();
@@ -160,13 +161,13 @@ impl<'ctx> ListType<'ctx> {
 
     /// Returns the type of the `size` field of this `list` type.
     #[must_use]
-    pub fn size_type(&self) -> IntType<'ctx> {
+    pub const fn size_type(&self) -> IntType<'ctx> {
         self.llvm_usize
     }
 
     /// Returns the element type of this `list` type.
     #[must_use]
-    pub fn element_type(&self) -> Option<BasicTypeEnum<'ctx>> {
+    pub const fn element_type(&self) -> Option<BasicTypeEnum<'ctx>> {
         self.item
     }
 
@@ -236,7 +237,7 @@ impl<'ctx> ListType<'ctx> {
         let plist = self.alloca_var(ctx, name);
         plist.store_size(ctx, len);
 
-        let item = self.item.unwrap_or(self.llvm_usize.into());
+        let item = self.item.unwrap_or_else(|| self.llvm_usize.into());
         plist.create_data(ctx, item, None);
 
         plist
@@ -261,7 +262,7 @@ impl<'ctx> ListType<'ctx> {
         let plist = self.alloca_var(ctx, name);
 
         plist.store_size(ctx, self.llvm_usize.const_zero());
-        plist.create_data(ctx, self.item.unwrap_or(self.llvm_usize.into()), None);
+        plist.create_data(ctx, self.item.unwrap_or_else(|| self.llvm_usize.into()), None);
 
         plist
     }
@@ -345,7 +346,7 @@ impl<'ctx> StructProxyType<'ctx> for ListType<'ctx> {
     type StructFields = ListStructFields<'ctx>;
 
     fn get_fields(&self) -> Self::StructFields {
-        Self::fields(self.item.unwrap_or(self.llvm_usize.into()), self.llvm_usize)
+        Self::fields(self.item.unwrap_or_else(|| self.llvm_usize.into()), self.llvm_usize)
     }
 }
 

@@ -1,3 +1,5 @@
+use std::iter::once;
+
 use inkwell::{
     IntPredicate,
     basic_block::BasicBlock,
@@ -1568,8 +1570,9 @@ pub fn exn_constructor<'ctx>(
         codegen_unreachable!(ctx)
     };
     let defs = ctx.top_level.definitions.read();
-    let def = defs[zelf_id].read();
-    let TopLevelDef::Class { name: zelf_name, .. } = &*def else { codegen_unreachable!(ctx) };
+    let TopLevelDef::Class { name: zelf_name, .. } = &*defs[zelf_id].read() else {
+        codegen_unreachable!(ctx)
+    };
     let exception_name = format!("{}:{}", ctx.resolver.get_exception_id(zelf_id), zelf_name);
     unsafe {
         let id_ptr = ctx.builder.build_in_bounds_gep(zelf, &[zero, zero], "exn.id").unwrap();
@@ -1953,7 +1956,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
                 ctx.builder.build_unconditional_branch(finalizer).unwrap();
             }
         }
-        for block in [body].iter().chain(post_handlers.iter()) {
+        for block in once(&body).chain(post_handlers.iter()) {
             if block.get_terminator().is_none() {
                 ctx.builder.position_at_end(*block);
                 unsafe {
@@ -1989,8 +1992,9 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
             codegen_unreachable!(ctx)
         };
         let top_level_defs = ctx.top_level.definitions.read();
-        let def = top_level_defs[obj_id.0].read();
-        let TopLevelDef::Class { methods, .. } = &*def else { codegen_unreachable!(ctx) };
+        let TopLevelDef::Class { methods, .. } = &*top_level_defs[obj_id.0].read() else {
+            codegen_unreachable!(ctx)
+        };
         let enter_fun_id = methods
             .iter()
             .find(|method| method.0 == "__enter__".into())

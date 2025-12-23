@@ -74,15 +74,15 @@ impl<'ctx> ExceptionType<'ctx> {
 
         assert!(ctx.get_struct_type("str").is_some());
 
-        if let Some(t) = ctx.get_struct_type(NAME) {
-            t.ptr_type(AddressSpace::default())
-        } else {
-            let exn_ty = ctx.opaque_struct_type(NAME);
-            let field_tys =
-                Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
-            exn_ty.set_body(&field_tys, false);
-            exn_ty.ptr_type(AddressSpace::default())
-        }
+        ctx.get_struct_type(NAME)
+            .unwrap_or_else(|| {
+                let exn_ty = ctx.opaque_struct_type(NAME);
+                let field_tys =
+                    Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
+                exn_ty.set_body(&field_tys, false);
+                exn_ty
+            })
+            .ptr_type(AddressSpace::default())
     }
 
     fn new_impl(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> Self {

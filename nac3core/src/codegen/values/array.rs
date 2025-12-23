@@ -280,7 +280,7 @@ pub struct ArraySliceValue<'ctx>(PointerValue<'ctx>, IntValue<'ctx>, Option<&'ct
 impl<'ctx> ArraySliceValue<'ctx> {
     /// Creates an [`ArraySliceValue`] from a [`PointerValue`] and its size.
     #[must_use]
-    pub fn from_ptr_val(
+    pub const fn from_ptr_val(
         ptr: PointerValue<'ctx>,
         size: IntValue<'ctx>,
         name: Option<&'ctx str>,

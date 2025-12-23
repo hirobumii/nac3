@@ -72,8 +72,8 @@ pub enum ConcreteTypeEnum {
 
 impl ConcreteTypeStore {
     #[must_use]
-    pub fn new() -> ConcreteTypeStore {
-        ConcreteTypeStore {
+    pub fn new() -> Self {
+        Self {
             store: vec![
                 ConcreteTypeEnum::TPrimitive(Primitive::Int32),
                 ConcreteTypeEnum::TPrimitive(Primitive::Int64),

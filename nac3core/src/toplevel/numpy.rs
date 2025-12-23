@@ -57,7 +57,7 @@ pub fn subst_ndarray_tvars(
 }
 
 fn unpack_ndarray_tvars(
-    unifier: &mut Unifier,
+    unifier: &Unifier,
     ndarray: Type,
 ) -> impl Iterator<Item = (TypeVarId, Type)> {
     let TypeEnum::TObj { obj_id, params, .. } = &*unifier.get_ty_immutable(ndarray) else {

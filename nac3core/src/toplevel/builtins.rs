@@ -189,10 +189,10 @@ enum SizeVariant {
 }
 
 impl SizeVariant {
-    fn of_int(self, primitives: &PrimitiveStore) -> Type {
+    const fn of_int(self, primitives: &PrimitiveStore) -> Type {
         match self {
-            SizeVariant::Bits32 => primitives.int32,
-            SizeVariant::Bits64 => primitives.int64,
+            Self::Bits32 => primitives.int32,
+            Self::Bits64 => primitives.int64,
         }
     }
 }
@@ -231,7 +231,7 @@ struct BuiltinBuilder<'a> {
 }
 
 impl<'a> BuiltinBuilder<'a> {
-    fn new(unifier: &'a mut Unifier, primitives: &'a PrimitiveStore) -> BuiltinBuilder<'a> {
+    fn new(unifier: &'a mut Unifier, primitives: &'a PrimitiveStore) -> Self {
         let PrimitiveStore {
             int32,
             int64,
@@ -587,7 +587,7 @@ impl<'a> BuiltinBuilder<'a> {
                     simple_name: prim
                         .name()
                         .rsplit_once('.')
-                        .map_or(prim.name(), |(_, nme)| nme)
+                        .map_or_else(|| prim.name(), |(_, nme)| nme)
                         .to_string(),
                     object_id: prim.id(),
                     type_vars: Vec::default(),
@@ -703,7 +703,7 @@ impl<'a> BuiltinBuilder<'a> {
                 simple_name: prim
                     .name()
                     .rsplit_once('.')
-                    .map_or(prim.name(), |(_, nme)| nme)
+                    .map_or_else(|| prim.name(), |(_, nme)| nme)
                     .to_string(),
                 object_id: prim.id(),
                 type_vars: Vec::default(),
@@ -738,7 +738,7 @@ impl<'a> BuiltinBuilder<'a> {
                 simple_name: prim
                     .name()
                     .rsplit_once('.')
-                    .map_or(prim.name(), |(_, nme)| nme)
+                    .map_or_else(|| prim.name(), |(_, nme)| nme)
                     .to_string(),
                 object_id: prim.id(),
                 type_vars: vec![self.option_tvar.ty],
@@ -846,7 +846,7 @@ impl<'a> BuiltinBuilder<'a> {
                 simple_name: prim
                     .name()
                     .rsplit_once('.')
-                    .map_or(prim.name(), |(_, nme)| nme)
+                    .map_or_else(|| prim.name(), |(_, nme)| nme)
                     .to_string(),
                 object_id: prim.id(),
                 type_vars: vec![self.list_tvar.ty],
@@ -876,7 +876,7 @@ impl<'a> BuiltinBuilder<'a> {
                 simple_name: prim
                     .name()
                     .rsplit_once('.')
-                    .map_or(prim.name(), |(_, nme)| nme)
+                    .map_or_else(|| prim.name(), |(_, nme)| nme)
                     .to_string(),
                 object_id: prim.id(),
                 type_vars: vec![self.ndarray_dtype_tvar.ty, self.ndarray_ndims_tvar.ty],

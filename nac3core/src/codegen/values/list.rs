@@ -58,7 +58,7 @@ impl<'ctx> ListValue<'ctx> {
     }
 
     /// Stores the array of data elements `data` into this instance.
-    fn store_data(&self, ctx: &mut CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
+    fn store_data(&self, ctx: &CodeGenContext<'ctx, '_>, data: PointerValue<'ctx>) {
         self.items_field().store(ctx, self.value, data, self.name);
     }
 
@@ -93,7 +93,7 @@ impl<'ctx> ListValue<'ctx> {
     /// Returns the double-indirection pointer to the `data` array, as if by calling `getelementptr`
     /// on the field.
     #[must_use]
-    pub fn data(&self) -> ListDataProxy<'ctx, '_> {
+    pub const fn data(&self) -> ListDataProxy<'ctx, '_> {
         ListDataProxy(self)
     }
 
@@ -119,7 +119,7 @@ impl<'ctx> ListValue<'ctx> {
 
     /// Returns an instance of [`ListValue`] with the `items` pointer cast to `i8*`.
     #[must_use]
-    pub fn as_i8_list(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> ListValue<'ctx> {
+    pub fn as_i8_list(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Self {
         let llvm_list_i8 = <Self as ProxyValue>::Type::new(ctx, &ctx.i8);
 
         Self::from_pointer_value(

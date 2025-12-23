@@ -44,14 +44,12 @@ impl<'ctx> StringType<'ctx> {
     fn llvm_type(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> StructType<'ctx> {
         const NAME: &str = "str";
 
-        if let Some(t) = ctx.get_struct_type(NAME) {
-            t
-        } else {
+        ctx.get_struct_type(NAME).unwrap_or_else(|| {
             let str_ty = ctx.opaque_struct_type(NAME);
             let field_tys = Self::fields(llvm_usize).into_iter().map(|field| field.1).collect_vec();
             str_ty.set_body(&field_tys, false);
             str_ty
-        }
+        })
     }
 
     fn new_impl(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> Self {

@@ -40,7 +40,7 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
         ctx: &mut CodeGenContext<'ctx, 'a>,
         ret_dtype: BasicTypeEnum<'ctx>,
         mapping: Mapping,
-    ) -> Result<ScalarOrNDArray<'ctx>, String>
+    ) -> Result<Self, String>
     where
         Mapping: FnOnce(
             &mut CodeGenContext<'ctx, 'a>,

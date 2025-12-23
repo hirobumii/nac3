@@ -120,7 +120,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 
     /// Stores the array of dimension sizes `dims` into this instance.
-    fn store_shape(&self, ctx: &mut CodeGenContext<'ctx, '_>, dims: PointerValue<'ctx>) {
+    fn store_shape(&self, ctx: &CodeGenContext<'ctx, '_>, dims: PointerValue<'ctx>) {
         self.shape_field().store(ctx, self.value, dims, self.name);
     }
 
@@ -136,7 +136,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Returns a proxy object to the field storing the size of each dimension of this `NDArray`.
     #[must_use]
-    pub fn shape(&self) -> NDArrayShapeProxy<'ctx, '_> {
+    pub const fn shape(&self) -> NDArrayShapeProxy<'ctx, '_> {
         NDArrayShapeProxy(self)
     }
 
@@ -145,7 +145,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     }
 
     /// Stores the array of stride sizes `strides` into this instance.
-    fn store_strides(&self, ctx: &mut CodeGenContext<'ctx, '_>, strides: PointerValue<'ctx>) {
+    fn store_strides(&self, ctx: &CodeGenContext<'ctx, '_>, strides: PointerValue<'ctx>) {
         self.strides_field().store(ctx, self.value, strides, self.name);
     }
 
@@ -161,7 +161,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Returns a proxy object to the field storing the stride of each dimension of this `NDArray`.
     #[must_use]
-    pub fn strides(&self) -> NDArrayStridesProxy<'ctx, '_> {
+    pub const fn strides(&self) -> NDArrayStridesProxy<'ctx, '_> {
         NDArrayStridesProxy(self)
     }
 
@@ -200,7 +200,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Returns a proxy object to the field storing the data of this `NDArray`.
     #[must_use]
-    pub fn data(&self) -> NDArrayDataProxy<'ctx, '_> {
+    pub const fn data(&self) -> NDArrayDataProxy<'ctx, '_> {
         NDArrayDataProxy(self)
     }
 
@@ -217,11 +217,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Copy shape dimensions from an ndarray.
     /// Panics if `ndims` mismatches.
-    pub fn copy_shape_from_ndarray(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        src_ndarray: NDArrayValue<'ctx>,
-    ) {
+    pub fn copy_shape_from_ndarray(&self, ctx: &mut CodeGenContext<'ctx, '_>, src_ndarray: Self) {
         assert_eq!(self.ndims, src_ndarray.ndims);
 
         let src_shape = src_ndarray.shape().base_ptr(ctx);
@@ -241,11 +237,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Copy strides dimensions from an ndarray.
     /// Panics if `ndims` mismatches.
-    pub fn copy_strides_from_ndarray(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        src_ndarray: NDArrayValue<'ctx>,
-    ) {
+    pub fn copy_strides_from_ndarray(&self, ctx: &mut CodeGenContext<'ctx, '_>, src_ndarray: Self) {
         assert_eq!(self.ndims, src_ndarray.ndims);
 
         let src_strides = src_ndarray.strides().base_ptr(ctx);
@@ -302,7 +294,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// do not matter. The copying order is determined by how their flattened views look.
     ///
     /// Panics if the `dtype`s of ndarrays are different.
-    pub fn copy_data_from(&self, ctx: &mut CodeGenContext<'ctx, '_>, src: NDArrayValue<'ctx>) {
+    pub fn copy_data_from(&self, ctx: &mut CodeGenContext<'ctx, '_>, src: Self) {
         assert_eq!(self.dtype, src.dtype, "self and src dtype should match");
         irrt::ndarray::call_nac3_ndarray_copy_data(ctx, src, *self);
     }
@@ -373,7 +365,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
     /// Returns true if this ndarray is unsized - `ndims == 0` and only contains a scalar.
     #[must_use]
-    pub fn is_unsized(&self) -> bool {
+    pub const fn is_unsized(&self) -> bool {
         self.ndims == 0
     }
 
@@ -396,11 +388,9 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// If this ndarray is unsized, return its sole value as an [`BasicValueEnum`].
     /// Otherwise, do nothing and return the ndarray itself.
     pub fn split_unsized(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> ScalarOrNDArray<'ctx> {
-        if let Some(unsized_elem) = self.get_unsized_element(ctx) {
+        self.get_unsized_element(ctx).map_or(ScalarOrNDArray::NDArray(*self), |unsized_elem| {
             ScalarOrNDArray::Scalar(unsized_elem)
-        } else {
-            ScalarOrNDArray::NDArray(*self)
-        }
+        })
     }
 
     /// Check if this `NDArray` can be used as an `out` ndarray for an operation.
@@ -860,7 +850,7 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
     pub fn from_value(
         ctx: &mut CodeGenContext<'ctx, '_>,
         (object_ty, object): (Type, BasicValueEnum<'ctx>),
-    ) -> ScalarOrNDArray<'ctx> {
+    ) -> Self {
         match &*ctx.unifier.get_ty(object_ty) {
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
@@ -923,7 +913,7 @@ pub enum NDArrayOut<'ctx> {
 impl<'ctx> NDArrayOut<'ctx> {
     /// Get the dtype of this output.
     #[must_use]
-    pub fn get_dtype(&self) -> BasicTypeEnum<'ctx> {
+    pub const fn get_dtype(&self) -> BasicTypeEnum<'ctx> {
         match self {
             NDArrayOut::NewNDArray { dtype } => *dtype,
             NDArrayOut::WriteToNDArray { ndarray } => ndarray.dtype,

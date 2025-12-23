@@ -170,7 +170,7 @@ impl<'ctx> RustNDIndex<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         subscript: &Expr<Option<Type>>,
-    ) -> Result<Vec<RustNDIndex<'ctx>>, String> {
+    ) -> Result<Vec<Self>, String> {
         // Annoying notes about `slice`
         //  - `my_array[5]`
         //    - slice is a `Constant`
@@ -214,7 +214,7 @@ impl<'ctx> RustNDIndex<'ctx> {
 
     /// Get the value to set `NDIndex::type` for this variant.
     #[must_use]
-    pub fn get_type_id(&self) -> u64 {
+    pub const fn get_type_id(&self) -> u64 {
         // Defined in IRRT, must be in sync
         match self {
             RustNDIndex::SingleElement(_) => 0,

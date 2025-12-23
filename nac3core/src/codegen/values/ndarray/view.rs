@@ -114,20 +114,14 @@ impl<'ctx> NDArrayValue<'ctx> {
         // Define models
         let transposed_ndarray = self.get_type().construct_uninitialized(ctx, None);
 
-        let axes = if let Some(axes) = axes {
+        let axes = axes.map(|axes| {
             let num_axes = self.llvm_usize.const_int(self.ndims, false);
 
             // `axes = nullptr` if `axes` is unspecified.
             let axes = ArraySliceValue::from_ptr_val(axes, num_axes, None);
 
-            Some(TypedArrayLikeAdapter::from(
-                axes,
-                |_, val| val.into_int_value(),
-                |_, val| val.into(),
-            ))
-        } else {
-            None
-        };
+            TypedArrayLikeAdapter::from(axes, |_, val| val.into_int_value(), |_, val| val.into())
+        });
 
         irrt::ndarray::call_nac3_ndarray_transpose(ctx, *self, transposed_ndarray, axes.as_ref());
 

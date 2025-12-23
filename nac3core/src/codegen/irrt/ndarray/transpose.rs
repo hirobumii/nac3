@@ -31,8 +31,8 @@ pub fn call_nac3_ndarray_transpose<'ctx>(
     call_extern!(ctx: void _ = name(
         src_ndarray.as_abi_value(ctx),
         dst_ndarray.as_abi_value(ctx),
-        axes.map_or(llvm_usize.const_zero(), |axes| axes.size(ctx)),
-        axes.map_or(llvm_usize.ptr_type(AddressSpace::default()).const_null(), |axes| {
+        axes.map_or_else(|| llvm_usize.const_zero(), |axes| axes.size(ctx)),
+        axes.map_or_else(|| llvm_usize.ptr_type(AddressSpace::default()).const_null(), |axes| {
             axes.base_ptr(ctx)
         }),
     ));

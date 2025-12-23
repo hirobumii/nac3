@@ -1,5 +1,5 @@
 #![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
-#![warn(clippy::pedantic)]
+#![warn(clippy::pedantic, clippy::nursery)]
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,

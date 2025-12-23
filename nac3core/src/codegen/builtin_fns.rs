@@ -897,7 +897,11 @@ pub fn call_numpy_max_min<'ctx>(
                                 "",
                             )
                             .unwrap(),
-                        _ => unsupported_type(ctx, fn_name, &[elem_ty, elem_ty]),
+                        _ =>
+                        {
+                            #[allow(clippy::tuple_array_conversions)]
+                            unsupported_type(ctx, fn_name, &[elem_ty, elem_ty])
+                        }
                     };
 
                     ctx.builder.build_store(extremum, new_extremum).unwrap();
@@ -1121,7 +1125,7 @@ macro_rules! create_helper_call_numpy_unary_elementwise {
 /// ```ignore
 /// // Type of `$on_scalar:expr`
 /// fn on_scalar<'ctx>(
-///     
+///
 ///     ctx: &mut CodeGenContext<'ctx, '_>,
 ///     arg: FloatValue<'ctx>
 /// ) -> IntValue<'ctx> // of LLVM type `i1`
@@ -1157,7 +1161,7 @@ macro_rules! create_helper_call_numpy_unary_elementwise_float_to_bool {
 /// ```ignore
 /// // Type of `$on_scalar:expr`
 /// fn on_scalar<'ctx>(
-///     
+///
 ///     ctx: &mut CodeGenContext<'ctx, '_>,
 ///     arg: FloatValue<'ctx>
 /// ) -> FloatValue<'ctx>

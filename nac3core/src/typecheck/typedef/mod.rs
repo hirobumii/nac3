@@ -124,7 +124,7 @@ pub struct FuncArg {
 
 impl FuncArg {
     #[must_use]
-    pub fn is_required(&self) -> bool {
+    pub const fn is_required(&self) -> bool {
         self.default_value.is_none()
     }
 }
@@ -159,34 +159,34 @@ impl From<&RecordKey> for StrRef {
     fn from(r: &RecordKey) -> Self {
         match r {
             RecordKey::Str(s) => *s,
-            RecordKey::Int(i) => StrRef::from(i.to_string()),
+            RecordKey::Int(i) => Self::from(i.to_string()),
         }
     }
 }
 
 impl From<StrRef> for RecordKey {
     fn from(s: StrRef) -> Self {
-        RecordKey::Str(s)
+        Self::Str(s)
     }
 }
 
 impl From<&str> for RecordKey {
     fn from(s: &str) -> Self {
-        RecordKey::Str(s.into())
+        Self::Str(s.into())
     }
 }
 
 impl From<i32> for RecordKey {
     fn from(i: i32) -> Self {
-        RecordKey::Int(i)
+        Self::Int(i)
     }
 }
 
 impl Display for RecordKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RecordKey::Str(s) => write!(f, "{s}"),
-            RecordKey::Int(i) => write!(f, "{i}"),
+            Self::Str(s) => write!(f, "{s}"),
+            Self::Int(i) => write!(f, "{i}"),
         }
     }
 }
@@ -200,8 +200,8 @@ pub struct RecordField {
 
 impl RecordField {
     #[must_use]
-    pub fn new(ty: Type, mutable: bool, loc: Option<Location>) -> RecordField {
-        RecordField { ty, mutable, loc }
+    pub const fn new(ty: Type, mutable: bool, loc: Option<Location>) -> Self {
+        Self { ty, mutable, loc }
     }
 }
 
@@ -222,10 +222,10 @@ impl AttrKind {
     /// [Classes][AttrKind::Class] and [Methods][AttrKind::Method] are always immutable, whereas
     /// [fields][AttrKind::Field] can be mutable depending on how they are declared.
     #[must_use]
-    pub fn is_mutable(&self) -> bool {
+    pub const fn is_mutable(&self) -> bool {
         match self {
-            AttrKind::Class | AttrKind::Method => false,
-            AttrKind::Field { mutable } => *mutable,
+            Self::Class | Self::Method => false,
+            Self::Field { mutable } => *mutable,
         }
     }
 }
@@ -299,16 +299,16 @@ pub enum TypeEnum {
 
 impl TypeEnum {
     #[must_use]
-    pub fn get_type_name(&self) -> &'static str {
+    pub const fn get_type_name(&self) -> &'static str {
         match self {
-            TypeEnum::TRigidVar { .. } => "TRigidVar",
-            TypeEnum::TVar { .. } => "TVar",
-            TypeEnum::TLiteral { .. } => "TConstant",
-            TypeEnum::TTuple { .. } => "TTuple",
-            TypeEnum::TObj { .. } => "TObj",
-            TypeEnum::TVirtual { .. } => "TVirtual",
-            TypeEnum::TCall { .. } => "TCall",
-            TypeEnum::TFunc { .. } => "TFunc",
+            Self::TRigidVar { .. } => "TRigidVar",
+            Self::TVar { .. } => "TVar",
+            Self::TLiteral { .. } => "TConstant",
+            Self::TTuple { .. } => "TTuple",
+            Self::TObj { .. } => "TObj",
+            Self::TVirtual { .. } => "TVirtual",
+            Self::TCall { .. } => "TCall",
+            Self::TFunc { .. } => "TFunc",
         }
     }
 }
@@ -328,15 +328,15 @@ pub struct Unifier {
 
 impl Default for Unifier {
     fn default() -> Self {
-        Unifier::new()
+        Self::new()
     }
 }
 
 impl Unifier {
     /// Get an empty unifier
     #[must_use]
-    pub fn new() -> Unifier {
-        Unifier {
+    pub fn new() -> Self {
+        Self {
             unification_table: UnificationTable::new(),
             var_id_counter: 0,
             calls: Vec::new(),
@@ -364,7 +364,7 @@ impl Unifier {
     /// in-place manipulation of type variables and/or type fields is necessary, otherwise prefer to
     /// [add a new type][`Unifier::add_ty`] and [unify the type][`Unifier::unify`] with an existing
     /// type.
-    pub unsafe fn get_unification_table(&mut self) -> &mut UnificationTable<Rc<TypeEnum>> {
+    pub const unsafe fn get_unification_table(&mut self) -> &mut UnificationTable<Rc<TypeEnum>> {
         &mut self.unification_table
     }
 
@@ -373,9 +373,9 @@ impl Unifier {
         self.unification_table.unioned(a, b)
     }
 
-    pub fn from_shared_unifier(unifier: &SharedUnifier) -> Unifier {
+    pub fn from_shared_unifier(unifier: &SharedUnifier) -> Self {
         let lock = unifier.lock().unwrap();
-        Unifier {
+        Self {
             unification_table: UnificationTable::from_send(&lock.0),
             var_id_counter: lock.1,
             calls: lock.2.clone(),
@@ -1344,9 +1344,8 @@ impl Unifier {
                     || format!("{id}"),
                     |top_level| {
                         let top_level_def = &top_level.definitions.read()[id];
-                        let top_level_def = top_level_def.read();
                         let (TopLevelDef::Class { name, .. } | TopLevelDef::Module { name, .. }) =
-                            &*top_level_def
+                            &*top_level_def.read()
                         else {
                             unreachable!("expected module/class definition")
                         };
@@ -1488,7 +1487,7 @@ impl Unifier {
         table.set_value(a, ty_b);
     }
 
-    fn incompatible_types(a: Type, b: Type) -> Result<(), TypeError> {
+    const fn incompatible_types(a: Type, b: Type) -> Result<(), TypeError> {
         Err(TypeError::new(TypeErrorKind::IncompatibleTypes(a, b), None))
     }
 
@@ -1807,7 +1806,7 @@ impl Unifier {
     }
 
     /// Generate a new [`TypeVarId`] from [`Unifier::var_id_counter`]
-    fn generate_var_id(&mut self) -> TypeVarId {
+    const fn generate_var_id(&mut self) -> TypeVarId {
         self.var_id_counter += 1;
         TypeVarId(self.var_id_counter)
     }

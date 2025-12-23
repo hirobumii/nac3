@@ -100,7 +100,7 @@ impl<'ctx> NDArrayType<'ctx> {
     pub fn new_broadcast(
         ctx: &CodeGenContext<'ctx, '_>,
         dtype: BasicTypeEnum<'ctx>,
-        inputs: &[NDArrayType<'ctx>],
+        inputs: &[Self],
     ) -> Self {
         assert!(!inputs.is_empty());
 
@@ -155,19 +155,19 @@ impl<'ctx> NDArrayType<'ctx> {
 
     /// Returns the type of the `size` field of this `ndarray` type.
     #[must_use]
-    pub fn size_type(&self) -> IntType<'ctx> {
+    pub const fn size_type(&self) -> IntType<'ctx> {
         self.llvm_usize
     }
 
     /// Returns the element type of this `ndarray` type.
     #[must_use]
-    pub fn element_type(&self) -> BasicTypeEnum<'ctx> {
+    pub const fn element_type(&self) -> BasicTypeEnum<'ctx> {
         self.dtype
     }
 
     /// Returns the number of dimensions of this `ndarray` type.
     #[must_use]
-    pub fn ndims(&self) -> u64 {
+    pub const fn ndims(&self) -> u64 {
         self.ndims
     }
 

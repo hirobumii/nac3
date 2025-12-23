@@ -136,10 +136,10 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
     /// [`NDArrayValue::broadcasting_starmap`] and **create** a new ndarray with dtype `ret_dtype`.
     pub fn broadcasting_starmap<'a, MappingFn>(
         ctx: &mut CodeGenContext<'ctx, 'a>,
-        inputs: &[ScalarOrNDArray<'ctx>],
+        inputs: &[Self],
         ret_dtype: BasicTypeEnum<'ctx>,
         mapping: MappingFn,
-    ) -> Result<ScalarOrNDArray<'ctx>, String>
+    ) -> Result<Self, String>
     where
         MappingFn: FnOnce(
             &mut CodeGenContext<'ctx, 'a>,

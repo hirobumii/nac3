@@ -125,6 +125,7 @@ pub fn get_usize_dependent_function_name(ctx: &mut CodeGenContext<'_, '_>, name:
 ///             ,step
 ///         )
 /// ```
+#[allow(clippy::too_long_first_doc_paragraph)]
 pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
     start: &Option<Box<Expr<Option<Type>>>>,
     end: &Option<Box<Expr<Option<Type>>>>,

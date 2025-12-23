@@ -89,7 +89,7 @@ impl<'ctx> NDIterType<'ctx> {
 
     /// Returns the type of the `size` field of this `nditer` type.
     #[must_use]
-    pub fn size_type(&self) -> IntType<'ctx> {
+    pub const fn size_type(&self) -> IntType<'ctx> {
         self.llvm_usize
     }
 
