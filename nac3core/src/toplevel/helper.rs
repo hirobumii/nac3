@@ -210,6 +210,25 @@ impl PrimDef {
         Self::iter().any(|prim| prim.id() == id)
     }
 
+    /// Convert a class [`PrimDef`] to its callable (constructor function) equivalent.
+    ///
+    /// Some primitive types like `int32`, `int64`, etc. have both a class definition
+    /// and a function definition.
+    #[must_use]
+    pub fn as_callable(&self) -> PrimDef {
+        match self {
+            PrimDef::Int32 => PrimDef::FunInt32,
+            PrimDef::Int64 => PrimDef::FunInt64,
+            PrimDef::UInt32 => PrimDef::FunUInt32,
+            PrimDef::UInt64 => PrimDef::FunUInt64,
+            PrimDef::Float | PrimDef::Float64 => PrimDef::FunFloat,
+            PrimDef::Bool => PrimDef::FunBool,
+            PrimDef::Str => PrimDef::FunStr,
+            PrimDef::NDArray => PrimDef::FunNpNDArray,
+            _ => *self,
+        }
+    }
+
     /// Get the definition "simple name" of this [`PrimDef`].
     ///
     /// If the [`PrimDef`] is a function, this corresponds to [`TopLevelDef::Function::simple_name`].

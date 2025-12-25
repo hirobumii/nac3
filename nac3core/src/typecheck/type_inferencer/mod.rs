@@ -28,6 +28,7 @@ use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
         FunAttribute, TopLevelContext, TopLevelDef,
+        composer::promote_expr_type,
         helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims, extract_ndims},
         numpy::{make_ndarray_ty, subst_ndarray_tvars, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
@@ -1000,9 +1001,14 @@ impl Inferencer<'_> {
         let Some(builtin) = self.top_level.builtin_registry.match_builtin(func) else {
             return Ok(None);
         };
-        let id = builtin.name().into();
-        let ctx = ExprContext::Load;
-        let func_location = func.location;
+        let id = match &func.node {
+            ExprKind::Name { id, .. } => *id,
+            ExprKind::Attribute { attr, .. } => *attr,
+            _ => {
+                return Ok(None);
+            }
+        };
+        let mut promoted_func = promote_expr_type(func);
 
         match (builtin, args.len()) {
             // Virtual
@@ -1010,7 +1016,7 @@ impl Inferencer<'_> {
                 if args.is_empty() || args.len() > 2 || !keywords.is_empty() {
                     return report_error(
                         "`virtual` can only accept 1 or 2 positional arguments",
-                        func_location,
+                        func.location,
                     );
                 }
                 let arg0 = self.fold_expr(args.remove(0))?;
@@ -1027,17 +1033,13 @@ impl Inferencer<'_> {
                 } else {
                     self.unifier.get_dummy_var().ty
                 };
-                self.virtual_checks.push((arg0.custom.unwrap(), ty, func_location));
+                self.virtual_checks.push((arg0.custom.unwrap(), ty, func.location));
                 let custom = Some(self.unifier.add_ty(TypeEnum::TVirtual { ty }));
                 Ok(Some(Located {
                     location,
                     custom,
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: None,
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![arg0],
                         keywords: vec![],
                     },
@@ -1081,16 +1083,13 @@ impl Inferencer<'_> {
                     ret: ret_ty,
                     vars: VarMap::new(),
                 }));
+                promoted_func.custom = Some(func_ty);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret_ty),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(func_ty),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![obj],
                         keywords: vec![],
                     },
@@ -1149,16 +1148,13 @@ impl Inferencer<'_> {
                     ret,
                     vars: VarMap::new(),
                 }));
+                promoted_func.custom = Some(custom);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(custom),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![arg0],
                         keywords: vec![],
                     },
@@ -1189,16 +1185,13 @@ impl Inferencer<'_> {
                     vars: VarMap::new(),
                 });
                 let func_ty = self.unifier.add_ty(func_ty);
+                promoted_func.custom = Some(func_ty);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret_ty),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(func_ty),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![ndarray],
                         keywords: vec![],
                     },
@@ -1238,16 +1231,13 @@ impl Inferencer<'_> {
                     ret,
                     vars: VarMap::new(),
                 }));
+                promoted_func.custom = Some(custom);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(custom),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![arg0, arg1],
                         keywords: vec![],
                     },
@@ -1278,16 +1268,13 @@ impl Inferencer<'_> {
                     ret,
                     vars: VarMap::new(),
                 }));
+                promoted_func.custom = Some(custom);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(custom),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![arg0],
                         keywords: vec![],
                     },
@@ -1396,16 +1383,13 @@ impl Inferencer<'_> {
                     ret,
                     vars: VarMap::new(),
                 }));
+                promoted_func.custom = Some(custom);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(custom),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![arg0, arg1],
                         keywords: vec![],
                     },
@@ -1474,16 +1458,13 @@ impl Inferencer<'_> {
                     ret,
                     vars: VarMap::new(),
                 }));
+                promoted_func.custom = Some(custom);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(custom),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![arg0],
                         keywords: vec![],
                     },
@@ -1491,10 +1472,7 @@ impl Inferencer<'_> {
             }
 
             (
-                PrimDef::FunNpNDArray
-                | PrimDef::FunNpEmpty
-                | PrimDef::FunNpZeros
-                | PrimDef::FunNpOnes,
+                PrimDef::NDArray | PrimDef::FunNpEmpty | PrimDef::FunNpZeros | PrimDef::FunNpOnes,
                 1,
             ) => {
                 let shape_expr = args.remove(0);
@@ -1518,16 +1496,13 @@ impl Inferencer<'_> {
                     ret,
                     vars: VarMap::new(),
                 }));
+                promoted_func.custom = Some(custom);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(custom),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![shape],
                         keywords: vec![],
                     },
@@ -1564,16 +1539,13 @@ impl Inferencer<'_> {
                     ret,
                     vars: VarMap::new(),
                 }));
+                promoted_func.custom = Some(custom);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(custom),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![arg0, shape],
                         keywords: vec![],
                     },
@@ -1612,16 +1584,13 @@ impl Inferencer<'_> {
                     ret,
                     vars: VarMap::new(),
                 }));
+                promoted_func.custom = Some(custom);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(custom),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![shape, fill_value],
                         keywords: vec![],
                     },
@@ -1645,7 +1614,7 @@ impl Inferencer<'_> {
                     match &ndmin_kw.node.value.node {
                         ExprKind::Constant { value, .. } => match value {
                             ast::Constant::Int(value) => max(*value as u64, arg0_ndims),
-                            _ => return report_error("Expected uint64 for ndims", func_location),
+                            _ => return report_error("Expected uint64 for ndims", func.location),
                         },
 
                         _ => arg0_ndims,
@@ -1680,22 +1649,63 @@ impl Inferencer<'_> {
                     ret,
                     vars: VarMap::new(),
                 }));
+                promoted_func.custom = Some(custom);
 
                 Ok(Some(Located {
                     location,
                     custom: Some(ret),
                     node: ExprKind::Call {
-                        func: Box::new(Located {
-                            custom: Some(custom),
-                            location: func.location,
-                            node: ExprKind::Name { id, ctx },
-                        }),
+                        func: Box::new(promoted_func),
                         args: vec![arg0],
                         keywords,
                     },
                 }))
             }
-            _ => Ok(None),
+            _ => {
+                let def = &self.top_level.definitions.read()[builtin.id().0];
+                let func_ty = match &*def.read() {
+                    TopLevelDef::Function { signature, .. } => *signature,
+                    TopLevelDef::Class { constructor, .. } => constructor.unwrap(),
+                    TopLevelDef::Module { .. } => {
+                        return report_error(
+                            format!("Builtin [{id}] is not callable").as_str(),
+                            func.location,
+                        );
+                    }
+                };
+                let ret = self.unifier.get_dummy_var().ty;
+                let fun = self.unifier.get_dummy_var().ty;
+
+                let args = args
+                    .iter_mut()
+                    .map(|v| self.fold_expr(v.clone()))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let keywords = keywords
+                    .iter()
+                    .map(|v| fold::fold_keyword(self, v.clone()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let call = self.unifier.add_call(Call {
+                    posargs: args.iter().map(|v| v.custom.unwrap()).collect(),
+                    kwargs: keywords
+                        .iter()
+                        .map(|v| (*v.node.arg.as_ref().unwrap(), v.node.value.custom.unwrap()))
+                        .collect(),
+                    ret,
+                    fun,
+                    loc: Some(location),
+                    operator_info: None,
+                });
+                self.calls.insert(location.into(), call);
+                let call_ty = self.unifier.add_ty(TypeEnum::TCall(vec![call]));
+                self.unify(func_ty, call_ty, &func.location)?;
+                promoted_func.custom = Some(func_ty);
+                Ok(Some(Located {
+                    location,
+                    custom: Some(ret),
+                    node: ExprKind::Call { func: Box::new(promoted_func), args, keywords },
+                }))
+            }
         }
     }
 

@@ -9,12 +9,14 @@ use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, Struct
 use itertools::{Itertools, izip};
 use parking_lot::RwLock;
 
-use nac3parser::ast::{self, Constant, Expr, ExprKind, Location, StrRef};
+use nac3parser::ast::{Constant, Expr, ExprKind, StrRef};
 
 use crate::{
     codegen::CodeGenContext,
     toplevel::{
-        DefinitionId, TopLevelDef, composer::BuiltinRegistry, helper::PrimDef,
+        DefinitionId, TopLevelDef,
+        composer::{BuiltinRegistry, erase_expr_type},
+        helper::{PrimDef, PrimDefDetails},
         type_annotation::TypeAnnotation,
     },
     typecheck::{
@@ -389,25 +391,11 @@ pub fn parse_type_annotation<T>(
     expr: &Expr<T>,
     builtin_registry: &Arc<dyn BuiltinRegistry>,
 ) -> Result<Type, HashSet<String>> {
-    let name_handling = |id: &StrRef, loc: Location, unifier: &mut Unifier| {
-        let name_expr = Expr {
-            node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
-            location: loc,
-            custom: (),
-        };
-
-        if let Some(builtin) = builtin_registry.match_builtin(&name_expr) {
-            match builtin {
-                PrimDef::Int32 => return Ok(primitives.int32),
-                PrimDef::Int64 => return Ok(primitives.int64),
-                PrimDef::UInt32 => return Ok(primitives.uint32),
-                PrimDef::UInt64 => return Ok(primitives.uint64),
-                PrimDef::Float => return Ok(primitives.float),
-                PrimDef::Bool => return Ok(primitives.bool),
-                PrimDef::Str => return Ok(primitives.str),
-                PrimDef::Exception => return Ok(primitives.exception),
-                _ => {}
-            }
+    let name_handling = |name_expr: &Expr<T>, id: &StrRef, unifier: &mut Unifier| {
+        if let Some(builtin) = builtin_registry.match_builtin(&erase_expr_type(name_expr))
+            && let PrimDefDetails::PrimClass { get_ty_fn, .. } = builtin.details()
+        {
+            return Ok(get_ty_fn(primitives));
         }
 
         let obj_id = resolver.get_identifier_def(*id);
@@ -427,153 +415,168 @@ pub fn parse_type_annotation<T>(
                     .collect();
                 Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: VarMap::default() }))
             } else {
-                Err(HashSet::from([format!("Cannot use function name as type at {loc}")]))
+                Err(HashSet::from([format!(
+                    "Cannot use function name as type at {}",
+                    name_expr.location
+                )]))
             }
         } else {
-            let ty = resolver
-                .get_symbol_type(unifier, top_level_defs, primitives, *id)
-                .map_err(|e| HashSet::from([format!("Unknown type annotation at {loc}: {e}")]))?;
+            let ty = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id).map_err(
+                |e| {
+                    HashSet::from([format!(
+                        "Unknown type annotation at {}: {}",
+                        name_expr.location, e
+                    )])
+                },
+            )?;
             if let TypeEnum::TVar { .. } = &*unifier.get_ty(ty) {
                 Ok(ty)
             } else {
-                Err(HashSet::from([format!("Unknown type annotation {id} at {loc}")]))
+                Err(HashSet::from([format!(
+                    "Unknown type annotation {id} at {}",
+                    name_expr.location
+                )]))
             }
         }
     };
 
-    let subscript_name_handle = |id: &StrRef, slice: &Expr<T>, unifier: &mut Unifier| {
-        let name_expr = Expr {
-            node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
-            location: slice.location,
-            custom: (),
-        };
+    let subscript_name_handle =
+        |value: &Expr<T>, id: &StrRef, slice: &Expr<T>, unifier: &mut Unifier| {
+            let builtin = builtin_registry.match_builtin(&erase_expr_type(value));
+            match builtin {
+                Some(PrimDef::Virtual) => {
+                    let ty = parse_type_annotation(
+                        resolver,
+                        top_level_defs,
+                        unifier,
+                        primitives,
+                        slice,
+                        builtin_registry,
+                    )?;
+                    return Ok(unifier.add_ty(TypeEnum::TVirtual { ty }));
+                }
+                Some(PrimDef::Tuple) => {
+                    if let ExprKind::Tuple { elts, .. } = &slice.node {
+                        let ty = elts
+                            .iter()
+                            .map(|elt| {
+                                parse_type_annotation(
+                                    resolver,
+                                    top_level_defs,
+                                    unifier,
+                                    primitives,
+                                    elt,
+                                    builtin_registry,
+                                )
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        return Ok(unifier.add_ty(TypeEnum::TTuple { ty, is_vararg_ctx: false }));
+                    }
+                    return Err(HashSet::from(["Expected multiple elements for tuple".into()]));
+                }
+                Some(PrimDef::Literal) => {
+                    let mut parse_literal = |elt: &Expr<T>| {
+                        let ty = parse_type_annotation(
+                            resolver,
+                            top_level_defs,
+                            unifier,
+                            primitives,
+                            elt,
+                            builtin_registry,
+                        )?;
+                        let ty_enum = &*unifier.get_ty_immutable(ty);
+                        match ty_enum {
+                            TypeEnum::TLiteral { values, .. } => Ok(values.clone()),
+                            _ => Err(HashSet::from([format!(
+                                "Expected literal in type argument for Literal at {}",
+                                elt.location
+                            )])),
+                        }
+                    };
 
-        if let Some(builtin) = builtin_registry.match_builtin(&name_expr) {
-            if builtin == PrimDef::Virtual {
-                let ty = parse_type_annotation(
+                    let values = if let ExprKind::Tuple { elts, .. } = &slice.node {
+                        elts.iter().map(&mut parse_literal).collect::<Result<Vec<_>, _>>()?
+                    } else {
+                        vec![parse_literal(slice)?]
+                    }
+                    .into_iter()
+                    .flatten()
+                    .collect_vec();
+
+                    return Ok(unifier.get_fresh_literal(values, Some(slice.location)));
+                }
+                _ => {}
+            }
+            let types = if let ExprKind::Tuple { elts, .. } = &slice.node {
+                elts.iter()
+                    .map(|v| {
+                        parse_type_annotation(
+                            resolver,
+                            top_level_defs,
+                            unifier,
+                            primitives,
+                            v,
+                            builtin_registry,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                vec![parse_type_annotation(
                     resolver,
                     top_level_defs,
                     unifier,
                     primitives,
                     slice,
                     builtin_registry,
-                )?;
-                return Ok(unifier.add_ty(TypeEnum::TVirtual { ty }));
-            } else if builtin == PrimDef::Tuple {
-                if let ExprKind::Tuple { elts, .. } = &slice.node {
-                    let ty = elts
-                        .iter()
-                        .map(|elt| {
-                            parse_type_annotation(
-                                resolver,
-                                top_level_defs,
-                                unifier,
-                                primitives,
-                                elt,
-                                builtin_registry,
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    return Ok(unifier.add_ty(TypeEnum::TTuple { ty, is_vararg_ctx: false }));
-                }
-                return Err(HashSet::from(["Expected multiple elements for tuple".into()]));
-            } else if builtin == PrimDef::Literal {
-                let mut parse_literal = |elt: &Expr<T>| {
-                    let ty = parse_type_annotation(
-                        resolver,
-                        top_level_defs,
-                        unifier,
-                        primitives,
-                        elt,
-                        builtin_registry,
-                    )?;
-                    let ty_enum = &*unifier.get_ty_immutable(ty);
-                    match ty_enum {
-                        TypeEnum::TLiteral { values, .. } => Ok(values.clone()),
-                        _ => Err(HashSet::from([format!(
-                            "Expected literal in type argument for Literal at {}",
-                            elt.location
-                        )])),
-                    }
-                };
+                )?]
+            };
+            let obj_id = if let Some(builtin) = builtin {
+                builtin.id()
+            } else {
+                resolver.get_identifier_def(*id)?
+            };
 
-                let values = if let ExprKind::Tuple { elts, .. } = &slice.node {
-                    elts.iter().map(&mut parse_literal).collect::<Result<Vec<_>, _>>()?
-                } else {
-                    vec![parse_literal(slice)?]
+            // let obj_id = resolver.get_identifier_def(*id)?;
+            let def = top_level_defs[obj_id.0].read();
+            if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
+                if types.len() != type_vars.len() {
+                    return Err(HashSet::from([format!(
+                        "Unexpected number of type parameters: expected {} but got {}",
+                        type_vars.len(),
+                        types.len()
+                    )]));
                 }
-                .into_iter()
-                .flatten()
-                .collect_vec();
-
-                return Ok(unifier.get_fresh_literal(values, Some(slice.location)));
+                let mut subst = VarMap::new();
+                for (var, ty) in izip!(type_vars.iter(), types.iter()) {
+                    let id = if let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*var) {
+                        *id
+                    } else {
+                        unreachable!()
+                    };
+                    subst.insert(id, *ty);
+                }
+                let mut fields = fields
+                    .iter()
+                    .map(|(attr, ty, is_mutable)| {
+                        let ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
+                        (*attr, (ty, AttrKind::Field { mutable: *is_mutable }))
+                    })
+                    .collect::<HashMap<_, _>>();
+                fields.extend(methods.iter().map(|(attr, ty, _)| {
+                    let ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
+                    (*attr, (ty, AttrKind::Method))
+                }));
+                Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: subst }))
+            } else {
+                Err(HashSet::from(["Cannot use function name as type".into()]))
             }
-        }
-        let types = if let ExprKind::Tuple { elts, .. } = &slice.node {
-            elts.iter()
-                .map(|v| {
-                    parse_type_annotation(
-                        resolver,
-                        top_level_defs,
-                        unifier,
-                        primitives,
-                        v,
-                        builtin_registry,
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()?
-        } else {
-            vec![parse_type_annotation(
-                resolver,
-                top_level_defs,
-                unifier,
-                primitives,
-                slice,
-                builtin_registry,
-            )?]
         };
 
-        let obj_id = resolver.get_identifier_def(*id)?;
-        let def = top_level_defs[obj_id.0].read();
-        if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
-            if types.len() != type_vars.len() {
-                return Err(HashSet::from([format!(
-                    "Unexpected number of type parameters: expected {} but got {}",
-                    type_vars.len(),
-                    types.len()
-                )]));
-            }
-            let mut subst = VarMap::new();
-            for (var, ty) in izip!(type_vars.iter(), types.iter()) {
-                let id = if let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*var) {
-                    *id
-                } else {
-                    unreachable!()
-                };
-                subst.insert(id, *ty);
-            }
-            let mut fields = fields
-                .iter()
-                .map(|(attr, ty, is_mutable)| {
-                    let ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
-                    (*attr, (ty, AttrKind::Field { mutable: *is_mutable }))
-                })
-                .collect::<HashMap<_, _>>();
-            fields.extend(methods.iter().map(|(attr, ty, _)| {
-                let ty = unifier.subst(*ty, &subst).unwrap_or(*ty);
-                (*attr, (ty, AttrKind::Method))
-            }));
-            Ok(unifier.add_ty(TypeEnum::TObj { obj_id, fields, params: subst }))
-        } else {
-            Err(HashSet::from(["Cannot use function name as type".into()]))
-        }
-    };
-
     match &expr.node {
-        ExprKind::Name { id, .. } => name_handling(id, expr.location, unifier),
+        ExprKind::Name { id, .. } => name_handling(expr, id, unifier),
         ExprKind::Subscript { value, slice, .. } => {
             if let ExprKind::Name { id, .. } = &value.node {
-                subscript_name_handle(id, slice, unifier)
+                subscript_name_handle(value, id, slice, unifier)
             } else {
                 Err(HashSet::from([format!("unsupported type expression at {}", expr.location)]))
             }

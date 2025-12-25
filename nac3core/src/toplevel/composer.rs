@@ -112,7 +112,7 @@ pub trait BuiltinRegistry: Send + Sync {
             "uint64" => PrimDef::UInt64,
             "float64" => PrimDef::Float64,
 
-            "np_ndarray" => PrimDef::FunNpNDArray,
+            "np_ndarray" | "ndarray" => PrimDef::NDArray,
             "np_empty" => PrimDef::FunNpEmpty,
             "np_zeros" => PrimDef::FunNpZeros,
             "np_ones" => PrimDef::FunNpOnes,
@@ -136,6 +136,7 @@ pub trait BuiltinRegistry: Send + Sync {
             "np_minimum" => PrimDef::FunNpMinimum,
             "np_max" => PrimDef::FunNpMax,
             "np_maximum" => PrimDef::FunNpMaximum,
+            "np_argmin" => PrimDef::FunNpArgmin,
             "np_argmax" => PrimDef::FunNpArgmax,
             "np_isnan" => PrimDef::FunNpIsNan,
             "np_isinf" => PrimDef::FunNpIsInf,
@@ -280,6 +281,97 @@ impl fmt::Display for BuiltinMatchError {
 
 impl std::error::Error for BuiltinMatchError {}
 
+/// Converts a typed expression `Located<ExprKind<U>, U>` to an untyped expression `Located<ExprKind>`.
+///
+/// This function recursively erases type information from the expression tree while preserving
+/// the structure, location information, and identifiers needed for builtin matching.
+pub fn erase_expr_type<U>(expr: &Located<ExprKind<U>, U>) -> Located<ExprKind> {
+    Located {
+        location: expr.location,
+        custom: (),
+        node: match &expr.node {
+            ExprKind::Name { id, ctx } => ExprKind::Name { id: *id, ctx: *ctx },
+            ExprKind::Subscript { value, slice, ctx } => ExprKind::Subscript {
+                value: Box::new(erase_expr_type(value)),
+                slice: Box::new(erase_expr_type(slice)),
+                ctx: *ctx,
+            },
+            ExprKind::Attribute { value, attr, ctx } => ExprKind::Attribute {
+                value: Box::new(erase_expr_type(value)),
+                attr: *attr,
+                ctx: *ctx,
+            },
+            ExprKind::Call { func, args, keywords } => ExprKind::Call {
+                func: Box::new(erase_expr_type(func)),
+                args: args.iter().map(erase_expr_type).collect(),
+                keywords: keywords
+                    .iter()
+                    .map(|kw| ast::Located {
+                        location: kw.location,
+                        custom: (),
+                        node: ast::KeywordData {
+                            arg: kw.node.arg,
+                            value: Box::new(erase_expr_type(&kw.node.value)),
+                        },
+                    })
+                    .collect(),
+            },
+            ExprKind::Tuple { elts, ctx } => {
+                ExprKind::Tuple { elts: elts.iter().map(erase_expr_type).collect(), ctx: *ctx }
+            }
+            ExprKind::Constant { value, kind } => {
+                ExprKind::Constant { value: value.clone(), kind: kind.clone() }
+            }
+            _ => ExprKind::Constant { value: ast::Constant::None, kind: None },
+        },
+    }
+}
+
+/// Converts an untyped expression `Located<ExprKind>` to a typed expression `Located<ExprKind<Option<Type>>, Option<Type>>`.
+pub fn promote_expr_type(
+    expr: &Located<ExprKind>,
+) -> Located<ExprKind<Option<Type>>, Option<Type>> {
+    Located {
+        location: expr.location,
+        custom: None,
+        node: match &expr.node {
+            ExprKind::Name { id, ctx } => ExprKind::Name { id: *id, ctx: *ctx },
+            ExprKind::Subscript { value, slice, ctx } => ExprKind::Subscript {
+                value: Box::new(promote_expr_type(value)),
+                slice: Box::new(promote_expr_type(slice)),
+                ctx: *ctx,
+            },
+            ExprKind::Attribute { value, attr, ctx } => ExprKind::Attribute {
+                value: Box::new(promote_expr_type(value)),
+                attr: *attr,
+                ctx: *ctx,
+            },
+            ExprKind::Call { func, args, keywords } => ExprKind::Call {
+                func: Box::new(promote_expr_type(func)),
+                args: args.iter().map(promote_expr_type).collect(),
+                keywords: keywords
+                    .iter()
+                    .map(|kw| ast::Located {
+                        location: kw.location,
+                        custom: None,
+                        node: ast::KeywordData {
+                            arg: kw.node.arg,
+                            value: Box::new(promote_expr_type(&kw.node.value)),
+                        },
+                    })
+                    .collect(),
+            },
+            ExprKind::Tuple { elts, ctx } => {
+                ExprKind::Tuple { elts: elts.iter().map(promote_expr_type).collect(), ctx: *ctx }
+            }
+            ExprKind::Constant { value, kind } => {
+                ExprKind::Constant { value: value.clone(), kind: kind.clone() }
+            }
+            _ => ExprKind::Constant { value: ast::Constant::None, kind: None },
+        },
+    }
+}
+
 pub type DefAst = (Arc<RwLock<TopLevelDef>>, Option<Stmt<()>>);
 pub struct TopLevelComposer {
     // list of top level definitions, same as top level context
@@ -331,48 +423,6 @@ impl TopLevelComposer {
 
         let mut builtin_id = HashMap::default();
         let mut builtin_ty = HashMap::default();
-
-        let builtin_name_list = definition_ast_list
-            .iter()
-            .map(|def_ast| match *def_ast.0.read() {
-                TopLevelDef::Class { name, .. } | TopLevelDef::Module { name, .. } => {
-                    name.to_string()
-                }
-                TopLevelDef::Function { simple_name, .. } => simple_name.to_string(),
-            })
-            .collect_vec();
-
-        for (id, name) in builtin_name_list.iter().enumerate() {
-            let name = (**name).into();
-            match &*definition_ast_list[id].0.read() {
-                TopLevelDef::Function { name: func_name, simple_name, signature, .. } => {
-                    assert_eq!(
-                        name, *simple_name,
-                        "Simple name of builtin function should match builtin name list"
-                    );
-
-                    // Do not add member functions into the list of builtin IDs;
-                    // Here we assume that all builtin top-level functions have the same name and simple
-                    // name, and all member functions have something prefixed to its name
-                    if *func_name != simple_name.to_string() {
-                        continue;
-                    }
-                    builtin_ty.insert(name, *signature);
-                    builtin_id.insert(name, DefinitionId(id));
-                }
-                TopLevelDef::Class { name, constructor, object_id, .. } => {
-                    assert_eq!(
-                        id, object_id.0,
-                        "Object id of class '{name}' should match its index in builtin name list"
-                    );
-                    if let Some(constructor) = constructor {
-                        builtin_ty.insert(*name, *constructor);
-                    }
-                    builtin_id.insert(*name, DefinitionId(id));
-                }
-                TopLevelDef::Module { .. } => {}
-            }
-        }
 
         // Materialize lateinit_builtins, now that the unifier is ready
         let lateinit_builtins = lateinit_builtins

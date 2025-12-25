@@ -50,6 +50,7 @@ use crate::{
     symbol_resolver::{StaticValue, SymbolValue, ValueEnum},
     toplevel::{
         DefinitionId, FunAttribute, TopLevelDef,
+        composer::erase_expr_type,
         helper::{PrimDef, arraylike_flatten_element_type, extract_ndims},
         numpy::unpack_ndarray_var_tys,
     },
@@ -2301,6 +2302,15 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
 
         sign.clone()
     };
+    if let Some(builtin) = ctx.top_level.builtin_registry.match_builtin(&erase_expr_type(func)) {
+        let callable = builtin.as_callable();
+        let ret_val = generator.gen_call(ctx, None, (&signature, callable.id()), params)?;
+        return Ok(if let Some(val) = ret_val {
+            RtValue::dynamic(ty, val)
+        } else {
+            RtValue::none(ty)
+        });
+    }
     match &func.node {
         ExprKind::Name { id, .. } => {
             // TODO: handle primitive casts and function pointers

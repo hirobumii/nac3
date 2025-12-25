@@ -7,7 +7,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use strum::IntoEnumIterator;
 
-use nac3parser::ast::{self, Constant, Expr, ExprKind, Location, StrRef};
+use nac3parser::ast::{self, Constant, Expr, Location, StrRef};
 
 use super::{
     DefinitionId, TopLevelDef,
@@ -15,7 +15,7 @@ use super::{
 };
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
-    toplevel::composer::BuiltinRegistry,
+    toplevel::composer::{BuiltinRegistry, erase_expr_type},
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{AttrKind, Type, TypeEnum, Unifier, VarMap},
@@ -186,27 +186,19 @@ fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
 ) -> Result<TypeAnnotation, HashSet<String>> {
     let location = &expr.location;
     let ast::ExprKind::Name { id, .. } = &expr.node else { unreachable!("must be name expr here") };
-    let name_expr = Expr {
-        node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
-        location: *location,
-        custom: (),
-    };
-    if let Some(builtin) = builtin_registry.match_builtin(&name_expr) {
+    if let Some(builtin) = builtin_registry.match_builtin(&erase_expr_type(expr))
+        && let PrimDefDetails::PrimClass { get_ty_fn, .. } = builtin.details()
+    {
         match builtin {
-            PrimDef::Int32 => return Ok(TypeAnnotation::Primitive(primitives.int32)),
-            PrimDef::Int64 => return Ok(TypeAnnotation::Primitive(primitives.int64)),
-            PrimDef::UInt32 => return Ok(TypeAnnotation::Primitive(primitives.uint32)),
-            PrimDef::UInt64 => return Ok(TypeAnnotation::Primitive(primitives.uint64)),
-            PrimDef::Float => return Ok(TypeAnnotation::Primitive(primitives.float)),
-            PrimDef::Bool => return Ok(TypeAnnotation::Primitive(primitives.bool)),
-            PrimDef::Str => return Ok(TypeAnnotation::Primitive(primitives.str)),
             PrimDef::Exception => {
                 return Ok(TypeAnnotation::CustomClass {
                     id: PrimDef::Exception.id(),
                     params: Vec::default(),
                 });
             }
-            _ => {}
+            _ => {
+                return Ok(TypeAnnotation::Primitive(get_ty_fn(primitives)));
+            }
         }
     }
     if let Ok(obj_id) = resolver.get_identifier_def(*id) {
@@ -243,30 +235,28 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     unifier: &mut Unifier,
     primitives: &PrimitiveStore,
     locked: HashMap<DefinitionId, Vec<Type>, S>,
+    value: &Expr<T>,
     id: StrRef,
     slice: &Expr<T>,
     location: &Location,
 ) -> Result<TypeAnnotation, HashSet<String>> {
-    let name_expr = Expr {
-        node: ExprKind::Name { id, ctx: ast::ExprContext::Load },
-        location: *location,
-        custom: (),
-    };
-    if let Some(builtin) = builtin_registry.match_builtin(&name_expr)
-        && matches!(
-            builtin,
+    let obj_id = if let Some(builtin) = builtin_registry.match_builtin(&erase_expr_type(value)) {
+        match builtin {
             PrimDef::Kernel
-                | PrimDef::KernelInvariant
-                | PrimDef::ConstGeneric
-                | PrimDef::None
-                | PrimDef::Virtual
-                | PrimDef::Option
-        )
-    {
-        return Err(HashSet::from([format!("keywords cannot be class name (at {location})")]));
-    }
-
-    let obj_id = resolver.get_identifier_def(id)?;
+            | PrimDef::KernelInvariant
+            | PrimDef::ConstGeneric
+            | PrimDef::None
+            | PrimDef::Virtual
+            | PrimDef::Option => {
+                return Err(HashSet::from([format!(
+                    "keywords cannot be class name (at {location})"
+                )]));
+            }
+            _ => builtin.id(),
+        }
+    } else {
+        resolver.get_identifier_def(id)?
+    };
 
     class_def_id_to_type_annotation(
         resolver,
@@ -279,22 +269,6 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
         (obj_id, Some(slice)),
         location,
     )
-}
-
-/// Helper function to check if a subscript expression matches a specific builtin kind.
-fn is_subscript_builtin<T>(
-    value: &Expr<T>,
-    builtin_registry: &Arc<dyn BuiltinRegistry>,
-    expected: PrimDef,
-) -> bool {
-    matches!(&value.node, ast::ExprKind::Name { id, .. } if {
-        let name_expr = Expr {
-            node: ExprKind::Name { id: *id, ctx: ast::ExprContext::Load },
-            location: value.location,
-            custom: (),
-        };
-        builtin_registry.match_builtin(&name_expr) == Some(expected)
-    })
 }
 
 /// Resolves an AST of a possibly-qualified class name into a [`DefinitionId`].
@@ -399,160 +373,159 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
             expr,
         ),
 
-        // virtual
-        ast::ExprKind::Subscript { value, slice, .. }
-            if is_subscript_builtin(value, builtin_registry, PrimDef::Virtual) =>
-        {
-            let def = parse_ast_to_type_annotation_kinds(
-                resolver,
-                top_level_defs,
-                builtin_registry,
-                unifier,
-                primitives,
-                slice.as_ref(),
-                locked,
-            )?;
-            if !matches!(def, TypeAnnotation::CustomClass { .. }) {
-                unreachable!("must be concretized custom class kind in the virtual")
-            }
-            Ok(TypeAnnotation::Virtual(def.into()))
-        }
-
-        // option
-        ast::ExprKind::Subscript { value, slice, .. }
-            if is_subscript_builtin(value, builtin_registry, PrimDef::Option) =>
-        {
-            let def_ann = parse_ast_to_type_annotation_kinds(
-                resolver,
-                top_level_defs,
-                builtin_registry,
-                unifier,
-                primitives,
-                slice.as_ref(),
-                locked,
-            )?;
-            let id =
-                if let TypeEnum::TObj { obj_id, .. } = unifier.get_ty(primitives.option).as_ref() {
-                    *obj_id
-                } else {
-                    unreachable!()
-                };
-            Ok(TypeAnnotation::CustomClass { id, params: vec![def_ann] })
-        }
-
-        // tuple
-        ast::ExprKind::Subscript { value, slice, .. }
-            if is_subscript_builtin(value, builtin_registry, PrimDef::Tuple) =>
-        {
-            let tup_elts = {
-                if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
-                    elts.as_slice()
-                } else {
-                    std::slice::from_ref(slice.as_ref())
-                }
-            };
-            let type_annotations = tup_elts
-                .iter()
-                .map(|e| {
-                    parse_ast_to_type_annotation_kinds(
+        ast::ExprKind::Subscript { value, slice, .. } => {
+            let builtin = builtin_registry.match_builtin(&erase_expr_type(value));
+            match builtin {
+                // virtual
+                Some(PrimDef::Virtual) => {
+                    let def = parse_ast_to_type_annotation_kinds(
                         resolver,
                         top_level_defs,
                         builtin_registry,
                         unifier,
                         primitives,
-                        e,
-                        locked.clone(),
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(TypeAnnotation::Tuple(type_annotations))
-        }
-
-        // Literal
-        ast::ExprKind::Subscript { value, slice, .. }
-            if is_subscript_builtin(value, builtin_registry, PrimDef::Literal) =>
-        {
-            let tup_elts = {
-                if let ast::ExprKind::Tuple { elts, .. } = &slice.node {
-                    elts.as_slice()
-                } else {
-                    std::slice::from_ref(slice.as_ref())
-                }
-            };
-            let type_annotations = tup_elts
-                .iter()
-                .map(|e| match &e.node {
-                    ast::ExprKind::Constant { value, .. } => {
-                        Ok(TypeAnnotation::Literal(vec![value.clone()]))
+                        slice.as_ref(),
+                        locked,
+                    )?;
+                    if !matches!(def, TypeAnnotation::CustomClass { .. }) {
+                        unreachable!("must be concretized custom class kind in the virtual")
                     }
-                    _ => parse_ast_to_type_annotation_kinds(
+                    Ok(TypeAnnotation::Virtual(def.into()))
+                }
+
+                // option
+                Some(PrimDef::Option) => {
+                    let def_ann = parse_ast_to_type_annotation_kinds(
                         resolver,
                         top_level_defs,
                         builtin_registry,
                         unifier,
                         primitives,
-                        e,
-                        locked.clone(),
-                    ),
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flat_map(|type_ann| match type_ann {
-                    TypeAnnotation::Literal(values) => values,
-                    _ => unreachable!(),
-                })
-                .collect_vec();
+                        slice.as_ref(),
+                        locked,
+                    )?;
+                    let id = if let TypeEnum::TObj { obj_id, .. } =
+                        unifier.get_ty(primitives.option).as_ref()
+                    {
+                        *obj_id
+                    } else {
+                        unreachable!()
+                    };
+                    Ok(TypeAnnotation::CustomClass { id, params: vec![def_ann] })
+                }
 
-            if type_annotations.len() == 1 {
-                Ok(TypeAnnotation::Literal(type_annotations))
-            } else {
-                Err(HashSet::from([format!(
-                    "multiple literal bounds are currently unsupported (at {})",
-                    value.location
-                )]))
+                // tuple
+                Some(PrimDef::Tuple) => {
+                    let tup_elts = match &slice.node {
+                        ast::ExprKind::Tuple { elts, .. } => elts.as_slice(),
+                        _ => std::slice::from_ref(slice.as_ref()),
+                    };
+                    let type_annotations = tup_elts
+                        .iter()
+                        .map(|e| {
+                            parse_ast_to_type_annotation_kinds(
+                                resolver,
+                                top_level_defs,
+                                builtin_registry,
+                                unifier,
+                                primitives,
+                                e,
+                                locked.clone(),
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(TypeAnnotation::Tuple(type_annotations))
+                }
+
+                // Literal
+                Some(PrimDef::Literal) => {
+                    let tup_elts = match &slice.node {
+                        ast::ExprKind::Tuple { elts, .. } => elts.as_slice(),
+                        _ => std::slice::from_ref(slice.as_ref()),
+                    };
+                    let type_annotations = tup_elts
+                        .iter()
+                        .map(|e| match &e.node {
+                            ast::ExprKind::Constant { value, .. } => {
+                                Ok(TypeAnnotation::Literal(vec![value.clone()]))
+                            }
+                            _ => parse_ast_to_type_annotation_kinds(
+                                resolver,
+                                top_level_defs,
+                                builtin_registry,
+                                unifier,
+                                primitives,
+                                e,
+                                locked.clone(),
+                            ),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter()
+                        .flat_map(|type_ann| match type_ann {
+                            TypeAnnotation::Literal(values) => values,
+                            _ => unreachable!(),
+                        })
+                        .collect_vec();
+
+                    if type_annotations.len() == 1 {
+                        Ok(TypeAnnotation::Literal(type_annotations))
+                    } else {
+                        Err(HashSet::from([format!(
+                            "multiple literal bounds are currently unsupported (at {})",
+                            value.location
+                        )]))
+                    }
+                }
+
+                // custom class
+                _ => match &value.node {
+                    ast::ExprKind::Name { id, .. } => parse_class_id_as_type_annotation(
+                        resolver,
+                        top_level_defs,
+                        builtin_registry,
+                        unifier,
+                        primitives,
+                        locked,
+                        value,
+                        *id,
+                        slice,
+                        &expr.location,
+                    ),
+
+                    ast::ExprKind::Attribute { attr, .. } => {
+                        let def_id = match builtin {
+                            Some(builtin) => builtin.id(),
+                            None => resolve_class_to_id(resolver, top_level_defs, value)?,
+                        };
+                        class_def_id_to_type_annotation(
+                            resolver,
+                            top_level_defs,
+                            builtin_registry,
+                            unifier,
+                            primitives,
+                            locked,
+                            *attr,
+                            (def_id, Some(slice)),
+                            &expr.location,
+                        )
+                    }
+
+                    _ => Err(HashSet::from([format!(
+                        "unsupported expression type for class name (at {})",
+                        value.location
+                    )])),
+                },
             }
         }
-
-        // custom class
-        ast::ExprKind::Subscript { value, slice, .. } => match &value.node {
-            ast::ExprKind::Name { id, .. } => parse_class_id_as_type_annotation(
-                resolver,
-                top_level_defs,
-                builtin_registry,
-                unifier,
-                primitives,
-                locked,
-                *id,
-                slice,
-                &expr.location,
-            ),
-
-            ast::ExprKind::Attribute { attr, .. } => {
-                let def_id = resolve_class_to_id(resolver, top_level_defs, value)?;
-
-                class_def_id_to_type_annotation::<T, S>(
-                    resolver,
-                    top_level_defs,
-                    builtin_registry,
-                    unifier,
-                    primitives,
-                    locked,
-                    *attr,
-                    (def_id, Some(slice)),
-                    &expr.location,
-                )
-            }
-
-            _ => Err(HashSet::from([format!(
-                "unsupported expression type for class name (at {})",
-                value.location
-            )])),
-        },
 
         ast::ExprKind::Constant { value, .. } => Ok(TypeAnnotation::Literal(vec![value.clone()])),
 
         ast::ExprKind::Attribute { attr, .. } => {
-            let def_id = resolve_class_to_id(resolver, top_level_defs, expr)?;
+            let builtin = builtin_registry.match_builtin(&erase_expr_type(expr));
+            let def_id = match builtin {
+                Some(builtin) => builtin.id(),
+                None => resolve_class_to_id(resolver, top_level_defs, expr)?,
+            };
 
             class_def_id_to_type_annotation::<T, S>(
                 resolver,

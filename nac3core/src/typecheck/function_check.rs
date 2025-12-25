@@ -10,7 +10,7 @@ use super::{
     type_inferencer::Inferencer,
     typedef::{Type, TypeEnum},
 };
-use crate::toplevel::helper::PrimDef;
+use crate::toplevel::{composer::erase_expr_type, helper::PrimDef};
 
 impl Inferencer<'_> {
     fn should_have_value(&mut self, expr: &Expr<Option<Type>>) -> Result<(), HashSet<String>> {
@@ -86,7 +86,7 @@ impl Inferencer<'_> {
         }
         match &expr.node {
             ExprKind::Name { id, .. } => {
-                if id == &"none".into() {
+                if self.top_level.builtin_registry.match_builtin(&erase_expr_type(expr)).is_some() {
                     return Ok(());
                 }
                 self.should_have_value(expr)?;
