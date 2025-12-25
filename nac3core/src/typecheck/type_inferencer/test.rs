@@ -183,14 +183,14 @@ impl TestEnvironment {
         set_primitives_magic_methods(&primitives, &mut unifier);
 
         let id_to_name: HashMap<_, _> = [
-            (0, "int32".into()),
-            (1, "int64".into()),
-            (2, "float".into()),
-            (3, "bool".into()),
-            (4, "none".into()),
-            (5, "range".into()),
-            (6, "str".into()),
-            (7, "exception".into()),
+            (PrimDef::Int32.id().0, "int32".into()),
+            (PrimDef::Int64.id().0, "int64".into()),
+            (PrimDef::Float.id().0, "float".into()),
+            (PrimDef::Bool.id().0, "bool".into()),
+            (PrimDef::None.id().0, "none".into()),
+            (PrimDef::Range.id().0, "range".into()),
+            (PrimDef::Str.id().0, "str".into()),
+            (PrimDef::Exception.id().0, "exception".into()),
         ]
         .into();
 
@@ -469,27 +469,25 @@ impl TestEnvironment {
             })),
         );
 
-        let id_to_name = [
-            "int32".into(),
-            "int64".into(),
-            "float".into(),
-            "bool".into(),
-            "none".into(),
-            "range".into(),
-            "str".into(),
-            "exception".into(),
-            "uint32".into(),
-            "uint64".into(),
-            "option".into(),
-            "list".into(),
-            "ndarray".into(),
-            "Foo".into(),
-            "Bar".into(),
-            "Bar2".into(),
+        let id_to_name: HashMap<_, _> = [
+            (PrimDef::Int32.id().0, "int32".into()),
+            (PrimDef::Int64.id().0, "int64".into()),
+            (PrimDef::Float.id().0, "float".into()),
+            (PrimDef::Bool.id().0, "bool".into()),
+            (PrimDef::None.id().0, "none".into()),
+            (PrimDef::Range.id().0, "range".into()),
+            (PrimDef::Str.id().0, "str".into()),
+            (PrimDef::Exception.id().0, "exception".into()),
+            (PrimDef::UInt32.id().0, "uint32".into()),
+            (PrimDef::UInt64.id().0, "uint64".into()),
+            (PrimDef::Option.id().0, "option".into()),
+            (PrimDef::List.id().0, "list".into()),
+            (PrimDef::NDArray.id().0, "ndarray".into()),
+            (13, "Foo".into()),
+            (14, "Bar".into()),
+            (15, "Bar2".into()),
         ]
-        .into_iter()
-        .enumerate()
-        .collect();
+        .into();
 
         let top_level = TopLevelContext {
             definitions: Arc::new(top_level_defs.into()),

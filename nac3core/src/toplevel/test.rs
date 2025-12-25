@@ -170,9 +170,9 @@ fn test_simple_register_without_constructor(source: &str) {
         "},
     ],
     &[
-        "fn[[a:0], 0]",
-        "fn[[a:2], 4]",
-        "fn[[b:1], 0]",
+        "fn[[a:33], 33]",
+        "fn[[a:0], 23]",
+        "fn[[b:34], 33]",
     ],
     &[
         "fun",
