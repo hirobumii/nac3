@@ -536,7 +536,6 @@ pub fn parse_type_annotation<T>(
                 resolver.get_identifier_def(*id)?
             };
 
-            // let obj_id = resolver.get_identifier_def(*id)?;
             let def = top_level_defs[obj_id.0].read();
             if let TopLevelDef::Class { fields, methods, type_vars, .. } = &*def {
                 if types.len() != type_vars.len() {
