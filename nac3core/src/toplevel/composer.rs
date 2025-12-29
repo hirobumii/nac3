@@ -1915,6 +1915,38 @@ impl TopLevelComposer {
         let definition_ast_list = &self.definition_ast_list;
         let unifier = &mut self.unifier;
 
+        // first, fix function typevar ids
+        // they may be changed with our use of placeholders
+        for (def, _) in definition_ast_list.iter().skip(self.builtin_num) {
+            if let TopLevelDef::Function { signature, var_id, .. } = &mut *def.write()
+                && let TypeEnum::TFunc(FunSignature { args, ret, vars }) =
+                    unifier.get_ty(*signature).as_ref()
+            {
+                let new_var_ids = vars
+                    .values()
+                    .map(|v| match &*unifier.get_ty(*v) {
+                        TypeEnum::TVar { id, .. } => *id,
+                        _ => unreachable!(),
+                    })
+                    .collect_vec();
+                if new_var_ids != *var_id {
+                    let new_signature = FunSignature {
+                        args: args.clone(),
+                        ret: *ret,
+                        vars: new_var_ids
+                            .iter()
+                            .zip(vars.values())
+                            .map(|(id, v)| (*id, *v))
+                            .collect(),
+                    };
+                    unifier
+                        .unification_table
+                        .set_value(*signature, Rc::new(TypeEnum::TFunc(new_signature)));
+                    *var_id = new_var_ids;
+                }
+            }
+        }
+
         let mut analyze = |i, def: &Arc<RwLock<TopLevelDef>>, ast: &Option<Stmt>| {
             let class_def = def.read();
             if let TopLevelDef::Class {
