@@ -215,16 +215,16 @@ impl PrimDef {
     /// Some primitive types like `int32`, `int64`, etc. have both a class definition
     /// and a function definition.
     #[must_use]
-    pub fn as_callable(&self) -> PrimDef {
+    pub const fn as_callable(&self) -> Self {
         match self {
-            PrimDef::Int32 => PrimDef::FunInt32,
-            PrimDef::Int64 => PrimDef::FunInt64,
-            PrimDef::UInt32 => PrimDef::FunUInt32,
-            PrimDef::UInt64 => PrimDef::FunUInt64,
-            PrimDef::Float | PrimDef::Float64 => PrimDef::FunFloat,
-            PrimDef::Bool => PrimDef::FunBool,
-            PrimDef::Str => PrimDef::FunStr,
-            PrimDef::NDArray => PrimDef::FunNpNDArray,
+            Self::Int32 => Self::FunInt32,
+            Self::Int64 => Self::FunInt64,
+            Self::UInt32 => Self::FunUInt32,
+            Self::UInt64 => Self::FunUInt64,
+            Self::Float | Self::Float64 => Self::FunFloat,
+            Self::Bool => Self::FunBool,
+            Self::Str => Self::FunStr,
+            Self::NDArray => Self::FunNpNDArray,
             _ => *self,
         }
     }

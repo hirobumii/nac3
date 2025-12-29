@@ -2305,11 +2305,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
     if let Some(builtin) = ctx.top_level.builtin_registry.match_builtin(&erase_expr_type(func)) {
         let callable = builtin.as_callable();
         let ret_val = generator.gen_call(ctx, None, (&signature, callable.id()), params)?;
-        return Ok(if let Some(val) = ret_val {
-            RtValue::dynamic(ty, val)
-        } else {
-            RtValue::none(ty)
-        });
+        return Ok(ret_val.map_or_else(|| RtValue::none(ty), |val| RtValue::dynamic(ty, val)));
     }
     match &func.node {
         ExprKind::Name { id, .. } => {
