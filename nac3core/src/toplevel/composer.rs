@@ -110,7 +110,6 @@ pub trait BuiltinRegistry: Send + Sync {
             "int64" => PrimDef::Int64,
             "uint32" => PrimDef::UInt32,
             "uint64" => PrimDef::UInt64,
-            "float64" => PrimDef::Float64,
 
             "np_ndarray" | "ndarray" => PrimDef::NDArray,
             "np_empty" => PrimDef::FunNpEmpty,

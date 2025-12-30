@@ -76,12 +76,11 @@ pub enum PrimDef {
     Generic,
     Literal,
 
-    // NumPy type aliases
+    // NumPy type
     Int32,
     Int64,
     UInt32,
     UInt64,
-    Float64,
 
     // NumPy factory functions
     FunNpNDArray,
@@ -221,7 +220,7 @@ impl PrimDef {
             Self::Int64 => Self::FunInt64,
             Self::UInt32 => Self::FunUInt32,
             Self::UInt64 => Self::FunUInt64,
-            Self::Float | Self::Float64 => Self::FunFloat,
+            Self::Float => Self::FunFloat,
             Self::Bool => Self::FunBool,
             Self::Str => Self::FunStr,
             Self::NDArray => Self::FunNpNDArray,
@@ -318,7 +317,6 @@ impl PrimDef {
             Self::Int64 => class("int64", |primitives| primitives.int64),
             Self::UInt32 => class("uint32", |primitives| primitives.uint32),
             Self::UInt64 => class("uint64", |primitives| primitives.uint64),
-            Self::Float64 => class("float64", |primitives| primitives.float),
 
             // NumPy factory functions
             Self::FunNpNDArray => fun("np_ndarray", None),

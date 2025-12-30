@@ -371,8 +371,7 @@ impl<'a> BuiltinBuilder<'a> {
             | PrimDef::Int32
             | PrimDef::Int64
             | PrimDef::UInt32
-            | PrimDef::UInt64
-            | PrimDef::Float64 => Self::build_simple_primitive_class(prim),
+            | PrimDef::UInt64 => Self::build_simple_primitive_class(prim),
 
             PrimDef::Range | PrimDef::FunRangeInit => self.build_range_class_related(prim),
 
@@ -551,7 +550,6 @@ impl<'a> BuiltinBuilder<'a> {
                 PrimDef::Int64,
                 PrimDef::UInt32,
                 PrimDef::UInt64,
-                PrimDef::Float64,
             ],
         );
 
