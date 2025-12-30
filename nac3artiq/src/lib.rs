@@ -165,6 +165,7 @@ impl ArtiqBuiltinRegistry {
 
         // Core primitives
         id_to_builtin.insert(primitive_ids.builtins.float, PrimDef::Float);
+        id_to_builtin.insert(primitive_ids.numpy.float64, PrimDef::Float);
         id_to_builtin.insert(primitive_ids.builtins.bool, PrimDef::Bool);
         id_to_builtin.insert(primitive_ids.builtins.str_class, PrimDef::Str);
         id_to_builtin.insert(primitive_ids.builtins.list, PrimDef::List);
