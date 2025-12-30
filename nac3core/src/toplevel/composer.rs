@@ -1747,7 +1747,7 @@ impl TopLevelComposer {
                 )?;
                 if ancestors
                     .iter()
-                    .any(|ann| matches!(ann, TypeAnnotation::CustomClass { id, .. } if id.0 == 7))
+                    .any(|ann| matches!(ann, TypeAnnotation::CustomClass { id, .. } if id.0 == PrimDef::Exception.id().0))
                 {
                     // create constructor for these classes
                     let PrimitiveStore { str: string, int64, .. } = *primitives_ty;
