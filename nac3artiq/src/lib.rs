@@ -181,6 +181,9 @@ impl ArtiqBuiltinRegistry {
         id_to_builtin.insert(primitive_ids.builtins.ceil, PrimDef::FunCeil);
         id_to_builtin.insert(primitive_ids.builtins.ceil64, PrimDef::FunCeil64);
         id_to_builtin.insert(primitive_ids.builtins.len, PrimDef::FunLen);
+        id_to_builtin.insert(primitive_ids.builtins.min, PrimDef::FunMin);
+        id_to_builtin.insert(primitive_ids.builtins.max, PrimDef::FunMax);
+        id_to_builtin.insert(primitive_ids.builtins.abs, PrimDef::FunAbs);
         id_to_builtin.insert(primitive_ids.builtins.some, PrimDef::FunSome);
         id_to_builtin.insert(primitive_ids.builtins.staticmethod_decor_fn, PrimDef::StaticMethod);
 
@@ -359,6 +362,9 @@ pub struct BuiltinPythonId {
     floor64: u64,
     ceil: u64,
     ceil64: u64,
+    min: u64,
+    max: u64,
+    abs: u64,
     len: u64,
     some: u64,
     staticmethod_decor_fn: u64,
@@ -1647,6 +1653,9 @@ impl Nac3 {
                 ceil: get_artiq_builtin_id(None, "ceil")?,
                 ceil64: get_artiq_builtin_id(None, "ceil64")?,
                 len: get_artiq_builtin_id(None, "len")?,
+                min: get_artiq_builtin_id(None, "min")?,
+                max: get_artiq_builtin_id(None, "max")?,
+                abs: get_artiq_builtin_id(None, "abs")?,
                 some: get_artiq_builtin_id(None, "some")?,
                 staticmethod_decor_fn: get_artiq_builtin_id(None, "staticmethod")?,
             },

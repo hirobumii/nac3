@@ -163,6 +163,9 @@ builtins = {
     "ceil": ceil,
     "ceil64": ceil64,
     "len": len,
+    "min": min,
+    "max": max,
+    "abs": abs,
     "some": Some,
     "staticmethod": staticmethod,
 
