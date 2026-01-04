@@ -1,132 +1,186 @@
-//! This module contains abstraction over all intrinsic composite types of NAC3.
-//!
-//! # `raw_alloca` vs `alloca` vs `construct`
-//!
-//! There are three ways of creating a new object instance using the abstractions provided by this
-//! module.
-//!
-//! - `raw_alloca`: Allocates the object on the stack, returning an instance of
-//!   [`impl BasicValue`][inkwell::values::BasicValue]. This is similar to a `malloc` expression in
-//!   C++ but the object is allocated on the stack.
-//! - `alloca`: Similar to `raw_alloca`, but also wraps the allocated object with
-//!   [`<Self as ProxyType<'ctx>>::Value`][ProxyValue], and returns the wrapped object. The returned
-//!   object will not initialize any value or fields. This is similar to a type-safe `malloc`
-//!   expression in C++ but the object is allocated on the stack.
-//! - `construct`: Similar to `alloca`, but performs some initialization on the value or fields of
-//!   the returned object. This is similar to a `new` expression in C++ but the object is allocated
-//!   on the stack.
-
 use inkwell::{
-    types::{BasicType, IntType},
-    values::{IntValue, PointerValue},
+    types::BasicTypeEnum,
+    values::{BasicValue, BasicValueEnum, PointerValue},
 };
 
-use super::{
-    CodeGenContext,
-    stmt::{gen_array_var, gen_var},
-    values::{ArraySliceValue, ProxyValue},
-};
-pub use exception::*;
-pub use list::*;
-pub use option::*;
-pub use range::*;
-pub use string::*;
-pub use tuple::*;
+use crate::codegen::{CodeGenContext, ModuleContext, stmt::gen_var, types::structure::StructField};
 
+/// Internal helper macro to implement [`ProxyType`] (and [`RefType`]) for various types.
+///
+/// This is only used by the [`ProxyType`][nac3core_derive::ProxyType] derive macro.
+/// See that macro for more details.
+macro_rules! impl_proxy_type {
+    ([$($pre:tt)*] [$($post:tt)*] |$self:ident, $ctx:ident| llvm_ty($llvm_val:ty, $llvm_ty:expr)) => {
+        impl $($pre)* $crate::codegen::types::ProxyTypeMarker<'ctx> for $($post)* {
+            type Value = $llvm_val;
+        }
+
+        impl $($pre)* $crate::codegen::types::ProxyType<'ctx> for $($post)* {
+            fn llvm_ty(&$self, $ctx: &$crate::codegen::types::ModuleContext<'ctx>) -> $crate::inkwell::types::BasicTypeEnum<'ctx> {
+                ::core::convert::Into::<$crate::inkwell::types::BasicTypeEnum<'ctx>>::into($llvm_ty)
+            }
+        }
+    };
+    ([$($pre:tt)*] [$($post:tt)*] |$self:ident, $ctx:ident| llvm_ref($alloca_ty:expr)) => {
+        $crate::codegen::types::impl_proxy_type! {
+            [$($pre)*] [$($post)*] |self, ctx| llvm_ty($crate::inkwell::values::PointerValue<'ctx>, ctx.ptr)
+        }
+
+        impl $($pre)* $crate::codegen::types::RefType<'ctx> for $($post)* {
+            fn alloca_ty(
+                &$self,
+                $ctx: &mut $crate::codegen::types::CodeGenContext<'ctx, '_>,
+            ) -> $crate::inkwell::types::BasicTypeEnum<'ctx> {
+                ::core::convert::Into::<$crate::inkwell::types::BasicTypeEnum<'ctx>>::into($alloca_ty)
+            }
+        }
+    };
+}
+use impl_proxy_type;
+
+/// Macro to access fields of a struct type.
+///
+/// This relies on the convention that struct types have an `inner` field
+/// of type `BuiltinStruct`, which in turn wraps a `StructFields` struct
+/// containing the actual fields.
+///
+/// Returns a closure of type `FnOnce(&T) -> StructField<'ctx, B>`,
+/// which can be passed into [`Value::load`] and [`Value::store`].
+///
+/// # Example
+///
+/// Retrieving a field from a builtin struct type passed around by pointer:
+///
+/// ```
+/// # use nac3core::codegen::{CodeGenContext, types::{ListValue, field}};
+/// # use inkwell::values::IntValue;
+/// fn get_list_len<'ctx>(
+///     ctx: &mut CodeGenContext<'ctx, '_>,
+///     list: &ListValue<'ctx>)
+/// -> IntValue<'ctx> {
+///     list.load(ctx, field!(len))
+/// }
+/// ```
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __codegen_type_field {
+    ($field:ident) => {{ |this| this.inner.fields.$field }};
+}
+
+#[doc(inline)]
+pub use crate::__codegen_type_field as field;
+
+mod array;
+mod builtin;
 mod exception;
 mod list;
-pub mod ndarray;
+mod ndarray;
 mod option;
 mod range;
 mod string;
-pub mod structure;
+mod structure;
 mod tuple;
-pub mod slice;
 
-/// A LLVM type that is used to represent a corresponding type in NAC3.
-pub trait ProxyType<'ctx>: Into<Self::Base> {
-    /// The ABI type of which values of this type possess.
-    type ABI: BasicType<'ctx>;
+pub use array::{ArrayLikeIndexer, ArraySliceType, ArraySliceValue};
+pub use builtin::BuiltinStruct;
+pub use exception::{ExceptionType, ExceptionValue};
+pub use list::{ListStructFields, ListType, ListValue};
+pub use ndarray::{
+    BroadcastAllResult, ContiguousNDArrayType, ContiguousNDArrayValue, NDArrayLikeType, NDArrayOut,
+    NDArrayType, NDArrayValue, NDIndexType, NDIndexValue, NDIterType, NDIterValue, RustNDIndex,
+    ScalarOrNDArray, assert_ndarray_can_be_written_by_out, broadcast, broadcast_starmap,
+    make_contiguous_strides, parse_numpy_int_sequence,
+};
+pub use option::{OptionType, OptionValue};
+pub use range::{RangeField, RangeType, RangeValue};
+pub use string::{StringType, StringValue};
+pub use tuple::{TupleType, TupleValue};
 
-    /// The LLVM type of which values of this type possess.
-    type Base: BasicType<'ctx>;
-
-    /// The type of values represented by this type.
-    type Value: ProxyValue<'ctx, Type = Self>;
-
-    /// Checks whether `llvm_ty` can be represented by this [`ProxyType`].
-    fn is_representable(
-        llvm_ty: impl BasicType<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String>;
-
-    /// Checks whether the type represented by `ty` expresses the same type represented by this
-    /// [`ProxyType`].
-    fn has_same_repr(ty: Self::Base, llvm_usize: IntType<'ctx>) -> Result<(), String>;
-
-    /// Returns the type that should be used in `alloca` IR statements.
-    fn alloca_type(&self) -> impl BasicType<'ctx>;
-
-    /// Creates a new value of this type by invoking `alloca` at the current builder location,
-    /// returning a [`PointerValue`] instance representing the allocated value.
-    fn raw_alloca(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> PointerValue<'ctx> {
-        ctx.builder
-            .build_alloca(self.alloca_type().as_basic_type_enum(), name.unwrap_or_default())
-            .unwrap()
-    }
-
-    /// Creates a new value of this type by invoking `alloca` at the beginning of the function,
-    /// returning a [`PointerValue`] instance representing the allocated value.
-    fn raw_alloca_var(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> PointerValue<'ctx> {
-        gen_var(ctx, self.alloca_type().as_basic_type_enum(), name).unwrap()
-    }
-
-    /// Creates a new array value of this type by invoking `alloca` at the current builder location,
-    /// returning an [`ArraySliceValue`] encapsulating the resulting array.
-    fn array_alloca(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        size: IntValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> ArraySliceValue<'ctx> {
-        ArraySliceValue::from_ptr_val(
-            ctx.builder
-                .build_array_alloca(
-                    self.alloca_type().as_basic_type_enum(),
-                    size,
-                    name.unwrap_or_default(),
-                )
-                .unwrap(),
-            size,
-            name,
-        )
-    }
-
-    /// Creates a new array value of this type by invoking `alloca` at the beginning of the
-    /// function, returning an [`ArraySliceValue`] encapsulating the resulting array.
-    fn array_alloca_var(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        size: IntValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> ArraySliceValue<'ctx> {
-        gen_array_var(ctx, self.alloca_type().as_basic_type_enum(), size, name).unwrap()
-    }
-
-    /// Returns the [base type][Self::Base] of this proxy.
-    fn as_base_type(&self) -> Self::Base;
-
-    /// Returns this proxy as its ABI type, i.e. the expected type representation if a value of this
-    /// [`ProxyType`] is being passed into or returned from a function.
+/// Extension trait for types.
+pub trait ProxyTypeExt {
+    /// Allocates a new instance of this type on the stack.
     ///
-    /// See [`CodeGenContext::get_llvm_abi_type`].
-    fn as_abi_type(&self) -> Self::ABI;
+    /// Note that this allocates space for the type itself and does not initialize any of
+    /// its fields.
+    fn alloca<'ctx>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'static str>,
+    ) -> Value<'ctx, Self>
+    where
+        Self: RefType<'ctx> + Copy,
+    {
+        let alloca = self.alloca_ty(ctx);
+        let ptr = gen_var(ctx, alloca, name);
+        let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, "ptr_cast").unwrap();
+        Value { ty: *self, value: ptr, name }
+    }
+
+    /// Maps an existing value of the underlying LLVM type to a typed value.
+    fn map_value<'ctx, V>(&self, value: V, name: Option<&'static str>) -> Value<'ctx, Self>
+    where
+        Self: ProxyTypeMarker<'ctx, Value = V> + Copy,
+    {
+        Value { ty: *self, value, name }
+    }
+}
+
+impl<T: ?Sized> ProxyTypeExt for T {}
+
+/// Represents a wrapper type on top of this kind of `Value`.
+pub trait ProxyTypeMarker<'ctx> {
+    type Value;
+}
+
+/// Represents a type that is passed around with a single LLVM value.
+pub trait ProxyType<'ctx>: ProxyTypeMarker<'ctx> {
+    /// Returns the LLVM type that represents how this value is passed around.
+    fn llvm_ty(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx>;
+}
+
+/// Represents a type that is passed around by pointer.
+pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> {
+    /// Returns the LLVM type used for allocating this reference type.
+    fn alloca_ty(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicTypeEnum<'ctx>;
+}
+
+#[derive(Clone, Copy)]
+pub struct Value<'ctx, T: ProxyTypeMarker<'ctx>> {
+    pub ty: T,
+    pub value: T::Value,
+    pub name: Option<&'static str>,
+}
+
+impl<'ctx, T: ProxyTypeMarker<'ctx, Value = PointerValue<'ctx>>> Value<'ctx, T> {
+    /// Loads the value of the specified field.
+    ///
+    /// Use the [`field!`][crate::codegen::types::field] macro to specify the field.
+    pub fn load<B>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        field: impl FnOnce(&T) -> StructField<'ctx, B>,
+    ) -> B
+    where
+        T: RefType<'ctx>,
+        B: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>, Error = ()>,
+    {
+        let struct_ty = self.ty.alloca_ty(ctx);
+        field(&self.ty).load(ctx, struct_ty, self.value, self.name)
+    }
+
+    /// Stores the value into the specified field.
+    ///
+    /// Use the [`field!`][crate::codegen::types::field] macro to specify the field.
+    pub fn store<B>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        field: impl FnOnce(&T) -> StructField<'ctx, B>,
+        value: B,
+    ) where
+        T: RefType<'ctx>,
+        B: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
+    {
+        let struct_ty = self.ty.alloca_ty(ctx);
+        field(&self.ty).store(ctx, struct_ty, self.value, value, self.name);
+    }
 }

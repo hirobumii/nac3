@@ -1,211 +1,274 @@
-use inkwell::{
-    AddressSpace,
-    context::ContextRef,
-    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
-    values::{IntValue, PointerValue, StructValue},
-};
+use inkwell::values::{IntValue, PointerValue};
 use itertools::Itertools;
+use nac3core_derive::{ProxyType, StructFields};
+use nac3parser::ast::{Expr, ExprKind};
 
-use nac3core_derive::StructFields;
-
-use crate::codegen::{
-    CodeGenContext, ModuleContext,
-    types::{
-        ProxyType,
-        structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
+use crate::{
+    codegen::{
+        CodeGenContext, CodeGenerator, ModuleContext,
+        expr::call_extern,
+        irrt::get_usize_dependent_function_name,
+        stmt::{gen_array_var, gen_var},
+        typed_store,
+        types::{
+            ProxyTypeExt, RefType, Value,
+            array::{ArrayLikeIndexer, ArraySliceValue},
+            builtin::BuiltinStruct,
+            field,
+            ndarray::{NDArrayType, NDArrayValue},
+            structure::StructField,
+        },
     },
-    values::{
-        ArrayLikeIndexer, ArraySliceValue,
-        ndarray::{NDIndexValue, RustNDIndex},
-    },
+    typecheck::typedef::Type,
 };
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct NDIndexType<'ctx> {
-    ty: PointerType<'ctx>,
-    llvm_usize: IntType<'ctx>,
-}
-
-#[derive(PartialEq, Eq, Clone, Copy, StructFields)]
+#[derive(Clone, Copy, StructFields)]
 pub struct NDIndexStructFields<'ctx> {
-    #[value_type(i8_type())]
+    #[value_type(i8)]
     pub type_: StructField<'ctx, IntValue<'ctx>>,
-    #[value_type(i8_type().ptr_type(AddressSpace::default()))]
+    #[value_type(ptr)]
     pub data: StructField<'ctx, PointerValue<'ctx>>,
 }
 
+#[derive(Clone, Copy, ProxyType)]
+#[llvm_ref(self.inner.llvm_ty)]
+pub struct NDIndexType<'ctx> {
+    pub(crate) inner: BuiltinStruct<'ctx, NDIndexStructFields<'ctx>>,
+}
+
 impl<'ctx> NDIndexType<'ctx> {
-    #[must_use]
-    fn fields(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> NDIndexStructFields<'ctx> {
-        NDIndexStructFields::new(ctx, llvm_usize)
-    }
-
-    #[must_use]
-    fn llvm_type(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
-        let field_tys =
-            Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
-
-        ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
-    }
-
-    fn new_impl(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        let llvm_ndindex = Self::llvm_type(ctx, llvm_usize);
-
-        Self { ty: llvm_ndindex, llvm_usize }
-    }
-
-    #[must_use]
+    /// Creates a new instance of [`NDIndexType`].
     pub fn new(ctx: &ModuleContext<'ctx>) -> Self {
-        Self::new_impl(ctx.ctx, ctx.size_t)
+        Self { inner: BuiltinStruct::new(ctx, "ndindex") }
     }
 
-    #[must_use]
-    pub fn from_struct_type(ty: StructType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        Self::from_pointer_type(ty.ptr_type(AddressSpace::default()), llvm_usize)
-    }
-
-    #[must_use]
-    pub fn from_pointer_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        debug_assert!(Self::has_same_repr(ptr_ty, llvm_usize).is_ok());
-
-        Self { ty: ptr_ty, llvm_usize }
-    }
-
-    /// Allocates an instance of [`NDIndexValue`] as if by calling `alloca` on the base type.
-    ///
-    /// See [`ProxyType::raw_alloca`].
-    #[must_use]
-    pub fn alloca(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca(ctx, name),
-            self.llvm_usize,
-            name,
-        )
-    }
-    /// Allocates an instance of [`NDIndexValue`] as if by calling `alloca` on the base type.
-    ///
-    /// See [`ProxyType::raw_alloca_var`].
-    #[must_use]
-    pub fn alloca_var(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(ctx, name),
-            self.llvm_usize,
-            name,
-        )
-    }
-
-    /// Serialize a list of [`RustNDIndex`] as a newly allocated LLVM array of [`NDIndexValue`].
-    #[must_use]
-    pub fn construct_ndindices(
+    /// Constructs an array of [`NDIndexValue`]s from a list of [`RustNDIndex`].
+    pub fn construct(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         in_ndindices: &[RustNDIndex<'ctx>],
     ) -> ArraySliceValue<'ctx> {
         // Allocate the LLVM ndindices.
-        let num_ndindices = self.llvm_usize.const_int(in_ndindices.len() as u64, false);
-        let ndindices = self.array_alloca_var(ctx, num_ndindices, None);
+        let ty = self.alloca_ty(ctx);
+        let ndindices = gen_array_var(ctx, ty, in_ndindices.len() as u64, None);
 
         // Initialize all of them.
         for (i, in_ndindex) in in_ndindices.iter().enumerate() {
-            let pndindex = unsafe {
-                ndindices.ptr_offset_unchecked(
-                    ctx,
-                    &ctx.i64.const_int(u64::try_from(i).unwrap(), false),
-                    None,
-                )
-            };
-
-            in_ndindex.write_to_ndindex(
-                ctx,
-                NDIndexValue::from_pointer_value(pndindex, self.llvm_usize, None),
-            );
+            let pndindex =
+                ndindices.ptr_offset_unchecked(ctx, &ctx.i64.const_int(i as _, false), None);
+            in_ndindex.write_to_ndindex(ctx, self.map_value(pndindex, None));
         }
 
         ndindices
     }
+}
 
-    #[must_use]
-    pub fn map_struct_value(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        value: StructValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_struct_value(ctx, value, self.llvm_usize, name)
-    }
+pub type NDIndexValue<'ctx> = Value<'ctx, NDIndexType<'ctx>>;
 
-    #[must_use]
-    pub fn map_pointer_value(
-        &self,
-        value: PointerValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_pointer_value(value, self.llvm_usize, name)
+#[derive(Clone, Copy, StructFields)]
+struct SliceStructFields<'ctx> {
+    #[value_type(i1)]
+    pub start_defined: StructField<'ctx, IntValue<'ctx>>,
+    #[value_type(i32)]
+    pub start: StructField<'ctx, IntValue<'ctx>>,
+    #[value_type(i1)]
+    pub stop_defined: StructField<'ctx, IntValue<'ctx>>,
+    #[value_type(i32)]
+    pub stop: StructField<'ctx, IntValue<'ctx>>,
+    #[value_type(i1)]
+    pub step_defined: StructField<'ctx, IntValue<'ctx>>,
+    #[value_type(i32)]
+    pub step: StructField<'ctx, IntValue<'ctx>>,
+}
+
+#[derive(Clone, Copy, ProxyType)]
+#[llvm_ref(self.inner.llvm_ty)]
+pub struct SliceType<'ctx> {
+    inner: BuiltinStruct<'ctx, SliceStructFields<'ctx>>,
+}
+
+impl<'ctx> SliceType<'ctx> {
+    fn new(ctx: &ModuleContext<'ctx>) -> Self {
+        Self { inner: BuiltinStruct::new(ctx, "slice") }
     }
 }
 
-impl<'ctx> ProxyType<'ctx> for NDIndexType<'ctx> {
-    type ABI = PointerType<'ctx>;
-    type Base = PointerType<'ctx>;
-    type Value = NDIndexValue<'ctx>;
+pub type SliceValue<'ctx> = Value<'ctx, SliceType<'ctx>>;
 
-    fn is_representable(
-        llvm_ty: impl BasicType<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        if let BasicTypeEnum::PointerType(ty) = llvm_ty.as_basic_type_enum() {
-            Self::has_same_repr(ty, llvm_usize)
-        } else {
-            Err(format!("Expected pointer type, got {llvm_ty:?}"))
+impl<'ctx> SliceValue<'ctx> {
+    /// Decodes components of a [`Slice`][ExprKind::Slice] expression into a [`SliceValue`].
+    #[allow(clippy::type_complexity)]
+    #[allow(clippy::ref_option)]
+    fn from_slice_expr(
+        generator: &mut impl CodeGenerator,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        lower: &Option<Box<Expr<Option<Type>>>>,
+        upper: &Option<Box<Expr<Option<Type>>>>,
+        step: &Option<Box<Expr<Option<Type>>>>,
+    ) -> Result<Self, String> {
+        fn write_value<'ctx>(
+            generator: &mut impl CodeGenerator,
+            ctx: &mut CodeGenContext<'ctx, '_>,
+            value_expr: &Option<Box<Expr<Option<Type>>>>,
+            result: SliceValue<'ctx>,
+            defined: impl FnOnce(&SliceType<'ctx>) -> StructField<'ctx, IntValue<'ctx>>,
+            val: impl FnOnce(&SliceType<'ctx>) -> StructField<'ctx, IntValue<'ctx>>,
+        ) -> Result<(), String> {
+            match value_expr {
+                // Not defined
+                None => result.store(ctx, defined, ctx.i1.const_zero()),
+                Some(value_expr) => {
+                    let value = generator.gen_expr(ctx, value_expr)?.to_basic_value_enum(ctx)?;
+                    result.store(ctx, defined, ctx.i1.const_int(1, false));
+                    result.store(ctx, val, value.into_int_value());
+                }
+            }
+            Ok(())
+        }
+
+        let ty = SliceType::new(ctx);
+        let result = ty.alloca(ctx, None);
+
+        write_value(generator, ctx, lower, result, field!(start_defined), field!(start))?;
+        write_value(generator, ctx, upper, result, field!(stop_defined), field!(stop))?;
+        write_value(generator, ctx, step, result, field!(step_defined), field!(step))?;
+        Ok(result)
+    }
+}
+
+/// A convenience enum representing a [`NDIndexValue`].
+// TODO: Rename to CTConstNDIndex
+#[derive(Clone, Copy)]
+pub enum RustNDIndex<'ctx> {
+    SingleElement(IntValue<'ctx>),
+    Slice(SliceValue<'ctx>),
+    NewAxis,
+    Ellipsis,
+}
+
+impl<'ctx> RustNDIndex<'ctx> {
+    /// Generate LLVM code to transform an ndarray subscript expression to
+    /// its list of [`RustNDIndex`]
+    ///
+    /// i.e.,
+    /// ```python
+    /// my_ndarray[::3, 1, :2:]
+    ///            ^^^^^^^^^^^ Then these into a three `RustNDIndex`es
+    /// ```
+    pub fn from_subscript_expr<G: CodeGenerator>(
+        generator: &mut G,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        subscript: &Expr<Option<Type>>,
+    ) -> Result<Vec<Self>, String> {
+        // Annoying notes about `slice`
+        //  - `my_array[5]`
+        //    - slice is a `Constant`
+        //  - `my_array[:5]`
+        //    - slice is a `Slice`
+        //  - `my_array[:]`
+        //    - slice is a `Slice`, but lower upper step would all be `Option::None`
+        //  - `my_array[:, :]`
+        //    - slice is now a `Tuple` of two `Slice`-s
+        //
+        // In summary:
+        //  - when there is a comma "," within [], `slice` will be a `Tuple` of the entries.
+        //  - when there is not comma "," within [] (i.e., just a single entry), `slice` will be that entry itself.
+        //
+        // So we first "flatten" out the slice expression
+        let index_exprs = match &subscript.node {
+            ExprKind::Tuple { elts, .. } => elts.iter().collect_vec(),
+            _ => vec![subscript],
+        };
+
+        // Process all index expressions
+        let mut rust_ndindices: Vec<RustNDIndex> = Vec::with_capacity(index_exprs.len()); // Not using iterators here because `?` is used here.
+        for index_expr in index_exprs {
+            // NOTE: Currently nac3core's slices do not have an object representation,
+            // so the code/implementation looks awkward - we have to do pattern matching on the expression
+            let ndindex = if let ExprKind::Slice { lower, upper, step } = &index_expr.node {
+                // Handle slices
+                let slice = SliceValue::from_slice_expr(generator, ctx, lower, upper, step)?;
+                RustNDIndex::Slice(slice)
+            } else {
+                // Treat and handle everything else as a single element index.
+                let index =
+                    generator.gen_expr(ctx, index_expr)?.to_basic_value_enum(ctx)?.into_int_value();
+
+                RustNDIndex::SingleElement(index)
+            };
+            rust_ndindices.push(ndindex);
+        }
+        Ok(rust_ndindices)
+    }
+
+    /// Returns the index type for this variant.
+    #[must_use]
+    const fn get_type_id(&self) -> u64 {
+        // Defined in IRRT, must be in sync
+        match self {
+            RustNDIndex::SingleElement(_) => 0,
+            RustNDIndex::Slice(_) => 1,
+            RustNDIndex::NewAxis => 2,
+            RustNDIndex::Ellipsis => 3,
         }
     }
 
-    fn has_same_repr(ty: Self::Base, llvm_usize: IntType<'ctx>) -> Result<(), String> {
-        let ctx = ty.get_context();
+    /// Serialize this [`RustNDIndex`] by writing it into an LLVM [`NDIndexValue`].
+    pub fn write_to_ndindex(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        dst_ndindex: NDIndexValue<'ctx>,
+    ) {
+        // Set `dst_ndindex.type`
+        dst_ndindex.store(ctx, field!(type_), ctx.i8.const_int(self.get_type_id(), false));
 
-        let llvm_ty = ty.get_element_type();
-        let AnyTypeEnum::StructType(llvm_ty) = llvm_ty else {
-            return Err(format!(
-                "Expected struct type for `ContiguousNDArray` type, got {llvm_ty}"
-            ));
-        };
-
-        let fields = NDIndexStructFields::new(ctx, llvm_usize);
-
-        check_struct_type_matches_fields(fields, llvm_ty, "NDIndex", &[])
-    }
-
-    fn alloca_type(&self) -> impl BasicType<'ctx> {
-        self.as_abi_type().get_element_type().into_struct_type()
-    }
-
-    fn as_base_type(&self) -> Self::Base {
-        self.ty
-    }
-
-    fn as_abi_type(&self) -> Self::ABI {
-        self.as_base_type()
+        // Set `dst_ndindex_ptr->data`
+        match *self {
+            RustNDIndex::SingleElement(in_index) => {
+                let index_ptr = gen_var(ctx, ctx.i32, None);
+                typed_store(&ctx.builder, index_ptr, in_index);
+                dst_ndindex.store(ctx, field!(data), index_ptr);
+            }
+            RustNDIndex::Slice(slice) => {
+                dst_ndindex.store(ctx, field!(data), slice.value);
+            }
+            RustNDIndex::NewAxis | RustNDIndex::Ellipsis => {}
+        }
     }
 }
 
-impl<'ctx> StructProxyType<'ctx> for NDIndexType<'ctx> {
-    type StructFields = NDIndexStructFields<'ctx>;
+impl<'ctx> NDArrayValue<'ctx> {
+    /// Get the expected `ndims` after indexing with `indices`.
+    #[must_use]
+    fn deduce_ndims_after_indexing_with(&self, indices: &[RustNDIndex<'ctx>]) -> u64 {
+        let mut ndims = self.ty.ndims;
+        for index in indices {
+            match index {
+                // Single elements decrements ndims
+                RustNDIndex::SingleElement(_) => ndims -= 1,
+                // `np.newaxis` / `none` adds a new axis
+                RustNDIndex::NewAxis => ndims += 1,
 
-    fn get_fields(&self) -> Self::StructFields {
-        Self::fields(self.ty.get_context(), self.llvm_usize)
+                RustNDIndex::Ellipsis | RustNDIndex::Slice(_) => {}
+            }
+        }
+        ndims
     }
-}
 
-impl<'ctx> From<NDIndexType<'ctx>> for PointerType<'ctx> {
-    fn from(value: NDIndexType<'ctx>) -> Self {
-        value.as_base_type()
+    /// Index into the ndarray, and return a newly-allocated view on this ndarray.
+    ///
+    /// This function behaves like NumPy's ndarray indexing, but if the indices index
+    /// into a single element, an unsized ndarray is returned.
+    #[must_use]
+    pub fn index(&self, ctx: &mut CodeGenContext<'ctx, '_>, indices: &[RustNDIndex<'ctx>]) -> Self {
+        let dst_ndims = self.deduce_ndims_after_indexing_with(indices);
+        let dst = NDArrayType::new(ctx, self.ty.dtype, dst_ndims).construct(ctx, None);
+        let indices = NDIndexType::new(ctx).construct(ctx, indices);
+
+        let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_index");
+        let (idx_ptr, idx_len) = indices.value;
+        call_extern!(ctx: void _ = name(idx_len, idx_ptr, self.value, dst.value));
+
+        dst
     }
 }

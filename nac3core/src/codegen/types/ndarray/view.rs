@@ -1,15 +1,17 @@
 use std::iter::{once, repeat_n};
 
-use inkwell::values::{IntValue, PointerValue};
+use inkwell::values::PointerValue;
 use itertools::Itertools;
 
 use crate::codegen::{
-    CodeGenContext, irrt,
+    CodeGenContext,
+    expr::call_extern,
+    irrt::get_usize_dependent_function_name,
     stmt::gen_if_callback,
-    types::ndarray::NDArrayType,
-    values::{
-        ArrayLikeValue, ArraySliceValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
-        ndarray::{NDArrayValue, RustNDIndex},
+    types::{
+        array::ArraySliceValue,
+        field,
+        ndarray::{NDArrayType, NDArrayValue, indexing::RustNDIndex},
     },
 };
 
@@ -20,7 +22,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// to the shape. Otherwise, this function does nothing and return this ndarray.
     #[must_use]
     pub fn atleast_nd(&self, ctx: &mut CodeGenContext<'ctx, '_>, ndmin: u64) -> Self {
-        let ndims = self.ndims;
+        let ndims = self.ty.ndims;
 
         if ndims < ndmin {
             // Extend the dimensions with np.newaxis.
@@ -49,26 +51,26 @@ impl<'ctx> NDArrayValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         new_ndims: u64,
-        new_shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
+        new_shape: ArraySliceValue<'ctx>,
     ) -> Self {
-        assert_eq!(new_shape.element_type(ctx), self.llvm_usize.into());
+        assert_eq!(new_shape.ty.item_ty, ctx.size_t.into());
 
         // TODO: The current criterion for whether to do a full copy or not is by checking
         //       `is_c_contiguous`, but this is not optimal - there are cases when the ndarray is
         //       not contiguous but could be reshaped without copying data. Look into how numpy does
         //       it.
 
-        let dst_ndarray =
-            NDArrayType::new(ctx, self.dtype, new_ndims).construct_uninitialized(ctx, None);
-        dst_ndarray.copy_shape_from_array(ctx, new_shape.base_ptr(ctx));
+        let dst_ndarray = NDArrayType::new(ctx, self.ty.dtype, new_ndims).construct(ctx, None);
+        dst_ndarray.shape(ctx).memcpy_from(ctx, new_shape.value.0);
 
         // Resolve negative indices
         let size = self.size(ctx);
-        let dst_ndims = self.llvm_usize.const_int(dst_ndarray.get_type().ndims(), false);
-        let dst_shape = dst_ndarray.shape().as_slice_value(ctx);
-        irrt::ndarray::call_nac3_ndarray_reshape_resolve_and_check_new_shape(
-            ctx, size, dst_ndims, dst_shape,
+        let (dst_shape, dst_ndims) = dst_ndarray.shape(ctx).value;
+        let name = get_usize_dependent_function_name(
+            ctx,
+            "__nac3_ndarray_reshape_resolve_and_check_new_shape",
         );
+        call_extern!(ctx: void _ = name(size, dst_ndims, dst_shape));
 
         gen_if_callback(
             &mut (),
@@ -77,17 +79,14 @@ impl<'ctx> NDArrayValue<'ctx> {
             |(), ctx| {
                 // Reshape is possible without copying
                 dst_ndarray.set_strides_contiguous(ctx);
-                dst_ndarray.store_data(ctx, self.data().base_ptr(ctx));
-
+                let data = self.load(ctx, field!(data));
+                dst_ndarray.store(ctx, field!(data), data);
                 Ok(())
             },
             |(), ctx| {
                 // Reshape is impossible without copying
-                unsafe {
-                    dst_ndarray.create_data(ctx);
-                }
-                dst_ndarray.copy_data_from(ctx, *self);
-
+                dst_ndarray.create_data(ctx);
+                dst_ndarray.copy_data_from(ctx, self);
                 Ok(())
             },
         )
@@ -107,23 +106,20 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         axes: Option<PointerValue<'ctx>>,
     ) -> Self {
-        assert!(
-            axes.is_none_or(|axes| axes.get_type().get_element_type() == self.llvm_usize.into())
-        );
-
         // Define models
-        let transposed_ndarray = self.get_type().construct_uninitialized(ctx, None);
+        let transposed_ndarray = self.ty.construct(ctx, None);
 
-        let axes = axes.map(|axes| {
-            let num_axes = self.llvm_usize.const_int(self.ndims, false);
+        let (axes, num_axes) = match axes {
+            Some(axes) => (axes, self.ty.ndims_val(ctx)),
+            None => (ctx.ptr.const_null(), ctx.size_t.const_zero()),
+        };
 
-            // `axes = nullptr` if `axes` is unspecified.
-            let axes = ArraySliceValue::from_ptr_val(axes, num_axes, None);
-
-            TypedArrayLikeAdapter::from(axes, |_, val| val.into_int_value(), |_, val| val.into())
-        });
-
-        irrt::ndarray::call_nac3_ndarray_transpose(ctx, *self, transposed_ndarray, axes.as_ref());
+        let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_transpose");
+        call_extern!(ctx: void _ = name(
+            self.value,
+            transposed_ndarray.value,
+            num_axes, axes,
+        ));
 
         transposed_ndarray
     }

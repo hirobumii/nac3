@@ -1,185 +1,302 @@
 use inkwell::{
-    AddressSpace,
-    context::ContextRef,
-    types::{AnyTypeEnum, BasicType, BasicTypeEnum, IntType, PointerType, StructType},
-    values::{IntValue, PointerValue, StructValue},
+    types::BasicTypeEnum,
+    values::{BasicValueEnum, IntValue, PointerValue},
 };
 use itertools::Itertools;
-
-use nac3core_derive::StructFields;
+use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
     CodeGenContext, ModuleContext,
+    expr::call_extern,
+    irrt::get_usize_dependent_function_name,
+    stmt::{gen_array_var, gen_for_callback},
+    typed_store,
     types::{
-        ProxyType,
-        structure::{StructField, StructFields, StructProxyType, check_struct_type_matches_fields},
+        ProxyTypeExt,
+        array::{ArrayLikeIndexer, ArraySliceValue},
+        builtin::BuiltinStruct,
+        field,
+        ndarray::{NDArrayOut, NDArrayType, NDArrayValue, ScalarOrNDArray, iter::NDIterValue},
+        structure::StructField,
     },
-    values::ndarray::ShapeEntryValue,
 };
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct ShapeEntryType<'ctx> {
-    ty: PointerType<'ctx>,
-    llvm_usize: IntType<'ctx>,
+// Not a public type; just for interacting with IRRT.
+#[derive(Clone, Copy, StructFields)]
+struct ShapeEntryStructFields<'ctx> {
+    #[value_type(size_t)]
+    ndims: StructField<'ctx, IntValue<'ctx>>,
+    #[value_type(ptr)]
+    shape: StructField<'ctx, PointerValue<'ctx>>,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, StructFields)]
-pub struct ShapeEntryStructFields<'ctx> {
-    #[value_type(usize)]
-    pub ndims: StructField<'ctx, IntValue<'ctx>>,
-    #[value_type(usize.ptr_type(AddressSpace::default()))]
-    pub shape: StructField<'ctx, PointerValue<'ctx>>,
+#[derive(Clone, Copy, ProxyType)]
+#[llvm_ref(self.inner.llvm_ty)]
+struct ShapeEntryType<'ctx> {
+    inner: BuiltinStruct<'ctx, ShapeEntryStructFields<'ctx>>,
 }
 
 impl<'ctx> ShapeEntryType<'ctx> {
-    /// Returns an instance of [`StructFields`] containing all field accessors for this type.
-    #[must_use]
-    fn fields(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> ShapeEntryStructFields<'ctx> {
-        ShapeEntryStructFields::new(ctx, llvm_usize)
-    }
-
-    /// Creates an LLVM type corresponding to the expected structure of a `ShapeEntry`.
-    #[must_use]
-    fn llvm_type(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> PointerType<'ctx> {
-        let field_tys =
-            Self::fields(ctx, llvm_usize).into_iter().map(|field| field.1).collect_vec();
-
-        ctx.struct_type(&field_tys, false).ptr_type(AddressSpace::default())
-    }
-
-    fn new_impl(ctx: ContextRef<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        let llvm_ty = Self::llvm_type(ctx, llvm_usize);
-
-        Self { ty: llvm_ty, llvm_usize }
-    }
-
     /// Creates an instance of [`ShapeEntryType`].
     #[must_use]
-    pub fn new(ctx: &ModuleContext<'ctx>) -> Self {
-        Self::new_impl(ctx.ctx, ctx.size_t)
-    }
-
-    /// Creates a [`ShapeEntryType`] from a [`StructType`] representing an `ShapeEntry`.
-    #[must_use]
-    pub fn from_struct_type(ty: StructType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        Self::from_pointer_type(ty.ptr_type(AddressSpace::default()), llvm_usize)
-    }
-
-    /// Creates a [`ShapeEntryType`] from a [`PointerType`] representing an `ShapeEntry`.
-    #[must_use]
-    pub fn from_pointer_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        debug_assert!(Self::has_same_repr(ptr_ty, llvm_usize).is_ok());
-
-        Self { ty: ptr_ty, llvm_usize }
-    }
-
-    /// Allocates an instance of [`ShapeEntryValue`] as if by calling `alloca` on the base type.
-    #[must_use]
-    pub fn alloca(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca(ctx, name),
-            self.llvm_usize,
-            name,
-        )
-    }
-
-    /// Allocates an instance of [`ShapeEntryValue`] as if by calling `alloca` on the base type.
-    #[must_use]
-    pub fn alloca_var(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_pointer_value(
-            self.raw_alloca_var(ctx, name),
-            self.llvm_usize,
-            name,
-        )
-    }
-
-    /// Converts an existing value into a [`ShapeEntryValue`].
-    #[must_use]
-    pub fn map_struct_value(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        value: StructValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_struct_value(ctx, value, self.llvm_usize, name)
-    }
-
-    /// Converts an existing value into a [`ShapeEntryValue`].
-    #[must_use]
-    pub fn map_pointer_value(
-        &self,
-        value: PointerValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_pointer_value(value, self.llvm_usize, name)
+    fn new(ctx: &ModuleContext<'ctx>) -> Self {
+        Self { inner: BuiltinStruct::new(ctx, "shape_entry") }
     }
 }
 
-impl<'ctx> ProxyType<'ctx> for ShapeEntryType<'ctx> {
-    type ABI = PointerType<'ctx>;
-    type Base = PointerType<'ctx>;
-    type Value = ShapeEntryValue<'ctx>;
+impl<'ctx> NDArrayValue<'ctx> {
+    /// Create a broadcast view on this ndarray with a target shape.
+    ///
+    /// The input shape will be checked to make sure that it contains no negative values.
+    ///
+    /// * `target_ndims` - The ndims type after broadcasting to the given shape.
+    ///   The caller has to figure this out for this function.
+    /// * `target_shape` - An array pointer pointing to the target shape.
+    #[must_use]
+    pub fn broadcast_to(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        target_ndims: u64,
+        target_shape: ArraySliceValue<'ctx>,
+    ) -> Self {
+        assert!(self.ty.ndims <= target_ndims);
+        assert_eq!(target_shape.ty.item_ty, ctx.size_t.into());
 
-    fn is_representable(
-        llvm_ty: impl BasicType<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        if let BasicTypeEnum::PointerType(ty) = llvm_ty.as_basic_type_enum() {
-            Self::has_same_repr(ty, llvm_usize)
+        let broadcast_ndarray =
+            NDArrayType::new(ctx, self.ty.dtype, target_ndims).construct(ctx, None);
+        broadcast_ndarray.shape(ctx).memcpy_from(ctx, target_shape.value.0);
+
+        let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_to");
+        call_extern!(ctx: void _ = name(self.value, broadcast_ndarray.value));
+        broadcast_ndarray
+    }
+}
+
+/// A result produced by [`broadcast`].
+#[derive(Clone)]
+pub struct BroadcastAllResult<'ctx> {
+    /// The statically known `ndims` of the broadcast result.
+    pub ndims: u64,
+
+    /// The broadcasting shape.
+    pub shape: ArraySliceValue<'ctx>,
+
+    /// Broadcasted views on the inputs.
+    ///
+    /// All of them will have `shape` [`BroadcastAllResult::shape`] and
+    /// `ndims` [`BroadcastAllResult::ndims`]. The length of the vector
+    /// is the same as the input.
+    pub ndarrays: Vec<NDArrayValue<'ctx>>,
+}
+
+/// Broadcast ndarrays according to
+/// [`np.broadcast()`](https://numpy.org/doc/stable/reference/generated/numpy.broadcast.html).
+///
+/// Returns a [`BroadcastAllResult`] containing all the information of the result of the
+/// broadcast operation.
+pub fn broadcast<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    ndarrays: &[NDArrayValue<'ctx>],
+) -> BroadcastAllResult<'ctx> {
+    let shape_entry_ty = ShapeEntryType::new(ctx);
+    let shape_entries = ctx.size_t.const_int(ndarrays.len() as _, false);
+    let arr = gen_array_var(ctx, shape_entry_ty.inner.llvm_ty, ndarrays.len() as _, None);
+
+    // Store shapes into memory.
+    for (i, ndarray) in ndarrays.iter().enumerate() {
+        let idx = ctx.size_t.const_int(i as _, false);
+        let pshape_entry = arr.ptr_offset_unchecked(ctx, &idx, None);
+        let shape_entry = shape_entry_ty.map_value(pshape_entry, None);
+        let ndims = ndarray.ty.ndims_val(ctx);
+        let shape = ndarray.shape(ctx).value.0;
+        shape_entry.store(ctx, field!(ndims), ndims);
+        shape_entry.store(ctx, field!(shape), shape);
+    }
+
+    let ndims = ndarrays.iter().map(|ndarray| ndarray.ty.ndims).max().unwrap();
+    let new_shape_ptr = gen_array_var(ctx, ctx.size_t, ndims, None).value.0;
+
+    let ndims_v = ctx.size_t.const_int(ndims, false);
+    let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");
+    call_extern!(ctx: void _ = name(shape_entries, arr.value.0, ndims_v, new_shape_ptr));
+
+    // Now this new shape is initialized.
+    let new_shape = ArraySliceValue::new(ctx.size_t.into(), new_shape_ptr, ndims_v, None);
+    let new_ndarrays =
+        ndarrays.iter().map(|ndarray| ndarray.broadcast_to(ctx, ndims, new_shape)).collect_vec();
+    BroadcastAllResult { ndims, shape: new_shape, ndarrays: new_ndarrays }
+}
+
+/// Generate LLVM IR to broadcast `ndarray`s together, and starmap through them with `mapping`
+/// elementwise.
+///
+/// `mapping` is an LLVM IR generator. The input of `mapping` is the list of elements when
+/// iterating through the input `ndarrays` after broadcasting. The output of `mapping` is the
+/// result of the elementwise operation.
+///
+/// `out` specifies whether the result should be a new ndarray or to be written an existing
+/// ndarray.
+pub fn broadcast_starmap<'ctx, 'a, MappingFn>(
+    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ndarrays: &[NDArrayValue<'ctx>],
+    out: NDArrayOut<'ctx>,
+    mapping: MappingFn,
+) -> Result<NDArrayValue<'ctx>, String>
+where
+    MappingFn: FnOnce(
+        &mut CodeGenContext<'ctx, 'a>,
+        &[BasicValueEnum<'ctx>],
+    ) -> Result<BasicValueEnum<'ctx>, String>,
+{
+    // Broadcast inputs
+    let broadcast_result = broadcast(ctx, ndarrays);
+    let out_ndarray = out.resolve(ctx, broadcast_result.ndims, broadcast_result.shape);
+
+    // Map element-wise and store results into `mapped_ndarray`.
+    let nditer = NDIterValue::new(ctx, out_ndarray);
+    gen_for_callback(
+        &mut (),
+        ctx,
+        Some("broadcast_starmap"),
+        |(), ctx| {
+            // Create NDIters for all broadcasted input ndarrays.
+            let other_nditers = broadcast_result
+                .ndarrays
+                .iter()
+                .map(|ndarray| NDIterValue::new(ctx, *ndarray))
+                .collect_vec();
+            Ok((nditer, other_nditers))
+        },
+        |(), ctx, (out_nditer, _in_nditers)| {
+            // We can simply use `out_nditer`'s `has_element()`.
+            // `in_nditers`' `has_element()`s should return the same value.
+            Ok(out_nditer.has_element(ctx))
+        },
+        |(), ctx, _hooks, (out_nditer, in_nditers)| {
+            // Get all the scalars from the broadcasted input ndarrays, pass them to `mapping`,
+            // and write to `out_ndarray`.
+            let in_scalars = in_nditers.iter().map(|nditer| nditer.get_scalar(ctx)).collect_vec();
+
+            let result = mapping(ctx, &in_scalars)?;
+
+            let p = out_nditer.curr_ptr(ctx);
+            typed_store(&ctx.builder, p, result);
+
+            Ok(())
+        },
+        |(), ctx, (out_nditer, in_nditers)| {
+            // Advance all iterators
+            out_nditer.next(ctx);
+            for nditer in &in_nditers {
+                nditer.next(ctx);
+            }
+            Ok(())
+        },
+        |(), _| Ok(()),
+    )?;
+
+    Ok(out_ndarray)
+}
+
+impl<'ctx> ScalarOrNDArray<'ctx> {
+    /// Starmap through a list of inputs using `mapping`, where an input could be an ndarray, a
+    /// scalar.
+    ///
+    /// This function is very helpful when implementing NumPy functions that takes on either scalars
+    /// or ndarrays or a mix of them as their inputs and produces either an ndarray with broadcast,
+    /// or a scalar if all its inputs are all scalars.
+    ///
+    /// For example ,this function can be used to implement `np.add`, which has the following
+    /// behaviors:
+    ///
+    /// - `np.add(3, 4) = 7` # (scalar, scalar) -> scalar
+    /// - `np.add(3, np.array([4, 5, 6]))` # (scalar, ndarray) -> ndarray; the first `scalar` is
+    ///   converted into an ndarray and broadcasted.
+    /// - `np.add(np.array([[1], [2], [3]]), np.array([[4, 5, 6]]))` # (ndarray, ndarray) ->
+    ///   ndarray; there is broadcasting.
+    ///
+    /// ## Details:
+    ///
+    /// If `inputs` are all [`ScalarOrNDArray::Scalar`], the output will be a
+    /// [`ScalarOrNDArray::Scalar`] with type `ret_dtype`.
+    ///
+    /// Otherwise (if there are any [`ScalarOrNDArray::NDArray`] in `inputs`), all inputs will be
+    /// 'as-ndarray'-ed into ndarrays, then all inputs (now all ndarrays) will be passed to
+    /// [`broadcast_starmap`] and **create** a new ndarray with dtype `ret_dtype`.
+    pub fn broadcasting_starmap<'a, MappingFn>(
+        ctx: &mut CodeGenContext<'ctx, 'a>,
+        inputs: &[Self],
+        ret_dtype: BasicTypeEnum<'ctx>,
+        mapping: MappingFn,
+    ) -> Result<Self, String>
+    where
+        MappingFn: FnOnce(
+            &mut CodeGenContext<'ctx, 'a>,
+            &[BasicValueEnum<'ctx>],
+        ) -> Result<BasicValueEnum<'ctx>, String>,
+    {
+        // Check if all inputs are Scalars
+        let all_scalars: Option<Vec<_>> = inputs
+            .iter()
+            .map(|i| match i {
+                ScalarOrNDArray::Scalar(s) => Some(*s),
+                ScalarOrNDArray::NDArray(_) => None,
+            })
+            .collect();
+
+        if let Some(scalars) = all_scalars {
+            let value = mapping(ctx, &scalars)?;
+            Ok(ScalarOrNDArray::Scalar(value))
         } else {
-            Err(format!("Expected pointer type, got {llvm_ty:?}"))
+            // Promote all input to ndarrays and map through them.
+            let inputs = inputs.iter().map(|input| input.to_ndarray(ctx)).collect_vec();
+            let ret = NDArrayOut::NewNDArray { dtype: ret_dtype };
+            let ndarray = broadcast_starmap(ctx, &inputs, ret, mapping)?;
+            Ok(ScalarOrNDArray::NDArray(ndarray))
         }
     }
+}
 
-    fn has_same_repr(ty: Self::Base, llvm_usize: IntType<'ctx>) -> Result<(), String> {
-        let ctx = ty.get_context();
-
-        let llvm_ndarray_ty = ty.get_element_type();
-        let AnyTypeEnum::StructType(llvm_ndarray_ty) = llvm_ndarray_ty else {
-            return Err(format!(
-                "Expected struct type for `ShapeEntry` type, got {llvm_ndarray_ty}"
-            ));
-        };
-
-        check_struct_type_matches_fields(
-            Self::fields(ctx, llvm_usize),
-            llvm_ndarray_ty,
-            "NDArray",
-            &[],
-        )
-    }
-
-    fn alloca_type(&self) -> impl BasicType<'ctx> {
-        self.as_abi_type().get_element_type().into_struct_type()
-    }
-
-    fn as_base_type(&self) -> Self::Base {
-        self.ty
-    }
-
-    fn as_abi_type(&self) -> Self::ABI {
-        self.as_base_type()
+impl<'ctx> NDArrayValue<'ctx> {
+    /// Map through this ndarray with an elementwise function.
+    pub fn map<'a, Mapping>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, 'a>,
+        out: NDArrayOut<'ctx>,
+        mapping: Mapping,
+    ) -> Result<Self, String>
+    where
+        Mapping: FnOnce(
+            &mut CodeGenContext<'ctx, 'a>,
+            BasicValueEnum<'ctx>,
+        ) -> Result<BasicValueEnum<'ctx>, String>,
+    {
+        broadcast_starmap(ctx, &[*self], out, |ctx, scalars| mapping(ctx, scalars[0]))
     }
 }
 
-impl<'ctx> StructProxyType<'ctx> for ShapeEntryType<'ctx> {
-    type StructFields = ShapeEntryStructFields<'ctx>;
-
-    fn get_fields(&self) -> Self::StructFields {
-        Self::fields(self.ty.get_context(), self.llvm_usize)
-    }
-}
-
-impl<'ctx> From<ShapeEntryType<'ctx>> for PointerType<'ctx> {
-    fn from(value: ShapeEntryType<'ctx>) -> Self {
-        value.as_base_type()
+impl<'ctx> ScalarOrNDArray<'ctx> {
+    /// Map through this [`ScalarOrNDArray`] with an elementwise function.
+    ///
+    /// If this is a scalar, `mapping` will directly act on the scalar. This function will return a
+    /// [`ScalarOrNDArray::Scalar`] of that result.
+    ///
+    /// If this is an ndarray, `mapping` will be applied to the elements of the ndarray. A new
+    /// ndarray of the results will be created and returned as a [`ScalarOrNDArray::NDArray`].
+    pub fn map<'a, Mapping>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, 'a>,
+        ret_dtype: BasicTypeEnum<'ctx>,
+        mapping: Mapping,
+    ) -> Result<Self, String>
+    where
+        Mapping: FnOnce(
+            &mut CodeGenContext<'ctx, 'a>,
+            BasicValueEnum<'ctx>,
+        ) -> Result<BasicValueEnum<'ctx>, String>,
+    {
+        ScalarOrNDArray::broadcasting_starmap(ctx, &[*self], ret_dtype, |ctx, scalars| {
+            mapping(ctx, scalars[0])
+        })
     }
 }

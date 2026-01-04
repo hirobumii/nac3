@@ -18,8 +18,7 @@ use pyo3::{
 use nac3core::{
     codegen::{
         CodeGenContext,
-        types::{ProxyType, ndarray::NDArrayType, structure::StructProxyType},
-        values::ndarray::make_contiguous_strides,
+        types::{NDArrayType, RefType, make_contiguous_strides},
     },
     inkwell::{
         AddressSpace,
@@ -1173,23 +1172,20 @@ impl InnerResolver {
             let llvm_pi8 = ctx.ptr;
             let llvm_usize = ctx.size_t;
             let llvm_ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty);
-            let dtype = llvm_ndarray.element_type();
+            let dtype = llvm_ndarray.dtype;
 
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(
-                            llvm_ndarray.as_abi_type().get_element_type().into_struct_type(),
-                            Some(AddressSpace::default()),
-                            &id_str,
-                        )
+                        let ndarray_ty = llvm_ndarray.alloca_ty(ctx);
+                        ctx.module.add_global(ndarray_ty, Some(AddressSpace::default()), &id_str)
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
                 self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
 
-            let ndims = llvm_ndarray.ndims();
+            let ndims = llvm_ndarray.ndims;
 
             // Obtain the shape of the ndarray
             let shape_tuple = obj.getattr("shape")?;
@@ -1304,7 +1300,7 @@ impl InnerResolver {
             assert_ne!(itemsize, 0);
 
             // Create the strides needed for ndarray.strides
-            let strides = make_contiguous_strides(itemsize, ndims, &shape_u64s);
+            let strides = make_contiguous_strides(&shape_u64s, itemsize);
             let strides =
                 strides.into_iter().map(|stride| llvm_usize.const_int(stride, false)).collect_vec();
             let strides = llvm_usize.const_array(&strides);
@@ -1352,7 +1348,8 @@ impl InnerResolver {
                     .unwrap()
             };
 
-            let ndarray = llvm_ndarray.get_struct_type().const_named_struct(&[
+            let ndarray_struct_ty = llvm_ndarray.alloca_ty(ctx).into_struct_type();
+            let ndarray = ndarray_struct_ty.const_named_struct(&[
                 ndarray_itemsize.into(),
                 ndarray_ndims.into(),
                 ndarray_shape.into(),
@@ -1360,11 +1357,8 @@ impl InnerResolver {
                 ndarray_data.into(),
             ]);
 
-            let ndarray_global = ctx.module.add_global(
-                llvm_ndarray.as_abi_type().get_element_type().into_struct_type(),
-                Some(AddressSpace::default()),
-                &id_str,
-            );
+            let ndarray_global =
+                ctx.module.add_global(ndarray_struct_ty, Some(AddressSpace::default()), &id_str);
             ndarray_global.set_initializer(&ndarray);
 
             Ok(Some(ndarray_global.as_pointer_value().into()))
@@ -1460,8 +1454,7 @@ impl InnerResolver {
                     &ctx.primitives,
                 )?
                 .unwrap();
-            let ty =
-                ctx.get_llvm_type(ty).into_pointer_type().get_element_type().into_struct_type();
+            let ty = ctx.get_alloca_type(ty).into_struct_type();
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {

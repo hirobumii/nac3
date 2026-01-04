@@ -6,13 +6,8 @@ edition = "2024"
 [lib]
 proc-macro = true
 
-[[test]]
-name = "structfields_tests"
-path = "tests/structfields_test.rs"
-
 [dev-dependencies]
 nac3core = { path = ".." }
-trybuild = { version = "1.0", features = ["diff"] }
 
 [dependencies]
 proc-macro2 = "1.0"

@@ -3,12 +3,8 @@ use inkwell::values::{BasicValueEnum, IntValue};
 use crate::{
     codegen::{
         CodeGenContext,
-        stmt::{gen_array_var, gen_for_callback_incrementing},
-        types::{ListType, TupleType},
-        values::{
-            ArraySliceValue, ProxyValue, TypedArrayLikeAccessor, TypedArrayLikeAdapter,
-            TypedArrayLikeMutator, UntypedArrayLikeAccessor,
-        },
+        stmt::{gen_array_var, gen_dyn_array_var, gen_for_callback_incrementing},
+        types::{ArrayLikeIndexer, ArraySliceValue, ListType, ProxyTypeExt, TupleType, field},
     },
     typecheck::typedef::{Type, TypeEnum},
 };
@@ -28,7 +24,7 @@ use crate::{
 pub fn parse_numpy_int_sequence<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (input_seq_ty, input_seq): (Type, BasicValueEnum<'ctx>),
-) -> impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>> + use<'ctx> {
+) -> ArraySliceValue<'ctx> {
     let llvm_usize = ctx.size_t;
     let zero = llvm_usize.const_zero();
     let one = llvm_usize.const_int(1, false);
@@ -41,16 +37,11 @@ pub fn parse_numpy_int_sequence<'ctx>(
             // 1. A list of `int32`; e.g., `np.empty([600, 800, 3])`
 
             let input_seq = ListType::from_unifier_type(ctx, input_seq_ty)
-                .map_pointer_value(input_seq.into_pointer_value(), None);
+                .map_value(input_seq.into_pointer_value(), None);
 
-            let len = input_seq.load_size(ctx, None);
+            let len = input_seq.load(ctx, field!(len));
             // TODO: Find a way to remove this mid-BB allocation
-            let result = ctx.builder.build_array_alloca(llvm_usize, len, "").unwrap();
-            let result = TypedArrayLikeAdapter::from(
-                ArraySliceValue::from_ptr_val(result, len, None),
-                |_, val| val.into_int_value(),
-                |_, val| val.into(),
-            );
+            let result = gen_dyn_array_var(ctx, llvm_usize, len, None);
 
             // Load all the `int32`s from the input_sequence, cast them to `SizeT`, and store them into `result`
             gen_for_callback_incrementing(
@@ -61,15 +52,14 @@ pub fn parse_numpy_int_sequence<'ctx>(
                 (len, false),
                 |(), ctx, _, i| {
                     // Load the i-th int32 in the input sequence
-                    let int =
-                        unsafe { input_seq.data().get_unchecked(ctx, &i, None).into_int_value() };
+                    let int: IntValue<'ctx> = input_seq.data(ctx).get_unchecked(ctx, &i, None);
 
                     // Cast to SizeT
                     let int =
                         ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "").unwrap();
 
                     // Store
-                    unsafe { result.set_typed_unchecked(ctx, &i, int) };
+                    result.set_unchecked(ctx, &i, int, None);
 
                     Ok(())
                 },
@@ -85,31 +75,18 @@ pub fn parse_numpy_int_sequence<'ctx>(
             // 2. A tuple of ints; e.g., `np.empty((600, 800, 3))`
 
             let input_seq = TupleType::from_unifier_type(ctx, input_seq_ty)
-                .map_struct_value(input_seq.into_struct_value(), None);
+                .map_value(input_seq.into_struct_value(), None);
 
-            let len = input_seq.get_type().num_elements();
+            let len = input_seq.ty.num_elements();
 
-            let result =
-                gen_array_var(ctx, llvm_usize, llvm_usize.const_int(u64::from(len), false), None)
-                    .unwrap();
-            let result = TypedArrayLikeAdapter::from(
-                result,
-                |_, val| val.into_int_value(),
-                |_, val| val.into(),
-            );
+            let result = gen_array_var(ctx, llvm_usize, u64::from(len), None);
 
-            for i in 0..input_seq.get_type().num_elements() {
+            for i in 0..input_seq.ty.num_elements() {
                 // Get the i-th element off of the tuple and load it into `result`.
-                let int = input_seq.extract_element(ctx, i).into_int_value();
+                let int = input_seq.extract(ctx, i).into_int_value();
                 let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "").unwrap();
 
-                unsafe {
-                    result.set_typed_unchecked(
-                        ctx,
-                        &llvm_usize.const_int(u64::from(i), false),
-                        int,
-                    );
-                }
+                result.set_unchecked(ctx, &llvm_usize.const_int(u64::from(i), false), int, None);
             }
 
             result
@@ -122,21 +99,12 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let input_int = input_seq.into_int_value();
 
-            let len = one;
-            let result = gen_array_var(ctx, llvm_usize, len, None).unwrap();
-            let result = TypedArrayLikeAdapter::from(
-                result,
-                |_, val| val.into_int_value(),
-                |_, val| val.into(),
-            );
+            let result = gen_array_var(ctx, llvm_usize, 1, None);
             let int =
                 ctx.builder.build_int_s_extend_or_bit_cast(input_int, llvm_usize, "").unwrap();
 
             // Storing into result[0]
-            unsafe {
-                result.set_typed_unchecked(ctx, &zero, int);
-            }
-
+            result.set_unchecked(ctx, &zero, int, None);
             result
         }
 

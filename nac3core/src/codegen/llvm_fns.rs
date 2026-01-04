@@ -18,7 +18,7 @@ use inkwell::{
 };
 use itertools::Itertools;
 
-use crate::codegen::{ModuleContext, TargetMachineOptions};
+use crate::codegen::{ModuleContext, TargetMachineOptions, typed_store};
 
 const INTERNAL_CALL_CONV: u32 = inkwell::llvm_sys::LLVMCallConv::LLVMFastCallConv as _;
 
@@ -256,7 +256,7 @@ impl<'ctx> FunctionStore<'ctx> {
 
                     if let ArgCallConv::Indirect(attr) = call_conv {
                         let p = alloca(ty);
-                        builder.build_store(p, next.try_into().unwrap()).unwrap();
+                        typed_store(builder, p, next.try_into().unwrap());
                         (ptr_to_t(p), attr)
                     } else {
                         (next, None)

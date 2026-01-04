@@ -1,38 +1,35 @@
 use std::iter::once;
 
 use inkwell::{
-    IntPredicate,
+    AddressSpace, IntPredicate,
     basic_block::BasicBlock,
     builder::Builder,
-    types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum},
+    types::{BasicMetadataTypeEnum, BasicType},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
 };
 use itertools::{Itertools, izip};
 
-use nac3parser::ast::{
-    Constant, ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKind, StrRef,
-};
+use nac3parser::ast::{ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKind, StrRef};
 
-use super::{
-    CodeGenContext, CodeGenerator, bool_to_i1, bool_to_i8,
-    expr::{destructure_range, gen_binop_expr},
-    gen_in_range_check,
-    irrt::{handle_slice_indices, list_slice_assignment},
-    llvm_intrinsics::call_memcpy_generic_array,
-    macros::codegen_unreachable,
-    types::{ExceptionType, ListType, RangeType, ndarray::NDArrayType},
-    values::{
-        ArrayLikeIndexer, ArrayLikeValue, ArraySliceValue, ExceptionValue, ListValue, ProxyValue,
-        ndarray::{RustNDIndex, ScalarOrNDArray},
-        structure::StructProxyValue,
-    },
-};
 use crate::{
-    codegen::{ModuleContext, llvm_fns::FunctionDecl, values::UntypedArrayLikeAccessor},
+    codegen::{
+        CodeGenContext, CodeGenerator, ModuleContext, bool_to_i1, bool_to_i8,
+        expr::{destructure_range, gen_binop_expr},
+        gen_in_range_check,
+        irrt::{handle_slice_indices, list_slice_assignment},
+        llvm_fns::FunctionDecl,
+        macros::codegen_unreachable,
+        typed_store,
+        types::{
+            ArrayLikeIndexer, ArraySliceValue, ExceptionType, ExceptionValue, ListType, ListValue,
+            NDArrayType, ProxyTypeExt, RangeType, RustNDIndex, ScalarOrNDArray, StringType,
+            TupleType, broadcast, field,
+        },
+    },
     symbol_resolver::{SymbolValue, ValueEnum},
     toplevel::{
         DefinitionId, TopLevelContext, TopLevelDef,
-        helper::extract_ndims,
+        helper::{PrimDef, extract_ndims},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
     },
     typecheck::{
@@ -54,12 +51,11 @@ pub(crate) fn get_personality<'ctx>(
     )
 }
 
-/// Allocates an LLVM stack variable for temporary storage.
-pub fn gen_var<'ctx>(
+fn get_var_builder<'ctx, T>(
     ctx: &CodeGenContext<'ctx, '_>,
-    ty: BasicTypeEnum<'ctx>,
-    name: Option<&str>,
-) -> Result<PointerValue<'ctx>, String> {
+    late: bool,
+    b: impl FnOnce(&Builder<'ctx>) -> T,
+) -> T {
     // Restore debug location
     let di_loc = ctx.debug_info.0.create_debug_location(
         ctx.ctx,
@@ -69,51 +65,84 @@ pub fn gen_var<'ctx>(
         None,
     );
 
-    // put the alloca in init block
-    let current = ctx.builder.get_insert_block().unwrap();
+    let new_builder;
+    let builder = if late {
+        &ctx.builder
+    } else {
+        new_builder = ctx.ctx.create_builder();
+        // position before the last branching instruction...
+        new_builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
+        &new_builder
+    };
 
-    // position before the last branching instruction...
-    ctx.builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
-    ctx.builder.set_current_debug_location(di_loc);
+    builder.set_current_debug_location(di_loc);
+    b(builder)
+}
 
-    let ptr = ctx.builder.build_alloca(ty, name.unwrap_or("")).unwrap();
+/// Allocates an LLVM stack variable for temporary storage. The variable is stored
+/// at the beginning of the function.
+///
+/// You must ensure that the memory allocated here is supposed to be reused across
+/// loops and branches. If you are possibly within a scope where the number of allocations
+/// performed may depend on control flow (e.g. allocating objects within a comprehension),
+/// use [`gen_dyn_var`] instead.
+pub fn gen_var<'ctx, T: BasicType<'ctx> + Copy>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    ty: T,
+    name: Option<&str>,
+) -> PointerValue<'ctx> {
+    let ty = ty.as_basic_type_enum();
+    get_var_builder(ctx, false, |builder| builder.build_alloca(ty, name.unwrap_or("")).unwrap())
+}
 
-    ctx.builder.position_at_end(current);
-    ctx.builder.set_current_debug_location(di_loc);
+/// Allocates an LLVM stack variable for temporary storage. The alloca is inserted
+/// at the current insertion point.
+pub fn gen_dyn_var<'ctx, T: BasicType<'ctx> + Copy>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    ty: T,
+    name: Option<&str>,
+) -> PointerValue<'ctx> {
+    let ty = ty.as_basic_type_enum();
+    get_var_builder(ctx, true, |builder| builder.build_alloca(ty, name.unwrap_or("")).unwrap())
+}
 
-    Ok(ptr)
+/// Allocates an LLVM stack array for temporary storage. The variable is stored
+/// at the beginning of the function.
+///
+/// This function takes a fixed (compile-time) size for the array, because if the
+/// size is dynamic and not known at the beginning of the function, it should be
+/// allocated at the current insertion point instead.
+pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
+    ctx: &CodeGenContext<'ctx, 'a>,
+    ty: T,
+    size: u64,
+    name: Option<&'static str>,
+) -> ArraySliceValue<'ctx> {
+    let size = ctx.size_t.const_int(size, false);
+    let ty = ty.as_basic_type_enum();
+    let ptr = get_var_builder(ctx, false, |builder| {
+        builder.build_array_alloca(ty, size, name.unwrap_or("")).unwrap()
+    });
+    let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or("")).unwrap();
+    ArraySliceValue::new(ty, ptr, size, name)
 }
 
 /// Allocates an LLVM stack array for temporary storage.
-pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx>>(
+///
+/// This happens at the current insertion point instead of the function's entry block,
+/// which allows for dynamically sized arrays.
+pub fn gen_dyn_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
     ctx: &mut CodeGenContext<'ctx, 'a>,
     ty: T,
     size: IntValue<'ctx>,
-    name: Option<&'ctx str>,
-) -> Result<ArraySliceValue<'ctx>, String> {
-    // Restore debug location
-    let di_loc = ctx.debug_info.0.create_debug_location(
-        ctx.ctx,
-        ctx.current_loc.row as u32,
-        ctx.current_loc.column as u32,
-        ctx.debug_info.2,
-        None,
-    );
-
-    // put the alloca in init block
-    let current = ctx.builder.get_insert_block().unwrap();
-
-    // position before the last branching instruction...
-    ctx.builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
-    ctx.builder.set_current_debug_location(di_loc);
-
-    let ptr = ctx.builder.build_array_alloca(ty, size, name.unwrap_or("")).unwrap();
-    let ptr = ArraySliceValue::from_ptr_val(ptr, size, name);
-
-    ctx.builder.position_at_end(current);
-    ctx.builder.set_current_debug_location(di_loc);
-
-    Ok(ptr)
+    name: Option<&'static str>,
+) -> ArraySliceValue<'ctx> {
+    let ty = ty.as_basic_type_enum();
+    let ptr = get_var_builder(ctx, true, |builder| {
+        builder.build_array_alloca(ty, size, name.unwrap_or("")).unwrap()
+    });
+    let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or("")).unwrap();
+    ArraySliceValue::new(ty, ptr, size, name)
 }
 
 /// See [`CodeGenerator::gen_store_target`].
@@ -129,7 +158,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
             None => {
                 let ptr_ty = ctx.get_llvm_type(pattern.custom.unwrap());
-                let ptr = gen_var(ctx, ptr_ty, name)?;
+                let ptr = gen_var(ctx, ptr_ty, name);
                 ctx.var_assignment.insert(*id, (ptr, None, 0));
                 ptr
             }
@@ -146,6 +175,11 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             let BasicValueEnum::PointerValue(ptr) = val else {
                 codegen_unreachable!(ctx);
             };
+            let alloca_ty = ctx.get_alloca_type(value.custom.unwrap());
+            let ptr = ctx
+                .builder
+                .build_pointer_cast(ptr, alloca_ty.ptr_type(AddressSpace::default()), "")
+                .unwrap();
             unsafe {
                 ctx.builder.build_in_bounds_gep(
                     ptr,
@@ -204,7 +238,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 val
             };
 
-            ctx.builder.build_store(ptr, val).unwrap();
+            typed_store(&ctx.builder, ptr, val);
         }
     }
     Ok(())
@@ -218,31 +252,42 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     value: &ValueEnum<'ctx>,
     value_ty: Type,
 ) -> Result<(), String> {
-    let llvm_usize = ctx.size_t;
+    let do_assign = |generator: &mut G, ctx: &mut _, targets, values: &[_]| {
+        izip!(targets, values).try_for_each(|(target, &(val_ty, val))| {
+            generator.gen_assign(&mut *ctx, target, &ValueEnum::Dynamic(val), val_ty)
+        })
+    };
+    let do_assign_list = |generator: &mut G, ctx: &mut _, target, list: &ListValue<'ctx>| {
+        let ptr = generator.gen_store_target(ctx, target, Some("starred_target.addr"))?.unwrap();
+        typed_store(&ctx.builder, ptr, list.value);
+        Ok::<_, String>(())
+    };
+
+    // Find the starred target if it exists.
+    // Index of the "starred" target. If it exists, there may only be one.
+    let mut starred_target_index = None;
+    for (i, target) in targets.iter().enumerate() {
+        if let ExprKind::Starred { value: mid, .. } = &target.node {
+            let (head, tail) = (&targets[..i], &targets[i + 1..]);
+            // Ensured by typechecker
+            assert!(starred_target_index.replace((head, &**mid, tail)).is_none());
+        }
+    }
+
     match &*ctx.unifier.get_ty(value_ty) {
         TypeEnum::TTuple { ty: tuple_tys, .. } => {
             // Deconstruct the tuple `value`
             let tuple = value.to_basic_value_enum(ctx, value_ty)?.into_struct_value();
-
-            assert_eq!(tuple.get_type().count_fields() as usize, tuple_tys.len());
-
-            let tuple = (0..tuple.get_type().count_fields())
-                .map(|i| ctx.builder.build_extract_value(tuple, i, "").unwrap())
+            let tuple = TupleType::from_unifier_type(ctx, value_ty).map_value(tuple, None);
+            let tuple = tuple_tys
+                .iter()
+                .enumerate()
+                .map(|(i, ty)| (*ty, tuple.extract(ctx, i as u32)))
                 .collect_vec();
-
-            // Find the starred target if it exists.
-            // Index of the "starred" target. If it exists, there may only be one.
-            let mut starred_target_index = None;
-            for (i, target) in targets.iter().enumerate() {
-                if matches!(target.node, ExprKind::Starred { .. }) {
-                    // Ensured by typechecker
-                    assert!(starred_target_index.replace(i).is_none());
-                }
-            }
 
             // Unlike in python we require the starred target to consume one or more items when the
             // RHS is a tuple. Otherwise, it would be impossible type the starred target.
-            if tuple_tys.len() < targets.len() {
+            if tuple.len() < targets.len() {
                 return Err(format!(
                     "Tuple unpacking requires at least as many values as targets including the starred target, but got {} values and {} targets",
                     tuple_tys.len(),
@@ -250,201 +295,57 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 ));
             }
 
-            // tuple[before_idx..after_idx] is assigned to the starred target
-            let starred_target_index = starred_target_index.unwrap_or(tuple_tys.len());
-            let before_idx = starred_target_index;
-            let after_idx = (tuple_tys.len() + starred_target_index + 1) - targets.len();
-
-            // Handle assignments up to starred target - if no starred target, this is all assignments
-            for (target, val, val_ty) in izip!(
-                &targets[..starred_target_index],
-                &tuple[..before_idx],
-                &tuple_tys[..before_idx]
-            ) {
-                generator.gen_assign(ctx, target, &ValueEnum::Dynamic(*val), *val_ty)?;
-            }
-
-            // If there is a starred target we need to handle it, and then assignements after it.
-            let Some(ExprKind::Starred { value: target, .. }) =
-                &targets.get(starred_target_index).map(|v| &v.node)
-            else {
-                return Ok(());
+            let Some((head, mid, tail)) = starred_target_index else {
+                // No starred target, simple assignment
+                return do_assign(generator, ctx, targets, &tuple);
             };
 
-            let ty = tuple[before_idx].get_type();
+            let (tup_head, tup_rest) = tuple.split_at(head.len());
+            let (tup_mid, tup_tail) = tup_rest.split_at(tup_rest.len() - tail.len());
+            // Handle assignments up to starred target
+            do_assign(generator, ctx, head, tup_head)?;
 
+            let tup_mid_ty = tup_mid[0].0;
             // nac3 lists can only contain one type, hence starred targets can only contain one type
             // This is previously checked by the typechecker
             debug_assert!(
-                tuple_tys[before_idx..after_idx]
-                    .iter()
-                    .all(|t| ctx.unifier.unioned(*t, tuple_tys[before_idx])),
+                tup_mid.iter().all(|t| ctx.unifier.unioned(t.0, tup_mid_ty)),
                 "Starred target must have same type for all items"
             );
-
-            let starred_list = ListType::new(ctx, &ty).construct(
-                ctx,
-                llvm_usize.const_int((after_idx - before_idx) as u64, false),
-                Some("starred_list"),
-            );
-
-            for (i, val) in tuple[before_idx..after_idx].iter().enumerate() {
-                let ptr = starred_list.data().ptr_offset(
-                    ctx,
-                    &llvm_usize.const_int(i as u64, false),
-                    None,
-                );
-                ctx.builder.build_store(ptr, *val).unwrap();
+            let tup_mid_len = ctx.size_t.const_int(tup_mid.len() as u64, false);
+            let starred_list =
+                ListType::new(ctx, tup_mid_ty).construct(ctx, tup_mid_len, Some("starred_list"));
+            let starred_list_data = starred_list.data(ctx);
+            for (i, &(_, val)) in tup_mid.iter().enumerate() {
+                starred_list_data.set(ctx, &ctx.size_t.const_int(i as u64, false), val, None);
             }
+            do_assign_list(generator, ctx, mid, &starred_list)?;
 
-            let target_ptr =
-                generator.gen_store_target(ctx, target, Some("starred_target.addr"))?.unwrap();
-            ctx.builder.build_store(target_ptr, starred_list.get_pointer_value(ctx)).unwrap();
-
-            // Handle assignment after the starred target
-            for (target, val, val_ty) in izip!(
-                &targets[starred_target_index + 1..],
-                &tuple[after_idx..],
-                &tuple_tys[after_idx..]
-            ) {
-                generator.gen_assign(ctx, target, &ValueEnum::Dynamic(*val), *val_ty)?;
-            }
+            do_assign(generator, ctx, tail, tup_tail)?;
         }
-        TypeEnum::TObj { params, .. } => {
-            let BasicValueEnum::PointerValue(list_ptr) =
-                value.to_basic_value_enum(ctx, value_ty)?
-            else {
-                codegen_unreachable!(ctx);
+        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
+            let list = value.to_basic_value_enum(ctx, value_ty)?.into_pointer_value();
+            let list = ListType::from_unifier_type(ctx, value_ty).map_value(list, None);
+            let list_data = list.data(ctx);
+            let elem_ty = list.ty.item_ty;
+            let rhs_size = list_data.value.1;
+
+            let do_read = |ctx: &mut CodeGenContext<'ctx, '_>, at: _| {
+                (elem_ty, list_data.get_unchecked(ctx, &at, None))
+            };
+            let read_fixed = |ctx: &mut CodeGenContext<'ctx, '_>, to: usize| {
+                (0..to)
+                    .map(|i| {
+                        let i = ctx.size_t.const_int(i as u64, false);
+                        do_read(ctx, i)
+                    })
+                    .collect_vec()
             };
 
-            let rhs_list = ListValue::from_pointer_value(list_ptr, ctx.size_t, Some("rhs_list"));
-            let rhs_size = rhs_list.load_size(ctx, Some("rhs_size"));
-            let starred_idx =
-                targets.iter().position(|t| matches!(t.node, ExprKind::Starred { .. }));
+            let Some((head, mid, tail)) = starred_target_index else {
+                // No starred target, simple assignment
 
-            // Check if the lhs targets contain a starred target
-            if let Some(starred_idx) = starred_idx {
-                // Get the targets before and after the starred target
-                let before = targets.iter().enumerate().take(starred_idx);
-                let after = targets.iter().skip(starred_idx + 1).rev();
-
-                let unstarred_size =
-                    llvm_usize.const_int(before.len() as u64 + after.len() as u64, false);
-                ctx.make_assert(
-                    ctx.builder
-                        .build_int_compare(
-                            IntPredicate::ULE,
-                            unstarred_size,
-                            rhs_size,
-                            "list_size_check",
-                        )
-                        .unwrap(),
-                    "ValueError",
-                    "too few values to unpack (expected at least {0}, got {1})",
-                    [Some(unstarred_size), Some(rhs_size), None],
-                    targets[0].location,
-                );
-
-                // Assign the first n values to the n targets before the starred target
-                for (i, target) in before {
-                    let target_ptr =
-                        generator.gen_store_target(ctx, target, Some("list_target.addr"))?.unwrap();
-
-                    let item_ptr = rhs_list.data().ptr_offset(
-                        ctx,
-                        &llvm_usize.const_int(i as u64, false),
-                        Some("item_ptr"),
-                    );
-                    let item_val = ctx.builder.build_load(item_ptr, "item_val").unwrap();
-                    ctx.builder.build_store(target_ptr, item_val).unwrap();
-                }
-
-                // Iterate backwards to assign the last m values to the m targets after the starred target
-                let mut idx = rhs_size;
-                for target in after {
-                    let target_ptr = generator
-                        .gen_store_target(ctx, target, Some("list_target.addr2"))?
-                        .unwrap();
-
-                    // rhs_size isn't constant so we need to generate the pointer arithemetic
-                    idx =
-                        ctx.builder.build_int_sub(idx, llvm_usize.const_int(1, false), "").unwrap();
-
-                    let item_ptr = rhs_list.data().ptr_offset(ctx, &idx, Some("item_ptr2"));
-                    let item_val = ctx.builder.build_load(item_ptr, "item_val2").unwrap();
-                    ctx.builder.build_store(target_ptr, item_val).unwrap();
-                }
-
-                // Get the type of the list items
-                let Some((_, ty)) = params.first() else {
-                    // Lists are always typed; the typechecker ensures this
-                    codegen_unreachable!(ctx);
-                };
-
-                // Get the number of values to be stored in the starred target
-                let starred_size = ctx
-                    .builder
-                    .build_int_sub(
-                        idx,
-                        llvm_usize.const_int(starred_idx as u64, false),
-                        "starred_size",
-                    )
-                    .unwrap();
-
-                // Allocate a new list for the starred target and copy the data from the rhs list into it
-                let llvm_array_ty = ctx.get_llvm_type(*ty);
-                let new_list = ListType::new(ctx, &llvm_array_ty).construct(
-                    ctx,
-                    starred_size,
-                    Some("new_list"),
-                );
-
-                let cur_bb = ctx.builder.get_insert_block().unwrap();
-                let then_bb = ctx.ctx.insert_basic_block_after(cur_bb, "if.star");
-                let after_bb = ctx.ctx.insert_basic_block_after(then_bb, "after.star");
-
-                // Check if starred_size is not zero
-                let cond = ctx
-                    .builder
-                    .build_int_compare(
-                        IntPredicate::EQ,
-                        starred_size,
-                        llvm_usize.const_zero(),
-                        "is_starred_empty",
-                    )
-                    .unwrap();
-
-                ctx.builder.build_conditional_branch(cond, after_bb, then_bb).unwrap();
-
-                ctx.builder.position_at_end(then_bb);
-
-                // Get the pointer for where the values to be stored in the starred target begin
-                let rest_start_ptr = rhs_list.data().ptr_offset(
-                    ctx,
-                    &llvm_usize.const_int(starred_idx as u64, false),
-                    Some("start_ptr"),
-                );
-                call_memcpy_generic_array(
-                    ctx,
-                    new_list.data().base_ptr(ctx),
-                    rest_start_ptr,
-                    starred_size,
-                );
-
-                ctx.builder.build_unconditional_branch(after_bb).unwrap();
-
-                ctx.builder.position_at_end(after_bb);
-
-                // Store the new list in the starred target
-                let ExprKind::Starred { value: target, .. } = &targets[starred_idx].node else {
-                    codegen_unreachable!(ctx)
-                };
-                let target_ptr =
-                    generator.gen_store_target(ctx, target, Some("list_target.addr3"))?.unwrap();
-                ctx.builder.build_store(target_ptr, new_list.get_pointer_value(ctx)).unwrap();
-            } else {
-                // If no starred target, make sure the number of targets matches the number of items in the list
-                let lhs_size = llvm_usize.const_int(targets.len() as u64, false);
+                let lhs_size = ctx.size_t.const_int(targets.len() as u64, false);
                 ctx.make_assert(
                     ctx.builder
                         .build_int_compare(IntPredicate::EQ, rhs_size, lhs_size, "list_size_check")
@@ -455,20 +356,46 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     Location::default(),
                 );
 
-                // Assign each item in the list to the corresponding target
-                for (i, target) in targets.iter().enumerate() {
-                    let target_ptr =
-                        generator.gen_store_target(ctx, target, Some("list_target.addr"))?.unwrap();
+                let values = read_fixed(ctx, targets.len());
+                return do_assign(generator, ctx, targets, &values);
+            };
 
-                    let item_ptr = rhs_list.data().ptr_offset(
-                        ctx,
-                        &llvm_usize.const_int(i as u64, false),
-                        Some("item_ptr"),
-                    );
-                    let item_val = ctx.builder.build_load(item_ptr, "item_val").unwrap();
-                    ctx.builder.build_store(target_ptr, item_val).unwrap();
-                }
-            }
+            // All non-starred targets must be assigned exactly one value.
+            let min_size = targets.len() - 1;
+            let min_size_ = ctx.size_t.const_int(min_size as u64, false);
+            ctx.make_assert(
+                ctx.builder
+                    .build_int_compare(IntPredicate::ULE, min_size_, rhs_size, "list_size_check")
+                    .unwrap(),
+                "ValueError",
+                "too few values to unpack (expected at least {0}, got {1})",
+                [Some(min_size_), Some(rhs_size), None],
+                targets[0].location,
+            );
+
+            let head_values = read_fixed(ctx, head.len());
+            do_assign(generator, ctx, head, &head_values)?;
+
+            // Here we just share data with the previous list.
+            let head_len = ctx.size_t.const_int(head.len() as u64, false);
+            let mid_len = ctx.builder.build_int_sub(rhs_size, min_size_, "mid_len").unwrap();
+            let mid_begin = list_data.ptr_offset_unchecked(ctx, &head_len, Some("mid_begin"));
+            let tail_len = ctx.size_t.const_int(tail.len() as u64, false);
+            let tail_begin = ctx.builder.build_int_sub(rhs_size, tail_len, "tail_begin").unwrap();
+
+            let mid_list = ListType::new(ctx, elem_ty).alloca(ctx, None);
+            mid_list.store(ctx, field!(items), mid_begin);
+            mid_list.store(ctx, field!(len), mid_len);
+            do_assign_list(generator, ctx, mid, &mid_list)?;
+
+            let list_tail = (0..tail.len())
+                .map(|i| {
+                    let i = ctx.size_t.const_int(i as u64, false);
+                    let idx = ctx.builder.build_int_add(tail_begin, i, "tail_index").unwrap();
+                    do_read(ctx, idx)
+                })
+                .collect_vec();
+            do_assign(generator, ctx, tail, &list_tail)?;
         }
         // The typechecker ensures this
         _ => codegen_unreachable!(ctx),
@@ -492,30 +419,29 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
             // Handle list item assignment
-            let llvm_usize = ctx.size_t;
             let target_item_ty = iter_type_vars(list_params).next().unwrap().ty;
 
-            let target =
-                generator.gen_expr(ctx, target)?.to_basic_value_enum(ctx)?.into_pointer_value();
-            let target = ListValue::from_pointer_value(target, llvm_usize, None);
+            let target = generator.gen_expr(ctx, target)?;
+            let target_val = target.to_basic_value_enum(ctx)?.into_pointer_value();
+            let target = ListType::from_unifier_type(ctx, target_ty).map_value(target_val, None);
 
             if let ExprKind::Slice { .. } = &key.node {
                 // Handle assigning to a slice
                 let ExprKind::Slice { lower, upper, step } = &key.node else {
                     codegen_unreachable!(ctx)
                 };
-                let size = target.load_size(ctx, None);
+                let size = target.load(ctx, field!(len));
                 let Some((start, end, step)) =
                     handle_slice_indices(lower, upper, step, ctx, generator, size)?
                 else {
                     return Ok(());
                 };
 
-                let value = value.to_basic_value_enum(ctx, value_ty)?.into_pointer_value();
-                let value = ListValue::from_pointer_value(value, llvm_usize, None);
+                let value_val = value.to_basic_value_enum(ctx, value_ty)?.into_pointer_value();
+                let value = ListType::from_unifier_type(ctx, value_ty).map_value(value_val, None);
 
                 let target_item_ty = ctx.get_llvm_type(target_item_ty);
-                let size = value.load_size(ctx, None);
+                let size = value.load(ctx, field!(len));
                 let Some(src_ind) =
                     handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                 else {
@@ -531,7 +457,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 );
             } else {
                 // Handle assigning to an index
-                let len = target.load_size(ctx, Some("len"));
+                let len = target.load(ctx, field!(len));
 
                 let index =
                     generator.gen_expr(ctx, key)?.to_basic_value_enum(ctx)?.into_int_value();
@@ -564,9 +490,8 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 );
 
                 // Write value to index on list
-                let item_ptr = target.data().ptr_offset(ctx, &index, Some("list_item_ptr"));
                 let value = value.to_basic_value_enum(ctx, value_ty)?;
-                ctx.builder.build_store(item_ptr, value).unwrap();
+                target.data(ctx).set(ctx, &index, value, Some("list_item"));
             }
         }
         TypeEnum::TObj { obj_id, .. }
@@ -596,21 +521,17 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             // ```
 
             let target = NDArrayType::from_unifier_type(ctx, target_ty)
-                .map_pointer_value(target.into_pointer_value(), None);
+                .map_value(target.into_pointer_value(), None);
             let target = target.index(ctx, &key);
 
             let value = ScalarOrNDArray::from_value(ctx, (value_ty, value)).to_ndarray(ctx);
 
-            let broadcast_ndims =
-                [target.get_type().ndims(), value.get_type().ndims()].into_iter().max().unwrap();
-            let broadcast_result =
-                NDArrayType::new(ctx, value.get_type().element_type(), broadcast_ndims)
-                    .broadcast(ctx, &[target, value]);
+            let broadcast_result = broadcast(ctx, &[target, value]);
 
             let target = broadcast_result.ndarrays[0];
             let value = broadcast_result.ndarrays[1];
 
-            target.copy_data_from(ctx, value);
+            target.copy_data_from(ctx, &value);
         }
         _ => {
             panic!("encountered unknown target type: {}", ctx.unifier.stringify(target_ty));
@@ -758,7 +679,7 @@ pub fn gen_for<G: CodeGenerator>(
             if *obj_id == ctx.primitives.range.obj_id(&ctx.unifier).unwrap() =>
         {
             let iter_val =
-                RangeType::new(ctx).map_pointer_value(iter_val.into_pointer_value(), Some("range"));
+                RangeType::new(ctx).map_value(iter_val.into_pointer_value(), Some("range"));
 
             let (start, stop, step) = destructure_range(ctx, iter_val);
 
@@ -781,7 +702,7 @@ pub fn gen_for<G: CodeGenerator>(
                 None,
                 |generator, ctx| {
                     // Internal variable for loop; Cannot be assigned
-                    let i = gen_var(ctx, int32.into(), Some("for.i.addr"))?;
+                    let i = gen_var(ctx, int32, Some("for.i.addr"));
                     // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed
                     let Some(target_i) =
                         generator.gen_store_target(ctx, target, Some("for.target.addr"))?
@@ -789,7 +710,7 @@ pub fn gen_for<G: CodeGenerator>(
                         codegen_unreachable!(ctx)
                     };
 
-                    ctx.builder.build_store(i, start).unwrap();
+                    typed_store(&ctx.builder, i, start);
 
                     Ok((i, target_i))
                 },
@@ -802,15 +723,11 @@ pub fn gen_for<G: CodeGenerator>(
                     ))
                 },
                 |generator, ctx, _, (i, target_i)| {
-                    ctx.builder
-                        .build_store(
-                            target_i,
-                            ctx.builder
-                                .build_load(i, "")
-                                .map(BasicValueEnum::into_int_value)
-                                .unwrap(),
-                        )
-                        .unwrap();
+                    typed_store(
+                        &ctx.builder,
+                        target_i,
+                        ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
+                    );
                     generator.gen_block(ctx, body.iter())?;
 
                     Ok(())
@@ -827,7 +744,7 @@ pub fn gen_for<G: CodeGenerator>(
                             "inc",
                         )
                         .unwrap();
-                    ctx.builder.build_store(i, next_i).unwrap();
+                    typed_store(&ctx.builder, i, next_i);
 
                     Ok(())
                 },
@@ -838,19 +755,18 @@ pub fn gen_for<G: CodeGenerator>(
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
             let list_elem_ty = iter_type_vars(list_params).next().unwrap().ty;
-            let llvm_list_elem_t = ctx.get_llvm_type(list_elem_ty);
-            let iter_val = ListType::new(ctx, &llvm_list_elem_t)
-                .map_pointer_value(iter_val.into_pointer_value(), Some("list"));
+            let iter_val = ListType::new(ctx, list_elem_ty)
+                .map_value(iter_val.into_pointer_value(), Some("list"));
 
-            let len = iter_val.load_size(ctx, None);
+            let len = iter_val.load(ctx, field!(len));
 
             gen_for_callback(
                 generator,
                 ctx,
                 None,
                 |_, ctx| {
-                    let index_addr = gen_var(ctx, size_t.into(), Some("for.index.addr"))?;
-                    ctx.builder.build_store(index_addr, size_t.const_zero()).unwrap();
+                    let index_addr = gen_var(ctx, size_t, Some("for.index.addr"));
+                    typed_store(&ctx.builder, index_addr, size_t.const_zero());
 
                     Ok(index_addr)
                 },
@@ -873,7 +789,8 @@ pub fn gen_for<G: CodeGenerator>(
                         .build_load(index_addr, "for.index")
                         .map(BasicValueEnum::into_int_value)
                         .unwrap();
-                    let val = unsafe { iter_val.data().get_unchecked(ctx, &index, Some("val")) };
+                    let val: BasicValueEnum =
+                        iter_val.data(ctx).get_unchecked(ctx, &index, Some("val"));
                     let val_ty = iter_type_vars(list_params).next().unwrap().ty;
                     generator.gen_assign(ctx, target, &val.into(), val_ty)?;
                     generator.gen_block(ctx, body.iter())?;
@@ -888,7 +805,7 @@ pub fn gen_for<G: CodeGenerator>(
                         .unwrap();
                     let inc =
                         ctx.builder.build_int_add(index, size_t.const_int(1, true), "inc").unwrap();
-                    ctx.builder.build_store(index_addr, inc).unwrap();
+                    typed_store(&ctx.builder, index_addr, inc);
 
                     Ok(())
                 },
@@ -901,23 +818,17 @@ pub fn gen_for<G: CodeGenerator>(
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, iter_ty);
             let ndims = extract_ndims(&ctx.unifier, ndims);
             let ndarray = NDArrayType::from_unifier_type(ctx, iter_ty)
-                .map_pointer_value(iter_val.into_pointer_value(), None);
+                .map_value(iter_val.into_pointer_value(), None);
 
-            let pshape_dim0 =
-                unsafe { ndarray.shape().ptr_offset_unchecked(ctx, &size_t.const_zero(), None) };
-            let shape_dim0 = ctx
-                .builder
-                .build_load(pshape_dim0, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
+            let shape_dim0 = ndarray.len(ctx);
 
             gen_for_callback(
                 generator,
                 ctx,
                 None,
                 |_, ctx| {
-                    let index_addr = gen_var(ctx, size_t.into(), Some("for.index.addr"))?;
-                    ctx.builder.build_store(index_addr, size_t.const_zero()).unwrap();
+                    let index_addr = gen_var(ctx, size_t, Some("for.index.addr"));
+                    typed_store(&ctx.builder, index_addr, size_t.const_zero());
 
                     Ok(index_addr)
                 },
@@ -981,7 +892,7 @@ pub fn gen_for<G: CodeGenerator>(
                         .builder
                         .build_int_add(index, size_t.const_int(1, false), "inc")
                         .unwrap();
-                    ctx.builder.build_store(index_addr, inc).unwrap();
+                    typed_store(&ctx.builder, index_addr, inc);
 
                     Ok(())
                 },
@@ -1065,8 +976,8 @@ where
         ctx,
         label,
         |_, ctx| {
-            let i_addr = gen_var(ctx, init_val_t.into(), None)?;
-            ctx.builder.build_store(i_addr, init_val).unwrap();
+            let i_addr = gen_var(ctx, init_val_t, None);
+            typed_store(&ctx.builder, i_addr, init_val);
 
             Ok(i_addr)
         },
@@ -1089,7 +1000,7 @@ where
             let incr_val =
                 ctx.builder.build_int_z_extend_or_bit_cast(incr_val, init_val_t, "").unwrap();
             let i = ctx.builder.build_int_add(i, incr_val, "").unwrap();
-            ctx.builder.build_store(i_addr, i).unwrap();
+            typed_store(&ctx.builder, i_addr, i);
 
             Ok(())
         },
@@ -1150,10 +1061,10 @@ where
         ctx,
         label,
         |generator, ctx| {
-            let i_addr = gen_var(ctx, init_val_t.into(), None)?;
+            let i_addr = gen_var(ctx, init_val_t, None);
 
             let start = start_fn(generator, ctx)?;
-            ctx.builder.build_store(i_addr, start).unwrap();
+            typed_store(&ctx.builder, i_addr, start);
 
             let start = start_fn(generator, ctx)?;
             let stop = stop_fn(generator, ctx)?;
@@ -1224,7 +1135,7 @@ where
             };
 
             let i = ctx.builder.build_int_add(i, incr_val, "").unwrap();
-            ctx.builder.build_store(i_addr, i).unwrap();
+            typed_store(&ctx.builder, i_addr, i);
 
             Ok(())
         },
@@ -1355,13 +1266,13 @@ pub fn gen_if_else_expr_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn, R>(
     cond_fn: CondFn,
     then_fn: ThenFn,
     else_fn: ElseFn,
-) -> Result<Option<BasicValueEnum<'ctx>>, String>
+) -> Result<Option<R>, String>
 where
     G: ?Sized,
     CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
     ThenFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<Option<R>, String>,
     ElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<Option<R>, String>,
-    R: BasicValue<'ctx>,
+    R: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
 {
     let current_bb = ctx.builder.get_insert_block().unwrap();
 
@@ -1396,10 +1307,10 @@ where
             let phi = ctx.builder.build_phi(tv_ty, "").unwrap();
             phi.add_incoming(&[(&tv, then_end_bb), (&ev, else_end_bb)]);
 
-            Some(phi.as_basic_value())
+            Some(phi.as_basic_value().try_into().unwrap())
         }
-        (Some(tv), None) => Some(tv.as_basic_value_enum()),
-        (None, Some(ev)) => Some(ev.as_basic_value_enum()),
+        (Some(tv), None) => Some(tv),
+        (None, Some(ev)) => Some(ev),
         (None, None) => None,
     };
 
@@ -1526,7 +1437,7 @@ pub fn final_proxy<'ctx>(
     let prev = ctx.builder.get_insert_block().unwrap();
     ctx.builder.position_at_end(block);
     unsafe {
-        ctx.builder.build_store(*final_state, target.get_address().unwrap()).unwrap();
+        typed_store(&ctx.builder, *final_state, target.get_address().unwrap());
     }
     ctx.builder.position_at_end(prev);
     final_targets.push(target);
@@ -1558,12 +1469,10 @@ pub fn exn_constructor<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     obj: Option<(Type, ValueEnum<'ctx>)>,
     _fun: (&FunSignature, DefinitionId),
-    mut args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
+    args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
 ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
     let (zelf_ty, zelf) = obj.unwrap();
     let zelf = zelf.to_basic_value_enum(ctx, zelf_ty)?.into_pointer_value();
-    let int32 = ctx.i32;
-    let zero = int32.const_zero();
     let zelf_id = if let TypeEnum::TObj { obj_id, .. } = &*ctx.unifier.get_ty(zelf_ty) {
         obj_id.0
     } else {
@@ -1573,52 +1482,41 @@ pub fn exn_constructor<'ctx>(
     let TopLevelDef::Class { name: zelf_name, .. } = &*defs[zelf_id].read() else {
         codegen_unreachable!(ctx)
     };
+
+    let mut args = args.into_iter();
+
+    let zelf = ExceptionType::new(ctx).map_value(zelf, Some("exn"));
     let exception_name = format!("{}:{}", ctx.resolver.get_exception_id(zelf_id), zelf_name);
-    unsafe {
-        let id_ptr = ctx.builder.build_in_bounds_gep(zelf, &[zero, zero], "exn.id").unwrap();
-        let id = ctx.resolver.get_string_id(&exception_name);
-        ctx.builder.build_store(id_ptr, int32.const_int(id as u64, false)).unwrap();
-        let empty_string = ctx.gen_const(&Constant::Str(String::new()), ctx.primitives.str);
-        let ptr = ctx
-            .builder
-            .build_in_bounds_gep(zelf, &[zero, int32.const_int(5, false)], "exn.msg")
-            .unwrap();
-        let msg = if args.is_empty() {
-            empty_string.unwrap()
-        } else {
-            args.remove(0).1.to_basic_value_enum(ctx, ctx.primitives.str)?
-        };
-        ctx.builder.build_store(ptr, msg).unwrap();
-        for i in &[6, 7, 8] {
-            let value = if args.is_empty() {
-                ctx.i64.const_zero().into()
-            } else {
-                args.remove(0).1.to_basic_value_enum(ctx, ctx.primitives.int64)?
-            };
-            let ptr = ctx
-                .builder
-                .build_in_bounds_gep(zelf, &[zero, int32.const_int(*i, false)], "exn.param")
-                .unwrap();
-            ctx.builder.build_store(ptr, value).unwrap();
+
+    let id = ctx.resolver.get_string_id(&exception_name);
+    zelf.store(ctx, field!(name), ctx.i32.const_int(id as u64, false));
+
+    let empty_string = StringType::new(ctx).constant(ctx, "", None).value;
+
+    let msg = match args.next() {
+        Some((_, v)) => v.to_basic_value_enum(ctx, ctx.primitives.str).unwrap().try_into().unwrap(),
+        None => empty_string,
+    };
+    zelf.store(ctx, field!(message), msg);
+
+    let [param0, param1, param2] = std::array::from_fn(|_| match args.next() {
+        Some((_, v)) => {
+            v.to_basic_value_enum(ctx, ctx.primitives.int64).unwrap().try_into().unwrap()
         }
-        // set file, func to empty string
-        for i in &[1, 4] {
-            let ptr = ctx
-                .builder
-                .build_in_bounds_gep(zelf, &[zero, int32.const_int(*i, false)], "exn.str")
-                .unwrap();
-            ctx.builder.build_store(ptr, empty_string.unwrap()).unwrap();
-        }
-        // set ints to zero
-        for i in &[2, 3] {
-            let ptr = ctx
-                .builder
-                .build_in_bounds_gep(zelf, &[zero, int32.const_int(*i, false)], "exn.ints")
-                .unwrap();
-            ctx.builder.build_store(ptr, zero).unwrap();
-        }
-    }
-    Ok(Some(zelf.into()))
+        None => ctx.i64.const_zero(),
+    });
+
+    zelf.store(ctx, field!(param0), param0);
+    zelf.store(ctx, field!(param1), param1);
+    zelf.store(ctx, field!(param2), param2);
+
+    zelf.store(ctx, field!(file), empty_string);
+    zelf.store(ctx, field!(func), empty_string);
+
+    zelf.store(ctx, field!(line), ctx.i32.const_zero());
+    zelf.store(ctx, field!(col), ctx.i32.const_zero());
+
+    Ok(Some(zelf.value.into()))
 }
 
 /// Generates IR for a `raise` statement.
@@ -1631,15 +1529,21 @@ pub fn gen_raise<'ctx>(
     loc: Location,
 ) {
     if let Some(exception) = exception {
-        exception.store_location(ctx, loc);
+        // exception.store(ctx, field!(location), loc);
+        let file = ctx.gen_string(loc.file.0);
+        let row = ctx.i32.const_int(loc.row as u64, false);
+        let col = ctx.i32.const_int(loc.column as u64, false);
+        exception.store(ctx, field!(file), file);
+        exception.store(ctx, field!(line), row);
+        exception.store(ctx, field!(col), col);
 
         let current_fun = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
         let fun_name = ctx.gen_string(current_fun.get_name().to_str().unwrap());
-        exception.store_func(ctx, fun_name);
+        exception.store(ctx, field!(func), fun_name);
 
         let raise = get_builtins(ctx, "__nac3_raise");
         let exception = *exception;
-        ctx.build_call_or_invoke(&raise, &[exception.as_abi_value(ctx).into()], "raise");
+        ctx.build_call_or_invoke(&raise, &[exception.value.into()], "raise");
     } else {
         let resume = get_builtins(ctx, "__nac3_resume");
         ctx.build_call_or_invoke(&resume, &[], "resume");
@@ -1676,7 +1580,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     let mut final_data = None;
     let has_cleanup = !finalbody.is_empty();
     if has_cleanup {
-        let final_state = gen_var(ctx, ptr_type.into(), Some("try.final_state.addr"))?;
+        let final_state = gen_var(ctx, ptr_type, Some("try.final_state.addr"));
         final_data = Some((final_state, Vec::new(), Vec::new()));
         if let Some((continue_target, break_target)) = ctx.loop_target {
             let break_proxy = ctx.ctx.append_basic_block(current_fun, "try.break");
@@ -1826,14 +1730,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         None
     } else {
         ctx.builder.position_at_end(dispatcher);
-        unsafe {
-            let zero = ctx.i32.const_zero();
-            let exnid_ptr = ctx
-                .builder
-                .build_gep(exn.as_basic_value().into_pointer_value(), &[zero, zero], "exnidptr")
-                .unwrap();
-            Some(ctx.builder.build_load(exnid_ptr, "exnid").unwrap())
-        }
+        let exn = exn.as_basic_value().into_pointer_value();
+        let exn = ExceptionType::new(ctx).map_value(exn, Some("exn"));
+        Some(exn.load(ctx, field!(name)))
     };
 
     for (handler_node, exn_type) in handlers.iter().zip(clauses.iter()) {
@@ -1842,9 +1741,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(handler_bb);
         if let Some(name) = name {
             let exn_ty = ctx.get_llvm_type(type_.as_ref().unwrap().custom.unwrap());
-            let exn_store = gen_var(ctx, exn_ty, Some("try.exn_store.addr"))?;
+            let exn_store = gen_var(ctx, exn_ty, Some("try.exn_store.addr"));
             ctx.var_assignment.insert(*name, (exn_store, None, 0));
-            ctx.builder.build_store(exn_store, exn.as_basic_value()).unwrap();
+            typed_store(&ctx.builder, exn_store, exn.as_basic_value());
         }
         generator.gen_block(ctx, body.iter())?;
         let current = ctx.builder.get_insert_block().unwrap();
@@ -1857,7 +1756,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(dispatcher_end);
         if let Some(exn_type) = exn_type {
             let dispatcher_cont = ctx.ctx.append_basic_block(current_fun, "try.dispatcher_cont");
-            let actual_id = exnid.unwrap().into_int_value();
+            let actual_id = exnid.unwrap();
             let expected_id = ctx
                 .builder
                 .build_load(exn_type.into_pointer_value(), "expected_id")
@@ -1960,7 +1859,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             if block.get_terminator().is_none() {
                 ctx.builder.position_at_end(*block);
                 unsafe {
-                    ctx.builder.build_store(final_state, tail.get_address().unwrap()).unwrap();
+                    typed_store(&ctx.builder, final_state, tail.get_address().unwrap());
                 }
                 ctx.builder.build_unconditional_branch(finalizer).unwrap();
             }
@@ -2082,7 +1981,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     ctx.builder.position_at_end(current_block);
 
     let mut old_loop_target = None;
-    let final_state = gen_var(ctx, ptr_type.into(), Some("with.final_state.addr"))?;
+    let final_state = gen_var(ctx, ptr_type, Some("with.final_state.addr"));
     let mut final_data = Some((final_state, Vec::new(), Vec::new()));
     if let Some((continue_target, break_target)) = ctx.loop_target {
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "with.break");
@@ -2216,7 +2115,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         if block.get_terminator().is_none() {
             ctx.builder.position_at_end(*block);
             unsafe {
-                ctx.builder.build_store(final_state, tail.get_address().unwrap()).unwrap();
+                typed_store(&ctx.builder, final_state, tail.get_address().unwrap());
             }
             ctx.builder.build_unconditional_branch(finalizer).unwrap();
         }
@@ -2258,7 +2157,7 @@ pub fn gen_return<G: CodeGenerator>(
 
     if let Some(return_target) = ctx.return_target {
         if let Some(value) = value {
-            ctx.builder.build_store(ctx.return_buffer.unwrap(), value).unwrap();
+            typed_store(&ctx.builder, ctx.return_buffer.unwrap(), value);
         }
         ctx.builder.build_unconditional_branch(return_target).unwrap();
     } else {
@@ -2361,8 +2260,7 @@ pub fn gen_stmt<G: CodeGenerator>(
                 } else {
                     return Ok(());
                 };
-                let exc = ExceptionType::get_instance(ctx)
-                    .map_pointer_value(exc.into_pointer_value(), None);
+                let exc = ExceptionType::new(ctx).map_value(exc.into_pointer_value(), None);
                 gen_raise(ctx, Some(&exc), stmt.location);
             } else {
                 gen_raise(ctx, None, stmt.location);

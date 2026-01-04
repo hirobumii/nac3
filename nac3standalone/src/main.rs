@@ -108,7 +108,7 @@ fn handle_typevar_definition(
                     &args[0].node
                 )]));
             };
-            let generic_name: StrRef = ty_name.clone().into();
+            let generic_name: StrRef = ty_name.as_str().into();
 
             let constraints = args
                 .iter()
@@ -153,7 +153,7 @@ fn handle_typevar_definition(
                     &args[0].node
                 )]));
             };
-            let generic_name: StrRef = ty_name.clone().into();
+            let generic_name: StrRef = ty_name.as_str().into();
 
             let ty = parse_ast_to_type_annotation_kinds(
                 resolver,

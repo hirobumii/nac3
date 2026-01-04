@@ -30,10 +30,10 @@ use crate::{
             gen_ndarray_zeros, ndarray_dot,
         },
         stmt::{exn_constructor, gen_if_callback, gen_var},
-        types::{RangeType, ndarray::NDArrayType},
-        values::{
-            ProxyValue,
-            ndarray::{ScalarOrNDArray, shape::parse_numpy_int_sequence},
+        typed_store,
+        types::{
+            NDArrayType, ProxyTypeExt, RangeField, RangeType, ScalarOrNDArray,
+            parse_numpy_int_sequence,
         },
     },
     symbol_resolver::SymbolValue,
@@ -629,7 +629,7 @@ impl<'a> BuiltinBuilder<'a> {
                 codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, obj, _, args| {
                     let (zelf_ty, zelf) = obj.unwrap();
                     let zelf = zelf.to_basic_value_enum(ctx, zelf_ty)?.into_pointer_value();
-                    let zelf = RangeType::new(ctx).map_pointer_value(zelf, Some("range"));
+                    let zelf = RangeType::new(ctx).map_value(zelf, Some("range"));
 
                     let mut start = None;
                     let mut stop = None;
@@ -693,11 +693,11 @@ impl<'a> BuiltinBuilder<'a> {
                     });
                     let start = start.unwrap_or_else(|| int32.const_zero());
 
-                    zelf.store_start(ctx, start);
-                    zelf.store_end(ctx, stop);
-                    zelf.store_step(ctx, step);
+                    zelf.store_field(ctx, RangeField::Start, start);
+                    zelf.store_field(ctx, RangeField::End, stop);
+                    zelf.store_field(ctx, RangeField::Step, step);
 
-                    Ok(Some(zelf.as_abi_value(ctx).into()))
+                    Ok(Some(zelf.value.into()))
                 })))),
                 loc: None,
             },
@@ -840,8 +840,8 @@ impl<'a> BuiltinBuilder<'a> {
                 codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args| {
                     let arg_ty = fun.0.args[0].ty;
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
-                    let alloca = gen_var(ctx, arg_val.get_type(), Some("alloca_some")).unwrap();
-                    ctx.builder.build_store(alloca, arg_val).unwrap();
+                    let alloca = gen_var(ctx, arg_val.get_type(), Some("alloca_some"));
+                    typed_store(&ctx.builder, alloca, arg_val);
                     Ok(Some(alloca.into()))
                 })))),
                 loc: None,
@@ -1322,7 +1322,7 @@ impl<'a> BuiltinBuilder<'a> {
                     let ndarray_ty = fun.0.args[0].ty;
                     let ndarray = args[0].1.clone().to_basic_value_enum(ctx, ndarray_ty)?;
                     let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
-                        .map_pointer_value(ndarray.into_pointer_value(), None);
+                        .map_value(ndarray.into_pointer_value(), None);
 
                     let size = ndarray.size(ctx);
                     let size =
@@ -1352,7 +1352,7 @@ impl<'a> BuiltinBuilder<'a> {
                         let ndarray = args[0].1.clone().to_basic_value_enum(ctx, ndarray_ty)?;
 
                         let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
-                            .map_pointer_value(ndarray.into_pointer_value(), None);
+                            .map_value(ndarray.into_pointer_value(), None);
 
                         let result_tuple = match prim {
                             PrimDef::FunNpShape => ndarray.make_shape_tuple(ctx),
@@ -1360,7 +1360,7 @@ impl<'a> BuiltinBuilder<'a> {
                             _ => unreachable!(),
                         };
 
-                        Ok(Some(result_tuple.as_abi_value(ctx).into()))
+                        Ok(Some(result_tuple.value.into()))
                     }),
                 )
             }
@@ -1393,10 +1393,10 @@ impl<'a> BuiltinBuilder<'a> {
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
 
                     let ndarray = NDArrayType::from_unifier_type(ctx, arg_ty)
-                        .map_pointer_value(arg_val.into_pointer_value(), None);
+                        .map_value(arg_val.into_pointer_value(), None);
 
                     let ndarray = ndarray.transpose(ctx, None); // TODO: Add axes argument
-                    Ok(Some(ndarray.as_abi_value(ctx).into()))
+                    Ok(Some(ndarray.value.into()))
                 }),
             ),
 
@@ -1429,7 +1429,7 @@ impl<'a> BuiltinBuilder<'a> {
                         let shape_val = args[1].1.clone().to_basic_value_enum(ctx, shape_ty)?;
 
                         let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
-                            .map_pointer_value(ndarray_val.into_pointer_value(), None);
+                            .map_value(ndarray_val.into_pointer_value(), None);
 
                         let shape = parse_numpy_int_sequence(ctx, (shape_ty, shape_val));
 
@@ -1438,13 +1438,13 @@ impl<'a> BuiltinBuilder<'a> {
                         let ndims = extract_ndims(&ctx.unifier, ndims);
 
                         let new_ndarray = match prim {
-                            PrimDef::FunNpBroadcastTo => ndarray.broadcast_to(ctx, ndims, &shape),
+                            PrimDef::FunNpBroadcastTo => ndarray.broadcast_to(ctx, ndims, shape),
 
-                            PrimDef::FunNpReshape => ndarray.reshape_or_copy(ctx, ndims, &shape),
+                            PrimDef::FunNpReshape => ndarray.reshape_or_copy(ctx, ndims, shape),
 
                             _ => unreachable!(),
                         };
-                        Ok(Some(new_ndarray.as_abi_value(ctx).as_basic_value_enum()))
+                        Ok(Some(new_ndarray.value.as_basic_value_enum()))
                     }),
                 )
             }

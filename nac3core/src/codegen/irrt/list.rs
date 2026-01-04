@@ -4,13 +4,13 @@ use inkwell::{
     values::{BasicValueEnum, IntValue},
 };
 
-use super::calculate_len_for_slice_range;
 use crate::codegen::{
     CodeGenContext,
     expr::call_extern,
+    irrt::calculate_len_for_slice_range,
     macros::codegen_unreachable,
     stmt::gen_if_callback,
-    values::{ArrayLikeValue, ListValue},
+    types::{ListValue, field},
 };
 
 /// This function handles 'end' **inclusively**.
@@ -25,7 +25,6 @@ pub fn list_slice_assignment<'ctx>(
     src_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
 ) {
     let llvm_usize = ctx.size_t;
-    let llvm_pi8 = ctx.ptr;
     let llvm_i32 = ctx.i32;
 
     assert_eq!(dest_idx.0.get_type(), llvm_i32);
@@ -35,20 +34,14 @@ pub fn list_slice_assignment<'ctx>(
     assert_eq!(src_idx.1.get_type(), llvm_i32);
     assert_eq!(src_idx.2.get_type(), llvm_i32);
 
-    let (fun_symbol, elem_ptr_type) = ("__nac3_list_slice_assign_var_size", llvm_pi8);
+    let fun_symbol = "__nac3_list_slice_assign_var_size";
 
     let zero = llvm_i32.const_zero();
     let one = llvm_i32.const_int(1, false);
-    let dest_arr_ptr = dest_arr.data().base_ptr(ctx);
-    let dest_arr_ptr =
-        ctx.builder.build_pointer_cast(dest_arr_ptr, elem_ptr_type, "dest_arr_ptr_cast").unwrap();
-    let dest_len = dest_arr.load_size(ctx, Some("dest.len"));
+    let (dest_ptr, dest_len) = dest_arr.data(ctx).value;
     let dest_len =
         ctx.builder.build_int_truncate_or_bit_cast(dest_len, llvm_i32, "srclen32").unwrap();
-    let src_arr_ptr = src_arr.data().base_ptr(ctx);
-    let src_arr_ptr =
-        ctx.builder.build_pointer_cast(src_arr_ptr, elem_ptr_type, "src_arr_ptr_cast").unwrap();
-    let src_len = src_arr.load_size(ctx, Some("src.len"));
+    let (src_ptr, src_len) = src_arr.data(ctx).value;
     let src_len =
         ctx.builder.build_int_truncate_or_bit_cast(src_len, llvm_i32, "srclen32").unwrap();
 
@@ -108,12 +101,12 @@ pub fn list_slice_assignment<'ctx>(
         dest_idx.0,   // dest start idx
         dest_idx.1,   // dest end idx
         dest_idx.2,   // dest step
-        dest_arr_ptr, // dest arr ptr
+        dest_ptr,     // dest arr ptr
         dest_len,     // dest arr len
         src_idx.0,    // src start idx
         src_idx.1,    // src end idx
         src_idx.2,    // src step
-        src_arr_ptr,  // src arr ptr
+        src_ptr,      // src arr ptr
         src_len,      // src arr len
         {
             let s = match ty {
@@ -140,7 +133,7 @@ pub fn list_slice_assignment<'ctx>(
         |(), ctx| {
             let new_len =
                 ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len").unwrap();
-            dest_arr.store_size(ctx, new_len);
+            dest_arr.store(ctx, field!(len), new_len);
             Ok(())
         },
         |(), _| Ok(()),
