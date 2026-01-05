@@ -336,7 +336,7 @@ pub const DW_LNS_fixed_advance_pc: DW_LNS = 9;
 pub const DW_LNS_set_prologue_end: DW_LNS = 10;
 pub const DW_LNS_set_epilogue_begin: DW_LNS = 11;
 pub const DW_LNS_set_isa: DW_LNS = 12;
-pub type DW_LNS = u8;   // ubyte
+pub type DW_LNS = u8; // ubyte
 // 6.2.3 Line Number Program Instructions: standard opcodes
 
 pub const DW_LNE_end_sequence: DW_LNE = 1;
@@ -345,7 +345,7 @@ pub const DW_LNE_define_file: DW_LNE = 3;
 pub const DW_LNE_set_discriminator: DW_LNE = 4;
 pub const DW_LNE_lo_user: DW_LNE = 128;
 pub const DW_LNE_hi_user: DW_LNE = 255;
-pub type DW_LNE = u8;   // ubyte
+pub type DW_LNE = u8; // ubyte
 // 6.2.3 Line Number Program Instructions: extended opcodes
 
 pub const DW_CIE_ID_32: u32 = 0xffffffff;

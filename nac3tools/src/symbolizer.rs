@@ -1,6 +1,6 @@
 #![allow(nonstandard_style)]
 
-use pyo3::{PyResult, pyclass, pyfunction, pymodule};
+use pyo3::{PyResult, pyclass};
 use std::{cmp, collections::HashMap, mem, ptr, slice};
 
 use crate::Error;
@@ -525,9 +525,7 @@ impl DebugInfoReader {
 
                             // curr_entry is pushed to the matrix
                             // We need to determine if we use curr_entry or last_entry
-                            if !(last_entry.address..curr_entry.address)
-                                .contains(&pc)
-                            {
+                            if !(last_entry.address..curr_entry.address).contains(&pc) {
                                 last_entry = curr_entry;
                                 break;
                             }
@@ -768,7 +766,7 @@ pub fn symbolize(elf_byte: &[u8], pc_list: Vec<u32>) -> Vec<CallRecord> {
 
     let info_reader =
         DebugInfoReader { debug_info, debug_line, debug_abbrev, debug_ranges, debug_str };
-    
+
     let mut call_sites: Vec<CallRecord> = vec![];
     for pc in pc_list {
         call_sites.append(&mut info_reader.search(pc));

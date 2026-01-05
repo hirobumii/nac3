@@ -1,7 +1,7 @@
 #![allow(nonstandard_style, non_upper_case_globals)]
 
 use crate::include::dwarf::*;
-use std::{mem, slice};
+use std::mem;
 
 use byteorder::{ByteOrder, LittleEndian};
 

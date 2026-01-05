@@ -1,2 +1,2 @@
-pub(crate) mod elf;
 pub(crate) mod dwarf;
+pub(crate) mod elf;
