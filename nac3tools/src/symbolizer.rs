@@ -1,7 +1,7 @@
 #![allow(nonstandard_style)]
 
 use pyo3::{PyResult, pyclass, pyfunction, pymodule};
-use std::{collections::HashMap, io, mem, ptr, slice};
+use std::{cmp, collections::HashMap, mem, ptr, slice};
 
 use crate::Error;
 use crate::dwarf::DwarfReader;
@@ -387,7 +387,19 @@ impl DebugInfoReader {
         // However, the array starts with index = 1.
         // There are only opcode_base - 1 elements since opcode 0 is reserved
         // for the preamble of extended opcode.
-        let standard_opcode_lengths = header_reader.read_slice(opcode_base as usize - 1);
+        let standard_opcode_lengths = unsafe {
+            mem::transmute::<&'_ [u8], &'static [u8]>(
+                header_reader.read_slice(opcode_base as usize - 1),
+            )
+        };
+        // Standard opcodes, if defined, must match the standard arities
+        const MAX_STANDARD_OPCODES: usize = 12;
+        const EXPECTED_ARITIES: [u8; MAX_STANDARD_OPCODES] = [0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1];
+        let standard_opcode_num = cmp::min(MAX_STANDARD_OPCODES, opcode_base as usize - 1);
+        assert_eq!(
+            standard_opcode_lengths[standard_opcode_num..],
+            EXPECTED_ARITIES[standard_opcode_num..]
+        );
 
         let mut include_directories: Vec<&[u8]> = vec![];
         let mut dir_str = header_reader.read_str();
@@ -614,6 +626,13 @@ impl DebugInfoReader {
                 DW_LNS_set_isa if DW_LNS_set_isa < opcode_base => {
                     let isa = program_reader.read_uleb128() as u32;
                     curr_entry.isa = isa;
+                }
+                // vendor specific extensions
+                _ if (0..opcode_base).contains(&opcode) => {
+                    // Skip an appropriate amount of operands
+                    for _ in 0..standard_opcode_lengths[opcode as usize] {
+                        program_reader.read_uleb128();
+                    }
                 }
                 // Special opcode
                 _ if (opcode_base..=0xff).contains(&opcode) => {
