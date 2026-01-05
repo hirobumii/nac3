@@ -7,6 +7,7 @@ use nac3parser::ast::{
 };
 
 use super::{
+    type_error::get_expr_desc,
     type_inferencer::Inferencer,
     typedef::{Type, TypeEnum},
 };
@@ -78,10 +79,31 @@ impl Inferencer<'_> {
             && ty.obj_id(self.unifier).is_none_or(|id| id != PrimDef::List.id())
             && !self.unifier.is_concrete(*ty, &self.function_data.bound_variables)
         {
+            let ty_enum = self.unifier.get_ty(*ty);
+            let hint = match &*ty_enum {
+                TypeEnum::TVar { name: Some(name), range, .. } => {
+                    if range.is_empty() {
+                        format!(
+                            "Internal compiler error: The type variable `{name}` could not be resolved to a concrete type."
+                        )
+                    } else {
+                        let range_types: Vec<_> =
+                            range.iter().map(|t| self.unifier.stringify(*t)).collect();
+                        format!(
+                            "Internal compiler error: The type variable `{name}` must be one of [{}].",
+                            range_types.join(", ")
+                        )
+                    }
+                }
+                _ => String::from(
+                    "Internal compiler error: type not inferred during type_inference stage.",
+                ),
+            };
+
+            let expr_desc = get_expr_desc(expr);
             return Err(HashSet::from([format!(
-                "expected concrete type at {} but got {}",
-                expr.location,
-                self.unifier.get_ty(*ty).get_type_name()
+                "expected concrete type for {expr_desc} at {}, but type could not be inferred. {hint}",
+                expr.location
             )]));
         }
         match &expr.node {

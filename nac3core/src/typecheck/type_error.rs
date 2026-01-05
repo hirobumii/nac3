@@ -2,12 +2,40 @@ use std::{collections::HashMap, fmt::Display};
 
 use itertools::Itertools;
 
-use nac3parser::ast::{Cmpop, Location, StrRef};
+use nac3parser::ast::{Cmpop, Expr, ExprKind, Location, StrRef};
 
 use super::{
     magic_methods::{Binop, HasOpInfo},
     typedef::{RecordKey, Type, TypeEnum, Unifier},
 };
+
+/// Extracts a human-readable name from an expression for use in error messages.
+#[must_use]
+pub fn get_expr_name<T>(expr: &Expr<T>) -> String {
+    match &expr.node {
+        ExprKind::Name { id, .. } => id.to_string(),
+        ExprKind::Attribute { value, attr, .. } => {
+            format!("{}.{}", get_expr_name(value), attr)
+        }
+        ExprKind::Subscript { value, .. } => get_expr_name(value),
+        _ => "<unknown>".to_string(),
+    }
+}
+
+/// Returns a human-readable description of an expression for use in error messages.
+#[must_use]
+pub fn get_expr_desc<T>(expr: &Expr<T>) -> String {
+    match &expr.node {
+        ExprKind::Name { id, .. } => format!("variable `{id}`"),
+        ExprKind::Attribute { attr, .. } => format!("attribute `{attr}`"),
+        ExprKind::Call { func, .. } => {
+            let func_name = get_expr_name(func);
+            format!("call to `{func_name}`")
+        }
+        ExprKind::Subscript { .. } => "subscript expression".to_string(),
+        _ => "expression".to_string(),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum TypeErrorKind {
