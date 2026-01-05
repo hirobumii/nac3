@@ -336,35 +336,39 @@ pub const DW_LNS_fixed_advance_pc: DW_LNS = 9;
 pub const DW_LNS_set_prologue_end: DW_LNS = 10;
 pub const DW_LNS_set_epilogue_begin: DW_LNS = 11;
 pub const DW_LNS_set_isa: DW_LNS = 12;
-pub type DW_LNS = u8;
+pub type DW_LNS = u8;   // ubyte
+// 6.2.3 Line Number Program Instructions: standard opcodes
+
 pub const DW_LNE_end_sequence: DW_LNE = 1;
 pub const DW_LNE_set_address: DW_LNE = 2;
 pub const DW_LNE_define_file: DW_LNE = 3;
 pub const DW_LNE_set_discriminator: DW_LNE = 4;
 pub const DW_LNE_lo_user: DW_LNE = 128;
 pub const DW_LNE_hi_user: DW_LNE = 255;
-pub type DW_LNE = u8;
+pub type DW_LNE = u8;   // ubyte
+// 6.2.3 Line Number Program Instructions: extended opcodes
 
-// FIXME: Reorganize the binding files and merge dwarf and dwarf_include
+pub const DW_CIE_ID_32: u32 = 0xffffffff;
+pub const DW_CIE_ID_64: u64 = 0xffffffffffffffff;
 
-// pub const DW_CIE_ID_32: u32 = 0xffffffff;
-// pub const DW_CIE_ID_64: u64 = 0xffffffffffffffff;
-
-// pub const DW_EH_PE_absptr: DW_EH_PE = 0;
-// pub const DW_EH_PE_omit: DW_EH_PE = 255;
-// pub const DW_EH_PE_uleb128: DW_EH_PE = 1;
-// pub const DW_EH_PE_udata2: DW_EH_PE = 2;
-// pub const DW_EH_PE_udata4: DW_EH_PE = 3;
-// pub const DW_EH_PE_udata8: DW_EH_PE = 4;
-// pub const DW_EH_PE_sleb128: DW_EH_PE = 9;
-// pub const DW_EH_PE_sdata2: DW_EH_PE = 10;
-// pub const DW_EH_PE_sdata4: DW_EH_PE = 11;
-// pub const DW_EH_PE_sdata8: DW_EH_PE = 12;
-// pub const DW_EH_PE_signed: DW_EH_PE = 8;
-// pub const DW_EH_PE_pcrel: DW_EH_PE = 16;
-// pub const DW_EH_PE_textrel: DW_EH_PE = 32;
-// pub const DW_EH_PE_datarel: DW_EH_PE = 48;
-// pub const DW_EH_PE_funcrel: DW_EH_PE = 64;
-// pub const DW_EH_PE_aligned: DW_EH_PE = 80;
-// pub const DW_EH_PE_indirect: DW_EH_PE = 128;
-// pub type DW_EH_PE = u8;
+pub const DW_EH_PE_absptr: DW_EH_PE = 0;
+pub const DW_EH_PE_omit: DW_EH_PE = 255;
+pub const DW_EH_PE_uleb128: DW_EH_PE = 1;
+pub const DW_EH_PE_udata2: DW_EH_PE = 2;
+pub const DW_EH_PE_udata4: DW_EH_PE = 3;
+pub const DW_EH_PE_udata8: DW_EH_PE = 4;
+pub const DW_EH_PE_sleb128: DW_EH_PE = 9;
+pub const DW_EH_PE_sdata2: DW_EH_PE = 10;
+pub const DW_EH_PE_sdata4: DW_EH_PE = 11;
+pub const DW_EH_PE_sdata8: DW_EH_PE = 12;
+pub const DW_EH_PE_signed: DW_EH_PE = 8;
+pub const DW_EH_PE_pcrel: DW_EH_PE = 16;
+pub const DW_EH_PE_textrel: DW_EH_PE = 32;
+pub const DW_EH_PE_datarel: DW_EH_PE = 48;
+pub const DW_EH_PE_funcrel: DW_EH_PE = 64;
+pub const DW_EH_PE_aligned: DW_EH_PE = 80;
+pub const DW_EH_PE_indirect: DW_EH_PE = 128;
+pub type DW_EH_PE = u8; // A mixture of these flags apply to a ubyte
+// which specifies the data types in .eh_frame and .eh_frame_hdr
+// See Linux Standard Base Core Specification, Generic Part
+// 10.5.1. DWARF Exception Header Encoding

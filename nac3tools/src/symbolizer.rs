@@ -5,8 +5,8 @@ use std::{collections::HashMap, io, mem, ptr, slice};
 
 use crate::Error;
 use crate::dwarf::DwarfReader;
-use crate::dwarf_include::*;
-use crate::elf::*;
+use crate::include::dwarf::*;
+use crate::include::elf::*;
 
 #[derive(Debug, PartialEq)]
 enum NameRef {
@@ -15,7 +15,6 @@ enum NameRef {
     Unknown,
 }
 
-// TODO: Use &str?
 #[pyclass]
 #[derive(Debug)]
 pub struct CallRecord {

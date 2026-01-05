@@ -62,7 +62,7 @@ use nac3core::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
     },
 };
-use nac3ld::{Linker, symbolizer, symbolizer::CallRecord};
+use nac3tools::{Linker, symbolizer, symbolizer::CallRecord};
 
 use codegen::{
     ArtiqCodeGenerator, attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback,
@@ -1556,7 +1556,7 @@ impl Nac3 {
             }
         };
         // We always use the `Default` target-specific optimization level,
-        // since `nac3ld` only supports relocation types that are used in optimized code.
+        // since `nac3tools` only supports relocation types that are used in optimized code.
         let target_opt_level = OptimizationLevel::Default;
 
         let target_options = isa.get_llvm_target_options(target_opt_level);

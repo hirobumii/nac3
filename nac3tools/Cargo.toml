@@ -1,5 +1,5 @@
 [package]
-name = "nac3ld"
+name = "nac3tools"
 version = "0.1.0"
 authors = ["M-Labs"]
 edition = "2024"

@@ -147,7 +147,7 @@ pub struct TargetMachineOptions {
     /// # Target-specific notes
     ///
     /// On ARM, GOT entries are created when this level is [`OptimizationLevel::None`], which
-    /// our linker (`nac3ld`) does not support. You must at least use [`OptimizationLevel::Less`].
+    /// our linker (`nac3tools`) does not support. You must at least use [`OptimizationLevel::Less`].
     pub target_opt_level: OptimizationLevel,
 }
 

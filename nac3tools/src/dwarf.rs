@@ -1,29 +1,9 @@
 #![allow(nonstandard_style, non_upper_case_globals)]
 
-use crate::dwarf_include::*;
+use crate::include::dwarf::*;
 use std::{mem, slice};
 
 use byteorder::{ByteOrder, LittleEndian};
-
-pub const DW_EH_PE_omit: u8 = 0xFF;
-pub const DW_EH_PE_absptr: u8 = 0x00;
-
-pub const DW_EH_PE_uleb128: u8 = 0x01;
-pub const DW_EH_PE_udata2: u8 = 0x02;
-pub const DW_EH_PE_udata4: u8 = 0x03;
-pub const DW_EH_PE_udata8: u8 = 0x04;
-pub const DW_EH_PE_sleb128: u8 = 0x09;
-pub const DW_EH_PE_sdata2: u8 = 0x0A;
-pub const DW_EH_PE_sdata4: u8 = 0x0B;
-pub const DW_EH_PE_sdata8: u8 = 0x0C;
-
-pub const DW_EH_PE_pcrel: u8 = 0x10;
-pub const DW_EH_PE_textrel: u8 = 0x20;
-pub const DW_EH_PE_datarel: u8 = 0x30;
-pub const DW_EH_PE_funcrel: u8 = 0x40;
-pub const DW_EH_PE_aligned: u8 = 0x50;
-
-pub const DW_EH_PE_indirect: u8 = 0x80;
 
 #[derive(Clone)]
 pub struct DwarfReader<'a> {

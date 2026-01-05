@@ -15,7 +15,7 @@ pyo3 = { version = "0.27", features = ["extension-module"] }
 parking_lot = "0.12"
 tempfile = "3.22"
 nac3core = { path = "../nac3core" }
-nac3ld = { path = "../nac3ld" }
+nac3tools = { path = "../nac3tools" }
 
 [features]
 init-llvm-profile = []

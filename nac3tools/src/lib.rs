@@ -15,13 +15,11 @@ use std::{collections::HashMap, mem, ptr, slice, str};
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use dwarf::{EH_Frame, EH_Frame_Hdr};
-#[allow(clippy::wildcard_imports)]
-use elf::*;
-
 mod dwarf;
-mod dwarf_include;
-mod elf;
+use dwarf::{EH_Frame, EH_Frame_Hdr};
+
+pub mod include;
+use crate::include::elf::*;
 pub mod symbolizer;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
