@@ -87,7 +87,7 @@ impl<'a> DebugInfoReader<'a> {
 
     fn parse_die_attributes(
         &self,
-        reader: &mut DwarfReader<'a>,
+        reader: &mut DwarfReader,
         attr_specs: &Vec<(DW_AT, DW_FORM)>,
         file_ptrs: &Vec<(&'static str, Option<&'static str>)>,
         pc: u32,
@@ -247,15 +247,21 @@ impl<'a> DebugInfoReader<'a> {
             //
             // The base address of a compilation unit is defined as the value of the DW_AT_low_pc attribute,
             // if present; otherwise, it is undefined
-            let (die_relevant, stmt_list_offset, name_ref, start_addr, _call_record) = self
-                .parse_die_attributes(&mut reader, &abbrev_entry.attribute_specs, &vec![], pc, 0);
+            let (cu_die_relevant, cu_stmt_list_offset, _cu_name_ref, start_addr, _cu_call_record) =
+                self.parse_die_attributes(
+                    &mut reader,
+                    &abbrev_entry.attribute_specs,
+                    &vec![],
+                    pc,
+                    0,
+                );
 
             let (immediate_call_record, file_ptrs) =
-                self.parse_line_info(stmt_list_offset as usize, pc, start_addr.unwrap());
+                self.parse_line_info(cu_stmt_list_offset as usize, pc, start_addr.unwrap());
 
             let mut call_sites = vec![immediate_call_record];
 
-            if die_relevant {
+            if cu_die_relevant {
                 self.search_dies(
                     &mut reader,
                     &abbrev_table,
@@ -362,7 +368,7 @@ impl<'a> DebugInfoReader<'a> {
         let mut header_reader = DwarfReader::new(&self.debug_line[stmt_list_offset..], 0);
 
         // header begins
-        let unit_length = header_reader.read_u32();
+        let _unit_length = header_reader.read_u32(); // eventually consume all
         assert_eq!(header_reader.read_u16(), 4, "expected DWARF version 4 for .debug_line");
         let header_length = header_reader.read_u32();
         // Create a line program reader
