@@ -70,15 +70,15 @@ impl AbbreviationEntry {
     }
 }
 
-struct DebugInfoReader<'a> {
-    debug_info: &'a [u8],
-    debug_abbrev: &'a [u8],
-    debug_line: &'a [u8],
-    debug_ranges: &'a [u8],
-    debug_str: &'a [u8],
+struct DebugInfoReader {
+    debug_info: &'static [u8],
+    debug_abbrev: &'static [u8],
+    debug_line: &'static [u8],
+    debug_ranges: &'static [u8],
+    debug_str: &'static [u8],
 }
 
-impl<'a> DebugInfoReader<'a> {
+impl DebugInfoReader {
     // -debug_infos are centralized into a section
     // We should not have partial compile unit
     pub fn search(&self, pc: u32) -> Vec<CallRecord> {
@@ -221,7 +221,7 @@ impl<'a> DebugInfoReader<'a> {
         (die_relevant, stmt_list_offset, name_ref, low_pc, call_record)
     }
 
-    fn search_compilation_units(&self, mut reader: DwarfReader<'a>, pc: u32) -> Vec<CallRecord> {
+    fn search_compilation_units(&self, mut reader: DwarfReader, pc: u32) -> Vec<CallRecord> {
         while !reader.slice.is_empty() {
             // 7.5.1.1 Compilation Unit Header
             let unit_length = reader.read_u32();
@@ -304,7 +304,7 @@ impl<'a> DebugInfoReader<'a> {
 
     fn search_dies(
         &self,
-        reader: &mut DwarfReader<'a>,
+        reader: &mut DwarfReader,
         abbrev_table: &HashMap<u64, AbbreviationEntry>,
         file_ptrs: &Vec<(&'static str, Option<&'static str>)>,
         pc: u32,
