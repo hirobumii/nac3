@@ -169,7 +169,7 @@ impl DwarfReader<'_> {
             DW_FORM_data8 => self.read_form_data8() as u64,
             DW_FORM_sdata => self.read_form_sdata() as u64,
             DW_FORM_udata => self.read_form_udata() as u64,
-            _ => panic!("form should be a constant"),
+            _ => unreachable!("form should be a constant"),
         }
     }
 
@@ -216,7 +216,19 @@ impl DwarfReader<'_> {
             }
             DW_FORM_flag_present => (),
 
-            _ => todo!("we should know how to skip every data forms"),
+            DW_FORM_sec_offset => {
+                self.read_form_sec_offset();
+            }
+
+            DW_FORM_indirect => {
+                // Section 7.5.3
+                // ... the attribute value itself ... begins with an unsigned
+                // LEB128 number that represents its form.
+                let inner_form = self.read_uleb128();
+                self.skip_form(inner_form);
+            }
+
+            _ => unreachable!("unrecognized attribute form"),
         }
     }
 }
