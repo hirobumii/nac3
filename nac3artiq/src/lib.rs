@@ -25,7 +25,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyAnyMethods, PyDict, PyNone, PyTuple, PyType, PyBytes, PyList},
+    types::{PyAnyMethods, PyBytes, PyDict, PyList, PyNone, PyTuple, PyType},
 };
 use tempfile::{self, TempDir};
 
@@ -1992,7 +1992,10 @@ impl Nac3 {
 }
 
 #[pyo3::pyfunction]
-fn symbolize<'py>(elf_bin: &Bound<'_, PyBytes>, pc: &Bound<'_, PyList>) -> PyResult<Vec<CallRecord>> {
+fn symbolize<'py>(
+    elf_bin: &Bound<'_, PyBytes>,
+    pc: &Bound<'_, PyList>,
+) -> PyResult<Vec<CallRecord>> {
     Ok(symbolizer::symbolize(elf_bin.extract()?, pc.extract()?))
 }
 
