@@ -8,7 +8,8 @@
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
     clippy::similar_names,
-    clippy::too_many_lines
+    clippy::too_many_lines,
+    clippy::wildcard_imports
 )]
 
 use std::{collections::HashMap, mem, ptr, slice, str};

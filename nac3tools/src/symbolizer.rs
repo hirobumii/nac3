@@ -1,6 +1,6 @@
 #![allow(nonstandard_style)]
 
-use pyo3::{PyResult, pyclass};
+use pyo3::pyclass;
 use std::{cmp, collections::HashMap, mem, ptr, slice};
 
 use crate::Error;
@@ -34,9 +34,9 @@ pub struct CallRecord {
 #[pyo3::pymethods]
 impl CallRecord {
     #[getter]
-    fn name(&self) -> PyResult<&'static str> {
+    fn name(&self) -> &'static str {
         if let NameRef::Concrete(name) = self.name {
-            Ok(name)
+            name
         } else {
             panic!("name reference should always be finalzied when read")
         }
@@ -70,6 +70,8 @@ impl AbbreviationEntry {
     }
 }
 
+// Special section names
+#[allow(clippy::struct_field_names)]
 struct DebugInfoReader {
     debug_info: &'static [u8],
     debug_abbrev: &'static [u8],
@@ -89,7 +91,7 @@ impl DebugInfoReader {
         &self,
         reader: &mut DwarfReader,
         attr_specs: &Vec<(DW_AT, DW_FORM)>,
-        file_ptrs: &Vec<(&'static str, Option<&'static str>)>,
+        file_ptrs: &[(&'static str, Option<&'static str>)],
         pc: u32,
         start_addr: u32,
     ) -> (bool, u32, NameRef, Option<u32>, CallRecord) {
@@ -175,9 +177,7 @@ impl DebugInfoReader {
                             .position(|byte| *byte == 0)
                             .expect("string should be null terminated");
                         name_ref = unsafe {
-                            NameRef::Concrete(mem::transmute::<&'_ [u8], &'static str>(
-                                &str_head[..str_len],
-                            ))
+                            NameRef::Concrete(str::from_utf8_unchecked(&str_head[..str_len]))
                         };
                     }
                     _ => panic!("name should be a string"),
@@ -206,23 +206,20 @@ impl DebugInfoReader {
                 _ => {
                     // Unrecognized attributes
                     // They are valid, but we cannot process them
-                    reader.skip_form(*attr_form)
+                    reader.skip_form(*attr_form);
                 }
             }
         }
 
         // Determine if pc is within range
         let die_relevant = in_range || {
-            if let Some(low_pc) = low_pc {
-                let high_pc = if let Some(high_pc) = high_pc {
-                    if high_pc_relative { low_pc + high_pc } else { high_pc }
-                } else {
-                    low_pc + 4
-                };
+            low_pc.is_some_and(|low_pc| {
+                let high_pc = high_pc.map_or_else(
+                    || low_pc + 4,
+                    |high_pc| if high_pc_relative { low_pc + high_pc } else { high_pc },
+                );
                 (low_pc..high_pc).contains(&pc)
-            } else {
-                false
-            }
+            })
         };
 
         (die_relevant, stmt_list_offset, name_ref, low_pc, call_record)
@@ -255,13 +252,7 @@ impl DebugInfoReader {
             // The base address of a compilation unit is defined as the value of the DW_AT_low_pc attribute,
             // if present; otherwise, it is undefined
             let (cu_die_relevant, cu_stmt_list_offset, _cu_name_ref, start_addr, _cu_call_record) =
-                self.parse_die_attributes(
-                    &mut reader,
-                    &abbrev_entry.attribute_specs,
-                    &vec![],
-                    pc,
-                    0,
-                );
+                self.parse_die_attributes(&mut reader, &abbrev_entry.attribute_specs, &[], pc, 0);
 
             let (immediate_call_record, file_ptrs) =
                 self.parse_line_info(cu_stmt_list_offset as usize, pc);
@@ -295,9 +286,10 @@ impl DebugInfoReader {
                             );
                         rec.name = name_ref;
                     }
-                    if rec.name == NameRef::Unknown {
-                        panic!("found a call site with an unknown subroutine name")
-                    }
+                    assert!(
+                        !(rec.name == NameRef::Unknown),
+                        "found a call site with an unknown subroutine name"
+                    );
                 }
 
                 return call_sites;
@@ -382,8 +374,8 @@ impl DebugInfoReader {
         let mut program_reader = header_reader.clone();
         program_reader.offset(header_length);
 
-        let minimum_instruction_length = header_reader.read_u8() as u32;
-        let maximum_operations_per_instruction = header_reader.read_u8() as u32;
+        let minimum_instruction_length = u32::from(header_reader.read_u8());
+        let maximum_operations_per_instruction = u32::from(header_reader.read_u8());
         let default_is_stmt = header_reader.read_u8();
         let line_base = header_reader.read_i8();
         let line_range = header_reader.read_u8();
@@ -398,18 +390,22 @@ impl DebugInfoReader {
                 header_reader.read_slice(opcode_base as usize - 1),
             )
         };
-        // Standard opcodes, if defined, must match the standard arities
-        const MAX_STANDARD_OPCODES: usize = 12;
-        const EXPECTED_ARITIES: [u8; MAX_STANDARD_OPCODES] = [0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1];
-        let standard_opcode_num = cmp::min(MAX_STANDARD_OPCODES, opcode_base as usize - 1);
-        assert_eq!(
-            standard_opcode_lengths[standard_opcode_num..],
-            EXPECTED_ARITIES[standard_opcode_num..]
-        );
+
+        {
+            // Standard opcodes, if defined, must match the standard arities
+            const MAX_STANDARD_OPCODES: usize = 12;
+            const EXPECTED_ARITIES: [u8; MAX_STANDARD_OPCODES] =
+                [0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1];
+            let standard_opcode_num = cmp::min(MAX_STANDARD_OPCODES, opcode_base as usize - 1);
+            assert_eq!(
+                standard_opcode_lengths[standard_opcode_num..],
+                EXPECTED_ARITIES[standard_opcode_num..]
+            );
+        }
 
         let mut include_directories: Vec<&'static str> = vec![];
         let mut dir_str = header_reader.read_str();
-        while dir_str.len() != 0 {
+        while !dir_str.is_empty() {
             include_directories.push(unsafe { mem::transmute::<&'_ str, &'static str>(dir_str) });
             dir_str = header_reader.read_str();
         }
@@ -418,7 +414,7 @@ impl DebugInfoReader {
         loop {
             let path_name =
                 unsafe { mem::transmute::<&'_ str, &'static str>(header_reader.read_str()) };
-            if path_name.len() == 0 {
+            if path_name.is_empty() {
                 break;
             }
             let dir_index = header_reader.read_uleb128();
@@ -430,11 +426,16 @@ impl DebugInfoReader {
             let _last_modified = header_reader.read_uleb128();
             let _file_len = header_reader.read_uleb128();
 
-            file_ptrs.push((path_name, dir_name))
+            file_ptrs.push((path_name, dir_name));
         }
 
         // We execute the line program first
         // TODO: Register state can be trimmed for non-VLIW targets
+
+        // To clippy: This struct only makes sense here.
+        // Why would I care about line program register when not parsing it?
+        // Starting a new scope does not sound clearer in my opinion.
+        #[allow(clippy::items_after_statements, clippy::struct_excessive_bools)]
         #[derive(Copy, Clone)]
         struct Register {
             address: u32,
@@ -488,15 +489,15 @@ impl DebugInfoReader {
         macro_rules! handle_special_opcode {
             ($opcode: expr, $update_line: literal) => {
                 let adjusted_opcode = $opcode - opcode_base;
-                let operation_advance = (adjusted_opcode / line_range) as u32;
+                let operation_advance = u32::from(adjusted_opcode / line_range);
 
                 advance_address!(operation_advance);
 
                 if $update_line {
                     curr_entry.line = curr_entry
                         .line
-                        .wrapping_add_signed(line_base as i32)
-                        .wrapping_add((adjusted_opcode % line_range) as u32);
+                        .wrapping_add_signed(i32::from(line_base))
+                        .wrapping_add(u32::from(adjusted_opcode % line_range));
                 }
             };
         }
@@ -601,7 +602,7 @@ impl DebugInfoReader {
                     handle_special_opcode!(0xff, false);
                 }
                 DW_LNS_fixed_advance_pc if DW_LNS_fixed_advance_pc < opcode_base => {
-                    let address_advance = program_reader.read_u16() as u32;
+                    let address_advance = u32::from(program_reader.read_u16());
                     curr_entry.address += address_advance;
                     curr_entry.op_index = 0;
                 }
@@ -647,6 +648,7 @@ impl DebugInfoReader {
     }
 }
 
+#[must_use]
 pub fn symbolize(elf_byte: &[u8], pc_list: Vec<u32>) -> Vec<CallRecord> {
     let elf_ptr = elf_byte.as_ptr();
     let ehdr = unsafe { ptr::read::<Elf32_Ehdr>(elf_ptr.cast()) };
@@ -687,7 +689,7 @@ pub fn symbolize(elf_byte: &[u8], pc_list: Vec<u32>) -> Vec<CallRecord> {
     let debug_info = {
         let debug_info_shdr = shdrs
             .iter()
-            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_info".as_bytes())
+            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == b".debug_info")
             .expect("missing .debug_info section");
         unsafe {
             slice::from_raw_parts::<u8>(
@@ -700,7 +702,7 @@ pub fn symbolize(elf_byte: &[u8], pc_list: Vec<u32>) -> Vec<CallRecord> {
     let debug_line = {
         let debug_line_shdr = shdrs
             .iter()
-            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_line".as_bytes())
+            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == b".debug_line")
             .expect("missing .debug_line section");
         unsafe {
             slice::from_raw_parts::<u8>(
@@ -713,7 +715,7 @@ pub fn symbolize(elf_byte: &[u8], pc_list: Vec<u32>) -> Vec<CallRecord> {
     let debug_abbrev = {
         let debug_abbrev_shdr = shdrs
             .iter()
-            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_abbrev".as_bytes())
+            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == b".debug_abbrev")
             .expect("missing .debug_abbrev section");
         unsafe {
             slice::from_raw_parts::<u8>(
@@ -728,25 +730,24 @@ pub fn symbolize(elf_byte: &[u8], pc_list: Vec<u32>) -> Vec<CallRecord> {
         // .debug_* sections do not have the concept of alignment
         //
         // TODO: Coerce nac3ld to align the debug sections.
-        if let Some(debug_ranges_shdr) = shdrs
+        shdrs
             .iter()
-            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_ranges".as_bytes())
-        {
-            unsafe {
-                slice::from_raw_parts::<u8>(
-                    elf_ptr.add(debug_ranges_shdr.sh_offset as usize).cast(),
-                    debug_ranges_shdr.sh_size as usize,
-                )
-            }
-        } else {
-            unsafe { slice::from_raw_parts::<u8>(elf_ptr.cast(), 0) }
-        }
+            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == b".debug_ranges")
+            .map_or_else(
+                || unsafe { slice::from_raw_parts::<u8>(elf_ptr.cast(), 0) },
+                |debug_ranges_shdr| unsafe {
+                    slice::from_raw_parts::<u8>(
+                        elf_ptr.add(debug_ranges_shdr.sh_offset as usize).cast(),
+                        debug_ranges_shdr.sh_size as usize,
+                    )
+                },
+            )
     };
 
     let debug_str = {
         let debug_str_shdr = shdrs
             .iter()
-            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == ".debug_str".as_bytes())
+            .find(|shdr| get_str(shdr.sh_name as usize).unwrap() == b".debug_str")
             .expect("missing .debug_str section");
         unsafe {
             slice::from_raw_parts::<u8>(
@@ -757,7 +758,7 @@ pub fn symbolize(elf_byte: &[u8], pc_list: Vec<u32>) -> Vec<CallRecord> {
     };
 
     let info_reader =
-        DebugInfoReader { debug_info, debug_line, debug_abbrev, debug_ranges, debug_str };
+        DebugInfoReader { debug_info, debug_abbrev, debug_line, debug_ranges, debug_str };
 
     let mut call_sites: Vec<CallRecord> = vec![];
     for pc in pc_list {

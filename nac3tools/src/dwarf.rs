@@ -1,4 +1,4 @@
-#![allow(nonstandard_style, non_upper_case_globals)]
+#![allow(nonstandard_style, non_upper_case_globals, clippy::wildcard_imports)]
 
 use crate::include::dwarf::*;
 use std::{mem, str};
@@ -71,7 +71,7 @@ impl DwarfReader<'_> {
         val
     }
 
-    pub fn read_slice(&mut self, len: usize) -> &[u8] {
+    pub const fn read_slice(&mut self, len: usize) -> &[u8] {
         let (slice, remaining) = self.slice.split_at(len);
         self.slice = remaining;
         self.virt_addr += len as u32;
@@ -165,12 +165,12 @@ impl DwarfReader<'_> {
     // Use at your own risk.
     pub fn read_form_constant(&mut self, attr_form: u64) -> u64 {
         match attr_form {
-            DW_FORM_data1 => self.read_form_data1() as u64,
-            DW_FORM_data2 => self.read_form_data2() as u64,
-            DW_FORM_data4 => self.read_form_data4() as u64,
-            DW_FORM_data8 => self.read_form_data8() as u64,
+            DW_FORM_data1 => u64::from(self.read_form_data1()),
+            DW_FORM_data2 => u64::from(self.read_form_data2()),
+            DW_FORM_data4 => u64::from(self.read_form_data4()),
+            DW_FORM_data8 => self.read_form_data8(),
             DW_FORM_sdata => self.read_form_sdata() as u64,
-            DW_FORM_udata => self.read_form_udata() as u64,
+            DW_FORM_udata => self.read_form_udata(),
             _ => unreachable!("form should be a constant"),
         }
     }
