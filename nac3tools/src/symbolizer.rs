@@ -155,7 +155,7 @@ impl DebugInfoReader {
                 DW_AT_name => match *attr_form {
                     DW_FORM_string => {
                         name_ref = unsafe {
-                            NameRef::Concrete(mem::transmute::<&'_ [u8], &'static str>(
+                            NameRef::Concrete(mem::transmute::<&'_ str, &'static str>(
                                 reader.read_str(),
                             ))
                         };
@@ -400,15 +400,11 @@ impl DebugInfoReader {
             EXPECTED_ARITIES[standard_opcode_num..]
         );
 
-        let mut include_directories: Vec<&[u8]> = vec![];
+        let mut include_directories: Vec<&'static str> = vec![];
         let mut dir_str = header_reader.read_str();
         while dir_str.len() != 0 {
             include_directories.push(unsafe {
-                // Dodge borrow checker
-                // All slices are backed by the .debug_line
-                let str_len = dir_str.len();
-                let str_ptr = dir_str.as_ptr();
-                slice::from_raw_parts(str_ptr, str_len)
+                mem::transmute::<&'_ str, &'static str>(dir_str)
             });
             dir_str = header_reader.read_str();
         }
@@ -416,7 +412,7 @@ impl DebugInfoReader {
         let mut file_ptrs: Vec<(&'static str, Option<&'static str>)> = vec![];
         loop {
             let path_name =
-                unsafe { mem::transmute::<&'_ [u8], &'static str>(header_reader.read_str()) };
+                unsafe { mem::transmute::<&'_ str, &'static str>(header_reader.read_str()) };
             if path_name.len() == 0 {
                 break;
             }
@@ -424,11 +420,7 @@ impl DebugInfoReader {
             let dir_name = if dir_index == 0 {
                 None
             } else {
-                unsafe {
-                    Some(mem::transmute::<&'_ [u8], &'static str>(
-                        include_directories[dir_index as usize - 1],
-                    ))
-                }
+                Some(include_directories[dir_index as usize - 1])
             };
             let _last_modified = header_reader.read_uleb128();
             let _file_len = header_reader.read_uleb128();
@@ -537,7 +529,7 @@ impl DebugInfoReader {
                         }
                         DW_LNE_define_file => {
                             let path_name = unsafe {
-                                mem::transmute::<&'_ [u8], &'static str>(
+                                mem::transmute::<&'_ str, &'static str>(
                                     extended_opcode_reader.read_str(),
                                 )
                             };
@@ -545,11 +537,7 @@ impl DebugInfoReader {
                             let dir_name = if dir_index == 0 {
                                 None
                             } else {
-                                unsafe {
-                                    Some(mem::transmute::<&'_ [u8], &'static str>(
-                                        include_directories[dir_index as usize - 1],
-                                    ))
-                                }
+                                Some(include_directories[dir_index as usize - 1])
                             };
                             let _last_modified = extended_opcode_reader.read_uleb128();
                             let _file_len = extended_opcode_reader.read_uleb128();

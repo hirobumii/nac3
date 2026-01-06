@@ -1,7 +1,7 @@
 #![allow(nonstandard_style, non_upper_case_globals)]
 
 use crate::include::dwarf::*;
-use std::mem;
+use std::{mem, str};
 
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -78,13 +78,15 @@ impl DwarfReader<'_> {
         slice
     }
 
-    pub fn read_str(&mut self) -> &[u8] {
+    pub fn read_str(&mut self) -> &str {
         let str_len = self
             .slice
             .iter()
             .position(|byte| *byte == 0)
             .expect("string should be null-terminated");
-        &self.read_slice(str_len + 1)[..str_len] // null-terminator
+        unsafe {
+            str::from_utf8_unchecked(&self.read_slice(str_len + 1)[..str_len]) // null-terminator
+        }
     }
 }
 
@@ -178,7 +180,7 @@ impl DwarfReader<'_> {
             DW_FORM_addr | DW_FORM_ref_addr | DW_FORM_strp => {
                 self.read_form_addr();
             }
-            DW_FORM_data1 | DW_FORM_ref1 | DW_FORM_flag => {
+            DW_FORM_data1 | DW_FORM_ref1 => {
                 self.read_form_data1();
             }
             DW_FORM_data2 | DW_FORM_ref2 => {
@@ -196,8 +198,14 @@ impl DwarfReader<'_> {
             DW_FORM_udata | DW_FORM_ref_udata => {
                 self.read_form_udata();
             }
-            DW_FORM_block | DW_FORM_exprloc => {
+            DW_FORM_flag => {
+                self.read_form_flag();
+            }
+            DW_FORM_block => {
                 self.read_form_block();
+            }
+            DW_FORM_exprloc => {
+                self.read_form_exprloc();
             }
             DW_FORM_block1 => {
                 self.read_form_block1();
