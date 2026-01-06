@@ -410,9 +410,7 @@ impl DebugInfoReader {
         let mut include_directories: Vec<&'static str> = vec![];
         let mut dir_str = header_reader.read_str();
         while dir_str.len() != 0 {
-            include_directories.push(unsafe {
-                mem::transmute::<&'_ str, &'static str>(dir_str)
-            });
+            include_directories.push(unsafe { mem::transmute::<&'_ str, &'static str>(dir_str) });
             dir_str = header_reader.read_str();
         }
 
