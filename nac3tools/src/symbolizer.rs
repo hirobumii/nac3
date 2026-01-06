@@ -257,7 +257,7 @@ impl DebugInfoReader {
                 );
 
             let (immediate_call_record, file_ptrs) =
-                self.parse_line_info(cu_stmt_list_offset as usize, pc, start_addr.unwrap());
+                self.parse_line_info(cu_stmt_list_offset as usize, pc);
 
             let mut call_sites = vec![immediate_call_record];
 
@@ -363,7 +363,6 @@ impl DebugInfoReader {
         &self,
         stmt_list_offset: usize,
         pc: u32,
-        start_addr: u32,
     ) -> (CallRecord, Vec<(&'static str, Option<&'static str>)>) {
         let mut header_reader = DwarfReader::new(&self.debug_line[stmt_list_offset..], 0);
 
