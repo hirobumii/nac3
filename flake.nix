@@ -149,12 +149,13 @@
           inherit (nac3artiq) cargoLock;
           nativeBuildInputs = [pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_16.bintools llvm-nac3-pgo];
           buildInputs = [pkgs.python3 llvm-nac3-pgo];
-          cargoBuildFlags = ["--package" "nac3artiq"];
+          cargoBuildFlags = ["--package" "nac3artiq" "--package" "nac3tools"];
           cargoTestFlags = ["--package" "nac3ast" "--package" "nac3parser" "--package" "nac3core" "--package" "nac3artiq"];
           installPhase = ''
             TARGET_DIR=$out/${pkgs.python3Packages.python.sitePackages}
             mkdir -p $TARGET_DIR
             cp target/x86_64-unknown-linux-gnu/release/libnac3artiq.so $TARGET_DIR/nac3artiq.so
+            cp target/x86_64-unknown-linux-gnu/release/libnac3tools.so $TARGET_DIR/nac3tools.so
           '';
         }
       );

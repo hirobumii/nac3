@@ -25,7 +25,7 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyAnyMethods, PyBytes, PyDict, PyList, PyNone, PyTuple, PyType},
+    types::{PyAnyMethods, PyDict, PyNone, PyTuple, PyType},
 };
 use tempfile::{self, TempDir};
 
@@ -62,7 +62,7 @@ use nac3core::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
     },
 };
-use nac3tools::{Linker, symbolizer, symbolizer::CallRecord};
+use nac3tools::Linker;
 
 use codegen::{
     ArtiqCodeGenerator, attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback,
@@ -1556,7 +1556,7 @@ impl Nac3 {
             }
         };
         // We always use the `Default` target-specific optimization level,
-        // since `nac3tools` only supports relocation types that are used in optimized code.
+        // since `nac3ld` only supports relocation types that are used in optimized code.
         let target_opt_level = OptimizationLevel::Default;
 
         let target_options = isa.get_llvm_target_options(target_opt_level);
@@ -1991,14 +1991,6 @@ impl Nac3 {
     }
 }
 
-#[pyo3::pyfunction]
-fn symbolize<'py>(
-    elf_bin: &Bound<'_, PyBytes>,
-    pc: &Bound<'_, PyList>,
-) -> PyResult<Vec<CallRecord>> {
-    Ok(symbolizer::symbolize(elf_bin.extract()?, pc.extract()?))
-}
-
 #[cfg(feature = "init-llvm-profile")]
 unsafe extern "C" {
     fn __llvm_profile_initialize();
@@ -2014,6 +2006,5 @@ fn nac3artiq<'py>(py: Python<'py>, m: &Bound<'py, PyModule>) -> PyResult<()> {
     Target::initialize_all(&InitializationConfig::default());
     m.add("CompileError", py.get_type::<CompileError>())?;
     m.add_class::<Nac3>()?;
-    m.add_function(wrap_pyfunction!(symbolize, m)?)?;
     Ok(())
 }

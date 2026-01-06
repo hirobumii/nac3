@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["M-Labs"]
 edition = "2024"
 
+[lib]
+name = "nac3tools"
+crate-type = ["cdylib", "lib"]
+
 [dependencies]
 byteorder = { version = "1.5", default-features = false }
 pyo3 = { version = "0.27" }
