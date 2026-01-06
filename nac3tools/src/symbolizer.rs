@@ -100,9 +100,16 @@ impl DebugInfoReader {
         let mut high_pc: Option<u32> = None;
         let mut stmt_list_offset: u32 = 0;
         let mut name_ref: NameRef = NameRef::Unknown;
-        let mut call_record: CallRecord = unsafe { mem::MaybeUninit::uninit().assume_init() };
-        call_record.name = NameRef::Unknown; // Only resolvable by parent DIE
-        call_record.address = None;
+        let mut call_record = CallRecord {
+            // This is different from the `name_ref` variable
+            // The call site's name is only resolvable by parent DIE.
+            name: NameRef::Unknown,
+            address: None,
+            line: 0,
+            column: 0,
+            file: "",
+            dir: None,
+        };
 
         for (attr_name, attr_form) in attr_specs {
             match *attr_name {
