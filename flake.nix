@@ -114,8 +114,8 @@
           (pkgs.fetchFromGitHub {
             owner = "m-labs";
             repo = "artiq";
-            rev = "4bbcd9fd41f08254faf4b0f8cd1ad95d2fe37531";
-            sha256 = "sha256-eYkSTAIFWK3yfNeTEfxUHgLqQyUrWu+olis89iiXH2I=";
+            rev = "70d04244cc3e07d7a0d8e77d75c0bef839bff5b2";
+            sha256 = "sha256-fRvp1maU7kBQ60pUlK1jHbykalNDhYIhtw/varoxqfk=";
           })
         ];
         buildInputs = [
