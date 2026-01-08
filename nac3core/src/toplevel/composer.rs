@@ -73,6 +73,7 @@ pub trait BuiltinRegistry: Send + Sync {
 
             // Core functions
             "range" => PrimDef::Range,
+            "enumerate" => PrimDef::Enumerate,
             "round" => PrimDef::FunRound,
             "round64" => PrimDef::FunRound64,
             "floor" => PrimDef::FunFloor,

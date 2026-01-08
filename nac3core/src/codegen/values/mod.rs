@@ -2,6 +2,7 @@ use inkwell::{types::IntType, values::BasicValue};
 
 use super::{CodeGenContext, types::ProxyType};
 pub use array::*;
+pub use enumerate::*;
 pub use exception::*;
 pub use list::*;
 pub use option::*;
@@ -10,6 +11,7 @@ pub use string::*;
 pub use tuple::*;
 
 mod array;
+mod enumerate;
 mod exception;
 mod list;
 pub mod ndarray;

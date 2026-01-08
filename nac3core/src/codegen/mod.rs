@@ -46,8 +46,8 @@ use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
 pub use llvm_fns::FunctionDecl;
 use types::{
-    ExceptionType, ListType, OptionType, ProxyType, RangeType, StringType, TupleType,
-    ndarray::NDArrayType,
+    EnumerateType, ExceptionType, ListType, OptionType, ProxyType, RangeType, StringType,
+    TupleType, ndarray::NDArrayType,
 };
 
 pub mod builtin_fns;
@@ -525,6 +525,10 @@ fn get_llvm_type<'ctx>(
                             NDArrayType::new(ctx, element_type, ndims).as_abi_type().into()
                         }
 
+                        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Enumerate.id() => {
+                            EnumerateType::new(ctx).as_abi_type().into()
+                        }
+
                         _ => unreachable!(
                             "LLVM type for primitive {} is missing",
                             unifier.stringify(ty)
@@ -757,6 +761,7 @@ pub fn gen_func_impl<
         bool: unifier.get_representative(primitives.bool),
         none: unifier.get_representative(primitives.none),
         range: unifier.get_representative(primitives.range),
+        enumerate: unifier.get_representative(primitives.enumerate),
         str: unifier.get_representative(primitives.str),
         exception: unifier.get_representative(primitives.exception),
         option: unifier.get_representative(primitives.option),
@@ -772,6 +777,7 @@ pub fn gen_func_impl<
         (primitives.bool, ctx.i8.into()),
         (primitives.str, { StringType::new(&ctx).as_abi_type().into() }),
         (primitives.range, RangeType::new(&ctx).as_abi_type().into()),
+        (primitives.enumerate, EnumerateType::new(&ctx).as_abi_type().into()),
         (primitives.exception, { ExceptionType::new(&ctx).as_abi_type().into() }),
     ]
     .iter()

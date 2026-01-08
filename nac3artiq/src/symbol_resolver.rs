@@ -12,13 +12,13 @@ use parking_lot::RwLock;
 use pyo3::{
     IntoPyObjectExt, PyAny, PyErr, PyResult, Python,
     prelude::*,
-    types::{PyDict, PyTuple},
+    types::{PyDict, PyList, PyTuple},
 };
 
 use nac3core::{
     codegen::{
         CodeGenContext,
-        types::{ProxyType, ndarray::NDArrayType, structure::StructProxyType},
+        types::{EnumerateType, ProxyType, ndarray::NDArrayType, structure::StructProxyType},
         values::ndarray::make_contiguous_strides,
     },
     inkwell::{
@@ -327,6 +327,92 @@ impl InnerResolver {
         Ok(Ok(ty))
     }
 
+    fn get_enumerate_elem_and_iterable_type<'py>(
+        &self,
+        py: Python<'py>,
+        obj: &Bound<'py, PyAny>,
+        unifier: &mut Unifier,
+        defs: &[Arc<RwLock<TopLevelDef>>],
+        primitives: &PrimitiveStore,
+    ) -> PyResult<Result<(Type, Type), String>> {
+        let reduce_tuple = obj.call_method0("__reduce__")?;
+        let reduce_tuple = reduce_tuple.cast::<PyTuple>()?;
+        let args_tuple = reduce_tuple.get_item(1)?;
+        let args_tuple = args_tuple.cast::<PyTuple>()?;
+
+        let iterable_obj = args_tuple.get_item(0)?;
+
+        let reduce_tuple = iterable_obj.call_method0("__reduce__")?;
+        let reduce_tuple = reduce_tuple.cast::<PyTuple>()?;
+        let args = reduce_tuple.get_item(1)?;
+        let args = args.cast::<PyTuple>()?;
+
+        let iterable = &args.get_item(0)?;
+        let list_len = py_interp::extract_len(iterable)?;
+        if list_len == 0 {
+            return Err(super::CompileError::new_err(
+                "enumerate over empty iterable is not supported".to_string(),
+            ));
+        }
+
+        let (elem_ty, iterable_ty) = if iterable.is_instance_of::<PyList>() {
+            let first_elem = iterable.get_item(0)?;
+            let elem_ty = match self.get_obj_type(py, &first_elem, unifier, defs, primitives)? {
+                Ok(ty) => ty,
+                Err(e) => {
+                    return Err(super::CompileError::new_err(format!(
+                        "Failed to infer element type: {e}"
+                    )));
+                }
+            };
+
+            let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
+                &*unifier.get_ty_immutable(primitives.list)
+            {
+                assert_eq!(*obj_id, PrimDef::List.id());
+                iter_type_vars(params).nth(0).unwrap()
+            } else {
+                unreachable!()
+            };
+
+            let list_ty = unifier
+                .subst(primitives.list, &into_var_map([TypeVar { id: list_tvar.id, ty: elem_ty }]))
+                .unwrap();
+
+            (elem_ty, list_ty)
+        } else if iterable.is_instance_of::<PyTuple>() {
+            let iterable_ty: Result<Result<Vec<_>, _>, _> = (0..py_interp::extract_len(iterable)?)
+                .map(|i| {
+                    let item = iterable.get_item(i)?;
+                    self.get_obj_type(py, &item, unifier, defs, primitives)
+                })
+                .collect();
+
+            let tuple_elem_types = iterable_ty?.map_err(|e| {
+                super::CompileError::new_err(format!("Failed to infer iterable type: {e}"))
+            })?;
+
+            // Check if tuple is homogeneous
+            let first_elem_ty = tuple_elem_types.first().ok_or_else(|| {
+                super::CompileError::new_err("Empty tuple in enumerate".to_string())
+            })?;
+            if !tuple_elem_types.iter().all(|t| unifier.unioned(*first_elem_ty, *t)) {
+                return Err(super::CompileError::new_err(
+                    "enumerate() only accepts tuple with items of the same type".to_string(),
+                ));
+            }
+
+            let tuple_ty = unifier
+                .add_ty(TypeEnum::TTuple { ty: tuple_elem_types.clone(), is_vararg_ctx: false });
+
+            (*first_elem_ty, tuple_ty)
+        } else {
+            unreachable!("unexpected iterable type for enumerate")
+        };
+
+        Ok(Ok((elem_ty, iterable_ty)))
+    }
+
     /// Handles python objects that represent types themselves,
     ///
     /// Primitives and class types should be themselves, use `ty_id` to check;
@@ -381,6 +467,8 @@ impl InnerResolver {
                 .subst(primitives.list, &into_var_map([TypeVar { id: list_tvar.id, ty: var }]))
                 .unwrap();
             Ok(Ok((list, false)))
+        } else if ty_id == self.primitive_ids.builtins.enumerate {
+            Ok(Ok((primitives.enumerate, true)))
         } else if ty_id == self.primitive_ids.numpy.ndarray {
             // do not handle type var param and concrete check here
             let var = unifier.get_dummy_var().ty;
@@ -841,6 +929,38 @@ impl InnerResolver {
                     }
                 }
             }
+            (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PrimDef::Enumerate.id() => {
+                let (elem_ty, iterable_ty) = match self
+                    .get_enumerate_elem_and_iterable_type(py, obj, unifier, defs, primitives)?
+                {
+                    Ok(types) => types,
+                    Err(e) => return Ok(Err(e)),
+                };
+
+                let enumerate_tvars = if let TypeEnum::TObj { obj_id, params, .. } =
+                    &*unifier.get_ty_immutable(primitives.enumerate)
+                {
+                    assert_eq!(*obj_id, PrimDef::Enumerate.id());
+                    let tvars: Vec<_> = iter_type_vars(params).collect();
+                    assert_eq!(tvars.len(), 2, "enumerate should have 2 type parameters");
+                    tvars
+                } else {
+                    unreachable!()
+                };
+                let target_ty = unifier.add_ty(TypeEnum::TTuple {
+                    ty: vec![primitives.int32, elem_ty],
+                    is_vararg_ctx: false,
+                });
+                Ok(Ok(unifier
+                    .subst(
+                        primitives.enumerate,
+                        &into_var_map([
+                            TypeVar { id: enumerate_tvars[0].id, ty: target_ty },
+                            TypeVar { id: enumerate_tvars[1].id, ty: iterable_ty },
+                        ]),
+                    )
+                    .unwrap()))
+            }
             (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PrimDef::NDArray.id() => {
                 let (ty, ndims) = unpack_ndarray_var_tys(unifier, extracted_ty);
                 let len: usize = obj.getattr("ndim")?.extract()?;
@@ -1155,6 +1275,120 @@ impl InnerResolver {
             global.set_initializer(&val);
 
             Ok(Some(global.as_pointer_value().into()))
+        } else if ty_id == self.primitive_ids.builtins.enumerate {
+            let id_str = id.to_string();
+
+            if let Some(global) = ctx.module.get_global(&id_str) {
+                return Ok(Some(global.as_pointer_value().into()));
+            }
+
+            {
+                if self.global_value_ids.read().contains_key(&id) {
+                    let enum_ty = EnumerateType::new(ctx);
+                    let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
+                        ctx.module.add_global(
+                            enum_ty.alloca_type(),
+                            Some(AddressSpace::default()),
+                            &id_str,
+                        )
+                    });
+                    return Ok(Some(global.as_pointer_value().into()));
+                }
+                self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
+            }
+
+            let reduce_tuple = obj.call_method0("__reduce__")?;
+            let reduce_tuple = reduce_tuple.cast::<PyTuple>()?;
+            let args_tuple = reduce_tuple.get_item(1)?;
+            let args_tuple = args_tuple.cast::<PyTuple>()?;
+            let start_obj = args_tuple.get_item(1)?;
+            let start: i32 = start_obj.extract()?;
+
+            // Get element and iterable types using the helper function
+            let top_level_defs = ctx.top_level.definitions.read();
+            let (_, iterable_ty) = match self.get_enumerate_elem_and_iterable_type(
+                py,
+                obj,
+                &mut ctx.unifier,
+                &top_level_defs,
+                &ctx.primitives,
+            )? {
+                Ok(types) => types,
+                Err(e) => return Err(super::CompileError::new_err(e)),
+            };
+
+            // Get the actual iterable object for value generation
+            let iterable_obj = args_tuple.get_item(0)?;
+            let reduce_tuple = iterable_obj.call_method0("__reduce__")?;
+            let reduce_tuple = reduce_tuple.cast::<PyTuple>()?;
+            let args = reduce_tuple.get_item(1)?;
+            let args = args.cast::<PyTuple>()?;
+            let iterable = &args.get_item(0)?;
+            let list_len = py_interp::extract_len(iterable)?;
+
+            let iterable =
+                if iterable.is_instance_of::<PyList>() || iterable.is_instance_of::<PyTuple>() {
+                    let iterable_value = self
+                        .get_obj_value(py, iterable, ctx, iterable_ty)?
+                        .expect("must have iterable value");
+
+                    if iterable.is_instance_of::<PyList>() {
+                        // Cast list pointer to i8*
+                        iterable_value
+                            .into_pointer_value()
+                            .const_cast(ctx.i8.ptr_type(AddressSpace::default()))
+                            .into()
+                    } else {
+                        // Tuple value is already a struct, we'll use it directly
+                        iterable_value
+                    }
+                } else {
+                    unreachable!("unexpected iterable type for enumerate")
+                };
+
+            let iterable_struct_ty = ctx.ctx.struct_type(
+                &[ctx.i8.ptr_type(AddressSpace::default()).into(), ctx.size_t.into()],
+                false,
+            );
+
+            let iterable_struct_val = iterable_struct_ty.const_named_struct(&[
+                iterable,
+                ctx.size_t.const_int(list_len as u64, false).into(),
+            ]);
+
+            let iterable_global_name = format!("{id_str}_iterable");
+            let iterable_global = ctx.module.add_global(
+                iterable_struct_ty,
+                Some(AddressSpace::default()),
+                &iterable_global_name,
+            );
+            iterable_global.set_initializer(&iterable_struct_val);
+
+            // Enumerate struct layout:
+            // struct {
+            //     struct {                        // Inner struct for iterable state
+            //         iterable_struct_ty*,        // Pointer to iterable data
+            //         i32,                        // Len of the iterable
+            //     }*,                             // Pointer to the inner iterable struct
+            //     i32,                            // Start value (initial counter for enumerate)
+            // }
+            // Note: This matches EnumerateType in enumerate.rs where the structure wraps
+            // the iterable pointer and start value.
+            let enum_struct_ty = ctx.ctx.struct_type(
+                &[iterable_struct_ty.ptr_type(AddressSpace::default()).into(), ctx.i32.into()],
+                false,
+            );
+
+            let enum_struct_val = enum_struct_ty.const_named_struct(&[
+                iterable_global.as_pointer_value().into(),
+                ctx.i32.const_int(start as u64, true).into(),
+            ]);
+
+            let enum_global =
+                ctx.module.add_global(enum_struct_ty, Some(AddressSpace::default()), &id_str);
+            enum_global.set_initializer(&enum_struct_val);
+
+            Ok(Some(enum_global.as_pointer_value().into()))
         } else if ty_id == self.primitive_ids.numpy.ndarray {
             let id_str = id.to_string();
 

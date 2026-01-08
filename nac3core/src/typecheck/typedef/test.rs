@@ -309,7 +309,7 @@ fn test_unify(
         ("v1", "tuple[int]"),
         ("v2", "list[int]"),
     ],
-    (("v1", "v2"), "Incompatible types: 3[33] and tuple[33]")
+    (("v1", "v2"), "Incompatible types: 3[34] and tuple[34]")
     ; "type mismatch"
 )]
 #[test_case(2,
@@ -317,7 +317,7 @@ fn test_unify(
         ("v1", "tuple[int]"),
         ("v2", "tuple[float]"),
     ],
-    (("v1", "v2"), "Incompatible types: tuple[33] and tuple[0]")
+    (("v1", "v2"), "Incompatible types: tuple[34] and tuple[0]")
     ; "tuple parameter mismatch"
 )]
 #[test_case(2,
@@ -325,7 +325,7 @@ fn test_unify(
         ("v1", "tuple[int,int]"),
         ("v2", "tuple[int]"),
     ],
-    (("v1", "v2"), "Tuple length mismatch: got tuple[33, 33] and tuple[33]")
+    (("v1", "v2"), "Tuple length mismatch: got tuple[34, 34] and tuple[34]")
     ; "tuple length mismatch"
 )]
 #[test_case(3,
@@ -445,7 +445,7 @@ fn test_typevar_range() {
     let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).ty;
     assert_eq!(
         env.unify(int_list, v),
-        Err("Expected any one of these types: 33, 1, but got 3[33]".to_string())
+        Err("Expected any one of these types: 34, 1, but got 3[34]".to_string())
     );
 
     // unification between v and float
@@ -453,7 +453,7 @@ fn test_typevar_range() {
     let v = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).ty;
     assert_eq!(
         env.unify(float, v),
-        Err("Expected any one of these types: 33, 1, but got 0".to_string())
+        Err("Expected any one of these types: 34, 1, but got 0".to_string())
     );
 
     let v1 = env.unifier.get_fresh_var_with_range(&[int, boolean], None, None).ty;
@@ -478,7 +478,7 @@ fn test_typevar_range() {
     println!("float_list: {}, v: {}", env.unifier.stringify(float_list), env.unifier.stringify(v));
     assert_eq!(
         env.unify(float_list, v),
-        Err("Expected any one of these types: 33, 3[typevar6], but got 3[0]\n\nNotes:\n    typevar6 ∈ {33, 1}".to_string())
+        Err("Expected any one of these types: 34, 3[typevar6], but got 3[0]\n\nNotes:\n    typevar6 ∈ {34, 1}".to_string())
     );
 
     let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).ty;
@@ -489,7 +489,7 @@ fn test_typevar_range() {
     let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).ty;
     let b = env.unifier.get_fresh_var_with_range(&[boolean, float], None, None).ty;
     env.unifier.unify(a, b).unwrap();
-    assert_eq!(env.unify(a, int), Err("Expected any one of these types: 0, but got 33".into()));
+    assert_eq!(env.unify(a, int), Err("Expected any one of these types: 0, but got 34".into()));
 
     let a = env.unifier.get_fresh_var_with_range(&[int, float], None, None).ty;
     let b = env.unifier.get_fresh_var_with_range(&[boolean, float], None, None).ty;
@@ -535,7 +535,7 @@ fn test_typevar_range() {
     });
     assert_eq!(
         env.unify(a_list, int_list),
-        Err("Incompatible types: 3[typevar23] and 3[33]\
+        Err("Incompatible types: 3[typevar23] and 3[34]\
             \n\nNotes:\n    typevar23 ∈ {0}"
             .into())
     );
@@ -556,7 +556,7 @@ fn test_typevar_range() {
     env.unifier.unify(a_list, b_list).unwrap();
     assert_eq!(
         env.unify(b, boolean),
-        Err("Expected any one of these types: 33, 0, but got 1".into())
+        Err("Expected any one of these types: 34, 0, but got 1".into())
     );
 }
 
@@ -584,7 +584,7 @@ fn test_rigid_var() {
     env.unifier.unify(list_a, list_x).unwrap();
     assert_eq!(
         env.unify(list_x, list_int),
-        Err("Incompatible types: 3[typevar3] and 3[33]".to_string())
+        Err("Incompatible types: 3[typevar3] and 3[34]".to_string())
     );
 
     env.unifier.replace_rigid_var(a, int);

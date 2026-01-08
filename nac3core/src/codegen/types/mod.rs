@@ -26,6 +26,7 @@ use super::{
     stmt::{gen_array_var, gen_var},
     values::{ArraySliceValue, ProxyValue},
 };
+pub use enumerate::*;
 pub use exception::*;
 pub use list::*;
 pub use option::*;
@@ -33,6 +34,7 @@ pub use range::*;
 pub use string::*;
 pub use tuple::*;
 
+mod enumerate;
 mod exception;
 mod list;
 pub mod ndarray;
