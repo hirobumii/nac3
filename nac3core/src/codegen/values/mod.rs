@@ -18,7 +18,7 @@ mod range;
 mod string;
 pub mod structure;
 mod tuple;
-pub mod utils;
+pub mod slice;
 
 /// A LLVM type that is used to represent a non-primitive value in NAC3.
 pub trait ProxyValue<'ctx>: Into<Self::Base> {

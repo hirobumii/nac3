@@ -13,10 +13,10 @@ use crate::{
         types::{
             ndarray::{NDArrayType, NDIndexType},
             structure::{StructField, StructProxyType},
-            utils::SliceType,
+            slice::SliceType,
         },
         values::{
-            ProxyValue, ndarray::NDArrayValue, structure::StructProxyValue, utils::RustSlice,
+            ProxyValue, ndarray::NDArrayValue, structure::StructProxyValue, slice::RustSlice,
         },
     },
     typecheck::typedef::Type,

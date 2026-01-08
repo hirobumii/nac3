@@ -17,7 +17,7 @@ use crate::codegen::{
             check_struct_type_matches_fields,
         },
     },
-    values::utils::SliceValue,
+    values::slice::SliceValue,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -168,7 +168,7 @@ impl<'ctx> SliceType<'ctx> {
         )
     }
 
-    /// Converts an existing value into a [`ContiguousNDArrayValue`].
+    /// Converts an existing value into a [`SliceValue`].
     #[must_use]
     pub fn map_pointer_value(
         &self,

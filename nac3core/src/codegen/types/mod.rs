@@ -41,7 +41,7 @@ mod range;
 mod string;
 pub mod structure;
 mod tuple;
-pub mod utils;
+pub mod slice;
 
 /// A LLVM type that is used to represent a corresponding type in NAC3.
 pub trait ProxyType<'ctx>: Into<Self::Base> {

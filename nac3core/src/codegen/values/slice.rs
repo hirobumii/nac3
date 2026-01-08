@@ -11,7 +11,7 @@ use crate::{
         stmt::gen_var,
         types::{
             structure::{StructField, StructProxyType},
-            utils::SliceType,
+            slice::SliceType,
         },
         values::{ProxyValue, structure::StructProxyValue},
     },
