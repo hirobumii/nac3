@@ -60,7 +60,6 @@ pub struct PrimitiveStore {
     pub bool: Type,
     pub none: Type,
     pub range: Type,
-    pub enumerate: Type,
     pub str: Type,
     pub exception: Type,
     pub option: Type,
@@ -322,45 +321,10 @@ impl Fold<()> for Inferencer<'_> {
                                 Some(ndims),
                             )
                         }
-                        TypeEnum::TObj { obj_id, params, .. }
-                            if *obj_id == PrimDef::Enumerate.id() =>
-                        {
-                            let iterable_ty = iter_type_vars(params).nth(0).unwrap();
-                            let element_type = match &*self.unifier.get_ty(iterable_ty.ty) {
-                                TypeEnum::TObj { obj_id, params, .. }
-                                    if *obj_id
-                                        == self.primitives.list.obj_id(self.unifier).unwrap() =>
-                                {
-                                    iter_type_vars(params).nth(0).unwrap().ty
-                                }
-                                TypeEnum::TTuple { ty: tuple_tys, .. } => {
-                                    if tuple_tys.is_empty() {
-                                        self.primitives.int32
-                                    } else {
-                                        tuple_tys[0]
-                                    }
-                                }
-                                _ => self.primitives.int32,
-                            };
-                            let target_ty = self.unifier.add_ty(TypeEnum::TTuple {
-                                ty: vec![self.primitives.int32, element_type],
-                                is_vararg_ctx: false,
-                            });
-                            self.unify(target_ty, target.custom.unwrap(), &target.location)?;
-                            let enumerate_tvar = iter_type_vars(params).nth(0).unwrap();
-                            self.unifier
-                                .subst(
-                                    self.primitives.enumerate,
-                                    &into_var_map([TypeVar {
-                                        id: enumerate_tvar.id,
-                                        ty: target.custom.unwrap(),
-                                    }]),
-                                )
-                                .unwrap()
-                        }
                         _ => {
                             // User is attempting to use a for loop to iterate
                             // over a value of an unsupported type.
+
                             let iter_ty = iter.custom.unwrap();
                             let iter_ty_str = self.unifier.stringify(iter_ty);
                             return report_error(

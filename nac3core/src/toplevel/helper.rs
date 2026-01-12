@@ -44,7 +44,6 @@ pub enum PrimDef {
 
     // Core functions
     Range,
-    Enumerate,
     FunRound,
     FunRound64,
     FunFloor,
@@ -186,9 +185,6 @@ pub enum PrimDef {
 
     // Range methods
     FunRangeInit,
-
-    // Enumerate methods
-    FunEnumerateInit,
 }
 
 /// Associated details of a [`PrimDef`]
@@ -284,7 +280,6 @@ impl PrimDef {
 
             // Core functions
             Self::Range => class("range", |primitives| primitives.range),
-            Self::Enumerate => class("enumerate", |primitives| primitives.enumerate),
             Self::FunRound => fun("round", None),
             Self::FunRound64 => fun("round64", None),
             Self::FunFloor => fun("floor", None),
@@ -426,9 +421,6 @@ impl PrimDef {
 
             // Range methods
             Self::FunRangeInit => fun("range.__init__", Some("__init__")),
-
-            // Enumerate methods
-            Self::FunEnumerateInit => fun("enumerate.__init__", Some("__init__")),
         }
     }
 }
@@ -617,19 +609,6 @@ impl TopLevelComposer {
             params: into_var_map([list_elem_tvar]),
         });
 
-        let enumerate_return = unifier.get_fresh_var(Some("enumerate_return".into()), None);
-        let enumerate_iterable = unifier.get_fresh_var(Some("enumerate_iterable".into()), None);
-        let enumerate = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Enumerate.id(),
-            fields: [
-                ("iterable".into(), (uint64, AttrKind::Field { mutable: false })),
-                ("start".into(), (int32, AttrKind::Field { mutable: false })),
-            ]
-            .into_iter()
-            .collect(),
-            params: into_var_map([enumerate_return, enumerate_iterable]),
-        });
-
         let ndarray_dtype_tvar = unifier.get_fresh_var(Some("ndarray_dtype".into()), None);
         let ndarray_ndims_tvar =
             unifier.get_fresh_const_generic_var(size_t_ty, Some("ndarray_ndims".into()), None);
@@ -675,7 +654,6 @@ impl TopLevelComposer {
             bool,
             none,
             range,
-            enumerate,
             str,
             exception,
             option,

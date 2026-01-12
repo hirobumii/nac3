@@ -124,11 +124,6 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: VarMap::new(),
         });
-        let enumerate = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Enumerate.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
         let str = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Str.id(),
             fields: HashMap::new(),
@@ -175,7 +170,6 @@ impl TestEnvironment {
             bool,
             none,
             range,
-            enumerate,
             str,
             exception,
             uint32,
@@ -195,7 +189,6 @@ impl TestEnvironment {
             (PrimDef::Bool.id().0, "bool".into()),
             (PrimDef::None.id().0, "none".into()),
             (PrimDef::Range.id().0, "range".into()),
-            (PrimDef::Enumerate.id().0, "enumerate".into()),
             (PrimDef::Str.id().0, "str".into()),
             (PrimDef::Exception.id().0, "exception".into()),
         ]
@@ -277,11 +270,6 @@ impl TestEnvironment {
             fields: HashMap::new(),
             params: VarMap::new(),
         });
-        let enumerate = unifier.add_ty(TypeEnum::TObj {
-            obj_id: PrimDef::Enumerate.id(),
-            fields: HashMap::new(),
-            params: VarMap::new(),
-        });
         let str = unifier.add_ty(TypeEnum::TObj {
             obj_id: PrimDef::Str.id(),
             fields: HashMap::new(),
@@ -326,7 +314,6 @@ impl TestEnvironment {
             "bool",
             "none",
             "range",
-            "enumerate",
             "str",
             "Exception",
             "uint32",
@@ -355,7 +342,7 @@ impl TestEnvironment {
                 .into(),
             );
         }
-        let defs = 13;
+        let defs = 12;
 
         let primitives = PrimitiveStore {
             int32,
@@ -364,7 +351,6 @@ impl TestEnvironment {
             bool,
             none,
             range,
-            enumerate,
             str,
             exception,
             uint32,
@@ -490,7 +476,6 @@ impl TestEnvironment {
             (PrimDef::Bool.id().0, "bool".into()),
             (PrimDef::None.id().0, "none".into()),
             (PrimDef::Range.id().0, "range".into()),
-            (PrimDef::Enumerate.id().0, "enumerate".into()),
             (PrimDef::Str.id().0, "str".into()),
             (PrimDef::Exception.id().0, "exception".into()),
             (PrimDef::UInt32.id().0, "uint32".into()),
@@ -498,9 +483,9 @@ impl TestEnvironment {
             (PrimDef::Option.id().0, "option".into()),
             (PrimDef::List.id().0, "list".into()),
             (PrimDef::NDArray.id().0, "ndarray".into()),
-            (14, "Foo".into()),
-            (15, "Bar".into()),
-            (16, "Bar2".into()),
+            (13, "Foo".into()),
+            (14, "Bar".into()),
+            (15, "Bar2".into()),
         ]
         .into();
 
