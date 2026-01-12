@@ -21,7 +21,7 @@ use inkwell::{
     module::Module,
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
-    types::{BasicTypeEnum, FloatType, IntType, PointerType},
+    types::{BasicType, BasicTypeEnum, FloatType, IntType, PointerType},
     values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue},
 };
 use itertools::Itertools;
@@ -1087,21 +1087,6 @@ fn gen_in_range_check<'ctx>(
     ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp").unwrap()
 }
 
-/// Returns the alignment of the type.
-///
-/// This is necessary as `get_alignment` is not implemented as part of [`BasicType`].
-pub fn get_type_alignment<'ctx>(ty: impl Into<BasicTypeEnum<'ctx>>) -> IntValue<'ctx> {
-    match ty.into() {
-        BasicTypeEnum::ArrayType(ty) => ty.get_alignment(),
-        BasicTypeEnum::FloatType(ty) => ty.get_alignment(),
-        BasicTypeEnum::IntType(ty) => ty.get_alignment(),
-        BasicTypeEnum::PointerType(ty) => ty.get_alignment(),
-        BasicTypeEnum::StructType(ty) => ty.get_alignment(),
-        BasicTypeEnum::VectorType(ty) => ty.get_alignment(),
-        BasicTypeEnum::ScalableVectorType(ty) => ty.get_alignment(),
-    }
-}
-
 /// Inserts an `alloca` instruction with allocation `size` given in bytes and the alignment of the
 /// given type.
 ///
@@ -1142,7 +1127,7 @@ pub fn type_aligned_alloca<'ctx>(
 
     let llvm_pi8 = ctx.ptr;
     let llvm_usize = ctx.size_t;
-    let align_ty = align_ty.into();
+    let align_ty: BasicTypeEnum<'ctx> = align_ty.into();
 
     let size = ctx.builder.build_int_truncate_or_bit_cast(size, llvm_usize, "").unwrap();
 
@@ -1154,7 +1139,7 @@ pub fn type_aligned_alloca<'ctx>(
         size.get_type(),
     );
 
-    let alignment = get_type_alignment(align_ty);
+    let alignment = align_ty.get_alignment();
     let alignment = ctx.builder.build_int_truncate_or_bit_cast(alignment, llvm_usize, "").unwrap();
 
     if ctx.registry.codegen_options.debug {
