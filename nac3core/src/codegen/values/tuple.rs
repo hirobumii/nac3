@@ -72,7 +72,7 @@ impl<'ctx> TupleValue<'ctx> {
             .build_extract_value(
                 self.value,
                 index,
-                &format!("{}[{{i}}]", self.name.unwrap_or("tuple")),
+                &format!("{}[{index}]", self.name.unwrap_or("tuple")),
             )
             .unwrap()
     }
