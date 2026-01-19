@@ -1559,7 +1559,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 .any(|ty| ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id()))
             {
                 let llvm_usize = ctx.size_t;
-                let false_ = ctx.i1.const_zero();
+                let false_ = ctx.i8.const_zero();
 
                 let is_eq = |generator: &mut G,
                                       ctx: &mut CodeGenContext<'ctx, '_>|
@@ -1587,8 +1587,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         ctx,
                         |_, _ctx| Ok(eq_len),
                         |generator, ctx| {
-                            let acc_addr = gen_var(ctx, ctx.i1, None);
-                            typed_store(&ctx.builder, acc_addr, ctx.i1.const_all_ones());
+                            let acc_addr = gen_var(ctx, ctx.i8, None);
+                            typed_store(&ctx.builder, acc_addr, ctx.i8.const_all_ones());
 
                             gen_for_callback_incrementing(
                                 &mut (),
@@ -1672,17 +1672,17 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 let rhs = TupleType::from_unifier_type(ctx, right_ty)
                     .map_value(rhs.into_struct_value(), None);
 
-                let llvm_i1 = ctx.i1;
+                let llvm_i8 = ctx.i8;
 
                 // Assume `true` by default
-                let cmp_addr = gen_var(ctx, llvm_i1, None);
-                typed_store(&ctx.builder, cmp_addr, llvm_i1.const_all_ones());
+                let cmp_addr = gen_var(ctx, llvm_i8, None);
+                typed_store(&ctx.builder, cmp_addr, llvm_i8.const_all_ones());
 
                 let current_bb = ctx.builder.get_insert_block().unwrap();
                 let post_foreach_cmp = ctx.ctx.insert_basic_block_after(current_bb, "foreach.cmp.end");
 
                 ctx.builder.position_at_end(post_foreach_cmp);
-                let cmp_phi = ctx.builder.build_phi(llvm_i1, "").unwrap();
+                let cmp_phi = ctx.builder.build_phi(llvm_i8, "").unwrap();
                 ctx.builder.position_at_end(current_bb);
 
                 // Generate comparison between each element
@@ -1721,7 +1721,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         },
                         |_, ctx| {
                             let bb = ctx.builder.get_insert_block().unwrap();
-                            cmp_phi.add_incoming(&[(&llvm_i1.const_zero(), bb)]);
+                            cmp_phi.add_incoming(&[(&llvm_i8.const_zero(), bb)]);
                             ctx.builder.build_unconditional_branch(post_foreach_cmp).unwrap();
 
                             Ok(())
@@ -1736,7 +1736,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 // >>> (1, 2) < ("a",)
                 // TypeError: '<' not supported between instances of 'int' and 'str'
                 let bb = ctx.builder.get_insert_block().unwrap();
-                let is_len_eq = llvm_i1.const_int(
+                let is_len_eq = llvm_i8.const_int(
                     u64::from(left_tys.len() == right_tys.len()),
                     false,
                 );
@@ -1759,7 +1759,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
             } else if [left_ty, right_ty].iter().any(|ty| matches!(&*ctx.unifier.get_ty_immutable(*ty), TypeEnum::TVar { .. })) {
                 if ctx.registry.codegen_options.debug {
                     ctx.make_assert(
-                        ctx.i1.const_all_ones(),
+                        ctx.i1.const_zero(),
                         "0:AssertionError",
                         "nac3core::codegen::expr::gen_cmpop_expr_with_values: Unexpected comparison between two typevar values",
                         [None, None, None],
