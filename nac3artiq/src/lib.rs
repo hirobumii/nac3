@@ -174,6 +174,7 @@ impl ArtiqBuiltinRegistry {
 
         // Core functions
         id_to_builtin.insert(primitive_ids.builtins.range, PrimDef::Range);
+        id_to_builtin.insert(primitive_ids.builtins.enumerate, PrimDef::Enumerate);
         id_to_builtin.insert(primitive_ids.builtins.round, PrimDef::FunRound);
         id_to_builtin.insert(primitive_ids.builtins.round64, PrimDef::FunRound64);
         id_to_builtin.insert(primitive_ids.builtins.floor, PrimDef::FunFloor);
@@ -356,6 +357,7 @@ pub struct BuiltinPythonId {
     tuple: u64,
     exception: u64,
     range: u64,
+    enumerate: u64,
     round: u64,
     round64: u64,
     floor: u64,
@@ -1646,6 +1648,7 @@ impl Nac3 {
                 tuple: get_artiq_builtin_id(None, "tuple")?,
                 exception: get_artiq_builtin_id(None, "Exception")?,
                 range: get_artiq_builtin_id(None, "range")?,
+                enumerate: get_artiq_builtin_id(None, "enumerate")?,
                 round: get_artiq_builtin_id(None, "round")?,
                 round64: get_artiq_builtin_id(None, "round64")?,
                 floor: get_artiq_builtin_id(None, "floor")?,

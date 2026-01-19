@@ -72,6 +72,7 @@ pub use crate::__codegen_type_field as field;
 
 mod array;
 mod builtin;
+mod enumerate;
 mod exception;
 mod list;
 mod ndarray;
@@ -83,6 +84,7 @@ mod tuple;
 
 pub use array::{ArrayLikeIndexer, ArraySliceType, ArraySliceValue};
 pub use builtin::BuiltinStruct;
+pub use enumerate::{EnumerateType, EnumerateValue};
 pub use exception::{ExceptionType, ExceptionValue};
 pub use list::{ListStructFields, ListType, ListValue};
 pub use ndarray::{

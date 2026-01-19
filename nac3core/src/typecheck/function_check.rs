@@ -76,7 +76,9 @@ impl Inferencer<'_> {
         // there are some cases where the custom field is None
         if let Some(ty) = &expr.custom
             && !matches!(&expr.node, ExprKind::Constant { value: Constant::Ellipsis, .. })
-            && ty.obj_id(self.unifier).is_none_or(|id| id != PrimDef::List.id())
+            && ty
+                .obj_id(self.unifier)
+                .is_none_or(|id| id != PrimDef::List.id() && id != PrimDef::Enumerate.id())
             && !self.unifier.is_concrete(*ty, &self.function_data.bound_variables)
         {
             let ty_enum = self.unifier.get_ty(*ty);

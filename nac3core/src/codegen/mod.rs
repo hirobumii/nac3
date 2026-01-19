@@ -44,8 +44,8 @@ use crate::{
         llvm_fns::FunctionStore,
         stmt::{gen_dyn_array_var, get_personality},
         types::{
-            ExceptionType, ListType, NDArrayType, OptionType, ProxyType, RangeType, RefType,
-            StringType, TupleType,
+            EnumerateType, ExceptionType, ListType, NDArrayType, OptionType, ProxyType, RangeType,
+            RefType, StringType, TupleType,
         },
     },
     symbol_resolver::{StaticValue, SymbolResolver},
@@ -764,6 +764,7 @@ pub fn gen_func_impl<
         bool: unifier.get_representative(primitives.bool),
         none: unifier.get_representative(primitives.none),
         range: unifier.get_representative(primitives.range),
+        enumerate: unifier.get_representative(primitives.enumerate),
         str: unifier.get_representative(primitives.str),
         exception: unifier.get_representative(primitives.exception),
         option: unifier.get_representative(primitives.option),
@@ -779,6 +780,7 @@ pub fn gen_func_impl<
         (primitives.bool, ctx.i8.into()),
         (primitives.str, { StringType::new(&ctx).llvm_ty(&ctx) }),
         (primitives.range, RangeType::new(&ctx).llvm_ty(&ctx)),
+        (primitives.enumerate, EnumerateType::new(&ctx).llvm_ty(&ctx)),
         (primitives.exception, { ExceptionType::new(&ctx).llvm_ty(&ctx) }),
     ]
     .iter()

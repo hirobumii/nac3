@@ -32,7 +32,7 @@ use crate::{
         stmt::{exn_constructor, gen_if_callback, gen_var},
         typed_store,
         types::{
-            NDArrayType, ProxyTypeExt, RangeField, RangeType, ScalarOrNDArray,
+            EnumerateType, NDArrayType, ProxyTypeExt, RangeField, RangeType, ScalarOrNDArray,
             parse_numpy_int_sequence,
         },
     },
@@ -374,6 +374,9 @@ impl<'a> BuiltinBuilder<'a> {
             | PrimDef::UInt64 => Self::build_simple_primitive_class(prim),
 
             PrimDef::Range | PrimDef::FunRangeInit => self.build_range_class_related(prim),
+            PrimDef::Enumerate | PrimDef::FunEnumerateInit => {
+                self.build_enumerate_class_related(prim)
+            }
 
             PrimDef::Exception => self.build_exception_class_related(prim),
 
@@ -696,6 +699,99 @@ impl<'a> BuiltinBuilder<'a> {
                     zelf.store_field(ctx, RangeField::Start, start);
                     zelf.store_field(ctx, RangeField::End, stop);
                     zelf.store_field(ctx, RangeField::Step, step);
+
+                    Ok(Some(zelf.value.into()))
+                })))),
+                loc: None,
+            },
+
+            _ => unreachable!(),
+        }
+    }
+
+    fn build_enumerate_class_related(&mut self, prim: PrimDef) -> TopLevelDef {
+        debug_assert_prim_is_allowed(prim, &[PrimDef::Enumerate, PrimDef::FunEnumerateInit]);
+
+        let PrimitiveStore { int32, enumerate, .. } = *self.primitives;
+
+        let arg_tvar = self.unifier.get_dummy_var();
+
+        let ctor_signature = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
+            args: vec![
+                FuncArg {
+                    name: "iterable".into(),
+                    ty: arg_tvar.ty,
+                    default_value: None,
+                    is_vararg: false,
+                },
+                FuncArg {
+                    name: "start".into(),
+                    ty: int32,
+                    default_value: Some(SymbolValue::I32(0)),
+                    is_vararg: false,
+                },
+            ],
+            ret: enumerate,
+            vars: VarMap::default(),
+        }));
+        match prim {
+            PrimDef::Enumerate => {
+                let fields =
+                    vec![("iterable".into(), arg_tvar.ty, true), ("start".into(), int32, true)];
+                TopLevelDef::Class {
+                    name: prim.name().into(),
+                    simple_name: prim
+                        .name()
+                        .rsplit_once('.')
+                        .map_or(prim.name(), |(_, nme)| nme)
+                        .to_string(),
+                    object_id: prim.id(),
+                    type_vars: Vec::default(),
+                    fields,
+                    attributes: Vec::default(),
+                    methods: vec![(
+                        "__init__".into(),
+                        ctor_signature,
+                        PrimDef::FunEnumerateInit.id(),
+                    )],
+                    ancestors: Vec::default(),
+                    constructor: Some(ctor_signature),
+                    resolver: None,
+                    loc: None,
+                }
+            }
+            PrimDef::FunEnumerateInit => TopLevelDef::Function {
+                name: prim.name().into(),
+                simple_name: prim.simple_name().into(),
+                signature: ctor_signature,
+                var_id: Vec::default(),
+                attributes: Vec::default(),
+                instance_to_symbol: HashMap::default(),
+                instance_to_stmt: HashMap::default(),
+                resolver: None,
+                codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, obj, _, args| {
+                    use crate::codegen::types::{ProxyTypeExt as _, field};
+
+                    let (zelf_ty, zelf) = obj.unwrap();
+                    let zelf = zelf.to_basic_value_enum(ctx, zelf_ty)?.into_pointer_value();
+                    let zelf = EnumerateType::new(&ctx.inner).map_value(zelf, Some("enumerate"));
+
+                    let ty_i32 = ctx.primitives.int32;
+                    let int32 = ctx.i32;
+
+                    let mut start = None;
+
+                    for (i, arg) in args.iter().enumerate() {
+                        if arg.0 == Some("start".into()) || i == 1 {
+                            start = Some(
+                                arg.1.clone().to_basic_value_enum(ctx, ty_i32)?.into_int_value(),
+                            );
+                        }
+                    }
+
+                    let start = start.unwrap_or_else(|| int32.const_zero());
+
+                    zelf.store(ctx, field!(start), start);
 
                     Ok(Some(zelf.value.into()))
                 })))),
