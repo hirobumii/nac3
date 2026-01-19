@@ -35,6 +35,9 @@ class Demo:
         for z in enumerated_tuple3:
             z[0]
             z[1]
+        for (h, u) in enumerated_tuple2:
+            h
+            u
         for p in enumerated_list:
             p[0]
             p[1]
@@ -44,6 +47,9 @@ class Demo:
         for r in enumerated_list3:
             r[0]
             r[1]
+        for (m, n) in enumerated_list2:
+            m
+            n
 
     def run(self):
         self.test()

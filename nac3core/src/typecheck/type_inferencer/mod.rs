@@ -276,7 +276,7 @@ impl Fold<()> for Inferencer<'_> {
                 let target = self.fold_expr(*target)?;
                 let iter = self.fold_expr(*iter)?;
 
-                let element_ty = self.check_iterable(&iter)?;
+                let element_ty = self.check_iterable(&iter, &target)?;
                 self.unify(element_ty, target.custom.unwrap(), &target.location)?;
 
                 let body =
@@ -605,6 +605,7 @@ impl Inferencer<'_> {
     fn get_iterable_element_type(
         &mut self,
         iter: &Expr<Option<Type>>,
+        target: &Expr<Option<Type>>,
     ) -> Result<Option<Type>, InferenceError> {
         let iter_ty = iter.custom.unwrap();
         let ty_enum = self.unifier.get_ty(iter_ty);
@@ -641,10 +642,30 @@ impl Inferencer<'_> {
                     _ => primitives.int32,
                 };
 
-                let resulting_ty = self.unifier.add_ty(TypeEnum::TTuple {
-                    ty: vec![primitives.int32, inner_elem_ty],
-                    is_vararg_ctx: false,
-                });
+                let resulting_ty = match &target.node {
+                    ExprKind::Tuple { elts, .. } if elts.len() == 2 => {
+                        let idx_target_ty = elts[0].custom.unwrap();
+                        let val_target_ty = elts[1].custom.unwrap();
+                        self.unify(primitives.int32, idx_target_ty, &target.location)?;
+                        self.unify(inner_elem_ty, val_target_ty, &target.location)?;
+                        self.unifier.add_ty(TypeEnum::TTuple {
+                            ty: vec![idx_target_ty, val_target_ty],
+                            is_vararg_ctx: false,
+                        })
+                    }
+                    ExprKind::Name { .. } => self.unifier.add_ty(TypeEnum::TTuple {
+                        ty: vec![primitives.int32, inner_elem_ty],
+                        is_vararg_ctx: false,
+                    }),
+                    _ => {
+                        let iter_ty = iter.custom.unwrap();
+                        let iter_ty_str = self.unifier.stringify(iter_ty);
+                        return report_error(
+                            &format!("cannot unpack '{iter_ty_str}' object (expected 2 items)"),
+                            iter.location,
+                        );
+                    }
+                };
 
                 Ok(Some(resulting_ty))
             }
@@ -693,10 +714,14 @@ impl Inferencer<'_> {
     }
 
     /// Check if a type is iterable. Returns `Ok(())` if iterable, otherwise returns an error.
-    fn check_iterable(&mut self, iter: &Expr<Option<Type>>) -> Result<Type, InferenceError> {
+    fn check_iterable(
+        &mut self,
+        iter: &Expr<Option<Type>>,
+        target: &Expr<Option<Type>>,
+    ) -> Result<Type, InferenceError> {
         let iter_ty = iter.custom.unwrap();
         let location = iter.location;
-        if let Some(elem_ty) = self.get_iterable_element_type(iter)? {
+        if let Some(elem_ty) = self.get_iterable_element_type(iter, target)? {
             Ok(elem_ty)
         } else {
             let iter_ty_str = self.unifier.stringify(iter_ty);
@@ -1148,7 +1173,7 @@ impl Inferencer<'_> {
                 let iterable = self.fold_expr(args.remove(0))?;
                 let iterable_ty = iterable.custom.unwrap();
 
-                self.check_iterable(&iterable)?;
+                self.check_iterable(&iterable, &promoted_func)?;
                 args_new.push(iterable);
 
                 if !args.is_empty() {

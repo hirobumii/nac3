@@ -189,6 +189,35 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             }
             .unwrap()
         }
+        ExprKind::Tuple { elts, .. } => {
+            let elts: Vec<PointerValue<'ctx>> = elts
+                .iter()
+                .map(|e| {
+                    generator.gen_store_target(ctx, e, name).and_then(|v| {
+                        v.ok_or_else(|| "failed to generate store target".to_string())
+                    })
+                })
+                .collect::<Result<_, _>>()?;
+            let struct_ty =
+                ctx.ctx.struct_type(&elts.iter().map(|p| p.get_type().into()).collect_vec(), false);
+            let struct_ptr = gen_var(ctx, struct_ty, name);
+            for (i, elt) in elts.iter().enumerate() {
+                ctx.builder
+                    .build_store(
+                        unsafe {
+                            ctx.builder.build_in_bounds_gep(
+                                struct_ptr,
+                                &[ctx.i32.const_zero(), ctx.i32.const_int(i as u64, false)],
+                                "",
+                            )
+                        }
+                        .unwrap(),
+                        *elt,
+                    )
+                    .unwrap();
+            }
+            struct_ptr
+        }
         _ => codegen_unreachable!(ctx),
     }))
 }
@@ -705,18 +734,20 @@ fn build_tuple_elem_switch<'ctx>(
 /// * `element_ty` - The type of the iterable elements, if known.
 /// * `length` - The length of the iterable.
 /// * `start` - The starting index for enumeration.
+/// * `target_expr` - The target expression to store the current element and/or the current index.
 /// * `target_i` - The pointer to store the current index.
 /// * `get_first_elem` - A closure that returns the first element of the iterable.
 /// * `get_next_elem` - A closure that returns the next element given the next index.
 /// * `body` - The body of the loop.
 /// * `orelse` - The `else` block of the loop.
 #[allow(clippy::too_many_arguments)]
-fn gen_for_enumerate<'ctx, G, GetFirst, GetNext>(
+fn gen_for_enumerate<'ctx, G, GetFirst, GetNext, U>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     element_ty: Option<Type>,
     length: IntValue<'ctx>,
     start: IntValue<'ctx>,
+    target_expr: &ExprKind<U>,
     target_i: PointerValue<'ctx>,
     get_first_elem: GetFirst,
     get_next_elem: GetNext,
@@ -758,9 +789,35 @@ where
             ))
         },
         |generator, ctx, _, iv_pair| {
-            ctx.builder
-                .build_store(target_i, ctx.builder.build_load(iv_pair, "iv").unwrap())
-                .unwrap();
+            match target_expr {
+                ExprKind::Tuple { elts, .. } if elts.len() == 2 => {
+                    let i = ctx.builder.build_struct_gep(iv_pair, 0, "i").unwrap();
+                    let i_val = ctx
+                        .builder
+                        .build_load(i, "i_val")
+                        .map(BasicValueEnum::into_int_value)
+                        .unwrap();
+                    let ptr_1 = ctx.builder.build_struct_gep(target_i, 0, "tuple.0").unwrap();
+                    let addr_1 =
+                        ctx.builder.build_load(ptr_1, "tuple.0.addr").unwrap().into_pointer_value();
+                    ctx.builder.build_store(addr_1, i_val).unwrap();
+                    let v = ctx.builder.build_struct_gep(iv_pair, 1, "v").unwrap();
+                    let v_val = ctx.builder.build_load(v, "").unwrap();
+                    let ptr_2 = ctx.builder.build_struct_gep(target_i, 1, "tuple.1").unwrap();
+                    let addr_2 =
+                        ctx.builder.build_load(ptr_2, "tuple.1.addr").unwrap().into_pointer_value();
+                    ctx.builder.build_store(addr_2, v_val).unwrap();
+                }
+                ExprKind::Name { .. } => {
+                    ctx.builder
+                        .build_store(target_i, ctx.builder.build_load(iv_pair, "iv").unwrap())
+                        .unwrap();
+                }
+                _ => codegen_unreachable!(
+                    ctx,
+                    "expected target expression of for enumerate to be a Name or a Tuple"
+                ),
+            }
             generator.gen_block(ctx, body.iter())?;
             Ok(())
         },
@@ -932,6 +989,7 @@ pub fn gen_for<G: CodeGenerator>(
                         element_ty,
                         length,
                         start,
+                        &target.node,
                         target_i,
                         |ctx| {
                             iterable.data(ctx).get_unchecked(
@@ -964,6 +1022,7 @@ pub fn gen_for<G: CodeGenerator>(
                         element_ty,
                         length,
                         start,
+                        &target.node,
                         target_i,
                         |ctx| iterable.extract(ctx, 0),
                         |ctx, next_i| {
