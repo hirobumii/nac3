@@ -19,11 +19,11 @@ use crate::{
         irrt::{handle_slice_indices, list_slice_assignment},
         llvm_fns::FunctionDecl,
         macros::codegen_unreachable,
-        typed_store,
+        typed_load, typed_store,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, ExceptionType, ExceptionValue, ListType, ListValue,
-            NDArrayType, ProxyTypeExt, RangeType, RustNDIndex, ScalarOrNDArray, StringType,
-            TupleType, broadcast, field,
+            ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
+            ListType, ListValue, NDArrayType, ProxyTypeExt, RangeType, RustNDIndex,
+            ScalarOrNDArray, StringType, TupleType, TupleValue, broadcast, field,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -600,8 +600,7 @@ where
     // The BB containing the increment expression
     let update_bb = ctx.ctx.insert_basic_block_after(body_bb, &format!("{label}.update"));
     let orelse_bb = ctx.ctx.insert_basic_block_after(update_bb, &format!("{label}.orelse"));
-    let cont_bb = ctx.ctx.insert_basic_block_after(update_bb, &format!("{label}.end"));
-
+    let cont_bb = ctx.ctx.insert_basic_block_after(orelse_bb, &format!("{label}.end"));
     // store loop bb information and restore it later
     let loop_bb = ctx.loop_target.replace((update_bb, cont_bb));
 
@@ -658,6 +657,109 @@ where
     ctx.loop_target = loop_bb;
 
     Ok(())
+}
+
+/// Generates a `for` statement with `enumerate(tuple)` as its iterable object.
+///
+/// * `tuple` - The tuple to iterate over.
+/// * `element_ty` - The type of the tuple elements, if known.
+/// * `length` - The length of the tuple.
+/// * `start` - The starting index for enumeration.
+/// * `target_i` - The pointer to store the current index.
+/// * `body` - The body of the loop.
+/// * `orelse` - The `else` block of the loop.
+#[allow(clippy::too_many_arguments)]
+fn gen_for_enumerate_tuple<'ctx, G: CodeGenerator>(
+    generator: &mut G,
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    tuple: TupleValue<'ctx>,
+    element_ty: Option<Type>,
+    length: u64,
+    start: IntValue<'ctx>,
+    target_i: PointerValue<'ctx>,
+    body: &[Stmt<Option<Type>>],
+    orelse: &[Stmt<Option<Type>>],
+) -> Result<(), String> {
+    let int32 = ctx.i32;
+    let default_element_ty = ctx.get_llvm_type(element_ty.unwrap_or(ctx.primitives.int32));
+    gen_for_callback(
+        generator,
+        ctx,
+        None,
+        |_, ctx| {
+            let element_struct = ctx.ctx.struct_type(&[int32.into(), default_element_ty], false);
+            let iv_pair = gen_var(ctx, element_struct, Some("for.v.addr"));
+            let i = ctx.builder.build_struct_gep(iv_pair, 0, "i").unwrap();
+            ctx.builder.build_store(i, start).unwrap();
+            if element_ty.is_some() {
+                let first_v = tuple.extract(ctx, 0);
+                let v = ctx.builder.build_struct_gep(iv_pair, 1, "v").unwrap();
+                ctx.builder.build_store(v, first_v).unwrap();
+            }
+            Ok(iv_pair)
+        },
+        |_, ctx, iv_pair| {
+            let i = ctx.builder.build_struct_gep(iv_pair, 0, "i").unwrap();
+            let i_val =
+                ctx.builder.build_load(i, "i_val").map(BasicValueEnum::into_int_value).unwrap();
+            Ok(gen_in_range_check(
+                ctx,
+                ctx.builder.build_int_sub(i_val, start, "sub").unwrap(),
+                int32.const_int(length, false),
+                int32.const_int(1, false),
+            ))
+        },
+        |generator, ctx, _, iv_pair| {
+            ctx.builder
+                .build_store(target_i, ctx.builder.build_load(iv_pair, "iv").unwrap())
+                .unwrap();
+            generator.gen_block(ctx, body.iter())?;
+            Ok(())
+        },
+        |_, ctx, iv_pair| {
+            let update_bb = ctx.builder.get_insert_block().unwrap();
+            if element_ty.is_some() {
+                let merge_bb = ctx.ctx.insert_basic_block_after(update_bb, "tuple.merge");
+                let mut tmp_bb = update_bb;
+                let mut cases = Vec::new();
+                for idx in 0..length {
+                    let case_bb =
+                        ctx.ctx.insert_basic_block_after(tmp_bb, &format!("tuple.case.{idx}"));
+                    cases.push((int32.const_int(idx, false), case_bb));
+                    tmp_bb = case_bb;
+                }
+                let i = ctx.builder.build_struct_gep(iv_pair, 0, "i").unwrap();
+                let i_val =
+                    ctx.builder.build_load(i, "i_val").map(BasicValueEnum::into_int_value).unwrap();
+                let next_i =
+                    ctx.builder.build_int_add(i_val, int32.const_int(1, false), "inc").unwrap();
+                ctx.builder.build_store(i, next_i).unwrap();
+                ctx.builder
+                    .build_switch(
+                        ctx.builder.build_int_sub(next_i, start, "sub").unwrap(),
+                        merge_bb,
+                        &cases,
+                    )
+                    .unwrap();
+                ctx.builder.position_at_end(merge_bb);
+                let phi = ctx.builder.build_phi(default_element_ty, "tuple.elem.phi").unwrap();
+                for (idx, (_, case_bb)) in cases.iter().take(length as usize).enumerate() {
+                    ctx.builder.position_at_end(*case_bb);
+                    let elem_val = tuple.extract(ctx, idx as u32);
+                    ctx.builder.build_unconditional_branch(merge_bb).unwrap();
+                    phi.add_incoming(&[(&elem_val, *case_bb)]);
+                }
+                ctx.builder.position_at_end(merge_bb);
+                let default_value = default_element_ty.const_zero();
+                phi.add_incoming(&[(&default_value, update_bb)]);
+                let next_v = phi.as_basic_value();
+                let v = ctx.builder.build_struct_gep(iv_pair, 1, "v").unwrap();
+                ctx.builder.build_store(v, next_v).unwrap();
+            }
+            Ok(())
+        },
+        |generator, ctx| generator.gen_block(ctx, orelse.iter()),
+    )
 }
 
 /// See [`CodeGenerator::gen_for`].
@@ -752,6 +854,71 @@ pub fn gen_for<G: CodeGenerator>(
                 },
                 |generator, ctx| generator.gen_block(ctx, orelse.iter()),
             )?;
+        }
+        TypeEnum::TObj { obj_id, params, .. }
+            if *obj_id == ctx.primitives.enumerate.obj_id(&ctx.unifier).unwrap() =>
+        {
+            let enumerate =
+                EnumerateType::new(ctx).map_value(iter_val.into_pointer_value(), Some("enumerate"));
+            let start = enumerate.load(ctx, field!(start));
+            let Some(target_i) =
+                generator.gen_store_target(ctx, target, Some("for.target.addr"))?
+            else {
+                codegen_unreachable!(ctx)
+            };
+            let (iterable_ty, iterable_val) = if let ExprKind::Call { args, .. } = &iter.node {
+                let ag = generator.gen_expr(ctx, &args[0])?.to_basic_value_enum(ctx)?;
+                let iterable_ty = args[0].custom.unwrap();
+                (iterable_ty, ag)
+            } else {
+                let iterable_ptr = enumerate.load(ctx, field!(iterable));
+                let iterable_struct_ty =
+                    ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
+                let iterable_struct_val = typed_load(
+                    &ctx.builder,
+                    iterable_ptr,
+                    iterable_struct_ty.into(),
+                    "iterable_struct",
+                )
+                .into_struct_value();
+                let iterable_data_i8ptr = ctx
+                    .builder
+                    .build_extract_value(iterable_struct_val, 0, "iterable_data")
+                    .unwrap();
+                let iterable_ty = iter_type_vars(params).nth(1).unwrap().ty;
+                let iterable_llvm_ty = ctx.get_llvm_type(iterable_ty);
+                let ag = typed_load(
+                    &ctx.builder,
+                    iterable_data_i8ptr.into_pointer_value(),
+                    iterable_llvm_ty,
+                    "iterable_struct",
+                );
+                (iterable_ty, ag)
+            };
+            match &*ctx.unifier.get_ty(iterable_ty) {
+                TypeEnum::TTuple { ty: tuple_tys, .. } => {
+                    let iterable = TupleType::from_unifier_type(ctx, iterable_ty)
+                        .map_value(iterable_val.into_struct_value(), Some("tuple"));
+                    let element_ty = if tuple_tys.is_empty() { None } else { Some(tuple_tys[0]) };
+                    gen_for_enumerate_tuple(
+                        generator,
+                        ctx,
+                        iterable,
+                        element_ty,
+                        tuple_tys.len() as u64,
+                        start,
+                        target_i,
+                        body,
+                        orelse,
+                    )?;
+                }
+                _ => {
+                    return Err(format!(
+                        "enumerate() with unsupported iterable type: {:?}",
+                        ctx.unifier.get_ty(iterable_ty)
+                    ));
+                }
+            }
         }
         TypeEnum::TObj { obj_id, params: list_params, .. }
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
