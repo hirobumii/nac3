@@ -30,10 +30,9 @@ use crate::{
         FunAttribute, TopLevelContext, TopLevelDef,
         composer::promote_expr_type,
         helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims, extract_ndims},
-        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+        numpy::{make_ndarray_ty, subst_ndarray_tvars, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
     },
-    typecheck::unification_table::UnificationKey,
 };
 
 #[cfg(test)]
@@ -276,10 +275,102 @@ impl Fold<()> for Inferencer<'_> {
                 self.infer_pattern(&target)?;
                 let target = self.fold_expr(*target)?;
                 let iter = self.fold_expr(*iter)?;
+                if self.unifier.unioned(iter.custom.unwrap(), self.primitives.range) {
+                    self.unify(self.primitives.int32, target.custom.unwrap(), &target.location)?;
+                } else {
+                    let iter_ty = iter.custom.unwrap();
+                    let list_like_ty = match &*self.unifier.get_ty(iter_ty) {
+                        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
+                            let list_tvar = iter_type_vars(params).nth(0).unwrap();
+                            self.unifier
+                                .subst(
+                                    self.primitives.list,
+                                    &into_var_map([TypeVar {
+                                        id: list_tvar.id,
+                                        ty: target.custom.unwrap(),
+                                    }]),
+                                )
+                                .unwrap()
+                        }
+                        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
+                            let (dtype, ndims) = unpack_ndarray_var_tys(self.unifier, iter_ty);
+                            let kndims = extract_ndims(self.unifier, ndims) - 1;
 
-                let element_ty = self.check_iterable(&iter)?;
-                self.unify(element_ty, target.custom.unwrap(), &target.location)?;
+                            if kndims == 0 {
+                                self.unify(dtype, target.custom.unwrap(), &target.location)?;
+                            } else {
+                                let kndims_ty = self
+                                    .unifier
+                                    .get_fresh_literal(vec![SymbolValue::U64(kndims)], None);
+                                let target_ndarray_ty = make_ndarray_ty(
+                                    self.unifier,
+                                    self.primitives,
+                                    Some(dtype),
+                                    Some(kndims_ty),
+                                );
+                                self.unify(
+                                    target_ndarray_ty,
+                                    target.custom.unwrap(),
+                                    &target.location,
+                                )?;
+                            }
 
+                            subst_ndarray_tvars(
+                                self.unifier,
+                                self.primitives.ndarray,
+                                Some(dtype),
+                                Some(ndims),
+                            )
+                        }
+                        TypeEnum::TObj { obj_id, params, .. }
+                            if *obj_id == PrimDef::Enumerate.id() =>
+                        {
+                            let iterable_ty = iter_type_vars(params).nth(0).unwrap();
+                            let element_type = match &*self.unifier.get_ty(iterable_ty.ty) {
+                                TypeEnum::TObj { obj_id, params, .. }
+                                    if *obj_id
+                                        == self.primitives.list.obj_id(self.unifier).unwrap() =>
+                                {
+                                    iter_type_vars(params).nth(0).unwrap().ty
+                                }
+                                TypeEnum::TTuple { ty: tuple_tys, .. } => {
+                                    if tuple_tys.is_empty() {
+                                        self.primitives.int32
+                                    } else {
+                                        tuple_tys[0]
+                                    }
+                                }
+                                _ => self.primitives.int32,
+                            };
+                            let target_ty = self.unifier.add_ty(TypeEnum::TTuple {
+                                ty: vec![self.primitives.int32, element_type],
+                                is_vararg_ctx: false,
+                            });
+                            self.unify(target_ty, target.custom.unwrap(), &target.location)?;
+                            let enumerate_tvar = iter_type_vars(params).nth(0).unwrap();
+                            self.unifier
+                                .subst(
+                                    self.primitives.enumerate,
+                                    &into_var_map([TypeVar {
+                                        id: enumerate_tvar.id,
+                                        ty: target.custom.unwrap(),
+                                    }]),
+                                )
+                                .unwrap()
+                        }
+                        _ => {
+                            // User is attempting to use a for loop to iterate
+                            // over a value of an unsupported type.
+                            let iter_ty = iter.custom.unwrap();
+                            let iter_ty_str = self.unifier.stringify(iter_ty);
+                            return report_error(
+                                &format!("'{iter_ty_str}' object is not iterable"),
+                                iter.location,
+                            );
+                        }
+                    };
+                    self.unify(list_like_ty, iter.custom.unwrap(), &iter.location)?;
+                }
                 let body =
                     body.into_iter().map(|b| self.fold_stmt(b)).collect::<Result<Vec<_>, _>>()?;
                 let orelse =
@@ -599,113 +690,6 @@ impl Inferencer<'_> {
             }
             ExprKind::Starred { value, .. } => self.infer_pattern(value),
             _ => Ok(()),
-        }
-    }
-
-    /// Check if a type is iterable and return its element type.
-    fn get_iterable_element_type(
-        &mut self,
-        iter: &Located<ExprKind<Option<UnificationKey>>, Option<UnificationKey>>,
-    ) -> Result<Option<Type>, InferenceError> {
-        let iter_ty = iter.custom.unwrap();
-        let ty_enum = self.unifier.get_ty(iter_ty);
-
-        match &*ty_enum {
-            TypeEnum::TObj { obj_id, .. }
-                if *obj_id == self.primitives.range.obj_id(self.unifier).unwrap() =>
-            {
-                Ok(Some(self.primitives.int32))
-            }
-
-            TypeEnum::TObj { obj_id, .. }
-                if *obj_id == self.primitives.enumerate.obj_id(self.unifier).unwrap() =>
-            {
-                let inner_elem_ty = if let ExprKind::Call { args, .. } = &iter.node {
-                    let arg0_ty = args[0].custom.unwrap();
-                    match &*self.unifier.get_ty(arg0_ty) {
-                        TypeEnum::TTuple { ty: tuple_tys, .. } => {
-                            tuple_tys.first().copied().unwrap_or(self.primitives.int32)
-                        }
-                        _ => self.primitives.int32,
-                    }
-                } else {
-                    let TypeEnum::TObj { params, .. } = &*self.unifier.get_ty(iter_ty) else {
-                        unreachable!("enumerate should be a TObj")
-                    };
-
-                    let enumerate_iterable_ty = iter_type_vars(params).nth(1).unwrap().ty;
-                    let iterable_ty = self.unifier.get_representative(enumerate_iterable_ty);
-
-                    match &*self.unifier.get_ty(iterable_ty) {
-                        TypeEnum::TTuple { ty: tuple_tys, .. } => {
-                            tuple_tys.first().copied().unwrap_or(self.primitives.int32)
-                        }
-                        _ => self.primitives.int32,
-                    }
-                };
-                let element_ty = self.unifier.add_ty(TypeEnum::TTuple {
-                    ty: vec![self.primitives.int32, inner_elem_ty],
-                    is_vararg_ctx: false,
-                });
-
-                Ok(Some(element_ty))
-            }
-
-            TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
-                let element_ty = iter_type_vars(params).nth(0).unwrap().ty;
-                Ok(Some(element_ty))
-            }
-
-            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                let (dtype, ndims) = unpack_ndarray_var_tys(self.unifier, iter_ty);
-                let kndims = extract_ndims(self.unifier, ndims);
-
-                if kndims == 0 {
-                    Ok(None)
-                } else if kndims == 1 {
-                    Ok(Some(dtype))
-                } else {
-                    let new_ndims =
-                        self.unifier.get_fresh_literal(vec![SymbolValue::U64(kndims - 1)], None);
-                    let element_ty = make_ndarray_ty(
-                        self.unifier,
-                        self.primitives,
-                        Some(dtype),
-                        Some(new_ndims),
-                    );
-                    Ok(Some(element_ty))
-                }
-            }
-
-            TypeEnum::TTuple { ty: tuple_tys, is_vararg_ctx } => {
-                if tuple_tys.is_empty() {
-                    Ok(Some(self.unifier.get_dummy_var().ty))
-                } else if *is_vararg_ctx || tuple_tys.iter().all_equal() {
-                    Ok(Some(tuple_tys[0]))
-                } else {
-                    report_error(
-                        "Only tuples with items of the same type are accepted.",
-                        iter.location,
-                    )
-                }
-            }
-
-            _ => Ok(None),
-        }
-    }
-
-    /// Check if a type is iterable. Returns `Ok(())` if iterable, otherwise returns an error.
-    fn check_iterable(
-        &mut self,
-        iter: &Located<ExprKind<Option<UnificationKey>>, Option<UnificationKey>>,
-    ) -> Result<Type, InferenceError> {
-        let iter_ty = iter.custom.unwrap();
-        let location = iter.location;
-        if let Some(elem_ty) = self.get_iterable_element_type(iter)? {
-            Ok(elem_ty)
-        } else {
-            let iter_ty_str = self.unifier.stringify(iter_ty);
-            report_error(&format!("'{iter_ty_str}' object is not iterable"), location)
         }
     }
 
@@ -1143,53 +1127,6 @@ impl Inferencer<'_> {
                     node: ExprKind::Call {
                         func: Box::new(promoted_func),
                         args: vec![obj],
-                        keywords: vec![],
-                    },
-                }))
-            }
-
-            (PrimDef::Enumerate, _) if !args.is_empty() => {
-                let mut args_new = vec![];
-                let iterable = self.fold_expr(args.remove(0))?;
-                let iterable_ty = iterable.custom.unwrap();
-
-                self.check_iterable(&iterable)?;
-                args_new.push(iterable);
-
-                if !args.is_empty() {
-                    let start = self.fold_expr(args.remove(0))?;
-                    args_new.push(start);
-                }
-
-                let ret_ty = self.primitives.enumerate;
-
-                let func_ty = self.unifier.add_ty(TypeEnum::TFunc(FunSignature {
-                    args: vec![
-                        FuncArg {
-                            name: "iterable".into(),
-                            ty: iterable_ty,
-                            default_value: None,
-                            is_vararg: false,
-                        },
-                        FuncArg {
-                            name: "start".into(),
-                            ty: self.primitives.int32,
-                            default_value: Some(SymbolValue::I32(0)),
-                            is_vararg: false,
-                        },
-                    ],
-                    ret: ret_ty,
-                    vars: VarMap::new(),
-                }));
-
-                promoted_func.custom = Some(func_ty);
-
-                Ok(Some(Located {
-                    location,
-                    custom: Some(ret_ty),
-                    node: ExprKind::Call {
-                        func: Box::new(promoted_func),
-                        args: args_new,
                         keywords: vec![],
                     },
                 }))

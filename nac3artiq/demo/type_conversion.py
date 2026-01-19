@@ -1,6 +1,5 @@
 from min_artiq import *
 enumerated_tuple = enumerate((1, 2, 3))
-enumerated_tuple2 = enumerate((1.1, 2.2, 3.3, 4.4))
 enumerated_list = enumerate([1, 2, 3])
 
 @compile
@@ -19,13 +18,11 @@ class Demo:
         a = enumerated_tuple
         b = enumerated_list
 
-        for x in enumerated_tuple:
-            x[0]
-            x[1]
-        for y in enumerated_tuple2:
-            y[0]
-            y[1]
-        # for y in enumerate((1, 2, 3)):
+        # Doesn't work yet, need the gencode part to support it
+        # for x in enumerated_tuple:
+        #     x[0]
+        #     x[1]
+        # for y in enumerated_list:
         #     y[0]
         #     y[1]
 

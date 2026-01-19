@@ -929,7 +929,7 @@ impl InnerResolver {
                     }
                 }
             }
-            (TypeEnum::TObj { obj_id, .. }, true) if *obj_id == PrimDef::Enumerate.id() => {
+            (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PrimDef::Enumerate.id() => {
                 let (elem_ty, iterable_ty) = match self
                     .get_enumerate_elem_and_iterable_type(py, obj, unifier, defs, primitives)?
                 {
@@ -937,29 +937,29 @@ impl InnerResolver {
                     Err(e) => return Ok(Err(e)),
                 };
 
-                let enumerate_fields = if let TypeEnum::TObj { fields, .. } =
+                let enumerate_tvars = if let TypeEnum::TObj { obj_id, params, .. } =
                     &*unifier.get_ty_immutable(primitives.enumerate)
                 {
-                    fields.clone()
+                    assert_eq!(*obj_id, PrimDef::Enumerate.id());
+                    let tvars: Vec<_> = iter_type_vars(params).collect();
+                    assert_eq!(tvars.len(), 2, "enumerate should have 2 type parameters");
+                    tvars
                 } else {
                     unreachable!()
                 };
-                let return_tvar = unifier.get_fresh_var(Some("enumerate_return".into()), None);
-                let iterable_tvar = unifier.get_fresh_var(Some("enumerate_iterable".into()), None);
-
                 let target_ty = unifier.add_ty(TypeEnum::TTuple {
                     ty: vec![primitives.int32, elem_ty],
                     is_vararg_ctx: false,
                 });
-
-                unifier.unify(return_tvar.ty, target_ty).unwrap();
-                unifier.unify(iterable_tvar.ty, iterable_ty).unwrap();
-
-                Ok(Ok(unifier.add_ty(TypeEnum::TObj {
-                    obj_id: PrimDef::Enumerate.id(),
-                    fields: enumerate_fields,
-                    params: into_var_map([return_tvar, iterable_tvar]),
-                })))
+                Ok(Ok(unifier
+                    .subst(
+                        primitives.enumerate,
+                        &into_var_map([
+                            TypeVar { id: enumerate_tvars[0].id, ty: target_ty },
+                            TypeVar { id: enumerate_tvars[1].id, ty: iterable_ty },
+                        ]),
+                    )
+                    .unwrap()))
             }
             (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PrimDef::NDArray.id() => {
                 let (ty, ndims) = unpack_ndarray_var_tys(unifier, extracted_ty);
