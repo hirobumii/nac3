@@ -1,3 +1,10 @@
+// TODO(ivan): The various `StructFields` structs are very large. This leads to
+// all Types and Values also being very large, yet they are supposed to be cheaply
+// copyable. Consider refactoring such that one does not generate StructFields
+// repeatedly and copy them around.
+#![allow(clippy::large_types_passed_by_value)]
+#![allow(clippy::large_enum_variant)]
+
 use std::{
     cell::OnceCell,
     collections::{HashMap, HashSet},
@@ -22,7 +29,10 @@ use inkwell::{
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{BasicType, BasicTypeEnum, FloatType, IntType, PointerType},
-    values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue},
+    values::{
+        BasicValue, BasicValueEnum, FunctionValue, InstructionValue, IntValue, PhiValue,
+        PointerValue,
+    },
 };
 use itertools::Itertools;
 use parking_lot::{Condvar, Mutex};
@@ -30,13 +40,16 @@ use parking_lot::{Condvar, Mutex};
 use nac3parser::ast::{Location, Stmt, StrRef};
 
 use crate::{
-    codegen::{llvm_fns::FunctionStore, stmt::get_personality},
-    symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{
-        TopLevelContext, TopLevelDef,
-        helper::{PrimDef, extract_ndims},
-        numpy::unpack_ndarray_var_tys,
+    codegen::{
+        llvm_fns::FunctionStore,
+        stmt::{gen_dyn_array_var, get_personality},
+        types::{
+            ExceptionType, ListType, NDArrayType, OptionType, ProxyType, RangeType, RefType,
+            StringType, TupleType,
+        },
     },
+    symbol_resolver::{StaticValue, SymbolResolver},
+    toplevel::{TopLevelContext, TopLevelDef, helper::PrimDef},
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
@@ -45,10 +58,6 @@ use crate::{
 use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
 pub use llvm_fns::FunctionDecl;
-use types::{
-    ExceptionType, ListType, OptionType, ProxyType, RangeType, StringType, TupleType,
-    ndarray::NDArrayType,
-};
 
 pub mod builtin_fns;
 pub mod concrete_type;
@@ -61,7 +70,6 @@ pub mod llvm_intrinsics;
 pub mod numpy;
 pub mod stmt;
 pub mod types;
-pub mod values;
 
 #[cfg(test)]
 mod test;
@@ -213,6 +221,7 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub var_assignment: HashMap<StrRef, VarValue<'ctx>>,
 
     pub type_cache: HashMap<Type, BasicTypeEnum<'ctx>>,
+    pub alloca_type_cache: HashMap<Type, BasicTypeEnum<'ctx>>,
     pub primitives: PrimitiveStore,
     pub calls: Arc<HashMap<CodeLocation, CallId>>,
     pub registry: &'a WorkerRegistry,
@@ -222,7 +231,7 @@ pub struct CodeGenContext<'ctx, 'a> {
 
     /// [`BasicBlock`] containing all `alloca` statements for the current function.
     pub init_bb: BasicBlock<'ctx>,
-    pub exception_val: Option<PointerValue<'ctx>>,
+    pub exception_val: PointerValue<'ctx>,
 
     /// The header and exit basic blocks of a loop in this context. See
     /// <https://llvm.org/docs/LoopTerminology.html> for explanation of these terminology.
@@ -470,6 +479,55 @@ pub struct CodeGenTask {
     pub id: usize,
 }
 
+/// See [`CodeGenContext::get_alloca_type`].
+fn get_alloca_type<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicTypeEnum<'ctx> {
+    let ty = ctx.unifier.get_representative(ty);
+    if let Some(item) = ctx.alloca_type_cache.get(&ty) {
+        return *item;
+    }
+    let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(ty) else {
+        unreachable!("type {} has no alloca type", ctx.unifier.stringify(ty))
+    };
+
+    let item = if *obj_id == PrimDef::Option.id() {
+        OptionType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+    } else if *obj_id == PrimDef::NDArray.id() {
+        NDArrayType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+    } else if *obj_id == PrimDef::Range.id() {
+        RangeType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+    } else if *obj_id == PrimDef::Exception.id() {
+        ExceptionType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+    } else if *obj_id == PrimDef::List.id() {
+        ListType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+    } else {
+        // a struct with fields in the order of declaration
+        let top_level_defs = ctx.top_level.definitions.read();
+        let TopLevelDef::Class { fields: fields_list, .. } = &*top_level_defs[obj_id.0].read()
+        else {
+            unreachable!()
+        };
+
+        let name = ctx.unifier.stringify(ty);
+        if let Some(t) = ctx.module.get_struct_type(&name) {
+            t
+        } else {
+            let struct_type = ctx.ctx.opaque_struct_type(&name);
+            ctx.alloca_type_cache.insert(ty, struct_type.into());
+            let fields = fields_list
+                .iter()
+                .map(|f| {
+                    get_llvm_type(&ctx.inner, &mut ctx.unifier, &mut ctx.type_cache, fields[&f.0].0)
+                })
+                .collect_vec();
+            struct_type.set_body(&fields, false);
+            struct_type
+        }
+        .as_basic_type_enum()
+    };
+
+    *ctx.alloca_type_cache.entry(ty).insert_entry(item).get()
+}
+
 /// Retrieves the [LLVM type][BasicTypeEnum] corresponding to the [Type].
 ///
 /// This function is used to obtain the in-memory representation of `ty`, e.g. a `bool` variable
@@ -478,7 +536,6 @@ pub struct CodeGenTask {
 fn get_llvm_type<'ctx>(
     ctx: &ModuleContext<'ctx>,
     unifier: &mut Unifier,
-    top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
     ty: Type,
 ) -> BasicTypeEnum<'ctx> {
@@ -487,80 +544,7 @@ fn get_llvm_type<'ctx>(
     type_cache.get(&unifier.get_representative(ty)).copied().unwrap_or_else(|| {
         let ty_enum = unifier.get_ty(ty);
         let result = match &*ty_enum {
-            TypeEnum::TObj { obj_id, fields, .. } => {
-                // check to avoid treating non-class primitives as classes
-                if PrimDef::contains_id(*obj_id) {
-                    return match &*unifier.get_ty_immutable(ty) {
-                        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::Option.id() => {
-                            let element_type = get_llvm_type(
-                                ctx,
-                                unifier,
-                                top_level,
-                                type_cache,
-                                *params.iter().next().unwrap().1,
-                            );
-
-                            OptionType::new(ctx, &element_type).as_abi_type().into()
-                        }
-
-                        TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
-                            let element_type = get_llvm_type(
-                                ctx,
-                                unifier,
-                                top_level,
-                                type_cache,
-                                *params.iter().next().unwrap().1,
-                            );
-
-                            ListType::new(ctx, &element_type).as_abi_type().into()
-                        }
-
-                        TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
-                            let (dtype, ndims) = unpack_ndarray_var_tys(unifier, ty);
-                            let ndims = extract_ndims(unifier, ndims);
-                            let element_type = get_llvm_type(
-                                ctx,  unifier, top_level, type_cache, dtype,
-                            );
-
-                            NDArrayType::new(ctx, element_type, ndims).as_abi_type().into()
-                        }
-
-                        _ => unreachable!(
-                            "LLVM type for primitive {} is missing",
-                            unifier.stringify(ty)
-                        ),
-                    };
-                }
-                // a struct with fields in the order of declaration
-                let top_level_defs = top_level.definitions.read();
-                let TopLevelDef::Class { fields: fields_list, .. } = &*top_level_defs[obj_id.0].read() else {
-                    unreachable!()
-                };
-
-                let name = unifier.stringify(ty);
-                let ty = ctx.module.get_struct_type(&name).unwrap_or_else(|| {
-                    let struct_type = ctx.ctx.opaque_struct_type(&name);
-                    type_cache.insert(
-                        unifier.get_representative(ty),
-                        struct_type.ptr_type(AddressSpace::default()).into(),
-                    );
-                    let fields = fields_list
-                        .iter()
-                        .map(|f| {
-                            get_llvm_type(
-                                ctx,
-                                unifier,
-                                top_level,
-                                type_cache,
-                                fields[&f.0].0,
-                            )
-                        })
-                        .collect_vec();
-                    struct_type.set_body(&fields, false);
-                    struct_type
-                }).ptr_type(AddressSpace::default()).into();
-                return ty;
-            }
+            TypeEnum::TObj { .. } => ctx.ptr.into(),
             TypeEnum::TTuple { ty, is_vararg_ctx } => {
                 // a struct with fields in the order present in the tuple
                 assert!(!is_vararg_ctx, "Tuples in vararg context must be instantiated with the correct number of arguments before calling get_llvm_type");
@@ -568,10 +552,10 @@ fn get_llvm_type<'ctx>(
                 let fields = ty
                     .iter()
                     .map(|ty| {
-                        get_llvm_type(ctx,  unifier, top_level, type_cache, *ty)
+                        get_llvm_type(ctx,  unifier, type_cache, *ty)
                     })
                     .collect_vec();
-                TupleType::new(ctx, &fields).as_abi_type().into()
+                TupleType::new(ctx, &fields).llvm_ty(ctx)
             }
             TypeEnum::TVirtual { .. } => unimplemented!(),
             _ => unreachable!("{}", ty_enum.get_type_name()),
@@ -579,6 +563,35 @@ fn get_llvm_type<'ctx>(
         type_cache.insert(unifier.get_representative(ty), result);
         result
     })
+}
+
+/// Loads a value from the memory location pointed to by `ptr`.
+///
+/// This ignores the original type of `ptr` and casts it to the appropriate pointer type
+/// corresponding to `ty`.
+pub fn typed_load<'ctx>(
+    b: &Builder<'ctx>,
+    ptr: PointerValue<'ctx>,
+    ty: BasicTypeEnum<'ctx>,
+    name: &str,
+) -> BasicValueEnum<'ctx> {
+    let casted_ptr = b.build_pointer_cast(ptr, ty.ptr_type(AddressSpace::default()), "").unwrap();
+    b.build_load(casted_ptr, name).unwrap()
+}
+
+/// Stores `value` into the memory location pointed to by `ptr`.
+///
+/// This ignores the original type of `ptr` and casts it to the appropriate pointer type
+/// corresponding to the type of `value`.
+pub fn typed_store<'ctx>(
+    b: &Builder<'ctx>,
+    ptr: PointerValue<'ctx>,
+    value: impl BasicValue<'ctx>,
+) -> InstructionValue<'ctx> {
+    let value_ty = value.as_basic_value_enum().get_type();
+    let casted_ptr =
+        b.build_pointer_cast(ptr, value_ty.ptr_type(AddressSpace::default()), "").unwrap();
+    b.build_store(casted_ptr, value).unwrap()
 }
 
 /// Retrieves the [LLVM type][`BasicTypeEnum`] corresponding to the [`Type`].
@@ -594,7 +607,6 @@ fn get_llvm_type<'ctx>(
 fn get_llvm_abi_type<'ctx>(
     ctx: &ModuleContext<'ctx>,
     unifier: &mut Unifier,
-    top_level: &TopLevelContext,
     type_cache: &mut HashMap<Type, BasicTypeEnum<'ctx>>,
     primitives: &PrimitiveStore,
     ty: Type,
@@ -604,42 +616,7 @@ fn get_llvm_abi_type<'ctx>(
     if unifier.unioned(ty, primitives.bool) {
         ctx.i1.into()
     } else {
-        get_llvm_type(ctx, unifier, top_level, type_cache, ty)
-    }
-}
-
-/// Returns the [`BasicTypeEnum`] representing a `va_list` struct for variadic arguments.
-#[allow(dead_code)]
-fn get_llvm_valist_type<'ctx>(ctx: ContextRef<'ctx>, triple: &TargetTriple) -> BasicTypeEnum<'ctx> {
-    let triple = TargetMachine::normalize_triple(triple);
-    let triple = triple.as_str().to_str().unwrap();
-    let arch = triple.split('-').next().unwrap();
-
-    let llvm_pi8 = ctx.i8_type().ptr_type(AddressSpace::default());
-
-    // Referenced from parseArch() in llvm/lib/Support/Triple.cpp
-    match arch {
-        "i386" | "i486" | "i586" | "i686" | "riscv32" => {
-            ctx.i8_type().ptr_type(AddressSpace::default()).into()
-        }
-        "amd64" | "x86_64" | "x86_64h" => {
-            let llvm_i32 = ctx.i32_type();
-
-            let va_list_tag = ctx.opaque_struct_type("struct.__va_list_tag");
-            va_list_tag.set_body(
-                &[llvm_i32.into(), llvm_i32.into(), llvm_pi8.into(), llvm_pi8.into()],
-                false,
-            );
-            va_list_tag.into()
-        }
-        "armv7" => {
-            let va_list = ctx.opaque_struct_type("struct.__va_list");
-            va_list.set_body(&[llvm_pi8.into()], false);
-            va_list.into()
-        }
-        triple => {
-            todo!("Unsupported platform for varargs: {triple}")
-        }
+        get_llvm_type(ctx, unifier, type_cache, ty)
     }
 }
 
@@ -770,9 +747,9 @@ pub fn gen_func_impl<
         (primitives.uint64, ctx.i64.into()),
         (primitives.float, ctx.f64.into()),
         (primitives.bool, ctx.i8.into()),
-        (primitives.str, { StringType::new(&ctx).as_abi_type().into() }),
-        (primitives.range, RangeType::new(&ctx).as_abi_type().into()),
-        (primitives.exception, { ExceptionType::new(&ctx).as_abi_type().into() }),
+        (primitives.str, { StringType::new(&ctx).llvm_ty(&ctx) }),
+        (primitives.range, RangeType::new(&ctx).llvm_ty(&ctx)),
+        (primitives.exception, { ExceptionType::new(&ctx).llvm_ty(&ctx) }),
     ]
     .iter()
     .copied()
@@ -792,14 +769,7 @@ pub fn gen_func_impl<
     let ret_type = if unifier.unioned(ret, primitives.none) {
         None
     } else {
-        Some(get_llvm_abi_type(
-            &ctx,
-            &mut unifier,
-            top_level_ctx.as_ref(),
-            &mut type_cache,
-            &primitives,
-            ret,
-        ))
+        Some(get_llvm_abi_type(&ctx, &mut unifier, &mut type_cache, &primitives, ret))
     };
 
     let params = args
@@ -814,15 +784,7 @@ pub fn gen_func_impl<
     let params_type = params
         .iter()
         .map(|arg| {
-            get_llvm_abi_type(
-                &ctx,
-                &mut unifier,
-                top_level_ctx.as_ref(),
-                &mut type_cache,
-                &primitives,
-                arg.ty,
-            )
-            .into()
+            get_llvm_abi_type(&ctx, &mut unifier, &mut type_cache, &primitives, arg.ty).into()
         })
         .collect_vec();
 
@@ -844,8 +806,7 @@ pub fn gen_func_impl<
 
     for (n, arg) in params.iter().enumerate().filter(|(_, arg)| !arg.is_vararg) {
         let param = fn_val.get_nth_param(n as u32).unwrap();
-        let local_type =
-            get_llvm_type(&ctx, &mut unifier, top_level_ctx.as_ref(), &mut type_cache, arg.ty);
+        let local_type = get_llvm_type(&ctx, &mut unifier, &mut type_cache, arg.ty);
         let alloca =
             builder.build_alloca(local_type, &format!("{}.addr", &arg.name.to_string())).unwrap();
 
@@ -864,7 +825,7 @@ pub fn gen_func_impl<
             param
         };
 
-        builder.build_store(alloca, param).unwrap();
+        typed_store(&builder, alloca, param);
         var_assignment.insert(arg.name, (alloca, None, 0));
     }
 
@@ -880,6 +841,12 @@ pub fn gen_func_impl<
         let (_, static_val, _) = var_assignment.get_mut(&params[k].name).unwrap();
         *static_val = Some(v);
     }
+
+    let exception_val = {
+        let exn_type = ExceptionType::new(&ctx).inner.llvm_ty;
+        let ptr = builder.build_alloca(exn_type, "exn").unwrap();
+        builder.build_pointer_cast(ptr, ctx.ptr, "exn").unwrap()
+    };
 
     builder.build_unconditional_branch(body_bb).unwrap();
     builder.position_at_end(body_bb);
@@ -959,9 +926,10 @@ pub fn gen_func_impl<
         registry,
         var_assignment,
         type_cache,
+        alloca_type_cache: HashMap::new(),
         primitives,
         init_bb,
-        exception_val: Option::default(),
+        exception_val,
         builder,
         unifier,
         static_value_store,
@@ -1090,7 +1058,7 @@ pub fn type_aligned_alloca<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     align_ty: impl Into<BasicTypeEnum<'ctx>>,
     size: IntValue<'ctx>,
-    name: Option<&str>,
+    name: Option<&'static str>,
 ) -> PointerValue<'ctx> {
     /// Round `val` up to its modulo `power_of_two`.
     fn round_up<'ctx>(
@@ -1119,7 +1087,6 @@ pub fn type_aligned_alloca<'ctx>(
             .unwrap()
     }
 
-    let llvm_pi8 = ctx.ptr;
     let llvm_usize = ctx.size_t;
     let align_ty: BasicTypeEnum<'ctx> = align_ty.into();
 
@@ -1159,12 +1126,7 @@ pub fn type_aligned_alloca<'ctx>(
     let aligned_slices = ctx.builder.build_int_unsigned_div(buffer_size, alignment, "").unwrap();
 
     // Just to be absolutely sure, alloca in [i8 x alignment] slices
-    let buffer = ctx.builder.build_array_alloca(align_ty, aligned_slices, "").unwrap();
-
-    ctx.builder
-        .build_bit_cast(buffer, llvm_pi8, name.unwrap_or_default())
-        .map(BasicValueEnum::into_pointer_value)
-        .unwrap()
+    gen_dyn_array_var(ctx, align_ty, aligned_slices, name).value.0
 }
 
 /// Contains all global LLVM state that is attached to an LLVM [`Module`] and independent
@@ -1228,6 +1190,10 @@ impl<'ctx> ModuleContext<'ctx> {
         );
 
         Self { ctx, module, target, fn_store, size_t, i1, i8, i32, i64, f64, ptr }
+    }
+
+    pub fn sizeof(&self, ty: impl Copy + BasicType<'ctx>) -> u64 {
+        self.target.get_target_data().get_abi_size(&ty)
     }
 }
 

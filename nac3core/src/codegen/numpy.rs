@@ -5,15 +5,14 @@ use inkwell::{
 
 use nac3parser::ast::StrRef;
 
-use super::{
-    CodeGenContext,
-    macros::codegen_unreachable,
-    stmt::gen_for_callback,
-    types::ndarray::{NDArrayType, NDIterType},
-    values::{ProxyValue, ndarray::shape::parse_numpy_int_sequence},
-};
 use crate::{
-    codegen::bool_to_i1,
+    codegen::{
+        CodeGenContext, bool_to_i1,
+        macros::codegen_unreachable,
+        stmt::{gen_for_callback, gen_var},
+        typed_store,
+        types::{NDArrayType, NDArrayValue, NDIterValue, ProxyTypeExt, parse_numpy_int_sequence},
+    },
     symbol_resolver::ValueEnum,
     toplevel::{
         DefinitionId,
@@ -43,8 +42,8 @@ pub fn gen_ndarray_empty<'ctx>(
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg));
 
     let ndarray =
-        NDArrayType::new(context, llvm_dtype, ndims).construct_numpy_empty(context, &shape, None);
-    Ok(ndarray.as_abi_value(context))
+        NDArrayType::new(context, llvm_dtype, ndims).construct_numpy_empty(context, shape, None);
+    Ok(ndarray.value)
 }
 
 /// Generates LLVM IR for `ndarray.zeros`.
@@ -67,8 +66,8 @@ pub fn gen_ndarray_zeros<'ctx>(
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg));
 
     let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
-        .construct_numpy_zeros(context, dtype, &shape, None);
-    Ok(ndarray.as_abi_value(context))
+        .construct_numpy_zeros(context, dtype, shape, None);
+    Ok(ndarray.value)
 }
 
 /// Generates LLVM IR for `ndarray.ones`.
@@ -91,8 +90,8 @@ pub fn gen_ndarray_ones<'ctx>(
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg));
 
     let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
-        .construct_numpy_ones(context, dtype, &shape, None);
-    Ok(ndarray.as_abi_value(context))
+        .construct_numpy_ones(context, dtype, shape, None);
+    Ok(ndarray.value)
 }
 
 /// Generates LLVM IR for `ndarray.full`.
@@ -118,11 +117,11 @@ pub fn gen_ndarray_full<'ctx>(
 
     let ndarray = NDArrayType::new(context, llvm_dtype, ndims).construct_numpy_full(
         context,
-        &shape,
+        shape,
         fill_value_arg,
         None,
     );
-    Ok(ndarray.as_abi_value(context))
+    Ok(ndarray.value)
 }
 
 pub fn gen_ndarray_array<'ctx>(
@@ -152,11 +151,10 @@ pub fn gen_ndarray_array<'ctx>(
     let ndims = extract_ndims(&context.unifier, ndims);
 
     let copy = bool_to_i1(context, copy_arg.into_int_value());
-    let ndarray = NDArrayType::from_unifier_type(context, fun.0.ret)
-        .construct_numpy_array(context, (obj_ty, obj_arg), copy, None)
+    let ndarray = NDArrayValue::construct_from(context, (obj_ty, obj_arg), copy, None)
         .atleast_nd(context, ndims);
 
-    Ok(ndarray.as_abi_value(context))
+    Ok(ndarray.value)
 }
 
 /// Generates LLVM IR for `ndarray.eye`.
@@ -210,7 +208,7 @@ pub fn gen_ndarray_eye<'ctx>(
 
     let ndarray = NDArrayType::new(context, llvm_dtype, 2)
         .construct_numpy_eye(context, dtype, nrows, ncols, offset, None);
-    Ok(ndarray.as_abi_value(context))
+    Ok(ndarray.value)
 }
 
 /// Generates LLVM IR for `ndarray.identity`.
@@ -237,7 +235,7 @@ pub fn gen_ndarray_identity<'ctx>(
         .unwrap();
     let ndarray =
         NDArrayType::new(context, llvm_dtype, 2).construct_numpy_identity(context, dtype, n, None);
-    Ok(ndarray.as_abi_value(context))
+    Ok(ndarray.value)
 }
 
 /// Generates LLVM IR for `ndarray.copy`.
@@ -254,9 +252,9 @@ pub fn gen_ndarray_copy<'ctx>(
     let this_arg = obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, this_ty)?;
 
     let this = NDArrayType::from_unifier_type(context, this_ty)
-        .map_pointer_value(this_arg.into_pointer_value(), None);
+        .map_value(this_arg.into_pointer_value(), None);
     let ndarray = this.make_copy(context);
-    Ok(ndarray.as_abi_value(context))
+    Ok(ndarray.value)
 }
 
 /// Generates LLVM IR for `ndarray.fill`.
@@ -275,7 +273,7 @@ pub fn gen_ndarray_fill<'ctx>(
     let value_arg = args[0].1.clone().to_basic_value_enum(context, value_ty)?;
 
     let this = NDArrayType::from_unifier_type(context, this_ty)
-        .map_pointer_value(this_arg.into_pointer_value(), None);
+        .map_value(this_arg.into_pointer_value(), None);
     this.fill(context, value_arg);
     Ok(())
 }
@@ -295,12 +293,12 @@ pub fn ndarray_dot<'ctx>(
 
     match (x1, x2) {
         (BasicValueEnum::PointerValue(n1), BasicValueEnum::PointerValue(n2)) => {
-            let a = NDArrayType::from_unifier_type(ctx, x1_ty).map_pointer_value(n1, None);
-            let b = NDArrayType::from_unifier_type(ctx, x2_ty).map_pointer_value(n2, None);
+            let a = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(n1, None);
+            let b = NDArrayType::from_unifier_type(ctx, x2_ty).map_value(n2, None);
 
             // TODO: General `np.dot()` https://numpy.org/doc/stable/reference/generated/numpy.dot.html.
-            assert_eq!(a.get_type().ndims(), 1);
-            assert_eq!(b.get_type().ndims(), 1);
+            assert_eq!(a.ty.ndims, 1);
+            assert_eq!(b.ty.ndims, 1);
             let common_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
 
             // Check shapes.
@@ -318,8 +316,8 @@ pub fn ndarray_dot<'ctx>(
 
             let dtype_llvm = ctx.get_llvm_type(common_dtype);
 
-            let result = ctx.builder.build_alloca(dtype_llvm, "np_dot_result").unwrap();
-            ctx.builder.build_store(result, dtype_llvm.const_zero()).unwrap();
+            let result = gen_var(ctx, dtype_llvm, Some("np_dot_result"));
+            typed_store(&ctx.builder, result, dtype_llvm.const_zero());
 
             // Do dot product.
             gen_for_callback(
@@ -327,8 +325,8 @@ pub fn ndarray_dot<'ctx>(
                 ctx,
                 Some("np_dot"),
                 |(), ctx| {
-                    let a_iter = NDIterType::new(ctx).construct(ctx, a);
-                    let b_iter = NDIterType::new(ctx).construct(ctx, b);
+                    let a_iter = NDIterValue::new(ctx, a);
+                    let b_iter = NDIterValue::new(ctx, b);
                     Ok((a_iter, b_iter))
                 },
                 |(), ctx, (a_iter, _b_iter)| {
@@ -360,7 +358,7 @@ pub fn ndarray_dot<'ctx>(
                         }
                     };
 
-                    ctx.builder.build_store(result, new_result).unwrap();
+                    typed_store(&ctx.builder, result, new_result);
                     Ok(())
                 },
                 |(), ctx, (a_iter, b_iter)| {

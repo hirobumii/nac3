@@ -1,7 +1,8 @@
 use inkwell::values::IntValue;
 
-use super::get_usize_dependent_function_name;
-use crate::codegen::{CodeGenContext, expr::call_extern, values::StringValue};
+use crate::codegen::{
+    CodeGenContext, expr::call_extern, irrt::get_usize_dependent_function_name, types::StringValue,
+};
 
 /// Generates a call to string equality comparison. Returns an `i1` representing whether the strings are equal.
 pub fn call_string_eq<'ctx>(
@@ -14,9 +15,9 @@ pub fn call_string_eq<'ctx>(
     let func_name = get_usize_dependent_function_name(ctx, "nac3_str_eq");
 
     call_extern!(ctx: llvm_i1 "str_eq_call" = func_name(
-        str1.extract_ptr(ctx),
-        str1.extract_len(ctx),
-        str2.extract_ptr(ctx),
-        str2.extract_len(ctx),
+        str1.ptr(ctx),
+        str1.len(ctx),
+        str2.ptr(ctx),
+        str2.len(ctx),
     ))
 }

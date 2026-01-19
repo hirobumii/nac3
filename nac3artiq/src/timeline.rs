@@ -1,5 +1,5 @@
 use nac3core::{
-    codegen::{CodeGenContext, expr::call_extern},
+    codegen::{CodeGenContext, expr::call_extern, typed_store},
     inkwell::{AddressSpace, AtomicOrdering, values::BasicValueEnum},
 };
 
@@ -86,14 +86,10 @@ impl TimeFns for NowPinningTimeFns64 {
             ctx.builder.build_gep(now_hiptr, &[i32_type.const_int(2, false)], "now.lo.addr")
         }
         .unwrap();
-        ctx.builder
-            .build_store(now_hiptr, time_hi)
-            .unwrap()
+        typed_store(&ctx.builder, now_hiptr, time_hi)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
-        ctx.builder
-            .build_store(now_loptr, time_lo)
-            .unwrap()
+        typed_store(&ctx.builder, now_loptr, time_lo)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
     }
@@ -147,14 +143,10 @@ impl TimeFns for NowPinningTimeFns64 {
             .unwrap();
         let time_lo = ctx.builder.build_int_truncate(time, i32_type, "time.lo").unwrap();
 
-        ctx.builder
-            .build_store(now_hiptr, time_hi)
-            .unwrap()
+        typed_store(&ctx.builder, now_hiptr, time_hi)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
-        ctx.builder
-            .build_store(now_loptr, time_lo)
-            .unwrap()
+        typed_store(&ctx.builder, now_loptr, time_lo)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
     }
@@ -213,14 +205,10 @@ impl TimeFns for NowPinningTimeFns {
             ctx.builder.build_gep(now_hiptr, &[i32_type.const_int(1, false)], "now.lo.addr")
         }
         .unwrap();
-        ctx.builder
-            .build_store(now_hiptr, time_hi)
-            .unwrap()
+        typed_store(&ctx.builder, now_hiptr, time_hi)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
-        ctx.builder
-            .build_store(now_loptr, time_lo)
-            .unwrap()
+        typed_store(&ctx.builder, now_loptr, time_lo)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
     }
@@ -264,14 +252,10 @@ impl TimeFns for NowPinningTimeFns {
             ctx.builder.build_gep(now_hiptr, &[i32_type.const_int(1, false)], "now.lo.addr")
         }
         .unwrap();
-        ctx.builder
-            .build_store(now_hiptr, time_hi)
-            .unwrap()
+        typed_store(&ctx.builder, now_hiptr, time_hi)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
-        ctx.builder
-            .build_store(now_loptr, time_lo)
-            .unwrap()
+        typed_store(&ctx.builder, now_loptr, time_lo)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
     }

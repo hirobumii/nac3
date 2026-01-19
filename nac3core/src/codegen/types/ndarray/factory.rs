@@ -3,9 +3,17 @@ use inkwell::{
     values::{BasicValueEnum, IntValue},
 };
 
-use super::NDArrayType;
 use crate::{
-    codegen::{CodeGenContext, irrt, types::ProxyType, values::TypedArrayLikeAccessor},
+    codegen::{
+        CodeGenContext,
+        expr::call_extern,
+        irrt::get_usize_dependent_function_name,
+        typed_store,
+        types::{
+            array::{ArrayLikeIndexer, ArraySliceValue},
+            ndarray::{NDArrayType, NDArrayValue},
+        },
+    },
     typecheck::typedef::Type,
 };
 
@@ -69,17 +77,19 @@ impl<'ctx> NDArrayType<'ctx> {
     pub fn construct_numpy_empty(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        let ndarray = self.construct_uninitialized(ctx, name);
+        shape: ArraySliceValue<'ctx>,
+        name: Option<&'static str>,
+    ) -> NDArrayValue<'ctx> {
+        let ndarray = self.construct(ctx, name);
 
         // Validate `shape`
-        irrt::ndarray::call_nac3_ndarray_util_assert_shape_no_negative(ctx, shape);
+        let (shape_ptr, shape_len) = shape.value;
+        let name =
+            get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_shape_no_negative");
+        call_extern!(ctx: (ctx.size_t) _ = name(shape_len, shape_ptr));
 
-        ndarray.copy_shape_from_array(ctx, shape.base_ptr(ctx));
-        unsafe { ndarray.create_data(ctx) };
-
+        ndarray.shape(ctx).memcpy_from(ctx, shape_ptr);
+        ndarray.create_data(ctx);
         ndarray
     }
 
@@ -88,13 +98,23 @@ impl<'ctx> NDArrayType<'ctx> {
     pub fn construct_numpy_full(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
+        shape: ArraySliceValue<'ctx>,
         fill_value: BasicValueEnum<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
+        name: Option<&'static str>,
+    ) -> NDArrayValue<'ctx> {
         let ndarray = self.construct_numpy_empty(ctx, shape, name);
         ndarray.fill(ctx, fill_value);
         ndarray
+    }
+
+    fn assert_compatible_dtype(&self, ctx: &mut CodeGenContext<'ctx, '_>, dtype: Type) {
+        assert_eq!(
+            ctx.get_llvm_type(dtype),
+            self.dtype,
+            "Expected LLVM dtype={} but got {}",
+            self.dtype.print_to_string(),
+            ctx.get_llvm_type(dtype).print_to_string(),
+        );
     }
 
     /// Create an ndarray like
@@ -103,17 +123,10 @@ impl<'ctx> NDArrayType<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         dtype: Type,
-        shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        assert_eq!(
-            ctx.get_llvm_type(dtype),
-            self.dtype,
-            "Expected LLVM dtype={} but got {}",
-            self.dtype.print_to_string(),
-            ctx.get_llvm_type(dtype).print_to_string(),
-        );
-
+        shape: ArraySliceValue<'ctx>,
+        name: Option<&'static str>,
+    ) -> NDArrayValue<'ctx> {
+        self.assert_compatible_dtype(ctx, dtype);
         let fill_value = ndarray_zero_value(ctx, dtype);
         self.construct_numpy_full(ctx, shape, fill_value, name)
     }
@@ -124,17 +137,10 @@ impl<'ctx> NDArrayType<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         dtype: Type,
-        shape: &impl TypedArrayLikeAccessor<'ctx, IntValue<'ctx>>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        assert_eq!(
-            ctx.get_llvm_type(dtype),
-            self.dtype,
-            "Expected LLVM dtype={} but got {}",
-            self.dtype.print_to_string(),
-            ctx.get_llvm_type(dtype).print_to_string(),
-        );
-
+        shape: ArraySliceValue<'ctx>,
+        name: Option<&'static str>,
+    ) -> NDArrayValue<'ctx> {
+        self.assert_compatible_dtype(ctx, dtype);
         let fill_value = ndarray_one_value(ctx, dtype);
         self.construct_numpy_full(ctx, shape, fill_value, name)
     }
@@ -149,55 +155,36 @@ impl<'ctx> NDArrayType<'ctx> {
         nrows: IntValue<'ctx>,
         ncols: IntValue<'ctx>,
         offset: IntValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        assert_eq!(
-            ctx.get_llvm_type(dtype),
-            self.dtype,
-            "Expected LLVM dtype={} but got {}",
-            self.dtype.print_to_string(),
-            ctx.get_llvm_type(dtype).print_to_string(),
-        );
-        assert_eq!(nrows.get_type(), self.llvm_usize);
-        assert_eq!(ncols.get_type(), self.llvm_usize);
-        assert_eq!(offset.get_type(), self.llvm_usize);
+        name: Option<&'static str>,
+    ) -> NDArrayValue<'ctx> {
+        self.assert_compatible_dtype(ctx, dtype);
+        assert_eq!(nrows.get_type(), ctx.size_t);
+        assert_eq!(ncols.get_type(), ctx.size_t);
+        assert_eq!(offset.get_type(), ctx.size_t);
 
         let ndzero = ndarray_zero_value(ctx, dtype);
         let ndone = ndarray_one_value(ctx, dtype);
 
-        let ndarray = self.construct_dyn_shape(ctx, &[nrows, ncols], name);
+        let ndarray = self.with_shape(ctx, &[nrows, ncols], name);
 
-        // Create data and make the matrix like look np.eye()
-        unsafe {
-            ndarray.create_data(ctx);
-        }
         ndarray
             .foreach(ctx, |ctx, _, nditer| {
                 // NOTE: rows and cols can never be zero here, since this ndarray's `np.size` would be zero
                 // and this loop would not execute.
 
-                let indices = nditer.get_indices();
+                let indices = nditer.indices(ctx);
+                let row_i = indices.get_unchecked(ctx, &ctx.size_t.const_zero(), None);
+                let col_i = indices.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None);
 
-                let row_i = unsafe {
-                    indices.get_typed_unchecked(ctx, &self.llvm_usize.const_zero(), None)
-                };
-                let col_i = unsafe {
-                    indices.get_typed_unchecked(ctx, &self.llvm_usize.const_int(1, false), None)
-                };
-
+                let with_offset = ctx.builder.build_int_add(row_i, offset, "").unwrap();
                 let be_one = ctx
                     .builder
-                    .build_int_compare(
-                        IntPredicate::EQ,
-                        ctx.builder.build_int_add(row_i, offset, "").unwrap(),
-                        col_i,
-                        "",
-                    )
+                    .build_int_compare(IntPredicate::EQ, with_offset, col_i, "")
                     .unwrap();
                 let value = ctx.builder.build_select(be_one, ndone, ndzero, "value").unwrap();
 
-                let p = nditer.get_pointer(ctx);
-                ctx.builder.build_store(p, value).unwrap();
+                let p = nditer.curr_ptr(ctx);
+                typed_store(&ctx.builder, p, value);
 
                 Ok(())
             })
@@ -213,9 +200,9 @@ impl<'ctx> NDArrayType<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         dtype: Type,
         size: IntValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        let offset = self.llvm_usize.const_zero();
+        name: Option<&'static str>,
+    ) -> NDArrayValue<'ctx> {
+        let offset = ctx.size_t.const_zero();
         self.construct_numpy_eye(ctx, dtype, size, size, offset, name)
     }
 }

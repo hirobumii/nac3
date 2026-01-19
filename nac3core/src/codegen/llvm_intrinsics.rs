@@ -4,7 +4,7 @@ use inkwell::{
     values::{BasicMetadataValueEnum, BasicValueEnum, FloatValue, IntValue, PointerValue},
 };
 
-use super::CodeGenContext;
+use crate::codegen::CodeGenContext;
 
 fn call_intrinsic_impl<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,

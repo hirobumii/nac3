@@ -1,7 +1,6 @@
 use inkwell::values::{BasicValueEnum, FloatValue};
 
-use super::CodeGenContext;
-use crate::codegen::expr::call_extern;
+use crate::codegen::{CodeGenContext, expr::call_extern};
 
 /// Invokes the [`j1`](https://en.cppreference.com/w/c/numeric/math/j1) function.
 pub fn call_j1<'ctx>(

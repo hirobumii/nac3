@@ -17,14 +17,11 @@ use nac3parser::{
     parser::parse_program,
 };
 
-use super::{
-    CodeGenContext, CodeGenOptions, CodeGenTask, DefaultCodeGenerator, TargetMachineOptions,
-    WithCall, WorkerRegistry,
-    concrete_type::ConcreteTypeStore,
-    types::{ListType, ProxyType, RangeType, ndarray::NDArrayType},
-};
 use crate::{
-    codegen::{ModuleContext, context_ref},
+    codegen::{
+        CodeGenContext, CodeGenOptions, CodeGenTask, DefaultCodeGenerator, TargetMachineOptions,
+        WithCall, WorkerRegistry, concrete_type::ConcreteTypeStore,
+    },
     symbol_resolver::{SymbolResolver, ValueEnum},
     toplevel::{
         DefinitionId, FunInstance, TopLevelContext, TopLevelDef,
@@ -355,32 +352,4 @@ fn test_simple_call() {
         WorkerRegistry::create_workers(threads, top_level, &codegen_options(), &f);
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
-}
-
-#[test]
-fn test_classes_list_type_new() {
-    context_ref!(ctx);
-    let ctx = ModuleContext::new(ctx, "test_classes_list_type_new", &codegen_options().target);
-    let llvm_i32 = ctx.i32;
-    let llvm_list = ListType::new(&ctx, &llvm_i32);
-    assert!(ListType::is_representable(llvm_list.as_abi_type(), ctx.size_t).is_ok());
-}
-
-#[test]
-fn test_classes_range_type_new() {
-    context_ref!(ctx);
-    let ctx = ModuleContext::new(ctx, "test_classes_range_type_new", &codegen_options().target);
-    let llvm_usize = ctx.size_t;
-    let llvm_range = RangeType::new(&ctx);
-    assert!(RangeType::is_representable(llvm_range.as_abi_type(), llvm_usize).is_ok());
-}
-
-#[test]
-fn test_classes_ndarray_type_new() {
-    context_ref!(ctx);
-    let ctx = ModuleContext::new(ctx, "test_classes_ndarray_type_new", &codegen_options().target);
-    let llvm_usize = ctx.size_t;
-    let llvm_i32 = ctx.i32;
-    let llvm_ndarray = NDArrayType::new(&ctx, llvm_i32.into(), 2);
-    assert!(NDArrayType::is_representable(llvm_ndarray.as_abi_type(), llvm_usize).is_ok());
 }

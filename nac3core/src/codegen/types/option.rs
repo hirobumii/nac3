@@ -1,44 +1,30 @@
-use inkwell::{
-    AddressSpace,
-    types::{BasicType, BasicTypeEnum, IntType, PointerType},
-    values::{BasicValue, BasicValueEnum, PointerValue},
-};
+use inkwell::values::{BasicValueEnum, IntValue};
+use nac3core_derive::ProxyType;
 
-use super::ProxyType;
 use crate::{
-    codegen::{CodeGenContext, ModuleContext, values::OptionValue},
+    codegen::{
+        CodeGenContext, ModuleContext, typed_load, typed_store,
+        types::{ProxyTypeExt, RefType, Value},
+    },
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
 };
 
-/// Proxy type for an `Option` type in LLVM.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct OptionType<'ctx> {
-    ty: PointerType<'ctx>,
-    llvm_usize: IntType<'ctx>,
+#[derive(Clone, Copy, ProxyType)]
+#[llvm_ref(ctx.get_llvm_type(self.elem_ty))]
+pub struct OptionType {
+    elem_ty: Type,
 }
 
-impl<'ctx> OptionType<'ctx> {
-    /// Creates an LLVM type corresponding to the expected structure of an `Option`.
-    #[must_use]
-    fn llvm_type(element_type: &impl BasicType<'ctx>) -> PointerType<'ctx> {
-        element_type.ptr_type(AddressSpace::default())
-    }
-
-    fn new_impl(element_type: &impl BasicType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        let llvm_option = Self::llvm_type(element_type);
-
-        Self { ty: llvm_option, llvm_usize }
-    }
-
+impl OptionType {
     /// Creates an instance of [`OptionType`].
-    #[must_use]
-    pub fn new(ctx: &ModuleContext<'ctx>, element_type: &impl BasicType<'ctx>) -> Self {
-        Self::new_impl(element_type, ctx.size_t)
+    pub const fn new(_ctx: &ModuleContext<'_>, element_type: Type) -> Self {
+        Self { elem_ty: element_type }
     }
 
-    /// Creates an [`OptionType`] from a [unifier type][Type].
-    #[must_use]
-    pub fn from_unifier_type(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> Self {
+    /// Decodes a [`Type`] into an [`OptionType`].
+    ///
+    /// Panics if `ty` is not an Option type.
+    pub fn from_unifier_type(ctx: &mut CodeGenContext<'_, '_>, ty: Type) -> Self {
         // Check unifier type and extract `element_type`
         let elem_type = match &*ctx.unifier.get_ty_immutable(ty) {
             TypeEnum::TObj { obj_id, params, .. }
@@ -49,122 +35,44 @@ impl<'ctx> OptionType<'ctx> {
 
             _ => panic!("Expected `option` type, but got {}", ctx.unifier.stringify(ty)),
         };
-
-        let llvm_usize = ctx.size_t;
-        let llvm_elem_type = ctx.get_llvm_type(elem_type);
-
-        Self::new_impl(&llvm_elem_type, llvm_usize)
+        Self::new(ctx, elem_type)
     }
 
-    /// Creates an [`OptionType`] from a [`PointerType`].
-    #[must_use]
-    pub fn from_pointer_type(ptr_ty: PointerType<'ctx>, llvm_usize: IntType<'ctx>) -> Self {
-        debug_assert!(Self::has_same_repr(ptr_ty, llvm_usize).is_ok());
-
-        Self { ty: ptr_ty, llvm_usize }
-    }
-
-    /// Returns the element type of this `Option` type.
-    #[must_use]
-    pub fn element_type(&self) -> BasicTypeEnum<'ctx> {
-        BasicTypeEnum::try_from(self.ty.get_element_type()).unwrap()
-    }
-
-    /// Allocates an [`OptionValue`] on the stack.
-    ///
-    /// The returned value will be `Some(v)` if [`value` contains a value][Option::is_some],
-    /// otherwise `none` will be returned.
-    #[must_use]
-    pub fn construct(
+    /// Constructs a runtime optional value from an optional `BasicValueEnum`.
+    pub fn construct<'ctx>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: Option<BasicValueEnum<'ctx>>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        let ptr = if let Some(v) = value {
-            let pvar = self.raw_alloca_var(ctx, name);
-            ctx.builder.build_store(pvar, v).unwrap();
-            pvar
-        } else {
-            self.ty.const_null()
-        };
-
-        self.map_pointer_value(ptr, name)
-    }
-    /// Allocates an [`OptionValue`] on the stack.
-    ///
-    /// The returned value will always be `none`.
-    #[must_use]
-    pub fn construct_empty(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        self.construct(ctx, None, name)
-    }
-
-    /// Allocates an [`OptionValue`] on the stack.
-    ///
-    /// The returned value will be set to `Some(value)`.
-    #[must_use]
-    pub fn construct_some_value(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        value: &impl BasicValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        self.construct(ctx, Some(value.as_basic_value_enum()), name)
-    }
-
-    /// Converts an existing value into a [`OptionValue`].
-    #[must_use]
-    pub fn map_pointer_value(
-        &self,
-        value: PointerValue<'ctx>,
-        name: Option<&'ctx str>,
-    ) -> <Self as ProxyType<'ctx>>::Value {
-        <Self as ProxyType<'ctx>>::Value::from_pointer_value(value, self.llvm_usize, name)
-    }
-}
-
-impl<'ctx> ProxyType<'ctx> for OptionType<'ctx> {
-    type ABI = PointerType<'ctx>;
-    type Base = PointerType<'ctx>;
-    type Value = OptionValue<'ctx>;
-
-    fn is_representable(
-        llvm_ty: impl BasicType<'ctx>,
-        llvm_usize: IntType<'ctx>,
-    ) -> Result<(), String> {
-        if let BasicTypeEnum::PointerType(ty) = llvm_ty.as_basic_type_enum() {
-            Self::has_same_repr(ty, llvm_usize)
-        } else {
-            Err(format!("Expected pointer type, got {llvm_ty:?}"))
+        name: Option<&'static str>,
+    ) -> OptionValue<'ctx> {
+        match value {
+            Some(v) => {
+                let value = self.alloca(ctx, name);
+                typed_store(&ctx.builder, value.value, v);
+                value
+            }
+            None => self.map_value(ctx.ptr.const_null(), name),
         }
     }
-
-    fn has_same_repr(ty: Self::Base, _: IntType<'ctx>) -> Result<(), String> {
-        BasicTypeEnum::try_from(ty.get_element_type())
-            .map_err(|()| format!("Expected `ty` to be a BasicTypeEnum, got {ty}"))?;
-
-        Ok(())
-    }
-
-    fn alloca_type(&self) -> impl BasicType<'ctx> {
-        self.element_type()
-    }
-
-    fn as_base_type(&self) -> Self::Base {
-        self.ty
-    }
-
-    fn as_abi_type(&self) -> Self::ABI {
-        self.as_base_type()
-    }
 }
 
-impl<'ctx> From<OptionType<'ctx>> for PointerType<'ctx> {
-    fn from(value: OptionType<'ctx>) -> Self {
-        value.as_base_type()
+pub type OptionValue<'ctx> = Value<'ctx, OptionType>;
+
+impl<'ctx> OptionValue<'ctx> {
+    /// Returns whether this `Option` instance contains a value.
+    pub fn is_some(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+        ctx.builder.build_is_not_null(self.value, "").unwrap()
+    }
+
+    /// Loads the value present in this `Option` instance.
+    ///
+    /// The caller must ensure that this `option` value [contains a value][Self::is_some].
+    pub fn get(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'static str>,
+    ) -> BasicValueEnum<'ctx> {
+        let ty = self.ty.alloca_ty(ctx);
+        typed_load(&ctx.builder, self.value, ty, name.or(self.name).unwrap_or(""))
     }
 }
