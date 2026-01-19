@@ -616,38 +616,37 @@ impl Inferencer<'_> {
                 Ok(Some(self.primitives.int32))
             }
 
-            TypeEnum::TObj { obj_id, .. }
+            TypeEnum::TObj { obj_id, params, .. }
                 if *obj_id == self.primitives.enumerate.obj_id(self.unifier).unwrap() =>
             {
-                let inner_elem_ty = if let ExprKind::Call { args, .. } = &iter.node {
-                    let arg0_ty = args[0].custom.unwrap();
-                    match &*self.unifier.get_ty(arg0_ty) {
-                        TypeEnum::TTuple { ty: tuple_tys, .. } => {
-                            tuple_tys.first().copied().unwrap_or(self.primitives.int32)
-                        }
-                        _ => self.primitives.int32,
-                    }
+                let iterable_ty_id = if let ExprKind::Call { args, .. } = &iter.node {
+                    args.first().and_then(|arg| arg.custom).unwrap()
                 } else {
-                    let TypeEnum::TObj { params, .. } = &*self.unifier.get_ty(iter_ty) else {
-                        unreachable!("enumerate should be a TObj")
-                    };
-
-                    let enumerate_iterable_ty = iter_type_vars(params).nth(1).unwrap().ty;
-                    let iterable_ty = self.unifier.get_representative(enumerate_iterable_ty);
-
-                    match &*self.unifier.get_ty(iterable_ty) {
-                        TypeEnum::TTuple { ty: tuple_tys, .. } => {
-                            tuple_tys.first().copied().unwrap_or(self.primitives.int32)
-                        }
-                        _ => self.primitives.int32,
-                    }
+                    iter_type_vars(params).nth(1).unwrap().ty
                 };
-                let element_ty = self.unifier.add_ty(TypeEnum::TTuple {
-                    ty: vec![self.primitives.int32, inner_elem_ty],
+
+                let resolved_iterable_ty = self.unifier.get_representative(iterable_ty_id);
+                let primitives = &self.primitives;
+
+                let inner_elem_ty = match &*self.unifier.get_ty(resolved_iterable_ty) {
+                    TypeEnum::TObj { obj_id, params, .. }
+                        if *obj_id == primitives.list.obj_id(self.unifier).unwrap() =>
+                    {
+                        let val = iter_type_vars(params).nth(0).unwrap().ty;
+                        if self.unifier.is_concrete(val, &[]) { val } else { primitives.int32 }
+                    }
+                    TypeEnum::TTuple { ty: tuple_tys, .. } => {
+                        tuple_tys.first().copied().unwrap_or(primitives.int32)
+                    }
+                    _ => primitives.int32,
+                };
+
+                let resulting_ty = self.unifier.add_ty(TypeEnum::TTuple {
+                    ty: vec![primitives.int32, inner_elem_ty],
                     is_vararg_ctx: false,
                 });
 
-                Ok(Some(element_ty))
+                Ok(Some(resulting_ty))
             }
 
             TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {

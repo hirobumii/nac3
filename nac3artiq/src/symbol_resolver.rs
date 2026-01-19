@@ -348,13 +348,31 @@ impl InnerResolver {
 
         let iterable = &args.get_item(0)?;
         let list_len = py_interp::extract_len(iterable)?;
-        if list_len == 0 {
-            return Err(super::CompileError::new_err(
-                "enumerate over empty iterable is not supported".to_string(),
-            ));
-        }
 
-        let (elem_ty, iterable_ty) = if iterable.is_instance_of::<PyList>() {
+        let (elem_ty, iterable_ty) = if list_len == 0 {
+            let elem_ty = primitives.int32;
+            let iterable_ty = if iterable.is_instance_of::<PyList>() {
+                let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
+                    &*unifier.get_ty_immutable(primitives.list)
+                {
+                    assert_eq!(*obj_id, PrimDef::List.id());
+                    iter_type_vars(params).nth(0).unwrap()
+                } else {
+                    unreachable!()
+                };
+                unifier
+                    .subst(
+                        primitives.list,
+                        &into_var_map([TypeVar { id: list_tvar.id, ty: elem_ty }]),
+                    )
+                    .unwrap()
+            } else if iterable.is_instance_of::<PyTuple>() {
+                unifier.add_ty(TypeEnum::TTuple { ty: vec![], is_vararg_ctx: false })
+            } else {
+                unreachable!("unexpected iterable type for enumerate")
+            };
+            (elem_ty, iterable_ty)
+        } else if iterable.is_instance_of::<PyList>() {
             let first_elem = iterable.get_item(0)?;
             let elem_ty = match self.get_obj_type(py, &first_elem, unifier, defs, primitives)? {
                 Ok(ty) => ty,
