@@ -611,8 +611,8 @@ version = "0.1.0"
 dependencies = [
  "indexmap",
  "itertools",
+ "nac3binutils",
  "nac3core",
- "nac3tools",
  "parking_lot",
  "pyo3",
  "tempfile",
@@ -625,6 +625,13 @@ dependencies = [
  "fxhash",
  "parking_lot",
  "string-interner",
+]
+
+[[package]]
+name = "nac3binutils"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
 ]
 
 [[package]]
@@ -681,14 +688,6 @@ dependencies = [
  "clap",
  "nac3core",
  "parking_lot",
-]
-
-[[package]]
-name = "nac3tools"
-version = "0.1.0"
-dependencies = [
- "byteorder",
- "pyo3",
 ]
 
 [[package]]
