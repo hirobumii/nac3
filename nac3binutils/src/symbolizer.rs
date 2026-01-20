@@ -1,40 +1,30 @@
 #![allow(nonstandard_style)]
 
-use pyo3::pyclass;
-use std::{cmp, collections::HashMap, mem, ptr, slice};
+use std::{cmp, collections::HashMap, fmt::Error, mem, ptr, slice};
 
 use crate::dwarf::DwarfReader;
 use crate::include::dwarf::*;
 use crate::include::elf::*;
-use std::fmt::Error;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum NameRef {
     Concrete(&'static str),
     Abstract(usize),
     Unknown,
 }
 
-#[pyclass]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CallRecord {
     name: NameRef,
-    #[pyo3(get)]
-    address: Option<u32>,
-    #[pyo3(get)]
-    line: u32,
-    #[pyo3(get)]
-    column: u32,
-    #[pyo3(get)]
-    file: &'static str,
-    #[pyo3(get)]
-    dir: Option<&'static str>,
+    pub address: Option<u32>,
+    pub line: u32,
+    pub column: u32,
+    pub file: &'static str,
+    pub dir: Option<&'static str>,
 }
 
-#[pyo3::pymethods]
 impl CallRecord {
-    #[getter]
-    fn name(&self) -> &'static str {
+    pub fn get_name(&self) -> &'static str {
         if let NameRef::Concrete(name) = self.name {
             name
         } else {

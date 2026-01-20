@@ -25,10 +25,11 @@ use parking_lot::{Mutex, RwLock};
 use pyo3::{
     IntoPyObjectExt, create_exception, exceptions,
     prelude::*,
-    types::{PyAnyMethods, PyDict, PyNone, PyTuple, PyType},
+    types::{PyAnyMethods, PyBytes, PyDict, PyList, PyNone, PyTuple, PyType},
 };
 use tempfile::{self, TempDir};
 
+use nac3binutils::{Linker, symbolizer};
 use nac3core::{
     codegen::{
         CodeGenOptions, CodeGenTask, CodeGenerator, ModuleContext, TargetMachineOptions, WithCall,
@@ -62,7 +63,6 @@ use nac3core::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
     },
 };
-use nac3tools::Linker;
 
 use codegen::{
     ArtiqCodeGenerator, attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback,
@@ -1991,6 +1991,47 @@ impl Nac3 {
     }
 }
 
+#[pyclass]
+#[pyo3(name = "CallRecord")]
+struct CallRecordWrapper {
+    #[pyo3(get)]
+    name: &'static str,
+    #[pyo3(get)]
+    address: Option<u32>,
+    #[pyo3(get)]
+    line: u32,
+    #[pyo3(get)]
+    column: u32,
+    #[pyo3(get)]
+    file: &'static str,
+    #[pyo3(get)]
+    dir: Option<&'static str>,
+}
+
+impl From<&symbolizer::CallRecord> for CallRecordWrapper {
+    fn from(rec: &symbolizer::CallRecord) -> Self {
+        Self {
+            name: rec.get_name(),
+            address: rec.address,
+            line: rec.line,
+            column: rec.column,
+            file: rec.file,
+            dir: rec.dir,
+        }
+    }
+}
+
+#[pyfunction]
+fn symbolize<'py>(
+    elf_bin: &Bound<'py, PyBytes>,
+    pc: &Bound<'py, PyList>,
+) -> PyResult<Vec<CallRecordWrapper>> {
+    Ok(symbolizer::symbolize(elf_bin.extract()?, pc.extract()?)
+        .iter()
+        .map(|rec| rec.into())
+        .collect())
+}
+
 #[cfg(feature = "init-llvm-profile")]
 unsafe extern "C" {
     fn __llvm_profile_initialize();
@@ -2006,5 +2047,7 @@ fn nac3artiq<'py>(py: Python<'py>, m: &Bound<'py, PyModule>) -> PyResult<()> {
     Target::initialize_all(&InitializationConfig::default());
     m.add("CompileError", py.get_type::<CompileError>())?;
     m.add_class::<Nac3>()?;
+    m.add_class::<CallRecordWrapper>()?;
+    m.add_function(wrap_pyfunction!(symbolize, m)?)?;
     Ok(())
 }
