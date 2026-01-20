@@ -3,10 +3,10 @@
 use pyo3::pyclass;
 use std::{cmp, collections::HashMap, mem, ptr, slice};
 
-use crate::Error;
 use crate::dwarf::DwarfReader;
 use crate::include::dwarf::*;
 use crate::include::elf::*;
+use std::fmt::Error;
 
 #[derive(Debug, PartialEq)]
 enum NameRef {
