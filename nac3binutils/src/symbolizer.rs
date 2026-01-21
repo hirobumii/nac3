@@ -615,6 +615,16 @@ impl DebugInfoReader {
                 // Special opcode
                 _ if (opcode_base..=0xff).contains(&opcode) => {
                     handle_special_opcode!(opcode, true);
+                    curr_entry.basic_block = false;
+                    curr_entry.prologue_end = false;
+                    curr_entry.epilogue_begin = false;
+                    curr_entry.discriminator = 0;
+
+                    if (last_entry.address..curr_entry.address).contains(&pc) {
+                        break;
+                    }
+
+                    last_entry = curr_entry;
                 }
 
                 _ => unreachable!(),
