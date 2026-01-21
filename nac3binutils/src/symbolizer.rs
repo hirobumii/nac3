@@ -500,7 +500,7 @@ impl DebugInfoReader {
 
                 // Update last entry otherwise
                 last_entry = curr_entry;
-            }
+            };
         }
 
         while !curr_entry.end_sequence {
