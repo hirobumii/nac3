@@ -24,6 +24,7 @@ pub struct CallRecord {
 }
 
 impl CallRecord {
+    #[must_use]
     pub fn get_name(&self) -> &'static str {
         if let NameRef::Concrete(name) = self.name {
             name
