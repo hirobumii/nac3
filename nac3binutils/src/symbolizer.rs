@@ -512,7 +512,6 @@ impl DebugInfoReader {
                             // We need to determine if we use curr_entry or last_entry
                             if !(last_entry.address..curr_entry.address).contains(&pc) {
                                 last_entry = curr_entry;
-                                break;
                             }
                             break;
                         }
