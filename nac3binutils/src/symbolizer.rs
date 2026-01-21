@@ -490,7 +490,20 @@ impl DebugInfoReader {
             };
         }
 
-        loop {
+        macro_rules! push_row_or_break {
+            ($last_entry: expr, $curr_entry: expr, $pc: expr) => {
+                // This is the moment that we know if we have found the entry
+                // Indicated by the address overtaking pc
+                if (last_entry.address..curr_entry.address).contains($pc) {
+                    break;
+                }
+
+                // Update last entry otherwise
+                last_entry = curr_entry;
+            }
+        }
+
+        while !curr_entry.end_sequence {
             // Decode opcode
             let opcode = program_reader.read_u8();
             match opcode {
@@ -508,12 +521,7 @@ impl DebugInfoReader {
                             // No operands
                             curr_entry.end_sequence = true;
 
-                            // curr_entry is pushed to the matrix
-                            // We need to determine if we use curr_entry or last_entry
-                            if !(last_entry.address..curr_entry.address).contains(&pc) {
-                                last_entry = curr_entry;
-                            }
-                            break;
+                            push_row_or_break!(last_entry, curr_entry, &pc);
                         }
                         DW_LNE_set_address => {
                             let address = extended_opcode_reader.read_u32();
@@ -550,15 +558,7 @@ impl DebugInfoReader {
                 // Standard opcode
                 DW_LNS_copy if DW_LNS_copy < opcode_base => {
                     // No operands
-
-                    // This is the moment that we know if we have found the entry
-                    // Indicated by the address overtaking pc
-                    if (last_entry.address..curr_entry.address).contains(&pc) {
-                        break;
-                    }
-
-                    // Update last entry otherwise
-                    last_entry = curr_entry;
+                    push_row_or_break!(last_entry, curr_entry, &pc);
                 }
                 DW_LNS_advance_pc if DW_LNS_advance_pc < opcode_base => {
                     let operation_advance = program_reader.read_uleb128() as u32;
@@ -619,12 +619,7 @@ impl DebugInfoReader {
                     curr_entry.prologue_end = false;
                     curr_entry.epilogue_begin = false;
                     curr_entry.discriminator = 0;
-
-                    if (last_entry.address..curr_entry.address).contains(&pc) {
-                        break;
-                    }
-
-                    last_entry = curr_entry;
+                    push_row_or_break!(last_entry, curr_entry, &pc);
                 }
 
                 _ => unreachable!(),
