@@ -128,8 +128,7 @@ impl DebugInfoReader {
                         *attr_form, DW_FORM_sec_offset,
                         "DW_AT_ranges should be specified by an address"
                     );
-                    let mut debug_ranges_offset =
-                        reader.read_form_addr() as usize / mem::size_of::<u32>();
+                    let debug_ranges_offset = reader.read_form_addr() as usize;
                     let mut range_reader =
                         DwarfReader::new(&self.debug_ranges[debug_ranges_offset..], 0);
                     let mut begin_offset = range_reader.read_u32();
@@ -139,7 +138,6 @@ impl DebugInfoReader {
                             in_range = true;
                             break;
                         }
-                        debug_ranges_offset += 2;
                         begin_offset = range_reader.read_u32();
                         end_offset = range_reader.read_u32();
                     }
