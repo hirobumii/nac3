@@ -175,6 +175,22 @@ impl DwarfReader<'_> {
         }
     }
 
+    // Helper to perform reference read
+    // Everything is casted as u64 (as the broadest type).
+    // Use at your own risk.
+    pub fn read_form_reference(&mut self, attr_form: u64) -> u64 {
+        match attr_form {
+            DW_FORM_ref1 => u64::from(self.read_form_data1()),
+            DW_FORM_ref2 => u64::from(self.read_form_data2()),
+            DW_FORM_ref4 => u64::from(self.read_form_data4()),
+            DW_FORM_ref8 => self.read_form_data8(),
+            DW_FORM_ref_addr => u64::from(self.read_form_addr()),
+            DW_FORM_ref_udata => self.read_form_udata(),
+            DW_FORM_ref_sig8 => self.read_u64(),
+            _ => unreachable!("form should be a reference"),
+        }
+    }
+
     pub fn skip_form(&mut self, attr_form: u64) {
         match attr_form {
             DW_FORM_addr | DW_FORM_ref_addr | DW_FORM_strp => {

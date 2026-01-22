@@ -85,6 +85,7 @@ impl DebugInfoReader {
         file_ptrs: &[(&'static str, Option<&'static str>)],
         pc: u32,
         start_addr: u32,
+        cu_origin: Option<u32>,
     ) -> (bool, u32, NameRef, Option<u32>, CallRecord) {
         // Compute PC range
         let mut in_range = false;
@@ -171,14 +172,26 @@ impl DebugInfoReader {
                     }
                     _ => panic!("name should be a string"),
                 },
-                // Inlined procedure may only invlude an abstract reference to another DIE
+                // Inlined procedure may only include an abstract reference to another DIE
+                // See Section 7.5.4 Attribute Encodings for reference type specifications
                 // This replaces DW_AT_name, so we fetch DW_AT_name from that referred entry
                 DW_AT_abstract_origin => {
-                    assert_eq!(
-                        *attr_form, DW_FORM_ref_addr,
-                        "DW_AT_abstract_origin should be a pointer to a DIE, only .debug_info DIEs are supported"
-                    );
-                    let referred_die_addr = reader.read_form_addr() as usize;
+                    let referred_die_addr = match *attr_form {
+                        DW_FORM_ref1 | DW_FORM_ref2 | DW_FORM_ref4 | DW_FORM_ref8
+                        | DW_FORM_ref_udata
+                            if cu_origin.is_some() =>
+                        {
+                            let cu_relative_addr = reader.read_form_reference(*attr_form) as usize;
+                            cu_origin.unwrap() as usize + cu_relative_addr
+                        }
+
+                        DW_FORM_ref_addr => reader.read_form_addr() as usize,
+
+                        _ => unreachable!(
+                            "DW_AT_abstract_origin expects an apparopriate pointer type to a DIE"
+                        ),
+                    };
+
                     name_ref = NameRef::Abstract(referred_die_addr);
                 }
                 DW_AT_call_file => {
@@ -214,8 +227,16 @@ impl DebugInfoReader {
         (die_relevant, stmt_list_offset, name_ref, low_pc, call_record)
     }
 
+    fn skip_die_attributes(reader: &mut DwarfReader, attr_specs: &Vec<(DW_AT, DW_FORM)>) {
+        for (_attr_name, attr_form) in attr_specs {
+            reader.skip_form(*attr_form);
+        }
+    }
+
     fn search_compilation_units(&self, mut reader: DwarfReader, pc: u32) -> Vec<CallRecord> {
         while !reader.slice.is_empty() {
+            let cu_origin = reader.virt_addr;
+
             // 7.5.1.1 Compilation Unit Header
             let unit_length = reader.read_u32();
             let mut next_reader = reader.clone();
@@ -241,21 +262,32 @@ impl DebugInfoReader {
             // The base address of a compilation unit is defined as the value of the DW_AT_low_pc attribute,
             // if present; otherwise, it is undefined
             let (cu_die_relevant, cu_stmt_list_offset, _cu_name_ref, start_addr, _cu_call_record) =
-                self.parse_die_attributes(&mut reader, &abbrev_entry.attribute_specs, &[], pc, 0);
-
-            let (immediate_call_record, file_ptrs) =
-                self.parse_line_info(cu_stmt_list_offset as usize, pc);
-
-            let mut call_sites = vec![immediate_call_record];
+                self.parse_die_attributes(
+                    &mut reader,
+                    &abbrev_entry.attribute_specs,
+                    &[],
+                    pc,
+                    0,
+                    Some(cu_origin),
+                );
 
             if cu_die_relevant {
-                self.search_dies(
-                    &mut reader,
-                    &abbrev_table,
-                    &file_ptrs,
-                    pc,
-                    start_addr.unwrap(),
-                    &mut call_sites,
+                let (immediate_call_record, file_ptrs) =
+                    self.parse_line_info(cu_stmt_list_offset as usize, pc);
+
+                let mut call_sites = vec![immediate_call_record];
+
+                assert!(
+                    self.search_dies(
+                        &mut reader,
+                        &abbrev_table,
+                        &file_ptrs,
+                        pc,
+                        start_addr.unwrap(),
+                        &mut call_sites,
+                        cu_origin,
+                    ),
+                    "exhausted all debugging information entries (DIE)"
                 );
 
                 // Resolve name references
@@ -272,6 +304,7 @@ impl DebugInfoReader {
                                 &file_ptrs,
                                 pc,
                                 start_addr.unwrap(),
+                                None,
                             );
                         rec.name = name_ref;
                     }
@@ -290,6 +323,8 @@ impl DebugInfoReader {
         unreachable!("no relevant debugging info to pc: {}", pc);
     }
 
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
     fn search_dies(
         &self,
         reader: &mut DwarfReader,
@@ -298,7 +333,8 @@ impl DebugInfoReader {
         pc: u32,
         start_addr: u32,
         call_sites: &mut Vec<CallRecord>,
-    ) {
+        cu_origin: u32,
+    ) -> bool {
         let mut abbrev_code = reader.read_uleb128();
         while abbrev_code != 0 {
             let abbrev_entry = abbrev_table.get(&abbrev_code).expect(
@@ -311,14 +347,24 @@ impl DebugInfoReader {
                     file_ptrs,
                     pc,
                     start_addr,
+                    Some(cu_origin),
                 );
 
-            if abbrev_entry.has_child != 0 {
-                // Moving directly to its sibling is impossible if there are children
-                // The entries are arranged with prefix ordering
-                self.search_dies(reader, abbrev_table, file_ptrs, pc, start_addr, call_sites);
-            }
             if die_relevant {
+                if abbrev_entry.has_child != 0 {
+                    // It is possible to not find more appropriate entires in any subtrees
+                    // e.g. exception is raised in a function that is also a caller to some other functions
+                    let _ = self.search_dies(
+                        reader,
+                        abbrev_table,
+                        file_ptrs,
+                        pc,
+                        start_addr,
+                        call_sites,
+                        cu_origin,
+                    );
+                }
+
                 let last_name_ref = call_sites.last_mut().unwrap();
                 if last_name_ref.name == NameRef::Unknown {
                     last_name_ref.name = name_ref;
@@ -327,13 +373,38 @@ impl DebugInfoReader {
                 if abbrev_entry.tag == DW_TAG_inlined_subroutine {
                     call_sites.push(call_record);
                 }
-                return;
+                return true;
+            }
+
+            if abbrev_entry.has_child != 0 {
+                // Moving directly to its sibling is impossible if there are children
+                // The entries are arranged with prefix ordering
+                Self::skip_dies(reader, abbrev_table);
             }
 
             abbrev_code = reader.read_uleb128();
         }
 
-        unreachable!("exhausted all debugging informatio entries (DIE)")
+        false
+    }
+
+    fn skip_dies(reader: &mut DwarfReader, abbrev_table: &HashMap<u64, AbbreviationEntry>) {
+        let mut abbrev_code = reader.read_uleb128();
+        while abbrev_code != 0 {
+            let abbrev_entry = abbrev_table.get(&abbrev_code).expect(
+                "all non-zero abbreviation code should be resolvable by the abbreviation table",
+            );
+
+            Self::skip_die_attributes(reader, &abbrev_entry.attribute_specs);
+
+            if abbrev_entry.has_child != 0 {
+                // Moving directly to its sibling is impossible if there are children
+                // The entries are arranged with prefix ordering
+                Self::skip_dies(reader, abbrev_table);
+            }
+
+            abbrev_code = reader.read_uleb128();
+        }
     }
 
     fn parse_abbrev(&self, abbrev_offset: usize) -> HashMap<u64, AbbreviationEntry> {
