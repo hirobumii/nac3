@@ -137,7 +137,7 @@ impl<'ctx, Value> StructField<'ctx, Value> {
         ctx: &CodeGenContext<'ctx, '_>,
         struct_ty: BasicTypeEnum<'ctx>,
         pobj: PointerValue<'ctx>,
-        obj_name: Option<&'static str>,
+        obj_name: Option<&str>,
     ) -> PointerValue<'ctx> {
         let ptr_ty = struct_ty.ptr_type(AddressSpace::default());
         let cast = ctx.builder.build_pointer_cast(pobj, ptr_ty, "").unwrap();
@@ -194,7 +194,7 @@ impl<'ctx, Value> StructField<'ctx, Value> {
         ctx: &CodeGenContext<'ctx, '_>,
         struct_ty: BasicTypeEnum<'ctx>,
         pobj: PointerValue<'ctx>,
-        obj_name: Option<&'static str>,
+        obj_name: Option<&str>,
     ) -> Value
     where
         Value: TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
@@ -216,7 +216,7 @@ impl<'ctx, Value> StructField<'ctx, Value> {
         struct_ty: BasicTypeEnum<'ctx>,
         pobj: PointerValue<'ctx>,
         value: Value,
-        obj_name: Option<&'static str>,
+        obj_name: Option<&str>,
     ) where
         Value: BasicValue<'ctx>,
     {

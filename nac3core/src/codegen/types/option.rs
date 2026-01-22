@@ -70,7 +70,7 @@ impl<'ctx> OptionValue<'ctx> {
     pub fn get(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'static str>,
+        name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
         let ty = self.ty.alloca_ty(ctx);
         typed_load(&ctx.builder, self.value, ty, name.or(self.name).unwrap_or(""))
