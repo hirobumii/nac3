@@ -2028,7 +2028,7 @@ fn symbolize<'py>(
 ) -> PyResult<Vec<CallRecordWrapper>> {
     Ok(symbolizer::symbolize(elf_bin.extract()?, pc.extract()?)
         .iter()
-        .map(|rec| rec.into())
+        .map(Into::into)
         .collect())
 }
 
