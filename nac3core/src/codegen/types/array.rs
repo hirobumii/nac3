@@ -102,7 +102,7 @@ impl<'ctx> ArraySliceValue<'ctx> {
         item_ty: BasicTypeEnum<'ctx>,
         ptr: PointerValue<'ctx>,
         len: IntValue<'ctx>,
-        name: Option<&'static str>,
+        name: Option<&'ctx str>,
     ) -> Self {
         Self { ty: ArraySliceType { item_ty }, value: (ptr, len), name }
     }

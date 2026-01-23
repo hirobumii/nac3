@@ -124,7 +124,7 @@ impl<'ctx> NDArrayType<'ctx> {
     pub fn construct(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'static str>,
+        name: Option<&'ctx str>,
     ) -> anyhow::Result<NDArrayValue<'ctx>> {
         let ndarray = self.alloca(ctx, name)?;
 

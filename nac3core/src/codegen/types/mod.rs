@@ -109,7 +109,7 @@ pub trait ProxyTypeExt {
     fn alloca<'ctx>(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        name: Option<&'static str>,
+        name: Option<&'ctx str>,
     ) -> anyhow::Result<Value<'ctx, Self>>
     where
         Self: RefType<'ctx> + Copy,
@@ -121,7 +121,7 @@ pub trait ProxyTypeExt {
     }
 
     /// Maps an existing value of the underlying LLVM type to a typed value.
-    fn map_value<'ctx, V>(&self, value: V, name: Option<&'static str>) -> Value<'ctx, Self>
+    fn map_value<'ctx, V>(&self, value: V, name: Option<&'ctx str>) -> Value<'ctx, Self>
     where
         Self: ProxyTypeMarker<'ctx, Value = V> + Copy,
     {
@@ -152,7 +152,7 @@ pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> {
 pub struct Value<'ctx, T: ProxyTypeMarker<'ctx>> {
     pub ty: T,
     pub value: T::Value,
-    pub name: Option<&'static str>,
+    pub name: Option<&'ctx str>,
 }
 
 impl<'ctx, T: ProxyTypeMarker<'ctx, Value = PointerValue<'ctx>>> Value<'ctx, T> {

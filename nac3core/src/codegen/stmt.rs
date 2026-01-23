@@ -116,7 +116,7 @@ pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
     ctx: &CodeGenContext<'ctx, 'a>,
     ty: T,
     size: u64,
-    name: Option<&'static str>,
+    name: Option<&'ctx str>,
 ) -> anyhow::Result<ArraySliceValue<'ctx>> {
     let size = ctx.size_t.const_int(size, false);
     let ty = ty.as_basic_type_enum();
@@ -132,10 +132,10 @@ pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
 /// This happens at the current insertion point instead of the function's entry block,
 /// which allows for dynamically sized arrays.
 pub fn gen_dyn_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &CodeGenContext<'ctx, 'a>,
     ty: T,
     size: IntValue<'ctx>,
-    name: Option<&'static str>,
+    name: Option<&'ctx str>,
 ) -> anyhow::Result<ArraySliceValue<'ctx>> {
     let ty = ty.as_basic_type_enum();
     let ptr = get_var_builder(ctx, true, |builder| {
