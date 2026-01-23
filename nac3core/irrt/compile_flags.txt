@@ -1,2 +1,0 @@
-# This file is necessary for clangd to interpret this as the root of the IRRT project
-# Yes it is that dumb - See https://github.com/clangd/clangd/issues/1038
