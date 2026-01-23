@@ -5,7 +5,8 @@ authors = ["M-Labs"]
 edition = "2024"
 
 [features]
-no-escape-analysis = ["nac3core/no-escape-analysis"]
+default = ["escape-analysis"]
+escape-analysis = ["nac3core/escape-analysis"]
 
 [dependencies]
 anyhow = "1.0"

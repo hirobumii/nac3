@@ -19,5 +19,6 @@ nac3core = { path = "../nac3core" }
 nac3binutils = { path = "../nac3binutils" }
 
 [features]
+default = ["escape-analysis"]
 init-llvm-profile = []
-no-escape-analysis = ["nac3core/no-escape-analysis"]
+escape-analysis = ["nac3core/escape-analysis"]
