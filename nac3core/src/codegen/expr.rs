@@ -120,7 +120,11 @@ pub fn get_subst_key(
 impl<'ctx> CodeGenContext<'ctx, '_> {
     /// Builds a sequence of `getelementptr` and `load` instructions which stores the value of a
     /// struct field into an LLVM value.
-    pub fn build_gep_and_load(
+    ///
+    /// # Safety
+    ///
+    /// See [`inkwell::builder::Builder::build_gep`].
+    pub unsafe fn build_gep_and_load(
         &mut self,
         ptr: PointerValue<'ctx>,
         index: &[IntValue<'ctx>],
@@ -1873,11 +1877,13 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
             alloca_type.ptr_type(AddressSpace::default()),
             "attr_ptr",
         )?;
-        ctx.build_gep_and_load(
-            ptr,
-            &[ctx.i32.const_int(0, false), ctx.i32.const_int(index as u64, false)],
-            None,
-        )
+        unsafe {
+            ctx.build_gep_and_load(
+                ptr,
+                &[ctx.i32.const_int(0, false), ctx.i32.const_int(index as u64, false)],
+                None,
+            )
+        }
     };
     let res = match result.val {
         Some(ValueEnum::Static(v)) => match v.get_field(attr, ctx)? {

@@ -891,14 +891,13 @@ pub fn attributes_writeback<'ctx>(
                         if gen_rpc_tag(ctx, *field_ty, &mut scratch_buffer).is_ok() {
                             attributes.push(name.to_string());
                             let (index, _) = ctx.get_attr_index(ty, *name);
-                            values.push((
-                                *field_ty,
+                            values.push((*field_ty, unsafe {
                                 ctx.build_gep_and_load(
                                     obj.into_pointer_value(),
                                     &[zero, int32.const_int(index as u64, false)],
                                     None,
-                                )?,
-                            ));
+                                )?
+                            }));
                         }
                     }
                     if !attributes.is_empty() {
