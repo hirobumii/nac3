@@ -13,7 +13,9 @@ use nac3parser::ast::{ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKin
 
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenerator, ModuleContext, VarValue, bool_to_i1, bool_to_i8,
+        CodeGenContext, CodeGenerator, ModuleContext, VarValue,
+        allocator::AllocationScope,
+        bool_to_i1, bool_to_i8,
         expr::{destructure_range, gen_binop_expr},
         gen_in_range_check,
         irrt::{handle_slice_indices, list_slice_assignment},
@@ -51,34 +53,6 @@ pub(crate) fn get_personality<'ctx>(
     )
 }
 
-fn get_var_builder<'ctx, T>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    late: bool,
-    b: impl FnOnce(&Builder<'ctx>) -> anyhow::Result<T>,
-) -> anyhow::Result<T> {
-    // Restore debug location
-    let di_loc = ctx.debug_info.0.create_debug_location(
-        ctx.ctx,
-        ctx.current_loc.row as u32,
-        ctx.current_loc.column as u32,
-        ctx.debug_info.2,
-        None,
-    );
-
-    let new_builder;
-    let builder = if late {
-        ctx.builder
-    } else {
-        new_builder = ctx.ctx.create_builder();
-        // position before the last branching instruction...
-        new_builder.position_before(&ctx.init_bb.get_last_instruction().unwrap());
-        &new_builder
-    };
-
-    builder.set_current_debug_location(di_loc);
-    b(builder)
-}
-
 /// Allocates an LLVM stack variable for temporary storage. The variable is stored
 /// at the beginning of the function.
 ///
@@ -86,24 +60,24 @@ fn get_var_builder<'ctx, T>(
 /// loops and branches. If you are possibly within a scope where the number of allocations
 /// performed may depend on control flow (e.g. allocating objects within a comprehension),
 /// use [`gen_dyn_var`] instead.
+#[deprecated = "Use `CodeGenContext::build_allocate` instead"]
 pub fn gen_var<'ctx, T: BasicType<'ctx> + Copy>(
     ctx: &CodeGenContext<'ctx, '_>,
     ty: T,
     name: Option<&str>,
 ) -> anyhow::Result<PointerValue<'ctx>> {
-    let ty = ty.as_basic_type_enum();
-    get_var_builder(ctx, false, |builder| Ok(builder.build_alloca(ty, name.unwrap_or(""))?))
+    ctx.build_allocate(AllocationScope::StackStartOfFunc, ty, name)
 }
 
 /// Allocates an LLVM stack variable for temporary storage. The alloca is inserted
 /// at the current insertion point.
+#[deprecated = "Use `CodeGenContext::build_allocate` instead"]
 pub fn gen_dyn_var<'ctx, T: BasicType<'ctx> + Copy>(
     ctx: &CodeGenContext<'ctx, '_>,
     ty: T,
     name: Option<&str>,
 ) -> anyhow::Result<PointerValue<'ctx>> {
-    let ty = ty.as_basic_type_enum();
-    get_var_builder(ctx, true, |builder| Ok(builder.build_alloca(ty, name.unwrap_or(""))?))
+    ctx.build_allocate(AllocationScope::StackCurrentLoc, ty, name)
 }
 
 /// Allocates an LLVM stack array for temporary storage. The variable is stored
@@ -112,37 +86,28 @@ pub fn gen_dyn_var<'ctx, T: BasicType<'ctx> + Copy>(
 /// This function takes a fixed (compile-time) size for the array, because if the
 /// size is dynamic and not known at the beginning of the function, it should be
 /// allocated at the current insertion point instead.
+#[deprecated = "Use `CodeGenContext::build_array_allocate` instead"]
 pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
     ctx: &CodeGenContext<'ctx, 'a>,
     ty: T,
     size: u64,
     name: Option<&'ctx str>,
 ) -> anyhow::Result<ArraySliceValue<'ctx>> {
-    let size = ctx.size_t.const_int(size, false);
-    let ty = ty.as_basic_type_enum();
-    let ptr = get_var_builder(ctx, false, |builder| {
-        Ok(builder.build_array_alloca(ty, size, name.unwrap_or(""))?)
-    })?;
-    let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or(""))?;
-    Ok(ArraySliceValue::new(ty, ptr, size, name))
+    ctx.build_array_allocate(AllocationScope::StackStartOfFunc, ty, size, name)
 }
 
 /// Allocates an LLVM stack array for temporary storage.
 ///
 /// This happens at the current insertion point instead of the function's entry block,
 /// which allows for dynamically sized arrays.
+#[deprecated = "Use `CodeGenContext::build_dyn_array_allocate` instead"]
 pub fn gen_dyn_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
     ctx: &CodeGenContext<'ctx, 'a>,
     ty: T,
     size: IntValue<'ctx>,
     name: Option<&'ctx str>,
 ) -> anyhow::Result<ArraySliceValue<'ctx>> {
-    let ty = ty.as_basic_type_enum();
-    let ptr = get_var_builder(ctx, true, |builder| {
-        Ok(builder.build_array_alloca(ty, size, name.unwrap_or(""))?)
-    })?;
-    let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or(""))?;
-    Ok(ArraySliceValue::new(ty, ptr, size, name))
+    ctx.build_dyn_array_allocate(AllocationScope::StackCurrentLoc, ty, size, name)
 }
 
 /// See [`CodeGenerator::gen_store_target`].

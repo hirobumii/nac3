@@ -59,6 +59,7 @@ use concrete_type::{ConcreteType, ConcreteTypeEnum, ConcreteTypeStore};
 pub use generator::{CodeGenerator, DefaultCodeGenerator};
 pub use llvm_fns::FunctionDecl;
 
+pub mod allocator;
 pub mod builtin_fns;
 pub mod concrete_type;
 pub mod expr;
