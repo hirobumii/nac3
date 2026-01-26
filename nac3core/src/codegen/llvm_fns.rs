@@ -214,7 +214,7 @@ impl<'ctx> FunctionStore<'ctx> {
         builder: &Builder<'ctx>,
         args: &[T],
         call: impl FnOnce(FunctionValue<'ctx>, &[T]) -> anyhow::Result<CallSiteValue<'ctx>>,
-        mut alloca: impl FnMut(BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>>,
+        mut allocate_fn: impl FnMut(BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>>,
     ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>>
     where
         T: Copy + TryInto<BasicValueEnum<'ctx>, Error: Debug>,
@@ -228,7 +228,7 @@ impl<'ctx> FunctionStore<'ctx> {
             // types of pointers liberally:
             // https://git.m-labs.hk/M-Labs/nac3/pulls/295
             // Fix the root cause of this when migrating to untyped pointers.
-            let p = arg.try_into().unwrap().into_pointer_value();
+            let p = arg.try_into().map(BasicValueEnum::into_pointer_value).unwrap();
             if param.get_element_type().is_struct_type()
                 && p.get_type().get_element_type().is_struct_type()
             {
@@ -244,7 +244,7 @@ impl<'ctx> FunctionStore<'ctx> {
 
                 let slot = match *ret {
                     Some(TyAndCallConv { ty, call_conv: ArgCallConv::Indirect(attr) }) => {
-                        Some((alloca(ty)?, attr))
+                        Some((allocate_fn(ty)?, attr))
                     }
                     _ => None,
                 };
@@ -257,14 +257,14 @@ impl<'ctx> FunctionStore<'ctx> {
                         }
 
                         if let ArgCallConv::Indirect(attr) = call_conv {
-                            let p = alloca(ty)?;
+                            let p = allocate_fn(ty)?;
                             typed_store(builder, p, next.try_into().unwrap())?;
                             anyhow::Ok((ptr_to_t(p), attr))
                         } else {
                             Ok((next, None))
                         }
                     })
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<anyhow::Result<Vec<_>>>()?;
 
                 let normal_slot = slot.map(|(p, attr)| (ptr_to_t(p), attr));
                 let (mut llvm_args, attrs): (Vec<_>, Vec<_>) =

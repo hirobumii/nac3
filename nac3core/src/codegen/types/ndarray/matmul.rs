@@ -4,9 +4,10 @@ use nac3parser::ast::Operator;
 use crate::{
     codegen::{
         CodeGenContext,
+        allocator::AllocationScope,
         expr::{call_extern, gen_prim_binop_expr},
         irrt::get_usize_dependent_function_name,
-        stmt::{gen_array_var, gen_for_callback_incrementing},
+        stmt::gen_for_callback_incrementing,
         typed_load, typed_store,
         types::{
             array::ArrayLikeIndexer,
@@ -46,8 +47,9 @@ fn matmul_at_least_2d<'ctx>(
     let (lhs, rhs, dst) = {
         let in_lhs_shape = in_a.shape(ctx)?;
         let in_rhs_shape = in_b.shape(ctx)?;
-        let [lhs_shape, rhs_shape, dst_shape] =
-            core::array::from_fn(|_| gen_array_var(ctx, ctx.size_t, ndims_int, None));
+        let [lhs_shape, rhs_shape, dst_shape] = core::array::from_fn(|_| {
+            ctx.build_array_allocate(AllocationScope::Default, ctx.size_t, ndims_int, None)
+        });
         let [lhs_shape, rhs_shape, dst_shape] = [lhs_shape?, rhs_shape?, dst_shape?];
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_matmul_calculate_shapes");

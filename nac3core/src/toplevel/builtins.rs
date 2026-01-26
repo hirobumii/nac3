@@ -12,13 +12,14 @@ use strum::IntoEnumIterator;
 
 use crate::{
     codegen::{
+        allocator::AllocationScope,
         builtin_fns,
         numpy::{
             gen_ndarray_array, gen_ndarray_copy, gen_ndarray_empty, gen_ndarray_eye,
             gen_ndarray_fill, gen_ndarray_full, gen_ndarray_identity, gen_ndarray_ones,
             gen_ndarray_zeros, ndarray_dot,
         },
-        stmt::{exn_constructor, gen_if_callback, gen_var},
+        stmt::{exn_constructor, gen_if_callback},
         typed_store,
         types::{
             EnumerateType, NDArrayType, ProxyTypeBase, RangeField, RangeType, ScalarOrNDArray,
@@ -932,7 +933,11 @@ impl<'a> BuiltinBuilder<'a> {
                 codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args| {
                     let arg_ty = fun.0.args[0].ty;
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
-                    let alloca = gen_var(ctx, arg_val.get_type(), Some("alloca_some"))?;
+                    let alloca = ctx.build_allocate(
+                        AllocationScope::Default,
+                        arg_val.get_type(),
+                        Some("alloca_some"),
+                    )?;
                     typed_store(ctx.builder, alloca, arg_val)?;
                     Ok(Some(alloca.into()))
                 })))),

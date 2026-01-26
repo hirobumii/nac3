@@ -6,8 +6,7 @@ use nac3core_derive::{ProxyType, StructFields};
 
 use crate::{
     codegen::{
-        CodeGenContext, ModuleContext,
-        stmt::gen_dyn_array_var,
+        AllocationScope, CodeGenContext, ModuleContext,
         types::{
             ProxyTypeBase, Value, array::ArraySliceValue, builtin::BuiltinStruct, field,
             structure::StructField,
@@ -65,7 +64,7 @@ impl<'ctx> ListType<'ctx> {
         len: IntValue<'ctx>,
         name: Option<&'static str>,
     ) -> anyhow::Result<ListValue<'ctx>> {
-        let list = self.alloca(ctx, name)?;
+        let list = self.allocate(ctx, name)?;
 
         let len = ctx.builder.build_int_z_extend(len, ctx.size_t, "")?;
         list.store(ctx, field!(len), len)?;
@@ -88,7 +87,8 @@ impl<'ctx> ListType<'ctx> {
             null
         } else {
             let ty = ctx.get_llvm_type(self.item_ty);
-            let array = gen_dyn_array_var(ctx, ty, len, None)?.value.0;
+            let array =
+                ctx.build_dyn_array_allocate(AllocationScope::Default, ty, len, None)?.value.0;
             ctx.builder.build_select(len_eqz, null, array, "")?.into_pointer_value()
         };
 

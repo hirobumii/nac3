@@ -6,9 +6,9 @@ use nac3parser::ast::{Expr, ExprKind};
 use crate::{
     codegen::{
         CodeGenContext, CodeGenerator, ModuleContext,
+        allocator::AllocationScope,
         expr::call_extern,
         irrt::get_usize_dependent_function_name,
-        stmt::{gen_array_var, gen_var},
         typed_store,
         types::{
             ProxyTypeBase, RefType, Value,
@@ -50,7 +50,12 @@ impl<'ctx> NDIndexType<'ctx> {
     ) -> anyhow::Result<ArraySliceValue<'ctx>> {
         // Allocate the LLVM ndindices.
         let ty = self.alloca_ty(ctx);
-        let ndindices = gen_array_var(ctx, ty, in_ndindices.len() as u64, None)?;
+        let ndindices = ctx.build_array_allocate(
+            AllocationScope::Default,
+            ty,
+            in_ndindices.len() as u64,
+            None,
+        )?;
 
         // Initialize all of them.
         for (i, in_ndindex) in in_ndindices.iter().enumerate() {
@@ -127,7 +132,7 @@ impl<'ctx> SliceValue<'ctx> {
         }
 
         let ty = SliceType::new(ctx);
-        let result = ty.alloca(ctx, None)?;
+        let result = ty.allocate(ctx, None)?;
 
         write_value(generator, ctx, lower, result, field!(start_defined), field!(start))?;
         write_value(generator, ctx, upper, result, field!(stop_defined), field!(stop))?;
@@ -225,7 +230,7 @@ impl<'ctx> RustNDIndex<'ctx> {
         // Set `dst_ndindex_ptr->data`
         match *self {
             RustNDIndex::SingleElement(in_index) => {
-                let index_ptr = gen_var(ctx, ctx.i32, None)?;
+                let index_ptr = ctx.build_allocate(AllocationScope::Default, ctx.i32, None)?;
                 typed_store(ctx.builder, index_ptr, in_index)?;
                 dst_ndindex.store(ctx, field!(data), index_ptr)?;
             }

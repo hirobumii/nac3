@@ -3,7 +3,9 @@ use inkwell::{
     values::{BasicValue, BasicValueEnum, PointerValue},
 };
 
-use crate::codegen::{CodeGenContext, ModuleContext, stmt::gen_var, types::structure::StructField};
+use crate::codegen::{
+    AllocationScope, CodeGenContext, ModuleContext, types::structure::StructField,
+};
 
 /// Internal helper macro to implement [`ProxyType`] (and [`RefType`]) for various types.
 ///
@@ -108,6 +110,7 @@ pub trait ProxyTypeBase<'ctx> {
     ///
     /// Note that this allocates space for the type itself and does not initialize any of
     /// its fields.
+    #[deprecated = "Use ProxyTypeExt::allocate instead."]
     fn alloca(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -117,8 +120,31 @@ pub trait ProxyTypeBase<'ctx> {
         Self: RefType<'ctx> + Copy,
     {
         let alloca = self.alloca_ty(ctx);
-        let ptr = gen_var(ctx, alloca, name)?;
+        let ptr = ctx.build_allocate(AllocationScope::StackStartOfFunc, alloca, name)?;
         let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, "ptr_cast")?;
+        Ok(Value { ty: *self, value: ptr, name })
+    }
+
+    /// Allocates a new instance of this type in the
+    /// [default allocation scope][`AllocationScope::Default`].
+    ///
+    /// Note that this allocates space for the type itself and does not initialize any of
+    /// its fields.
+    fn allocate(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<Value<'ctx, Self>>
+    where
+        Self: RefType<'ctx> + Copy,
+    {
+        let alloca = self.alloca_ty(ctx);
+        let ptr = ctx.build_allocate(
+            AllocationScope::Default,
+            alloca,
+            name.map(|n| format!("{n}.alloc")).as_deref(),
+        )?;
+        let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or_default())?;
         Ok(Value { ty: *self, value: ptr, name })
     }
 

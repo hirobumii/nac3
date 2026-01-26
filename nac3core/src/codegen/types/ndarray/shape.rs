@@ -3,7 +3,8 @@ use inkwell::values::{BasicValueEnum, IntValue};
 use crate::{
     codegen::{
         CodeGenContext,
-        stmt::{gen_array_var, gen_dyn_array_var, gen_for_callback_incrementing},
+        allocator::AllocationScope,
+        stmt::gen_for_callback_incrementing,
         types::{ArrayLikeIndexer, ArraySliceValue, ListType, ProxyTypeBase, TupleType, field},
     },
     typecheck::typedef::{Type, TypeEnum},
@@ -41,7 +42,13 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let len = input_seq.load(ctx, field!(len))?;
             // TODO: Find a way to remove this mid-BB allocation
-            let result = gen_dyn_array_var(ctx, llvm_usize, len, None)?;
+            let result = {
+                #[cfg(feature = "malloc")]
+                let scope = AllocationScope::Heap;
+                #[cfg(not(feature = "malloc"))]
+                let scope = AllocationScope::StackCurrentLoc;
+                ctx.build_dyn_array_allocate(scope, llvm_usize, len, None)?
+            };
 
             // Load all the `int32`s from the input_sequence, cast them to `SizeT`, and store them into `result`
             gen_for_callback_incrementing(
@@ -77,7 +84,12 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let len = input_seq.ty.num_elements();
 
-            let result = gen_array_var(ctx, llvm_usize, u64::from(len), None)?;
+            let result = ctx.build_array_allocate(
+                AllocationScope::Default,
+                llvm_usize,
+                u64::from(len),
+                None,
+            )?;
 
             for i in 0..input_seq.ty.num_elements() {
                 // Get the i-th element off of the tuple and load it into `result`.
@@ -97,7 +109,7 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let input_int = input_seq.into_int_value();
 
-            let result = gen_array_var(ctx, llvm_usize, 1, None)?;
+            let result = ctx.build_array_allocate(AllocationScope::Default, llvm_usize, 1, None)?;
             let int = ctx.builder.build_int_s_extend_or_bit_cast(input_int, llvm_usize, "")?;
 
             // Storing into result[0]

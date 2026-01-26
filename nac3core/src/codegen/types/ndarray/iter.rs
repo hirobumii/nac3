@@ -7,9 +7,10 @@ use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
     CodeGenContext,
+    allocator::AllocationScope,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
-    stmt::{BreakContinueHooks, gen_array_var, gen_for_callback, gen_var},
+    stmt::{BreakContinueHooks, gen_for_callback},
     typed_load, typed_store,
     types::{
         ProxyTypeBase, Value,
@@ -67,10 +68,13 @@ impl<'ctx> NDIterValue<'ctx> {
             ndims: ndarray.ty.ndims,
         };
 
-        let nditer = ty.alloca(ctx, None)?;
+        let nditer = ty.allocate(ctx, None)?;
 
         // The caller has the responsibility to allocate 'indices' for `NDIter`.
-        let indices = gen_array_var(ctx, ctx.size_t, ndarray.ty.ndims, None)?.value.0;
+        let indices = ctx
+            .build_array_allocate(AllocationScope::Default, ctx.size_t, ndarray.ty.ndims, None)?
+            .value
+            .0;
         let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_initialize");
         call_extern!(ctx: void _ = name(nditer.value, ndarray.value, indices))?;
 
@@ -175,7 +179,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         ) -> anyhow::Result<V>,
     {
         let init = init.as_basic_value_enum();
-        let acc_ptr = gen_var(ctx, init.get_type(), None)?;
+        let acc_ptr =
+            ctx.build_allocate(AllocationScope::StackStartOfFunc, init.get_type(), None)?;
         typed_store(ctx.builder, acc_ptr, init)?;
 
         gen_for_callback(

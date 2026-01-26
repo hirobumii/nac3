@@ -7,13 +7,12 @@ use itertools::Itertools as _;
 
 use crate::{
     codegen::{
-        CodeGenContext, bool_to_i8,
+        AllocationScope, CodeGenContext, bool_to_i8,
         expr::destructure_range,
         extern_fns,
         irrt::{self, calculate_len_for_slice_range},
         llvm_intrinsics,
         macros::codegen_unreachable,
-        stmt::gen_var,
         typed_store,
         types::{
             ArrayLikeIndexer, ListType, NDArrayOut, NDArrayType, NDArrayValue, ProxyTypeBase,
@@ -812,8 +811,8 @@ pub fn call_numpy_max_min<'ctx>(
                 )?;
             }
 
-            let extremum = gen_var(ctx, llvm_dtype, None)?;
-            let extremum_idx = gen_var(ctx, ctx.size_t, None)?;
+            let extremum = ctx.build_allocate(AllocationScope::Default, llvm_dtype, None)?;
+            let extremum_idx = ctx.build_allocate(AllocationScope::Default, ctx.size_t, None)?;
 
             let first_value = ndarray.first_element(ctx)?;
             typed_store(ctx.builder, extremum, first_value)?;

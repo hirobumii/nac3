@@ -21,8 +21,9 @@ use nac3parser::ast::{
 
 use crate::{
     codegen::{
-        CodeGenContext, CodeGenTask, CodeGenerator, VarValue, bool_to_i1, bool_to_i8,
-        bool_to_int_type,
+        CodeGenContext, CodeGenTask, CodeGenerator, VarValue,
+        allocator::AllocationScope,
+        bool_to_i1, bool_to_i8, bool_to_int_type,
         concrete_type::{ConcreteFuncArg, ConcreteTypeEnum, ConcreteTypeStore},
         gen_in_range_check, get_alloca_type, get_llvm_abi_type, get_llvm_type,
         irrt::{
@@ -35,8 +36,7 @@ use crate::{
         },
         macros::codegen_unreachable,
         stmt::{
-            gen_dyn_var, gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback,
-            gen_raise, gen_var,
+            gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         },
         typed_load, typed_store,
         types::{
@@ -429,7 +429,8 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         );
         self.builder.set_current_debug_location(loc);
 
-        let alloca = |ty| gen_var(self, ty, Some(call_name));
+        let allocate =
+            |ty| self.build_allocate(AllocationScope::StackStartOfFunc, ty, Some(call_name));
 
         unwind_target.map_or_else(
             || {
@@ -439,7 +440,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     self.builder,
                     &args,
                     |value, args| Ok(self.builder.build_call(value, args, call_name)?),
-                    alloca,
+                    allocate,
                 )
             },
             |target| {
@@ -454,7 +455,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     |value, args| {
                         Ok(self.builder.build_invoke(value, args, then_block, target, call_name)?)
                     },
-                    alloca,
+                    allocate,
                 );
                 self.builder.position_at_end(then_block);
                 result
@@ -578,7 +579,13 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     // TODO: what about other fields that require alloca?
     let fun_id = methods.iter().find(|method| method.0 == "__init__".into()).map(|method| method.2);
     let ty = ctx.get_alloca_type(signature.ret);
-    let zelf: BasicValueEnum<'ctx> = gen_dyn_var(ctx, ty, Some("alloca"))?.into();
+    let zelf: BasicValueEnum<'ctx> = {
+        #[cfg(feature = "malloc")]
+        let scope = AllocationScope::Default;
+        #[cfg(not(feature = "malloc"))]
+        let scope = AllocationScope::StackCurrentLoc;
+        ctx.build_allocate(scope, ty, Some("alloca"))?.into()
+    };
     // call `__init__` if there is one
     if let Some(fun_id) = fun_id {
         let mut sign = signature.clone();
@@ -846,7 +853,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let zero_size_t = size_t.const_zero();
     let zero_32 = int32.const_zero();
 
-    let index = gen_var(ctx, size_t, Some("index.addr"))?;
+    let index = ctx.build_allocate(AllocationScope::Default, size_t, Some("index.addr"))?;
     typed_store(ctx.builder, index, zero_size_t)?;
 
     let elem_ty = elt.custom.unwrap();
@@ -914,7 +921,8 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             let length = iter_val.load(ctx, field!(len))?;
             list = ListType::new(ctx, elem_ty).construct(ctx, length, Some("listcomp"))?;
 
-            let counter = gen_var(ctx, size_t, Some("counter.addr"))?;
+            let counter =
+                ctx.build_allocate(AllocationScope::Default, size_t, Some("counter.addr"))?;
             // counter = -1
             typed_store(ctx.builder, counter, size_t.const_all_ones())?;
             ctx.builder.build_unconditional_branch(test_bb)?;
@@ -1555,7 +1563,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         ctx,
                         |_, _ctx| Ok(eq_len),
                         |generator, ctx| {
-                            let acc_addr = gen_var(ctx, ctx.i8, None)?;
+                            let acc_addr = ctx.build_allocate(AllocationScope::Default, ctx.i8, None)?;
                             typed_store(ctx.builder, acc_addr, ctx.i8.const_all_ones())?;
 
                             gen_for_callback_incrementing(
@@ -1641,7 +1649,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 let llvm_i8 = ctx.i8;
 
                 // Assume `true` by default
-                let cmp_addr = gen_var(ctx, llvm_i8, None)?;
+                let cmp_addr = ctx.build_allocate(AllocationScope::Default, llvm_i8, None)?;
                 typed_store(ctx.builder, cmp_addr, llvm_i8.const_all_ones())?;
 
                 let current_bb = ctx.builder.get_insert_block().unwrap();
@@ -1981,7 +1989,11 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         None
     } else {
         let llvm_ty = ctx.get_llvm_type(body_ty);
-        Some(gen_var(ctx, llvm_ty, Some("if_exp_result"))?)
+        Some(ctx.build_allocate(
+            AllocationScope::StackStartOfFunc,
+            llvm_ty,
+            Some("if_exp_result"),
+        )?)
     };
     let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let then_bb = ctx.ctx.append_basic_block(current, "then");
@@ -2219,15 +2231,12 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                 else {
                     return Ok(RtValue::none(ty));
                 };
-                let cond = ctx
-                    .builder
-                    .build_int_compare(
-                        IntPredicate::SLT,
-                        step,
-                        ctx.i32.const_int(0, false),
-                        "is_neg",
-                    )
-                    .unwrap();
+                let cond = ctx.builder.build_int_compare(
+                    IntPredicate::SLT,
+                    step,
+                    ctx.i32.const_int(0, false),
+                    "is_neg",
+                )?;
                 let then = ctx.builder.build_int_sub(end, one, "e_min_one")?;
                 let else_ = ctx.builder.build_int_add(end, one, "e_add_one")?;
                 let end_slice =

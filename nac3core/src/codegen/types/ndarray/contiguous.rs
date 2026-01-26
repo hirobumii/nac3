@@ -46,7 +46,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             dtype: self.ty.dtype,
             ndims: self.ty.ndims,
         };
-        let result = result.alloca(ctx, self.name)?;
+        let result = result.allocate(ctx, self.name)?;
 
         // Set ndims and shape.
         let ndims = self.ty.ndims_val(ctx);

@@ -45,14 +45,14 @@ impl OptionType {
         value: Option<BasicValueEnum<'ctx>>,
         name: Option<&'static str>,
     ) -> anyhow::Result<OptionValue<'ctx>> {
-        match value {
+        Ok(match value {
             Some(v) => {
-                let value = self.alloca(ctx, name)?;
+                let value = self.allocate(ctx, name)?;
                 typed_store(ctx.builder, value.value, v)?;
-                Ok(value)
+                value
             }
-            None => Ok(self.map_value(ctx.ptr.const_null(), name)),
-        }
+            None => self.map_value(ctx.ptr.const_null(), name),
+        })
     }
 }
 

@@ -13,10 +13,7 @@ use nac3core::{
         basic_type_all, bool_to_i1,
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
-        stmt::{
-            gen_array_var, gen_block, gen_dyn_array_var, gen_for_callback_incrementing,
-            gen_if_callback, gen_var, gen_with,
-        },
+        stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_allocate, typed_store,
         types::{
             ArrayLikeIndexer, ExceptionType, ListType, NDArrayType, ProxyTypeBase, RangeType, field,
@@ -466,7 +463,12 @@ fn format_rpc_arg<'ctx>(
             let sizeof_buf = sizeof_buf_shape + sizeof_pdata;
 
             // buf = { data: void*, shape: [size_t; ndims]; }
-            let buf = gen_array_var(ctx, llvm_i8, sizeof_buf, Some("rpc.arg"))?;
+            let buf = ctx.build_array_allocate(
+                AllocationScope::Default,
+                llvm_i8,
+                sizeof_buf,
+                Some("rpc.arg"),
+            )?;
             let buf_data = buf.value.0;
             let sizeof_pdata_ = ctx.size_t.const_int(sizeof_pdata, false);
             let buf_shape = buf.ptr_offset_unchecked(ctx, &sizeof_pdata_, None)?;
@@ -485,7 +487,11 @@ fn format_rpc_arg<'ctx>(
         }
 
         _ => {
-            let arg_slot = gen_var(ctx, arg.get_type(), Some(&format!("rpc.arg{arg_idx}")))?;
+            let arg_slot = ctx.build_allocate(
+                AllocationScope::StackStartOfFunc,
+                arg.get_type(),
+                Some(&format!("rpc.arg{arg_idx}")),
+            )?;
             typed_store(ctx.builder, arg_slot, arg)?;
 
             ctx.builder.build_bit_cast(arg_slot, llvm_pi8, "rpc.arg")?.into_pointer_value()
@@ -678,7 +684,15 @@ fn format_rpc_ret<'ctx>(
             // Align the allocation to sizeof(T)
             let alloc_size = round_up(ctx, alloc_size, itemsize)?;
             let size = ctx.builder.build_int_unsigned_div(alloc_size, itemsize, "")?;
-            let alloc_ptr = gen_dyn_array_var(ctx, dtype_llvm, size, Some("rpc.alloc"))?.value.0;
+            let alloc_ptr = ctx
+                .build_dyn_array_allocate(
+                    AllocationScope::Default,
+                    dtype_llvm,
+                    size,
+                    Some("rpc.alloc"),
+                )?
+                .value
+                .0;
             phi.add_incoming(&[(&alloc_ptr, alloc_bb)]);
             ctx.builder.build_unconditional_branch(head_bb)?;
 
@@ -687,7 +701,8 @@ fn format_rpc_ret<'ctx>(
         }
 
         _ => {
-            let slot = gen_var(ctx, llvm_ret_ty, Some("rpc.ret.slot"))?;
+            let slot =
+                ctx.build_allocate(AllocationScope::Default, llvm_ret_ty, Some("rpc.ret.slot"))?;
             let slotgen = ctx.builder.build_bit_cast(slot, llvm_pi8, "rpc.ret.ptr")?;
             ctx.builder.build_unconditional_branch(head_bb)?;
             ctx.builder.position_at_end(head_bb);
@@ -708,8 +723,15 @@ fn format_rpc_ret<'ctx>(
             ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb)?;
             ctx.builder.position_at_end(alloc_bb);
 
-            let alloc_ptr =
-                gen_dyn_array_var(ctx, llvm_pi8, alloc_size, Some("rpc.alloc"))?.value.0;
+            let alloc_ptr = ctx
+                .build_dyn_array_allocate(
+                    AllocationScope::Default,
+                    llvm_pi8,
+                    alloc_size,
+                    Some("rpc.alloc"),
+                )?
+                .value
+                .0;
             phi.add_incoming(&[(&alloc_ptr, alloc_bb)]);
             ctx.builder.build_unconditional_branch(head_bb)?;
 
@@ -779,7 +801,12 @@ fn rpc_codegen_callback_fn<'ctx>(
     let arg_length = args.len() as u64 + u64::from(obj.is_some());
 
     let stackptr = call_stacksave(ctx, Some("rpc.stack"))?;
-    let args_ptr = gen_array_var(ctx, ctx.ptr, arg_length, Some("argptr"))?;
+    let args_ptr = ctx.build_array_allocate(
+        AllocationScope::StackCurrentLoc,
+        ctx.ptr,
+        arg_length,
+        Some("argptr"),
+    )?;
 
     // -- rpc args handling
     let mut keys = fun.0.args.clone();
@@ -1037,7 +1064,11 @@ fn polymorphic_print<'ctx>(
         match &*ctx.unifier.get_ty_immutable(ty) {
             TypeEnum::TTuple { ty: tys, is_vararg_ctx: false } => {
                 let pvalue = {
-                    let pvalue = gen_var(ctx, value.get_type(), None)?;
+                    let pvalue = ctx.build_allocate(
+                        AllocationScope::StackStartOfFunc,
+                        value.get_type(),
+                        None,
+                    )?;
                     typed_store(ctx.builder, pvalue, value)?;
                     pvalue
                 };

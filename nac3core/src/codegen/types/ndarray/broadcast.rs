@@ -6,9 +6,10 @@ use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
     CodeGenContext, ModuleContext,
+    allocator::AllocationScope,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
-    stmt::{gen_array_var, gen_for_callback},
+    stmt::gen_for_callback,
     typed_store,
     types::{
         ProxyTypeBase,
@@ -98,7 +99,12 @@ pub fn broadcast<'ctx>(
 ) -> anyhow::Result<BroadcastAllResult<'ctx>> {
     let shape_entry_ty = ShapeEntryType::new(ctx);
     let shape_entries = ctx.size_t.const_int(ndarrays.len() as _, false);
-    let arr = gen_array_var(ctx, shape_entry_ty.inner.llvm_ty, ndarrays.len() as _, None)?;
+    let arr = ctx.build_array_allocate(
+        AllocationScope::Default,
+        shape_entry_ty.inner.llvm_ty,
+        ndarrays.len() as _,
+        None,
+    )?;
 
     // Store shapes into memory.
     for (i, ndarray) in ndarrays.iter().enumerate() {
@@ -112,7 +118,8 @@ pub fn broadcast<'ctx>(
     }
 
     let ndims = ndarrays.iter().map(|ndarray| ndarray.ty.ndims).max().unwrap();
-    let new_shape_ptr = gen_array_var(ctx, ctx.size_t, ndims, None)?.value.0;
+    let new_shape_ptr =
+        ctx.build_array_allocate(AllocationScope::Default, ctx.size_t, ndims, None)?.value.0;
 
     let ndims_v = ctx.size_t.const_int(ndims, false);
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");

@@ -8,10 +8,11 @@ use nac3core_derive::{ProxyType, StructFields};
 use crate::{
     codegen::{
         CodeGenContext, ModuleContext,
+        allocator::AllocationScope,
         expr::call_extern,
         irrt::get_usize_dependent_function_name,
         llvm_intrinsics::call_int_umin,
-        stmt::{gen_array_var, gen_dyn_array_var, gen_for_callback_incrementing, gen_var},
+        stmt::gen_for_callback_incrementing,
         typed_load, typed_store,
         types::{
             ProxyTypeBase, Value,
@@ -126,16 +127,22 @@ impl<'ctx> NDArrayType<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
     ) -> anyhow::Result<NDArrayValue<'ctx>> {
-        let ndarray = self.alloca(ctx, name)?;
+        let ndarray = self.allocate(ctx, name)?;
 
         let size = self.itemsize_val(ctx);
         ndarray.store(ctx, field!(itemsize), size)?;
         let (ndims_int, ndims) = (self.ndims, self.ndims_val(ctx));
         ndarray.store(ctx, field!(ndims), ndims)?;
 
-        let shape = gen_array_var(ctx, ctx.size_t, ndims_int, None)?.value.0;
+        let shape = ctx
+            .build_array_allocate(AllocationScope::Default, ctx.size_t, ndims_int, None)?
+            .value
+            .0;
         ndarray.store(ctx, field!(shape), shape)?;
-        let strides = gen_array_var(ctx, ctx.size_t, ndims_int, None)?.value.0;
+        let strides = ctx
+            .build_array_allocate(AllocationScope::Default, ctx.size_t, ndims_int, None)?
+            .value
+            .0;
         ndarray.store(ctx, field!(strides), strides)?;
 
         Ok(ndarray)
@@ -191,7 +198,8 @@ impl<'ctx> NDArrayValue<'ctx> {
     ) -> anyhow::Result<Self> {
         let dtype = value.get_type();
         let ndarray = NDArrayType::new(ctx, dtype, 0).construct(ctx, name)?;
-        let data = gen_var(ctx, value.get_type(), Some("map_unsized"))?;
+        let data =
+            ctx.build_allocate(AllocationScope::Default, value.get_type(), Some("map_unsized"))?;
         typed_store(ctx.builder, data, value)?;
         let data = ctx.builder.build_pointer_cast(data, ctx.ptr, "")?;
         ndarray.store(ctx, field!(data), data)?;
@@ -215,7 +223,10 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// Assumes `shape` has been correctly prepared.
     pub fn create_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
         let size = self.size(ctx)?;
-        let alloc = gen_dyn_array_var(ctx, self.ty.dtype, size, None)?.value.0;
+        let alloc = ctx
+            .build_dyn_array_allocate(AllocationScope::Default, self.ty.dtype, size, None)?
+            .value
+            .0;
         self.store(ctx, field!(data), alloc)?;
         self.set_strides_contiguous(ctx)?;
         Ok(())

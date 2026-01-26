@@ -6,9 +6,10 @@ use inkwell::{
 use crate::{
     codegen::{
         CodeGenContext,
+        allocator::AllocationScope,
         expr::call_extern,
         irrt::get_usize_dependent_function_name,
-        stmt::{gen_array_var, gen_if_else_expr_callback},
+        stmt::gen_if_else_expr_callback,
         types::{
             ProxyTypeBase,
             array::ArrayLikeIndexer,
@@ -45,7 +46,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         // Raise an exception if `list` is something abnormal like `[[1, 2], [3]]`.
         // If `list` has a consistent shape, deduce the shape and write it to `shape`.
         let ndims = ctx.size_t.const_int(ndims_int, false);
-        let shape = gen_array_var(ctx, ctx.size_t, ndims_int, None)?;
+        let shape =
+            ctx.build_array_allocate(AllocationScope::Default, ctx.size_t, ndims_int, None)?;
         let fn_name = get_usize_dependent_function_name(
             ctx,
             "__nac3_ndarray_array_set_and_validate_list_shape",
