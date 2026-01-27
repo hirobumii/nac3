@@ -33,7 +33,7 @@ use crate::{
         typed_store,
         types::{
             EnumerateType, NDArrayType, ProxyTypeExt, RangeField, RangeType, ScalarOrNDArray,
-            parse_numpy_int_sequence,
+            field, parse_numpy_int_sequence,
         },
     },
     symbol_resolver::SymbolValue,
@@ -770,8 +770,6 @@ impl<'a> BuiltinBuilder<'a> {
                 instance_to_stmt: HashMap::default(),
                 resolver: None,
                 codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, obj, _, args| {
-                    use crate::codegen::types::{ProxyTypeExt as _, field};
-
                     let (zelf_ty, zelf) = obj.unwrap();
                     let zelf = zelf.to_basic_value_enum(ctx, zelf_ty)?.into_pointer_value();
                     let zelf = EnumerateType::new(&ctx.inner).map_value(zelf, Some("enumerate"));

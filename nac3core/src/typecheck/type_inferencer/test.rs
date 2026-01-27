@@ -319,7 +319,7 @@ impl TestEnvironment {
             params: VarMap::new(),
         });
         identifier_mapping.insert("None".into(), none);
-        for (i, name) in [
+        let primitive_names = [
             "int32",
             "int64",
             "float",
@@ -334,10 +334,8 @@ impl TestEnvironment {
             "Option",
             "list",
             "ndarray",
-        ]
-        .iter()
-        .enumerate()
-        {
+        ];
+        for (i, name) in primitive_names.iter().enumerate() {
             top_level_defs.push(
                 RwLock::new(TopLevelDef::Class {
                     name: (*name).into(),
@@ -355,7 +353,7 @@ impl TestEnvironment {
                 .into(),
             );
         }
-        let defs = 13;
+        let defs = primitive_names.len();
 
         let primitives = PrimitiveStore {
             int32,
@@ -498,9 +496,9 @@ impl TestEnvironment {
             (PrimDef::Option.id().0, "option".into()),
             (PrimDef::List.id().0, "list".into()),
             (PrimDef::NDArray.id().0, "ndarray".into()),
-            (14, "Foo".into()),
-            (15, "Bar".into()),
-            (16, "Bar2".into()),
+            (defs + 1, "Foo".into()),
+            (defs + 2, "Bar".into()),
+            (defs + 3, "Bar2".into()),
         ]
         .into();
 
