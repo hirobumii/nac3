@@ -125,7 +125,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     ///
     /// See [`inkwell::builder::Builder::build_gep`].
     pub unsafe fn build_gep_and_load(
-        &mut self,
+        &self,
         ptr: PointerValue<'ctx>,
         index: &[IntValue<'ctx>],
         name: Option<&str>,
