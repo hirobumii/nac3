@@ -121,7 +121,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     /// Builds a sequence of `getelementptr` and `load` instructions which stores the value of a
     /// struct field into an LLVM value.
     pub fn build_gep_and_load(
-        &mut self,
+        &self,
         ptr: PointerValue<'ctx>,
         index: &[IntValue<'ctx>],
         name: Option<&str>,
