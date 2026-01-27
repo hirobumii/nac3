@@ -26,13 +26,13 @@ use inkwell::{
     debug_info::{
         AsDIScope, DICompileUnit, DIFlagsConstants, DIScope, DISubprogram, DebugInfoBuilder,
     },
-    module::Module,
+    module::{Linkage, Module},
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{BasicType, BasicTypeEnum, FloatType, IntType, PointerType},
     values::{
-        BasicValue, BasicValueEnum, FunctionValue, InstructionValue, IntValue, PhiValue,
-        PointerValue,
+        BasicValue, BasicValueEnum, FunctionValue, GlobalValue, InstructionValue, IntValue,
+        PhiValue, PointerValue,
     },
 };
 use itertools::Itertools as _;
@@ -1150,6 +1150,9 @@ pub fn type_aligned_allocate<'ctx>(
     ctx.build_dyn_array_allocate(scope, align_ty, aligned_slices, name)
 }
 
+/// Name of the global variable marking the beginning of the module's global data.
+const MODULE_GLOBAL_BEGIN_NAME: &str = "__nac3_global_begin";
+
 /// Contains all global LLVM state that is attached to an LLVM [`Module`] and independent
 /// from Python.
 pub struct ModuleContext<'ctx> {
@@ -1210,11 +1213,21 @@ impl<'ctx> ModuleContext<'ctx> {
             i32.const_int(4, false),
         );
 
+        let global_begin = module.add_global(i8, None, MODULE_GLOBAL_BEGIN_NAME);
+        global_begin.set_linkage(Linkage::WeakAny);
+        global_begin.set_constant(true);
+        global_begin.set_initializer(&i8.get_poison());
+
         Self { ctx, module, target, fn_store, size_t, i1, i8, i32, i64, f64, ptr }
     }
 
     pub fn sizeof(&self, ty: impl Copy + BasicType<'ctx>) -> u64 {
         self.target.get_target_data().get_abi_size(&ty)
+    }
+
+    /// Returns an `i8*` to the beginning of the module's global data.
+    pub fn global_begin_ptr(&self) -> PointerValue<'ctx> {
+        self.module.get_global(MODULE_GLOBAL_BEGIN_NAME).map(GlobalValue::as_pointer_value).unwrap()
     }
 }
 
