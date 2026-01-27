@@ -148,10 +148,19 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        // make sure the result do not contain any type vars
-        let no_type_var =
-            result.iter().all(|x| get_type_var_contained_in_type_annotation(x).is_empty());
-        if no_type_var {
+        // make sure any type vars in the result are in scope (from locked class context)
+        let type_vars_in_result: Vec<_> =
+            result.iter().flat_map(get_type_var_contained_in_type_annotation).collect();
+
+        let all_type_vars_in_scope = type_vars_in_result.iter().all(|tv| {
+            if let TypeAnnotation::TypeVar(t) = tv {
+                locked.values().flatten().any(|class_tv| unifier.unioned(*class_tv, *t))
+            } else {
+                false
+            }
+        });
+
+        if type_vars_in_result.is_empty() || all_type_vars_in_scope {
             result
         } else {
             return Err(HashSet::from([format!(

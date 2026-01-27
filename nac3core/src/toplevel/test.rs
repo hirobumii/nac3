@@ -382,9 +382,9 @@ fn test_simple_function_analyze(source: &[&str], tys: &[&str], names: &[&str]) {
                     pass
         "}
     ],
-    &["application of type vars to generic class is not currently supported (at unknown:4:24)"],
-    "err no type var in generic app";
-    "err no type var in generic app"
+    &[],
+    "type var in generic app";
+    "type_var_in_generic_app"
 )]
 #[test_case(
     &[

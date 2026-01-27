@@ -1531,7 +1531,7 @@ impl TopLevelComposer {
                                     unreachable!("must be type var annotation")
                                 };
 
-                                if !class_type_vars_def.contains(&t){
+                                if !class_type_vars_def.iter().any(|declared_tv| unifier.unioned(*declared_tv, t)) {
                                     return Err(HashSet::from([
                                         format!(
                                             "class field `{attr}' uses type var `{}' which is not declared in the `Generic' annotation of class `{class_name}' (at {})\n  Note: Class declares the following type variables: [{}]",
