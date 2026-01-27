@@ -9,7 +9,7 @@ use std::{
 use itertools::{Itertools, izip};
 
 use nac3parser::ast::{
-    self, Arguments, Comprehension, ExprContext, ExprKind, Located, Location, StrRef,
+    self, Arguments, Comprehension, Expr, ExprContext, ExprKind, Located, Location, StrRef,
     fold::{self, Fold},
 };
 
@@ -33,7 +33,6 @@ use crate::{
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
     },
-    typecheck::unification_table::UnificationKey,
 };
 
 #[cfg(test)]
@@ -605,7 +604,7 @@ impl Inferencer<'_> {
     /// Check if a type is iterable and return its element type.
     fn get_iterable_element_type(
         &mut self,
-        iter: &Located<ExprKind<Option<UnificationKey>>, Option<UnificationKey>>,
+        iter: &Expr<Option<Type>>,
     ) -> Result<Option<Type>, InferenceError> {
         let iter_ty = iter.custom.unwrap();
         let ty_enum = self.unifier.get_ty(iter_ty);
@@ -695,10 +694,7 @@ impl Inferencer<'_> {
     }
 
     /// Check if a type is iterable. Returns `Ok(())` if iterable, otherwise returns an error.
-    fn check_iterable(
-        &mut self,
-        iter: &Located<ExprKind<Option<UnificationKey>>, Option<UnificationKey>>,
-    ) -> Result<Type, InferenceError> {
+    fn check_iterable(&mut self, iter: &Expr<Option<Type>>) -> Result<Type, InferenceError> {
         let iter_ty = iter.custom.unwrap();
         let location = iter.location;
         if let Some(elem_ty) = self.get_iterable_element_type(iter)? {
