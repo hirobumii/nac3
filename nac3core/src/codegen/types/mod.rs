@@ -85,6 +85,7 @@ mod range;
 mod string;
 mod structure;
 mod tuple;
+mod typeinfo;
 
 pub use array::{ArrayLikeIndexer, ArraySliceType, ArraySliceValue};
 pub use builtin::BuiltinStruct;
@@ -101,6 +102,7 @@ pub use option::{OptionType, OptionValue};
 pub use range::{RangeField, RangeType, RangeValue};
 pub use string::{StringType, StringValue};
 pub use tuple::{TupleType, TupleValue};
+pub use typeinfo::{TypeinfoType, TypeinfoValue};
 
 /// Represents a wrapper type on top of this kind of `Value`.
 pub trait ProxyTypeBase<'ctx> {
