@@ -976,8 +976,14 @@ impl InnerResolver {
                         }
                     }
                     for ty in var_map.values() {
+                        // must be concrete type, but allow TVars with constraints (bounded type variables)
+                        // that will be resolved during type checking
                         let is_acceptable = match &*unifier.get_ty(*ty) {
-                            TypeEnum::TVar { range, .. } if !range.is_empty() => true,
+                            TypeEnum::TVar { range, .. } if !range.is_empty() => {
+                                // TVar with constraints (e.g., TypeVar("V", A, B)) is acceptable
+                                // even if not yet unified to a concrete type
+                                true
+                            }
                             _ => unifier.is_concrete(*ty, &[]),
                         };
 
