@@ -403,18 +403,30 @@ impl InnerResolver {
 
             // do not handle type var param and concrete check here, and no subst
             Ok(Ok({
+                // Check if any type_vars have been unified to non-TVar types
+                let has_unified_vars = type_vars
+                    .iter()
+                    .any(|x| !matches!(&*unifier.get_ty(*x), TypeEnum::TVar { .. }));
+
                 let ty = TypeEnum::TObj {
                     obj_id: *object_id,
-                    params: type_vars
-                        .iter()
-                        .map(|x| {
-                            let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*x) else {
-                                unreachable!()
-                            };
+                    params: if has_unified_vars {
+                        // If type_vars have been unified (e.g., due to circular references during type checking),
+                        // treat this as an already-instantiated type with no free type parameters.
+                        // This avoids issues where unified types are not concrete and fail validation.
+                        VarMap::new()
+                    } else {
+                        type_vars
+                            .iter()
+                            .map(|x| {
+                                let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*x) else {
+                                    unreachable!()
+                                };
 
-                            (*id, *x)
-                        })
-                        .collect(),
+                                (*id, *x)
+                            })
+                            .collect()
+                    },
                     fields: {
                         let mut res = methods
                             .iter()
