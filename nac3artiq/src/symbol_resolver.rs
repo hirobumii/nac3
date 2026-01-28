@@ -964,8 +964,12 @@ impl InnerResolver {
                         }
                     }
                     for ty in var_map.values() {
-                        // must be concrete type
-                        if !unifier.is_concrete(*ty, &[]) {
+                        let is_acceptable = match &*unifier.get_ty(*ty) {
+                            TypeEnum::TVar { range, .. } if !range.is_empty() => true,
+                            _ => unifier.is_concrete(*ty, &[]),
+                        };
+
+                        if !is_acceptable {
                             return Ok(Err("object is not of concrete type".into()));
                         }
                     }
