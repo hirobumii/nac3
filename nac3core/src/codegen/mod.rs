@@ -29,7 +29,7 @@ use inkwell::{
     module::{Linkage, Module},
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
-    types::{BasicType, BasicTypeEnum, FloatType, IntType, PointerType},
+    types::{AnyType, BasicType, BasicTypeEnum, FloatType, IntType, PointerType},
     values::{
         BasicValue, BasicValueEnum, FunctionValue, GlobalValue, InstructionValue, IntValue,
         PhiValue, PointerValue,
@@ -612,6 +612,33 @@ pub fn typed_store<'ctx>(
     let value_ty = value.as_basic_value_enum().get_type();
     let casted_ptr = b.build_pointer_cast(ptr, value_ty.ptr_type(AddressSpace::default()), "")?;
     Ok(b.build_store(casted_ptr, value)?)
+}
+
+/// Builds a `getelementptr` instruction with a possibly-opaque pointer.
+///
+/// See [`Builder::build_gep`].
+///
+/// # Panics
+///
+/// This function panics if `ptr` is neither an opaque pointer nor a pointer to `pointee_ty`.
+pub fn typed_gep<'ctx, T: BasicType<'ctx>>(
+    b: &Builder<'ctx>,
+    pointee_ty: &T,
+    ptr: PointerValue<'ctx>,
+    ordered_indexes: &[IntValue<'ctx>],
+    name: &str,
+) -> anyhow::Result<PointerValue<'ctx>> {
+    let ptr = match ptr.get_type().get_element_type() {
+        elem_ty if elem_ty == pointee_ty.as_any_type_enum() => ptr,
+        elem_ty if elem_ty == ptr.get_type().get_context().i8_type().as_any_type_enum() => {
+            b.build_pointer_cast(ptr, pointee_ty.ptr_type(AddressSpace::default()), "")?
+        }
+        _ => {
+            unreachable!("`ptr` must be an opaque pointer or a pointer to the pointee type")
+        }
+    };
+
+    Ok(unsafe { b.build_gep(ptr, ordered_indexes, name)? })
 }
 
 /// Retrieves the [LLVM type][`BasicTypeEnum`] corresponding to the [`Type`].
