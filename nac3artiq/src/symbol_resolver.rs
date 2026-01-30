@@ -1395,10 +1395,8 @@ impl InnerResolver {
             // }
             // Note: This matches EnumerateType in enumerate.rs where the structure wraps
             // the iterable pointer and start value.
-            let enum_struct_ty = ctx.ctx.struct_type(
-                &[iterable_struct_ty.ptr_type(AddressSpace::default()).into(), ctx.i32.into()],
-                false,
-            );
+            let enum_ty = EnumerateType::new(&ctx.inner);
+            let enum_struct_ty = enum_ty.inner.llvm_ty;
 
             let enum_struct_val = enum_struct_ty.const_named_struct(&[
                 iterable_global.as_pointer_value().into(),
