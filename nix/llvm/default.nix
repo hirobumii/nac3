@@ -1,161 +1,151 @@
 {
   lib,
   stdenv,
+  wineWowPackages,
   pkgsBuildBuild,
   fetchurl,
   fetchpatch,
   cmake,
   python3,
-  libbfd,
   ncurses,
   zlib,
-  which,
+  ninja,
+  libxcrypt,
+  useMsysPackages ? false,
+  msys2-env ? null,
   debugVersion ? false,
   enableSharedLibraries ? false,
+  buildClang ? false,
+  buildCompilerRt ? false,
   extraCmakeFlags ? [],
+  llvmTools ? ["llvm-config"],
+  runCommandNoCC,
+  wrapCCWith,
 }: let
   inherit (lib) optional optionals optionalString;
-  sources = import ../llvm/sources.nix {inherit fetchurl;};
-in
-  stdenv.mkDerivation rec {
-    pname = "llvm";
-    inherit (sources) version;
+  sources = import ../llvm/sources.nix {
+    splitString = lib.strings.splitString;
+    inherit fetchurl;
+  };
+in rec {
+  exe_suffix =
+    if useMsysPackages
+    then ".exe"
+    else "";
+  llvm = stdenv.mkDerivation rec {
+    pname = "llvm-nac3";
+    version = "16.0.6";
+    nativeBuildInputs =
+      if useMsysPackages
+      then [wineWowPackages.stable]
+      else [cmake python3 ninja];
+    buildInputs =
+      if useMsysPackages
+      then []
+      else [libxcrypt];
+    propagatedBuildInputs =
+      if useMsysPackages
+      then []
+      else [ncurses zlib];
+    phases = ["unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase"];
 
-    unpackPhase = ''
-      mkdir llvm
-      tar xf ${sources.llvm} -C llvm --strip-components=1
-      tar xf ${sources.cmake} -C llvm/cmake --strip-components=2
-      mkdir cmake
-      ln -s $PWD/llvm/cmake cmake/Modules
-      sourceRoot=$PWD/llvm
-    '';
-
-    outputs = ["out" "lib" "dev" "python"];
-
-    nativeBuildInputs = [cmake python3];
-
-    buildInputs = [];
-
-    propagatedBuildInputs = [ncurses zlib];
-
-    checkInputs = [which];
-
-    patches = [
-      ./gnu-install-dirs.patch
-    ];
-
-    postPatch = ''
-      # FileSystem permissions tests fail with various special bits
-      substituteInPlace unittests/Support/CMakeLists.txt \
-        --replace-fail "Path.cpp" ""
-      rm unittests/Support/Path.cpp
-      substituteInPlace unittests/IR/CMakeLists.txt \
-        --replace-fail "PassBuilderCallbacksTest.cpp" ""
-      rm unittests/IR/PassBuilderCallbacksTest.cpp
-      rm test/tools/llvm-objcopy/ELF/mirror-permissions-unix.test
-      patchShebangs test/BugPoint/compile-custom.ll.py
-    '';
-
-    # hacky fix: created binaries need to be run before installation
-    preBuild = ''
-      mkdir -p $out/
-      ln -sv $PWD/lib $out
-    '';
-
-    # E.g. mesa.drivers use the build-id as a cache key (see #93946):
-    LDFLAGS = optionalString enableSharedLibraries "-Wl,--build-id=sha1";
-
-    cmakeFlags = with stdenv;
+    cmakeFlags =
       [
-        "-DLLVM_INSTALL_PACKAGE_DIR=${placeholder "dev"}/lib/cmake/llvm"
-        "-DCMAKE_BUILD_TYPE=${
-          if debugVersion
-          then "Debug"
-          else "Release"
-        }"
-        "-DLLVM_INCLUDE_TESTS=OFF"
-        "-DLLVM_HOST_TRIPLE=${stdenv.hostPlatform.config}"
-        "-DLLVM_DEFAULT_TARGET_TRIPLE=${stdenv.hostPlatform.config}"
+        "-DCMAKE_BUILD_TYPE=Release"
         "-DLLVM_ENABLE_UNWIND_TABLES=OFF"
         "-DLLVM_ENABLE_THREADS=ON"
+        "-DLLVM_TARGETS_TO_BUILD=X86\;ARM\;RISCV"
+        "-DLLVM_LINK_LLVM_DYLIB=OFF"
+        "-DLLVM_ENABLE_FFI=OFF"
+        "-DFFI_INCLUDE_DIR=fck-cmake"
+        "-DFFI_LIBRARY_DIR=fck-cmake"
+        "-DLLVM_ENABLE_LIBXML2=OFF"
+        "-DLLVM_INCLUDE_TESTS=OFF"
         "-DLLVM_INCLUDE_BENCHMARKS=OFF"
         "-DLLVM_BUILD_TOOLS=OFF"
-        "-DLLVM_TARGETS_TO_BUILD=X86;ARM;RISCV"
+        "-DCMAKE_INSTALL_PREFIX=${placeholder "out"}"
       ]
-      ++ optionals enableSharedLibraries [
-        "-DLLVM_LINK_LLVM_DYLIB=ON"
+      ++ optionals (buildClang && !buildCompilerRt) [
+        "-DLLVM_ENABLE_PROJECTS=clang"
       ]
-      ++ optionals (!isDarwin && !stdenv.targetPlatform.isMinGW) [
-        "-DLLVM_BINUTILS_INCDIR=${libbfd.dev}/include"
-      ]
-      ++ optionals (stdenv.hostPlatform != stdenv.buildPlatform) [
-        "-DCMAKE_CROSSCOMPILING=True"
-        (
-          let
-            nativeCC = pkgsBuildBuild.targetPackages.stdenv.cc;
-            nativeBintools = nativeCC.bintools.bintools;
-            nativeToolchainFlags = [
-              "-DCMAKE_C_COMPILER=${nativeCC}/bin/${nativeCC.targetPrefix}cc"
-              "-DCMAKE_CXX_COMPILER=${nativeCC}/bin/${nativeCC.targetPrefix}c++"
-              "-DCMAKE_AR=${nativeBintools}/bin/${nativeBintools.targetPrefix}ar"
-              "-DCMAKE_STRIP=${nativeBintools}/bin/${nativeBintools.targetPrefix}strip"
-              "-DCMAKE_RANLIB=${nativeBintools}/bin/${nativeBintools.targetPrefix}ranlib"
-            ];
-          in "-DCROSS_TOOLCHAIN_FLAGS_NATIVE:list=${lib.concatStringsSep ";" nativeToolchainFlags}"
-        )
+      ++ optionals (buildClang && buildCompilerRt) [
+        "-DLLVM_ENABLE_PROJECTS=clang\;compiler-rt"
       ]
       ++ extraCmakeFlags;
 
-    postBuild = ''
-      make llvm-config
-      rm -fR $out
-    '';
+    cmdPrefix =
+      if useMsysPackages
+      then "wine64"
+      else "";
 
-    preCheck = ''
-      export LD_LIBRARY_PATH=$LD_LIBRARY_PATH''${LD_LIBRARY_PATH:+:}$PWD/lib
-    '';
-
-    postInstall =
+    unpackPhase =
       ''
-        cp bin/llvm-config $out/bin
-        mkdir -p $python/share
-        mv $out/share/opt-viewer $python/share/opt-viewer
-        moveToOutput "bin/llvm-config*" "$dev"
-        substituteInPlace "$dev/lib/cmake/llvm/LLVMExports-${
-          if debugVersion
-          then "debug"
-          else "release"
-        }.cmake" \
-          --replace "\''${_IMPORT_PREFIX}/lib/lib" "$lib/lib/lib" \
-          --replace "$out/bin/llvm-config" "$dev/bin/llvm-config"
-        substituteInPlace "$dev/lib/cmake/llvm/LLVMConfig.cmake" \
-          --replace 'set(LLVM_BINARY_DIR "''${LLVM_INSTALL_PREFIX}")' 'set(LLVM_BINARY_DIR "''${LLVM_INSTALL_PREFIX}'"$lib"'")'
+        mkdir llvm
+        tar xf ${sources.llvm} -C llvm --strip-components=1
+        tar xf ${sources.cmake} -C llvm/cmake --strip-components=2
       ''
-      + optionalString (stdenv.buildPlatform != stdenv.hostPlatform) ''
-        cp NATIVE/bin/llvm-config $dev/bin/llvm-config-native
+      + optionalString buildClang ''
+        mkdir clang
+        tar xf ${sources.clang} -C clang --strip-components=1
+      ''
+      + optionalString buildCompilerRt ''
+        mkdir compiler-rt
+        tar xf ${sources.compiler-rt} -C compiler-rt --strip-components=1
+      ''
+      + ''
+        mkdir cmake
+        ln -s $PWD/llvm/cmake cmake/Modules
+        cd llvm
       '';
-
-    doCheck = false; # the ABI change breaks RISC-V FP tests
-
-    checkTarget = "check-all";
-
-    requiredSystemFeatures = ["big-parallel"];
-    meta = {
-      homepage = "https://llvm.org/";
-      description = "A collection of modular and reusable compiler and toolchain technologies";
-      longDescription = ''
-        The LLVM Project is a collection of modular and reusable compiler and
-        toolchain technologies. Despite its name, LLVM has little to do with
-        traditional virtual machines. The name "LLVM" itself is not an acronym; it
-        is the full name of the project.
-        LLVM began as a research project at the University of Illinois, with the
-        goal of providing a modern, SSA-based compilation strategy capable of
-        supporting both static and dynamic compilation of arbitrary programming
-        languages. Since then, LLVM has grown to be an umbrella project consisting
-        of a number of subprojects, many of which are being used in production by
-        a wide variety of commercial and open source projects as well as being
-        widely used in academic research. Code in the LLVM project is licensed
-        under the "Apache 2.0 License with LLVM exceptions".
+    configurePhase = optionalString useMsysPackages ''
+        export WINEDEBUG=-all
+        export WINEPATH=Z:${msys2-env}/clang64/bin
+      ''
+      + ''
+        export HOME=`mktemp -d`
+        mkdir build
+        cd build
+        ${cmdPrefix} cmake -G "Ninja" .. $cmakeFlags
       '';
+    buildPhase =
+      ''
+        ${cmdPrefix} ninja -j $NIX_BUILD_CORES
+      ''
+      + (lib.strings.concatStrings (map (tool: "${cmdPrefix} ninja -j $NIX_BUILD_CORES " + tool + "\n") llvmTools));
+    installPhase =
+      ''
+        ${cmdPrefix} ninja install
+      ''
+      + (lib.strings.concatStrings (map (tool: "cp bin/" + tool + "${exe_suffix} $out/bin\n") llvmTools));
+    dontFixup = true;
+  };
+  llvm-tools-irrt =
+    runCommandNoCC "llvm-tools-irrt" {}
+    ''
+      mkdir -p $out/bin
+      ln -s ${llvm}/bin/clang${exe_suffix} $out/bin/clang-irrt${exe_suffix}
+      ln -s ${llvm}/bin/llvm-as${exe_suffix} $out/bin/llvm-as-irrt${exe_suffix}
+    '';
+  clang = wrapCCWith rec {
+    cc = stdenv.mkDerivation {
+      name = "clang-nac3";
+
+      dontUnpack = true;
+      installPhase = ''
+        mkdir -p $out/lib
+        mkdir -p $out/bin
+        cp -r ${llvm}/bin $out
+        cp -r ${llvm}/lib $out
+      '';
+      passthru.isClang = true;
     };
-  }
+  };
+  compiler-rt = stdenv.mkDerivation {
+    name = "compiler-rt";
+    dontUnpack = true;
+
+    installPhase = ''
+      cp -r ${llvm}/lib/clang/${builtins.elemAt sources.versions 0}/lib $out
+    '';
+  };
+}

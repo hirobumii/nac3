@@ -11,14 +11,12 @@
     pkgs32 = import nixpkgs {system = "i686-linux";};
   in rec {
     packages.x86_64-linux = rec {
-      llvm-nac3 = pkgs.callPackage ./nix/llvm {};
-      llvm-tools-irrt =
-        pkgs.runCommandNoCC "llvm-tools-irrt" {}
-        ''
-          mkdir -p $out/bin
-          ln -s ${pkgs.llvmPackages_16.clang-unwrapped}/bin/clang $out/bin/clang-irrt
-          ln -s ${pkgs.llvmPackages_16.llvm.out}/bin/llvm-as $out/bin/llvm-as-irrt
-        '';
+      llvm-nac3 = pkgs.callPackage ./nix/llvm {
+        buildClang = true;
+        buildCompilerRt = true;
+        llvmTools = ["llvm-config" "llvm-as" "llvm-profdata"];
+      };
+      inherit (llvm-nac3) llvm llvm-tools-irrt clang compiler-rt;
       demo-linalg-stub = pkgs.rustPlatform.buildRustPackage {
         name = "demo-linalg-stub";
         src = ./nac3standalone/demo/linalg;
@@ -44,8 +42,11 @@
             lockFile = ./Cargo.lock;
           };
           passthru.cargoLock = cargoLock;
-          nativeBuildInputs = [pkgs.python3 (pkgs.wrapClangMulti pkgs.llvmPackages_16.clang) llvm-tools-irrt pkgs.llvmPackages_16.llvm.out pkgs.llvmPackages_16.bintools llvm-nac3];
-          buildInputs = [pkgs.python3 llvm-nac3 pkgs.stdenv.cc.cc.lib];
+          nativeBuildInputs = [pkgs.python3 (pkgs.wrapClangMulti clang) llvm llvm-tools-irrt];
+          buildInputs = [pkgs.python3 llvm pkgs.stdenv.cc.cc.lib pkgs.zlib pkgs.ncurses];
+          cargoBuildHook = ''
+            export LLVM_SYS_160_PREFIX=${llvm}
+          '';
           checkInputs = [(pkgs.python3.withPackages (ps: [ps.numpy ps.scipy]))];
           checkPhase = ''
             echo "Checking nac3standalone demos..."
@@ -79,21 +80,28 @@
         };
 
       # LLVM PGO support
-      llvm-nac3-instrumented = pkgs.callPackage ./nix/llvm {
-        stdenv = pkgs.llvmPackages_16.stdenv;
-        extraCmakeFlags = ["-DLLVM_BUILD_INSTRUMENTED=IR"];
-      };
+      llvm-nac3-instrumented =
+        (pkgs.callPackage ./nix/llvm {
+          extraCmakeFlags = [
+            "-DLLVM_BUILD_INSTRUMENTED=IR"
+            "-DLLVM_BUILD_RUNTIME=No"
+            "-DCMAKE_C_COMPILER=${clang}/bin/clang"
+            "-DCMAKE_CXX_COMPILER=${clang}/bin/clang++"
+            "-DLLVM_NATIVE_TOOL_DIR=${llvm}/bin"
+          ];
+        }).llvm;
       nac3artiq-instrumented = pkgs.python3Packages.toPythonModule (
         pkgs.rustPlatform.buildRustPackage {
           name = "nac3artiq-instrumented";
           src = self;
           inherit (nac3artiq) cargoLock;
-          nativeBuildInputs = [pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_16.bintools llvm-nac3-instrumented];
-          buildInputs = [pkgs.python3 llvm-nac3-instrumented];
+          nativeBuildInputs = [pkgs.python3 llvm-tools-irrt llvm-nac3-instrumented];
+          buildInputs = [pkgs.python3 llvm-nac3-instrumented pkgs.zlib pkgs.ncurses];
           cargoBuildFlags = ["--package" "nac3artiq" "--features" "init-llvm-profile"];
           doCheck = false;
           configurePhase = ''
-            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-L${pkgs.llvmPackages_16.compiler-rt}/lib/linux -C link-arg=-lclang_rt.profile-x86_64"
+            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-L${compiler-rt}/x86_64-unknown-linux-gnu -C link-arg=-lclang_rt.profile"
+            export LLVM_SYS_160_PREFIX=${llvm-nac3-instrumented}
           '';
           installPhase = ''
             TARGET_DIR=$out/${pkgs.python3Packages.python.sitePackages}
@@ -118,8 +126,7 @@
         ];
         buildInputs = [
           (python3-mimalloc.withPackages (ps: [ps.numpy ps.scipy ps.jsonschema ps.lmdb ps.platformdirs nac3artiq-instrumented]))
-          pkgs.llvmPackages_16.llvm.out
-          pkgs.llvmPackages_16.bintools
+          llvm
         ];
         phases = ["buildPhase" "installPhase"];
         buildPhase = ''
@@ -136,17 +143,22 @@
           llvm-profdata merge -o $out/llvm.profdata /build/llvm/build/profiles/*
         '';
       };
-      llvm-nac3-pgo = pkgs.callPackage ./nix/llvm {
-        stdenv = pkgs.llvmPackages_16.stdenv;
-        extraCmakeFlags = ["-DLLVM_PROFDATA_FILE=${nac3artiq-profile}/llvm.profdata"];
-      };
+      llvm-nac3-pgo =
+        (pkgs.callPackage ./nix/llvm {
+          extraCmakeFlags = [
+            "-DLLVM_PROFDATA_FILE=${nac3artiq-profile}/llvm.profdata"
+            "-DCMAKE_C_COMPILER=${clang}/bin/clang"
+            "-DCMAKE_CXX_COMPILER=${clang}/bin/clang++"
+            "-DLLVM_NATIVE_TOOL_DIR=${llvm}/bin"
+          ];
+        }).llvm;
       nac3artiq-pgo = pkgs.python3Packages.toPythonModule (
         pkgs.rustPlatform.buildRustPackage {
           name = "nac3artiq-pgo";
           src = self;
           inherit (nac3artiq) cargoLock;
-          nativeBuildInputs = [pkgs.python3 packages.x86_64-linux.llvm-tools-irrt pkgs.llvmPackages_16.bintools llvm-nac3-pgo];
-          buildInputs = [pkgs.python3 llvm-nac3-pgo];
+          nativeBuildInputs = [pkgs.python3 llvm-tools-irrt llvm-nac3-pgo];
+          buildInputs = [pkgs.python3 llvm-nac3-pgo pkgs.zlib pkgs.ncurses];
           cargoBuildFlags = ["--package" "nac3artiq"];
           cargoTestFlags = ["--package" "nac3ast" "--package" "nac3parser" "--package" "nac3core" "--package" "nac3artiq"];
           installPhase = ''
@@ -166,15 +178,14 @@
       name = "nac3-dev-shell";
       buildInputs = with pkgs; [
         # build dependencies
-        packages.x86_64-linux.llvm-nac3
-        (pkgs.wrapClangMulti llvmPackages_16.clang)
-        llvmPackages_16.llvm.out
-        llvmPackages_16.bintools # for running nac3standalone demos
+        (pkgs.wrapClangMulti packages.x86_64-linux.clang)
+        packages.x86_64-linux.llvm
         packages.x86_64-linux.llvm-tools-irrt
+        pkgs.zlib
+        pkgs.ncurses
         cargo
         rustc
         # runtime dependencies
-        lld_16 # for running kernels on the host
         (packages.x86_64-linux.python3-mimalloc.withPackages (ps: [ps.numpy ps.scipy]))
         # development tools
         cargo-insta
@@ -194,6 +205,7 @@
         pacman
         fakeroot
         packages.x86_64-w64-mingw32.wine-msys2
+        packages.x86_64-w64-mingw32.llvm-msys2
       ];
     };
 

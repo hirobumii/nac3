@@ -32,48 +32,14 @@
   };
   sources = import ../llvm/sources.nix {inherit (pkgs) fetchurl;};
 in rec {
-  llvm-nac3 = pkgs.stdenvNoCC.mkDerivation rec {
-    pname = "llvm-nac3-msys2";
-    version = "16.0.6";
-    buildInputs = [pkgs.wineWowPackages.stable];
-    phases = ["unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase"];
-    unpackPhase = ''
-      mkdir llvm
-      tar xf ${sources.llvm} -C llvm --strip-components=1
-      tar xf ${sources.cmake} -C llvm/cmake --strip-components=2
-      mkdir clang
-      tar xf ${sources.clang} -C clang --strip-components=1
-      mkdir cmake
-      ln -s $PWD/llvm/cmake cmake/Modules
-      cd llvm
-      # build of llvm-lto fails and -DLLVM_BUILD_TOOLS=OFF does not disable it reliably because cmake
-      rm -rf tools/lto
-      rm -rf tools/sancov
-    '';
-    configurePhase = ''
-      export HOME=`mktemp -d`
-      export WINEDEBUG=-all
-      export WINEPATH=Z:${msys2-env}/clang64/bin
-      ${silenceFontconfig}
-      mkdir build
-      cd build
-      wine64 cmake .. -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_UNWIND_TABLES=OFF -DLLVM_ENABLE_THREADS=ON -DLLVM_TARGETS_TO_BUILD=X86\;ARM\;RISCV -DLLVM_LINK_LLVM_DYLIB=OFF -DLLVM_ENABLE_FFI=OFF -DFFI_INCLUDE_DIR=fck-cmake -DFFI_LIBRARY_DIR=fck-cmake -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_ENABLE_PROJECTS=clang -DCMAKE_INSTALL_PREFIX=Z:$out
-    '';
-    buildPhase = ''
-      wine64 ninja -j $NIX_BUILD_CORES
-    '';
-    installPhase = ''
-      wine64 ninja install
-    '';
-    dontFixup = true;
+  llvm-nac3 = pkgs.callPackage ../llvm {
+    stdenv = pkgs.stdenvNoCC;
+    useMsysPackages = true;
+    inherit msys2-env;
+    buildClang = true;
+    llvmTools = ["llvm-config" "llvm-as" "llvm-profdata"];
   };
-  llvm-tools-irrt =
-    pkgs.runCommandNoCC "llvm-tools-irrt" {}
-    ''
-      mkdir -p $out/bin
-      ln -s ${llvm-nac3}/bin/clang.exe $out/bin/clang-irrt.exe
-      ln -s ${llvm-nac3}/bin/llvm-as.exe $out/bin/llvm-as-irrt.exe
-    '';
+  inherit (llvm-nac3) llvm llvm-tools-irrt clang compiler-rt;
   nac3artiq = pkgs.rustPlatform.buildRustPackage {
     name = "nac3artiq-msys2";
     src = ../../.;
@@ -84,11 +50,11 @@ in rec {
     buildPhase = ''
       export HOME=`mktemp -d`
       export WINEDEBUG=-all
-      export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${llvm-tools-irrt}/bin
+      export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm}/bin\;Z:${llvm-tools-irrt}/bin
       ${silenceFontconfig}
       export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
       export CC=clang
-      export LLVM_SYS_160_PREFIX=Z:${llvm-nac3}
+      export LLVM_SYS_160_PREFIX=Z:${llvm}
       wine64 cargo build --release -p nac3artiq
     '';
     installPhase = ''
@@ -122,7 +88,7 @@ in rec {
     pkgs.writeShellScriptBin "wine-msys2"
     ''
       export WINEDEBUG=-all
-      export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm-nac3}/bin\;Z:${llvm-tools-irrt}/bin
+      export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm}/bin\;Z:${llvm-tools-irrt}/bin
       export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
       exec ${pkgs.wineWowPackages.stable}/bin/wine64 cmd
     '';
