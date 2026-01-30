@@ -367,7 +367,7 @@ impl InnerResolver {
                     )
                     .unwrap()
             } else if iterable.is_instance_of::<PyTuple>() {
-                unifier.add_ty(TypeEnum::TTuple { ty: vec![], is_vararg_ctx: false })
+                unifier.add_ty(TypeEnum::TTuple { ty: Vec::new(), is_vararg_ctx: false })
             } else {
                 unreachable!("unexpected iterable type for enumerate")
             };
