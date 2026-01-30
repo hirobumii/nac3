@@ -190,14 +190,14 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             .unwrap()
         }
         ExprKind::Tuple { elts, .. } => {
-            let elts: Vec<PointerValue<'ctx>> = elts
+            let elts = elts
                 .iter()
                 .map(|e| {
                     generator.gen_store_target(ctx, e, name).and_then(|v| {
                         v.ok_or_else(|| "failed to generate store target".to_string())
                     })
                 })
-                .collect::<Result<_, _>>()?;
+                .collect::<Result<Vec<_>, _>>()?;
             let struct_ty =
                 ctx.ctx.struct_type(&elts.iter().map(|p| p.get_type().into()).collect_vec(), false);
             let struct_ptr = gen_var(ctx, struct_ty, name);

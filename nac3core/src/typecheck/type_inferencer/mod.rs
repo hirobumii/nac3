@@ -276,7 +276,7 @@ impl Fold<()> for Inferencer<'_> {
                 let target = self.fold_expr(*target)?;
                 let iter = self.fold_expr(*iter)?;
 
-                let element_ty = self.check_iterable(&iter, &target)?;
+                let element_ty = self.check_iterable(&target, &iter)?;
                 self.unify(element_ty, target.custom.unwrap(), &target.location)?;
 
                 let body =
@@ -604,8 +604,8 @@ impl Inferencer<'_> {
     /// Check if a type is iterable and return its element type.
     fn get_iterable_element_type(
         &mut self,
-        iter: &Expr<Option<Type>>,
         target: &Expr<Option<Type>>,
+        iter: &Expr<Option<Type>>,
     ) -> Result<Option<Type>, InferenceError> {
         let iter_ty = iter.custom.unwrap();
         let ty_enum = self.unifier.get_ty(iter_ty);
@@ -716,12 +716,12 @@ impl Inferencer<'_> {
     /// Check if a type is iterable. Returns `Ok(())` if iterable, otherwise returns an error.
     fn check_iterable(
         &mut self,
-        iter: &Expr<Option<Type>>,
         target: &Expr<Option<Type>>,
+        iter: &Expr<Option<Type>>,
     ) -> Result<Type, InferenceError> {
         let iter_ty = iter.custom.unwrap();
         let location = iter.location;
-        if let Some(elem_ty) = self.get_iterable_element_type(iter, target)? {
+        if let Some(elem_ty) = self.get_iterable_element_type(target, iter)? {
             Ok(elem_ty)
         } else {
             let iter_ty_str = self.unifier.stringify(iter_ty);
@@ -1173,7 +1173,7 @@ impl Inferencer<'_> {
                 let iterable = self.fold_expr(args.remove(0))?;
                 let iterable_ty = iterable.custom.unwrap();
 
-                self.check_iterable(&iterable, &promoted_func)?;
+                self.check_iterable(&promoted_func, &iterable)?;
                 args_new.push(iterable);
 
                 if !args.is_empty() {
