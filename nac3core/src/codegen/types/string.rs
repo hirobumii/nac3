@@ -3,7 +3,7 @@ use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
     CodeGenContext, ModuleContext,
-    types::{ProxyTypeExt, Value, builtin::BuiltinStruct, structure::StructField},
+    types::{ProxyTypeBase, Value, builtin::BuiltinStruct, structure::StructField},
 };
 
 #[derive(Clone, Copy, StructFields)]

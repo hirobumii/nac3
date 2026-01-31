@@ -12,7 +12,7 @@ use crate::codegen::{
     stmt::{BreakContinueHooks, gen_array_var, gen_for_callback, gen_var},
     typed_load, typed_store,
     types::{
-        ProxyTypeExt, Value,
+        ProxyTypeBase, Value,
         array::ArraySliceValue,
         builtin::BuiltinStruct,
         field,

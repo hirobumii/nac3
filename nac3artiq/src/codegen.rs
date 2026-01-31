@@ -17,7 +17,7 @@ use nac3core::{
         },
         typed_store,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, ExceptionType, ListType, NDArrayType, ProxyTypeExt,
+            ArrayLikeIndexer, ArraySliceValue, ExceptionType, ListType, NDArrayType, ProxyTypeBase,
             RangeType, field,
         },
     },

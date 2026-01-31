@@ -10,7 +10,7 @@ use crate::{
         irrt::get_usize_dependent_function_name,
         stmt::{gen_array_var, gen_if_else_expr_callback},
         types::{
-            ProxyTypeExt,
+            ProxyTypeBase,
             array::ArrayLikeIndexer,
             field,
             list::{ListType, ListValue},

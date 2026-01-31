@@ -21,7 +21,7 @@ use crate::{
         stmt::{exn_constructor, gen_if_callback, gen_var},
         typed_store,
         types::{
-            EnumerateType, NDArrayType, ProxyTypeExt, RangeField, RangeType, ScalarOrNDArray,
+            EnumerateType, NDArrayType, ProxyTypeBase, RangeField, RangeType, ScalarOrNDArray,
             field, parse_numpy_int_sequence,
         },
     },

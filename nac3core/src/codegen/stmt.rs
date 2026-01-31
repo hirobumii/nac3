@@ -22,7 +22,7 @@ use crate::{
         typed_load, typed_store,
         types::{
             ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
-            ListType, ListValue, NDArrayType, ProxyTypeExt, RangeType, RustNDIndex,
+            ListType, ListValue, NDArrayType, ProxyTypeBase, RangeType, RustNDIndex,
             ScalarOrNDArray, StringType, TupleType, TupleValue, broadcast, field,
         },
     },

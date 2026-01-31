@@ -9,7 +9,7 @@ use crate::{
         CodeGenContext, ModuleContext,
         stmt::gen_dyn_array_var,
         types::{
-            ProxyTypeExt as _, Value, array::ArraySliceValue, builtin::BuiltinStruct, field,
+            ProxyTypeBase, Value, array::ArraySliceValue, builtin::BuiltinStruct, field,
             structure::StructField,
         },
     },

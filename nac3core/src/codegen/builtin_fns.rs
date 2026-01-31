@@ -16,7 +16,7 @@ use crate::{
         stmt::gen_var,
         typed_store,
         types::{
-            ArrayLikeIndexer, ListType, NDArrayOut, NDArrayType, NDArrayValue, ProxyTypeExt,
+            ArrayLikeIndexer, ListType, NDArrayOut, NDArrayType, NDArrayValue, ProxyTypeBase,
             RangeType, ScalarOrNDArray, TupleType, TupleValue, broadcast_starmap, field,
         },
     },

@@ -8,7 +8,7 @@ use nac3core_derive::ProxyType;
 use crate::{
     codegen::{
         CodeGenContext,
-        types::{ModuleContext, ProxyTypeExt, Value},
+        types::{ModuleContext, ProxyTypeBase, Value},
     },
     typecheck::typedef::{Type, TypeEnum},
 };

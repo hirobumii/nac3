@@ -11,7 +11,7 @@ use crate::{
         stmt::{gen_array_var, gen_var},
         typed_store,
         types::{
-            ProxyTypeExt, RefType, Value,
+            ProxyTypeBase, RefType, Value,
             array::{ArrayLikeIndexer, ArraySliceValue},
             builtin::BuiltinStruct,
             field,

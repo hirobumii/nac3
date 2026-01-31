@@ -10,7 +10,7 @@ use crate::{
         macros::codegen_unreachable,
         stmt::{gen_for_callback, gen_var},
         typed_store,
-        types::{NDArrayType, NDArrayValue, NDIterValue, ProxyTypeExt, parse_numpy_int_sequence},
+        types::{NDArrayType, NDArrayValue, NDIterValue, ProxyTypeBase, parse_numpy_int_sequence},
     },
     symbol_resolver::ValueEnum,
     toplevel::{

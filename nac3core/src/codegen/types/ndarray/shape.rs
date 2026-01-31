@@ -4,7 +4,7 @@ use crate::{
     codegen::{
         CodeGenContext,
         stmt::{gen_array_var, gen_dyn_array_var, gen_for_callback_incrementing},
-        types::{ArrayLikeIndexer, ArraySliceValue, ListType, ProxyTypeExt, TupleType, field},
+        types::{ArrayLikeIndexer, ArraySliceValue, ListType, ProxyTypeBase, TupleType, field},
     },
     typecheck::typedef::{Type, TypeEnum},
 };

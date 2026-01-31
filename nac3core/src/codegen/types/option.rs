@@ -4,7 +4,7 @@ use nac3core_derive::ProxyType;
 use crate::{
     codegen::{
         CodeGenContext, ModuleContext, typed_load, typed_store,
-        types::{ProxyTypeExt, RefType, Value},
+        types::{ProxyTypeBase, RefType, Value},
     },
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
 };

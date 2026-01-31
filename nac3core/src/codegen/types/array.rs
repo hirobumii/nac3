@@ -7,7 +7,7 @@ use inkwell::{
 
 use crate::codegen::{
     CodeGenContext, typed_load, typed_store,
-    types::{ProxyTypeMarker, Value},
+    types::{ProxyTypeBase, Value},
 };
 
 /// An array-like value that can be indexed by memory offset.
@@ -89,7 +89,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
 pub struct ArraySliceType<'ctx> {
     pub item_ty: BasicTypeEnum<'ctx>,
 }
-impl<'ctx> ProxyTypeMarker<'ctx> for ArraySliceType<'ctx> {
+impl<'ctx> ProxyTypeBase<'ctx> for ArraySliceType<'ctx> {
     type Value = (PointerValue<'ctx>, IntValue<'ctx>);
 }
 

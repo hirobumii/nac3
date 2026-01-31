@@ -5,7 +5,7 @@ use crate::codegen::{
     CodeGenContext,
     stmt::gen_if_callback,
     types::{
-        ProxyTypeExt, Value,
+        ProxyTypeBase, Value,
         builtin::BuiltinStruct,
         field,
         ndarray::{NDArrayLikeType, NDArrayType, NDArrayValue},

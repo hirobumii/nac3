@@ -41,7 +41,7 @@ use crate::{
         typed_load, typed_store,
         types::{
             ArrayLikeIndexer, ExceptionType, ListType, ListValue, NDArrayOut, NDArrayType,
-            OptionType, ProxyTypeExt, RangeField, RangeType, RangeValue, RustNDIndex,
+            OptionType, ProxyTypeBase, RangeField, RangeType, RangeValue, RustNDIndex,
             ScalarOrNDArray, StringType, TupleType, TupleValue, broadcast_starmap, field,
         },
     },

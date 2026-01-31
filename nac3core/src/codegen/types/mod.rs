@@ -1,5 +1,5 @@
 use inkwell::{
-    types::BasicTypeEnum,
+    types::{BasicType, BasicTypeEnum},
     values::{BasicValue, BasicValueEnum, PointerValue},
 };
 
@@ -11,7 +11,7 @@ use crate::codegen::{CodeGenContext, ModuleContext, stmt::gen_var, types::struct
 /// See that macro for more details.
 macro_rules! impl_proxy_type {
     ([$($pre:tt)*] [$($post:tt)*] |$self:ident, $ctx:ident| llvm_ty($llvm_val:ty, $llvm_ty:expr)) => {
-        impl $($pre)* $crate::codegen::types::ProxyTypeMarker<'ctx> for $($post)* {
+        impl $($pre)* $crate::codegen::types::ProxyTypeBase<'ctx> for $($post)* {
             type Value = $llvm_val;
         }
 
@@ -100,13 +100,15 @@ pub use range::{RangeField, RangeType, RangeValue};
 pub use string::{StringType, StringValue};
 pub use tuple::{TupleType, TupleValue};
 
-/// Extension trait for types.
-pub trait ProxyTypeExt {
+/// Represents a wrapper type on top of this kind of `Value`.
+pub trait ProxyTypeBase<'ctx> {
+    type Value;
+
     /// Allocates a new instance of this type on the stack.
     ///
     /// Note that this allocates space for the type itself and does not initialize any of
     /// its fields.
-    fn alloca<'ctx>(
+    fn alloca(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'ctx str>,
@@ -121,23 +123,16 @@ pub trait ProxyTypeExt {
     }
 
     /// Maps an existing value of the underlying LLVM type to a typed value.
-    fn map_value<'ctx, V>(&self, value: V, name: Option<&'ctx str>) -> Value<'ctx, Self>
+    fn map_value<V>(&self, value: V, name: Option<&'ctx str>) -> Value<'ctx, Self>
     where
-        Self: ProxyTypeMarker<'ctx, Value = V> + Copy,
+        Self: ProxyTypeBase<'ctx, Value = V> + Copy,
     {
         Value { ty: *self, value, name }
     }
 }
 
-impl<T: ?Sized> ProxyTypeExt for T {}
-
-/// Represents a wrapper type on top of this kind of `Value`.
-pub trait ProxyTypeMarker<'ctx> {
-    type Value;
-}
-
 /// Represents a type that is passed around with a single LLVM value.
-pub trait ProxyType<'ctx>: ProxyTypeMarker<'ctx> {
+pub trait ProxyType<'ctx>: ProxyTypeBase<'ctx> {
     /// Returns the LLVM type that represents how this value is passed around.
     fn llvm_ty(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx>;
 }
@@ -149,13 +144,13 @@ pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> {
 }
 
 #[derive(Clone, Copy)]
-pub struct Value<'ctx, T: ProxyTypeMarker<'ctx>> {
+pub struct Value<'ctx, T: ProxyTypeBase<'ctx>> {
     pub ty: T,
     pub value: T::Value,
     pub name: Option<&'ctx str>,
 }
 
-impl<'ctx, T: ProxyTypeMarker<'ctx, Value = PointerValue<'ctx>>> Value<'ctx, T> {
+impl<'ctx, T: ProxyTypeBase<'ctx, Value = PointerValue<'ctx>>> Value<'ctx, T> {
     /// Loads the value of the specified field.
     ///
     /// Use the [`field!`][crate::codegen::types::field] macro to specify the field.
@@ -189,3 +184,44 @@ impl<'ctx, T: ProxyTypeMarker<'ctx, Value = PointerValue<'ctx>>> Value<'ctx, T> 
         field(&self.ty).store(ctx, struct_ty, self.value, value, self.name)
     }
 }
+
+macro_rules! impl_proxytype_for_simple_type {
+    ($type:ty, $value:ty $(,)?) => {
+        impl<'ctx> $crate::codegen::types::ProxyTypeBase<'ctx> for $type {
+            type Value = $value;
+        }
+
+        impl<'ctx> $crate::codegen::types::ProxyType<'ctx> for $type {
+            fn llvm_ty(
+                &self,
+                _ctx: &$crate::codegen::ModuleContext<'ctx>,
+            ) -> inkwell::types::BasicTypeEnum<'ctx> {
+                self.as_basic_type_enum()
+            }
+        }
+    };
+}
+
+impl_proxytype_for_simple_type!(inkwell::types::ArrayType<'ctx>, inkwell::values::ArrayValue<'ctx>);
+impl_proxytype_for_simple_type!(inkwell::types::IntType<'ctx>, inkwell::values::IntValue<'ctx>);
+impl_proxytype_for_simple_type!(inkwell::types::FloatType<'ctx>, inkwell::values::FloatValue<'ctx>);
+impl_proxytype_for_simple_type!(
+    inkwell::types::PointerType<'ctx>,
+    inkwell::values::PointerValue<'ctx>
+);
+impl_proxytype_for_simple_type!(
+    inkwell::types::StructType<'ctx>,
+    inkwell::values::StructValue<'ctx>
+);
+impl_proxytype_for_simple_type!(
+    inkwell::types::VectorType<'ctx>,
+    inkwell::values::VectorValue<'ctx>
+);
+impl_proxytype_for_simple_type!(
+    inkwell::types::ScalableVectorType<'ctx>,
+    inkwell::values::ScalableVectorValue<'ctx>
+);
+impl_proxytype_for_simple_type!(
+    inkwell::types::BasicTypeEnum<'ctx>,
+    inkwell::values::BasicValueEnum<'ctx>
+);
