@@ -52,7 +52,7 @@ This repository contains:
 - ``nac3parser``: Python parser (based on RustPython).
 - ``nac3core``: Core compiler library, containing type-checking and code generation.
 - ``nac3standalone``: Standalone compiler tool (core language only).
-- ``nac3ld``: Minimalist RISC-V and ARM linker.
+- ``nac3binutils``: Contains binary tools (linker, symbolizer, etc.)
 - ``nac3artiq``: Integration with ARTIQ and implementation of ARTIQ-specific extensions to the core language.
 - ``runkernel``: Simple program that runs compiled ARTIQ kernels on the host and displays RTIO operations. Useful for testing without hardware.
 
