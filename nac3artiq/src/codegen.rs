@@ -8,17 +8,18 @@ use std::{
 use anyhow::{anyhow, bail};
 use nac3core::{
     codegen::{
-        CodeGenContext, CodeGenerator, VarValue, basic_type_all, bool_to_i1,
+        CodeGenContext, CodeGenerator, VarValue,
+        allocator::AllocationScope,
+        basic_type_all, bool_to_i1,
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{
             gen_array_var, gen_block, gen_dyn_array_var, gen_for_callback_incrementing,
             gen_if_callback, gen_var, gen_with,
         },
-        typed_store,
+        type_aligned_allocate, typed_store,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, ExceptionType, ListType, NDArrayType, ProxyTypeBase,
-            RangeType, field,
+            ArrayLikeIndexer, ExceptionType, ListType, NDArrayType, ProxyTypeBase, RangeType, field,
         },
     },
     inkwell::{
@@ -512,6 +513,7 @@ fn format_rpc_ret<'ctx>(
     // }
 
     let llvm_i32 = ctx.i32;
+    let llvm_i8_8 = ctx.ctx.struct_type(&[ctx.i8.array_type(8).into()], false);
     let llvm_pi8 = ctx.ptr;
 
     let rpc_recv =
@@ -577,11 +579,13 @@ fn format_rpc_ret<'ctx>(
             let unaligned_buffer_size = sizeof_ptr + sizeof_shape;
 
             // Force an aligned allocation.
-            let chunks = unaligned_buffer_size.div_ceil(8);
-            let aligned_alloc_ty = ctx.ctx.struct_type(&[ctx.i8.array_type(8).into()], false);
-            let ptr = gen_array_var(ctx, aligned_alloc_ty, chunks, Some("rpc.buffer"))?.value.0;
-            let buffer_bytes = ctx.size_t.const_int(chunks * 8, false);
-            let buffer = ArraySliceValue::new(ctx.i8.into(), ptr, buffer_bytes, None);
+            let buffer = type_aligned_allocate(
+                ctx,
+                AllocationScope::StackCurrentLoc,
+                llvm_i8_8,
+                ctx.size_t.const_int(unaligned_buffer_size, false),
+                Some("rpc.buffer"),
+            )?;
 
             // The first call to `rpc_recv` reads the top-level ndarray object: [pdata, shape]
             //

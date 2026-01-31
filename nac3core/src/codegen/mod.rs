@@ -41,11 +41,12 @@ use parking_lot::{Condvar, Mutex};
 
 use crate::{
     codegen::{
+        allocator::AllocationScope,
         llvm_fns::FunctionStore,
-        stmt::{gen_dyn_array_var, get_personality},
+        stmt::get_personality,
         types::{
-            EnumerateType, ExceptionType, ListType, NDArrayType, OptionType, ProxyType, RangeType,
-            RefType, StringType, TupleType,
+            ArraySliceValue, EnumerateType, ExceptionType, ListType, NDArrayType, OptionType,
+            ProxyType, RangeType, RefType, StringType, TupleType,
         },
     },
     symbol_resolver::{StaticValue, SymbolResolver},
@@ -1067,17 +1068,23 @@ fn gen_in_range_check<'ctx>(
     Ok(ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp")?)
 }
 
-/// Inserts an `alloca` instruction with allocation `size` given in bytes and the alignment of the
-/// given type.
+/// Inserts an `alloca` or `malloc` instruction with allocation `size` given in bytes and the
+/// alignment of the type.
 ///
 /// The returned [`PointerValue`] will have a type of `i8*`, a size of at least `size`, and will be
 /// aligned with the alignment of `align_ty`.
-pub fn type_aligned_alloca<'ctx>(
+///
+/// # Panics
+///
+/// Panics if `scope` is `AllocationScope::StackStartOfFunc` - See
+/// [`CodeGenContext::build_dyn_array_allocate`].
+pub fn type_aligned_allocate<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
+    scope: AllocationScope,
     align_ty: impl Into<BasicTypeEnum<'ctx>>,
     size: IntValue<'ctx>,
     name: Option<&'static str>,
-) -> anyhow::Result<PointerValue<'ctx>> {
+) -> anyhow::Result<ArraySliceValue<'ctx>> {
     /// Round `val` up to its modulo `power_of_two`.
     fn round_up<'ctx>(
         ctx: &CodeGenContext<'ctx, '_>,
@@ -1140,7 +1147,7 @@ pub fn type_aligned_alloca<'ctx>(
     let aligned_slices = ctx.builder.build_int_unsigned_div(buffer_size, alignment, "")?;
 
     // Just to be absolutely sure, alloca in [i8 x alignment] slices
-    Ok(gen_dyn_array_var(ctx, align_ty, aligned_slices, name)?.value.0)
+    ctx.build_dyn_array_allocate(scope, align_ty, aligned_slices, name)
 }
 
 /// Contains all global LLVM state that is attached to an LLVM [`Module`] and independent
