@@ -15,7 +15,7 @@ NAC3 has a modular design and its applicability reaches beyond ARTIQ. The ``nac3
 
 NAC3 is packaged using the [Nix](https://nixos.org) Flakes system. Enable flakes by adding ``experimental-features = nix-command flakes`` to ``nix.conf`` (e.g. ``~/.config/nix/nix.conf``).
 
-Use ``nix shell git+https://github.com/m-labs/artiq.git?ref=nac3`` to get a shell with the NAC3 version of ARTIQ. See the ``examples`` directory in ARTIQ (``nac3`` Git branch) for some samples of NAC3 kernel code.
+Use ``nix shell git+https://git.m-labs.hk/M-Labs/artiq.git?ref=nac3`` to get a shell with the NAC3 version of ARTIQ. See the ``examples`` directory in ARTIQ (``nac3`` Git branch) for some samples of NAC3 kernel code.
 
 ### Windows
 
