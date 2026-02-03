@@ -1,5 +1,6 @@
 use inkwell::{
     AddressSpace,
+    module::Linkage,
     types::{ArrayType, BasicType, BasicTypeEnum, StructType},
     values::{BasicValueEnum, IntValue, PointerValue},
 };
@@ -10,8 +11,8 @@ use crate::codegen::{
     allocator::AllocationScope,
     llvm_intrinsics, type_aligned_allocate, typed_load, typed_store,
     types::{
-        ArraySliceValue, BuiltinStruct, ProxyType, ProxyTypeBase, RefType, Value,
-        structure::StructField,
+        ArraySliceValue, BuiltinStruct, ProxyType, ProxyTypeBase, RefType, TypeinfoType,
+        TypeinfoValue, Value, WithTypeinfo, structure::StructField,
     },
 };
 
@@ -398,6 +399,43 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for RefCountedArrayTyp
 impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyType<'ctx> for RefCountedArrayType<'ctx, T> {
     fn llvm_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
         self.inner.into()
+    }
+}
+
+impl<'ctx, T: ProxyType<'ctx> + Copy> WithTypeinfo<'ctx> for RefCountedArrayType<'ctx, T> {
+    fn typeinfo(ctx: &ModuleContext<'ctx>) -> TypeinfoValue<'ctx> {
+        const NAME: &str = "__nac3_array";
+
+        let global = ctx.module.get_global(&format!("typeinfo for {NAME}")).unwrap_or_else(|| {
+            let refcounted_field_offsets = ctx.module.add_global(
+                ctx.i32.array_type(1),
+                None,
+                &format!("refcounted_fields array for {NAME}"),
+            );
+            refcounted_field_offsets.set_linkage(Linkage::WeakAny);
+            refcounted_field_offsets
+                .set_initializer(&ctx.i32.const_array(&[ctx.i32.const_all_ones()]));
+            refcounted_field_offsets.set_constant(true);
+
+            let llvm_typeinfo = TypeinfoType::new(ctx)
+                .llvm_ty(ctx)
+                .into_pointer_type()
+                .get_element_type()
+                .into_struct_type();
+
+            let value = ctx.module.add_global(llvm_typeinfo, None, &format!("typeinfo for {NAME}"));
+            value.set_initializer(
+                &llvm_typeinfo.const_named_struct(&[refcounted_field_offsets
+                    .as_pointer_value()
+                    .const_cast(ctx.i32.ptr_type(AddressSpace::default()))
+                    .into()]),
+            );
+            value.set_linkage(Linkage::WeakAny);
+            value.set_constant(true);
+
+            value
+        });
+        TypeinfoType::new(ctx).map_value(global.as_pointer_value(), None)
     }
 }
 

@@ -101,6 +101,10 @@ pub use ndarray::{
 };
 pub use option::{OptionType, OptionValue};
 pub use range::{RangeField, RangeType, RangeValue};
+pub use reference::{
+    OpaqueRefCountedType, OpaqueRefCountedValue, RefCountedArrayType, RefCountedArrayValue,
+    RefCountedType, RefCountedValue, TypedRefCountedType, TypedRefCountedValue,
+};
 pub use string::{StringType, StringValue};
 pub use tuple::{TupleType, TupleValue};
 pub use typeinfo::{TypeinfoType, TypeinfoValue};
@@ -166,7 +170,16 @@ pub trait ProxyType<'ctx>: ProxyTypeBase<'ctx> {
     fn llvm_ty(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx>;
 }
 
+/// Represents a type with a `typeinfo` global structure.
+pub trait WithTypeinfo<'ctx> {
+    /// Returns a global instance of [`TypeinfoValue`] representing the type information of this
+    /// reference type.
+    fn typeinfo(ctx: &ModuleContext<'ctx>) -> TypeinfoValue<'ctx>;
+}
+
 /// Represents a type that is passed around by pointer.
+// TODO(Derppening): Uncomment the following line when all types implement `typeinfo`
+// pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> + WithTypeinfo<'ctx> {
 pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> {
     /// Returns the LLVM type used for allocating this reference type.
     fn alloca_ty(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicTypeEnum<'ctx>;
