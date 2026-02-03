@@ -392,7 +392,7 @@ pub fn make_contiguous_strides(shape: &[u64], itemsize: u64) -> Vec<u64> {
 }
 
 impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for NDArrayValue<'ctx> {
-    fn item_type(&self) -> BasicTypeEnum<'ctx> {
+    fn item_type(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
         self.ty.dtype
     }
 

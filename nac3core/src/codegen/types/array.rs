@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use anyhow::anyhow;
 use inkwell::{
     AddressSpace, IntPredicate,
@@ -6,14 +8,14 @@ use inkwell::{
 };
 
 use crate::codegen::{
-    CodeGenContext, typed_load, typed_store,
-    types::{ProxyTypeBase, Value},
+    CodeGenContext, ModuleContext, typed_load, typed_store,
+    types::{ProxyType, ProxyTypeBase, Value},
 };
 
 /// An array-like value that can be indexed by memory offset.
 pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
     /// Returns the type of the items in the array.
-    fn item_type(&self) -> BasicTypeEnum<'ctx>;
+    fn item_type(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx>;
 
     /// Returns the pointer to the data at the `idx`-th index.
     fn ptr_offset_unchecked(
@@ -40,7 +42,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> anyhow::Result<V> {
         let ptr = self.ptr_offset_unchecked(ctx, idx, name)?;
-        typed_load(ctx.builder, ptr, self.item_type(), name.unwrap_or_default())?
+        typed_load(ctx.builder, ptr, self.item_type(ctx), name.unwrap_or_default())?
             .try_into()
             .map_err(|e| anyhow!("{e:?}"))
     }
@@ -53,9 +55,35 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> anyhow::Result<V> {
         let ptr = self.ptr_offset(ctx, idx, name)?;
-        typed_load(ctx.builder, ptr, self.item_type(), name.unwrap_or_default())?
+        typed_load(ctx.builder, ptr, self.item_type(ctx), name.unwrap_or_default())?
             .try_into()
             .map_err(|e| anyhow!("{e:?}"))
+    }
+
+    /// Loads the value at the `idx`-th index without bounds checking, converting it into a typed [`Value`].
+    fn typed_get_unchecked<V: TryFrom<BasicValueEnum<'ctx>, Error: core::fmt::Debug>>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        idx: &Index,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<super::Value<'ctx, Self>>
+    where
+        Self: ProxyTypeBase<'ctx, Value = V> + Copy,
+    {
+        Ok(self.map_value(self.get_unchecked(ctx, idx, name)?, name))
+    }
+
+    /// Loads the value at the `idx`-th index with bounds checking, converting it into a typed [`Value`].
+    fn typed_get<V: TryFrom<BasicValueEnum<'ctx>, Error: core::fmt::Debug>>(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        idx: &Index,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<super::Value<'ctx, Self>>
+    where
+        Self: ProxyTypeBase<'ctx, Value = V> + Copy,
+    {
+        Ok(self.map_value(self.get(ctx, idx, name)?, name))
     }
 
     /// Stores the `value` at the `idx`-th index without bounds checking.
@@ -83,28 +111,58 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         typed_store(ctx.builder, ptr, value.as_basic_value_enum())?;
         Ok(())
     }
+
+    /// Stores the [`Value`] at the `idx`-th index without bounds checking.
+    fn typed_set_unchecked(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        idx: &Index,
+        value: super::Value<'ctx, Self>,
+        name: Option<&str>,
+    ) -> anyhow::Result<()>
+    where
+        Self: ProxyTypeBase<'ctx, Value: BasicValue<'ctx>> + Copy,
+    {
+        self.set_unchecked(ctx, idx, value.value, name)
+    }
+
+    /// Stores the [`Value`] at the `idx`-th index with bounds checking.
+    fn typed_set(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        idx: &Index,
+        value: super::Value<'ctx, Self>,
+        name: Option<&str>,
+    ) -> anyhow::Result<()>
+    where
+        Self: ProxyTypeBase<'ctx, Value: BasicValue<'ctx>> + Copy,
+    {
+        self.set(ctx, idx, value.value, name)
+    }
 }
 
 #[derive(Clone, Copy)]
-pub struct ArraySliceType<'ctx> {
-    pub item_ty: BasicTypeEnum<'ctx>,
+pub struct ArraySliceType<'ctx, T: ProxyType<'ctx> + Copy = BasicTypeEnum<'ctx>> {
+    pub item_ty: T,
+    _data: PhantomData<&'ctx ()>,
 }
-impl<'ctx> ProxyTypeBase<'ctx> for ArraySliceType<'ctx> {
+
+impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for ArraySliceType<'ctx, T> {
     type Value = (PointerValue<'ctx>, IntValue<'ctx>);
 }
 
-pub type ArraySliceValue<'ctx> = Value<'ctx, ArraySliceType<'ctx>>;
+pub type ArraySliceValue<'ctx, T = BasicTypeEnum<'ctx>> = Value<'ctx, ArraySliceType<'ctx, T>>;
 
-impl<'ctx> ArraySliceValue<'ctx> {
+impl<'ctx, T: ProxyType<'ctx> + Copy> ArraySliceValue<'ctx, T> {
     /// Creates a new `ArraySliceValue`.
     #[must_use]
     pub const fn new(
-        item_ty: BasicTypeEnum<'ctx>,
+        item_ty: T,
         ptr: PointerValue<'ctx>,
         len: IntValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> Self {
-        Self { ty: ArraySliceType { item_ty }, value: (ptr, len), name }
+        Self { ty: ArraySliceType { item_ty, _data: PhantomData }, value: (ptr, len), name }
     }
 
     /// Copies data from the source pointer into this array slice.
@@ -113,18 +171,18 @@ impl<'ctx> ArraySliceValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         src: PointerValue<'ctx>,
     ) -> anyhow::Result<()> {
-        let size = ctx.sizeof(self.ty.item_ty);
+        let size = ctx.sizeof(self.ty.item_ty.llvm_ty(ctx));
         let size = ctx.size_t.const_int(size, false);
-        let align = ctx.target.get_target_data().get_abi_alignment(&self.ty.item_ty);
+        let align = ctx.target.get_target_data().get_abi_alignment(&self.ty.item_ty.llvm_ty(ctx));
         let bytes = ctx.builder.build_int_mul(self.value.1, size, "")?;
         ctx.builder.build_memcpy(self.value.0, align, src, align, bytes)?;
         Ok(())
     }
 }
 
-impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
-    fn item_type(&self) -> BasicTypeEnum<'ctx> {
-        self.ty.item_ty
+impl<'ctx, T: ProxyType<'ctx> + Copy> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx, T> {
+    fn item_type(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
+        self.ty.item_ty.llvm_ty(ctx)
     }
 
     fn ptr_offset_unchecked(
@@ -138,7 +196,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
         unsafe {
             let ptr = ctx.builder.build_pointer_cast(
                 self.value.0,
-                self.ty.item_ty.ptr_type(AddressSpace::default()),
+                self.item_type(ctx).ptr_type(AddressSpace::default()),
                 "",
             )?;
             let r = ctx.builder.build_in_bounds_gep(ptr, &[*idx], var_name.as_str())?;
