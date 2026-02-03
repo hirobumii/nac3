@@ -1,6 +1,9 @@
 use inkwell::{
     intrinsics::Intrinsic,
-    types::{AnyTypeEnum::IntType, BasicTypeEnum},
+    types::{
+        AnyTypeEnum::{self, IntType},
+        BasicTypeEnum,
+    },
     values::{BasicMetadataValueEnum, BasicValueEnum, FloatValue, IntValue, PointerValue},
 };
 
@@ -184,6 +187,84 @@ pub fn call_memcpy_generic_array<'ctx>(
     let len = ctx.builder.build_int_mul(len, sizeof_elem, "")?;
 
     call_memcpy(ctx, dest, src, len)
+}
+
+#[doc = llvm_doc!("memset")]
+///
+/// * `dest` - The pointer to the destination. Must be a pointer to `i8`.
+/// * `src` - The pointer to the source. Must be a pointer to an integer type.
+/// * `len` - The number of bytes to copy.
+pub fn call_memset<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    dest: PointerValue<'ctx>,
+    val: IntValue<'ctx>,
+    len: IntValue<'ctx>,
+) -> anyhow::Result<()> {
+    debug_assert_eq!(dest.get_type().get_element_type(), AnyTypeEnum::IntType(ctx.i8));
+    debug_assert_eq!(val.get_type(), ctx.i8);
+    debug_assert_eq!(len.get_type(), ctx.size_t);
+
+    let llvm_dest_t = dest.get_type();
+
+    let target_data = ctx.target.get_target_data();
+    let dest_alignment = target_data.get_abi_alignment(&llvm_dest_t);
+
+    ctx.builder.build_memset(dest, dest_alignment, val, len)?;
+    Ok(())
+}
+
+#[doc = llvm_doc!("memset")]
+///
+/// Unlike [`call_memset`], this function accepts any type of pointer value. If `dest` is not a
+/// pointer to `i8`, the pointer(s) will be cast to `i8*` before invoking `memset`.
+pub fn call_memset_generic<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    dest: PointerValue<'ctx>,
+    val: IntValue<'ctx>,
+    len: IntValue<'ctx>,
+) -> anyhow::Result<()> {
+    let llvm_p0i8 = ctx.ptr;
+
+    let dest = if dest.get_type().get_element_type() == AnyTypeEnum::IntType(ctx.i8) {
+        dest
+    } else {
+        ctx.builder.build_bit_cast(dest, llvm_p0i8, "")?.into_pointer_value()
+    };
+
+    call_memset(ctx, dest, val, len)
+}
+
+#[doc = llvm_doc!("memset")]
+///
+/// Unlike [`call_memset`], this function accepts any type of pointer value. If `dest` is not a
+/// pointer to `i8`, the pointer(s) will be cast to `i8*` before invoking `memset`.
+///
+/// Moreover, `len` now refers to the number of elements to set (rather than number of bytes to
+/// set), determined by the type of the destination pointer.
+pub fn call_memset_generic_array<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    dest: PointerValue<'ctx>,
+    val: IntValue<'ctx>,
+    len: IntValue<'ctx>,
+) -> anyhow::Result<()> {
+    let llvm_p0i8 = ctx.ptr;
+    let llvm_usize = ctx.size_t;
+
+    let dest_elem_t = dest.get_type().get_element_type();
+
+    let dest = if dest.get_type().get_element_type() == AnyTypeEnum::IntType(ctx.i8) {
+        dest
+    } else {
+        ctx.builder.build_bit_cast(dest, llvm_p0i8, "")?.into_pointer_value()
+    };
+
+    let sizeof_elem = dest_elem_t
+        .size_of()
+        .unwrap_or_else(|| panic!("sizeof({dest_elem_t}) must be a compile-time constant"))
+        .const_cast(llvm_usize, false);
+    let len = ctx.builder.build_int_mul(len, sizeof_elem, "")?;
+
+    call_memset(ctx, dest, val, len)
 }
 
 /// Macro to generate the llvm intrinsic function using [`generate_llvm_intrinsic_fn_body`].
