@@ -1110,7 +1110,7 @@ pub fn type_aligned_allocate<'ctx>(
     scope: AllocationScope,
     align_ty: impl Into<BasicTypeEnum<'ctx>>,
     size: IntValue<'ctx>,
-    name: Option<&'static str>,
+    name: Option<&'ctx str>,
 ) -> anyhow::Result<ArraySliceValue<'ctx>> {
     /// Round `val` up to its modulo `power_of_two`.
     fn round_up<'ctx>(
