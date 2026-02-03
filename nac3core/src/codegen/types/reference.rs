@@ -1,12 +1,18 @@
 use inkwell::{
-    types::{BasicType, BasicTypeEnum, StructType},
+    AddressSpace,
+    types::{ArrayType, BasicType, BasicTypeEnum, StructType},
     values::{BasicValueEnum, IntValue, PointerValue},
 };
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
-    CodeGenContext, ModuleContext, typed_load,
-    types::{BuiltinStruct, ProxyType, ProxyTypeBase, RefType, Value, structure::StructField},
+    CodeGenContext, ModuleContext,
+    allocator::AllocationScope,
+    llvm_intrinsics, type_aligned_allocate, typed_load, typed_store,
+    types::{
+        ArraySliceValue, BuiltinStruct, ProxyType, ProxyTypeBase, RefType, Value,
+        structure::StructField,
+    },
 };
 
 #[derive(Clone, Copy, StructFields)]
@@ -47,7 +53,7 @@ pub trait RefCountedValue<'ctx> {
     fn header(&self, ctx: &ModuleContext<'ctx>) -> ObjectHeaderValue<'ctx>;
 
     /// Returns a pointer to the inner data of this refcounted object.
-    fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx>;
+    fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<PointerValue<'ctx>>;
 
     /// Returns a loaded value of the inner data of this refcounted object.
     fn inner_value(
@@ -56,12 +62,11 @@ pub trait RefCountedValue<'ctx> {
         inner_ty: BasicTypeEnum<'ctx>,
         name: &str,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
-        typed_load(ctx.builder, self.inner_ptr(ctx), inner_ty, name)
+        typed_load(ctx.builder, self.inner_ptr(ctx)?, inner_ty, name)
     }
 }
 
-#[derive(Clone, Copy, ProxyType)]
-#[llvm_ref(self.inner)]
+#[derive(Clone, Copy)]
 pub struct OpaqueRefCountedType<'ctx> {
     pub inner: StructType<'ctx>,
 }
@@ -79,6 +84,39 @@ impl<'ctx> OpaqueRefCountedType<'ctx> {
     }
 }
 
+impl<'ctx> ProxyTypeBase<'ctx> for OpaqueRefCountedType<'ctx> {
+    type Value = PointerValue<'ctx>;
+
+    fn alloca(
+        &self,
+        _ctx: &mut CodeGenContext<'ctx, '_>,
+        _name: Option<&'ctx str>,
+    ) -> anyhow::Result<Value<'ctx, Self>>
+    where
+        Self: RefType<'ctx> + Copy,
+    {
+        unreachable!("OpaqueRefCountedType cannot be allocated directly");
+    }
+
+    fn allocate(
+        &self,
+        _ctx: &mut CodeGenContext<'ctx, '_>,
+        _name: Option<&'ctx str>,
+    ) -> anyhow::Result<Value<'ctx, Self>>
+    where
+        Self: RefType<'ctx> + Copy,
+    {
+        unreachable!("OpaqueRefCountedType cannot be allocated directly");
+    }
+
+    fn map_value<V>(&self, value: V, name: Option<&'ctx str>) -> Value<'ctx, Self>
+    where
+        Self: ProxyTypeBase<'ctx, Value = V> + Copy,
+    {
+        Value { ty: *self, value, name }
+    }
+}
+
 impl<'ctx> RefCountedType<'ctx> for OpaqueRefCountedType<'ctx> {}
 
 pub type OpaqueRefCountedValue<'ctx> = Value<'ctx, OpaqueRefCountedType<'ctx>>;
@@ -92,21 +130,19 @@ impl<'ctx> RefCountedValue<'ctx> for OpaqueRefCountedValue<'ctx> {
         ObjectHeaderType::new(ctx).map_value(self.value, self.name)
     }
 
-    fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        let obj_header = ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap();
-        unsafe {
-            ctx.builder
-                .build_gep(
-                    obj_header,
-                    &[ObjectHeaderType::new(ctx)
-                        .llvm_ty(ctx)
-                        .size_of()
-                        .unwrap()
-                        .const_cast(ctx.size_t, false)],
-                    "",
-                )
-                .unwrap()
-        }
+    fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<PointerValue<'ctx>> {
+        let obj_header = ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?;
+        Ok(unsafe {
+            ctx.builder.build_gep(
+                obj_header,
+                &[ObjectHeaderType::new(ctx)
+                    .llvm_ty(ctx)
+                    .size_of()
+                    .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
+                    .unwrap()],
+                "",
+            )?
+        })
     }
 }
 
@@ -160,20 +196,287 @@ impl<'ctx, T: RefType<'ctx> + Copy> RefCountedValue<'ctx> for TypedRefCountedVal
         ObjectHeaderType::new(ctx).map_value(self.value, self.name)
     }
 
-    fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
-        let obj_header = ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap();
-        unsafe {
-            ctx.builder
-                .build_gep(
-                    obj_header,
-                    &[ObjectHeaderType::new(ctx)
+    fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<PointerValue<'ctx>> {
+        let obj_header = ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?;
+        Ok(unsafe {
+            ctx.builder.build_gep(
+                obj_header,
+                &[ObjectHeaderType::new(ctx)
+                    .llvm_ty(ctx)
+                    .size_of()
+                    .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
+                    .unwrap()],
+                "",
+            )?
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct RefCountedArrayType<'ctx, T: ProxyType<'ctx> + Copy> {
+    pub inner: StructType<'ctx>,
+    pub array: ArrayType<'ctx>,
+    pub elem: T,
+}
+
+impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
+    /// Creates a new instance of this type.
+    pub fn new(ctx: &ModuleContext<'ctx>, elem_ty: T, static_size: Option<u32>) -> Self {
+        let object = elem_ty.llvm_ty(ctx).array_type(static_size.unwrap_or_default());
+
+        Self {
+            inner: ctx.ctx.struct_type(
+                &[
+                    ObjectHeaderType::new(ctx)
                         .llvm_ty(ctx)
-                        .size_of()
-                        .unwrap()
-                        .const_cast(ctx.size_t, false)],
-                    "",
-                )
-                .unwrap()
+                        .into_pointer_type()
+                        .get_element_type()
+                        .into_struct_type()
+                        .into(),
+                    ctx.ctx
+                        .struct_type(&[ctx.size_t.into(), object.as_basic_type_enum()], false)
+                        .into(),
+                ],
+                false,
+            ),
+            array: object,
+            elem: elem_ty,
         }
+    }
+
+    fn allocate_impl(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        scope: AllocationScope,
+        size: IntValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<Value<'ctx, Self>> {
+        let llvm_dyn_array_ty = Self::new(ctx, self.elem, None);
+
+        let value_ptr = if size.is_constant_int() {
+            assert_eq!(
+                size.get_zero_extended_constant(),
+                Some(u64::from(self.array.len())),
+                "Expected size {} to match static size {} of RefCountedArrayType",
+                size.get_zero_extended_constant().unwrap(),
+                self.array.len()
+            );
+
+            let alloca = self.alloca_ty(ctx);
+            let ptr = ctx.build_allocate(scope, alloca, name)?;
+
+            // Pretend to be a dynamically-sized array for consistent types
+            ctx.builder.build_pointer_cast(
+                ptr,
+                llvm_dyn_array_ty.llvm_ty(ctx).into_pointer_type(),
+                "",
+            )?
+        } else {
+            let align_ty =
+                self.llvm_ty(ctx).into_pointer_type().get_element_type().into_struct_type();
+
+            let sizeof_elem = self
+                .array
+                .get_element_type()
+                .size_of()
+                .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
+                .unwrap();
+            let sizeof_zero_elem = llvm_dyn_array_ty
+                .llvm_ty(ctx)
+                .into_pointer_type()
+                .get_element_type()
+                .into_struct_type()
+                .size_of()
+                .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
+                .unwrap();
+
+            // sizeof(arr) = sizeof(ObjectHeader) + sizeof(elem) * n
+            let alloc_size = ctx.builder.build_int_add(
+                sizeof_zero_elem,
+                ctx.builder.build_int_mul(sizeof_elem, size, "")?,
+                "",
+            )?;
+
+            let ptr = type_aligned_allocate(ctx, scope, align_ty, alloc_size, name)?;
+            ctx.builder.build_pointer_cast(
+                ptr.value.0,
+                llvm_dyn_array_ty.llvm_ty(ctx).into_pointer_type(),
+                "",
+            )?
+        };
+
+        let value = self.map_value(value_ptr, name);
+
+        // Zero-initialize the array if this array stores pointers to avoid unintentional access of
+        // uninitialized values
+        if self.array.get_element_type().is_pointer_type() {
+            llvm_intrinsics::call_memset_generic_array(
+                ctx,
+                value.inner_ptr(ctx)?,
+                ctx.i8.const_zero(),
+                size,
+            )?;
+        }
+
+        // TODO(Derppening): Add typeinfo
+
+        // Store the size into the array metadata
+        let inner = value.inner_ptr(ctx)?;
+        let inner = ctx.builder.build_pointer_cast(
+            inner,
+            llvm_dyn_array_ty.llvm_ty(ctx).into_pointer_type(),
+            "",
+        )?;
+        let psize = unsafe {
+            ctx.builder.build_in_bounds_gep(
+                inner,
+                &[ctx.size_t.const_zero(), ctx.i32.const_zero()],
+                "",
+            )?
+        };
+        typed_store(ctx.builder, psize, size)?;
+
+        Ok(value)
+    }
+
+    pub fn alloca(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        size: IntValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<Value<'ctx, Self>> {
+        self.allocate_impl(ctx, AllocationScope::StackStartOfFunc, size, name)
+    }
+
+    fn allocate(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        size: IntValue<'ctx>,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<Value<'ctx, Self>> {
+        self.allocate_impl(ctx, AllocationScope::Default, size, name)
+    }
+}
+
+impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for RefCountedArrayType<'ctx, T> {
+    type Value = PointerValue<'ctx>;
+
+    fn alloca(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<Value<'ctx, Self>>
+    where
+        Self: RefType<'ctx> + Copy,
+    {
+        assert_ne!(self.array.len(), 0, "Cannot allocate RefCountedArrayType with unknown size");
+
+        self.alloca(ctx, ctx.size_t.const_int(u64::from(self.array.len()), false), name)
+    }
+
+    fn allocate(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<Value<'ctx, Self>>
+    where
+        Self: RefType<'ctx> + Copy,
+    {
+        assert_ne!(self.array.len(), 0, "Cannot allocate RefCountedArrayType with unknown size");
+
+        self.allocate(ctx, ctx.size_t.const_int(u64::from(self.array.len()), false), name)
+    }
+
+    fn map_value<V>(&self, value: V, name: Option<&'ctx str>) -> Value<'ctx, Self>
+    where
+        Self: ProxyTypeBase<'ctx, Value = V> + Copy,
+    {
+        Value { ty: *self, value, name }
+    }
+}
+
+impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyType<'ctx> for RefCountedArrayType<'ctx, T> {
+    fn llvm_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
+        self.inner.into()
+    }
+}
+
+impl<'ctx, T: ProxyType<'ctx> + Copy> RefType<'ctx> for RefCountedArrayType<'ctx, T> {
+    fn alloca_ty(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> BasicTypeEnum<'ctx> {
+        assert_ne!(
+            self.array.len(),
+            0,
+            "RefCountedArrayType with an unknown size cannot be allocated"
+        );
+
+        self.inner.into()
+    }
+}
+
+impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedType<'ctx> for RefCountedArrayType<'ctx, T> {}
+
+pub type RefCountedArrayValue<'ctx, T> = Value<'ctx, RefCountedArrayType<'ctx, T>>;
+
+impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
+    pub fn len(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
+        let inner_ptr = self.inner_ptr(ctx)?;
+        let inner_ptr = ctx.builder.build_pointer_cast(
+            inner_ptr,
+            RefCountedArrayType::new(ctx, self.ty.elem, None).llvm_ty(ctx).into_pointer_type(),
+            "",
+        )?;
+        Ok(unsafe {
+            ctx.build_gep_and_load(
+                inner_ptr,
+                &[ctx.size_t.const_zero(), ctx.i32.const_zero()],
+                None,
+            )?
+            .into_int_value()
+        })
+    }
+
+    pub fn inner_value(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<ArraySliceValue<'ctx, T>> {
+        let data = unsafe {
+            ctx.builder.build_in_bounds_gep(
+                self.inner_ptr(ctx)?,
+                &[ctx.size_t.const_zero(), ctx.i32.const_int(1, false)],
+                "",
+            )?
+        };
+        let data = ctx.builder.build_pointer_cast(
+            data,
+            self.ty.elem.llvm_ty(ctx).ptr_type(AddressSpace::default()),
+            "",
+        )?;
+
+        Ok(ArraySliceValue::new(self.ty.elem, data, self.len(ctx)?, self.name))
+    }
+}
+
+impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedValue<'ctx> for RefCountedArrayValue<'ctx, T> {
+    fn as_opaque(&self, ctx: &ModuleContext<'ctx>) -> OpaqueRefCountedValue<'ctx> {
+        OpaqueRefCountedType::new(ctx).map_value(self.value, self.name)
+    }
+
+    fn header(&self, ctx: &ModuleContext<'ctx>) -> ObjectHeaderValue<'ctx> {
+        ObjectHeaderType::new(ctx).map_value(self.value, self.name)
+    }
+
+    fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<PointerValue<'ctx>> {
+        let obj_header = ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?;
+        Ok(unsafe {
+            ctx.builder.build_gep(
+                obj_header,
+                &[ObjectHeaderType::new(ctx)
+                    .llvm_ty(ctx)
+                    .size_of()
+                    .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
+                    .unwrap()],
+                "",
+            )?
+        })
     }
 }
