@@ -9,6 +9,8 @@ use nac3core_derive::{ProxyType, StructFields};
 use crate::codegen::{
     CodeGenContext, ModuleContext,
     allocator::AllocationScope,
+    expr::call_extern,
+    irrt::get_usize_dependent_function_name,
     llvm_intrinsics, type_aligned_allocate, typed_load, typed_store,
     types::{
         ArraySliceValue, BuiltinStruct, ProxyType, ProxyTypeBase, RefType, TypeinfoType,
@@ -41,6 +43,81 @@ impl<'ctx> ObjectHeaderType<'ctx> {
 }
 
 pub type ObjectHeaderValue<'ctx> = Value<'ctx, ObjectHeaderType<'ctx>>;
+
+impl<'ctx> ObjectHeaderValue<'ctx> {
+    /// Initializes the reference count metadata with the following values:
+    ///
+    /// - `refcount`: Initialized to `1`.
+    /// - `field_metadata`: Initialized to the provided `field_metadata` pointer, which points to a
+    ///   (usually global) array of `size_t` values, where the first value is the number of fields
+    ///   with reference counts, followed by the byte offsets of each field.
+    pub fn init(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        is_refcounted: IntValue<'ctx>,
+        typeinfo: TypeinfoValue<'ctx>,
+    ) -> anyhow::Result<()> {
+        const FUNC_NAME: &str = "__nac3_object_header_init";
+
+        debug_assert_eq!(is_refcounted.get_type(), ctx.i1, "is_refcounted must be an i1 value");
+
+        let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
+            self.value
+        } else {
+            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap()
+        };
+
+        call_extern!(ctx: void _ = FUNC_NAME(value, is_refcounted, typeinfo.value))?;
+        Ok(())
+    }
+
+    /// Returns an `i1` indicating whether this object is reference-counted.
+    pub fn is_refcounted(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<IntValue<'ctx>> {
+        const FUNC_NAME: &str = "__nac3_is_object_refcounted";
+
+        debug_assert_eq!(self.value.get_type().get_element_type(), ctx.i8.into());
+
+        call_extern!(ctx: (ctx.i1) _ = FUNC_NAME(self.value))
+    }
+
+    /// Recursively increments the reference count of this object by one.
+    pub fn increment_refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
+        let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
+            self.value
+        } else {
+            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap()
+        };
+
+        let func_name = get_usize_dependent_function_name(ctx, "__nac3_refcount_incr");
+
+        call_extern!(ctx: void _ = func_name(value))?;
+        Ok(())
+    }
+
+    /// Recursively decrements the reference count of this object by one.
+    ///
+    /// When the reference count reaches zero, the object will be automatically deallocated.
+    pub fn decrement_refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
+        let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
+            self.value
+        } else {
+            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap()
+        };
+
+        let func_name = get_usize_dependent_function_name(ctx, "__nac3_refcount_decr");
+
+        call_extern!(ctx: void _ = func_name(value))?;
+        Ok(())
+    }
+
+    pub fn refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
+        let struct_ty = self.ty.alloca_ty(ctx);
+        self.ty.inner.fields.refcount.load(ctx, struct_ty, self.value, self.name)
+    }
+}
 
 /// A trait indicating that a type is reference-counted.
 pub trait RefCountedType<'ctx> {}

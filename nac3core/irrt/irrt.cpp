@@ -14,3 +14,7 @@
 #include "irrt/ndarray/broadcast.hpp"
 #include "irrt/ndarray/transpose.hpp"
 #include "irrt/ndarray/matmul.hpp"
+#include "irrt/reference/array.hpp"
+#include "irrt/reference/header.hpp"
+#include "irrt/reference/reference.hpp"
+#include "irrt/reference/typeinfo.hpp"
