@@ -5,6 +5,8 @@
 
 namespace __nac3_impl::reference {
 namespace {
+constexpr const uint32_t REFCOUNT_ARRAY_MAGIC = 0xffff'ffff;
+
 void* get_object_start(void* object) {
     if (object == nullptr) {
         return nullptr;
@@ -69,7 +71,7 @@ void refcount_incr(void* const object) {
 
         ++header->refcount;
 
-        if (num_refcounted_fields == 0xffff'ffff) {
+        if (num_refcounted_fields == REFCOUNT_ARRAY_MAGIC) {
             // object is an array - obtain its dynamic size and iterate over it
             auto* const obj = get_object_start(object);
             const SizeT size = *static_cast<SizeT*>(obj);
@@ -94,7 +96,7 @@ void refcount_decr(void* const object) {
         auto* const typeinfo = get_object_typeinfo(object);
         const uint32_t num_refcounted_fields = typeinfo->refcounted_field_offsets[0];
 
-        if (num_refcounted_fields == 0xffff'ffff) {
+        if (num_refcounted_fields == REFCOUNT_ARRAY_MAGIC) {
             // object is an array - obtain its dynamic size and iterate over it
             auto* const obj = get_object_start(object);
             const SizeT size = *static_cast<SizeT*>(obj);
