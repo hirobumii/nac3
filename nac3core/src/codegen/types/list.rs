@@ -8,8 +8,8 @@ use crate::{
     codegen::{
         AllocationScope, CodeGenContext, ModuleContext,
         types::{
-            ProxyTypeBase, Value, array::ArraySliceValue, builtin::BuiltinStruct, field,
-            structure::StructField,
+            ProxyTypeBase, TypedRefCountedType, TypedRefCountedValue, Value,
+            array::ArraySliceValue, builtin::BuiltinStruct, field, structure::StructField,
         },
     },
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
@@ -63,11 +63,11 @@ impl<'ctx> ListType<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         len: IntValue<'ctx>,
         name: Option<&'static str>,
-    ) -> anyhow::Result<ListValue<'ctx>> {
-        let list = self.allocate(ctx, name)?;
+    ) -> anyhow::Result<TypedRefCountedValue<'ctx, Self>> {
+        let list = TypedRefCountedType::new(ctx, *self).allocate(ctx, name)?;
 
         let len = ctx.builder.build_int_z_extend(len, ctx.size_t, "")?;
-        list.store(ctx, field!(len), len)?;
+        list.inner_value().store(ctx, field!(len), len)?;
 
         let len_eqz =
             ctx.builder.build_int_compare(IntPredicate::EQ, len, ctx.size_t.const_zero(), "")?;
@@ -92,7 +92,7 @@ impl<'ctx> ListType<'ctx> {
             ctx.builder.build_select(len_eqz, null, array, "")?.into_pointer_value()
         };
 
-        list.store(ctx, field!(items), data)?;
+        list.inner_value().store(ctx, field!(items), data)?;
         Ok(list)
     }
 }
@@ -129,7 +129,7 @@ impl<'ctx> ListValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         item_ty: Type,
         name: Option<&'static str>,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<TypedRefCountedValue<'ctx, ListType<'ctx>>> {
         let list_ty = ListType::new(ctx, item_ty);
         list_ty.construct(ctx, ctx.size_t.const_zero(), name)
     }

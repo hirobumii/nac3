@@ -24,8 +24,9 @@ use crate::{
         typed_load, typed_store,
         types::{
             ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
-            ListType, ListValue, NDArrayType, ProxyTypeBase, RangeType, RustNDIndex,
-            ScalarOrNDArray, StringType, TupleType, TupleValue, broadcast, field,
+            ListType, NDArrayType, ProxyTypeBase, RangeType, RustNDIndex, ScalarOrNDArray,
+            StringType, TupleType, TupleValue, TypedRefCountedType, TypedRefCountedValue,
+            broadcast, field,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -249,11 +250,16 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             generator.gen_assign(&mut *ctx, target, &ValueEnum::Dynamic(val), val_ty)
         })
     };
-    let do_assign_list = |generator: &mut G, ctx: &mut _, target, list: &ListValue<'ctx>| {
-        let ptr = generator.gen_store_target(ctx, target, Some("starred_target.addr"))?.unwrap();
-        typed_store(ctx.builder, ptr, list.value)?;
-        anyhow::Ok(())
-    };
+    let do_assign_list =
+        |generator: &mut G,
+         ctx: &mut _,
+         target,
+         list: &TypedRefCountedValue<'ctx, ListType<'ctx>>| {
+            let ptr =
+                generator.gen_store_target(ctx, target, Some("starred_target.addr"))?.unwrap();
+            typed_store(ctx.builder, ptr, list.value)?;
+            anyhow::Ok(())
+        };
 
     // Find the starred target if it exists.
     // Index of the "starred" target. If it exists, there may only be one.
@@ -310,7 +316,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let tup_mid_len = ctx.size_t.const_int(tup_mid.len() as u64, false);
             let starred_list =
                 ListType::new(ctx, tup_mid_ty).construct(ctx, tup_mid_len, Some("starred_list"))?;
-            let starred_list_data = starred_list.data(ctx)?;
+            let starred_list_data = starred_list.inner_value().data(ctx)?;
             for (i, &(_, val)) in tup_mid.iter().enumerate() {
                 starred_list_data.set(ctx, &ctx.size_t.const_int(i as u64, false), val, None)?;
             }
@@ -385,9 +391,12 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let tail_len = ctx.size_t.const_int(tail.len() as u64, false);
             let tail_begin = ctx.builder.build_int_sub(rhs_size, tail_len, "tail_begin")?;
 
-            let mid_list = ListType::new(ctx, elem_ty).allocate(ctx, None)?;
-            mid_list.store(ctx, field!(items), mid_begin)?;
-            mid_list.store(ctx, field!(len), mid_len)?;
+            let mid_list = {
+                let list_ty = ListType::new(ctx, elem_ty);
+                TypedRefCountedType::new(ctx, list_ty).allocate(ctx, None)?
+            };
+            mid_list.inner_value().store(ctx, field!(items), mid_begin)?;
+            mid_list.inner_value().store(ctx, field!(len), mid_len)?;
             do_assign_list(generator, ctx, mid, &mid_list)?;
 
             let list_tail = (0..tail.len())
@@ -425,14 +434,17 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
             let target = generator.gen_expr(ctx, target)?;
             let target_val = target.to_basic_value_enum(ctx)?.into_pointer_value();
-            let target = ListType::from_unifier_type(ctx, target_ty).map_value(target_val, None);
+            let target = {
+                let list_ty = ListType::from_unifier_type(ctx, target_ty);
+                TypedRefCountedType::new(ctx, list_ty).map_value(target_val, None)
+            };
 
             if let ExprKind::Slice { .. } = &key.node {
                 // Handle assigning to a slice
                 let ExprKind::Slice { lower, upper, step } = &key.node else {
                     codegen_unreachable!(ctx)
                 };
-                let size = target.load(ctx, field!(len))?;
+                let size = target.inner_value().load(ctx, field!(len))?;
                 let Some((start, end, step)) =
                     handle_slice_indices(lower, upper, step, ctx, generator, size)?
                 else {
@@ -440,10 +452,13 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 };
 
                 let value_val = value.to_basic_value_enum(ctx, value_ty)?.into_pointer_value();
-                let value = ListType::from_unifier_type(ctx, value_ty).map_value(value_val, None);
+                let value = {
+                    let list_ty = ListType::from_unifier_type(ctx, target_ty);
+                    TypedRefCountedType::new(ctx, list_ty).map_value(value_val, None)
+                };
 
                 let target_item_ty = ctx.get_llvm_type(target_item_ty);
-                let size = value.load(ctx, field!(len))?;
+                let size = value.inner_value().load(ctx, field!(len))?;
                 let Some(src_ind) =
                     handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                 else {
@@ -459,7 +474,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 )?;
             } else {
                 // Handle assigning to an index
-                let len = target.load(ctx, field!(len))?;
+                let len = target.inner_value().load(ctx, field!(len))?;
 
                 let index =
                     generator.gen_expr(ctx, key)?.to_basic_value_enum(ctx)?.into_int_value();
@@ -492,7 +507,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 // Write value to index on list
                 let value = value.to_basic_value_enum(ctx, value_ty)?;
-                target.data(ctx)?.set(ctx, &index, value, Some("list_item"))?;
+                target.inner_value().data(ctx)?.set(ctx, &index, value, Some("list_item"))?;
             }
         }
         TypeEnum::TObj { obj_id, .. }

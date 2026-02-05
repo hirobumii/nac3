@@ -88,7 +88,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
             self.value
         } else {
-            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap()
+            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?
         };
 
         let func_name = get_usize_dependent_function_name(ctx, "__nac3_refcount_incr");
@@ -104,7 +104,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
             self.value
         } else {
-            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap()
+            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?
         };
 
         let func_name = get_usize_dependent_function_name(ctx, "__nac3_refcount_decr");
@@ -146,7 +146,7 @@ pub trait RefCountedValue<'ctx> {
 
 #[derive(Clone, Copy)]
 pub struct OpaqueRefCountedType<'ctx> {
-    pub inner: StructType<'ctx>,
+    inner: StructType<'ctx>,
 }
 
 impl<'ctx> OpaqueRefCountedType<'ctx> {
@@ -227,7 +227,7 @@ impl<'ctx> RefCountedValue<'ctx> for OpaqueRefCountedValue<'ctx> {
 #[derive(Clone, Copy, ProxyType)]
 #[llvm_ref(self.inner)]
 pub struct TypedRefCountedType<'ctx, T: RefType<'ctx> + Copy> {
-    pub inner: StructType<'ctx>,
+    inner: StructType<'ctx>,
     pub object: T,
 }
 
@@ -288,13 +288,22 @@ impl<'ctx, T: RefType<'ctx> + Copy> RefCountedValue<'ctx> for TypedRefCountedVal
             )?
         })
     }
+
+    fn inner_value(
+        &self,
+        _ctx: &CodeGenContext<'ctx, '_>,
+        _inner_ty: BasicTypeEnum<'ctx>,
+        _name: &str,
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
+        Ok(self.ty.object.map_value(self.value, None).value.into())
+    }
 }
 
 #[derive(Clone, Copy)]
 pub struct RefCountedArrayType<'ctx, T: ProxyType<'ctx> + Copy> {
-    pub inner: StructType<'ctx>,
+    inner: StructType<'ctx>,
     pub array: ArrayType<'ctx>,
-    pub elem: T,
+    elem: T,
 }
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
