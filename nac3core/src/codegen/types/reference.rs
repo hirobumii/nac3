@@ -405,7 +405,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
             )?;
         }
 
-        // TODO(Derppening): Add typeinfo
+        value.header(ctx).init(ctx, ctx.i1.const_int(1, false), Self::typeinfo(ctx))?;
 
         // Store the size into the array metadata
         let inner = value.inner_ptr(ctx)?;
