@@ -33,7 +33,7 @@ macro_rules! impl_proxy_type {
             #[allow(unused_variables)]
             fn alloca_ty(
                 &$self,
-                $ctx: &mut $crate::codegen::types::CodeGenContext<'ctx, '_>,
+                $ctx: &$crate::codegen::types::ModuleContext<'ctx>,
             ) -> $crate::inkwell::types::BasicTypeEnum<'ctx> {
                 ::core::convert::Into::<$crate::inkwell::types::BasicTypeEnum<'ctx>>::into($alloca_ty)
             }
@@ -182,7 +182,7 @@ pub trait WithTypeinfo<'ctx> {
 // pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> + WithTypeinfo<'ctx> {
 pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> {
     /// Returns the LLVM type used for allocating this reference type.
-    fn alloca_ty(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicTypeEnum<'ctx>;
+    fn alloca_ty(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx>;
 }
 
 #[derive(Clone, Copy)]

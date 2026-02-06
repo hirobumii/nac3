@@ -1,30 +1,33 @@
-use inkwell::values::{BasicValueEnum, IntValue};
+use inkwell::{
+    types::BasicTypeEnum,
+    values::{BasicValueEnum, IntValue},
+};
 use nac3core_derive::ProxyType;
 
 use crate::{
     codegen::{
-        CodeGenContext, ModuleContext, typed_load, typed_store,
+        CodeGenContext, typed_load, typed_store,
         types::{ProxyTypeBase, RefType, Value},
     },
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
 };
 
 #[derive(Clone, Copy, ProxyType)]
-#[llvm_ref(ctx.get_llvm_type(self.elem_ty))]
-pub struct OptionType {
-    elem_ty: Type,
+#[llvm_ref(self.elem_ty.1)]
+pub struct OptionType<'ctx> {
+    elem_ty: (Type, BasicTypeEnum<'ctx>),
 }
 
-impl OptionType {
+impl<'ctx> OptionType<'ctx> {
     /// Creates an instance of [`OptionType`].
-    pub const fn new(_ctx: &ModuleContext<'_>, element_type: Type) -> Self {
-        Self { elem_ty: element_type }
+    pub fn new(ctx: &mut CodeGenContext<'ctx, '_>, element_type: Type) -> Self {
+        Self { elem_ty: (element_type, ctx.get_llvm_type(element_type)) }
     }
 
     /// Decodes a [`Type`] into an [`OptionType`].
     ///
     /// Panics if `ty` is not an Option type.
-    pub fn from_unifier_type(ctx: &mut CodeGenContext<'_, '_>, ty: Type) -> Self {
+    pub fn from_unifier_type(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> Self {
         // Check unifier type and extract `element_type`
         let elem_type = match &*ctx.unifier.get_ty_immutable(ty) {
             TypeEnum::TObj { obj_id, params, .. }
@@ -39,7 +42,7 @@ impl OptionType {
     }
 
     /// Constructs a runtime optional value from an optional `BasicValueEnum`.
-    pub fn construct<'ctx>(
+    pub fn construct(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: Option<BasicValueEnum<'ctx>>,
@@ -56,7 +59,7 @@ impl OptionType {
     }
 }
 
-pub type OptionValue<'ctx> = Value<'ctx, OptionType>;
+pub type OptionValue<'ctx> = Value<'ctx, OptionType<'ctx>>;
 
 impl<'ctx> OptionValue<'ctx> {
     /// Returns whether this `Option` instance contains a value.

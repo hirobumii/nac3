@@ -526,7 +526,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> WithTypeinfo<'ctx> for RefCountedArrayType
 }
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> RefType<'ctx> for RefCountedArrayType<'ctx, T> {
-    fn alloca_ty(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> BasicTypeEnum<'ctx> {
+    fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
         assert_ne!(
             self.array.len(),
             0,
