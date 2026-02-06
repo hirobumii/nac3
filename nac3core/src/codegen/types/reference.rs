@@ -54,12 +54,10 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
     pub fn init(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        is_refcounted: IntValue<'ctx>,
+        is_refcounted: bool,
         typeinfo: TypeinfoValue<'ctx>,
     ) -> anyhow::Result<()> {
         const FUNC_NAME: &str = "__nac3_object_header_init";
-
-        debug_assert_eq!(is_refcounted.get_type(), ctx.i1, "is_refcounted must be an i1 value");
 
         let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
             self.value
@@ -67,7 +65,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
             ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap()
         };
 
-        call_extern!(ctx: void _ = FUNC_NAME(value, is_refcounted, typeinfo.value))?;
+        call_extern!(ctx: void _ = FUNC_NAME(value, ctx.i1.const_int(u64::from(is_refcounted), false), typeinfo.value))?;
         Ok(())
     }
 
@@ -233,6 +231,27 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
 
         Self { inner: ctx.ctx.struct_type(&[header.into(), object], false), object: object_ty }
     }
+
+    pub fn allocate(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        scope: AllocationScope,
+        is_refcounted: bool,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<Value<'ctx, Self>>
+    where
+        T: RefType<'ctx> + WithTypeinfo<'ctx> + Copy,
+    {
+        let alloca = self.alloca_ty(ctx);
+        let ptr = ctx.build_allocate(scope, alloca, name)?;
+        let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or_default())?;
+
+        let value = Value { ty: *self, value: ptr, name };
+
+        value.header(ctx).init(ctx, is_refcounted, T::typeinfo(ctx))?;
+
+        Ok(value)
+    }
 }
 
 impl<'ctx, T: RefType<'ctx> + Copy> RefCountedType<'ctx> for TypedRefCountedType<'ctx, T> {}
@@ -386,7 +405,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
             )?;
         }
 
-        value.header(ctx).init(ctx, ctx.i1.const_int(1, false), Self::typeinfo(ctx))?;
+        value.header(ctx).init(ctx, true, Self::typeinfo(ctx))?;
 
         // Store the size into the array metadata
         let inner = value.inner_ptr(ctx)?;
@@ -454,13 +473,6 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for RefCountedArrayTyp
 
         self.allocate(ctx, ctx.size_t.const_int(u64::from(self.array.len()), false), name)
     }
-
-    fn map_value<V>(&self, value: V, name: Option<&'ctx str>) -> Value<'ctx, Self>
-    where
-        Self: ProxyTypeBase<'ctx, Value = V> + Copy,
-    {
-        Value { ty: *self, value, name }
-    }
 }
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyType<'ctx> for RefCountedArrayType<'ctx, T> {
@@ -485,7 +497,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> WithTypeinfo<'ctx> for RefCountedArrayType
             refcounted_field_offsets.set_constant(true);
 
             let llvm_typeinfo = TypeinfoType::new(ctx)
-                .llvm_ty(ctx)
+                .alloca_ty(ctx)
                 .into_pointer_type()
                 .get_element_type()
                 .into_struct_type();

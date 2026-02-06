@@ -393,7 +393,12 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
 
             let mid_list = {
                 let list_ty = ListType::new(ctx, elem_ty);
-                TypedRefCountedType::new(ctx, list_ty).allocate(ctx, None)?
+                TypedRefCountedType::new(ctx, list_ty).allocate(
+                    ctx,
+                    AllocationScope::Default,
+                    true,
+                    None,
+                )?
             };
             mid_list.inner_value().store(ctx, field!(items), mid_begin)?;
             mid_list.inner_value().store(ctx, field!(len), mid_len)?;

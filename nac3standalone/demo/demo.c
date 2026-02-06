@@ -1,10 +1,24 @@
 #include <inttypes.h>
+#include <limits.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+extern const uint8_t __nac3_global_begin;
+
+typedef struct typeinfo_s {
+    uint32_t* refcounted_field_offsets;
+} typeinfo;
+_Static_assert(sizeof(typeinfo) == sizeof(size_t), "Unexpected typeinfo size");
+
+typedef struct object_header_s {
+    uint32_t refcount;
+    uint32_t typeinfo_offset;
+} object_header;
+_Static_assert(sizeof(object_header) == 8, "Unexpected object_header size");
 
 double dbl_nan(void) {
     return NAN;
@@ -65,6 +79,12 @@ struct cslice {
     size_t len;
 };
 
+typedef struct list_s {
+    object_header header;
+    void* data;
+    size_t len;
+} list;
+
 void output_int32_list(struct cslice* slice) {
     const int32_t* data = (int32_t*)slice->data;
 
@@ -90,6 +110,22 @@ void output_str(struct cslice slice) {
 
 void output_strln(struct cslice slice) {
     output_str(slice);
+    putchar('\n');
+}
+
+void output_refcount(const struct cslice str, const void* obj) {
+    const object_header* header = (object_header*)obj;
+
+    output_str(str);
+    printf(" refcount: ");
+
+    if (header == NULL) {
+        printf("<nil>");
+    } else if (header->refcount == 0) {
+        printf("<unsupported>");
+    } else {
+        printf("%" PRIu32, header->refcount);
+    }
     putchar('\n');
 }
 

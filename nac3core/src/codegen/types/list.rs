@@ -8,7 +8,7 @@ use crate::{
     codegen::{
         AllocationScope, CodeGenContext, ModuleContext,
         types::{
-            ProxyTypeBase, TypedRefCountedType, TypedRefCountedValue, Value,
+            TypedRefCountedType, TypedRefCountedValue, TypeinfoValue, Value, WithTypeinfo,
             array::ArraySliceValue, builtin::BuiltinStruct, field, structure::StructField,
         },
     },
@@ -64,7 +64,12 @@ impl<'ctx> ListType<'ctx> {
         len: IntValue<'ctx>,
         name: Option<&'static str>,
     ) -> anyhow::Result<TypedRefCountedValue<'ctx, Self>> {
-        let list = TypedRefCountedType::new(ctx, *self).allocate(ctx, name)?;
+        let list = TypedRefCountedType::new(ctx, *self).allocate(
+            ctx,
+            AllocationScope::Default,
+            true,
+            name,
+        )?;
 
         let len = ctx.builder.build_int_z_extend(len, ctx.size_t, "")?;
         list.inner_value().store(ctx, field!(len), len)?;
@@ -94,6 +99,12 @@ impl<'ctx> ListType<'ctx> {
 
         list.inner_value().store(ctx, field!(items), data)?;
         Ok(list)
+    }
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for ListType<'ctx> {
+    fn typeinfo(ctx: &ModuleContext<'ctx>) -> TypeinfoValue<'ctx> {
+        todo!()
     }
 }
 
