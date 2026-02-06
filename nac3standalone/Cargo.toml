@@ -5,7 +5,7 @@ authors = ["M-Labs"]
 edition = "2024"
 
 [features]
-default = ["escape-analysis", "malloc"]
+default = ["malloc"]
 escape-analysis = ["nac3core/escape-analysis"]
 malloc = ["nac3core/malloc"]
 
