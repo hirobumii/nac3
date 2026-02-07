@@ -1,7 +1,7 @@
 use std::iter::{once, repeat_n};
 
 use inkwell::values::PointerValue;
-use itertools::Itertools;
+use itertools::Itertools as _;
 
 use crate::codegen::{
     CodeGenContext,

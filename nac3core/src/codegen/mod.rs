@@ -34,10 +34,9 @@ use inkwell::{
         PointerValue,
     },
 };
-use itertools::Itertools;
-use parking_lot::{Condvar, Mutex};
-
+use itertools::Itertools as _;
 use nac3parser::ast::{Location, Stmt, StrRef};
+use parking_lot::{Condvar, Mutex};
 
 use crate::{
     codegen::{

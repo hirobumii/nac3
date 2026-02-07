@@ -2,7 +2,7 @@ use inkwell::{
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue},
 };
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{

@@ -1,5 +1,5 @@
 use inkwell::values::{IntValue, PointerValue};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nac3core_derive::{ProxyType, StructFields};
 use nac3parser::ast::{Expr, ExprKind};
 

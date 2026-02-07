@@ -6,24 +6,12 @@ use std::{
     sync::Arc,
 };
 
-use itertools::{Itertools, izip};
-
+use itertools::{Itertools as _, izip};
 use nac3parser::ast::{
     self, Arguments, Comprehension, Expr, ExprContext, ExprKind, Located, Location, StrRef,
     fold::{self, Fold},
 };
 
-use super::{
-    magic_methods::{
-        Binop, BinopVariant, HasOpInfo, OpInfo, typeof_binop, typeof_cmpop,
-        typeof_ndarray_broadcast, typeof_unaryop,
-    },
-    type_error::{TypeError, TypeErrorKind},
-    typedef::{
-        AttrKind, Call, CallId, FunSignature, FuncArg, Mapping, OperatorInfo, RecordField,
-        RecordKey, Type, TypeEnum, TypeVar, Unifier, VarMap, into_var_map, iter_type_vars,
-    },
-};
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
     toplevel::{
@@ -32,6 +20,17 @@ use crate::{
         helper::{PrimDef, arraylike_flatten_element_type, arraylike_get_ndims, extract_ndims},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
         type_annotation::TypeAnnotation,
+    },
+    typecheck::{
+        magic_methods::{
+            Binop, BinopVariant, HasOpInfo, OpInfo, typeof_binop, typeof_cmpop,
+            typeof_ndarray_broadcast, typeof_unaryop,
+        },
+        type_error::{TypeError, TypeErrorKind},
+        typedef::{
+            AttrKind, Call, CallId, FunSignature, FuncArg, Mapping, OperatorInfo, RecordField,
+            RecordKey, Type, TypeEnum, TypeVar, Unifier, VarMap, into_var_map, iter_type_vars,
+        },
     },
 };
 

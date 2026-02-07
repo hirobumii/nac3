@@ -2,9 +2,10 @@ use std::{collections::HashMap, mem, ptr, slice, str};
 
 use byteorder::{ByteOrder, LittleEndian};
 
-use crate::dwarf::{EH_Frame, EH_Frame_Hdr};
-
-use crate::include::elf::*;
+use crate::{
+    dwarf::{EH_Frame, EH_Frame_Hdr},
+    include::elf::*,
+};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Isa {

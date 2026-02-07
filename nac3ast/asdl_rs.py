@@ -546,8 +546,7 @@ class ChainOfVisitors:
 
 
 def write_ast_def(mod, typeinfo, f):
-    f.write('pub use crate::location::Location;\n')
-    f.write('pub use crate::constant::*;\n')
+    f.write('pub use crate::{constant::*, location::Location};\n')
     f.write('\n')
     f.write('type Ident = String;\n')
     f.write('\n')

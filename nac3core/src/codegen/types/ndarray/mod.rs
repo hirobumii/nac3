@@ -1,25 +1,9 @@
-mod array;
-mod broadcast;
-mod contiguous;
-mod factory;
-mod indexing;
-mod iter;
-mod matmul;
-mod shape;
-mod view;
-
-pub use broadcast::{BroadcastAllResult, broadcast, broadcast_starmap};
-pub use contiguous::{ContiguousNDArrayType, ContiguousNDArrayValue};
-pub use indexing::{NDIndexType, NDIndexValue, RustNDIndex};
-pub use iter::{NDIterType, NDIterValue};
-pub use shape::parse_numpy_int_sequence;
-
 use inkwell::{
     IntPredicate,
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue},
 };
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::{
@@ -42,6 +26,22 @@ use crate::{
     toplevel::{helper::extract_ndims, numpy::unpack_ndarray_var_tys},
     typecheck::typedef::{Type, TypeEnum},
 };
+
+mod array;
+mod broadcast;
+mod contiguous;
+mod factory;
+mod indexing;
+mod iter;
+mod matmul;
+mod shape;
+mod view;
+
+pub use broadcast::{BroadcastAllResult, broadcast, broadcast_starmap};
+pub use contiguous::{ContiguousNDArrayType, ContiguousNDArrayValue};
+pub use indexing::{NDIndexType, NDIndexValue, RustNDIndex};
+pub use iter::{NDIterType, NDIterValue};
+pub use shape::parse_numpy_int_sequence;
 
 #[derive(Clone, Copy, ProxyType)]
 #[llvm_ref(self.inner.llvm_ty)]

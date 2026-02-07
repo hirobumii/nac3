@@ -4,23 +4,22 @@ use std::{
 };
 
 use indoc::indoc;
-use itertools::Itertools;
-use parking_lot::{Mutex, RwLock};
-use test_case::test_case;
-
+use itertools::Itertools as _;
 use nac3parser::{
     ast::{self, FileName, StrRef, fold::Fold},
     parser::parse_program,
 };
+use parking_lot::{Mutex, RwLock};
+use test_case::test_case;
 
-use super::{
-    DefinitionId, TopLevelDef,
-    composer::{DefaultBuiltinRegistry, TopLevelComposer},
-    helper::PrimDef,
-};
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::{SymbolResolver, ValueEnum},
+    toplevel::{
+        DefinitionId, TopLevelDef,
+        composer::{DefaultBuiltinRegistry, TopLevelComposer},
+        helper::PrimDef,
+    },
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{Type, Unifier},

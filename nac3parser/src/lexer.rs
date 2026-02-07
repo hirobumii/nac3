@@ -6,10 +6,10 @@ use std::{char, cmp::Ordering, num::IntErrorKind, str::FromStr};
 use unic_emoji_char::is_emoji_presentation;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
 
-pub use super::token::Tok;
 use crate::{
     ast::{FileName, Location},
     error::{LexicalError, LexicalErrorType},
+    token::Tok,
 };
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -19,11 +19,7 @@ struct IndentationLevel {
 }
 
 impl IndentationLevel {
-    fn compare_strict(
-        &self,
-        other: &Self,
-        location: Location,
-    ) -> Result<Ordering, LexicalError> {
+    fn compare_strict(&self, other: &Self, location: Location) -> Result<Ordering, LexicalError> {
         // We only know for sure that we're smaller or bigger if tabs
         // and spaces both differ in the same direction. Otherwise we're
         // dependent on the size of tabs.
@@ -1269,8 +1265,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{NewlineHandler, Tok, make_tokenizer};
     use nac3ast::FileName;
+
+    use super::{NewlineHandler, Tok, make_tokenizer};
 
     const WINDOWS_EOL: &str = "\r\n";
     const MAC_EOL: &str = "\r";
@@ -1285,7 +1282,7 @@ mod tests {
     fn test_nac3comment() {
         let src = "\
 a: int32
-# nac3: 
+# nac3:
 b: int64";
         let tokens = lex_source(src);
         assert_eq!(

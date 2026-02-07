@@ -11,8 +11,6 @@ use std::{
 };
 
 use clap::Parser;
-use parking_lot::{Mutex, RwLock};
-
 use nac3core::{
     codegen::{
         CodeGenOptions, CodeGenTask, DefaultCodeGenerator, TargetMachineOptions, WithCall,
@@ -44,6 +42,7 @@ use nac3core::{
         typedef::{FunSignature, Type, Unifier, VarMap},
     },
 };
+use parking_lot::{Mutex, RwLock};
 
 use basic_symbol_resolver::{Resolver, ResolverInternal};
 

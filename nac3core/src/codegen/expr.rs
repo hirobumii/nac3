@@ -12,8 +12,7 @@ use inkwell::{
     types::{BasicType, BasicTypeEnum},
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
 };
-use itertools::{Itertools, izip};
-
+use itertools::{Itertools as _, izip};
 use nac3parser::ast::{
     self, Boolop, Cmpop, Comprehension, Constant, Expr, ExprKind, Keyword, Location, Operator,
     StrRef, Unaryop,
@@ -41,8 +40,8 @@ use crate::{
         typed_load, typed_store,
         types::{
             ArrayLikeIndexer, ExceptionType, ListType, ListValue, NDArrayOut, NDArrayType,
-            OptionType, ProxyTypeExt, RangeType, RangeValue, RustNDIndex, ScalarOrNDArray,
-            StringType, TupleType, TupleValue, broadcast_starmap, field,
+            OptionType, ProxyTypeExt, RangeField, RangeType, RangeValue, RustNDIndex,
+            ScalarOrNDArray, StringType, TupleType, TupleValue, broadcast_starmap, field,
         },
     },
     symbol_resolver::{StaticValue, SymbolValue, ValueEnum},
@@ -2646,8 +2645,6 @@ macro_rules! __codegen_call_extern {
 
 #[doc(inline)]
 pub use __codegen_call_extern as call_extern;
-
-use super::types::RangeField;
 
 /// Call an external C function, given a function signature and arguments.
 ///

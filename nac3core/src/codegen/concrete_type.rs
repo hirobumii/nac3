@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use indexmap::IndexMap;
-
 use nac3parser::ast::StrRef;
 
 use crate::{

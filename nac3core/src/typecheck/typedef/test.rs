@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use indoc::indoc;
-use itertools::Itertools;
+use itertools::Itertools as _;
 use test_case::test_case;
 
 use super::*;

@@ -6,10 +6,9 @@ use std::{
 };
 
 use inkwell::values::{BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue};
-use itertools::{Itertools, izip};
-use parking_lot::RwLock;
-
+use itertools::{Itertools as _, izip};
 use nac3parser::ast::{Constant, Expr, ExprKind, StrRef};
+use parking_lot::RwLock;
 
 use crate::{
     codegen::CodeGenContext,

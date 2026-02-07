@@ -6,12 +6,14 @@ use nac3parser::ast::{
     Stmt, StmtKind, StrRef,
 };
 
-use super::{
-    type_error::get_expr_desc,
-    type_inferencer::Inferencer,
-    typedef::{Type, TypeEnum},
+use crate::{
+    toplevel::{composer::erase_expr_type, helper::PrimDef},
+    typecheck::{
+        type_error::get_expr_desc,
+        type_inferencer::Inferencer,
+        typedef::{Type, TypeEnum},
+    },
 };
-use crate::toplevel::{composer::erase_expr_type, helper::PrimDef};
 
 impl Inferencer<'_> {
     fn should_have_value(&mut self, expr: &Expr<Option<Type>>) -> Result<(), HashSet<String>> {

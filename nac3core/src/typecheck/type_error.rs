@@ -1,10 +1,9 @@
 use std::{collections::HashMap, fmt::Display};
 
-use itertools::Itertools;
-
+use itertools::Itertools as _;
 use nac3parser::ast::{Cmpop, Expr, ExprKind, Location, StrRef};
 
-use super::{
+use crate::typecheck::{
     magic_methods::{Binop, HasOpInfo},
     typedef::{RecordKey, Type, TypeEnum, Unifier},
 };

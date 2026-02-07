@@ -6,7 +6,6 @@ use inkwell::{
     module::Module,
     values::{BasicValue, BasicValueEnum, IntValue},
 };
-
 use nac3parser::ast::Expr;
 
 use crate::{

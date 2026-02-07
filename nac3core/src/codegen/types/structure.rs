@@ -5,7 +5,7 @@ use inkwell::{
     types::{BasicType, BasicTypeEnum},
     values::{AggregateValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
 };
-use itertools::Itertools;
+use itertools::Itertools as _;
 
 use crate::codegen::{CodeGenContext, ModuleContext, typed_load, typed_store};
 

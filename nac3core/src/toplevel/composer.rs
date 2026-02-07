@@ -6,20 +6,19 @@ use std::{
 };
 
 use indexmap::IndexMap;
-use itertools::Itertools;
+use itertools::Itertools as _;
+use nac3parser::ast::{self, Expr, ExprKind, FileName, Located, StrRef, fold::Fold};
 use parking_lot::RwLock;
 
-use nac3parser::ast::{self, Expr, ExprKind, FileName, Located, StrRef, fold::Fold};
-
-use super::{
-    DefinitionId, FunInstance, GenCall, Location, builtins, get_type_from_type_annotation_kinds,
-    get_type_var_contained_in_type_annotation, helper::PrimDef, make_self_type_annotation,
-    parse_ast_to_type_annotation_kinds, type_annotation::TypeAnnotation,
-};
 use crate::{
     codegen::{expr::get_subst_key, stmt::exn_constructor},
     symbol_resolver::SymbolValue,
-    toplevel::{Stmt, SymbolResolver, TopLevelContext, TopLevelDef},
+    toplevel::{
+        DefinitionId, FunInstance, GenCall, Location, Stmt, SymbolResolver, TopLevelContext,
+        TopLevelDef, builtins, get_type_from_type_annotation_kinds,
+        get_type_var_contained_in_type_annotation, helper::PrimDef, make_self_type_annotation,
+        parse_ast_to_type_annotation_kinds, type_annotation::TypeAnnotation,
+    },
     typecheck::{
         type_inferencer::{CodeLocation, FunctionData, Inferencer, PrimitiveStore},
         typedef::{CallId, FunSignature, FuncArg, Type, TypeEnum, TypeVar, Unifier, VarMap},

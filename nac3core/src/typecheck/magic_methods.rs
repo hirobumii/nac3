@@ -1,19 +1,18 @@
 use std::{cmp::max, collections::HashMap, rc::Rc};
 
 use itertools::{Itertools, iproduct};
+use nac3parser::ast::{Cmpop, Operator, StrRef, Unaryop};
 use strum::IntoEnumIterator;
 
-use nac3parser::ast::{Cmpop, Operator, StrRef, Unaryop};
-
-use super::{
-    type_inferencer::PrimitiveStore,
-    typedef::{AttrKind, FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
-};
 use crate::{
     symbol_resolver::SymbolValue,
     toplevel::{
         helper::{PrimDef, extract_ndims},
         numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+    },
+    typecheck::{
+        type_inferencer::PrimitiveStore,
+        typedef::{AttrKind, FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
     },
 };
 

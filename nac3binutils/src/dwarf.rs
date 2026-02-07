@@ -1,9 +1,10 @@
 #![allow(nonstandard_style, non_upper_case_globals, clippy::wildcard_imports)]
 
-use crate::include::dwarf::*;
 use std::{mem, str};
 
 use byteorder::{ByteOrder, LittleEndian};
+
+use crate::include::dwarf::*;
 
 #[derive(Clone)]
 pub struct DwarfReader<'a> {

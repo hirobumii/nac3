@@ -3,8 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use parking_lot::{Mutex, RwLock};
-
 use nac3core::{
     codegen::CodeGenContext,
     inkwell::{module::Linkage, values::BasicValue},
@@ -16,6 +14,7 @@ use nac3core::{
         typedef::{Type, Unifier},
     },
 };
+use parking_lot::{Mutex, RwLock};
 
 pub struct ResolverInternal {
     pub id_to_type: Mutex<HashMap<StrRef, Type>>,

@@ -2,9 +2,10 @@
 
 use std::{cmp, collections::HashMap, fmt::Error, mem, ptr, slice};
 
-use crate::dwarf::DwarfReader;
-use crate::include::dwarf::*;
-use crate::include::elf::*;
+use crate::{
+    dwarf::DwarfReader,
+    include::{dwarf::*, elf::*},
+};
 
 #[derive(Debug, PartialEq, Clone)]
 enum NameRef {

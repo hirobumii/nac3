@@ -7,8 +7,7 @@ use inkwell::{
     types::{BasicMetadataTypeEnum, BasicType},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
 };
-use itertools::{Itertools, izip};
-
+use itertools::{Itertools as _, izip};
 use nac3parser::ast::{ExcepthandlerKind, Expr, ExprKind, Location, Stmt, StmtKind, StrRef};
 
 use crate::{

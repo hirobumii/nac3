@@ -4,23 +4,22 @@ use std::{
     sync::Arc,
 };
 
-use itertools::Itertools;
+use itertools::Itertools as _;
+use nac3parser::ast::{self, Constant, ExprKind, Located, Location, Stmt, StrRef};
 use parking_lot::RwLock;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use nac3parser::ast::{self, Constant, ExprKind, Located, Location, Stmt, StrRef};
-
-use super::{
-    DefinitionId, FunAttribute, TopLevelDef, check_overload_type_annotation_compatible,
-    composer::{BuiltinRegistry, DefAst, TopLevelComposer},
-    make_self_type_annotation,
-    numpy::unpack_ndarray_var_tys,
-    parse_ast_to_type_annotation_kinds,
-    type_annotation::TypeAnnotation,
-};
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
+    toplevel::{
+        DefinitionId, FunAttribute, TopLevelDef, check_overload_type_annotation_compatible,
+        composer::{BuiltinRegistry, DefAst, TopLevelComposer},
+        make_self_type_annotation,
+        numpy::unpack_ndarray_var_tys,
+        parse_ast_to_type_annotation_kinds,
+        type_annotation::TypeAnnotation,
+    },
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{

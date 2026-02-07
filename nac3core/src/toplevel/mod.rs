@@ -1,9 +1,8 @@
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use inkwell::values::BasicValueEnum;
-use parking_lot::RwLock;
-
 use nac3parser::ast::{self, Location, Stmt, StrRef};
+use parking_lot::RwLock;
 
 use crate::{
     codegen::CodeGenContext,
@@ -14,6 +13,7 @@ use crate::{
         typedef::{CallId, FunSignature, SharedUnifier, Type, TypeVarId, VarMap},
     },
 };
+
 use type_annotation::{
     TypeAnnotation, check_overload_type_annotation_compatible, get_type_from_type_annotation_kinds,
     get_type_var_contained_in_type_annotation, make_self_type_annotation,

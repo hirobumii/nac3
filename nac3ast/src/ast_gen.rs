@@ -2,8 +2,7 @@
 
 #![allow(clippy::nursery)]
 
-pub use crate::constant::*;
-pub use crate::location::Location;
+pub use crate::{constant::*, location::Location};
 
 use fxhash::FxBuildHasher;
 use parking_lot::{Mutex, MutexGuard};

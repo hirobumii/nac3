@@ -2,7 +2,6 @@ use inkwell::{
     IntPredicate,
     values::{BasicValue, BasicValueEnum, PointerValue},
 };
-
 use nac3parser::ast::StrRef;
 
 use crate::{

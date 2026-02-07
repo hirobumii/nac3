@@ -1,11 +1,11 @@
+use lalrpop_util::ParseError;
+use nac3ast::{Stmt, StmtKind};
+
 use crate::{
     ast::{Ident, Location},
     error::{LexicalError, LexicalErrorType},
     token::Tok,
 };
-use lalrpop_util::ParseError;
-
-use nac3ast::{Stmt, StmtKind};
 
 pub fn make_config_comment(
     com_loc: Location,

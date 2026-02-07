@@ -3,19 +3,18 @@ use std::{
     sync::Arc,
 };
 
-use itertools::Itertools;
+use itertools::Itertools as _;
+use nac3parser::ast::{self, Constant, Expr, Location, StrRef};
 use parking_lot::RwLock;
 use strum::IntoEnumIterator;
 
-use nac3parser::ast::{self, Constant, Expr, Location, StrRef};
-
-use super::{
-    DefinitionId, TopLevelDef,
-    helper::{PrimDef, PrimDefDetails},
-};
 use crate::{
     symbol_resolver::{SymbolResolver, SymbolValue},
-    toplevel::composer::{BuiltinRegistry, erase_expr_type},
+    toplevel::{
+        DefinitionId, TopLevelDef,
+        composer::{BuiltinRegistry, erase_expr_type},
+        helper::{PrimDef, PrimDefDetails},
+    },
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{AttrKind, Type, TypeEnum, Unifier, VarMap},

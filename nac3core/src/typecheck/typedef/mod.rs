@@ -8,19 +8,18 @@ use std::{
 };
 
 use indexmap::IndexMap;
-use itertools::Itertools;
-
+use itertools::Itertools as _;
 use nac3parser::ast::{Cmpop, Location, StrRef, Unaryop};
 
-use super::{
-    magic_methods::{Binop, HasOpInfo, OpInfo},
-    type_error::{TypeError, TypeErrorKind},
-    type_inferencer::PrimitiveStore,
-    unification_table::{UnificationKey, UnificationTable},
-};
 use crate::{
     symbol_resolver::SymbolValue,
     toplevel::{DefinitionId, TopLevelContext, TopLevelDef, helper::PrimDef},
+    typecheck::{
+        magic_methods::{Binop, HasOpInfo, OpInfo},
+        type_error::{TypeError, TypeErrorKind},
+        type_inferencer::PrimitiveStore,
+        unification_table::{UnificationKey, UnificationTable},
+    },
 };
 
 #[cfg(test)]

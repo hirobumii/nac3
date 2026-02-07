@@ -2,13 +2,11 @@ use std::iter::zip;
 
 use indexmap::IndexMap;
 use indoc::indoc;
+use nac3parser::{ast::FileName, parser::parse_program};
 use parking_lot::RwLock;
 use test_case::test_case;
 
-use nac3parser::{ast::FileName, parser::parse_program};
-
 use super::*;
-
 use crate::{
     codegen::CodeGenContext,
     symbol_resolver::ValueEnum,

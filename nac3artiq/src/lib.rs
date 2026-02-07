@@ -20,15 +20,7 @@ use std::{
 };
 
 use indexmap::IndexMap;
-use itertools::Itertools;
-use parking_lot::{Mutex, RwLock};
-use pyo3::{
-    IntoPyObjectExt, create_exception, exceptions,
-    prelude::*,
-    types::{PyAnyMethods, PyBytes, PyDict, PyList, PyNone, PyTuple, PyType},
-};
-use tempfile::{self, TempDir};
-
+use itertools::Itertools as _;
 use nac3binutils::{Linker, symbolizer};
 use nac3core::{
     codegen::{
@@ -63,6 +55,13 @@ use nac3core::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, Unifier, VarMap, into_var_map},
     },
 };
+use parking_lot::{Mutex, RwLock};
+use pyo3::{
+    IntoPyObjectExt, create_exception, exceptions,
+    prelude::*,
+    types::{PyAnyMethods, PyBytes, PyDict, PyList, PyNone, PyTuple, PyType},
+};
+use tempfile::{self, TempDir};
 
 use codegen::{
     ArtiqCodeGenerator, attributes_writeback, gen_core_log, gen_rtio_log, rpc_codegen_callback,

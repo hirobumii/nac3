@@ -7,14 +7,7 @@ use std::{
     },
 };
 
-use itertools::Itertools;
-use parking_lot::RwLock;
-use pyo3::{
-    IntoPyObjectExt, PyAny, PyErr, PyResult, Python,
-    prelude::*,
-    types::{PyDict, PyList, PyTuple},
-};
-
+use itertools::Itertools as _;
 use nac3core::{
     codegen::{
         CodeGenContext,
@@ -40,10 +33,14 @@ use nac3core::{
         },
     },
 };
+use parking_lot::RwLock;
+use pyo3::{
+    IntoPyObjectExt, PyAny, PyErr, PyResult, Python,
+    prelude::*,
+    types::{PyDict, PyList, PyTuple},
+};
 
-use crate::py_interp;
-
-use super::PrimitivePythonId;
+use crate::{PrimitivePythonId, py_interp};
 
 #[derive(Debug)]
 pub enum PrimitiveValue {

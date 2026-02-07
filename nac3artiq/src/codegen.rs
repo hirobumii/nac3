@@ -5,13 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use itertools::Itertools;
-use pyo3::{
-    PyResult, Python,
-    prelude::*,
-    types::{PyDict, PyList},
-};
-
+use itertools::Itertools as _;
 use nac3core::{
     codegen::{
         CodeGenContext, CodeGenerator, VarValue, basic_type_all, bool_to_i1,
@@ -45,8 +39,13 @@ use nac3core::{
         typedef::{FunSignature, FuncArg, Type, TypeEnum, VarMap, iter_type_vars},
     },
 };
+use pyo3::{
+    PyResult, Python,
+    prelude::*,
+    types::{PyDict, PyList},
+};
 
-use super::{SpecialPythonId, symbol_resolver::InnerResolver, timeline::TimeFns};
+use crate::{SpecialPythonId, symbol_resolver::InnerResolver, timeline::TimeFns};
 
 /// The parallelism mode within a block.
 #[derive(Copy, Clone, Eq, PartialEq)]

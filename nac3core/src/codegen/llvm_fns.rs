@@ -16,7 +16,7 @@ use inkwell::{
     types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, PointerType},
     values::{BasicValueEnum, CallSiteValue, FunctionValue, PointerValue},
 };
-use itertools::Itertools;
+use itertools::Itertools as _;
 
 use crate::codegen::{ModuleContext, TargetMachineOptions, typed_store};
 

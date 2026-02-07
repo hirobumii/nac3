@@ -3,7 +3,7 @@ use inkwell::{
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue},
 };
-use itertools::Itertools;
+use itertools::Itertools as _;
 
 use crate::{
     codegen::{

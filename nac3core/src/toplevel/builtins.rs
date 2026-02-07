@@ -5,22 +5,11 @@ use inkwell::{
     IntPredicate,
     values::{BasicValue, BasicValueEnum},
 };
-use itertools::Itertools;
+use itertools::Itertools as _;
+use nac3parser::ast::{Stmt, StrRef};
 use parking_lot::RwLock;
 use strum::IntoEnumIterator;
 
-use nac3parser::ast::{Stmt, StrRef};
-
-use super::{
-    DefinitionId, GenCall, GenCallCallback, TopLevelDef,
-    composer::TopLevelComposer,
-    helper::{
-        PrimDef, PrimDefDetails, arraylike_flatten_element_type, debug_assert_prim_is_allowed,
-        extract_ndims, make_exception_fields,
-    },
-    numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
-    type_annotation::TypeAnnotation,
-};
 use crate::{
     codegen::{
         builtin_fns,
@@ -37,6 +26,16 @@ use crate::{
         },
     },
     symbol_resolver::SymbolValue,
+    toplevel::{
+        DefinitionId, GenCall, GenCallCallback, TopLevelDef,
+        composer::TopLevelComposer,
+        helper::{
+            PrimDef, PrimDefDetails, arraylike_flatten_element_type, debug_assert_prim_is_allowed,
+            extract_ndims, make_exception_fields,
+        },
+        numpy::{make_ndarray_ty, unpack_ndarray_var_tys},
+        type_annotation::TypeAnnotation,
+    },
     typecheck::{
         type_inferencer::PrimitiveStore,
         typedef::{
