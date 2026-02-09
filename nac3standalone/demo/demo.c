@@ -114,19 +114,54 @@ void output_strln(struct cslice slice) {
 }
 
 void output_refcount(const struct cslice str, const void* obj) {
-    const object_header* header = (object_header*)obj;
+    // const object_header* header = (object_header*)obj;
 
+    // output_str(str);
+    // printf(" refcount: ");
+
+    // if (header == NULL) {
+    //     printf("<nil>");
+    // } else if (header->refcount == 0) {
+    //     printf("<unsupported>");
+    // } else {
+    //     printf("%" PRIu32, header->refcount);
+    // }
+    // putchar('\n');
+
+    printf("typeinfo for ");
     output_str(str);
-    printf(" refcount: ");
+    printf(": %s\n", obj == NULL ? "<nil>" : "");
 
-    if (header == NULL) {
-        printf("<nil>");
-    } else if (header->refcount == 0) {
-        printf("<unsupported>");
-    } else {
-        printf("%" PRIu32, header->refcount);
+    if (obj == NULL) {
+        return;
     }
-    putchar('\n');
+
+    const int32_t offset = *((int32_t*)(obj + 4));
+    const typeinfo* ti = (void*)&__nac3_global_begin + offset;
+    puts("  refcounted_field_offsets:");
+
+    const uint32_t* field_offsets = ti->refcounted_field_offsets;
+    const uint32_t refcounted_field_count = field_offsets[0];
+    if (refcounted_field_count == UINT32_MAX) {
+        const size_t size = *((size_t*)(obj + sizeof(object_header)));
+#if INTPTR_MAX == INT32_MAX
+        printf("    refcounted_field_count: <ALL> (%" PRIu32 ")\n", size);
+#elif INTPTR_MAX == INT64_MAX
+        printf("    refcounted_field_count: <ALL> (%" PRIu64 ")\n", size);
+#else
+#error "Unsupported pointer size"
+#endif
+    } else {
+        printf("    refcounted_field_count: %" PRIu32, refcounted_field_count);
+        if (refcounted_field_count > 0) {
+            printf(" [");
+            for (uint32_t i = 0; i < refcounted_field_count; ++i) {
+                printf("%" PRIu32 "%s", field_offsets[i + 1], i == refcounted_field_count - 1 ? "" : ", ");
+            }
+            putchar(']');
+        }
+        putchar('\n');
+    }
 }
 
 uint64_t dbg_stack_address(__attribute__((unused)) struct cslice slice) {
