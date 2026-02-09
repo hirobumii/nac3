@@ -154,6 +154,12 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
 
         let all_type_vars_in_scope = type_vars_in_result.iter().all(|tv| {
             if let TypeAnnotation::TypeVar(t) = tv {
+                // Auto-generated type variables will be inferred from runtime values.
+                if let TypeEnum::TVar { range, .. } = &*unifier.get_ty(*t)
+                    && range.is_empty()
+                {
+                    return true;
+                }
                 locked.values().flatten().any(|class_tv| unifier.unioned(*class_tv, *t))
             } else {
                 false
@@ -195,18 +201,22 @@ fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
 ) -> Result<TypeAnnotation, HashSet<String>> {
     let location = &expr.location;
     let ast::ExprKind::Name { id, .. } = &expr.node else { unreachable!("must be name expr here") };
-    if let Some(builtin) = builtin_registry.match_builtin(&erase_expr_type(expr))
-        && let PrimDefDetails::PrimClass { get_ty_fn, .. } = builtin.details()
-    {
-        match builtin {
-            PrimDef::Exception => {
-                return Ok(TypeAnnotation::CustomClass {
-                    id: PrimDef::Exception.id(),
-                    params: Vec::default(),
-                });
-            }
-            _ => {
-                return Ok(TypeAnnotation::Primitive(get_ty_fn(primitives)));
+    if let Some(builtin) = builtin_registry.match_builtin(&erase_expr_type(expr)) {
+        if builtin == PrimDef::Auto {
+            let auto_var = unifier.get_fresh_var(Some(*id), Some(*location)).ty;
+            return Ok(TypeAnnotation::TypeVar(auto_var));
+        }
+        if let PrimDefDetails::PrimClass { get_ty_fn, .. } = builtin.details() {
+            match builtin {
+                PrimDef::Exception => {
+                    return Ok(TypeAnnotation::CustomClass {
+                        id: PrimDef::Exception.id(),
+                        params: Vec::default(),
+                    });
+                }
+                _ => {
+                    return Ok(TypeAnnotation::Primitive(get_ty_fn(primitives)));
+                }
             }
         }
     }
@@ -251,7 +261,8 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
 ) -> Result<TypeAnnotation, HashSet<String>> {
     let obj_id = if let Some(builtin) = builtin_registry.match_builtin(&erase_expr_type(value)) {
         match builtin {
-            PrimDef::Kernel
+            PrimDef::Auto
+            | PrimDef::Kernel
             | PrimDef::KernelInvariant
             | PrimDef::ConstGeneric
             | PrimDef::None

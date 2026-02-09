@@ -380,6 +380,17 @@ pub trait SymbolResolver {
     ) -> Result<(), String> {
         Ok(())
     }
+
+    fn resolve_auto_field_type(
+        &self,
+        _class_name: StrRef,
+        _field_name: StrRef,
+        _unifier: &mut Unifier,
+        _top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+        _primitives: &PrimitiveStore,
+    ) -> Option<Result<Type, String>> {
+        None
+    }
 }
 
 /// Converts a type annotation into a [Type].

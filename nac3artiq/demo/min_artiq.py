@@ -31,6 +31,9 @@ class Kernel(Generic[T]):
 class KernelInvariant(Generic[T]):
     pass
 
+class Auto:
+    pass
+
 # The virtual class must exist before nac3artiq.NAC3 is created.
 class virtual(Generic[T]):
     pass
@@ -274,6 +277,7 @@ builtins = {
     },
 
     "artiq": {
+        "Auto": Auto,
         "Kernel": Kernel,
         "KernelInvariant": KernelInvariant,
         "_ConstGenericMarker": _ConstGenericMarker,

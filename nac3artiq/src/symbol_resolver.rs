@@ -2001,4 +2001,56 @@ impl SymbolResolver for Resolver {
         let exn_ids = self.0.exception_ids.read();
         exn_ids.get(&tyid).copied().unwrap_or(0)
     }
+
+    fn resolve_auto_field_type(
+        &self,
+        class_name: StrRef,
+        field_name: StrRef,
+        unifier: &mut Unifier,
+        top_level_defs: &[Arc<RwLock<TopLevelDef>>],
+        primitives: &PrimitiveStore,
+    ) -> Option<Result<Type, String>> {
+        // Resolve the class Python object from the module, then get the field attribute
+        // value and infer its type via get_obj_type.
+        Some(Python::attach(|py| -> PyResult<Result<Type, String>> {
+            let module = self.0.module.bind(py);
+            let class_name_str = class_name.to_string();
+
+            // Get the class object from the module
+            let Ok(class_obj) = module.getattr(class_name_str.as_str()) else {
+                return Ok(Err(format!(
+                    "Auto type error: cannot find class `{class_name}` in module"
+                )));
+            };
+
+            // Instantiate it if it's a class (call the constructor with no args)
+            // or get the field directly if it's already an instance
+            let instance = if class_obj.is_instance_of::<pyo3::types::PyType>() {
+                match class_obj.call0() {
+                    Ok(inst) => inst,
+                    Err(e) => return Ok(Err(format!(
+                        "Auto type error: cannot instantiate class `{class_name}` to infer field `{field_name}`: {e}"
+                    ))),
+                }
+            } else {
+                class_obj
+            };
+
+            // Get the field value
+            let field_name_str = field_name.to_string();
+            let Ok(field_val) = instance.getattr(field_name_str.as_str()) else {
+                return Ok(Err(format!(
+                    "Auto type error: class `{class_name}` instance has no attribute `{field_name}`"
+                )));
+            };
+
+            // Infer the type from the Python value
+            match self.0.get_obj_type(py, &field_val, unifier, top_level_defs, primitives)? {
+                Ok(ty) => Ok(Ok(ty)),
+                Err(e) => Ok(Err(format!(
+                    "Auto type error: cannot infer type of `{class_name}.{field_name}`: {e}"
+                ))),
+            }
+        }).unwrap())
+    }
 }

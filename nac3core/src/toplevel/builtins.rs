@@ -356,6 +356,7 @@ impl<'a> BuiltinBuilder<'a> {
             | PrimDef::Str
             | PrimDef::Tuple
             | PrimDef::StaticMethod
+            | PrimDef::Auto
             | PrimDef::Kernel
             | PrimDef::KernelInvariant
             | PrimDef::ConstGeneric

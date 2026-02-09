@@ -88,6 +88,7 @@ pub trait BuiltinRegistry: Send + Sync {
             "staticmethod" => PrimDef::StaticMethod,
 
             // Type qualifier
+            "Auto" => PrimDef::Auto,
             "Kernel" => PrimDef::Kernel,
             "KernelInvariant" => PrimDef::KernelInvariant,
             "ConstGeneric" => PrimDef::ConstGeneric,
@@ -1523,6 +1524,43 @@ impl TopLevelComposer {
                                     .into_iter()
                                     .collect::<HashMap<_, _>>(),
                             )?;
+
+                            let is_bare_auto = matches!(&parsed_annotation, TypeAnnotation::TypeVar(t) if {
+                                matches!(&*unifier.get_ty(*t), TypeEnum::TVar { range, .. } if range.is_empty())
+                            });
+
+                            if is_bare_auto {
+                                // For annotations containing bare Auto
+                                if let Some(result) = class_resolver.resolve_auto_field_type(
+                                    class_name, *attr, unifier, temp_def_list, primitives,
+                                ) {
+                                    let resolved_ty = result.map_err(|e| HashSet::from([e]))?;
+                                    unifier.unify(dummy_field_type, resolved_ty)
+                                        .map_err(|e| HashSet::from([e.to_display(unifier).to_string()]))?;
+                                    continue;
+                                }
+                            } else {
+                                // For annotations containing nested Auto (like list[Auto]),
+                                let auto_tvars = get_type_var_contained_in_type_annotation(&parsed_annotation);
+                                let has_auto_tvars = auto_tvars.iter().any(|tv| {
+                                    if let TypeAnnotation::TypeVar(t) = tv {
+                                        matches!(&*unifier.get_ty(*t), TypeEnum::TVar { range, .. } if range.is_empty())
+                                            && !class_type_vars_def.iter().any(|declared_tv| unifier.unioned(*declared_tv, *t))
+                                    } else {
+                                        false
+                                    }
+                                });
+
+                                if has_auto_tvars && let Some(result) = class_resolver.resolve_auto_field_type(
+                                    class_name, *attr, unifier, temp_def_list, primitives,
+                                ) {
+                                    let resolved_ty = result.map_err(|e| HashSet::from([e]))?;
+                                    unifier.unify(dummy_field_type, resolved_ty)
+                                        .map_err(|e| HashSet::from([e.to_display(unifier).to_string()]))?;
+                                    continue;
+                                }
+                            }
+
                             // find type vars within this return type annotation
                             let type_vars_within =
                                 get_type_var_contained_in_type_annotation(&parsed_annotation);

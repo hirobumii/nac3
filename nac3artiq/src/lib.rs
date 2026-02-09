@@ -189,6 +189,7 @@ impl ArtiqBuiltinRegistry {
         id_to_builtin.insert(primitive_ids.builtins.staticmethod_decor_fn, PrimDef::StaticMethod);
 
         // Type qualifier
+        id_to_builtin.insert(primitive_ids.artiq.auto, PrimDef::Auto);
         id_to_builtin.insert(primitive_ids.artiq.kernel, PrimDef::Kernel);
         id_to_builtin.insert(primitive_ids.artiq.kernel_invariant, PrimDef::KernelInvariant);
         id_to_builtin.insert(primitive_ids.artiq.const_generic_marker, PrimDef::ConstGeneric);
@@ -480,6 +481,7 @@ pub struct NumpyPythonId {
 
 #[derive(Clone)]
 pub struct ArtiqPythonId {
+    auto: u64,
     kernel: u64,
     kernel_invariant: u64,
     const_generic_marker: u64,
@@ -1763,6 +1765,7 @@ impl Nac3 {
                 linalg_hessenberg: get_artiq_builtin_id(Some("numpy"), "sp_linalg_hessenberg")?,
             },
             artiq: ArtiqPythonId {
+                auto: get_artiq_builtin_id(Some("artiq"), "Auto")?,
                 kernel: get_artiq_builtin_id(Some("artiq"), "Kernel")?,
                 kernel_invariant: get_artiq_builtin_id(Some("artiq"), "KernelInvariant")?,
                 virtual_class: get_artiq_builtin_id(Some("artiq"), "virtual")?,
@@ -2029,10 +2032,7 @@ fn symbolize<'py>(
     elf_bin: &Bound<'py, PyBytes>,
     pc: &Bound<'py, PyList>,
 ) -> PyResult<Vec<CallRecordWrapper>> {
-    Ok(symbolizer::symbolize(elf_bin.extract()?, pc.extract()?)
-        .iter()
-        .map(Into::into)
-        .collect())
+    Ok(symbolizer::symbolize(elf_bin.extract()?, pc.extract()?).iter().map(Into::into).collect())
 }
 
 #[cfg(feature = "init-llvm-profile")]

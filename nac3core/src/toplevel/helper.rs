@@ -59,6 +59,7 @@ pub enum PrimDef {
     StaticMethod,
 
     // Type qualifiers
+    Auto,
     Kernel,
     KernelInvariant,
     ConstGeneric,
@@ -299,6 +300,7 @@ impl PrimDef {
             Self::StaticMethod => class("staticmethod", |_| unimplemented!()),
 
             // Type qualifiers
+            Self::Auto => class("Auto", |_| unimplemented!()),
             Self::Kernel => class("Kernel", |_| unimplemented!()),
             Self::KernelInvariant => class("KernelInvariant", |_| unimplemented!()),
             Self::ConstGeneric => class("ConstGeneric", |_| unimplemented!()),
