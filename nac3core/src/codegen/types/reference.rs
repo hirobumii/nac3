@@ -206,7 +206,7 @@ impl<'ctx> RefCountedValue<'ctx> for OpaqueRefCountedValue<'ctx> {
             ctx.builder.build_gep(
                 obj_header,
                 &[ObjectHeaderType::new(ctx)
-                    .llvm_ty(ctx)
+                    .alloca_ty(ctx)
                     .size_of()
                     .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
                     .unwrap()],
@@ -260,8 +260,8 @@ pub type TypedRefCountedValue<'ctx, T> = Value<'ctx, TypedRefCountedType<'ctx, T
 
 impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedValue<'ctx, T> {
     /// Returns a loaded value of the inner data of this refcounted object.
-    pub fn inner_value(&self) -> Value<'ctx, T> {
-        self.ty.object.map_value(self.value, self.name)
+    pub fn inner_value(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<Value<'ctx, T>> {
+        Ok(self.ty.object.map_value(self.inner_ptr(ctx)?, self.name))
     }
 }
 
@@ -280,7 +280,7 @@ impl<'ctx, T: RefType<'ctx> + Copy> RefCountedValue<'ctx> for TypedRefCountedVal
             ctx.builder.build_gep(
                 obj_header,
                 &[ObjectHeaderType::new(ctx)
-                    .llvm_ty(ctx)
+                    .alloca_ty(ctx)
                     .size_of()
                     .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
                     .unwrap()],
@@ -291,11 +291,11 @@ impl<'ctx, T: RefType<'ctx> + Copy> RefCountedValue<'ctx> for TypedRefCountedVal
 
     fn inner_value(
         &self,
-        _ctx: &CodeGenContext<'ctx, '_>,
+        ctx: &CodeGenContext<'ctx, '_>,
         _inner_ty: BasicTypeEnum<'ctx>,
         _name: &str,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
-        Ok(self.ty.object.map_value(self.value, None).value.into())
+        Ok(self.inner_value(ctx)?.value.into())
     }
 }
 
@@ -314,12 +314,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         Self {
             inner: ctx.ctx.struct_type(
                 &[
-                    ObjectHeaderType::new(ctx)
-                        .llvm_ty(ctx)
-                        .into_pointer_type()
-                        .get_element_type()
-                        .into_struct_type()
-                        .into(),
+                    ObjectHeaderType::new(ctx).alloca_ty(ctx).into_struct_type().into(),
                     ctx.ctx
                         .struct_type(&[ctx.size_t.into(), object.as_basic_type_enum()], false)
                         .into(),
@@ -496,11 +491,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> WithTypeinfo<'ctx> for RefCountedArrayType
                 .set_initializer(&ctx.i32.const_array(&[ctx.i32.const_all_ones()]));
             refcounted_field_offsets.set_constant(true);
 
-            let llvm_typeinfo = TypeinfoType::new(ctx)
-                .alloca_ty(ctx)
-                .into_pointer_type()
-                .get_element_type()
-                .into_struct_type();
+            let llvm_typeinfo = TypeinfoType::new(ctx).alloca_ty(ctx).into_struct_type();
 
             let value = ctx.module.add_global(llvm_typeinfo, None, &format!("typeinfo for {NAME}"));
             value.set_initializer(

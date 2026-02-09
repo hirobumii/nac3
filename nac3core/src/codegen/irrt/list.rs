@@ -34,9 +34,9 @@ pub fn list_slice_assignment<'ctx>(
 
     let zero = llvm_i32.const_zero();
     let one = llvm_i32.const_int(1, false);
-    let (dest_ptr, dest_len) = dest_arr.inner_value().data(ctx)?.value;
+    let (dest_ptr, dest_len) = dest_arr.inner_value(ctx)?.data(ctx)?.value;
     let dest_len = ctx.builder.build_int_truncate_or_bit_cast(dest_len, llvm_i32, "srclen32")?;
-    let (src_ptr, src_len) = src_arr.inner_value().data(ctx)?.value;
+    let (src_ptr, src_len) = src_arr.inner_value(ctx)?.data(ctx)?.value;
     let src_len = ctx.builder.build_int_truncate_or_bit_cast(src_len, llvm_i32, "srclen32")?;
 
     // index in bound and positive should be done
@@ -123,7 +123,7 @@ pub fn list_slice_assignment<'ctx>(
         |(), ctx| {
             let new_len =
                 ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len")?;
-            dest_arr.inner_value().store(ctx, field!(len), new_len)?;
+            dest_arr.inner_value(ctx)?.store(ctx, field!(len), new_len)?;
             Ok(())
         },
         |(), _| Ok(()),

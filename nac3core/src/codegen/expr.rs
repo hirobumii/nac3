@@ -951,10 +951,10 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let emit_cont_bb = |ctx: &mut CodeGenContext<'ctx, '_>,
                         list: TypedRefCountedValue<'ctx, ListType<'ctx>>| {
         ctx.builder.position_at_end(cont_bb);
-        list.inner_value().store(
+        list.inner_value(ctx)?.store(
             ctx,
             field!(len),
-            ctx.builder.build_load(index, "index").map(BasicValueEnum::into_int_value)?,
+            ctx.builder.build_load(index, "index")?.into_int_value(),
         )?;
         anyhow::Ok(())
     };
@@ -968,8 +968,9 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         ctx.builder.position_at_end(succ);
     }
 
-    let i = ctx.builder.build_load(index, "i").map(BasicValueEnum::into_int_value)?;
-    let elem_ptr = list.inner_value().data(ctx)?.ptr_offset_unchecked(ctx, &i, Some("elem_ptr"))?;
+    let i = ctx.builder.build_load(index, "i")?.into_int_value();
+    let elem_ptr =
+        list.inner_value(ctx)?.data(ctx)?.ptr_offset_unchecked(ctx, &i, Some("elem_ptr"))?;
     let val = generator.gen_expr(ctx, elt)?.to_basic_value_enum(ctx)?;
     typed_store(ctx.builder, elem_ptr, val)?;
     typed_store(
@@ -1038,7 +1039,7 @@ pub fn gen_prim_binop_expr<'ctx>(
                 let [left, right] = [left?, right?];
                 let new_len = ctx.builder.build_int_add(left.value.1, right.value.1, "")?;
                 let new_list = list_ty.construct(ctx, new_len, None)?;
-                let new_list_data = new_list.inner_value().data(ctx)?;
+                let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
 
                 let left_chunk =
                     new_list_data.ty.map_value((new_list_data.value.0, left.value.1), None);
@@ -1068,12 +1069,9 @@ pub fn gen_prim_binop_expr<'ctx>(
                 let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None)?;
 
                 let (old_list_ptr, size) = list_val.data(ctx)?.value;
-                let new_list = list_ty.construct(
-                    ctx,
-                    ctx.builder.build_int_mul(size, int_val, "").unwrap(),
-                    None,
-                )?;
-                let new_list_data = new_list.inner_value().data(ctx)?;
+                let new_list =
+                    list_ty.construct(ctx, ctx.builder.build_int_mul(size, int_val, "")?, None)?;
+                let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
 
                 gen_for_callback_incrementing(
                     &mut (),
@@ -1811,7 +1809,7 @@ fn gen_list_expr<'ctx, G: CodeGenerator>(
     let len = ctx.size_t.const_int(elements.len() as u64, false);
     let val = ListType::from_unifier_type(ctx, ty).construct(ctx, len, None)?;
 
-    let data = val.inner_value().data(ctx)?;
+    let data = val.inner_value(ctx)?.data(ctx)?;
     for (i, v) in elements.iter().enumerate() {
         let v = v.to_basic_value_enum(ctx)?;
         data.set_unchecked(ctx, &ctx.size_t.const_int(i as u64, false), v, None)?;
@@ -2236,7 +2234,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
             let v = list_ty.map_value(v, None);
             if let ExprKind::Slice { lower, upper, step } = &slice.node {
                 let one = ctx.i32.const_int(1, false);
-                let size = v.inner_value().load(ctx, field!(len))?;
+                let size = v.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some((start, end, step)) =
                     handle_slice_indices(lower, upper, step, ctx, generator, size)?
                 else {
@@ -2250,13 +2248,11 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                 )?;
                 let then = ctx.builder.build_int_sub(end, one, "e_min_one")?;
                 let else_ = ctx.builder.build_int_add(end, one, "e_add_one")?;
-                let end_slice = ctx
-                    .builder
-                    .build_select(cond, then, else_, "final_e")
-                    .map(BasicValueEnum::into_int_value)?;
+                let end_slice =
+                    ctx.builder.build_select(cond, then, else_, "final_e")?.into_int_value();
                 let length = calculate_len_for_slice_range(ctx, start, end_slice, step)?;
                 let res_array_ret = list_ty.object.construct(ctx, length, Some("ret"))?;
-                let size = res_array_ret.inner_value().load(ctx, field!(len))?;
+                let size = res_array_ret.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some(res_ind) =
                     handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                 else {
@@ -2266,7 +2262,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                 list_slice_assignment(ctx, elem_ty, res_array_ret, res_ind, v, (start, end, step))?;
                 RtValue::dynamic(ty, res_array_ret.value.into())
             } else {
-                let len = v.inner_value().load(ctx, field!(len))?;
+                let len = v.inner_value(ctx)?.load(ctx, field!(len))?;
                 let raw_index =
                     generator.gen_expr(ctx, slice)?.to_basic_value_enum(ctx)?.into_int_value();
                 let raw_index = ctx.builder.build_int_s_extend(raw_index, ctx.size_t, "sext")?;
@@ -2293,7 +2289,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                     [Some(raw_index), Some(len), None],
                     expr.location,
                 )?;
-                let result = v.inner_value().data(ctx)?.get(ctx, &index, None)?;
+                let result = v.inner_value(ctx)?.data(ctx)?.get(ctx, &index, None)?;
                 RtValue::dynamic(ty, result)
             }
         }

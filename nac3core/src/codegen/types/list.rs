@@ -1,5 +1,6 @@
 use inkwell::{
-    IntPredicate,
+    AddressSpace, IntPredicate,
+    module::Linkage,
     values::{IntValue, PointerValue},
 };
 use nac3core_derive::{ProxyType, StructFields};
@@ -8,8 +9,9 @@ use crate::{
     codegen::{
         AllocationScope, CodeGenContext, ModuleContext,
         types::{
-            TypedRefCountedType, TypedRefCountedValue, TypeinfoValue, Value, WithTypeinfo,
-            array::ArraySliceValue, builtin::BuiltinStruct, field, structure::StructField,
+            ProxyTypeBase, RefType, TypedRefCountedType, TypedRefCountedValue, TypeinfoType,
+            TypeinfoValue, Value, WithTypeinfo, array::ArraySliceValue, builtin::BuiltinStruct,
+            field, structure::StructField,
         },
     },
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
@@ -72,7 +74,7 @@ impl<'ctx> ListType<'ctx> {
         )?;
 
         let len = ctx.builder.build_int_z_extend(len, ctx.size_t, "")?;
-        list.inner_value().store(ctx, field!(len), len)?;
+        list.inner_value(ctx)?.store(ctx, field!(len), len)?;
 
         let len_eqz =
             ctx.builder.build_int_compare(IntPredicate::EQ, len, ctx.size_t.const_zero(), "")?;
@@ -97,14 +99,59 @@ impl<'ctx> ListType<'ctx> {
             ctx.builder.build_select(len_eqz, null, array, "")?.into_pointer_value()
         };
 
-        list.inner_value().store(ctx, field!(items), data)?;
+        list.inner_value(ctx)?.store(ctx, field!(items), data)?;
         Ok(list)
     }
 }
 
 impl<'ctx> WithTypeinfo<'ctx> for ListType<'ctx> {
     fn typeinfo(ctx: &ModuleContext<'ctx>) -> TypeinfoValue<'ctx> {
-        todo!()
+        const NAME: &str = "__nac3_list";
+
+        let global = ctx.module.get_global(&format!("typeinfo for {NAME}")).unwrap_or_else(|| {
+            let refcounted_field_offsets = ctx.module.add_global(
+                ctx.i32.array_type(1),
+                None,
+                "refcounted_fields array for __nac3_list",
+            );
+            refcounted_field_offsets.set_linkage(Linkage::WeakAny);
+            refcounted_field_offsets.set_initializer(&ctx.i32.const_array(&[ctx.i32.const_zero()]));
+            // refcounted_field_offsets.set_initializer(&ctx.i32.const_array(&[
+            //     ctx.i32.const_int(1, false),
+            //     unsafe {
+            //         let zero = self.as_base_type().const_null();
+            //         let begin_ptr = zero
+            //             .const_in_bounds_gep(&[ctx.size_t.const_zero(), ctx.i32.const_zero()])
+            //             .const_to_int(ctx.size_t)
+            //             .const_cast(ctx.i32, false);
+            //         let field_idx = self.get_fields().index_of_field(|f| f.items);
+            //         let field_ptr = zero
+            //             .const_in_bounds_gep(&[
+            //                 ctx.size_t.const_zero(),
+            //                 ctx.i32.const_int(u64::from(field_idx), false),
+            //             ])
+            //             .const_to_int(ctx.size_t)
+            //             .const_cast(ctx.i32, false);
+
+            //         field_ptr.const_sub(begin_ptr)
+            //     },
+            // ]));
+            refcounted_field_offsets.set_constant(true);
+
+            let llvm_typeinfo = TypeinfoType::new(ctx).alloca_ty(ctx).into_struct_type();
+
+            let value = ctx.module.add_global(llvm_typeinfo, None, &format!("typeinfo for {NAME}"));
+            value.set_linkage(Linkage::WeakAny);
+            value.set_initializer(
+                &llvm_typeinfo.const_named_struct(&[refcounted_field_offsets
+                    .as_pointer_value()
+                    .const_cast(ctx.i32.ptr_type(AddressSpace::default()))
+                    .into()]),
+            );
+            value.set_constant(true);
+            value
+        });
+        TypeinfoType::new(ctx).map_value(global.as_pointer_value(), None)
     }
 }
 

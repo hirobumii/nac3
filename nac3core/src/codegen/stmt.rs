@@ -316,7 +316,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let tup_mid_len = ctx.size_t.const_int(tup_mid.len() as u64, false);
             let starred_list =
                 ListType::new(ctx, tup_mid_ty).construct(ctx, tup_mid_len, Some("starred_list"))?;
-            let starred_list_data = starred_list.inner_value().data(ctx)?;
+            let starred_list_data = starred_list.inner_value(ctx)?.data(ctx)?;
             for (i, &(_, val)) in tup_mid.iter().enumerate() {
                 starred_list_data.set(ctx, &ctx.size_t.const_int(i as u64, false), val, None)?;
             }
@@ -400,8 +400,8 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     None,
                 )?
             };
-            mid_list.inner_value().store(ctx, field!(items), mid_begin)?;
-            mid_list.inner_value().store(ctx, field!(len), mid_len)?;
+            mid_list.inner_value(ctx)?.store(ctx, field!(items), mid_begin)?;
+            mid_list.inner_value(ctx)?.store(ctx, field!(len), mid_len)?;
             do_assign_list(generator, ctx, mid, &mid_list)?;
 
             let list_tail = (0..tail.len())
@@ -449,7 +449,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 let ExprKind::Slice { lower, upper, step } = &key.node else {
                     codegen_unreachable!(ctx)
                 };
-                let size = target.inner_value().load(ctx, field!(len))?;
+                let size = target.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some((start, end, step)) =
                     handle_slice_indices(lower, upper, step, ctx, generator, size)?
                 else {
@@ -463,7 +463,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 };
 
                 let target_item_ty = ctx.get_llvm_type(target_item_ty);
-                let size = value.inner_value().load(ctx, field!(len))?;
+                let size = value.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some(src_ind) =
                     handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                 else {
@@ -479,7 +479,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 )?;
             } else {
                 // Handle assigning to an index
-                let len = target.inner_value().load(ctx, field!(len))?;
+                let len = target.inner_value(ctx)?.load(ctx, field!(len))?;
 
                 let index =
                     generator.gen_expr(ctx, key)?.to_basic_value_enum(ctx)?.into_int_value();
@@ -512,7 +512,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 // Write value to index on list
                 let value = value.to_basic_value_enum(ctx, value_ty)?;
-                target.inner_value().data(ctx)?.set(ctx, &index, value, Some("list_item"))?;
+                target.inner_value(ctx)?.data(ctx)?.set(ctx, &index, value, Some("list_item"))?;
             }
         }
         TypeEnum::TObj { obj_id, .. }
