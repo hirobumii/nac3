@@ -36,7 +36,7 @@ in rec {
     stdenv = pkgs.stdenvNoCC;
     useMsysPackages = true;
     inherit msys2-env;
-    buildClang = true;
+    enableProjects = ["clang"];
     llvmTools = ["llvm-config" "llvm-as" "llvm-profdata"];
   };
   inherit (llvm-nac3) llvm llvm-tools-irrt clang compiler-rt;

@@ -11,9 +11,8 @@
   libxcrypt,
   useMsysPackages ? false,
   msys2-env ? null,
-  buildClang ? false,
-  buildCompilerRt ? false,
   extraCmakeFlags ? [],
+  enableProjects ? [],
   llvmTools ? ["llvm-config"],
   runCommandNoCC,
   wrapCCWith,
@@ -60,12 +59,7 @@ in rec {
         "-DLLVM_INCLUDE_BENCHMARKS=OFF"
         "-DLLVM_BUILD_TOOLS=OFF"
         "-DCMAKE_INSTALL_PREFIX=${placeholder "out"}"
-      ]
-      ++ optionals (buildClang && !buildCompilerRt) [
-        "-DLLVM_ENABLE_PROJECTS=clang"
-      ]
-      ++ optionals (buildClang && buildCompilerRt) [
-        "-DLLVM_ENABLE_PROJECTS=clang\;compiler-rt"
+        ("-DLLVM_ENABLE_PROJECTS=" + (lib.strings.concatStringsSep "\;" enableProjects))
       ]
       ++ extraCmakeFlags;
 
@@ -80,14 +74,7 @@ in rec {
         tar xf ${sources.llvm} -C llvm --strip-components=1
         tar xf ${sources.cmake} -C llvm/cmake --strip-components=2
       ''
-      + optionalString buildClang ''
-        mkdir clang
-        tar xf ${sources.clang} -C clang --strip-components=1
-      ''
-      + optionalString buildCompilerRt ''
-        mkdir compiler-rt
-        tar xf ${sources.compiler-rt} -C compiler-rt --strip-components=1
-      ''
+      + (lib.strings.concatStrings (map (proj: "mkdir " + proj + "\ntar xf " + builtins.getAttr proj sources + " -C " + proj + " --strip-components=1\n") enableProjects))
       + ''
         mkdir cmake
         ln -s $PWD/llvm/cmake cmake/Modules

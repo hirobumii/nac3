@@ -12,8 +12,7 @@
   in rec {
     packages.x86_64-linux = rec {
       llvm-nac3 = pkgs.callPackage ./nix/llvm {
-        buildClang = true;
-        buildCompilerRt = true;
+        enableProjects = ["clang" "compiler-rt"];
         llvmTools = ["llvm-config" "llvm-as" "llvm-profdata"];
       };
       inherit (llvm-nac3) llvm llvm-tools-irrt clang compiler-rt;
