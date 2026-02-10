@@ -34,10 +34,10 @@
 in rec {
   llvm-nac3 = pkgs.callPackage ../llvm {
     stdenv = pkgs.stdenvNoCC;
-    useMsysPackages = true;
     inherit msys2-env;
     enableProjects = ["clang"];
     llvmTools = ["llvm-config" "llvm-as" "llvm-profdata"];
+    extraConfig = silenceFontconfig;
   };
   inherit (llvm-nac3) llvm llvm-tools-irrt clang compiler-rt;
   nac3artiq = pkgs.rustPlatform.buildRustPackage {

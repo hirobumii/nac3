@@ -1,6 +1,4 @@
-{
-  fetchurl,
-}: rec {
+{fetchurl}: rec {
   version = "16.0.6";
   cmake = fetchurl {
     url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/cmake-${version}.src.tar.xz";

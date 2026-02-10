@@ -9,11 +9,11 @@
   zlib,
   ninja,
   libxcrypt,
-  useMsysPackages ? false,
   msys2-env ? null,
   extraCmakeFlags ? [],
   enableProjects ? [],
   llvmTools ? ["llvm-config"],
+  extraConfig ? "",
   runCommandNoCC,
   wrapCCWith,
 }: let
@@ -23,24 +23,24 @@
   };
 in rec {
   exe_suffix =
-    if useMsysPackages
-    then ".exe"
-    else "";
+    if msys2-env == null
+    then ""
+    else ".exe";
   llvm = stdenv.mkDerivation rec {
     pname = "llvm-nac3";
     version = sources.version;
     nativeBuildInputs =
-      if useMsysPackages
-      then [wineWowPackages.stable]
-      else [cmake python3 ninja];
+      if msys2-env == null
+      then [cmake python3 ninja]
+      else [wineWowPackages.stable];
     buildInputs =
-      if useMsysPackages
-      then []
-      else [libxcrypt];
+      if msys2-env == null
+      then [libxcrypt]
+      else [];
     propagatedBuildInputs =
-      if useMsysPackages
-      then []
-      else [ncurses zlib];
+      if msys2-env == null
+      then [ncurses zlib]
+      else [];
     phases = ["unpackPhase" "patchPhase" "configurePhase" "buildPhase" "installPhase"];
 
     cmakeFlags =
@@ -63,9 +63,9 @@ in rec {
       ++ extraCmakeFlags;
 
     cmdPrefix =
-      if useMsysPackages
-      then "wine64"
-      else "";
+      if msys2-env == null
+      then ""
+      else "wine64";
 
     unpackPhase =
       ''
@@ -80,12 +80,15 @@ in rec {
         cd llvm
       '';
     configurePhase =
-      optionalString useMsysPackages ''
+      optionalString (msys2-env != null) ''
         export WINEDEBUG=-all
         export WINEPATH=Z:${msys2-env}/clang64/bin
       ''
       + ''
         export HOME=`mktemp -d`
+      ''
+      + extraConfig
+      + ''
         mkdir build
         cd build
         ${cmdPrefix} cmake -G "Ninja" .. $cmakeFlags
