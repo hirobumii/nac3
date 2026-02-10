@@ -19,7 +19,6 @@
 }: let
   inherit (lib) optional optionals optionalString;
   sources = import ../llvm/sources.nix {
-    splitString = lib.strings.splitString;
     inherit fetchurl;
   };
 in rec {
@@ -29,7 +28,7 @@ in rec {
     else "";
   llvm = stdenv.mkDerivation rec {
     pname = "llvm-nac3";
-    version = "16.0.6";
+    version = sources.version;
     nativeBuildInputs =
       if useMsysPackages
       then [wineWowPackages.stable]
@@ -129,7 +128,7 @@ in rec {
     dontUnpack = true;
 
     installPhase = ''
-      cp -r ${llvm}/lib/clang/${builtins.elemAt sources.versions 0}/lib $out
+      cp -r ${llvm}/lib/clang/${builtins.elemAt (lib.strings.splitString "." sources.version) 0}/lib $out
     '';
   };
 }

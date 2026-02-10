@@ -1,9 +1,7 @@
 {
-  splitString,
   fetchurl,
 }: rec {
   version = "16.0.6";
-  versions = splitString "." version;
   cmake = fetchurl {
     url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/cmake-${version}.src.tar.xz";
     sha256 = "sha256-OdNCpBYQldLyj7ElPkWFl4rFBSERfaZm4rH28oti9RQ=";
