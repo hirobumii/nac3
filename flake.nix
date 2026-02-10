@@ -204,7 +204,6 @@
         pacman
         fakeroot
         packages.x86_64-w64-mingw32.wine-msys2
-        packages.x86_64-w64-mingw32.llvm-msys2
       ];
     };
 
