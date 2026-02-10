@@ -39,7 +39,7 @@ in rec {
     llvmTools = ["llvm-config" "llvm-as" "llvm-profdata"];
     extraConfig = silenceFontconfig;
   };
-  inherit (llvm-nac3) llvm llvm-tools-irrt clang compiler-rt;
+  inherit (llvm-nac3) llvm llvm-tools-irrt compiler-rt;
   nac3artiq = pkgs.rustPlatform.buildRustPackage {
     name = "nac3artiq-msys2";
     src = ../../.;
