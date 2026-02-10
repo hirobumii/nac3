@@ -105,17 +105,15 @@
       nac3artiq-profile = pkgs.stdenvNoCC.mkDerivation {
         name = "nac3artiq-profile";
         srcs = [
-          (pkgs.fetchFromGitHub {
-            owner = "m-labs";
-            repo = "sipyco";
-            rev = "96fcefbea490a9b42c862393860d2e586b05d744";
-            sha256 = "sha256-DkcgZ0K6lsxzBWc31GTyufuSOpcorVv5OsZLHphHBtg=";
+          (pkgs.fetchgit {
+            url = "https://git.m-labs.hk/M-Labs/sipyco.git";
+            rev = "ab3d738ee302a2a37304e8ee59bb23e30bfb81ae";
+            hash = "sha256-85pe9Y56HhmcdYnyaiHZr56eJesoeTHLoQKcknX/Scw=";
           })
-          (pkgs.fetchFromGitHub {
-            owner = "m-labs";
-            repo = "artiq";
-            rev = "ee9ccd39afeb5eab60277b745c164f3c26a1f569";
-            sha256 = "sha256-J8ininS9qHz7hbHzsznpqnU870PdyxYqfLI9itj3Gi8=";
+          (pkgs.fetchgit {
+            url = "https://git.m-labs.hk/M-Labs/artiq.git";
+            rev = "0e69d9e688a90a16cc1eb3e0e8fed836db8864f1";
+            hash = "sha256-31/A33oCsFpMMSc+9YO9YjwQtbxN0HXTVypgD4nfW0k=";
           })
         ];
         buildInputs = [
