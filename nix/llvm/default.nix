@@ -80,7 +80,8 @@ in rec {
         ln -s $PWD/llvm/cmake cmake/Modules
         cd llvm
       '';
-    configurePhase = optionalString useMsysPackages ''
+    configurePhase =
+      optionalString useMsysPackages ''
         export WINEDEBUG=-all
         export WINEPATH=Z:${msys2-env}/clang64/bin
       ''
