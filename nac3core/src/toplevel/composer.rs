@@ -1553,8 +1553,7 @@ impl TopLevelComposer {
 
                                 if has_auto_tvars && let Some(result) = class_resolver.resolve_auto_field_type(
                                     class_name, *attr, unifier, temp_def_list, primitives,
-                                ) {
-                                    let resolved_ty = result.map_err(|e| HashSet::from([e]))?;
+                                ) && let Ok(resolved_ty) = result {
                                     unifier.unify(dummy_field_type, resolved_ty)
                                         .map_err(|e| HashSet::from([e.to_display(unifier).to_string()]))?;
                                     continue;
@@ -1569,6 +1568,11 @@ impl TopLevelComposer {
                                 let TypeAnnotation::TypeVar(t) = type_var_within else {
                                     unreachable!("must be type var annotation")
                                 };
+
+                                // Skip Auto-generated TVars, they will be resolved from runtime values later.
+                                if let TypeEnum::TVar { range, .. } = &*unifier.get_ty(t) && range.is_empty() {
+                                    continue;
+                                }
 
                                 if !class_type_vars_def.iter().any(|declared_tv| unifier.unioned(*declared_tv, t)) {
                                     return Err(HashSet::from([
