@@ -85,7 +85,7 @@ typedef struct list_s {
     size_t len;
 } list;
 
-void output_int32_list(struct cslice* slice) {
+void output_int32_list(list* slice) {
     const int32_t* data = (int32_t*)slice->data;
 
     putchar('[');
