@@ -101,14 +101,18 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         let late = matches!(scope, AllocationScope::StackCurrentLoc);
 
         self.build_allocate_impl(late, |b| {
-            Ok(match scope {
+            let ptr = match scope {
                 #[cfg(feature = "malloc")]
                 AllocationScope::Heap => b.build_malloc(ty, name.unwrap_or_default())?,
                 AllocationScope::StackStartOfFunc | AllocationScope::StackCurrentLoc => {
                     b.build_alloca(ty, name.unwrap_or_default())?
                 }
                 AllocationScope::Default => unreachable!(),
-            })
+            };
+            if scope == AllocationScope::StackStartOfFunc && ty.is_pointer_type() {
+                b.build_store(ptr, ty.const_zero())?;
+            }
+            Ok(ptr)
         })
     }
 
