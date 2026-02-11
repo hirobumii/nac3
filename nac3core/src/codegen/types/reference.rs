@@ -76,9 +76,13 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
     ) -> anyhow::Result<IntValue<'ctx>> {
         const FUNC_NAME: &str = "__nac3_is_object_refcounted";
 
-        debug_assert_eq!(self.value.get_type().get_element_type(), ctx.i8.into());
+        let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
+            self.value
+        } else {
+            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap()
+        };
 
-        call_extern!(ctx: (ctx.i1) _ = FUNC_NAME(self.value))
+        call_extern!(ctx: (ctx.i1) _ = FUNC_NAME(value))
     }
 
     /// Recursively increments the reference count of this object by one.
