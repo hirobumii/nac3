@@ -182,6 +182,7 @@
         cargo
         rustc
         # runtime dependencies
+        lld_16 # for running kernels on the host
         (packages.x86_64-linux.python3-mimalloc.withPackages (ps: [ps.numpy ps.scipy]))
         # development tools
         cargo-insta
