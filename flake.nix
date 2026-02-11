@@ -43,9 +43,6 @@
           passthru.cargoLock = cargoLock;
           nativeBuildInputs = [pkgs.python3 (pkgs.wrapClangMulti clang) llvm llvm-tools-irrt];
           buildInputs = [pkgs.python3 llvm pkgs.stdenv.cc.cc.lib pkgs.zlib pkgs.ncurses];
-          cargoBuildHook = ''
-            export LLVM_SYS_160_PREFIX=${llvm}
-          '';
           checkInputs = [(pkgs.python3.withPackages (ps: [ps.numpy ps.scipy]))];
           checkPhase = ''
             echo "Checking nac3standalone demos..."
