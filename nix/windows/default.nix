@@ -20,10 +20,10 @@
     name = "pyo3-mingw-config";
     text = ''
       implementation=CPython
-      version=3.13
+      version=3.14
       shared=true
       abi3=false
-      lib_name=python3.13
+      lib_name=python3.14
       lib_dir=${msys2-env}/clang64/lib
       pointer_width=64
       build_flags=WITH_THREAD
