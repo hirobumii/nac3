@@ -3,6 +3,7 @@
 #include "irrt/int_types.hpp"
 #include "irrt/math_util.hpp"
 #include "irrt/slice.hpp"
+#include "irrt/reference/header.hpp"
 
 namespace {
 /**
@@ -13,6 +14,7 @@ namespace {
  */
 template<typename SizeT>
 struct List {
+    __nac3_impl::reference::ObjectHeader header;
     uint8_t* items;
     SizeT len;
 };

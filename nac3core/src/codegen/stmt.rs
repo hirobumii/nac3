@@ -5,7 +5,7 @@ use inkwell::{
     AddressSpace, IntPredicate,
     basic_block::BasicBlock,
     builder::Builder,
-    types::{BasicMetadataTypeEnum, BasicType},
+    types::{AnyTypeEnum, BasicMetadataTypeEnum, BasicType},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
 };
 use itertools::{Itertools as _, izip};
@@ -24,9 +24,9 @@ use crate::{
         typed_load, typed_store,
         types::{
             ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
-            ListType, NDArrayType, ProxyTypeBase, RangeType, RustNDIndex, ScalarOrNDArray,
-            StringType, TupleType, TupleValue, TypedRefCountedType, TypedRefCountedValue,
-            broadcast, field,
+            ListType, NDArrayType, OpaqueRefCountedType, ProxyTypeBase, RangeType, RefCountedType,
+            RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType, TupleType, TupleValue,
+            TypedRefCountedType, TypedRefCountedValue, broadcast, field,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -231,7 +231,46 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 val
             };
 
+            // Handle reference counting:
+            // The order of operations is roughly:
+            //   - Store a pointer to the old value
+            //   - Increment the refcount of the new value
+            //   - Perform the assignment
+            //   - Decrement the refcount of the old value
+            // This order ensures that self-assignments work correctly.
+
+            let target = if let AnyTypeEnum::PointerType(ptr_ty) = ptr.get_type().get_element_type()
+            {
+                gen_if_else_expr_callback(
+                    generator,
+                    ctx,
+                    |_, ctx| Ok(ctx.builder.build_is_not_null(ptr, "")?),
+                    |_, ctx| {
+                        let target_ty = ctx.get_llvm_type(target.custom.unwrap());
+                        Ok(Some(typed_load(ctx.builder, ptr, target_ty, "")?.into_pointer_value()))
+                    },
+                    |_, _| Ok(Some(ptr_ty.const_null())),
+                )?
+            } else {
+                None
+            };
+
+            if let BasicValueEnum::PointerValue(val) = val {
+                let value_ty = ctx.get_llvm_type(value_ty).into_pointer_type();
+                let val = ctx.builder.build_pointer_cast(val, value_ty, "")?;
+                if let Some(object) =
+                    OpaqueRefCountedType::new(ctx).map_refcounted_value(val, None).as_ref()
+                {
+                    object.header(ctx).safe_increment_refcount(ctx)?;
+                }
+            }
             typed_store(ctx.builder, ptr, val)?;
+            if let Some(target) = target
+                && let Some(object) =
+                    OpaqueRefCountedType::new(ctx).map_refcounted_value(target, None).as_ref()
+            {
+                object.header(ctx).safe_decrement_refcount(ctx)?;
+            }
         }
     }
     Ok(())
@@ -2463,6 +2502,18 @@ pub fn gen_return<G: CodeGenerator>(
         }
         ctx.builder.build_unconditional_branch(return_target)?;
     } else {
+        // TODO(Derppening): Remove once all objects are refcounted
+        let value = value
+            .map(|v| {
+                anyhow::Ok(if v.is_pointer_value() && v.get_type() != ctx.ptr.into() {
+                    ctx.builder
+                        .build_pointer_cast(v.into_pointer_value(), ctx.ptr, "cast_ret")?
+                        .as_basic_value_enum()
+                } else {
+                    v
+                })
+            })
+            .transpose()?;
         let value = value.as_ref().map(|v| v as &dyn BasicValue);
         ctx.builder.build_return(value)?;
     }

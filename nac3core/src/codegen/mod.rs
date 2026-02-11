@@ -45,8 +45,9 @@ use crate::{
         llvm_fns::FunctionStore,
         stmt::get_personality,
         types::{
-            ArraySliceValue, EnumerateType, ExceptionType, ListType, NDArrayType, OptionType,
-            ProxyType, RangeType, RefType, StringType, TupleType,
+            ArraySliceValue, EnumerateType, ExceptionType, ListType, NDArrayType,
+            OpaqueRefCountedType, OptionType, ProxyType, RangeType, RefCountedType,
+            RefCountedValue, RefType, StringType, TupleType,
         },
     },
     symbol_resolver::{StaticValue, SymbolResolver},
@@ -565,6 +566,10 @@ fn get_llvm_type<'ctx>(
     type_cache.get(&unifier.get_representative(ty)).copied().unwrap_or_else(|| {
         let ty_enum = unifier.get_ty(ty);
         let result = match &*ty_enum {
+            // TODO(Derppening): Remove when all types are refcounted
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
+                OpaqueRefCountedType::new(ctx).llvm_ty(ctx)
+            }
             TypeEnum::TObj { .. } => ctx.ptr.into(),
             TypeEnum::TTuple { ty, is_vararg_ctx } => {
                 // a struct with fields in the order present in the tuple
@@ -663,7 +668,11 @@ fn get_llvm_abi_type<'ctx>(
     if unifier.unioned(ty, primitives.bool) {
         ctx.i1.into()
     } else {
-        get_llvm_type(ctx, unifier, type_cache, ty)
+        match &*unifier.get_ty(ty) {
+            // TODO(Derppening): Remove when all types are refcounted
+            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => ctx.ptr.into(),
+            _ => get_llvm_type(ctx, unifier, type_cache, ty),
+        }
     }
 }
 
@@ -991,6 +1000,43 @@ pub fn gen_func_impl<
     };
 
     let result = codegen_function(generator, &mut code_gen_context).map(|()| fn_val);
+
+    // decrement all reference counts
+    // TODO(Derppening): Move to finalize BB, ensure all returns must decrement refcounts
+    {
+        // Store the `return` instruction and remove it from the basic block if present
+        let return_instr = if code_gen_context.is_terminated() {
+            let return_instr = code_gen_context
+                .builder
+                .get_insert_block()
+                .and_then(BasicBlock::get_last_instruction)
+                .unwrap();
+            return_instr.remove_from_basic_block();
+            Some(return_instr)
+        } else {
+            None
+        };
+
+        // decrement the reference counts of all local variables
+        for local_ptr in code_gen_context.var_assignment.values().map(|v| v.ptr).collect_vec() {
+            if !local_ptr.get_type().get_element_type().is_pointer_type() {
+                continue;
+            }
+
+            let ptr = code_gen_context.builder.build_load(local_ptr, "")?.into_pointer_value();
+            if let Some(object) = OpaqueRefCountedType::new(&code_gen_context)
+                .map_refcounted_value(ptr, None)
+                .as_ref()
+            {
+                object.header(&code_gen_context).safe_decrement_refcount(&mut code_gen_context)?;
+            }
+        }
+
+        // emit the stored `return` instruction after decrementing reference counts
+        if let Some(return_instr) = return_instr {
+            code_gen_context.builder.insert_instruction(&return_instr, None);
+        }
+    }
 
     // after static analysis, only void functions can have no return at the end.
     if !code_gen_context.is_terminated() {

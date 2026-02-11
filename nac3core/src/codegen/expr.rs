@@ -40,10 +40,10 @@ use crate::{
         },
         typed_load, typed_store,
         types::{
-            ArrayLikeIndexer, ExceptionType, ListType, NDArrayOut, NDArrayType, OptionType,
-            ProxyTypeBase, RangeField, RangeType, RangeValue, RustNDIndex, ScalarOrNDArray,
-            StringType, TupleType, TupleValue, TypedRefCountedType, TypedRefCountedValue,
-            broadcast_starmap, field,
+            ArrayLikeIndexer, ExceptionType, ListType, NDArrayOut, NDArrayType,
+            OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType, RangeValue,
+            RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType, TupleType,
+            TupleValue, TypedRefCountedType, TypedRefCountedValue, broadcast_starmap, field,
         },
     },
     symbol_resolver::{StaticValue, SymbolValue, ValueEnum},
@@ -799,18 +799,47 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
         .map(|(v, t)| {
             anyhow::Ok(if ctx.unifier.unioned(ctx.primitives.bool, t) {
                 // Convert boolean parameter values into i1
-                bool_to_i1(ctx, v.into_int_value())?.into()
+                (bool_to_i1(ctx, v.into_int_value())?.into(), false)
             } else if let BasicValueEnum::PointerValue(p) = v {
-                ctx.builder.build_pointer_cast(p, ctx.ptr, "ptr_cast")?.into()
+                (
+                    ctx.builder.build_pointer_cast(p, ctx.ptr, "ptr_cast")?.into(),
+                    OpaqueRefCountedType::new(ctx).map_refcounted_value(p, None).is_some(),
+                )
             } else {
-                v
+                (v, false)
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     // The function instance should have already been constructed (at least declared) here.
 
-    ctx.build_call_or_invoke(&f, &param_vals, "call")
+    // increment the refcount for all values
+    for p in
+        param_vals.iter().filter_map(|(v, refcounted)| if *refcounted { Some(*v) } else { None })
+    {
+        OpaqueRefCountedType::new(ctx)
+            .map_value(p.into_pointer_value(), None)
+            .header(ctx)
+            .safe_increment_refcount(ctx)?;
+    }
+
+    let call_result =
+        ctx.build_call_or_invoke(&f, &param_vals.iter().map(|p| p.0).collect_vec(), "call")?;
+
+    // if the function call is an extern function, we need to manually decrement the refcount
+    if is_extern {
+        for p in param_vals
+            .iter()
+            .filter_map(|(v, refcounted)| if *refcounted { Some(*v) } else { None })
+        {
+            OpaqueRefCountedType::new(ctx)
+                .map_value(p.into_pointer_value(), None)
+                .header(ctx)
+                .safe_decrement_refcount(ctx)?;
+        }
+    }
+
+    Ok(call_result)
 }
 
 /// Generates three LLVM variables representing the start, stop, and step values of a [range] class

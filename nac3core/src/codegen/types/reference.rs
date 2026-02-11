@@ -332,9 +332,11 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
     {
         let alloca = self.alloca_ty(ctx);
         let ptr = ctx.build_allocate(scope, alloca, name)?;
-        let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or_default())?;
+        // TODO(Derppening): Uncomment once all refcounted types have an object header
 
-        let value = Value { ty: *self, value: ptr, name };
+        let value = self
+            .map_refcounted_value(ptr, name)
+            .unwrap_or_else(|| panic!("{} is not a refcounted value", ptr.get_type()));
 
         value.header(ctx).init(ctx, is_refcounted, T::typeinfo(ctx))?;
 
