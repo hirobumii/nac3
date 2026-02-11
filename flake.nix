@@ -180,8 +180,8 @@
         (pkgs.wrapClangMulti packages.x86_64-linux.clang)
         packages.x86_64-linux.llvm
         packages.x86_64-linux.llvm-tools-irrt
-        pkgs.zlib
-        pkgs.ncurses
+        zlib
+        ncurses
         cargo
         rustc
         # runtime dependencies
