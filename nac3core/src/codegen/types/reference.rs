@@ -11,7 +11,9 @@ use crate::codegen::{
     allocator::AllocationScope,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
-    llvm_intrinsics, type_aligned_allocate, typed_load, typed_store,
+    llvm_intrinsics,
+    stmt::gen_if_callback,
+    type_aligned_allocate, typed_load, typed_store,
     types::{
         ArraySliceValue, BuiltinStruct, ProxyType, ProxyTypeBase, RefType, TypeinfoType,
         TypeinfoValue, Value, WithTypeinfo, structure::StructField,
@@ -99,6 +101,24 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         Ok(())
     }
 
+    /// Similar to [`ObjectHeaderValue::increment_refcount`], additionally checking if the value is
+    /// `null` before incrementing.
+    pub fn safe_increment_refcount(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<()> {
+        gen_if_callback(
+            &mut (),
+            ctx,
+            |(), ctx| Ok(ctx.builder.build_is_not_null(self.value, "")?),
+            |(), ctx| {
+                self.increment_refcount(ctx)?;
+                Ok(())
+            },
+            |(), _| Ok(()),
+        )
+    }
+
     /// Recursively decrements the reference count of this object by one.
     ///
     /// When the reference count reaches zero, the object will be automatically deallocated.
@@ -113,6 +133,24 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
 
         call_extern!(ctx: void _ = func_name(value))?;
         Ok(())
+    }
+
+    /// Similar to [`ObjectHeaderValue::decrement_refcount`], additionally checking if the value is
+    /// `null` before incrementing.
+    pub fn safe_decrement_refcount(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<()> {
+        gen_if_callback(
+            &mut (),
+            ctx,
+            |(), ctx| Ok(ctx.builder.build_is_not_null(self.value, "")?),
+            |(), ctx| {
+                self.decrement_refcount(ctx)?;
+                Ok(())
+            },
+            |(), _| Ok(()),
+        )
     }
 
     pub fn refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
