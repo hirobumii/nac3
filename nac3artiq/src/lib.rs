@@ -1491,14 +1491,14 @@ fn is_decor_fn_same(
     Ok(decor_fn_ids.contains(&fn_id))
 }
 
-fn link_with_lld(elf_filename: &str, obj_filename: &str) -> PyResult<()> {
+fn link_with_ld(elf_filename: &str, obj_filename: &str) -> PyResult<()> {
     let linker_args = ["-shared", "--eh-frame-hdr", "-x", "-o", elf_filename, obj_filename];
 
     #[cfg(not(windows))]
-    let lld_command = "ld.lld";
+    let ld_command = "ld";
     #[cfg(windows)]
-    let lld_command = "ld.lld.exe";
-    match Command::new(lld_command).args(linker_args).status() {
+    let ld_command = "ld.exe";
+    match Command::new(ld_command).args(linker_args).status() {
         Ok(linker_status) => {
             if linker_status.success() {
                 Ok(())
@@ -1913,7 +1913,7 @@ impl Nac3 {
                 target_machine
                     .write_to_file(module, FileType::Object, &working_directory.join("module.o"))
                     .expect("couldn't write module to file");
-                link_with_lld(
+                link_with_ld(
                     output_filename,
                     working_directory.join("module.o").to_string_lossy().to_string().as_str(),
                 )?;
@@ -1976,7 +1976,7 @@ impl Nac3 {
 
                 let filename_path = self.working_directory.path().join("module.elf");
                 let filename = filename_path.to_str().unwrap();
-                link_with_lld(
+                link_with_ld(
                     filename,
                     working_directory.join("module.o").to_string_lossy().to_string().as_str(),
                 )?;
