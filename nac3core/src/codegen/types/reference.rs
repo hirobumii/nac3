@@ -1,8 +1,8 @@
 use inkwell::{
     AddressSpace,
     module::Linkage,
-    types::{ArrayType, BasicType, BasicTypeEnum, StructType},
-    values::{BasicValueEnum, IntValue, PointerValue},
+    types::{AnyTypeEnum, ArrayType, BasicType, BasicTypeEnum, StructType},
+    values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
 };
 use nac3core_derive::{ProxyType, StructFields};
 
@@ -122,7 +122,47 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
 }
 
 /// A trait indicating that a type is reference-counted.
-pub trait RefCountedType<'ctx> {}
+pub trait RefCountedType<'ctx> {
+    /// Maps an existing reference-counted value to a typed value, returning `None` if the value
+    /// does not have the expected structure of a reference-counted type.
+    ///
+    /// The expected structure of a reference-counting type is either:
+    ///
+    /// - `%nac3_object_header*` (for opaque reference-counted types), or
+    /// - A struct type whose first field is a `%nac3_object_header`.
+    // TODO(Derppening): Remove once all refcounted types have an object header
+    fn map_refcounted_value(
+        &self,
+        value: <Self as ProxyTypeBase<'ctx>>::Value,
+        name: Option<&'ctx str>,
+    ) -> Option<Value<'ctx, Self>>
+    where
+        Self: ProxyTypeBase<'ctx, Value = PointerValue<'ctx>> + Copy,
+    {
+        let BasicTypeEnum::PointerType(ptr_ty) = value.as_basic_value_enum().get_type() else {
+            return None;
+        };
+        let AnyTypeEnum::StructType(struct_ty) = ptr_ty.get_element_type() else {
+            return None;
+        };
+
+        if struct_ty.get_name().is_some_and(|name| name.to_str().unwrap() == "__nac3_object_header")
+        {
+            return Some(self.map_value(value, name));
+        }
+
+        let Some(BasicTypeEnum::StructType(field_ty)) = struct_ty.get_field_type_at_index(0) else {
+            return None;
+        };
+
+        if field_ty.get_name().is_some_and(|name| name.to_str().unwrap() == "__nac3_object_header")
+        {
+            Some(self.map_value(value, name))
+        } else {
+            None
+        }
+    }
+}
 
 /// A trait indicating that a value is reference-counted.
 pub trait RefCountedValue<'ctx> {
@@ -441,6 +481,46 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         name: Option<&'ctx str>,
     ) -> anyhow::Result<Value<'ctx, Self>> {
         self.allocate_impl(ctx, AllocationScope::Default, size, name)
+    }
+
+    /// Maps an existing reference-counted value to a typed value, returning `None` if the value
+    /// does not have the expected structure of a reference-counted type.
+    ///
+    /// The expected structure of a reference-counting type is either:
+    ///
+    /// - `%nac3_object_header*` (for opaque reference-counted types), or
+    /// - A struct type whose first field is a `%nac3_object_header`.
+    pub fn map_refcounted_value<V>(
+        &self,
+        value: <Self as ProxyTypeBase<'ctx>>::Value,
+        name: Option<&'ctx str>,
+    ) -> Option<Value<'ctx, Self>>
+    where
+        Self: ProxyTypeBase<'ctx, Value = V> + Copy,
+        V: BasicValue<'ctx>,
+    {
+        let BasicTypeEnum::PointerType(ptr_ty) = value.as_basic_value_enum().get_type() else {
+            return None;
+        };
+        let AnyTypeEnum::StructType(struct_ty) = ptr_ty.get_element_type() else {
+            return None;
+        };
+
+        if struct_ty.get_name().is_some_and(|name| name.to_str().unwrap() == "__nac3_object_header")
+        {
+            return Some(self.map_value(value, name));
+        }
+
+        let Some(BasicTypeEnum::StructType(field_ty)) = struct_ty.get_field_type_at_index(0) else {
+            return None;
+        };
+
+        if field_ty.get_name().is_some_and(|name| name.to_str().unwrap() == "__nac3_object_header")
+        {
+            Some(self.map_value(value, name))
+        } else {
+            None
+        }
     }
 }
 
