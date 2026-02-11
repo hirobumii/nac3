@@ -179,9 +179,9 @@ impl<'ctx> ProxyTypeBase<'ctx> for OpaqueRefCountedType<'ctx> {
         unreachable!("OpaqueRefCountedType cannot be allocated directly");
     }
 
-    fn map_value<V>(&self, value: V, name: Option<&'ctx str>) -> Value<'ctx, Self>
+    fn map_value(&self, value: Self::Value, name: Option<&'ctx str>) -> Value<'ctx, Self>
     where
-        Self: ProxyTypeBase<'ctx, Value = V> + Copy,
+        Self: Sized + Copy,
     {
         Value { ty: *self, value, name }
     }

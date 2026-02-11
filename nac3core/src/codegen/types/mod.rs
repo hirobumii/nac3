@@ -156,9 +156,9 @@ pub trait ProxyTypeBase<'ctx> {
     }
 
     /// Maps an existing value of the underlying LLVM type to a typed value.
-    fn map_value<V>(&self, value: V, name: Option<&'ctx str>) -> Value<'ctx, Self>
+    fn map_value(&self, value: Self::Value, name: Option<&'ctx str>) -> Value<'ctx, Self>
     where
-        Self: ProxyTypeBase<'ctx, Value = V> + Copy,
+        Self: Sized + Copy,
     {
         Value { ty: *self, value, name }
     }
