@@ -188,13 +188,13 @@ pub trait RefCountedValue<'ctx> {
 
 #[derive(Clone, Copy)]
 pub struct OpaqueRefCountedType<'ctx> {
-    _inner: StructType<'ctx>,
+    inner: StructType<'ctx>,
 }
 
 impl<'ctx> OpaqueRefCountedType<'ctx> {
     /// Creates a new instance of this type.
     pub fn new(ctx: &ModuleContext<'ctx>) -> Self {
-        Self { _inner: ObjectHeaderType::new(ctx).alloca_ty(ctx).into_struct_type() }
+        Self { inner: ObjectHeaderType::new(ctx).alloca_ty(ctx).into_struct_type() }
     }
 }
 
@@ -228,6 +228,12 @@ impl<'ctx> ProxyTypeBase<'ctx> for OpaqueRefCountedType<'ctx> {
         Self: Sized + Copy,
     {
         Value { ty: *self, value, name }
+    }
+}
+
+impl<'ctx> ProxyType<'ctx> for OpaqueRefCountedType<'ctx> {
+    fn llvm_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
+        self.inner.ptr_type(AddressSpace::default()).into()
     }
 }
 
