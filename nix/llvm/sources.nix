@@ -14,6 +14,6 @@
   };
   compiler-rt = fetchurl {
     url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${version}/compiler-rt-${version}.src.tar.xz";
-    sha256 = "1ny21ccs84w42v4pvx2gyqw0lnsmynk02z33gyhr60x1rjls44br";
+    sha256 = "sha256-eRGiqcyhA5Ohf2N8Aab1VVsKOPZP9H3JFoQTpBkLwts=";
   };
 }
