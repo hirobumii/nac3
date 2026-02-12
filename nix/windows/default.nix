@@ -36,7 +36,7 @@ in rec {
     stdenv = pkgs.stdenvNoCC;
     inherit msys2-env;
     enableProjects = ["clang"];
-    llvmTools = ["llvm-config" "llvm-as" "llvm-profdata"];
+    llvmTools = ["llvm-config" "llvm-as"];
     extraConfig = silenceFontconfig;
   };
   inherit (llvm-nac3) llvm llvm-tools-irrt compiler-rt;
