@@ -7,16 +7,30 @@ from numpy import int32, int64
 
 
 @compile
-class ProtoRev8:
-    """Simulates a hardware revision with limited features."""
-    core: KernelInvariant[Core]
-
-    def __init__(self, core: Core):
-        self.core = core
+class CPLDVersion:
+    """Base class for version-specific CPLD implementations"""
+    def __init__(self, cpld):
+        self.cpld = cpld
 
     @kernel
-    def cfg_write(self, data: int32):
+    def cfg_write(self, cfg: int32):
         pass
+
+    @kernel
+    def cfg_att_en(self, channel: int32, on: bool):
+        pass
+
+
+@compile
+class ProtoRev8(CPLDVersion):
+    """Simulates ARTIQ's ProtoRev8 - with self-referential CPLD type."""
+
+    # Self-referential type ProtoRev8 references CPLD[ProtoRev8]
+    cpld: KernelInvariant[CPLD[ProtoRev8]]
+
+    @kernel
+    def cfg_write(self, cfg: int32):
+        self.cpld.cfg_reg = cfg
 
     @kernel
     def cfg_att_en(self, channel: int32, on: bool):
@@ -24,16 +38,14 @@ class ProtoRev8:
 
 
 @compile
-class ProtoRev9:
-    """Simulates a hardware revision with full features."""
-    core: KernelInvariant[Core]
-
-    def __init__(self, core: Core):
-        self.core = core
+class ProtoRev9(CPLDVersion):
+    """Simulates ARTIQ's ProtoRev9 - with self-referential CPLD type."""
+    # Self-referential type ProtoRev9 references CPLD[ProtoRev9]
+    cpld: KernelInvariant[CPLD[ProtoRev9]]
 
     @kernel
-    def cfg_write(self, data: int32):
-        pass
+    def cfg_write(self, cfg: int32):
+        self.cpld.cfg_reg = cfg
 
     @kernel
     def cfg_att_en(self, channel: int32, on: bool):
@@ -50,14 +62,18 @@ class CPLD(Generic[V]):
     version: KernelInvariant[V]
     cfg_reg: Kernel[int32]
 
-    def __init__(self, core: Core, version: V):
+    def __init__(self, core: Core, version_cls, proto_rev: int32 = int32(0x09)):
         self.core = core
-        self.version = version
         self.cfg_reg = int32(0)
+        # version is created with self-reference
+        if proto_rev == int32(0x08):
+            self.version = ProtoRev8(self)
+        else:
+            self.version = ProtoRev9(self)
 
     @kernel
     def cfg_write(self, cfg: int32):
-        self.cfg_reg = cfg
+        self.version.cfg_write(cfg)
 
     @kernel
     def set_att_en(self, channel: int32, on: bool):
@@ -66,8 +82,9 @@ class CPLD(Generic[V]):
 
 @compile
 class RegIOUpdate:
-    """Simulates ARTIQ's RegIOUpdate - constructed with required args."""
-    cpld: KernelInvariant[CPLD[ProtoRev9]]
+    """Simulates ARTIQ's RegIOUpdate - KEY: uses CPLD[Auto] not CPLD[ProtoRev9]."""
+    # Auto in a non-generic class field
+    cpld: KernelInvariant[CPLD[Auto]]
     chip_select: KernelInvariant[int32]
 
     def __init__(self, cpld, chip_select):
@@ -85,14 +102,10 @@ IoUpdateT = TypeVar("IoUpdateT", RegIOUpdate, TTLOut)
 
 @compile
 class AD9910(Generic[IoUpdateT]):
-    """Simulates ARTIQ's AD9910 - generic over IO update type.
-
-    This is the key test case: AD9910 has required constructor args
-    (core, cpld, chip_select) and a field `cpld: CPLD[Auto]` that
-    nac3 should be able to infer from the runtime value.
-    """
+    """Simulates ARTIQ's AD9910 - generic over IO update type."""
     core: KernelInvariant[Core]
-    cpld: KernelInvariant[CPLD[Auto]]       # <-- This should work: infer CPLD variant from runtime
+    # Auto in generic class field
+    cpld: KernelInvariant[CPLD[Auto]]
     chip_select: KernelInvariant[int32]
     io_update: KernelInvariant[IoUpdateT]
 
@@ -109,6 +122,46 @@ class AD9910(Generic[IoUpdateT]):
     @kernel
     def get_chip_select(self) -> int32:
         return self.chip_select
+
+
+@compile
+class SUServo:
+    """Simulates ARTIQ's SUServo - KEY: uses list[AD9910[Auto]] and list[CPLD[Auto]]."""
+    core: KernelInvariant[Core]
+    # list of generic types with Auto
+    ddses: KernelInvariant[list[AD9910[Auto]]]
+    cplds: KernelInvariant[list[CPLD[Auto]]]
+
+    def __init__(self, core: Core, ddses, cplds):
+        self.core = core
+        self.ddses = ddses
+        self.cplds = cplds
+
+    @kernel
+    def init(self):
+        for i in range(len(self.cplds)):
+            cpld = self.cplds[i]
+            dds = self.ddses[i]
+            cpld.cfg_write(int32(0))
+            dds.init()
+
+
+@compile
+class Channel:
+    """Simulates ARTIQ's SUServo Channel - KEY: uses AD9910[Auto]."""
+    core: KernelInvariant[Core]
+    servo: KernelInvariant[SUServo]
+    # AD9910[Auto] in non-generic class
+    dds: KernelInvariant[AD9910[Auto]]
+
+    def __init__(self, servo: SUServo, channel: int32):
+        self.core = servo.core
+        self.servo = servo
+        self.dds = servo.ddses[channel]
+
+    @kernel
+    def set_dds(self) -> int32:
+        return self.dds.get_chip_select()
 
 
 @compile
@@ -144,6 +197,9 @@ class AutoDemo:
     # This mirrors ARTIQ's AD9910.cpld: CPLD[Auto] pattern
     dds: KernelInvariant[Auto]           # inferred as AD9910[RegIOUpdate]
 
+    servo: KernelInvariant[SUServo]
+    channel: KernelInvariant[Channel]
+
     def __init__(self):
         self.core = Core()
         self.x_auto = int32(42)
@@ -154,8 +210,14 @@ class AutoDemo:
         self.obj_auto = Inner(self.core, int32(99))
         self.list_auto = [int32(1), int32(2), int32(3)]
 
-        cpld = CPLD(self.core, ProtoRev9(self.core))
-        self.dds = AD9910(self.core, cpld, int32(4))
+        cpld1 = CPLD(self.core, ProtoRev9, int32(0x09))
+        cpld2 = CPLD(self.core, ProtoRev9, int32(0x09))
+        dds1 = AD9910(self.core, cpld1, int32(4))
+        dds2 = AD9910(self.core, cpld2, int32(5))
+        self.dds = dds1
+
+        self.servo = SUServo(self.core, [dds1, dds2], [cpld1, cpld2])
+        self.channel = Channel(self.servo, int32(0))
 
     @kernel
     def test_auto_int(self) -> int32:
@@ -193,6 +255,16 @@ class AutoDemo:
         return self.dds.get_chip_select()
 
     @kernel
+    def test_suservo_list_auto(self):
+        """Test list[AD9910[Auto]] and list[CPLD[Auto]] - mirrors ARTIQ SUServo."""
+        self.servo.init()
+
+    @kernel
+    def test_channel_auto(self) -> int32:
+        """Test AD9910[Auto] via Channel - mirrors ARTIQ SUServo Channel."""
+        return self.channel.set_dds()
+
+    @kernel
     def run(self):
         x = self.test_auto_int()
         y = self.test_auto_mutable()
@@ -201,6 +273,8 @@ class AutoDemo:
         o = self.test_auto_object()
         l = self.test_auto_list()
         n = self.test_auto_nested_generic()
+        self.test_suservo_list_auto()
+        c = self.test_channel_auto()
 
 
 if __name__ == "__main__":

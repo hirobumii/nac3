@@ -625,6 +625,24 @@ impl Unifier {
         }
     }
 
+    /// Used to collect Auto type variables from class field types so they can be
+    /// added to `bound_variables` for the [`is_concrete`][Self::is_concrete] check.
+    pub fn collect_tvar_handles(&mut self, ty: Type, result: &mut Vec<Type>) {
+        let to_recurse: Vec<Type> = match self.get_ty(ty).as_ref() {
+            TypeEnum::TVar { .. } => {
+                result.push(ty);
+                return;
+            }
+            TypeEnum::TObj { params, .. } => params.values().copied().collect(),
+            TypeEnum::TTuple { ty: types, .. } => types.clone(),
+            TypeEnum::TVirtual { ty: inner } => vec![*inner],
+            _ => return,
+        };
+        for t in to_recurse {
+            self.collect_tvar_handles(t, result);
+        }
+    }
+
     fn restore_snapshot(&mut self) {
         if let Some(snapshot) = self.snapshot.take() {
             self.unification_table.restore_snapshot(snapshot);

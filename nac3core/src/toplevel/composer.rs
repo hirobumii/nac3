@@ -828,17 +828,22 @@ impl TopLevelComposer {
 
         for (class_def, class_ast) in def_list.iter().skip(self.builtin_num) {
             if class_ast.is_some() && matches!(&*class_def.read(), TopLevelDef::Class { .. }) {
+                // Collect new entries from this class into a temporary map
+                let mut new_entries: HashMap<Type, TypeAnnotation> = HashMap::new();
                 if let Err(e) = Self::analyze_single_class_methods_fields(
                     class_def,
                     &class_ast.as_ref().unwrap().node,
                     &temp_def_list,
                     unifier,
                     primitives_store,
-                    &mut type_var_to_concrete_def,
+                    &mut new_entries,
                     &self.builtin_registry,
                 ) {
                     errors.extend(e);
                 }
+
+                // Merge new entries into the main map
+                type_var_to_concrete_def.extend(new_entries.iter().map(|(k, v)| (*k, v.clone())));
 
                 // The errors need to be reported before copying methods from parent to child classes
                 if !errors.is_empty() {
@@ -865,23 +870,22 @@ impl TopLevelComposer {
                 }
 
                 let mut subst_list = Some(Vec::new());
-                // unification of previously assigned typevar
-                let mut unification_helper = |ty, def| -> Result<(), HashSet<String>> {
-                    let target_ty = get_type_from_type_annotation_kinds(
+                for (ty, def) in &new_entries {
+                    match get_type_from_type_annotation_kinds(
                         &temp_def_list,
                         unifier,
                         primitives_store,
-                        &def,
+                        def,
                         &mut subst_list,
-                    )?;
-                    unifier
-                        .unify(ty, target_ty)
-                        .map_err(|e| HashSet::from([e.to_display(unifier).to_string()]))?;
-                    Ok(())
-                };
-                for (ty, def) in &type_var_to_concrete_def {
-                    if let Err(e) = unification_helper(*ty, def.clone()) {
-                        errors.extend(e);
+                    ) {
+                        Ok(target_ty) => {
+                            if let Err(e) = unifier.unify(*ty, target_ty) {
+                                errors.insert(e.to_display(unifier).to_string());
+                            }
+                        }
+                        Err(e) => {
+                            errors.extend(e);
+                        }
                     }
                 }
                 for ty in subst_list.unwrap() {
@@ -905,6 +909,51 @@ impl TopLevelComposer {
                         if let Err(e) = unifier.unify(ty, new_ty) {
                             errors.insert(e.to_display(unifier).to_string());
                         }
+                    }
+                }
+            }
+        }
+
+        {
+            let mut subst_list = Some(Vec::new());
+            for (ty, def) in &type_var_to_concrete_def {
+                match get_type_from_type_annotation_kinds(
+                    &temp_def_list,
+                    unifier,
+                    primitives_store,
+                    def,
+                    &mut subst_list,
+                ) {
+                    Ok(target_ty) => {
+                        if let Err(e) = unifier.unify(*ty, target_ty) {
+                            errors.insert(e.to_display(unifier).to_string());
+                        }
+                    }
+                    Err(e) => {
+                        errors.extend(e);
+                    }
+                }
+            }
+            for ty in subst_list.unwrap() {
+                let TypeEnum::TObj { obj_id, params, fields } = &*unifier.get_ty(ty) else {
+                    unreachable!()
+                };
+
+                let mut new_fields = HashMap::new();
+                let mut need_subst = false;
+                for (name, (ty, mutable)) in fields {
+                    let substituted = unifier.subst(*ty, params);
+                    need_subst |= substituted.is_some();
+                    new_fields.insert(*name, (substituted.unwrap_or(*ty), *mutable));
+                }
+                if need_subst {
+                    let new_ty = unifier.add_ty(TypeEnum::TObj {
+                        obj_id: *obj_id,
+                        params: params.clone(),
+                        fields: new_fields,
+                    });
+                    if let Err(e) = unifier.unify(ty, new_ty) {
+                        errors.insert(e.to_display(unifier).to_string());
                     }
                 }
             }
@@ -1965,11 +2014,13 @@ impl TopLevelComposer {
             // None if is not class method
             let uninst_self_type = {
                 if let Some(class_id) = method_class.get(&DefinitionId(id)) {
-                    let TopLevelDef::Class { type_vars, .. } =
+                    let TopLevelDef::Class { type_vars, fields, .. } =
                         &*definition_ast_list.get(class_id.0).unwrap().0.read()
                     else {
                         unreachable!("must be class def")
                     };
+
+                    let field_types: Vec<Type> = fields.iter().map(|(_, ty, _)| *ty).collect();
 
                     let ty_ann = make_self_type_annotation(type_vars, *class_id);
                     let self_ty = get_type_from_type_annotation_kinds(
@@ -1986,11 +2037,20 @@ impl TopLevelComposer {
 
                         (*id, *ty)
                     }));
-                    Some((self_ty, type_vars.clone()))
+                    Some((self_ty, type_vars.clone(), field_types))
                 } else {
                     None
                 }
             };
+
+            // Collect TVars from class field types so that Auto TVars are treated as
+            // bound by is_concrete in function_check.
+            let mut field_tvars: Vec<Type> = Vec::new();
+            if let Some((_, _, ref field_types)) = uninst_self_type {
+                for &ty in field_types {
+                    unifier.collect_tvar_handles(ty, &mut field_tvars);
+                }
+            }
             // carefully handle those with bounds, without bounds and no typevars
             // if class methods, `vars` also contains all class typevars here
             let (type_var_subst_comb, no_range_vars) = {
@@ -2037,7 +2097,7 @@ impl TopLevelComposer {
                         .collect_vec()
                 };
                 let self_type = {
-                    uninst_self_type.clone().map(|(self_type, type_vars)| {
+                    uninst_self_type.clone().map(|(self_type, type_vars, _)| {
                         let subst_for_self = {
                             let class_ty_var_ids = type_vars
                                 .iter()
@@ -2083,7 +2143,11 @@ impl TopLevelComposer {
                             Some(inst_ret)
                         },
                         // NOTE: allowed type vars
-                        bound_variables: no_range_vars.clone(),
+                        bound_variables: {
+                            let mut bv = no_range_vars.clone();
+                            bv.extend(&field_tvars);
+                            bv
+                        },
                     },
                     unifier,
                     variable_mapping: {

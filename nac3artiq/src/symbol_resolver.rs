@@ -1073,7 +1073,6 @@ impl InnerResolver {
                 Ok(Ok(res))
             }
             (TypeEnum::TObj { params, fields, .. }, false) => {
-                self.pyid_to_type.write().insert(py_obj_id, extracted_ty);
                 let var_map = into_var_map(iter_type_vars(params).map(|tvar| {
                     let TypeEnum::TVar { id, range, name, loc, .. } = &*unifier.get_ty(tvar.ty)
                     else {
@@ -1084,6 +1083,9 @@ impl InnerResolver {
                     let ty = unifier.get_fresh_var_with_range(range, *name, *loc).ty;
                     TypeVar { id: *id, ty }
                 }));
+                // Cache with fresh type variables to prevent circular references
+                let cache_ty = unifier.subst(extracted_ty, &var_map).unwrap_or(extracted_ty);
+                self.pyid_to_type.write().insert(py_obj_id, cache_ty);
                 let mut instantiate_obj = || {
                     // loop through non-function fields of the class to get the instantiated value
                     for field in fields {
@@ -2015,9 +2017,10 @@ impl SymbolResolver for Resolver {
         Some(Python::attach(|py| -> PyResult<Result<Type, String>> {
             let module = self.0.module.bind(py);
             let class_name_str = class_name.to_string();
+            let simple_name = class_name_str.rsplit_once('.').map_or(class_name_str.as_str(), |(_, n)| n);
 
             // Get the class object from the module
-            let Ok(class_obj) = module.getattr(class_name_str.as_str()) else {
+            let Ok(class_obj) = module.getattr(simple_name) else {
                 return Ok(Err(format!(
                     "Auto type error: cannot find class `{class_name}` in module"
                 )));
