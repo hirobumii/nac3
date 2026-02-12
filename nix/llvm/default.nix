@@ -15,7 +15,7 @@
   enableProjects ? [],
   llvmTools ? ["llvm-config"],
   extraConfig ? "",
-  runCommandNoCC,
+  runCommand,
   wrapCCWith,
 }: let
   inherit (lib) optional optionals optionalString;
@@ -129,7 +129,7 @@ in rec {
     dontFixup = true;
   };
   llvm-tools-irrt =
-    runCommandNoCC "llvm-tools-irrt" {}
+    runCommand "llvm-tools-irrt" {}
     ''
       mkdir -p $out/bin
       ln -s ${llvm}/bin/clang${exe_suffix} $out/bin/clang-irrt${exe_suffix}
