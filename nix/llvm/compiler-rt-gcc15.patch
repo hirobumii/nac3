@@ -1,0 +1,12 @@
+diff --git a/compiler-rt/lib/orc/error.h b/compiler-rt/lib/orc/error.h
+index 4c378ecc01c4..57bc6a15e1ce 100644
+--- a/compiler-rt/lib/orc/error.h
++++ b/compiler-rt/lib/orc/error.h
+@@ -15,6 +15,7 @@
+ 
+ #include <cassert>
+ #include <memory>
++#include <cstdint>
+ #include <string>
+ #include <type_traits>
+ 

@@ -3,6 +3,7 @@
   stdenv,
   wineWowPackages,
   fetchurl,
+  fetchpatch,
   cmake,
   python3,
   ncurses,
@@ -77,10 +78,32 @@ in rec {
       + ''
         mkdir cmake
         ln -s $PWD/llvm/cmake cmake/Modules
-        cd llvm
       '';
+    patches =
+      []
+      ++ optionals (msys2-env == null) ([
+          # Aggregate of 2 merged patches:
+          # https://github.com/llvm/llvm-project/commit/7e44305041d96b064c197216b931ae3917a34ac1.patch
+          # https://github.com/llvm/llvm-project/commit/7abf44069aec61eee147ca67a6333fc34583b524.patch
+          # Both to appease gcc15.
+          ./llvm-gcc15.patch
+        ]
+        ++ lib.lists.flatten (map (proj:
+          if proj == "compiler-rt"
+          then [
+            ./compiler-rt-gcc15.patch # Ditto. But no commits on compiler-rt.
+            (fetchpatch {
+              url = "https://github.com/llvm/llvm-project/commit/59978b21ad9c65276ee8e14f26759691b8a65763.patch";
+              sha256 = "sha256-JrGBvwVtAat/HwT1PCq2TXCDwx/dZOUB/ThNFVJ5pMg=";
+            })
+          ]
+          else [])
+        enableProjects));
     configurePhase =
-      optionalString (msys2-env != null) ''
+      ''
+        cd llvm
+      ''
+      + optionalString (msys2-env != null) ''
         export WINEDEBUG=-all
         export WINEPATH=Z:${msys2-env}/clang64/bin
       ''
