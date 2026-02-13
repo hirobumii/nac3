@@ -50,6 +50,7 @@ fn main() {
 
     match env::var("PROFILE").as_deref() {
         Ok("debug") => {
+            flags.push("-g");
             flags.push("-O0");
             flags.push("-DIRRT_DEBUG_ASSERT");
         }
@@ -73,6 +74,12 @@ fn main() {
 
     // https://github.com/rust-lang/regex/issues/244
     let output = std::str::from_utf8(&output.stdout).unwrap().replace("\r\n", "\n");
+    println!("cargo:rerun-if-env-changed={DEBUG_DUMP_IRRT}");
+    if env::var(DEBUG_DUMP_IRRT).is_ok() {
+        let mut file = File::create(out_dir.join("irrt.ll")).unwrap();
+        file.write_all(output.as_bytes()).unwrap();
+    }
+
     let mut filtered_output = String::with_capacity(output.len());
 
     // Filter out irrelevant IR
@@ -82,25 +89,35 @@ fn main() {
     // - `(?m:^declare.*?$)` captures LLVM `declare` lines
     // - `(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)` captures LLVM `type` declarations
     // - `(?m:^@.+?=.+$)` captures global constants
-    let regex_filter = Regex::new(
-        r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^@.+?=.+$)",
-    )
-    .unwrap();
+    // - `(?m:^!.+?=.+$)` captures metadata (only in debug mode)
+    let regex_filter = match env::var("PROFILE").as_deref() {
+        Ok("debug") => {
+            Regex::new(
+                r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^@.+?=.+$)|(?m:^!.+?=.+$)",
+            ).unwrap()
+        },
+        Ok("release") => Regex::new(
+            r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^@.+?=.+$)",
+        )
+        .unwrap(),
+        _ => unreachable!(),
+    };
     for f in regex_filter.captures_iter(&output) {
         assert_eq!(f.len(), 1);
         filtered_output.push_str(&f[0]);
         filtered_output.push('\n');
     }
 
-    let filtered_output = Regex::new("(#\\d+)|(, *![0-9A-Za-z.]+)|(![0-9A-Za-z.]+)|(!\".*?\")")
-        .unwrap()
-        .replace_all(&filtered_output, "");
+    let filtered_output = match env::var("PROFILE").as_deref() {
+        Ok("debug") => Regex::new("(#\\d+)").unwrap(),
+        Ok("release") => {
+            Regex::new("(#\\d+)|(, *![0-9A-Za-z.]+)|(![0-9A-Za-z.]+)|(!\".*?\")").unwrap()
+        }
+        _ => unreachable!(),
+    }
+    .replace_all(&filtered_output, "");
 
-    println!("cargo:rerun-if-env-changed={DEBUG_DUMP_IRRT}");
     if env::var(DEBUG_DUMP_IRRT).is_ok() {
-        let mut file = File::create(out_dir.join("irrt.ll")).unwrap();
-        file.write_all(output.as_bytes()).unwrap();
-
         let mut file = File::create(out_dir.join("irrt-filtered.ll")).unwrap();
         file.write_all(filtered_output.as_bytes()).unwrap();
     }

@@ -55,13 +55,17 @@ fi
 
 rm -f ./*.o ./*.bc demo
 
+if [ -n "$debug" ]; then
+  CFLAGS="$CFLAGS -O3"
+fi
+
 if [ -z "$i686" ]; then
   $nac3standalone "${nac3args[@]}"
-  clang -g -c -std=gnu11 -Wall -Wextra -O3 -o demo.o demo.c
+  clang -g -c -std=gnu11 -Wall -Wextra $CFLAGS -o demo.o demo.c
   clang -Wno-unused-command-line-argument -o demo module.o demo.o $DEMO_LINALG_STUB -lm
 else
   $nac3standalone --triple i686-unknown-linux-gnu --target-features +sse2 "${nac3args[@]}"
-  clang -g -m32 -c -std=gnu11 -Wall -Wextra -O3 -msse2 -o demo.o demo.c
+  clang -g -m32 -c -std=gnu11 -Wall -Wextra $CFLAGS -msse2 -o demo.o demo.c
   clang -m32 -Wno-unused-command-line-argument -o demo module.o demo.o $DEMO_LINALG_STUB32 -lm -Wl,--no-warn-search-mismatch
 fi
 
