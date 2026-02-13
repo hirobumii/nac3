@@ -10,9 +10,10 @@ use crate::{
     codegen::{
         AllocationScope, CodeGenContext, ModuleContext,
         types::{
-            ProxyType, ProxyTypeBase, RefType, StringType, TypedRefCountedType,
-            TypedRefCountedValue, TypeinfoType, TypeinfoValue, Value, WithTypeinfo,
-            array::ArraySliceValue, builtin::BuiltinStruct, field, structure::StructField,
+            ProxyType, ProxyTypeBase, RefCountedArrayType, RefType, StringType,
+            TypedRefCountedType, TypedRefCountedValue, TypeinfoType, TypeinfoValue, Value,
+            WithTypeinfo, array::ArraySliceValue, builtin::BuiltinStruct, field,
+            structure::StructField,
         },
     },
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
@@ -95,8 +96,7 @@ impl<'ctx> ListType<'ctx> {
             null
         } else {
             let ty = ctx.get_llvm_type(self.item_ty);
-            let array =
-                ctx.build_dyn_array_allocate(AllocationScope::Default, ty, len, None)?.value.0;
+            let array = RefCountedArrayType::new(ctx, ty, None).allocate(ctx, len, None)?.value;
             ctx.builder.build_select(len_eqz, null, array, "")?.into_pointer_value()
         };
 
@@ -222,9 +222,11 @@ impl<'ctx> ListValue<'ctx> {
             ctx.get_llvm_type(self.ty.item_ty)
         };
 
+        let refcounted_array = RefCountedArrayType::new(ctx, item_ty, None)
+            .map_value(self.load(ctx, field!(items))?, None);
         Ok(ArraySliceValue::new(
             item_ty,
-            self.load(ctx, field!(items))?,
+            refcounted_array.inner_value(ctx)?.value.0,
             self.load(ctx, field!(len))?,
             self.name,
         ))

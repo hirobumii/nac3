@@ -6,6 +6,7 @@
 #include "irrt/list.hpp"
 #include "irrt/ndarray/basic.hpp"
 #include "irrt/ndarray/def.hpp"
+#include "irrt/reference/array.hpp"
 
 namespace {
 namespace ndarray::array {
@@ -40,7 +41,9 @@ void set_and_validate_list_shape_helper(SizeT axis, List<SizeT>* list, SizeT ndi
         // Do nothing
     } else {
         // `list` has type `list[list[...]]`
-        List<SizeT>** lists = (List<SizeT>**)(list->items);
+        // List<SizeT>** lists = (List<SizeT>**)(list->items);
+        auto** lists =
+            static_cast<List<SizeT>**>(reinterpret_cast<__nac3_impl::reference::Array<SizeT>*>(list->items)->data());
         for (SizeT i = 0; i < list->len; i++) {
             set_and_validate_list_shape_helper<SizeT>(axis + 1, lists[i], ndims, shape);
         }
@@ -88,11 +91,13 @@ void write_list_to_array_helper(SizeT axis, SizeT* index, List<SizeT>* list, NDA
         // `list` has type `list[scalar]`
         // `ndarray` is contiguous, so we can do this, and this is fast.
         uint8_t* dst = static_cast<uint8_t*>(ndarray->data) + ndarray->offset + (ndarray->itemsize * (*index));
-        __builtin_memcpy(dst, list->items, ndarray->itemsize * list->len);
+        __builtin_memcpy(dst, reinterpret_cast<__nac3_impl::reference::Array<SizeT>*>(list->items)->data(),
+                         ndarray->itemsize * list->len);
         *index += list->len;
     } else {
         // `list` has type `list[list[...]]`
-        List<SizeT>** lists = (List<SizeT>**)(list->items);
+        auto** lists =
+            static_cast<List<SizeT>**>(reinterpret_cast<__nac3_impl::reference::Array<SizeT>*>(list->items)->data());
 
         for (SizeT i = 0; i < list->len; i++) {
             write_list_to_array_helper<SizeT>(axis + 1, index, lists[i], ndarray);

@@ -14,7 +14,7 @@ use crate::codegen::{
     irrt::get_usize_dependent_function_name,
     llvm_intrinsics,
     stmt::gen_if_callback,
-    type_aligned_allocate, typed_load, typed_store,
+    type_aligned_allocate, typed_gep, typed_load, typed_store,
     types::{
         ArraySliceValue, BuiltinStruct, ProxyType, ProxyTypeBase, RefType, StringType,
         TypeinfoType, TypeinfoValue, Value, WithTypeinfo, structure::StructField,
@@ -424,9 +424,11 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         size: IntValue<'ctx>,
         name: Option<&'ctx str>,
     ) -> anyhow::Result<Value<'ctx, Self>> {
+        assert_eq!(size.get_type(), ctx.size_t);
+
         let llvm_dyn_array_ty = Self::new(ctx, self.elem, None);
 
-        let value_ptr = if size.is_constant_int() {
+        let value_ptr = if !self.array.is_empty() && size.is_constant_int() {
             assert_eq!(
                 size.get_zero_extended_constant(),
                 Some(u64::from(self.array.len())),
@@ -445,8 +447,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
                 "",
             )?
         } else {
-            let align_ty =
-                self.llvm_ty(ctx).into_pointer_type().get_element_type().into_struct_type();
+            let align_ty = self.inner;
 
             let sizeof_elem = self
                 .array
@@ -455,9 +456,8 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
                 .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
                 .unwrap();
             let sizeof_zero_elem = llvm_dyn_array_ty
+                .inner
                 .llvm_ty(ctx)
-                .into_pointer_type()
-                .get_element_type()
                 .into_struct_type()
                 .size_of()
                 .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
@@ -495,18 +495,11 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
 
         // Store the size into the array metadata
         let inner = value.inner_ptr(ctx)?;
-        let inner = ctx.builder.build_pointer_cast(
+        let psize = ctx.builder.build_pointer_cast(
             inner,
             llvm_dyn_array_ty.llvm_ty(ctx).into_pointer_type(),
             "",
         )?;
-        let psize = unsafe {
-            ctx.builder.build_in_bounds_gep(
-                inner,
-                &[ctx.size_t.const_zero(), ctx.i32.const_zero()],
-                "",
-            )?
-        };
         typed_store(ctx.builder, psize, size)?;
 
         Ok(value)
@@ -521,7 +514,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         self.allocate_impl(ctx, AllocationScope::StackStartOfFunc, size, name)
     }
 
-    fn allocate(
+    pub fn allocate(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         size: IntValue<'ctx>,
@@ -700,40 +693,33 @@ pub type RefCountedArrayValue<'ctx, T> = Value<'ctx, RefCountedArrayType<'ctx, T
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
     pub fn len(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
-        let inner_ptr = self.inner_ptr(ctx)?;
-        let inner_ptr = ctx.builder.build_pointer_cast(
-            inner_ptr,
-            RefCountedArrayType::new(ctx, self.ty.elem, None).llvm_ty(ctx).into_pointer_type(),
-            "",
-        )?;
-        Ok(unsafe {
-            ctx.build_gep_and_load(
-                inner_ptr,
+        let psize = unsafe {
+            typed_gep(
+                ctx.builder,
+                &self.ty.inner.get_field_type_at_index_unchecked(1),
+                self.inner_ptr(ctx)?,
                 &[ctx.size_t.const_zero(), ctx.i32.const_zero()],
-                None,
+                "",
             )?
-            .into_int_value()
-        })
+        };
+        Ok(typed_load(ctx.builder, psize, ctx.size_t.into(), "")?.into_int_value())
     }
 
     pub fn inner_value(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<ArraySliceValue<'ctx, T>> {
-        let data = unsafe {
-            ctx.builder.build_in_bounds_gep(
+        let pdata = unsafe {
+            typed_gep(
+                ctx.builder,
+                &self.ty.inner.get_field_type_at_index_unchecked(1),
                 self.inner_ptr(ctx)?,
                 &[ctx.size_t.const_zero(), ctx.i32.const_int(1, false)],
                 "",
             )?
         };
-        let data = ctx.builder.build_pointer_cast(
-            data,
-            self.ty.elem.llvm_ty(ctx).ptr_type(AddressSpace::default()),
-            "",
-        )?;
 
-        Ok(ArraySliceValue::new(self.ty.elem, data, self.len(ctx)?, self.name))
+        Ok(ArraySliceValue::new(self.ty.elem, pdata, self.len(ctx)?, self.name))
     }
 }
 
@@ -747,12 +733,16 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedValue<'ctx> for RefCountedArrayV
     }
 
     fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<PointerValue<'ctx>> {
-        let obj_header = ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?;
+        let obj_header = if self.value.get_type() == ctx.ptr {
+            self.value
+        } else {
+            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?
+        };
         Ok(unsafe {
             ctx.builder.build_gep(
                 obj_header,
                 &[ObjectHeaderType::new(ctx)
-                    .llvm_ty(ctx)
+                    .alloca_ty(ctx)
                     .size_of()
                     .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
                     .unwrap()],
