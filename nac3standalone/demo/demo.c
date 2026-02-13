@@ -9,10 +9,15 @@
 
 extern const uint8_t __nac3_global_begin;
 
+struct cslice {
+    void* data;
+    size_t len;
+};
+
 typedef struct typeinfo_s {
+    struct cslice* name;
     uint32_t* refcounted_field_offsets;
 } typeinfo;
-_Static_assert(sizeof(typeinfo) == sizeof(size_t), "Unexpected typeinfo size");
 
 typedef struct object_header_s {
     uint32_t refcount;
@@ -74,11 +79,6 @@ void output_asciiart(int32_t x) {
     }
 }
 
-struct cslice {
-    void* data;
-    size_t len;
-};
-
 typedef struct list_s {
     object_header header;
     void* data;
@@ -113,11 +113,10 @@ void output_strln(struct cslice slice) {
     putchar('\n');
 }
 
-void output_refcount(const struct cslice str, const void* obj) {
+void output_refcount(const void* obj) {
     const object_header* header = (object_header*)obj;
 
-    output_str(str);
-    printf(" refcount: ");
+    printf("refcount: ");
 
     if (header == NULL) {
         printf("<nil>");
@@ -128,40 +127,40 @@ void output_refcount(const struct cslice str, const void* obj) {
     }
     putchar('\n');
 
-    //     printf("typeinfo for ");
-    //     output_str(str);
-    //     printf(": %s\n", obj == NULL ? "<nil>" : "");
+    printf("typeinfo: %s\n", obj == NULL ? "<nil>" : "");
 
-    //     if (obj == NULL) {
-    //         return;
-    //     }
+    if (obj == NULL) {
+        return;
+    }
 
-    //     const int32_t offset = *((int32_t*)(obj + 4));
-    //     const typeinfo* ti = (void*)&__nac3_global_begin + offset;
-    //     puts("  refcounted_field_offsets:");
+    const int32_t offset = *((int32_t*)(obj + 4));
+    const typeinfo* ti = (void*)&__nac3_global_begin + offset;
+    printf("  name: ");
+    output_strln(*ti->name);
+    puts("  refcounted_field_offsets:");
 
-    //     const uint32_t* field_offsets = ti->refcounted_field_offsets;
-    //     const uint32_t refcounted_field_count = field_offsets[0];
-    //     if (refcounted_field_count == UINT32_MAX) {
-    //         const size_t size = *((size_t*)(obj + sizeof(object_header)));
-    // #if INTPTR_MAX == INT32_MAX
-    //         printf("    refcounted_field_count: <ALL> (%" PRIu32 ")\n", size);
-    // #elif INTPTR_MAX == INT64_MAX
-    //         printf("    refcounted_field_count: <ALL> (%" PRIu64 ")\n", size);
-    // #else
-    // #error "Unsupported pointer size"
-    // #endif
-    //     } else {
-    //         printf("    refcounted_field_count: %" PRIu32, refcounted_field_count);
-    //         if (refcounted_field_count > 0) {
-    //             printf(" [");
-    //             for (uint32_t i = 0; i < refcounted_field_count; ++i) {
-    //                 printf("%" PRIu32 "%s", field_offsets[i + 1], i == refcounted_field_count - 1 ? "" : ", ");
-    //             }
-    //             putchar(']');
-    //         }
-    //         putchar('\n');
-    //     }
+    const uint32_t* field_offsets = ti->refcounted_field_offsets;
+    const uint32_t refcounted_field_count = field_offsets[0];
+    if (refcounted_field_count == UINT32_MAX) {
+        const size_t size = *((size_t*)(obj + sizeof(object_header)));
+#if INTPTR_MAX == INT32_MAX
+        printf("    refcounted_field_count: <ALL> (%" PRIu32 ")\n", size);
+#elif INTPTR_MAX == INT64_MAX
+        printf("    refcounted_field_count: <ALL> (%" PRIu64 ")\n", size);
+#else
+#error "Unsupported pointer size"
+#endif
+    } else {
+        printf("    refcounted_field_count: %" PRIu32, refcounted_field_count);
+        if (refcounted_field_count > 0) {
+            printf(" [");
+            for (uint32_t i = 0; i < refcounted_field_count; ++i) {
+                printf("%" PRIu32 "%s", field_offsets[i + 1], i == refcounted_field_count - 1 ? "" : ", ");
+            }
+            putchar(']');
+        }
+        putchar('\n');
+    }
 }
 
 uint64_t dbg_stack_address(__attribute__((unused)) struct cslice slice) {

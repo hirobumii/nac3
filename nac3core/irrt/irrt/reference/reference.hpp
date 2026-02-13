@@ -39,9 +39,10 @@ const ObjectHeader* get_object_header(const void* object) {
     return reinterpret_cast<const ObjectHeader*>(object);
 }
 
-const Typeinfo* get_object_typeinfo(const void* object) {
+template<typename SizeT>
+const Typeinfo<SizeT>* get_object_typeinfo(const void* object) {
     if (const auto* const header = get_object_header(object)) {
-        return reinterpret_cast<const Typeinfo*>(&__nac3_global_begin + header->typeinfo_offset);
+        return reinterpret_cast<const Typeinfo<SizeT>*>(&__nac3_global_begin + header->typeinfo_offset);
     }
 
     return nullptr;
@@ -66,7 +67,7 @@ template<typename SizeT>
 void refcount_incr(void* const object) {
     if (is_object_refcounted(object)) {
         auto* const header = get_object_header(object);
-        const auto* const typeinfo = get_object_typeinfo(object);
+        const auto* const typeinfo = get_object_typeinfo<SizeT>(object);
         const uint32_t num_refcounted_fields = typeinfo->refcounted_field_offsets[0];
 
         ++header->refcount;
@@ -93,7 +94,7 @@ template<typename SizeT>
 void refcount_decr(void* const object) {
     if (is_object_refcounted(object)) {
         auto* const header = get_object_header(object);
-        auto* const typeinfo = get_object_typeinfo(object);
+        auto* const typeinfo = get_object_typeinfo<SizeT>(object);
         const uint32_t num_refcounted_fields = typeinfo->refcounted_field_offsets[0];
 
         if (num_refcounted_fields == REFCOUNT_ARRAY_MAGIC) {

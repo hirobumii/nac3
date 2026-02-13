@@ -2,6 +2,13 @@
 
 #include "irrt/int_types.hpp"
 
+namespace __nac3_impl {
+template<typename SizeT>
+struct String {
+    char* ptr;
+    SizeT len;
+};
+
 namespace {
 template<typename SizeT>
 bool __nac3_str_eq_impl(const char* str1, SizeT len1, const char* str2, SizeT len2) {
@@ -11,13 +18,14 @@ bool __nac3_str_eq_impl(const char* str1, SizeT len1, const char* str2, SizeT le
     return __builtin_memcmp(str1, str2, static_cast<SizeT>(len1)) == 0;
 }
 }  // namespace
+}  // namespace __nac3_impl
 
 extern "C" {
 bool nac3_str_eq(const char* str1, uint32_t len1, const char* str2, uint32_t len2) {
-    return __nac3_str_eq_impl<uint32_t>(str1, len1, str2, len2);
+    return __nac3_impl::__nac3_str_eq_impl<uint32_t>(str1, len1, str2, len2);
 }
 
 bool nac3_str_eq64(const char* str1, uint64_t len1, const char* str2, uint64_t len2) {
-    return __nac3_str_eq_impl<uint64_t>(str1, len1, str2, len2);
+    return __nac3_impl::__nac3_str_eq_impl<uint64_t>(str1, len1, str2, len2);
 }
 }

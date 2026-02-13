@@ -80,10 +80,10 @@ fn main() {
     // Regex:
     // - `(?ms:^define.*?\}$)` captures LLVM `define` blocks
     // - `(?m:^declare.*?$)` captures LLVM `declare` lines
-    // - `(?m:^%.+?=\s*type\s*\{.+?\}$)` captures LLVM `type` declarations
+    // - `(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)` captures LLVM `type` declarations
     // - `(?m:^@.+?=.+$)` captures global constants
     let regex_filter = Regex::new(
-        r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*\{.+?\}$)|(?m:^@.+?=.+$)",
+        r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^@.+?=.+$)",
     )
     .unwrap();
     for f in regex_filter.captures_iter(&output) {

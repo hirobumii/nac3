@@ -114,8 +114,8 @@ def patch(module):
     def output_int32_list(x):
         print([int(e) for e in x])
 
-    def output_refcount(s, x):
-        print(f"{s} refcount: {sys.getrefcount(x)}")
+    def output_refcount(x):
+        print(f"refcount: {sys.getrefcount(x)}")
 
     def dbg_stack_address(_):
         return 0

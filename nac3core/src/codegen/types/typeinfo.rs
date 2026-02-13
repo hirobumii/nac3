@@ -8,6 +8,10 @@ use crate::codegen::{
 
 #[derive(Clone, Copy, StructFields)]
 pub struct TypeinfoStructFields<'ctx> {
+    /// Pointer to the name of the type, as a [`StringType`] value.
+    #[value_type(ptr)]
+    pub name: StructField<'ctx, PointerValue<'ctx>>,
+
     /// Array pointer to content.
     #[value_type(ptr)]
     pub refcounted_fields: StructField<'ctx, PointerValue<'ctx>>,

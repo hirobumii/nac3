@@ -3,15 +3,16 @@ use inkwell::{
     module::Linkage,
     values::{IntValue, PointerValue},
 };
+use itertools::Itertools as _;
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::{
     codegen::{
         AllocationScope, CodeGenContext, ModuleContext,
         types::{
-            ProxyTypeBase, RefType, TypedRefCountedType, TypedRefCountedValue, TypeinfoType,
-            TypeinfoValue, Value, WithTypeinfo, array::ArraySliceValue, builtin::BuiltinStruct,
-            field, structure::StructField,
+            ProxyType, ProxyTypeBase, RefType, StringType, TypedRefCountedType,
+            TypedRefCountedValue, TypeinfoType, TypeinfoValue, Value, WithTypeinfo,
+            array::ArraySliceValue, builtin::BuiltinStruct, field, structure::StructField,
         },
     },
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
@@ -109,44 +110,94 @@ impl<'ctx> WithTypeinfo<'ctx> for ListType<'ctx> {
         const NAME: &str = "__nac3_list";
 
         let global = ctx.module.get_global(&format!("typeinfo for {NAME}")).unwrap_or_else(|| {
-            let refcounted_field_offsets = ctx.module.add_global(
-                ctx.i32.array_type(1),
-                None,
-                "refcounted_fields array for __nac3_list",
-            );
-            refcounted_field_offsets.set_linkage(Linkage::WeakAny);
-            refcounted_field_offsets.set_initializer(&ctx.i32.const_array(&[ctx.i32.const_zero()]));
-            // refcounted_field_offsets.set_initializer(&ctx.i32.const_array(&[
-            //     ctx.i32.const_int(1, false),
-            //     unsafe {
-            //         let zero = self.as_base_type().const_null();
-            //         let begin_ptr = zero
-            //             .const_in_bounds_gep(&[ctx.size_t.const_zero(), ctx.i32.const_zero()])
-            //             .const_to_int(ctx.size_t)
-            //             .const_cast(ctx.i32, false);
-            //         let field_idx = self.get_fields().index_of_field(|f| f.items);
-            //         let field_ptr = zero
-            //             .const_in_bounds_gep(&[
-            //                 ctx.size_t.const_zero(),
-            //                 ctx.i32.const_int(u64::from(field_idx), false),
-            //             ])
-            //             .const_to_int(ctx.size_t)
-            //             .const_cast(ctx.i32, false);
+            let name_data =
+                ctx.module.get_global(&format!("typename array for {NAME}")).unwrap_or_else(|| {
+                    let name_data = ctx.module.add_global(
+                        ctx.i8.array_type(NAME.len() as u32),
+                        None,
+                        &format!("typename array for {NAME}"),
+                    );
+                    name_data.set_linkage(Linkage::WeakAny);
+                    name_data.set_initializer(
+                        &ctx.i8.const_array(
+                            &NAME
+                                .as_bytes()
+                                .iter()
+                                .map(|&b| ctx.i8.const_int(u64::from(b), false))
+                                .collect_vec(),
+                        ),
+                    );
+                    name_data.set_constant(true);
 
-            //         field_ptr.const_sub(begin_ptr)
-            //     },
-            // ]));
-            refcounted_field_offsets.set_constant(true);
+                    name_data
+                });
+
+            let name =
+                ctx.module.get_global(&format!("typename for {NAME}")).unwrap_or_else(|| {
+                    let llvm_str = StringType::new(ctx).llvm_ty(ctx).into_struct_type();
+                    let name =
+                        ctx.module.add_global(llvm_str, None, &format!("typename for {NAME}"));
+                    name.set_linkage(Linkage::WeakAny);
+                    name.set_initializer(&llvm_str.const_named_struct(&[
+                        name_data.as_pointer_value().into(),
+                        ctx.size_t.const_int(NAME.len() as u64, false).into(),
+                    ]));
+                    name.set_constant(true);
+
+                    name
+                });
+
+            let refcounted_field_offsets = ctx
+                .module
+                .get_global(&format!("refcounted_fields array for {NAME}"))
+                .unwrap_or_else(|| {
+                    let refcounted_field_offsets = ctx.module.add_global(
+                        ctx.i32.array_type(1),
+                        None,
+                        "refcounted_fields array for __nac3_list",
+                    );
+                    refcounted_field_offsets.set_linkage(Linkage::WeakAny);
+                    refcounted_field_offsets
+                        .set_initializer(&ctx.i32.const_array(&[ctx.i32.const_zero()]));
+                    // refcounted_field_offsets.set_initializer(&ctx.i32.const_array(&[
+                    //     ctx.i32.const_int(1, false),
+                    //     unsafe {
+                    //         let zero = self.as_base_type().const_null();
+                    //         let begin_ptr = zero
+                    //             .const_in_bounds_gep(&[ctx.size_t.const_zero(), ctx.i32.const_zero()])
+                    //             .const_to_int(ctx.size_t)
+                    //             .const_cast(ctx.i32, false);
+                    //         let field_idx = self.get_fields().index_of_field(|f| f.items);
+                    //         let field_ptr = zero
+                    //             .const_in_bounds_gep(&[
+                    //                 ctx.size_t.const_zero(),
+                    //                 ctx.i32.const_int(u64::from(field_idx), false),
+                    //             ])
+                    //             .const_to_int(ctx.size_t)
+                    //             .const_cast(ctx.i32, false);
+
+                    //         field_ptr.const_sub(begin_ptr)
+                    //     },
+                    // ]));
+                    refcounted_field_offsets.set_constant(true);
+
+                    refcounted_field_offsets
+                });
 
             let llvm_typeinfo = TypeinfoType::new(ctx).alloca_ty(ctx).into_struct_type();
 
             let value = ctx.module.add_global(llvm_typeinfo, None, &format!("typeinfo for {NAME}"));
             value.set_linkage(Linkage::WeakAny);
             value.set_initializer(
-                &llvm_typeinfo.const_named_struct(&[refcounted_field_offsets
-                    .as_pointer_value()
-                    .const_cast(ctx.i32.ptr_type(AddressSpace::default()))
-                    .into()]),
+                &llvm_typeinfo.const_named_struct(&[
+                    name.as_pointer_value()
+                        .const_cast(ctx.i8.ptr_type(AddressSpace::default()))
+                        .into(),
+                    refcounted_field_offsets
+                        .as_pointer_value()
+                        .const_cast(ctx.i32.ptr_type(AddressSpace::default()))
+                        .into(),
+                ]),
             );
             value.set_constant(true);
             value
