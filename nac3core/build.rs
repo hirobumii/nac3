@@ -88,12 +88,14 @@ fn main() {
     // - `(?ms:^define.*?\}$)` captures LLVM `define` blocks
     // - `(?m:^declare.*?$)` captures LLVM `declare` lines
     // - `(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)` captures LLVM `type` declarations
+    // - `(?m:^\$.+=\s*comdat.+$)` captures COMDAT entries (only in debug mode)
     // - `(?m:^@.+?=.+$)` captures global constants
     // - `(?m:^!.+?=.+$)` captures metadata (only in debug mode)
+    // - `(?m:^attributes #\d+\s*=.+$)` captures attribute groups (only in debug mode)
     let regex_filter = match env::var("PROFILE").as_deref() {
         Ok("debug") => {
             Regex::new(
-                r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^@.+?=.+$)|(?m:^!.+?=.+$)",
+                r"(?ms:^define.*?\}$)|(?m:^declare.*?$)|(?m:^%.+?=\s*type\s*(?:\{.+?\}|opaque)$)|(?m:^\$.+=\s*comdat.+$)|(?m:^@.+?=.+$)|(?m:^!.+?=.+$)|(?m:^attributes #\d+\s*=.+$)",
             ).unwrap()
         },
         Ok("release") => Regex::new(
@@ -109,7 +111,7 @@ fn main() {
     }
 
     let filtered_output = match env::var("PROFILE").as_deref() {
-        Ok("debug") => Regex::new("(#\\d+)").unwrap(),
+        Ok("debug") => Regex::new("(\"target-features\"=\".*\")").unwrap(),
         Ok("release") => {
             Regex::new("(#\\d+)|(, *![0-9A-Za-z.]+)|(![0-9A-Za-z.]+)|(!\".*?\")").unwrap()
         }
