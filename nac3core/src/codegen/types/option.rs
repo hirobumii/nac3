@@ -44,14 +44,14 @@ impl OptionType {
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: Option<BasicValueEnum<'ctx>>,
         name: Option<&'static str>,
-    ) -> OptionValue<'ctx> {
+    ) -> anyhow::Result<OptionValue<'ctx>> {
         match value {
             Some(v) => {
-                let value = self.alloca(ctx, name);
-                typed_store(ctx.builder, value.value, v);
-                value
+                let value = self.alloca(ctx, name)?;
+                typed_store(ctx.builder, value.value, v)?;
+                Ok(value)
             }
-            None => self.map_value(ctx.ptr.const_null(), name),
+            None => Ok(self.map_value(ctx.ptr.const_null(), name)),
         }
     }
 }
@@ -60,8 +60,8 @@ pub type OptionValue<'ctx> = Value<'ctx, OptionType>;
 
 impl<'ctx> OptionValue<'ctx> {
     /// Returns whether this `Option` instance contains a value.
-    pub fn is_some(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        ctx.builder.build_is_not_null(self.value, "").unwrap()
+    pub fn is_some(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
+        Ok(ctx.builder.build_is_not_null(self.value, "")?)
     }
 
     /// Loads the value present in this `Option` instance.
@@ -71,7 +71,7 @@ impl<'ctx> OptionValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&str>,
-    ) -> BasicValueEnum<'ctx> {
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         let ty = self.ty.alloca_ty(ctx);
         typed_load(ctx.builder, self.value, ty, name.or(self.name).unwrap_or(""))
     }

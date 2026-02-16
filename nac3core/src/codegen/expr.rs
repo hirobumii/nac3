@@ -1,11 +1,12 @@
 use std::{
     cmp::min,
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry},
     convert::TryInto,
     iter::{once, zip},
     sync::Arc,
 };
 
+use anyhow::{anyhow, bail};
 use inkwell::{
     AddressSpace, IntPredicate,
     basic_block::BasicBlock,
@@ -82,7 +83,7 @@ impl<'ctx> RtValue<'ctx> {
     pub fn to_basic_value_enum(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> Result<BasicValueEnum<'ctx>, String> {
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         self.val.as_ref().unwrap().to_basic_value_enum(ctx, self.ty)
     }
 }
@@ -124,9 +125,9 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         ptr: PointerValue<'ctx>,
         index: &[IntValue<'ctx>],
         name: Option<&str>,
-    ) -> BasicValueEnum<'ctx> {
-        let gep = unsafe { self.builder.build_gep(ptr, index, "") }.unwrap();
-        self.builder.build_load(gep, name.unwrap_or_default()).unwrap()
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
+        let gep = unsafe { self.builder.build_gep(ptr, index, "")? };
+        Ok(self.builder.build_load(gep, name.unwrap_or_default())?)
     }
 
     fn get_subst_key(
@@ -170,30 +171,37 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         }
     }
 
-    pub fn gen_symbol_val(&mut self, val: &SymbolValue, ty: Type) -> BasicValueEnum<'ctx> {
-        match val {
+    pub fn gen_symbol_val(
+        &mut self,
+        val: &SymbolValue,
+        ty: Type,
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
+        Ok(match val {
             SymbolValue::I32(v) => self.i32.const_int(*v as u64, true).into(),
             SymbolValue::I64(v) => self.i64.const_int(*v as u64, true).into(),
             SymbolValue::U32(v) => self.i32.const_int(u64::from(*v), false).into(),
             SymbolValue::U64(v) => self.i64.const_int(*v, false).into(),
             SymbolValue::Bool(v) => self.i8.const_int(u64::from(*v), true).into(),
             SymbolValue::Double(v) => self.f64.const_float(*v).into(),
-            SymbolValue::Str(v) => StringType::new(self).constant(self, v, None).value.into(),
+            SymbolValue::Str(v) => StringType::new(self).constant(self, v, None)?.value.into(),
             SymbolValue::Tuple(ls) => {
-                let vals = ls.iter().map(|v| self.gen_symbol_val(v, ty)).collect_vec();
-                TupleValue::new(self, &vals, Some("tup_val")).value.into()
+                let vals = ls
+                    .iter()
+                    .map(|v| anyhow::Ok(self.gen_symbol_val(v, ty)?))
+                    .collect::<Result<Vec<_>, _>>()?;
+                TupleValue::new(self, &vals, Some("tup_val"))?.value.into()
             }
             SymbolValue::OptionSome(v) => {
-                let val = self.gen_symbol_val(v, ty);
+                let val = self.gen_symbol_val(v, ty)?;
                 OptionType::from_unifier_type(self, ty)
-                    .construct(self, Some(val), None)
+                    .construct(self, Some(val), None)?
                     .value
                     .into()
             }
             SymbolValue::OptionNone => {
-                OptionType::from_unifier_type(self, ty).construct(self, None, None).value.into()
+                OptionType::from_unifier_type(self, ty).construct(self, None, None)?.value.into()
             }
-        }
+        })
     }
 
     /// See [`get_llvm_type`].
@@ -212,8 +220,12 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     }
 
     /// Generates an LLVM variable for a [constant value][value] with a given [type][ty].
-    pub fn gen_const(&mut self, value: &Constant, ty: Type) -> Option<BasicValueEnum<'ctx>> {
-        match value {
+    pub fn gen_const(
+        &mut self,
+        value: &Constant,
+        ty: Type,
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
+        Ok(match value {
             Constant::Bool(v) => {
                 assert!(self.unifier.unioned(ty, self.primitives.bool));
                 let ty = self.i8;
@@ -245,8 +257,9 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 } else {
                     codegen_unreachable!(self)
                 };
-                let values =
-                    zip(types, v.iter()).map_while(|(ty, v)| self.gen_const(v, ty)).collect_vec();
+                let values = zip(types, v.iter())
+                    .map_while(|(ty, v)| self.gen_const(v, ty).transpose())
+                    .collect::<Result<Vec<_>, _>>()?;
 
                 if is_vararg_ctx || values.len() == v.len() {
                     let types = values.iter().map(BasicValueEnum::get_type).collect_vec();
@@ -261,25 +274,25 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 if let Some(v) = self.const_strings.get(v) {
                     Some(*v)
                 } else {
-                    let val = StringType::new(self).constant(self, v, None).value.into();
+                    let val = StringType::new(self).constant(self, v, None)?.value.into();
                     self.const_strings.insert(v.clone(), val);
                     Some(val)
                 }
             }
             Constant::Ellipsis => {
-                let msg = self.gen_string("NotImplementedError");
+                let msg = self.gen_string("NotImplementedError")?;
 
                 self.raise_exn(
                     "0:NotImplementedError",
                     msg.into(),
                     [None, None, None],
                     self.current_loc,
-                );
+                )?;
 
                 None
             }
             _ => codegen_unreachable!(self),
-        }
+        })
     }
 
     /// Generates a binary operation `op` between two integral operands `lhs` and `rhs`.
@@ -289,44 +302,30 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
         signed: bool,
-    ) -> BasicValueEnum<'ctx> {
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         let (BasicValueEnum::IntValue(lhs), BasicValueEnum::IntValue(rhs)) = (lhs, rhs) else {
             codegen_unreachable!(self)
         };
         let float = self.f64;
-        match (op, signed) {
-            (Operator::Add, _) => {
-                self.builder.build_int_add(lhs, rhs, "add").map(Into::into).unwrap()
-            }
-            (Operator::Sub, _) => {
-                self.builder.build_int_sub(lhs, rhs, "sub").map(Into::into).unwrap()
-            }
-            (Operator::Mult, _) => {
-                self.builder.build_int_mul(lhs, rhs, "mul").map(Into::into).unwrap()
-            }
+        Ok(match (op, signed) {
+            (Operator::Add, _) => self.builder.build_int_add(lhs, rhs, "add")?.into(),
+            (Operator::Sub, _) => self.builder.build_int_sub(lhs, rhs, "sub")?.into(),
+            (Operator::Mult, _) => self.builder.build_int_mul(lhs, rhs, "mul")?.into(),
             (Operator::Div, true) => {
-                let left = self.builder.build_signed_int_to_float(lhs, float, "i2f").unwrap();
-                let right = self.builder.build_signed_int_to_float(rhs, float, "i2f").unwrap();
-                self.builder.build_float_div(left, right, "fdiv").map(Into::into).unwrap()
+                let left = self.builder.build_signed_int_to_float(lhs, float, "i2f")?;
+                let right = self.builder.build_signed_int_to_float(rhs, float, "i2f")?;
+                self.builder.build_float_div(left, right, "fdiv")?.into()
             }
             (Operator::Div, false) => {
-                let left = self.builder.build_unsigned_int_to_float(lhs, float, "i2f").unwrap();
-                let right = self.builder.build_unsigned_int_to_float(rhs, float, "i2f").unwrap();
-                self.builder.build_float_div(left, right, "fdiv").map(Into::into).unwrap()
+                let left = self.builder.build_unsigned_int_to_float(lhs, float, "i2f")?;
+                let right = self.builder.build_unsigned_int_to_float(rhs, float, "i2f")?;
+                self.builder.build_float_div(left, right, "fdiv")?.into()
             }
-            (Operator::Mod, true) => {
-                self.builder.build_int_signed_rem(lhs, rhs, "mod").map(Into::into).unwrap()
-            }
-            (Operator::Mod, false) => {
-                self.builder.build_int_unsigned_rem(lhs, rhs, "mod").map(Into::into).unwrap()
-            }
-            (Operator::BitOr, _) => self.builder.build_or(lhs, rhs, "or").map(Into::into).unwrap(),
-            (Operator::BitXor, _) => {
-                self.builder.build_xor(lhs, rhs, "xor").map(Into::into).unwrap()
-            }
-            (Operator::BitAnd, _) => {
-                self.builder.build_and(lhs, rhs, "and").map(Into::into).unwrap()
-            }
+            (Operator::Mod, true) => self.builder.build_int_signed_rem(lhs, rhs, "mod")?.into(),
+            (Operator::Mod, false) => self.builder.build_int_unsigned_rem(lhs, rhs, "mod")?.into(),
+            (Operator::BitOr, _) => self.builder.build_or(lhs, rhs, "or")?.into(),
+            (Operator::BitXor, _) => self.builder.build_xor(lhs, rhs, "xor")?.into(),
+            (Operator::BitAnd, _) => self.builder.build_and(lhs, rhs, "and")?.into(),
 
             // Sign-ness of bitshift operators are always determined by the left operand
             (Operator::LShift | Operator::RShift, signed) => {
@@ -336,49 +335,47 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 let common_type = lhs.get_type();
                 let rhs = if common_type.get_bit_width() > 32 {
                     if signed {
-                        self.builder.build_int_s_extend(rhs, common_type, "").unwrap()
+                        self.builder.build_int_s_extend(rhs, common_type, "")?
                     } else {
-                        self.builder.build_int_z_extend(rhs, common_type, "").unwrap()
+                        self.builder.build_int_z_extend(rhs, common_type, "")?
                     }
                 } else {
                     rhs
                 };
 
-                let rhs_gez = self
-                    .builder
-                    .build_int_compare(IntPredicate::SGE, rhs, common_type.const_zero(), "")
-                    .unwrap();
+                let rhs_gez = self.builder.build_int_compare(
+                    IntPredicate::SGE,
+                    rhs,
+                    common_type.const_zero(),
+                    "",
+                )?;
                 self.make_assert(
                     rhs_gez,
                     "ValueError",
                     "negative shift count",
                     [None, None, None],
                     self.current_loc,
-                );
+                )?;
 
                 match op {
-                    Operator::LShift => {
-                        self.builder.build_left_shift(lhs, rhs, "lshift").map(Into::into).unwrap()
+                    Operator::LShift => self.builder.build_left_shift(lhs, rhs, "lshift")?.into(),
+                    Operator::RShift => {
+                        self.builder.build_right_shift(lhs, rhs, signed, "rshift")?.into()
                     }
-                    Operator::RShift => self
-                        .builder
-                        .build_right_shift(lhs, rhs, signed, "rshift")
-                        .map(Into::into)
-                        .unwrap(),
                     _ => codegen_unreachable!(self),
                 }
             }
 
             (Operator::FloorDiv, true) => {
-                self.builder.build_int_signed_div(lhs, rhs, "floordiv").map(Into::into).unwrap()
+                self.builder.build_int_signed_div(lhs, rhs, "floordiv")?.into()
             }
             (Operator::FloorDiv, false) => {
-                self.builder.build_int_unsigned_div(lhs, rhs, "floordiv").map(Into::into).unwrap()
+                self.builder.build_int_unsigned_div(lhs, rhs, "floordiv")?.into()
             }
-            (Operator::Pow, s) => integer_power(self, lhs, rhs, s).into(),
+            (Operator::Pow, s) => integer_power(self, lhs, rhs, s)?.into(),
             // special implementation?
             (Operator::MatMult, _) => codegen_unreachable!(self),
-        }
+        })
     }
 
     /// Generates a binary operation `op` between two floating-point operands `lhs` and `rhs`.
@@ -387,7 +384,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         op: Operator,
         lhs: BasicValueEnum<'ctx>,
         rhs: BasicValueEnum<'ctx>,
-    ) -> BasicValueEnum<'ctx> {
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         let (BasicValueEnum::FloatValue(lhs), BasicValueEnum::FloatValue(rhs)) = (lhs, rhs) else {
             codegen_unreachable!(
                 self,
@@ -396,30 +393,20 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 rhs.get_type()
             )
         };
-        match op {
-            Operator::Add => {
-                self.builder.build_float_add(lhs, rhs, "fadd").map(Into::into).unwrap()
-            }
-            Operator::Sub => {
-                self.builder.build_float_sub(lhs, rhs, "fsub").map(Into::into).unwrap()
-            }
-            Operator::Mult => {
-                self.builder.build_float_mul(lhs, rhs, "fmul").map(Into::into).unwrap()
-            }
-            Operator::Div => {
-                self.builder.build_float_div(lhs, rhs, "fdiv").map(Into::into).unwrap()
-            }
-            Operator::Mod => {
-                self.builder.build_float_rem(lhs, rhs, "fmod").map(Into::into).unwrap()
-            }
+        Ok(match op {
+            Operator::Add => self.builder.build_float_add(lhs, rhs, "fadd")?.into(),
+            Operator::Sub => self.builder.build_float_sub(lhs, rhs, "fsub")?.into(),
+            Operator::Mult => self.builder.build_float_mul(lhs, rhs, "fmul")?.into(),
+            Operator::Div => self.builder.build_float_div(lhs, rhs, "fdiv")?.into(),
+            Operator::Mod => self.builder.build_float_rem(lhs, rhs, "fmod")?.into(),
             Operator::FloorDiv => {
-                let div = self.builder.build_float_div(lhs, rhs, "fdiv").unwrap();
-                call_float_floor(self, div, Some("floor")).into()
+                let div = self.builder.build_float_div(lhs, rhs, "fdiv")?;
+                call_float_floor(self, div, Some("floor"))?.into()
             }
-            Operator::Pow => call_float_pow(self, lhs, rhs, Some("f_pow")).into(),
+            Operator::Pow => call_float_pow(self, lhs, rhs, Some("f_pow"))?.into(),
             // special implementation?
             _ => unimplemented!(),
-        }
+        })
     }
 
     fn build_call_or_invoke_impl(
@@ -428,7 +415,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         args: &[BasicValueEnum<'ctx>],
         call_name: &str,
         unwind_target: Option<BasicBlock<'ctx>>,
-    ) -> Option<BasicValueEnum<'ctx>> {
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
         let loc = self.debug_info.0.create_debug_location(
             self.ctx,
             self.current_loc.row as u32,
@@ -447,12 +434,13 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     fun,
                     self.builder,
                     &args,
-                    |value, args| self.builder.build_call(value, args, call_name).unwrap(),
+                    |value, args| Ok(self.builder.build_call(value, args, call_name)?),
                     alloca,
                 )
             },
             |target| {
-                let current = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let current =
+                    self.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
                 let then_block =
                     self.ctx.append_basic_block(current, &format!("after.{call_name}"));
                 let result = self.fn_store.do_call(
@@ -460,9 +448,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     self.builder,
                     args,
                     |value, args| {
-                        self.builder
-                            .build_invoke(value, args, then_block, target, call_name)
-                            .unwrap()
+                        Ok(self.builder.build_invoke(value, args, then_block, target, call_name)?)
                     },
                     alloca,
                 );
@@ -473,35 +459,34 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     }
 
     /// Calls a declared function.
-    #[must_use]
     pub fn build_call_or_invoke(
         &self,
         fun: &FunctionDecl<'ctx>,
         args: &[BasicValueEnum<'ctx>],
         call_name: &str,
-    ) -> Option<BasicValueEnum<'ctx>> {
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
         self.build_call_or_invoke_impl(fun, args, call_name, self.unwind_target)
     }
 
     /// Calls a declared function, ignoring unwind info.
-    #[must_use]
     pub fn build_call(
         &self,
         fun: &FunctionDecl<'ctx>,
         args: &[BasicValueEnum<'ctx>],
         call_name: &str,
-    ) -> Option<BasicValueEnum<'ctx>> {
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
         self.build_call_or_invoke_impl(fun, args, call_name, None)
     }
 
     /// Helper function for generating a LLVM variable storing a [String].
-    pub fn gen_string<S>(&mut self, s: S) -> StructValue<'ctx>
+    pub fn gen_string<S>(&mut self, s: S) -> anyhow::Result<StructValue<'ctx>>
     where
         S: Into<String>,
     {
-        self.gen_const(&Constant::Str(s.into()), self.primitives.str)
+        Ok(self
+            .gen_const(&Constant::Str(s.into()), self.primitives.str)?
             .map(BasicValueEnum::into_struct_value)
-            .unwrap()
+            .unwrap())
     }
 
     pub fn raise_exn(
@@ -510,7 +495,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         msg: BasicValueEnum<'ctx>,
         params: [Option<IntValue<'ctx>>; 3],
         loc: Location,
-    ) {
+    ) -> anyhow::Result<()> {
         let llvm_i32 = self.i32;
         let llvm_i64 = self.i64;
         let llvm_exn = ExceptionType::new(self);
@@ -518,18 +503,23 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         let zelf = llvm_exn.map_value(self.exception_val, Some("exn"));
 
         let id = self.resolver.get_string_id(name);
-        zelf.store(self, field!(name), llvm_i32.const_int(id as u64, false));
-        zelf.store(self, field!(message), msg.into_struct_value());
-        let params = params.map(|p| {
-            p.map_or_else(
-                || llvm_i64.const_zero(),
-                |v| self.builder.build_int_s_extend(v, self.i64, "sext").unwrap(),
-            )
-        });
-        zelf.store(self, field!(param0), params[0]);
-        zelf.store(self, field!(param1), params[1]);
-        zelf.store(self, field!(param2), params[2]);
-        gen_raise(self, Some(&zelf), loc);
+        zelf.store(self, field!(name), llvm_i32.const_int(id as u64, false))?;
+        zelf.store(self, field!(message), msg.into_struct_value())?;
+        let params = params
+            .into_iter()
+            .map(|p| {
+                p.map_or_else(
+                    || anyhow::Ok(llvm_i64.const_zero()),
+                    |v| anyhow::Ok(self.builder.build_int_s_extend(v, self.i64, "sext")?),
+                )
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        zelf.store(self, field!(param0), params[0])?;
+        zelf.store(self, field!(param1), params[1])?;
+        zelf.store(self, field!(param2), params[2])?;
+        gen_raise(self, Some(&zelf), loc)?;
+
+        Ok(())
     }
 
     pub fn make_assert(
@@ -539,9 +529,9 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         err_msg: &str,
         params: [Option<IntValue<'ctx>>; 3],
         loc: Location,
-    ) {
-        let err_msg = self.gen_string(err_msg);
-        self.make_assert_impl(cond, err_name, err_msg.into(), params, loc);
+    ) -> anyhow::Result<()> {
+        let err_msg = self.gen_string(err_msg)?;
+        self.make_assert_impl(cond, err_name, err_msg.into(), params, loc)
     }
 
     pub fn make_assert_impl(
@@ -551,22 +541,23 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         err_msg: BasicValueEnum<'ctx>,
         params: [Option<IntValue<'ctx>>; 3],
         loc: Location,
-    ) {
+    ) -> anyhow::Result<()> {
         let i1 = self.i1;
         let i1_true = i1.const_all_ones();
         // we assume that the condition is most probably true, so the normal path is the most
         // probable path
         // even if this assumption is violated, it does not matter as exception unwinding is
         // slow anyway...
-        let cond = call_expect(self, cond, i1_true, Some("expect"));
+        let cond = call_expect(self, cond, i1_true, Some("expect"))?;
         let current_bb = self.builder.get_insert_block().unwrap();
         let current_fun = current_bb.get_parent().unwrap();
         let then_block = self.ctx.insert_basic_block_after(current_bb, "succ");
         let exn_block = self.ctx.append_basic_block(current_fun, "fail");
-        self.builder.build_conditional_branch(cond, then_block, exn_block).unwrap();
+        self.builder.build_conditional_branch(cond, then_block, exn_block)?;
         self.builder.position_at_end(exn_block);
-        self.raise_exn(err_name, err_msg, params, loc);
+        self.raise_exn(err_name, err_msg, params, loc)?;
         self.builder.position_at_end(then_block);
+        Ok(())
     }
 }
 
@@ -577,13 +568,13 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
     signature: &FunSignature,
     def: &TopLevelDef,
     params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     let TopLevelDef::Class { methods, .. } = def else { codegen_unreachable!(ctx) };
 
     // TODO: what about other fields that require alloca?
     let fun_id = methods.iter().find(|method| method.0 == "__init__".into()).map(|method| method.2);
     let ty = ctx.get_alloca_type(signature.ret);
-    let zelf: BasicValueEnum<'ctx> = gen_dyn_var(ctx, ty, Some("alloca")).into();
+    let zelf: BasicValueEnum<'ctx> = gen_dyn_var(ctx, ty, Some("alloca"))?.into();
     // call `__init__` if there is one
     if let Some(fun_id) = fun_id {
         let mut sign = signature.clone();
@@ -599,7 +590,7 @@ pub fn gen_func_instance(
     obj: Option<Type>,
     fun: (&FunSignature, &mut TopLevelDef, String),
     id: usize,
-) -> Result<String, String> {
+) -> anyhow::Result<String> {
     let (
         sign,
         TopLevelDef::Function {
@@ -680,7 +671,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
     obj: Option<(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
     let definition = ctx.top_level.definitions.read().get(fun.1.0).cloned().unwrap();
     let id;
     let key;
@@ -713,9 +704,14 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
 
                 // default value handling
                 for k in keys {
-                    mapping.entry(k.name).or_insert_with(|| {
-                        ctx.gen_symbol_val(&k.default_value.unwrap(), k.ty).into()
-                    });
+                    match mapping.entry(k.name) {
+                        Entry::Occupied(_) => {}
+                        Entry::Vacant(entry) => {
+                            let default_value =
+                                ctx.gen_symbol_val(&k.default_value.unwrap(), k.ty)?.into();
+                            entry.insert(default_value);
+                        }
+                    }
                 }
 
                 // reorder the parameters
@@ -749,8 +745,8 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
                 key = if is_extern { String::new() } else { format!("{id}:{old_key}") };
                 param_vals = real_params
                     .into_iter()
-                    .map(|(p, t)| Ok::<_, String>((p.to_basic_value_enum(ctx, t)?, t)))
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .map(|(p, t)| anyhow::Ok((p.to_basic_value_enum(ctx, t)?, t)))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
                 instance_to_symbol.get(&key).cloned().ok_or_else(String::new)
             }
             TopLevelDef::Class { .. } => {
@@ -789,20 +785,20 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
     let param_vals = param_vals
         .into_iter()
         .map(|(v, t)| {
-            if ctx.unifier.unioned(ctx.primitives.bool, t) {
+            anyhow::Ok(if ctx.unifier.unioned(ctx.primitives.bool, t) {
                 // Convert boolean parameter values into i1
-                bool_to_i1(ctx, v.into_int_value()).into()
+                bool_to_i1(ctx, v.into_int_value())?.into()
             } else if let BasicValueEnum::PointerValue(p) = v {
-                ctx.builder.build_pointer_cast(p, ctx.ptr, "ptr_cast").unwrap().into()
+                ctx.builder.build_pointer_cast(p, ctx.ptr, "ptr_cast")?.into()
             } else {
                 v
-            }
+            })
         })
-        .collect_vec();
+        .collect::<Result<Vec<_>, _>>()?;
 
     // The function instance should have already been constructed (at least declared) here.
 
-    Ok(ctx.build_call_or_invoke(&f, &param_vals, "call"))
+    ctx.build_call_or_invoke(&f, &param_vals, "call")
 }
 
 /// Generates three LLVM variables representing the start, stop, and step values of a [range] class
@@ -810,11 +806,11 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
 pub fn destructure_range<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     range: RangeValue<'ctx>,
-) -> (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>) {
-    let start = range.load_field(ctx, RangeField::Start);
-    let end = range.load_field(ctx, RangeField::End);
-    let step = range.load_field(ctx, RangeField::Step);
-    (start, end, step)
+) -> anyhow::Result<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>)> {
+    let start = range.load_field(ctx, RangeField::Start)?;
+    let end = range.load_field(ctx, RangeField::End)?;
+    let step = range.load_field(ctx, RangeField::Step)?;
+    Ok((start, end, step))
 }
 
 /// Generates LLVM IR for a [list comprehension expression][expr].
@@ -822,17 +818,17 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     expr: &Expr<Option<Type>>,
-) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
     let ExprKind::ListComp { elt, generators } = &expr.node else { codegen_unreachable!(ctx) };
 
-    let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
+    let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
 
     let init_bb = ctx.ctx.append_basic_block(current, "listcomp.init");
     let test_bb = ctx.ctx.append_basic_block(current, "listcomp.test");
     let body_bb = ctx.ctx.append_basic_block(current, "listcomp.body");
     let cont_bb = ctx.ctx.append_basic_block(current, "listcomp.cont");
 
-    ctx.builder.build_unconditional_branch(init_bb).unwrap();
+    ctx.builder.build_unconditional_branch(init_bb)?;
 
     ctx.builder.position_at_end(init_bb);
 
@@ -846,8 +842,8 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let zero_size_t = size_t.const_zero();
     let zero_32 = int32.const_zero();
 
-    let index = gen_var(ctx, size_t, Some("index.addr"));
-    typed_store(ctx.builder, index, zero_size_t);
+    let index = gen_var(ctx, size_t, Some("index.addr"))?;
+    typed_store(ctx.builder, index, zero_size_t)?;
 
     let elem_ty = elt.custom.unwrap();
     let list;
@@ -858,68 +854,51 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         {
             let iter_val =
                 RangeType::new(ctx).map_value(iter_val.into_pointer_value(), Some("range"));
-            let (start, stop, step) = destructure_range(ctx, iter_val);
-            let diff = ctx.builder.build_int_sub(stop, start, "diff").unwrap();
+            let (start, stop, step) = destructure_range(ctx, iter_val)?;
+            let diff = ctx.builder.build_int_sub(stop, start, "diff")?;
             // add 1 to the length as the value is rounded to zero
             // the length may be 1 more than the actual length if the division is exact, but the
             // length is a upper bound only anyway so it does not matter.
-            let length = ctx.builder.build_int_signed_div(diff, step, "div").unwrap();
-            let length =
-                ctx.builder.build_int_add(length, int32.const_int(1, false), "add1").unwrap();
+            let length = ctx.builder.build_int_signed_div(diff, step, "div")?;
+            let length = ctx.builder.build_int_add(length, int32.const_int(1, false), "add1")?;
             // in case length is non-positive
             let is_valid =
-                ctx.builder.build_int_compare(IntPredicate::SGT, length, zero_32, "check").unwrap();
+                ctx.builder.build_int_compare(IntPredicate::SGT, length, zero_32, "check")?;
 
-            let list_alloc_size = ctx
-                .builder
-                .build_select(
-                    is_valid,
-                    ctx.builder
-                        .build_int_z_extend_or_bit_cast(length, size_t, "z_ext_len")
-                        .unwrap(),
-                    zero_size_t,
-                    "listcomp.alloc_size",
-                )
-                .unwrap();
+            let list_alloc_size = ctx.builder.build_select(
+                is_valid,
+                ctx.builder.build_int_z_extend_or_bit_cast(length, size_t, "z_ext_len")?,
+                zero_size_t,
+                "listcomp.alloc_size",
+            )?;
             list = ListType::new(ctx, elem_ty).construct(
                 ctx,
                 list_alloc_size.into_int_value(),
                 Some("listcomp"),
-            );
+            )?;
 
             let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
-            typed_store(
-                ctx.builder,
-                i,
-                ctx.builder.build_int_sub(start, step, "start_init").unwrap(),
-            );
+            typed_store(ctx.builder, i, ctx.builder.build_int_sub(start, step, "start_init")?)?;
 
-            ctx.builder
-                .build_conditional_branch(
-                    gen_in_range_check(ctx, start, stop, step),
-                    test_bb,
-                    cont_bb,
-                )
-                .unwrap();
+            ctx.builder.build_conditional_branch(
+                gen_in_range_check(ctx, start, stop, step)?,
+                test_bb,
+                cont_bb,
+            )?;
 
             ctx.builder.position_at_end(test_bb);
             // add and test
-            let tmp = ctx
-                .builder
-                .build_int_add(
-                    ctx.builder.build_load(i, "i").map(BasicValueEnum::into_int_value).unwrap(),
-                    step,
-                    "start_loop",
-                )
-                .unwrap();
-            typed_store(ctx.builder, i, tmp);
-            ctx.builder
-                .build_conditional_branch(
-                    gen_in_range_check(ctx, tmp, stop, step),
-                    body_bb,
-                    cont_bb,
-                )
-                .unwrap();
+            let tmp = ctx.builder.build_int_add(
+                ctx.builder.build_load(i, "i")?.into_int_value(),
+                step,
+                "start_loop",
+            )?;
+            typed_store(ctx.builder, i, tmp)?;
+            ctx.builder.build_conditional_branch(
+                gen_in_range_check(ctx, tmp, stop, step)?,
+                body_bb,
+                cont_bb,
+            )?;
 
             ctx.builder.position_at_end(body_bb);
         }
@@ -928,28 +907,27 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         {
             let iter_val = ListType::from_unifier_type(ctx, iter_ty)
                 .map_value(iter_val.into_pointer_value(), Some("list"));
-            let length = iter_val.load(ctx, field!(len));
-            list = ListType::new(ctx, elem_ty).construct(ctx, length, Some("listcomp"));
+            let length = iter_val.load(ctx, field!(len))?;
+            list = ListType::new(ctx, elem_ty).construct(ctx, length, Some("listcomp"))?;
 
-            let counter = gen_var(ctx, size_t, Some("counter.addr"));
+            let counter = gen_var(ctx, size_t, Some("counter.addr"))?;
             // counter = -1
-            typed_store(ctx.builder, counter, size_t.const_all_ones());
-            ctx.builder.build_unconditional_branch(test_bb).unwrap();
+            typed_store(ctx.builder, counter, size_t.const_all_ones())?;
+            ctx.builder.build_unconditional_branch(test_bb)?;
 
             ctx.builder.position_at_end(test_bb);
-            let tmp =
-                ctx.builder.build_load(counter, "i").map(BasicValueEnum::into_int_value).unwrap();
-            let tmp = ctx.builder.build_int_add(tmp, size_t.const_int(1, false), "inc").unwrap();
-            typed_store(ctx.builder, counter, tmp);
-            let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, length, "cmp").unwrap();
-            ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb).unwrap();
+            let tmp = ctx.builder.build_load(counter, "i")?.into_int_value();
+            let tmp = ctx.builder.build_int_add(tmp, size_t.const_int(1, false), "inc")?;
+            typed_store(ctx.builder, counter, tmp)?;
+            let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, length, "cmp")?;
+            ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb)?;
 
             ctx.builder.position_at_end(body_bb);
-            let val = iter_val.data(ctx).get_unchecked(ctx, &tmp, Some("val"));
+            let val = iter_val.data(ctx)?.get_unchecked(ctx, &tmp, Some("val"))?;
             generator.gen_assign(ctx, target, &val, elt.custom.unwrap())?;
         }
         _ => {
-            panic!(
+            bail!(
                 "unsupported list comprehension iterator type: {}",
                 ctx.unifier.stringify(iter_ty)
             );
@@ -959,34 +937,30 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     // Emits the content of `cont_bb`
     let emit_cont_bb = |ctx: &mut CodeGenContext<'ctx, '_>, list: ListValue<'ctx>| {
         ctx.builder.position_at_end(cont_bb);
-        list.store(
-            ctx,
-            field!(len),
-            ctx.builder.build_load(index, "index").map(BasicValueEnum::into_int_value).unwrap(),
-        );
+        list.store(ctx, field!(len), ctx.builder.build_load(index, "index")?.into_int_value())
     };
 
     for cond in ifs {
         let result = generator.gen_expr(ctx, cond)?.to_basic_value_enum(ctx)?.into_int_value();
-        let result = bool_to_i1(ctx, result);
+        let result = bool_to_i1(ctx, result)?;
         let succ = ctx.ctx.append_basic_block(current, "then");
-        ctx.builder.build_conditional_branch(result, succ, test_bb).unwrap();
+        ctx.builder.build_conditional_branch(result, succ, test_bb)?;
 
         ctx.builder.position_at_end(succ);
     }
 
-    let i = ctx.builder.build_load(index, "i").map(BasicValueEnum::into_int_value).unwrap();
-    let elem_ptr = list.data(ctx).ptr_offset_unchecked(ctx, &i, Some("elem_ptr"));
+    let i = ctx.builder.build_load(index, "i")?.into_int_value();
+    let elem_ptr = list.data(ctx)?.ptr_offset_unchecked(ctx, &i, Some("elem_ptr"))?;
     let val = generator.gen_expr(ctx, elt)?.to_basic_value_enum(ctx)?;
-    typed_store(ctx.builder, elem_ptr, val);
+    typed_store(ctx.builder, elem_ptr, val)?;
     typed_store(
         ctx.builder,
         index,
-        ctx.builder.build_int_add(i, size_t.const_int(1, false), "inc").unwrap(),
-    );
-    ctx.builder.build_unconditional_branch(test_bb).unwrap();
+        ctx.builder.build_int_add(i, size_t.const_int(1, false), "inc")?,
+    )?;
+    ctx.builder.build_unconditional_branch(test_bb)?;
 
-    emit_cont_bb(ctx, list);
+    emit_cont_bb(ctx, list)?;
 
     Ok(Some(list.value.into()))
 }
@@ -996,7 +970,7 @@ pub fn gen_prim_binop_expr<'ctx>(
     left: (&Option<Type>, BasicValueEnum<'ctx>),
     op: Binop,
     right: (&Option<Type>, BasicValueEnum<'ctx>),
-) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
     let (left_ty, left_val) = left;
     let (right_ty, right_val) = right;
 
@@ -1007,14 +981,14 @@ pub fn gen_prim_binop_expr<'ctx>(
     // which would be unchanged until further unification, which we would never do
     // when doing code generation for function instances
     let result = if ty1 == ty2 && [ctx.primitives.int32, ctx.primitives.int64].contains(&ty1) {
-        Ok(ctx.gen_int_ops(op.base, left_val, right_val, true))
+        Ok(ctx.gen_int_ops(op.base, left_val, right_val, true)?)
     } else if ty1 == ty2 && [ctx.primitives.uint32, ctx.primitives.uint64].contains(&ty1) {
-        Ok(ctx.gen_int_ops(op.base, left_val, right_val, false))
+        Ok(ctx.gen_int_ops(op.base, left_val, right_val, false)?)
     } else if [Operator::LShift, Operator::RShift].contains(&op.base) {
         let signed = [ctx.primitives.int32, ctx.primitives.int64].contains(&ty1);
-        Ok(ctx.gen_int_ops(op.base, left_val, right_val, signed))
+        Ok(ctx.gen_int_ops(op.base, left_val, right_val, signed)?)
     } else if ty1 == ty2 && ctx.primitives.float == ty1 {
-        Ok(ctx.gen_float_ops(op.base, left_val, right_val))
+        Ok(ctx.gen_float_ops(op.base, left_val, right_val)?)
     } else if ty1 == ctx.primitives.float && ty2 == ctx.primitives.int32 {
         // Pow is the only operator that would pass typecheck between float and int
         assert_eq!(op.base, Operator::Pow);
@@ -1023,7 +997,7 @@ pub fn gen_prim_binop_expr<'ctx>(
             left_val.into_float_value(),
             right_val.into_int_value(),
             Some("f_pow_i"),
-        );
+        )?;
         Ok(res.into())
     } else if ty1.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id())
         || ty2.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id())
@@ -1042,17 +1016,18 @@ pub fn gen_prim_binop_expr<'ctx>(
                 let list_ty = ListType::from_unifier_type(ctx, ty1);
                 let [left, right] = [left_val, right_val]
                     .map(|val| list_ty.map_value(val.into_pointer_value(), None).data(ctx));
-                let new_len = ctx.builder.build_int_add(left.value.1, right.value.1, "").unwrap();
-                let new_list = list_ty.construct(ctx, new_len, None);
-                let new_list_data = new_list.data(ctx);
+                let [left, right] = [left?, right?];
+                let new_len = ctx.builder.build_int_add(left.value.1, right.value.1, "")?;
+                let new_list = list_ty.construct(ctx, new_len, None)?;
+                let new_list_data = new_list.data(ctx)?;
 
                 let left_chunk =
                     new_list_data.ty.map_value((new_list_data.value.0, left.value.1), None);
-                left_chunk.memcpy_from(ctx, left.value.0);
+                left_chunk.memcpy_from(ctx, left.value.0)?;
 
-                let right_pos = new_list_data.ptr_offset_unchecked(ctx, &left.value.1, None);
+                let right_pos = new_list_data.ptr_offset_unchecked(ctx, &left.value.1, None)?;
                 let right_chunk = new_list_data.ty.map_value((right_pos, right.value.1), None);
-                right_chunk.memcpy_from(ctx, right.value.0);
+                right_chunk.memcpy_from(ctx, right.value.0)?;
 
                 Ok(new_list.value.into())
             }
@@ -1068,20 +1043,15 @@ pub fn gen_prim_binop_expr<'ctx>(
                     };
                 let list_ty = ListType::from_unifier_type(ctx, list_ty);
                 let list_val = list_ty.map_value(list_val.into_pointer_value(), None);
-                let int_val = ctx
-                    .builder
-                    .build_int_s_extend(int_val.into_int_value(), llvm_usize, "")
-                    .unwrap();
+                let int_val =
+                    ctx.builder.build_int_s_extend(int_val.into_int_value(), llvm_usize, "")?;
                 // [...] * (i where i < 0) => []
-                let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None);
+                let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None)?;
 
-                let (old_list_ptr, size) = list_val.data(ctx).value;
-                let new_list = list_ty.construct(
-                    ctx,
-                    ctx.builder.build_int_mul(size, int_val, "").unwrap(),
-                    None,
-                );
-                let new_list_data = new_list.data(ctx);
+                let (old_list_ptr, size) = list_val.data(ctx)?.value;
+                let new_list =
+                    list_ty.construct(ctx, ctx.builder.build_int_mul(size, int_val, "")?, None)?;
+                let new_list_data = new_list.data(ctx)?;
 
                 gen_for_callback_incrementing(
                     &mut (),
@@ -1090,10 +1060,10 @@ pub fn gen_prim_binop_expr<'ctx>(
                     llvm_usize.const_zero(),
                     (int_val, false),
                     |(), ctx, _, i| {
-                        let offset = ctx.builder.build_int_mul(i, size, "").unwrap();
-                        let ptr = new_list_data.ptr_offset_unchecked(ctx, &offset, None);
+                        let offset = ctx.builder.build_int_mul(i, size, "")?;
+                        let ptr = new_list_data.ptr_offset_unchecked(ctx, &offset, None)?;
                         let dest = new_list_data.ty.map_value((ptr, size), None);
-                        dest.memcpy_from(ctx, old_list_ptr);
+                        dest.memcpy_from(ctx, old_list_ptr)?;
                         Ok(())
                     },
                     llvm_usize.const_int(1, false),
@@ -1103,7 +1073,7 @@ pub fn gen_prim_binop_expr<'ctx>(
                 Ok(new_list.value.into())
             }
 
-            _ => todo!("Operator not supported"),
+            _ => bail!("Operator {op:?} not supported"),
         }
     } else {
         return Ok(None);
@@ -1121,7 +1091,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
     op: Binop,
     right: (&Option<Type>, BasicValueEnum<'ctx>),
     loc: Location,
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     if let Some(result) = gen_prim_binop_expr(ctx, left, op, right)? {
         return Ok(result);
     }
@@ -1160,12 +1130,12 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
             }
         };
 
-        let left = left.to_ndarray(ctx);
-        let right = right.to_ndarray(ctx);
+        let left = left.to_ndarray(ctx)?;
+        let right = right.to_ndarray(ctx)?;
 
         if op.base == Operator::MatMult {
             let result =
-                left.matmul(ctx, ty1, (ty2, right), (common_dtype, out)).split_unsized(ctx);
+                left.matmul(ctx, ty1, (ty2, right), (common_dtype, out))?.split_unsized(ctx)?;
             Ok(result.to_basic_value_enum())
         } else {
             // For other operations, they are all elementwise operations.
@@ -1192,8 +1162,7 @@ pub fn gen_binop_expr_with_values<'ctx, G: CodeGenerator>(
                 )?;
 
                 Ok(result)
-            })
-            .unwrap();
+            })?;
             Ok(result.value.into())
         }
     } else {
@@ -1262,7 +1231,7 @@ pub fn gen_binop_expr<'ctx, G: CodeGenerator>(
     right: &Expr<Option<Type>>,
     loc: Location,
     result_ty: Type,
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     let left_val = generator.gen_expr(ctx, left)?.to_basic_value_enum(ctx)?;
     let right_val = generator.gen_expr(ctx, right)?.to_basic_value_enum(ctx)?;
 
@@ -1284,19 +1253,21 @@ pub fn gen_unaryop_expr_with_values<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     op: ast::Unaryop,
     operand: (&Option<Type>, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     let (ty, val) = operand;
     let ty = ctx.unifier.get_representative(ty.unwrap());
 
     Ok(if ty == ctx.primitives.bool {
         let val = val.into_int_value();
         if op == ast::Unaryop::Not {
-            let not = ctx
-                .builder
-                .build_int_compare(IntPredicate::EQ, val, val.get_type().const_zero(), "not")
-                .unwrap();
+            let not = ctx.builder.build_int_compare(
+                IntPredicate::EQ,
+                val,
+                val.get_type().const_zero(),
+                "not",
+            )?;
 
-            bool_to_int_type(ctx.builder, not, val.get_type()).into()
+            bool_to_int_type(ctx.builder, not, val.get_type())?.into()
         } else {
             let llvm_i32 = ctx.i32;
 
@@ -1305,7 +1276,7 @@ pub fn gen_unaryop_expr_with_values<'ctx>(
                 op,
                 (
                     &Some(ctx.primitives.int32),
-                    ctx.builder.build_int_z_extend(val, llvm_i32, "").map(Into::into).unwrap(),
+                    ctx.builder.build_int_z_extend(val, llvm_i32, "")?.into(),
                 ),
             )?
         }
@@ -1319,8 +1290,8 @@ pub fn gen_unaryop_expr_with_values<'ctx>(
     {
         let val = val.into_int_value();
         match op {
-            ast::Unaryop::USub => ctx.builder.build_int_neg(val, "neg").map(Into::into).unwrap(),
-            ast::Unaryop::Invert => ctx.builder.build_not(val, "not").map(Into::into).unwrap(),
+            ast::Unaryop::USub => ctx.builder.build_int_neg(val, "neg")?.into(),
+            ast::Unaryop::Invert => ctx.builder.build_not(val, "not")?.into(),
             ast::Unaryop::Not => ctx
                 .builder
                 .build_int_compare(
@@ -1328,15 +1299,14 @@ pub fn gen_unaryop_expr_with_values<'ctx>(
                     val,
                     val.get_type().const_zero(),
                     "not",
-                )
-                .map(Into::into)
-                .unwrap(),
+                )?
+                .into(),
             ast::Unaryop::UAdd => val.into(),
         }
     } else if ty == ctx.primitives.float {
         let val = val.into_float_value();
         match op {
-            ast::Unaryop::USub => ctx.builder.build_float_neg(val, "neg").map(Into::into).unwrap(),
+            ast::Unaryop::USub => ctx.builder.build_float_neg(val, "neg")?.into(),
             ast::Unaryop::Not => ctx
                 .builder
                 .build_float_compare(
@@ -1344,9 +1314,8 @@ pub fn gen_unaryop_expr_with_values<'ctx>(
                     val,
                     val.get_type().const_zero(),
                     "not",
-                )
-                .map(Into::into)
-                .unwrap(),
+                )?
+                .into(),
             _ => val.into(),
         }
     } else if ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) {
@@ -1396,7 +1365,7 @@ pub fn gen_unaryop_expr<'ctx, G: CodeGenerator>(
     op: ast::Unaryop,
     operand: &Expr<Option<Type>>,
     result_ty: Type,
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     let val = generator.gen_expr(ctx, operand)?.to_basic_value_enum(ctx)?;
 
     let result = gen_unaryop_expr_with_values(ctx, op, (&operand.custom, val))?;
@@ -1411,7 +1380,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
     left: (Option<Type>, BasicValueEnum<'ctx>),
     ops: &[ast::Cmpop],
     comparators: &[(Option<Type>, BasicValueEnum<'ctx>)],
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     debug_assert_eq!(comparators.len(), ops.len());
 
     if comparators.len() == 1 {
@@ -1428,8 +1397,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
             let left_ty_dtype = arraylike_flatten_element_type(&mut ctx.unifier, left_ty);
             let right_ty_dtype = arraylike_flatten_element_type(&mut ctx.unifier, right_ty);
 
-            let left = ScalarOrNDArray::from_value(ctx, (left_ty, left)).to_ndarray(ctx);
-            let right = ScalarOrNDArray::from_value(ctx, (right_ty, right)).to_ndarray(ctx);
+            let left = ScalarOrNDArray::from_value(ctx, (left_ty, left)).to_ndarray(ctx)?;
+            let right = ScalarOrNDArray::from_value(ctx, (right_ty, right)).to_ndarray(ctx)?;
 
             let result_ndarray = broadcast_starmap(
                 ctx,
@@ -1447,7 +1416,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         &[(Some(right_ty_dtype), right_scalar)],
                     )?;
 
-                    Ok(bool_to_i8(ctx, val.into_int_value()).into())
+                    Ok(bool_to_i8(ctx, val.into_int_value())?.into())
                 },
             )?;
 
@@ -1456,7 +1425,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
     }
 
     let cmp_val = izip!(once(&left).chain(comparators.iter()), comparators.iter(), ops.iter(),)
-        .fold(Ok(None), |prev: Result<Option<_>, String>, (lhs, rhs, op)| {
+        .fold(Ok(None), |prev: anyhow::Result<Option<_>>, (lhs, rhs, op)| {
             let (left_ty, lhs) = lhs;
             let (right_ty, rhs) = rhs;
 
@@ -1515,7 +1484,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     _ => codegen_unreachable!(ctx),
                 };
 
-                ctx.builder.build_int_compare(op, lhs, rhs, "cmp").unwrap()
+                Ok(ctx.builder.build_int_compare(op, lhs, rhs, "cmp")?)
             } else if left_ty == ctx.primitives.float {
                 assert!(ctx.unifier.unioned(left_ty, right_ty));
 
@@ -1531,7 +1500,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     ast::Cmpop::GtE => inkwell::FloatPredicate::OGE,
                     _ => codegen_unreachable!(ctx),
                 };
-                ctx.builder.build_float_compare(op, lhs, rhs, "cmp").unwrap()
+                Ok(ctx.builder.build_float_compare(op, lhs, rhs, "cmp")?)
             } else if left_ty == ctx.primitives.str {
                 assert!(ctx.unifier.unioned(left_ty, right_ty));
 
@@ -1540,8 +1509,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 let lhs = llvm_str.map_value(lhs.into_struct_value(), None);
                 let rhs = llvm_str.map_value(rhs.into_struct_value(), None);
 
-                let result = call_string_eq(ctx, lhs, rhs);
-                if *op == Cmpop::NotEq {
+                let result = call_string_eq(ctx, lhs, rhs)?;
+                Ok(if *op == Cmpop::NotEq {
                     gen_unaryop_expr_with_values(
                         ctx,
                         Unaryop::Not,
@@ -1549,7 +1518,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     )?.into_int_value()
                 } else {
                     result
-                }
+                })
             } else if [left_ty, right_ty]
                 .iter()
                 .any(|ty| ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::List.id()))
@@ -1559,7 +1528,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 let is_eq = |generator: &mut G,
                                       ctx: &mut CodeGenContext<'ctx, '_>|
-                 -> Result<IntValue<'ctx>, String> {
+                 -> anyhow::Result<IntValue<'ctx>> {
                     if !ctx.unifier.unioned(left_ty, right_ty) {
                         return Ok(false_);
                     } else if ![Cmpop::Eq, Cmpop::NotEq].contains(op) {
@@ -1570,21 +1539,20 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         .map_value(lhs.into_pointer_value(), None);
                     let right = ListType::from_unifier_type(ctx, right_ty)
                         .map_value(rhs.into_pointer_value(), None);
-                    let left_size = left.load(ctx, field!(len));
-                    let right_size = right.load(ctx, field!(len));
+                    let left_size = left.load(ctx, field!(len))?;
+                    let right_size = right.load(ctx, field!(len))?;
 
                     let eq_len = ctx
                         .builder
-                        .build_int_compare(IntPredicate::EQ, left_size, right_size, "")
-                        .unwrap();
+                        .build_int_compare(IntPredicate::EQ, left_size, right_size, "")?;
 
                     Ok(gen_if_else_expr_callback(
                         generator,
                         ctx,
                         |_, _ctx| Ok(eq_len),
                         |generator, ctx| {
-                            let acc_addr = gen_var(ctx, ctx.i8, None);
-                            typed_store(ctx.builder, acc_addr, ctx.i8.const_all_ones());
+                            let acc_addr = gen_var(ctx, ctx.i8, None)?;
+                            typed_store(ctx.builder, acc_addr, ctx.i8.const_all_ones())?;
 
                             gen_for_callback_incrementing(
                                 &mut (),
@@ -1593,8 +1561,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                 llvm_usize.const_zero(),
                                 (left_size, false),
                                 |(), ctx, hooks, i| {
-                                    let left_v = left.data(ctx).get_unchecked(ctx, &i, None);
-                                    let right_v = right.data(ctx).get_unchecked(ctx, &i, None);
+                                    let left_v = left.data(ctx)?.get_unchecked(ctx, &i, None)?;
+                                    let right_v = right.data(ctx)?.get_unchecked(ctx, &i, None)?;
 
                                     let res = gen_cmpop_expr_with_values(
                                         generator,
@@ -1609,21 +1577,20 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                         res,
                                         res.get_type().const_zero(),
                                         "",
-                                    ).unwrap();
+                                    )?;
 
                                     gen_if_callback(
                                         &mut (),
                                         ctx,
                                         |(), _ctx| Ok(bool_res),
                                         |(), ctx| {
-                                            typed_store(ctx.builder, acc_addr, false_);
-                                            hooks.build_break_branch(ctx.builder);
+                                            typed_store(ctx.builder, acc_addr, false_)?;
+                                            hooks.build_break_branch(ctx.builder)?;
 
                                             Ok(())
                                         },
                                         |(), _| Ok(()),
-                                    )
-                                    .unwrap();
+                                    )?;
 
                                     Ok(())
                                 },
@@ -1633,9 +1600,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                             let acc = ctx
                                 .builder
-                                .build_load(acc_addr, "")
-                                .map(BasicValueEnum::into_int_value)
-                                .unwrap();
+                                .build_load(acc_addr, "")?
+                                .into_int_value();
 
                             Ok(Some(acc))
                         },
@@ -1649,15 +1615,15 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 let mut result = is_eq(generator, ctx)?;
                 if *op == Cmpop::NotEq {
-                    result = ctx.builder.build_not(result, "").unwrap();
+                    result = ctx.builder.build_not(result, "")?;
                 }
-                result
+                Ok(result)
             } else if [left_ty, right_ty].iter().any(|ty| matches!(&*ctx.unifier.get_ty_immutable(*ty), TypeEnum::TTuple { .. })) {
                 let TypeEnum::TTuple { ty: left_tys, .. } = &*ctx.unifier.get_ty_immutable(left_ty) else {
-                    return Err(format!("'{}' not supported between instances of '{}' and '{}'", op.op_info().symbol, ctx.unifier.stringify(left_ty), ctx.unifier.stringify(right_ty)))
+                    bail!("'{}' not supported between instances of '{}' and '{}'", op.op_info().symbol, ctx.unifier.stringify(left_ty), ctx.unifier.stringify(right_ty))
                 };
                 let TypeEnum::TTuple { ty: right_tys, .. } = &*ctx.unifier.get_ty_immutable(right_ty) else {
-                    return Err(format!("'{}' not supported between instances of '{}' and '{}'", op.op_info().symbol, ctx.unifier.stringify(left_ty), ctx.unifier.stringify(right_ty)))
+                    bail!("'{}' not supported between instances of '{}' and '{}'", op.op_info().symbol, ctx.unifier.stringify(left_ty), ctx.unifier.stringify(right_ty))
                 };
 
                 if ![Cmpop::Eq, Cmpop::NotEq].contains(op) {
@@ -1671,14 +1637,14 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 let llvm_i8 = ctx.i8;
 
                 // Assume `true` by default
-                let cmp_addr = gen_var(ctx, llvm_i8, None);
-                typed_store(ctx.builder, cmp_addr, llvm_i8.const_all_ones());
+                let cmp_addr = gen_var(ctx, llvm_i8, None)?;
+                typed_store(ctx.builder, cmp_addr, llvm_i8.const_all_ones())?;
 
                 let current_bb = ctx.builder.get_insert_block().unwrap();
                 let post_foreach_cmp = ctx.ctx.insert_basic_block_after(current_bb, "foreach.cmp.end");
 
                 ctx.builder.position_at_end(post_foreach_cmp);
-                let cmp_phi = ctx.builder.build_phi(llvm_i8, "").unwrap();
+                let cmp_phi = ctx.builder.build_phi(llvm_i8, "")?;
                 ctx.builder.position_at_end(current_bb);
 
                 // Generate comparison between each element
@@ -1686,13 +1652,13 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                 for i in 0..min_len {
                     let current_bb = ctx.builder.get_insert_block().unwrap();
                     let bb = ctx.ctx.insert_basic_block_after(current_bb, &format!("foreach.cmp.tuple.{i}e"));
-                    ctx.builder.build_unconditional_branch(bb).unwrap();
+                    ctx.builder.build_unconditional_branch(bb)?;
 
                     ctx.builder.position_at_end(bb);
                     let left_ty = left_tys[i];
-                    let left_elem = lhs.extract(ctx, i as u32);
+                    let left_elem = lhs.extract(ctx, i as u32)?;
                     let right_ty = right_tys[i];
-                    let right_elem = rhs.extract(ctx, i as u32);
+                    let right_elem = rhs.extract(ctx, i as u32)?;
 
                     gen_if_callback(
                         generator,
@@ -1707,18 +1673,17 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                 (Some(left_ty), left_elem),
                                 &[op],
                                 &[(Some(right_ty), right_elem)],
-                            )
-                                .map(BasicValueEnum::into_int_value)?;
+                            )?.into_int_value();
 
                             Ok(ctx.builder.build_not(
-                                bool_to_i1(ctx, cmp),
+                                bool_to_i1(ctx, cmp)?,
                                 "",
-                            ).unwrap())
+                            )?)
                         },
                         |_, ctx| {
                             let bb = ctx.builder.get_insert_block().unwrap();
                             cmp_phi.add_incoming(&[(&llvm_i8.const_zero(), bb)]);
-                            ctx.builder.build_unconditional_branch(post_foreach_cmp).unwrap();
+                            ctx.builder.build_unconditional_branch(post_foreach_cmp)?;
 
                             Ok(())
                         },
@@ -1737,13 +1702,13 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     false,
                 );
                 cmp_phi.add_incoming(&[(&is_len_eq, bb)]);
-                ctx.builder.build_unconditional_branch(post_foreach_cmp).unwrap();
+                ctx.builder.build_unconditional_branch(post_foreach_cmp)?;
 
                 ctx.builder.position_at_end(post_foreach_cmp);
                 let cmp_phi = cmp_phi.as_basic_value().into_int_value();
 
                 // Invert the final value if __ne__
-                if *op == Cmpop::NotEq {
+                Ok(if *op == Cmpop::NotEq {
                     gen_unaryop_expr_with_values(
                         ctx,
                         Unaryop::Not,
@@ -1751,7 +1716,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                     )?.into_int_value()
                 } else {
                     cmp_phi
-                }
+                })
             } else if [left_ty, right_ty].iter().any(|ty| matches!(&*ctx.unifier.get_ty_immutable(*ty), TypeEnum::TVar { .. })) {
                 if ctx.registry.codegen_options.debug {
                     ctx.make_assert(
@@ -1760,18 +1725,18 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         "nac3core::codegen::expr::gen_cmpop_expr_with_values: Unexpected comparison between two typevar values",
                         [None, None, None],
                         ctx.current_loc,
-                    );
+                    )?;
                 }
 
-                ctx.i1.get_poison()
+                Ok(ctx.i1.get_poison())
             } else {
-                return Err(format!("'{}' not supported between instances of '{}' and '{}'",
+                Err(anyhow!("'{}' not supported between instances of '{}' and '{}'",
                                    op.op_info().symbol,
                                    ctx.unifier.stringify(left_ty),
                                    ctx.unifier.stringify(right_ty)))
-            };
+            }?;
 
-            Ok(prev?.map(|v| ctx.builder.build_and(v, current, "cmp").unwrap()).or(Some(current)))
+            Ok(prev?.map(|v| anyhow::Ok(ctx.builder.build_and(v, current, "cmp")?)).transpose()?.or(Some(current)))
         })?.unwrap();
 
     Ok(cmp_val.into())
@@ -1789,7 +1754,7 @@ pub fn gen_cmpop_expr<'ctx, G: CodeGenerator>(
     ops: &[ast::Cmpop],
     comparators: &[Expr<Option<Type>>],
     result_ty: Type,
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     let left_val = generator.gen_expr(ctx, left)?.to_basic_value_enum(ctx)?;
 
     let comparator_vals = comparators
@@ -1797,7 +1762,7 @@ pub fn gen_cmpop_expr<'ctx, G: CodeGenerator>(
         .map(|cmptor| {
             Ok((cmptor.custom, generator.gen_expr(ctx, cmptor)?.to_basic_value_enum(ctx)?))
         })
-        .collect::<Result<Vec<_>, String>>()?;
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     let result = gen_cmpop_expr_with_values(
         generator,
@@ -1815,19 +1780,19 @@ fn gen_list_expr<'ctx, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ty: Type,
     elts: &[Expr<Option<Type>>],
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     // this shall be optimized later for constant primitive lists...
     // we should use memcpy for that instead of generating thousands of stores
     let elements =
         elts.iter().map(|x| generator.gen_expr(ctx, x)).collect::<Result<Vec<_>, _>>()?;
 
     let len = ctx.size_t.const_int(elements.len() as u64, false);
-    let val = ListType::from_unifier_type(ctx, ty).construct(ctx, len, None);
+    let val = ListType::from_unifier_type(ctx, ty).construct(ctx, len, None)?;
 
-    let data = val.data(ctx);
+    let data = val.data(ctx)?;
     for (i, v) in elements.iter().enumerate() {
         let v = v.to_basic_value_enum(ctx)?;
-        data.set_unchecked(ctx, &ctx.size_t.const_int(i as u64, false), v, None);
+        data.set_unchecked(ctx, &ctx.size_t.const_int(i as u64, false), v, None)?;
     }
     Ok(RtValue::dynamic(ty, val.value.into()))
 }
@@ -1837,13 +1802,13 @@ fn gen_tuple_expr<'ctx, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ty: Type,
     elts: &[Expr<Option<Type>>],
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     let element_val = elts
         .iter()
-        .map(|x| generator.gen_expr(ctx, x).and_then(|v| v.to_basic_value_enum(ctx)))
+        .map(|x| anyhow::Ok(generator.gen_expr(ctx, x)?.to_basic_value_enum(ctx)?))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let val = TupleValue::new(ctx, &element_val, Some("tuple"));
+    let val = TupleValue::new(ctx, &element_val, Some("tuple"))?;
     Ok(RtValue::dynamic(ty, val.value.into()))
 }
 
@@ -1854,7 +1819,7 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
     expr: &Expr<Option<Type>>,
     value: &Expr<Option<Type>>,
     attr: StrRef,
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     // note that we would handle class methods directly in calls
 
     // Change Class attribute access requests to accessing constants from Class Definition
@@ -1903,14 +1868,11 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
     let load_dyn = |ctx: &mut CodeGenContext<'ctx, '_>, v: BasicValueEnum<'ctx>| {
         let (index, _) = ctx.get_attr_index(value.custom.unwrap(), attr);
         let alloca_type = ctx.get_alloca_type(result.ty);
-        let ptr = ctx
-            .builder
-            .build_pointer_cast(
-                v.into_pointer_value(),
-                alloca_type.ptr_type(AddressSpace::default()),
-                "attr_ptr",
-            )
-            .unwrap();
+        let ptr = ctx.builder.build_pointer_cast(
+            v.into_pointer_value(),
+            alloca_type.ptr_type(AddressSpace::default()),
+            "attr_ptr",
+        )?;
         ctx.build_gep_and_load(
             ptr,
             &[ctx.i32.const_int(0, false), ctx.i32.const_int(index as u64, false)],
@@ -1918,12 +1880,12 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
         )
     };
     let res = match result.val {
-        Some(ValueEnum::Static(v)) => match v.get_field(attr, ctx) {
+        Some(ValueEnum::Static(v)) => match v.get_field(attr, ctx)? {
             Some(ValueEnum::Static(v)) => RtValue::r#static(ty, v),
             Some(ValueEnum::Dynamic(v)) => RtValue::dynamic(ty, v),
             None => {
                 let v = v.to_basic_value_enum(ctx, value.custom.unwrap())?;
-                RtValue::dynamic(ty, load_dyn(ctx, v))
+                RtValue::dynamic(ty, load_dyn(ctx, v)?)
             }
         },
         Some(ValueEnum::Dynamic(v)) => {
@@ -1935,7 +1897,7 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
 
                 return generator.gen_expr(ctx, &modified_expr);
             }
-            RtValue::dynamic(ty, load_dyn(ctx, v))
+            RtValue::dynamic(ty, load_dyn(ctx, v)?)
         }
         None => RtValue::none(ty),
     };
@@ -1948,51 +1910,51 @@ fn gen_boolop_expr<'ctx, G: CodeGenerator>(
     ty: Type,
     op: Boolop,
     values: &[Expr<Option<Type>>],
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     // requires conditional branches for short-circuiting...
     let left = generator.gen_expr(ctx, &values[0])?.to_basic_value_enum(ctx)?.into_int_value();
-    let left = bool_to_i1(ctx, left);
-    let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
+    let left = bool_to_i1(ctx, left)?;
+    let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let a_begin_bb = ctx.ctx.append_basic_block(current, "a_begin");
     let a_end_bb = ctx.ctx.append_basic_block(current, "a_end");
     let b_begin_bb = ctx.ctx.append_basic_block(current, "b_begin");
     let b_end_bb = ctx.ctx.append_basic_block(current, "b_end");
     let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-    ctx.builder.build_conditional_branch(left, a_begin_bb, b_begin_bb).unwrap();
+    ctx.builder.build_conditional_branch(left, a_begin_bb, b_begin_bb)?;
 
     ctx.builder.position_at_end(a_end_bb);
-    ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+    ctx.builder.build_unconditional_branch(cont_bb)?;
     ctx.builder.position_at_end(b_end_bb);
-    ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+    ctx.builder.build_unconditional_branch(cont_bb)?;
     let (a, b) = match op {
         Boolop::Or => {
             ctx.builder.position_at_end(a_begin_bb);
             let a = ctx.i8.const_int(1, false);
-            ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
+            ctx.builder.build_unconditional_branch(a_end_bb)?;
 
             ctx.builder.position_at_end(b_begin_bb);
             let b = generator.gen_expr(ctx, &values[1])?.to_basic_value_enum(ctx)?.into_int_value();
-            let b = bool_to_i8(ctx, b);
-            ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
+            let b = bool_to_i8(ctx, b)?;
+            ctx.builder.build_unconditional_branch(b_end_bb)?;
 
             (a, b)
         }
         Boolop::And => {
             ctx.builder.position_at_end(a_begin_bb);
             let a = generator.gen_expr(ctx, &values[1])?.to_basic_value_enum(ctx)?.into_int_value();
-            let a = bool_to_i8(ctx, a);
-            ctx.builder.build_unconditional_branch(a_end_bb).unwrap();
+            let a = bool_to_i8(ctx, a)?;
+            ctx.builder.build_unconditional_branch(a_end_bb)?;
 
             ctx.builder.position_at_end(b_begin_bb);
             let b = ctx.i8.const_zero();
-            ctx.builder.build_unconditional_branch(b_end_bb).unwrap();
+            ctx.builder.build_unconditional_branch(b_end_bb)?;
 
             (a, b)
         }
     };
 
     ctx.builder.position_at_end(cont_bb);
-    let phi = ctx.builder.build_phi(ctx.i8, "").unwrap();
+    let phi = ctx.builder.build_phi(ctx.i8, "")?;
     phi.add_incoming(&[(&a, a_end_bb), (&b, b_end_bb)]);
     Ok(RtValue::dynamic(ty, phi.as_basic_value()))
 }
@@ -2004,22 +1966,22 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
     test: &Expr<Option<Type>>,
     body: &Expr<Option<Type>>,
     orelse: &Expr<Option<Type>>,
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     let test = generator.gen_expr(ctx, test)?.to_basic_value_enum(ctx)?.into_int_value();
-    let test = bool_to_i1(ctx, test);
+    let test = bool_to_i1(ctx, test)?;
     let body_ty = body.custom.unwrap();
     let is_none = ctx.unifier.get_representative(body_ty) == ctx.primitives.none;
     let result = if is_none {
         None
     } else {
         let llvm_ty = ctx.get_llvm_type(body_ty);
-        Some(gen_var(ctx, llvm_ty, Some("if_exp_result")))
+        Some(gen_var(ctx, llvm_ty, Some("if_exp_result"))?)
     };
-    let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
+    let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let then_bb = ctx.ctx.append_basic_block(current, "then");
     let else_bb = ctx.ctx.append_basic_block(current, "else");
     let cont_bb = ctx.ctx.append_basic_block(current, "cont");
-    ctx.builder.build_conditional_branch(test, then_bb, else_bb).unwrap();
+    ctx.builder.build_conditional_branch(test, then_bb, else_bb)?;
 
     ctx.builder.position_at_end(then_bb);
     let a = generator.gen_expr(ctx, body)?;
@@ -2030,7 +1992,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
             Some(typed_store(ctx.builder, v, a))
         }
     };
-    ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+    ctx.builder.build_unconditional_branch(cont_bb)?;
 
     ctx.builder.position_at_end(else_bb);
     let b = generator.gen_expr(ctx, orelse)?;
@@ -2038,14 +2000,14 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         None => None,
         Some(v) => {
             let b = b.to_basic_value_enum(ctx)?;
-            Some(typed_store(ctx.builder, v, b))
+            Some(typed_store(ctx.builder, v, b)?)
         }
     };
-    ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+    ctx.builder.build_unconditional_branch(cont_bb)?;
 
     ctx.builder.position_at_end(cont_bb);
     Ok(if let Some(v) = result {
-        let val = ctx.builder.build_load(v, "if_exp_val_load").unwrap();
+        let val = ctx.builder.build_load(v, "if_exp_val_load")?;
         RtValue::dynamic(ty, val)
     } else {
         RtValue::none(ty)
@@ -2060,7 +2022,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
     func: &Expr<Option<Type>>,
     args: &[Expr<Option<Type>>],
     keywords: &[Keyword<Option<Type>>],
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     let mut params: Vec<(Option<StrRef>, ValueEnum)> = vec![];
     for arg in args {
         let val = generator.gen_expr(ctx, arg)?.val.unwrap();
@@ -2092,7 +2054,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
             let fun = ctx
                 .resolver
                 .get_identifier_def(*id)
-                .map_err(|e| format!("{} (at {})", e.iter().next().unwrap(), func.location))?;
+                .map_err(|e| anyhow!("{} (at {})", e.first().unwrap(), func.location))?;
             let ret_val = generator.gen_call(ctx, None, (&signature, fun), params)?;
             Ok(ret_val.map_or_else(|| RtValue::none(ty), |val| RtValue::dynamic(ty, val)))
         }
@@ -2162,50 +2124,51 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
             {
                 let res = match val {
                     ValueEnum::Static(v) => {
-                        let field_opt = v.get_field("_nac3_option".into(), ctx);
+                        let field_opt = v.get_field("_nac3_option".into(), ctx)?;
                         if let Some(field_val) = field_opt {
                             let v_val = field_val.to_basic_value_enum(ctx, ty)?;
                             RtValue::dynamic(ty, v_val)
                         } else {
                             // if is none, raise exception directly
-                            let err_msg = ctx.gen_string("");
-                            let current_fun =
-                                ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
+                            let err_msg = ctx.gen_string("")?;
+                            let current_fun = ctx
+                                .builder
+                                .get_insert_block()
+                                .and_then(BasicBlock::get_parent)
+                                .unwrap();
                             let unreachable_block =
                                 ctx.ctx.append_basic_block(current_fun, "unwrap_none_unreachable");
                             let exn_block =
                                 ctx.ctx.append_basic_block(current_fun, "unwrap_none_exception");
-                            ctx.builder.build_unconditional_branch(exn_block).unwrap();
+                            ctx.builder.build_unconditional_branch(exn_block)?;
                             ctx.builder.position_at_end(exn_block);
                             ctx.raise_exn(
                                 "0:UnwrapNoneError",
                                 err_msg.into(),
                                 [None, None, None],
                                 ctx.current_loc,
-                            );
+                            )?;
                             ctx.builder.position_at_end(unreachable_block);
                             let ptr = ctx
                                 .get_alloca_type(key)
                                 .ptr_type(AddressSpace::default())
                                 .const_null();
-                            let loaded_val = ctx
-                                .builder
-                                .build_load(ptr, "unwrap_none_unreachable_load")
-                                .unwrap();
+                            let loaded_val =
+                                ctx.builder.build_load(ptr, "unwrap_none_unreachable_load")?;
                             RtValue::dynamic(ty, loaded_val)
                         }
                     }
                     ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
                         let option = OptionType::new(ctx, ty).map_value(ptr, None);
-                        let not_null = option.is_some(ctx);
+                        let not_null = option.is_some(ctx)?;
                         ctx.make_assert(
                             not_null,
                             "0:UnwrapNoneError",
                             "",
                             [None, None, None],
                             expr.location,
-                        );
-                        let loaded = option.get(ctx, None);
+                        )?;
+                        let loaded = option.get(ctx, None)?;
                         RtValue::dynamic(ty, loaded)
                     }
                     ValueEnum::Dynamic(_) => {
@@ -2233,7 +2196,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
     expr: &Expr<Option<Type>>,
     value: &Expr<Option<Type>>,
     slice: &Expr<Option<Type>>,
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     let value_ty = value.custom.unwrap();
     let res = match &*ctx.unifier.get_ty(value_ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
@@ -2244,7 +2207,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
             let v = list_ty.map_value(v, None);
             if let ExprKind::Slice { lower, upper, step } = &slice.node {
                 let one = ctx.i32.const_int(1, false);
-                let size = v.load(ctx, field!(len));
+                let size = v.load(ctx, field!(len))?;
                 let Some((start, end, step)) =
                     handle_slice_indices(lower, upper, step, ctx, generator, size)?
                 else {
@@ -2259,60 +2222,50 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                         "is_neg",
                     )
                     .unwrap();
-                let then = ctx.builder.build_int_sub(end, one, "e_min_one").unwrap();
-                let else_ = ctx.builder.build_int_add(end, one, "e_add_one").unwrap();
-                let end_slice = ctx
-                    .builder
-                    .build_select(cond, then, else_, "final_e")
-                    .map(BasicValueEnum::into_int_value)
-                    .unwrap();
-                let length = calculate_len_for_slice_range(ctx, start, end_slice, step);
-                let res_array_ret = list_ty.construct(ctx, length, Some("ret"));
-                let size = res_array_ret.load(ctx, field!(len));
+                let then = ctx.builder.build_int_sub(end, one, "e_min_one")?;
+                let else_ = ctx.builder.build_int_add(end, one, "e_add_one")?;
+                let end_slice =
+                    ctx.builder.build_select(cond, then, else_, "final_e")?.into_int_value();
+                let length = calculate_len_for_slice_range(ctx, start, end_slice, step)?;
+                let res_array_ret = list_ty.construct(ctx, length, Some("ret"))?;
+                let size = res_array_ret.load(ctx, field!(len))?;
                 let Some(res_ind) =
                     handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                 else {
                     return Ok(RtValue::none(ty));
                 };
                 let elem_ty = ctx.get_llvm_type(list_ty.item_ty);
-                list_slice_assignment(ctx, elem_ty, res_array_ret, res_ind, v, (start, end, step));
+                list_slice_assignment(ctx, elem_ty, res_array_ret, res_ind, v, (start, end, step))?;
                 RtValue::dynamic(ty, res_array_ret.value.into())
             } else {
-                let len = v.load(ctx, field!(len));
+                let len = v.load(ctx, field!(len))?;
                 let raw_index =
                     generator.gen_expr(ctx, slice)?.to_basic_value_enum(ctx)?.into_int_value();
-                let raw_index =
-                    ctx.builder.build_int_s_extend(raw_index, ctx.size_t, "sext").unwrap();
+                let raw_index = ctx.builder.build_int_s_extend(raw_index, ctx.size_t, "sext")?;
                 // handle negative index
-                let is_negative = ctx
-                    .builder
-                    .build_int_compare(
-                        IntPredicate::SLT,
-                        raw_index,
-                        ctx.size_t.const_zero(),
-                        "is_neg",
-                    )
-                    .unwrap();
-                let adjusted = ctx.builder.build_int_add(raw_index, len, "adjusted").unwrap();
+                let is_negative = ctx.builder.build_int_compare(
+                    IntPredicate::SLT,
+                    raw_index,
+                    ctx.size_t.const_zero(),
+                    "is_neg",
+                )?;
+                let adjusted = ctx.builder.build_int_add(raw_index, len, "adjusted")?;
                 let index = ctx
                     .builder
-                    .build_select(is_negative, adjusted, raw_index, "index")
-                    .map(BasicValueEnum::into_int_value)
-                    .unwrap();
+                    .build_select(is_negative, adjusted, raw_index, "index")?
+                    .into_int_value();
                 // unsigned less than is enough, because negative index after adjustment is
                 // bigger than the length (for unsigned cmp)
-                let bound_check = ctx
-                    .builder
-                    .build_int_compare(IntPredicate::ULT, index, len, "inbound")
-                    .unwrap();
+                let bound_check =
+                    ctx.builder.build_int_compare(IntPredicate::ULT, index, len, "inbound")?;
                 ctx.make_assert(
                     bound_check,
                     "0:IndexError",
                     "index {0} out of bounds 0:{1}",
                     [Some(raw_index), Some(len), None],
                     expr.location,
-                );
-                let result = v.data(ctx).get(ctx, &index, None);
+                )?;
+                let result = v.data(ctx)?.get(ctx, &index, None)?;
                 RtValue::dynamic(ty, result)
             }
         }
@@ -2323,7 +2276,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                 .map_value(ndarray.into_pointer_value(), None);
 
             let indices = RustNDIndex::from_subscript_expr(generator, ctx, slice)?;
-            let result = ndarray.index(ctx, &indices).split_unsized(ctx).to_basic_value_enum();
+            let result = ndarray.index(ctx, &indices)?.split_unsized(ctx)?.to_basic_value_enum();
             RtValue::dynamic(ty, result)
         }
         TypeEnum::TTuple { .. } => {
@@ -2337,18 +2290,17 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
             match rt_val.val {
                 Some(ValueEnum::Dynamic(v)) => {
                     let v = v.into_struct_value();
-                    let result = ctx.builder.build_extract_value(v, index, "tup_elem").unwrap();
+                    let result = ctx.builder.build_extract_value(v, index, "tup_elem")?;
                     RtValue::dynamic(ty, result)
                 }
                 Some(ValueEnum::Static(v)) => {
-                    if let Some(field_val) = v.get_tuple_element(index) {
+                    if let Some(field_val) = v.get_tuple_element(index)? {
                         let result = field_val.to_basic_value_enum(ctx, ty)?;
                         RtValue::dynamic(ty, result)
                     } else {
                         let tup =
                             v.to_basic_value_enum(ctx, value.custom.unwrap())?.into_struct_value();
-                        let result =
-                            ctx.builder.build_extract_value(tup, index, "tup_elem").unwrap();
+                        let result = ctx.builder.build_extract_value(tup, index, "tup_elem")?;
                         RtValue::dynamic(ty, result)
                     }
                 }
@@ -2365,7 +2317,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, '_>,
     expr: &Expr<Option<Type>>,
-) -> Result<RtValue<'ctx>, String> {
+) -> anyhow::Result<RtValue<'ctx>> {
     ctx.current_loc = expr.location;
 
     let loc = ctx.debug_info.0.create_debug_location(
@@ -2381,13 +2333,13 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
 
     match &expr.node {
         ExprKind::Constant { value, .. } => ctx
-            .gen_const(value, ty)
+            .gen_const(value, ty)?
             .map_or_else(|| Ok(RtValue::none(ty)), |const_val| Ok(RtValue::dynamic(ty, const_val))),
         ExprKind::Name { id, .. } if id == &"none".into() => match &*ctx.unifier.get_ty(ty) {
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.option.obj_id(&ctx.unifier).unwrap() =>
             {
-                let val = OptionType::from_unifier_type(ctx, ty).construct(ctx, None, None).value;
+                let val = OptionType::from_unifier_type(ctx, ty).construct(ctx, None, None)?.value;
                 Ok(RtValue::dynamic(ty, val.into()))
             }
             _ => codegen_unreachable!(ctx, "must be option type"),
@@ -2396,7 +2348,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             let llvm_ty = ctx.get_llvm_type(ty);
             match ctx.var_assignment.get(id) {
                 Some(VarValue { ptr, static_value: None, .. }) => {
-                    let val = typed_load(ctx.builder, *ptr, llvm_ty, id.to_string().as_str());
+                    let val = typed_load(ctx.builder, *ptr, llvm_ty, id.to_string().as_str())?;
                     Ok(RtValue::dynamic(ty, val))
                 }
                 Some(VarValue { static_value: Some(static_value), .. }) => {
@@ -2404,7 +2356,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
                 }
                 None => {
                     let resolver = ctx.resolver.clone();
-                    let val = resolver.get_symbol_value(*id, ctx).unwrap();
+                    let val = resolver.get_symbol_value(*id, ctx)?.unwrap();
                     // get_symbol_value returns a ValueEnum
                     Ok(RtValue { ty, val: Some(val) })
                 }
@@ -2455,6 +2407,7 @@ macro_rules! impl_type {
     ($t:ident, $v:ident) => {
         impl_type!(
             [inkwell::types::$t<'ctx>; 1]: |this| { Some(this[0].into()) },
+            // inkwell::values::$v<'ctx>: |ret| { ret.unwrap().try_into().unwrap() }
             inkwell::values::$v<'ctx>: |ret| { ret.unwrap().try_into().unwrap() }
         );
     };
@@ -2529,8 +2482,8 @@ macro_rules! __codegen_call_extern_impl {
         $(let args = ::std::vec::Vec::from_iter(args.into_iter().chain($varargs));)?
         let result = $crate::codegen::expr::call_extern_c_fn(
             $ctx, &$fn_name, ret_ty, &types, &args, $is_varargs, $var_name, &$fn_attrs,
-        );
-        cast(result)
+        )?;
+        anyhow::Ok(cast(result))
     }};
 
     // The first token for all @ branches is an expression.
@@ -2605,20 +2558,21 @@ macro_rules! __codegen_call_extern_impl {
 ///
 /// Call an external function with some attributes:
 ///
-/// ```no_run
+/// ```rust,no_run
 /// # use nac3core::codegen::{CodeGenContext, expr::call_extern};
-/// # fn test(ctx: &mut CodeGenContext) {
+/// # fn test(ctx: &mut CodeGenContext) -> anyhow::Result<()> {
 /// let success = ctx.i32.const_zero();
-/// call_extern!(ctx: void _ = ["noreturn"] "_Exit"(success));
+/// call_extern!(ctx: void _ = ["noreturn"] "_Exit"(success))?;
+/// # Ok(())
 /// # }
 /// ```
 ///
 /// Call a variadic function:
 ///
-/// ```no_run
+/// ```rust,no_run
 /// # use nac3core::codegen::{CodeGenContext, expr::call_extern};
 /// # use nac3core::inkwell::{values::IntValue, builder::BuilderError};
-/// # fn test<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>) -> Result<(), BuilderError> {
+/// # fn test<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
 /// let int = ctx.i32;
 /// let neg_one = int.const_all_ones();
 /// let half = ctx.ctx.f32_type().const_float(0.5);
@@ -2628,7 +2582,7 @@ macro_rules! __codegen_call_extern_impl {
 /// let varargs = [neg_one.into(), half.into()];
 ///
 /// // at runtime, prints "-1 0.50"; written = 7
-/// let written: IntValue<'ctx> = call_extern!(ctx: int "written" = "printf"(format; ...varargs));
+/// let written: IntValue<'ctx> = call_extern!(ctx: int "written" = "printf"(format; ...varargs))?;
 /// # Ok(()) }
 /// ```
 ///
@@ -2661,7 +2615,7 @@ pub fn call_extern_c_fn<'ctx>(
     is_c_varargs: bool,
     value_name: Option<&str>,
     fn_attrs: &[&str],
-) -> Option<BasicValueEnum<'ctx>> {
+) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
     let f = ctx.declare_external(fn_name, ret_type, param_types, is_c_varargs, fn_attrs);
     ctx.build_call(&f, args, value_name.unwrap_or(""))
 }

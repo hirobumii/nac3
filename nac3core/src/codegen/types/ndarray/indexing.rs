@@ -47,19 +47,19 @@ impl<'ctx> NDIndexType<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         in_ndindices: &[RustNDIndex<'ctx>],
-    ) -> ArraySliceValue<'ctx> {
+    ) -> anyhow::Result<ArraySliceValue<'ctx>> {
         // Allocate the LLVM ndindices.
         let ty = self.alloca_ty(ctx);
-        let ndindices = gen_array_var(ctx, ty, in_ndindices.len() as u64, None);
+        let ndindices = gen_array_var(ctx, ty, in_ndindices.len() as u64, None)?;
 
         // Initialize all of them.
         for (i, in_ndindex) in in_ndindices.iter().enumerate() {
             let pndindex =
-                ndindices.ptr_offset_unchecked(ctx, &ctx.i64.const_int(i as _, false), None);
-            in_ndindex.write_to_ndindex(ctx, self.map_value(pndindex, None));
+                ndindices.ptr_offset_unchecked(ctx, &ctx.i64.const_int(i as _, false), None)?;
+            in_ndindex.write_to_ndindex(ctx, self.map_value(pndindex, None))?;
         }
 
-        ndindices
+        Ok(ndindices)
     }
 }
 
@@ -105,7 +105,7 @@ impl<'ctx> SliceValue<'ctx> {
         lower: &Option<Box<Expr<Option<Type>>>>,
         upper: &Option<Box<Expr<Option<Type>>>>,
         step: &Option<Box<Expr<Option<Type>>>>,
-    ) -> Result<Self, String> {
+    ) -> anyhow::Result<Self> {
         fn write_value<'ctx>(
             generator: &mut impl CodeGenerator,
             ctx: &mut CodeGenContext<'ctx, '_>,
@@ -113,21 +113,21 @@ impl<'ctx> SliceValue<'ctx> {
             result: SliceValue<'ctx>,
             defined: impl FnOnce(&SliceType<'ctx>) -> StructField<'ctx, IntValue<'ctx>>,
             val: impl FnOnce(&SliceType<'ctx>) -> StructField<'ctx, IntValue<'ctx>>,
-        ) -> Result<(), String> {
+        ) -> anyhow::Result<()> {
             match value_expr {
                 // Not defined
-                None => result.store(ctx, defined, ctx.i1.const_zero()),
+                None => result.store(ctx, defined, ctx.i1.const_zero())?,
                 Some(value_expr) => {
                     let value = generator.gen_expr(ctx, value_expr)?.to_basic_value_enum(ctx)?;
-                    result.store(ctx, defined, ctx.i1.const_int(1, false));
-                    result.store(ctx, val, value.into_int_value());
+                    result.store(ctx, defined, ctx.i1.const_int(1, false))?;
+                    result.store(ctx, val, value.into_int_value())?;
                 }
             }
             Ok(())
         }
 
         let ty = SliceType::new(ctx);
-        let result = ty.alloca(ctx, None);
+        let result = ty.alloca(ctx, None)?;
 
         write_value(generator, ctx, lower, result, field!(start_defined), field!(start))?;
         write_value(generator, ctx, upper, result, field!(stop_defined), field!(stop))?;
@@ -159,7 +159,7 @@ impl<'ctx> RustNDIndex<'ctx> {
         generator: &mut G,
         ctx: &mut CodeGenContext<'ctx, '_>,
         subscript: &Expr<Option<Type>>,
-    ) -> Result<Vec<Self>, String> {
+    ) -> anyhow::Result<Vec<Self>> {
         // Annoying notes about `slice`
         //  - `my_array[5]`
         //    - slice is a `Constant`
@@ -218,22 +218,24 @@ impl<'ctx> RustNDIndex<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         dst_ndindex: NDIndexValue<'ctx>,
-    ) {
+    ) -> anyhow::Result<()> {
         // Set `dst_ndindex.type`
-        dst_ndindex.store(ctx, field!(type_), ctx.i8.const_int(self.get_type_id(), false));
+        dst_ndindex.store(ctx, field!(type_), ctx.i8.const_int(self.get_type_id(), false))?;
 
         // Set `dst_ndindex_ptr->data`
         match *self {
             RustNDIndex::SingleElement(in_index) => {
-                let index_ptr = gen_var(ctx, ctx.i32, None);
-                typed_store(ctx.builder, index_ptr, in_index);
-                dst_ndindex.store(ctx, field!(data), index_ptr);
+                let index_ptr = gen_var(ctx, ctx.i32, None)?;
+                typed_store(ctx.builder, index_ptr, in_index)?;
+                dst_ndindex.store(ctx, field!(data), index_ptr)?;
             }
             RustNDIndex::Slice(slice) => {
-                dst_ndindex.store(ctx, field!(data), slice.value);
+                dst_ndindex.store(ctx, field!(data), slice.value)?;
             }
             RustNDIndex::NewAxis | RustNDIndex::Ellipsis => {}
         }
+
+        Ok(())
     }
 }
 
@@ -259,16 +261,19 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///
     /// This function behaves like NumPy's ndarray indexing, but if the indices index
     /// into a single element, an unsized ndarray is returned.
-    #[must_use]
-    pub fn index(&self, ctx: &mut CodeGenContext<'ctx, '_>, indices: &[RustNDIndex<'ctx>]) -> Self {
+    pub fn index(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        indices: &[RustNDIndex<'ctx>],
+    ) -> anyhow::Result<Self> {
         let dst_ndims = self.deduce_ndims_after_indexing_with(indices);
-        let dst = NDArrayType::new(ctx, self.ty.dtype, dst_ndims).construct(ctx, None);
-        let indices = NDIndexType::new(ctx).construct(ctx, indices);
+        let dst = NDArrayType::new(ctx, self.ty.dtype, dst_ndims).construct(ctx, None)?;
+        let indices = NDIndexType::new(ctx).construct(ctx, indices)?;
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_index");
         let (idx_ptr, idx_len) = indices.value;
-        call_extern!(ctx: void _ = name(idx_len, idx_ptr, self.value, dst.value));
+        call_extern!(ctx: void _ = name(idx_len, idx_ptr, self.value, dst.value))?;
 
-        dst
+        Ok(dst)
     }
 }

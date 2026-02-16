@@ -24,13 +24,13 @@ use crate::{
 pub fn parse_numpy_int_sequence<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (input_seq_ty, input_seq): (Type, BasicValueEnum<'ctx>),
-) -> ArraySliceValue<'ctx> {
+) -> anyhow::Result<ArraySliceValue<'ctx>> {
     let llvm_usize = ctx.size_t;
     let zero = llvm_usize.const_zero();
     let one = llvm_usize.const_int(1, false);
 
     // The result `list` to return.
-    match &*ctx.unifier.get_ty_immutable(input_seq_ty) {
+    Ok(match &*ctx.unifier.get_ty_immutable(input_seq_ty) {
         TypeEnum::TObj { obj_id, .. }
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
@@ -39,9 +39,9 @@ pub fn parse_numpy_int_sequence<'ctx>(
             let input_seq = ListType::from_unifier_type(ctx, input_seq_ty)
                 .map_value(input_seq.into_pointer_value(), None);
 
-            let len = input_seq.load(ctx, field!(len));
+            let len = input_seq.load(ctx, field!(len))?;
             // TODO: Find a way to remove this mid-BB allocation
-            let result = gen_dyn_array_var(ctx, llvm_usize, len, None);
+            let result = gen_dyn_array_var(ctx, llvm_usize, len, None)?;
 
             // Load all the `int32`s from the input_sequence, cast them to `SizeT`, and store them into `result`
             gen_for_callback_incrementing(
@@ -52,21 +52,19 @@ pub fn parse_numpy_int_sequence<'ctx>(
                 (len, false),
                 |(), ctx, _, i| {
                     // Load the i-th int32 in the input sequence
-                    let int: IntValue<'ctx> = input_seq.data(ctx).get_unchecked(ctx, &i, None);
+                    let int: IntValue<'ctx> = input_seq.data(ctx)?.get_unchecked(ctx, &i, None)?;
 
                     // Cast to SizeT
-                    let int =
-                        ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "").unwrap();
+                    let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "")?;
 
                     // Store
-                    result.set_unchecked(ctx, &i, int, None);
+                    result.set_unchecked(ctx, &i, int, None)?;
 
                     Ok(())
                 },
                 one,
                 |(), _| Ok(()),
-            )
-            .unwrap();
+            )?;
 
             result
         }
@@ -79,14 +77,14 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let len = input_seq.ty.num_elements();
 
-            let result = gen_array_var(ctx, llvm_usize, u64::from(len), None);
+            let result = gen_array_var(ctx, llvm_usize, u64::from(len), None)?;
 
             for i in 0..input_seq.ty.num_elements() {
                 // Get the i-th element off of the tuple and load it into `result`.
-                let int = input_seq.extract(ctx, i).into_int_value();
-                let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "").unwrap();
+                let int = input_seq.extract(ctx, i)?.into_int_value();
+                let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "")?;
 
-                result.set_unchecked(ctx, &llvm_usize.const_int(u64::from(i), false), int, None);
+                result.set_unchecked(ctx, &llvm_usize.const_int(u64::from(i), false), int, None)?;
             }
 
             result
@@ -99,15 +97,14 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let input_int = input_seq.into_int_value();
 
-            let result = gen_array_var(ctx, llvm_usize, 1, None);
-            let int =
-                ctx.builder.build_int_s_extend_or_bit_cast(input_int, llvm_usize, "").unwrap();
+            let result = gen_array_var(ctx, llvm_usize, 1, None)?;
+            let int = ctx.builder.build_int_s_extend_or_bit_cast(input_int, llvm_usize, "")?;
 
             // Storing into result[0]
-            result.set_unchecked(ctx, &zero, int, None);
+            result.set_unchecked(ctx, &zero, int, None)?;
             result
         }
 
         _ => panic!("encountered unknown sequence type: {}", ctx.unifier.stringify(input_seq_ty)),
-    }
+    })
 }

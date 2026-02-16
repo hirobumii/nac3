@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::anyhow;
 use function_name::named;
 use indexmap::IndexMap;
 use indoc::indoc;
@@ -47,7 +48,7 @@ impl SymbolResolver for Resolver {
     fn get_default_param_value(
         &self,
         _: &nac3parser::ast::Expr,
-    ) -> Option<crate::symbol_resolver::SymbolValue> {
+    ) -> anyhow::Result<Option<crate::symbol_resolver::SymbolValue>> {
         unimplemented!()
     }
 
@@ -57,24 +58,24 @@ impl SymbolResolver for Resolver {
         _: &[Arc<RwLock<TopLevelDef>>],
         _: &PrimitiveStore,
         str: StrRef,
-    ) -> Result<Type, String> {
-        self.id_to_type.get(&str).copied().ok_or_else(|| format!("cannot find symbol `{str}`"))
+    ) -> anyhow::Result<Type> {
+        self.id_to_type.get(&str).copied().ok_or_else(|| anyhow!("cannot find symbol `{str}`"))
     }
 
     fn get_symbol_value<'ctx>(
         &self,
         _: StrRef,
         _: &mut CodeGenContext<'ctx, '_>,
-    ) -> Option<ValueEnum<'ctx>> {
+    ) -> anyhow::Result<Option<ValueEnum<'ctx>>> {
         unimplemented!()
     }
 
-    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
+    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, Vec<anyhow::Error>> {
         self.id_to_def
             .read()
             .get(&id)
             .copied()
-            .ok_or_else(|| HashSet::from([format!("cannot find symbol `{id}`")]))
+            .ok_or_else(|| vec![anyhow!("cannot find symbol `{id}`")])
     }
 
     fn get_string_id(&self, _: &str) -> i32 {

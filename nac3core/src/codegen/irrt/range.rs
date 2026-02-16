@@ -14,24 +14,26 @@ pub fn calculate_len_for_slice_range<'ctx>(
     start: IntValue<'ctx>,
     end: IntValue<'ctx>,
     step: IntValue<'ctx>,
-) -> IntValue<'ctx> {
+) -> anyhow::Result<IntValue<'ctx>> {
     let llvm_i32 = ctx.i32;
     assert_eq!(start.get_type(), llvm_i32);
     assert_eq!(end.get_type(), llvm_i32);
     assert_eq!(step.get_type(), llvm_i32);
 
     // assert step != 0, throw exception if not
-    let not_zero = ctx
-        .builder
-        .build_int_compare(IntPredicate::NE, step, step.get_type().const_zero(), "range_step_ne")
-        .unwrap();
+    let not_zero = ctx.builder.build_int_compare(
+        IntPredicate::NE,
+        step,
+        step.get_type().const_zero(),
+        "range_step_ne",
+    )?;
     ctx.make_assert(
         not_zero,
         "0:ValueError",
         "step must not be zero",
         [None, None, None],
         ctx.current_loc,
-    );
+    )?;
 
     call_extern!(ctx: llvm_i32 "calc_len" = "__nac3_range_slice_len"(start, end, step))
 }

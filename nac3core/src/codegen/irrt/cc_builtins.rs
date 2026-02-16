@@ -8,7 +8,7 @@ pub fn call_isinf<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
     name: Option<&str>,
-) -> IntValue<'ctx> {
+) -> anyhow::Result<IntValue<'ctx>> {
     assert_eq!(v.get_type(), ctx.f64);
     call_extern!(ctx: (ctx.i1) name? = "__nac3_isinf"(v))
 }
@@ -19,7 +19,7 @@ pub fn call_isnan<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
     name: Option<&str>,
-) -> IntValue<'ctx> {
+) -> anyhow::Result<IntValue<'ctx>> {
     assert_eq!(v.get_type(), ctx.f64);
     call_extern!(ctx: (ctx.i1) name? = "__nac3_isnan"(v))
 }
@@ -40,7 +40,7 @@ macro_rules! generate_f64_nary_fn {
             ctx: &mut CodeGenContext<'ctx, '_>,
             $($args: FloatValue<'ctx>,)*
             name: Option<&str>,
-        ) -> FloatValue<'ctx> {
+        ) -> anyhow::Result<FloatValue<'ctx>> {
             const FN_NAME: &str = (concat!("__nac3_", stringify!($builtin_fn)));
             let llvm_f64 = ctx.f64;
             $(debug_assert_eq!($args.get_type(), llvm_f64);)*
@@ -74,7 +74,7 @@ pub fn call_ldexp<'ctx>(
     arg: FloatValue<'ctx>,
     exp: IntValue<'ctx>,
     name: Option<&str>,
-) -> FloatValue<'ctx> {
+) -> anyhow::Result<FloatValue<'ctx>> {
     let llvm_f64 = ctx.f64;
     debug_assert_eq!(arg.get_type(), llvm_f64);
     debug_assert_eq!(exp.get_type(), ctx.i32);

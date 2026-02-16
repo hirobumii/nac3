@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use itertools::Itertools as _;
+use anyhow::{anyhow, bail};
 use nac3core::{
     codegen::{
         CodeGenContext, CodeGenerator, VarValue, basic_type_all, bool_to_i1,
@@ -111,10 +111,10 @@ impl<'a> ArtiqCodeGenerator<'a> {
     ///
     /// Direct-`parallel` block context refers to when the generator is generating statements whose
     /// closest parent `with` statement is a `with parallel` block.
-    fn timeline_reset_start(&mut self, ctx: &mut CodeGenContext<'_, '_>) -> Result<(), String> {
+    fn timeline_reset_start(&mut self, ctx: &mut CodeGenContext<'_, '_>) -> anyhow::Result<()> {
         if let Some(start) = self.start.clone() {
             let start_val = self.gen_expr(ctx, &start)?.to_basic_value_enum(ctx)?;
-            self.timeline.emit_at_mu(ctx, start_val);
+            self.timeline.emit_at_mu(ctx, start_val)?;
         }
 
         Ok(())
@@ -137,12 +137,12 @@ impl<'a> ArtiqCodeGenerator<'a> {
         ctx: &mut CodeGenContext<'_, '_>,
         end: Option<Expr<Option<Type>>>,
         store_name: Option<&str>,
-    ) -> Result<(), String> {
+    ) -> anyhow::Result<()> {
         if let Some(end) = end {
             let old_end = self.gen_expr(ctx, &end)?.to_basic_value_enum(ctx)?;
-            let now = self.timeline.emit_now_mu(ctx);
+            let now = self.timeline.emit_now_mu(ctx)?;
             let max =
-                call_int_smax(ctx, old_end.into_int_value(), now.into_int_value(), Some("smax"));
+                call_int_smax(ctx, old_end.into_int_value(), now.into_int_value(), Some("smax"))?;
             let end_store = self
                 .gen_store_target(
                     ctx,
@@ -150,7 +150,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
                     store_name.map(|name| format!("{name}.addr")).as_deref(),
                 )?
                 .unwrap();
-            typed_store(ctx.builder, end_store, max);
+            typed_store(ctx.builder, end_store, max)?;
         }
 
         Ok(())
@@ -166,7 +166,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
         &mut self,
         ctx: &mut CodeGenContext<'ctx, 'a>,
         stmts: I,
-    ) -> Result<(), String>
+    ) -> anyhow::Result<()>
     where
         Self: Sized,
     {
@@ -196,7 +196,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
         obj: Option<(Type, ValueEnum<'ctx>)>,
         fun: (&FunSignature, DefinitionId),
         params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-    ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
         let result = gen_call(self, ctx, obj, fun, params)?;
 
         // Deep parallel emits timeline end-update/timeline-reset after each function call
@@ -212,7 +212,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
         &mut self,
         ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
-    ) -> Result<(), String> {
+    ) -> anyhow::Result<()> {
         let StmtKind::With { items, body, .. } = &stmt.node else { unreachable!() };
 
         if items.len() == 1 && items[0].optional_vars.is_none() {
@@ -237,7 +237,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
                     ctx.var_assignment.get(id)
                 {
                     static_value.clone()
-                } else if let Some(ValueEnum::Static(val)) = resolver.get_symbol_value(*id, ctx) {
+                } else if let Some(ValueEnum::Static(val)) = resolver.get_symbol_value(*id, ctx)? {
                     Some(val)
                 } else {
                     None
@@ -253,7 +253,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
                         let now = if let Some(old_start) = &old_start {
                             self.gen_expr(ctx, old_start)?.to_basic_value_enum(ctx)?
                         } else {
-                            self.timeline.emit_now_mu(ctx)
+                            self.timeline.emit_now_mu(ctx)?
                         };
 
                         // Emulate variable allocation, as we need to use the CodeGenContext
@@ -275,8 +275,8 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
                                 let start = self
                                     .gen_store_target(ctx, &start_expr, Some("start.addr"))?
                                     .unwrap();
-                                typed_store(ctx.builder, start, now);
-                                Ok(Some(start_expr)) as Result<_, String>
+                                typed_store(ctx.builder, start, now)?;
+                                anyhow::Ok(Some(start_expr))
                             },
                             |v| Ok(Some(v)),
                         )?;
@@ -288,7 +288,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
                             custom: Some(ctx.primitives.int64),
                         };
                         let end = self.gen_store_target(ctx, &end_expr, Some("end.addr"))?.unwrap();
-                        typed_store(ctx.builder, end, now);
+                        typed_store(ctx.builder, end, now)?;
                         self.end = Some(end_expr);
                         self.name_counter += 1;
                         self.parallel_mode = if python_id == self.special_ids.parallel {
@@ -323,7 +323,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
 
                         // inside a sequential block
                         if old_start.is_none() {
-                            self.timeline.emit_at_mu(ctx, end_val);
+                            self.timeline.emit_at_mu(ctx, end_val)?;
                         }
 
                         // inside a parallel block, should update the outer max now_mu
@@ -369,7 +369,7 @@ fn gen_rpc_tag(
     ctx: &mut CodeGenContext<'_, '_>,
     ty: Type,
     buffer: &mut Vec<u8>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let PrimitiveStore { int32, int64, float, bool, str, none, .. } = ctx.primitives;
 
     if ctx.unifier.unioned(ty, int32) {
@@ -406,15 +406,15 @@ fn gen_rpc_tag(
                     &*ctx.unifier.get_ty_immutable(ndarray_ndims)
                 {
                     if values.len() != 1 {
-                        return Err(format!(
+                        bail!(
                             "NDArray types with multiple literal bounds for ndims is not supported: {}",
                             ctx.unifier.stringify(ty)
-                        ));
+                        );
                     }
 
                     let value = values[0].clone();
                     u64::try_from(value.clone())
-                        .map_err(|()| format!("Expected u64 for ndarray.ndims, got {value}"))?
+                        .map_err(|()| anyhow!("Expected u64 for ndarray.ndims, got {value}"))?
                 } else {
                     unreachable!()
                 };
@@ -427,7 +427,7 @@ fn gen_rpc_tag(
                 buffer.push((ndarray_ndims & 0xFF) as u8);
                 gen_rpc_tag(ctx, ndarray_dtype, buffer)?;
             }
-            _ => return Err(format!("Unsupported type: {:?}", ctx.unifier.stringify(ty))),
+            _ => bail!("Unsupported type: {:?}", ctx.unifier.stringify(ty)),
         }
     }
     Ok(())
@@ -439,7 +439,7 @@ fn gen_rpc_tag(
 fn format_rpc_arg<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (arg, arg_ty, arg_idx): (BasicValueEnum<'ctx>, Type, usize),
-) -> PointerValue<'ctx> {
+) -> anyhow::Result<PointerValue<'ctx>> {
     let llvm_i8 = ctx.i8;
     let llvm_pi8 = ctx.ptr;
 
@@ -457,7 +457,7 @@ fn format_rpc_arg<'ctx>(
             // `ndarray.data` is possibly not contiguous, and we need it to be contiguous for
             // the reader.
             // Turning it into a ContiguousNDArray to get a `data` that is contiguous.
-            let carray = ndarray.make_contiguous_ndarray(ctx);
+            let carray = ndarray.make_contiguous_ndarray(ctx)?;
 
             let sizeof_usize = ctx.sizeof(ctx.size_t);
             let sizeof_pdata = ctx.sizeof(ctx.ptr);
@@ -465,45 +465,42 @@ fn format_rpc_arg<'ctx>(
             let sizeof_buf = sizeof_buf_shape + sizeof_pdata;
 
             // buf = { data: void*, shape: [size_t; ndims]; }
-            let buf = gen_array_var(ctx, llvm_i8, sizeof_buf, Some("rpc.arg"));
+            let buf = gen_array_var(ctx, llvm_i8, sizeof_buf, Some("rpc.arg"))?;
             let buf_data = buf.value.0;
             let sizeof_pdata_ = ctx.size_t.const_int(sizeof_pdata, false);
-            let buf_shape = buf.ptr_offset_unchecked(ctx, &sizeof_pdata_, None);
+            let buf_shape = buf.ptr_offset_unchecked(ctx, &sizeof_pdata_, None)?;
 
             // Write to `buf->data`
-            let carray_data = carray.load(ctx, field!(data));
-            let carray_data = ctx.builder.build_pointer_cast(carray_data, llvm_pi8, "").unwrap();
-            call_memcpy(ctx, buf_data, carray_data, sizeof_pdata_);
+            let carray_data = carray.load(ctx, field!(data))?;
+            let carray_data = ctx.builder.build_pointer_cast(carray_data, llvm_pi8, "")?;
+            call_memcpy(ctx, buf_data, carray_data, sizeof_pdata_)?;
 
             // Write to `buf->shape`
-            let carray_shape = ndarray.shape(ctx).value.0;
+            let carray_shape = ndarray.shape(ctx)?.value.0;
             let sizeof_buf_shape_ = ctx.size_t.const_int(sizeof_buf_shape, false);
-            call_memcpy(ctx, buf_shape, carray_shape, sizeof_buf_shape_);
+            call_memcpy(ctx, buf_shape, carray_shape, sizeof_buf_shape_)?;
 
             buf.value.0
         }
 
         _ => {
-            let arg_slot = gen_var(ctx, arg.get_type(), Some(&format!("rpc.arg{arg_idx}")));
-            typed_store(ctx.builder, arg_slot, arg);
+            let arg_slot = gen_var(ctx, arg.get_type(), Some(&format!("rpc.arg{arg_idx}")))?;
+            typed_store(ctx.builder, arg_slot, arg)?;
 
-            ctx.builder
-                .build_bit_cast(arg_slot, llvm_pi8, "rpc.arg")
-                .map(BasicValueEnum::into_pointer_value)
-                .unwrap()
+            ctx.builder.build_bit_cast(arg_slot, llvm_pi8, "rpc.arg")?.into_pointer_value()
         }
     };
 
     debug_assert_eq!(arg_slot.get_type(), llvm_pi8);
 
-    arg_slot
+    Ok(arg_slot)
 }
 
 /// Formats an RPC return value to conform to the expected format required by NAC3.
 fn format_rpc_ret<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ret_ty: Type,
-) -> Option<BasicValueEnum<'ctx>> {
+) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
     // -- receive value:
     // T result = {
     //   void *ret_ptr = alloca(sizeof(T));
@@ -521,8 +518,8 @@ fn format_rpc_ret<'ctx>(
         ctx.declare_external("rpc_recv", Some(llvm_i32.into()), &[llvm_pi8.into()], false, &[]);
 
     if ctx.unifier.unioned(ret_ty, ctx.primitives.none) {
-        let _ = ctx.build_call_or_invoke(&rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv");
-        return None;
+        let _ = ctx.build_call_or_invoke(&rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv")?;
+        return Ok(None);
     }
 
     let prehead_bb = ctx.builder.get_insert_block().unwrap();
@@ -548,17 +545,13 @@ fn format_rpc_ret<'ctx>(
 
                 let llvm_val_t = val.get_type();
 
-                let max_rem = ctx
-                    .builder
-                    .build_int_sub(power_of_two, llvm_val_t.const_int(1, false), "")
-                    .unwrap();
-                ctx.builder
-                    .build_and(
-                        ctx.builder.build_int_add(val, max_rem, "").unwrap(),
-                        ctx.builder.build_not(max_rem, "").unwrap(),
-                        "",
-                    )
-                    .unwrap()
+                let max_rem =
+                    ctx.builder.build_int_sub(power_of_two, llvm_val_t.const_int(1, false), "")?;
+                anyhow::Ok(ctx.builder.build_and(
+                    ctx.builder.build_int_add(val, max_rem, "")?,
+                    ctx.builder.build_not(max_rem, "")?,
+                    "",
+                )?)
             };
 
             // Allocate the resulting ndarray
@@ -566,7 +559,7 @@ fn format_rpc_ret<'ctx>(
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ret_ty);
             let dtype_llvm = ctx.get_llvm_type(dtype);
             let ndims = extract_ndims(&ctx.unifier, ndims);
-            let ndarray = NDArrayType::new(ctx, dtype_llvm, ndims).construct(ctx, None);
+            let ndarray = NDArrayType::new(ctx, dtype_llvm, ndims).construct(ctx, None)?;
 
             // NOTE: Current content of `ndarray`:
             //   - * `data` - **NOT YET** allocated.
@@ -575,7 +568,7 @@ fn format_rpc_ret<'ctx>(
             //   - * `shape` - allocated; has uninitialized values.
             //   - * `strides` - allocated; has uninitialized values.
 
-            let stackptr = call_stacksave(ctx, None);
+            let stackptr = call_stacksave(ctx, None)?;
 
             let itemsize = ctx.sizeof(ndarray.ty.dtype);
             let sizeof_ptr = ctx.sizeof(ctx.ptr);
@@ -586,7 +579,7 @@ fn format_rpc_ret<'ctx>(
             // Force an aligned allocation.
             let chunks = unaligned_buffer_size.div_ceil(8);
             let aligned_alloc_ty = ctx.ctx.struct_type(&[ctx.i8.array_type(8).into()], false);
-            let ptr = gen_array_var(ctx, aligned_alloc_ty, chunks, Some("rpc.buffer")).value.0;
+            let ptr = gen_array_var(ctx, aligned_alloc_ty, chunks, Some("rpc.buffer"))?.value.0;
             let buffer_bytes = ctx.size_t.const_int(chunks * 8, false);
             let buffer = ArraySliceValue::new(ctx.i8.into(), ptr, buffer_bytes, None);
 
@@ -598,16 +591,14 @@ fn format_rpc_ret<'ctx>(
                     &rpc_recv,
                     &[buffer.value.0.into()], // Reads [usize; ndims]
                     "rpc.size.next",
-                )
+                )?
                 .map(BasicValueEnum::into_int_value)
                 .unwrap();
 
             // debug_assert(ndarray_nbytes > 0)
             if ctx.registry.codegen_options.debug {
-                let cmp = ctx
-                    .builder
-                    .build_int_compare(IntPredicate::UGT, ndarray_nbytes, num_0, "")
-                    .unwrap();
+                let cmp =
+                    ctx.builder.build_int_compare(IntPredicate::UGT, ndarray_nbytes, num_0, "")?;
 
                 ctx.make_assert(
                     cmp,
@@ -615,39 +606,36 @@ fn format_rpc_ret<'ctx>(
                     "Unexpected RPC termination for ndarray - Expected data buffer next",
                     [None, None, None],
                     ctx.current_loc,
-                );
+                )?;
             }
 
             // Copy shape from the buffer to `ndarray.shape`.
             // We need to skip the first `sizeof(uint8_t*)` bytes to skip the `pdata` in `[pdata, shape]`.
             let sizeof_ptr = ctx.size_t.const_int(sizeof_ptr, false);
-            let pbuffer_shape = buffer.ptr_offset_unchecked(ctx, &sizeof_ptr, None);
-            ndarray.shape(ctx).memcpy_from(ctx, pbuffer_shape);
+            let pbuffer_shape = buffer.ptr_offset_unchecked(ctx, &sizeof_ptr, None)?;
+            ndarray.shape(ctx)?.memcpy_from(ctx, pbuffer_shape)?;
 
             // Restore stack from before allocation of buffer
-            call_stackrestore(ctx, stackptr);
+            call_stackrestore(ctx, stackptr)?;
 
             // Allocate `ndarray.data`.
             // `ndarray.shape` must be initialized beforehand in this implementation
             //   (for ndarray.create_data() to know how many elements to allocate)
-            ndarray.create_data(ctx); // NOTE: the strides of `ndarray` has also been set to contiguous in `create_data`.
+            ndarray.create_data(ctx)?; // NOTE: the strides of `ndarray` has also been set to contiguous in `create_data`.
 
             let itemsize = ctx.size_t.const_int(itemsize, false);
             // debug_assert(nelems * sizeof(T) >= ndarray_nbytes)
             if ctx.registry.codegen_options.debug {
-                let num_elements = ndarray.size(ctx);
+                let num_elements = ndarray.size(ctx)?;
 
                 let expected_ndarray_nbytes =
-                    ctx.builder.build_int_mul(num_elements, itemsize, "").unwrap();
-                let cmp = ctx
-                    .builder
-                    .build_int_compare(
-                        IntPredicate::UGE,
-                        expected_ndarray_nbytes,
-                        ndarray_nbytes,
-                        "",
-                    )
-                    .unwrap();
+                    ctx.builder.build_int_mul(num_elements, itemsize, "")?;
+                let cmp = ctx.builder.build_int_compare(
+                    IntPredicate::UGE,
+                    expected_ndarray_nbytes,
+                    ndarray_nbytes,
+                    "",
+                )?;
 
                 ctx.make_assert(
                     cmp,
@@ -655,73 +643,78 @@ fn format_rpc_ret<'ctx>(
                     "Unexpected allocation size request for ndarray data - Expected up to {0} bytes, got {1} bytes",
                     [Some(expected_ndarray_nbytes), Some(ndarray_nbytes), None],
                     ctx.current_loc,
-                );
+                )?;
             }
 
-            let ndarray_data = ndarray.load(ctx, field!(data));
+            let ndarray_data = ndarray.load(ctx, field!(data))?;
 
             let entry_bb = ctx.builder.get_insert_block().unwrap();
-            ctx.builder.build_unconditional_branch(head_bb).unwrap();
+            ctx.builder.build_unconditional_branch(head_bb)?;
 
             // Inserting into `head_bb`. Do `rpc_recv` for `data` recursively.
             ctx.builder.position_at_end(head_bb);
 
-            let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr").unwrap();
+            let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr")?;
             phi.add_incoming(&[(&ndarray_data, entry_bb)]);
 
             let alloc_size = ctx
-                .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
+                .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")?
                 .map(BasicValueEnum::into_int_value)
                 .unwrap();
 
-            let is_done = ctx
-                .builder
-                .build_int_compare(IntPredicate::EQ, llvm_i32.const_zero(), alloc_size, "rpc.done")
-                .unwrap();
-            ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb).unwrap();
+            let is_done = ctx.builder.build_int_compare(
+                IntPredicate::EQ,
+                llvm_i32.const_zero(),
+                alloc_size,
+                "rpc.done",
+            )?;
+            ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb)?;
 
             ctx.builder.position_at_end(alloc_bb);
             // Align the allocation to sizeof(T)
-            let alloc_size = round_up(ctx, alloc_size, itemsize);
-            let size = ctx.builder.build_int_unsigned_div(alloc_size, itemsize, "").unwrap();
-            let alloc_ptr = gen_dyn_array_var(ctx, dtype_llvm, size, Some("rpc.alloc")).value.0;
+            let alloc_size = round_up(ctx, alloc_size, itemsize)?;
+            let size = ctx.builder.build_int_unsigned_div(alloc_size, itemsize, "")?;
+            let alloc_ptr = gen_dyn_array_var(ctx, dtype_llvm, size, Some("rpc.alloc"))?.value.0;
             phi.add_incoming(&[(&alloc_ptr, alloc_bb)]);
-            ctx.builder.build_unconditional_branch(head_bb).unwrap();
+            ctx.builder.build_unconditional_branch(head_bb)?;
 
             ctx.builder.position_at_end(tail_bb);
             ndarray.value.into()
         }
 
         _ => {
-            let slot = gen_var(ctx, llvm_ret_ty, Some("rpc.ret.slot"));
-            let slotgen = ctx.builder.build_bit_cast(slot, llvm_pi8, "rpc.ret.ptr").unwrap();
-            ctx.builder.build_unconditional_branch(head_bb).unwrap();
+            let slot = gen_var(ctx, llvm_ret_ty, Some("rpc.ret.slot"))?;
+            let slotgen = ctx.builder.build_bit_cast(slot, llvm_pi8, "rpc.ret.ptr")?;
+            ctx.builder.build_unconditional_branch(head_bb)?;
             ctx.builder.position_at_end(head_bb);
 
-            let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr").unwrap();
+            let phi = ctx.builder.build_phi(llvm_pi8, "rpc.ptr")?;
             phi.add_incoming(&[(&slotgen, prehead_bb)]);
             let alloc_size = ctx
-                .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")
-                .unwrap()
-                .into_int_value();
-            let is_done = ctx
-                .builder
-                .build_int_compare(IntPredicate::EQ, llvm_i32.const_zero(), alloc_size, "rpc.done")
+                .build_call_or_invoke(&rpc_recv, &[phi.as_basic_value()], "rpc.size.next")?
+                .map(BasicValueEnum::into_int_value)
                 .unwrap();
+            let is_done = ctx.builder.build_int_compare(
+                IntPredicate::EQ,
+                llvm_i32.const_zero(),
+                alloc_size,
+                "rpc.done",
+            )?;
 
-            ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb).unwrap();
+            ctx.builder.build_conditional_branch(is_done, tail_bb, alloc_bb)?;
             ctx.builder.position_at_end(alloc_bb);
 
-            let alloc_ptr = gen_dyn_array_var(ctx, llvm_pi8, alloc_size, Some("rpc.alloc")).value.0;
+            let alloc_ptr =
+                gen_dyn_array_var(ctx, llvm_pi8, alloc_size, Some("rpc.alloc"))?.value.0;
             phi.add_incoming(&[(&alloc_ptr, alloc_bb)]);
-            ctx.builder.build_unconditional_branch(head_bb).unwrap();
+            ctx.builder.build_unconditional_branch(head_bb)?;
 
             ctx.builder.position_at_end(tail_bb);
-            ctx.builder.build_load(slot, "rpc.result").unwrap()
+            ctx.builder.build_load(slot, "rpc.result")?
         }
     };
 
-    Some(result)
+    Ok(Some(result))
 }
 
 fn rpc_codegen_callback_fn<'ctx>(
@@ -730,7 +723,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     fun: (&FunSignature, DefinitionId),
     args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
     is_async: bool,
-) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
     let int8 = ctx.i8;
     let int32 = ctx.i32;
     let size_type = ctx.size_t;
@@ -781,8 +774,8 @@ fn rpc_codegen_callback_fn<'ctx>(
 
     let arg_length = args.len() as u64 + u64::from(obj.is_some());
 
-    let stackptr = call_stacksave(ctx, Some("rpc.stack"));
-    let args_ptr = gen_array_var(ctx, ctx.ptr, arg_length, Some("argptr"));
+    let stackptr = call_stacksave(ctx, Some("rpc.stack"))?;
+    let args_ptr = gen_array_var(ctx, ctx.ptr, arg_length, Some("argptr"))?;
 
     // -- rpc args handling
     let mut keys = fun.0.args.clone();
@@ -792,7 +785,7 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
     // default value handling
     for k in keys {
-        mapping.insert(k.name, ctx.gen_symbol_val(&k.default_value.unwrap(), k.ty).into());
+        mapping.insert(k.name, ctx.gen_symbol_val(&k.default_value.unwrap(), k.ty)?.into());
     }
     // reorder the parameters
     let mut real_params = fun
@@ -809,7 +802,7 @@ fn rpc_codegen_callback_fn<'ctx>(
         .collect::<Result<Vec<(_, _)>, _>>()?;
     if let Some(obj) = obj {
         if let ValueEnum::Static(obj_val) = obj.1 {
-            real_params.insert(0, (obj_val.get_const_obj(ctx), obj.0));
+            real_params.insert(0, (obj_val.get_const_obj(ctx)?, obj.0));
         } else {
             // should be an error here...
             panic!("only host object is allowed");
@@ -817,29 +810,29 @@ fn rpc_codegen_callback_fn<'ctx>(
     }
 
     for (i, (arg, arg_ty)) in real_params.iter().enumerate() {
-        let arg_slot = format_rpc_arg(ctx, (*arg, *arg_ty, i));
+        let arg_slot = format_rpc_arg(ctx, (*arg, *arg_ty, i))?;
         let name = format!("rpc.arg{i}");
         let i = ctx.size_t.const_int(i as u64, false);
-        args_ptr.set_unchecked(ctx, &i, arg_slot, Some(&name));
+        args_ptr.set_unchecked(ctx, &i, arg_slot, Some(&name))?;
     }
 
     call_extern!(ctx: void "rpc.send" =
-        (if is_async { "rpc_send_async" } else { "rpc_send" })(service_id, tag_ptr, args_ptr.value.0));
+        (if is_async { "rpc_send_async" } else { "rpc_send" })(service_id, tag_ptr, args_ptr.value.0))?;
 
     // reclaim stack space used by arguments
-    call_stackrestore(ctx, stackptr);
+    call_stackrestore(ctx, stackptr)?;
 
     if is_async {
         // async RPCs do not return any values
         Ok(None)
     } else {
-        let result = format_rpc_ret(ctx, fun.0.ret);
+        let result = format_rpc_ret(ctx, fun.0.ret)?;
 
         // Here we call `basic_type_all` to ensure that the return type is not, nor contains, a
         // pointer type which may require further allocation, in which case the stack should not
         // be restored, as this will lead to undefined behavior.
         if result.is_some_and(|res| basic_type_all(&res.get_type(), &|t| !t.is_pointer_type())) {
-            call_stackrestore(ctx, stackptr);
+            call_stackrestore(ctx, stackptr)?;
         }
 
         Ok(result)
@@ -851,8 +844,8 @@ pub fn attributes_writeback<'ctx>(
     inner_resolver: &InnerResolver,
     host_attributes: &Py<PyAny>,
     return_obj: Option<(Type, ValueEnum<'ctx>)>,
-) -> Result<(), String> {
-    Python::attach(|py| -> PyResult<Result<(), String>> {
+) -> anyhow::Result<()> {
+    Python::attach(|py| -> PyResult<anyhow::Result<()>> {
         let host_attributes = host_attributes.cast_bound::<PyList>(py)?;
         let int32 = ctx.i32;
         let zero = int32.const_zero();
@@ -860,7 +853,13 @@ pub fn attributes_writeback<'ctx>(
         let mut scratch_buffer = Vec::new();
 
         if let Some((ty, obj)) = return_obj {
-            values.push((ty, obj.to_basic_value_enum(ctx, ty).unwrap()));
+            values.push((
+                ty,
+                match obj.to_basic_value_enum(ctx, ty) {
+                    Ok(v) => v,
+                    Err(e) => return Ok(Err(e)),
+                },
+            ));
         }
 
         for val in (*inner_resolver.global_value_ids.read()).values() {
@@ -872,10 +871,10 @@ pub fn attributes_writeback<'ctx>(
                 &ctx.top_level.definitions.read(),
                 &ctx.primitives,
             )?;
-            if let Err(ty) = ty {
-                return Ok(Err(ty));
-            }
-            let ty = ty.unwrap();
+            let ty = match ty {
+                Ok(ty) => ty,
+                Err(e) => return Ok(Err(anyhow!("{e}"))),
+            };
             match &*ctx.unifier.get_ty(ty) {
                 TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
                     let elem_ty = iter_type_vars(params).next().unwrap().ty;
@@ -884,7 +883,11 @@ pub fn attributes_writeback<'ctx>(
                         let pydict = PyDict::new(py);
                         pydict.set_item("obj", val)?;
                         host_attributes.append(pydict)?;
-                        values.push((ty, inner_resolver.get_obj_value(py, val, ctx, ty)?.unwrap()));
+                        let value = match inner_resolver.get_obj_value(py, val, ctx, ty)? {
+                            Ok(v) => v.unwrap(),
+                            Err(err) => return Ok(Err(err)),
+                        };
+                        values.push((ty, value));
                     }
                 }
                 TypeEnum::TObj { fields, obj_id, .. }
@@ -893,7 +896,10 @@ pub fn attributes_writeback<'ctx>(
                     // we only care about primitive attributes
                     // for non-primitive attributes, they should be in another global
                     let mut attributes = Vec::new();
-                    let obj = inner_resolver.get_obj_value(py, val, ctx, ty)?.unwrap();
+                    let obj = match inner_resolver.get_obj_value(py, val, ctx, ty)? {
+                        Ok(v) => v.unwrap(),
+                        Err(err) => return Ok(Err(err)),
+                    };
                     for (name, (field_ty, attr_kind)) in fields {
                         if !attr_kind.is_mutable() {
                             continue;
@@ -903,11 +909,14 @@ pub fn attributes_writeback<'ctx>(
                             let (index, _) = ctx.get_attr_index(ty, *name);
                             values.push((
                                 *field_ty,
-                                ctx.build_gep_and_load(
+                                match ctx.build_gep_and_load(
                                     obj.into_pointer_value(),
                                     &[zero, int32.const_int(index as u64, false)],
                                     None,
-                                ),
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => return Ok(Err(e)),
+                                },
                             ));
                         }
                     }
@@ -940,9 +949,8 @@ pub fn attributes_writeback<'ctx>(
         if let Err(e) = rpc_codegen_callback_fn(ctx, None, (&fun, DefinitionId(0)), args, true) {
             return Ok(Err(e));
         }
-        Ok(Ok(()))
-    })
-    .unwrap()?;
+        Ok(anyhow::Ok(()))
+    })??;
     Ok(())
 }
 
@@ -995,23 +1003,27 @@ fn polymorphic_print<'ctx>(
     suffix: Option<&str>,
     as_repr: bool,
     as_rtio: bool,
-) -> Result<(), String> {
-    let printf =
-        |ctx: &mut CodeGenContext<'ctx, '_>, fmt: String, args: Vec<BasicValueEnum<'ctx>>| {
-            debug_assert!(!fmt.is_empty());
-            debug_assert_eq!(fmt.as_bytes().last().unwrap(), &0u8);
+) -> anyhow::Result<()> {
+    let printf = |ctx: &mut CodeGenContext<'ctx, '_>,
+                  fmt: String,
+                  args: Vec<BasicValueEnum<'ctx>>|
+     -> anyhow::Result<()> {
+        debug_assert!(!fmt.is_empty());
+        debug_assert_eq!(fmt.as_bytes().last().unwrap(), &0u8);
 
-            let llvm_i32 = ctx.i32;
+        let llvm_i32 = ctx.i32;
 
-            let fmt = ctx.gen_string(fmt);
-            let fmt = unsafe { fmt.get_field_at_index_unchecked(0) }.into_pointer_value();
+        let fmt = ctx.gen_string(fmt)?;
+        let fmt = unsafe { fmt.get_field_at_index_unchecked(0) }.into_pointer_value();
 
-            if as_rtio {
-                call_extern!(ctx: void _ = "rtio_log"(fmt; ...args));
-            } else {
-                call_extern!(ctx: llvm_i32 _ = "core_log"(fmt; ...args));
-            }
-        };
+        if as_rtio {
+            call_extern!(ctx: void _ = "rtio_log"(fmt; ...args))?;
+        } else {
+            call_extern!(ctx: llvm_i32 _ = "core_log"(fmt; ...args))?;
+        }
+
+        Ok(())
+    };
 
     let llvm_i32 = ctx.i32;
     let llvm_i64 = ctx.i64;
@@ -1027,13 +1039,14 @@ fn polymorphic_print<'ctx>(
                  args: &mut Vec<BasicValueEnum<'ctx>>| {
         if !fmt.is_empty() {
             fmt.push('\0');
-            printf(ctx, mem::take(fmt), mem::take(args));
+            printf(ctx, mem::take(fmt), mem::take(args))?;
         }
+        anyhow::Ok(())
     };
 
     for (ty, value) in values {
         let ty = *ty;
-        let value = value.to_basic_value_enum(ctx, ty).unwrap();
+        let value = value.to_basic_value_enum(ctx, ty)?;
 
         if !fmt.is_empty() {
             fmt.push_str(separator);
@@ -1042,26 +1055,25 @@ fn polymorphic_print<'ctx>(
         match &*ctx.unifier.get_ty_immutable(ty) {
             TypeEnum::TTuple { ty: tys, is_vararg_ctx: false } => {
                 let pvalue = {
-                    let pvalue = gen_var(ctx, value.get_type(), None);
-                    typed_store(ctx.builder, pvalue, value);
+                    let pvalue = gen_var(ctx, value.get_type(), None)?;
+                    typed_store(ctx.builder, pvalue, value)?;
                     pvalue
                 };
 
                 fmt.push('(');
-                flush(ctx, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args)?;
 
                 let tuple_vals = tys
                     .iter()
                     .enumerate()
                     .map(|(i, ty)| {
-                        (*ty, {
-                            let pfield =
-                                ctx.builder.build_struct_gep(pvalue, i as u32, "").unwrap();
+                        anyhow::Ok((*ty, {
+                            let pfield = ctx.builder.build_struct_gep(pvalue, i as u32, "")?;
 
-                            ValueEnum::from(ctx.builder.build_load(pfield, "").unwrap())
-                        })
+                            ValueEnum::from(ctx.builder.build_load(pfield, "")?)
+                        }))
                     })
-                    .collect_vec();
+                    .collect::<Result<Vec<_>, _>>()?;
 
                 polymorphic_print(ctx, &tuple_vals, ", ", None, true, as_rtio)?;
 
@@ -1080,21 +1092,21 @@ fn polymorphic_print<'ctx>(
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Bool.id() => {
                 fmt.push_str("%.*s");
 
-                let true_str = ctx.gen_string("True");
+                let true_str = ctx.gen_string("True")?;
                 let true_data =
                     unsafe { true_str.get_field_at_index_unchecked(0) }.into_pointer_value();
                 let true_len = unsafe { true_str.get_field_at_index_unchecked(1) }.into_int_value();
-                let false_str = ctx.gen_string("False");
+                let false_str = ctx.gen_string("False")?;
                 let false_data =
                     unsafe { false_str.get_field_at_index_unchecked(0) }.into_pointer_value();
                 let false_len =
                     unsafe { false_str.get_field_at_index_unchecked(1) }.into_int_value();
 
-                let bool_val = bool_to_i1(ctx, value.into_int_value());
+                let bool_val = bool_to_i1(ctx, value.into_int_value())?;
 
                 args.extend([
-                    ctx.builder.build_select(bool_val, true_len, false_len, "").unwrap(),
-                    ctx.builder.build_select(bool_val, true_data, false_data, "").unwrap(),
+                    ctx.builder.build_select(bool_val, true_len, false_len, "")?,
+                    ctx.builder.build_select(bool_val, true_data, false_data, "")?,
                 ]);
             }
 
@@ -1143,13 +1155,12 @@ fn polymorphic_print<'ctx>(
                 let elem_ty = *params.iter().next().unwrap().1;
 
                 fmt.push('[');
-                flush(ctx, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args)?;
 
                 let val = ListType::from_unifier_type(ctx, ty)
                     .map_value(value.into_pointer_value(), None);
-                let len = val.load(ctx, field!(len));
-                let last =
-                    ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "").unwrap();
+                let len = val.load(ctx, field!(len))?;
+                let last = ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "")?;
 
                 gen_for_callback_incrementing(
                     &mut (),
@@ -1158,7 +1169,7 @@ fn polymorphic_print<'ctx>(
                     llvm_usize.const_zero(),
                     (len, false),
                     |(), ctx, _, i| {
-                        let elem = val.data(ctx).get_unchecked(ctx, &i, None);
+                        let elem = val.data(ctx)?.get_unchecked(ctx, &i, None)?;
 
                         polymorphic_print(ctx, &[(elem_ty, elem)], "", None, true, as_rtio)?;
 
@@ -1166,13 +1177,10 @@ fn polymorphic_print<'ctx>(
                             &mut (),
                             ctx,
                             |(), ctx| {
-                                Ok(ctx
-                                    .builder
-                                    .build_int_compare(IntPredicate::ULT, i, last, "")
-                                    .unwrap())
+                                Ok(ctx.builder.build_int_compare(IntPredicate::ULT, i, last, "")?)
                             },
                             |(), ctx| {
-                                printf(ctx, ", \0".into(), Vec::default());
+                                printf(ctx, ", \0".into(), Vec::default())?;
 
                                 Ok(())
                             },
@@ -1186,12 +1194,12 @@ fn polymorphic_print<'ctx>(
                 )?;
 
                 fmt.push(']');
-                flush(ctx, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args)?;
             }
 
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                 fmt.push_str("array([");
-                flush(ctx, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args)?;
 
                 let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
                 let ndarray = NDArrayType::from_unifier_type(ctx, ty)
@@ -1201,22 +1209,20 @@ fn polymorphic_print<'ctx>(
 
                 // Print `ndarray` as a flat list delimited by interspersed with ", \0"
                 ndarray.foreach(ctx, |ctx, _, hdl| {
-                    let i = hdl.get_index(ctx);
-                    let scalar = hdl.get_scalar(ctx);
+                    let i = hdl.get_index(ctx)?;
+                    let scalar = hdl.get_scalar(ctx)?;
 
                     // if (i != 0) puts(", ");
                     gen_if_callback(
                         &mut (),
                         ctx,
                         |(), ctx| {
-                            let not_first = ctx
-                                .builder
-                                .build_int_compare(IntPredicate::NE, i, num_0, "")
-                                .unwrap();
+                            let not_first =
+                                ctx.builder.build_int_compare(IntPredicate::NE, i, num_0, "")?;
                             Ok(not_first)
                         },
                         |(), ctx| {
-                            printf(ctx, ", \0".into(), Vec::default());
+                            printf(ctx, ", \0".into(), Vec::default())?;
                             Ok(())
                         },
                         |(), _| Ok(()),
@@ -1228,16 +1234,16 @@ fn polymorphic_print<'ctx>(
                 })?;
 
                 fmt.push_str(")]");
-                flush(ctx, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args)?;
             }
 
             TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::Range.id() => {
                 fmt.push_str("range(");
-                flush(ctx, &mut fmt, &mut args);
+                flush(ctx, &mut fmt, &mut args)?;
 
                 let val = RangeType::new(ctx).map_value(value.into_pointer_value(), None);
 
-                let (start, stop, step) = destructure_range(ctx, val);
+                let (start, stop, step) = destructure_range(ctx, val)?;
 
                 polymorphic_print(
                     ctx,
@@ -1263,10 +1269,10 @@ fn polymorphic_print<'ctx>(
                 );
 
                 let exn = ExceptionType::new(ctx).map_value(value.into_pointer_value(), None);
-                let name = exn.load(ctx, field!(name));
-                let param0 = exn.load(ctx, field!(param0));
-                let param1 = exn.load(ctx, field!(param1));
-                let param2 = exn.load(ctx, field!(param2));
+                let name = exn.load(ctx, field!(name))?;
+                let param0 = exn.load(ctx, field!(param0))?;
+                let param1 = exn.load(ctx, field!(param1))?;
+                let param2 = exn.load(ctx, field!(param2))?;
 
                 fmt.push_str(fmt_str.as_str());
                 args.extend_from_slice(&[name.into(), param0.into(), param1.into(), param2.into()]);
@@ -1280,7 +1286,7 @@ fn polymorphic_print<'ctx>(
     }
 
     fmt.push_str(suffix);
-    flush(ctx, &mut fmt, &mut args);
+    flush(ctx, &mut fmt, &mut args)?;
 
     Ok(())
 }
@@ -1289,7 +1295,7 @@ fn polymorphic_print<'ctx>(
 pub fn call_core_log_impl<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     arg: (Type, BasicValueEnum<'ctx>),
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let (arg_ty, arg_val) = arg;
 
     polymorphic_print(ctx, &[(arg_ty, arg_val.into())], " ", Some("\n"), false, false)?;
@@ -1302,7 +1308,7 @@ pub fn call_rtio_log_impl<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     channel: StructValue<'ctx>,
     arg: (Type, BasicValueEnum<'ctx>),
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let (arg_ty, arg_val) = arg;
 
     polymorphic_print(
@@ -1324,7 +1330,7 @@ pub fn gen_core_log<'ctx>(
     obj: Option<&(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     assert!(obj.is_none());
     assert_eq!(args.len(), 1);
 
@@ -1340,7 +1346,7 @@ pub fn gen_rtio_log<'ctx>(
     obj: Option<&(Type, ValueEnum<'ctx>)>,
     fun: (&FunSignature, DefinitionId),
     args: &[(Option<StrRef>, ValueEnum<'ctx>)],
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     assert!(obj.is_none());
     assert_eq!(args.len(), 2);
 

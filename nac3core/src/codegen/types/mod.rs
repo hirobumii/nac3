@@ -60,7 +60,7 @@ use impl_proxy_type;
 ///     ctx: &mut CodeGenContext<'ctx, '_>,
 ///     list: &ListValue<'ctx>)
 /// -> IntValue<'ctx> {
-///     list.load(ctx, field!(len))
+///     list.load(ctx, field!(len)).unwrap()
 /// }
 /// ```
 #[doc(hidden)]
@@ -110,14 +110,14 @@ pub trait ProxyTypeExt {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'static str>,
-    ) -> Value<'ctx, Self>
+    ) -> anyhow::Result<Value<'ctx, Self>>
     where
         Self: RefType<'ctx> + Copy,
     {
         let alloca = self.alloca_ty(ctx);
-        let ptr = gen_var(ctx, alloca, name);
-        let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, "ptr_cast").unwrap();
-        Value { ty: *self, value: ptr, name }
+        let ptr = gen_var(ctx, alloca, name)?;
+        let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, "ptr_cast")?;
+        Ok(Value { ty: *self, value: ptr, name })
     }
 
     /// Maps an existing value of the underlying LLVM type to a typed value.
@@ -163,7 +163,7 @@ impl<'ctx, T: ProxyTypeMarker<'ctx, Value = PointerValue<'ctx>>> Value<'ctx, T> 
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         field: impl FnOnce(&T) -> StructField<'ctx, B>,
-    ) -> B
+    ) -> anyhow::Result<B>
     where
         T: RefType<'ctx>,
         B: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>, Error = ()>,
@@ -180,11 +180,12 @@ impl<'ctx, T: ProxyTypeMarker<'ctx, Value = PointerValue<'ctx>>> Value<'ctx, T> 
         ctx: &mut CodeGenContext<'ctx, '_>,
         field: impl FnOnce(&T) -> StructField<'ctx, B>,
         value: B,
-    ) where
+    ) -> anyhow::Result<()>
+    where
         T: RefType<'ctx>,
         B: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
     {
         let struct_ty = self.ty.alloca_ty(ctx);
-        field(&self.ty).store(ctx, struct_ty, self.value, value, self.name);
+        field(&self.ty).store(ctx, struct_ty, self.value, value, self.name)
     }
 }

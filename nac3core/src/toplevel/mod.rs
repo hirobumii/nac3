@@ -36,7 +36,7 @@ type GenCallCallback = dyn for<'ctx, 'a> Fn(
         Option<(Type, ValueEnum<'ctx>)>,
         (&FunSignature, DefinitionId),
         Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-    ) -> Result<Option<BasicValueEnum<'ctx>>, String>
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>>
     + Send
     + Sync;
 
@@ -63,7 +63,7 @@ impl GenCall {
         obj: Option<(Type, ValueEnum<'ctx>)>,
         fun: (&FunSignature, DefinitionId),
         args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-    ) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
         (self.fp)(ctx, obj, fun, args)
     }
 }

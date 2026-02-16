@@ -7,7 +7,7 @@
 
 use std::{
     cell::OnceCell,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     ops::ControlFlow,
     sync::{
         Arc,
@@ -16,6 +16,7 @@ use std::{
     thread,
 };
 
+use anyhow::anyhow;
 use crossbeam::channel::{Receiver, Sender, unbounded};
 use inkwell::{
     AddressSpace, IntPredicate, OptimizationLevel,
@@ -447,23 +448,19 @@ impl WorkerRegistry {
         let builder = context.ctx.create_builder();
         let mut unifier_cache = vec![OnceCell::new(); self.top_level_ctx.unifiers.read().len()];
 
-        let mut errors = HashSet::new();
+        let mut errors = Vec::new();
         while let Some(task) = self.receiver.recv().unwrap() {
             let result =
                 gen_func(&mut context, &builder, generator, self, task, &mut unifier_cache);
             if let Err(e) = result {
-                errors.insert(e);
+                errors.push(e);
                 context =
                     ModuleContext::new(ctx, &format!("{}_recover", generator.get_name()), options);
             }
             *self.task_count.lock() -= 1;
             self.wait_condvar.notify_all();
         }
-        assert!(
-            errors.is_empty(),
-            "Codegen error: {}",
-            errors.into_iter().sorted().join("\n----------\n")
-        );
+        assert!(errors.is_empty(), "Codegen error: {}", errors.into_iter().join("\n----------\n"));
 
         let result = context.module.verify();
         if let Err(err) = result {
@@ -596,9 +593,9 @@ pub fn typed_load<'ctx>(
     ptr: PointerValue<'ctx>,
     ty: BasicTypeEnum<'ctx>,
     name: &str,
-) -> BasicValueEnum<'ctx> {
-    let casted_ptr = b.build_pointer_cast(ptr, ty.ptr_type(AddressSpace::default()), "").unwrap();
-    b.build_load(casted_ptr, name).unwrap()
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
+    let casted_ptr = b.build_pointer_cast(ptr, ty.ptr_type(AddressSpace::default()), "")?;
+    Ok(b.build_load(casted_ptr, name)?)
 }
 
 /// Stores `value` into the memory location pointed to by `ptr`.
@@ -609,11 +606,10 @@ pub fn typed_store<'ctx>(
     b: &Builder<'ctx>,
     ptr: PointerValue<'ctx>,
     value: impl BasicValue<'ctx>,
-) -> InstructionValue<'ctx> {
+) -> anyhow::Result<InstructionValue<'ctx>> {
     let value_ty = value.as_basic_value_enum().get_type();
-    let casted_ptr =
-        b.build_pointer_cast(ptr, value_ty.ptr_type(AddressSpace::default()), "").unwrap();
-    b.build_store(casted_ptr, value).unwrap()
+    let casted_ptr = b.build_pointer_cast(ptr, value_ty.ptr_type(AddressSpace::default()), "")?;
+    Ok(b.build_store(casted_ptr, value)?)
 }
 
 /// Retrieves the [LLVM type][`BasicTypeEnum`] corresponding to the [`Type`].
@@ -701,7 +697,7 @@ pub fn gen_func_impl<
     'ctx,
     'a,
     G: CodeGenerator,
-    F: FnOnce(&mut G, &mut CodeGenContext) -> Result<(), String>,
+    F: FnOnce(&mut G, &mut CodeGenContext) -> anyhow::Result<()>,
 >(
     ctx: &'a mut ModuleContext<'ctx>,
     builder: &'a Builder<'ctx>,
@@ -710,7 +706,7 @@ pub fn gen_func_impl<
     task: CodeGenTask,
     unifier_cache: &mut [OnceCell<Unifier>],
     codegen_function: F,
-) -> Result<FunctionValue<'ctx>, String> {
+) -> anyhow::Result<FunctionValue<'ctx>> {
     let top_level_ctx = registry.top_level_ctx.clone();
     let static_value_store = registry.static_value_store.clone();
     let (mut unifier, primitives) = {
@@ -733,7 +729,7 @@ pub fn gen_func_impl<
     for (a, b) in &task.subst {
         // this should be unification between variables and concrete types
         // and should not cause any problem...
-        let b = task.store.to_unifier_type(&mut unifier, &primitives, *b, &mut cache);
+        let b = task.store.to_unifier_type(&mut unifier, &primitives, *b, &mut cache)?;
         unifier
             .unify(*a, b)
             .or_else(|err| {
@@ -744,7 +740,7 @@ pub fn gen_func_impl<
                     Err(err)
                 }
             })
-            .unwrap();
+            .map_err(|e| anyhow!("{}", e.to_display(&unifier)))?;
     }
 
     // rebuild primitive store with unique representatives
@@ -790,7 +786,7 @@ pub fn gen_func_impl<
     // We should not be converting back into typechecking/unifier types and then turning that into
     // native LLVM types.
 
-    let ret = task.store.to_unifier_type(&mut unifier, &primitives, *ret, &mut cache);
+    let ret = task.store.to_unifier_type(&mut unifier, &primitives, *ret, &mut cache)?;
     let ret_type = if unifier.unioned(ret, primitives.none) {
         None
     } else {
@@ -799,13 +795,15 @@ pub fn gen_func_impl<
 
     let params = args
         .iter()
-        .map(|arg| FuncArg {
-            name: arg.name,
-            ty: task.store.to_unifier_type(&mut unifier, &primitives, arg.ty, &mut cache),
-            default_value: arg.default_value.clone(),
-            is_vararg: arg.is_vararg,
+        .map(|arg| {
+            anyhow::Ok(FuncArg {
+                name: arg.name,
+                ty: task.store.to_unifier_type(&mut unifier, &primitives, arg.ty, &mut cache)?,
+                default_value: arg.default_value.clone(),
+                is_vararg: arg.is_vararg,
+            })
         })
-        .collect_vec();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let params_type = params
         .iter()
         .map(|arg| {
@@ -833,7 +831,7 @@ pub fn gen_func_impl<
         let param = fn_val.get_nth_param(n as u32).unwrap();
         let local_type = get_llvm_type(ctx, &mut unifier, &mut type_cache, arg.ty);
         let alloca =
-            builder.build_alloca(local_type, &format!("{}.addr", &arg.name.to_string())).unwrap();
+            builder.build_alloca(local_type, &format!("{}.addr", &arg.name.to_string()))?;
 
         // Remap boolean parameters into i8
         let param = if local_type.is_int_type() && param.is_int_value() {
@@ -841,7 +839,7 @@ pub fn gen_func_impl<
             let param_val = param.into_int_value();
 
             if expected_ty.get_bit_width() == 8 && param_val.get_type().get_bit_width() == 1 {
-                bool_to_int_type(builder, param_val, ctx.i8)
+                bool_to_int_type(builder, param_val, ctx.i8)?
             } else {
                 param_val
             }
@@ -850,13 +848,14 @@ pub fn gen_func_impl<
             param
         };
 
-        typed_store(builder, alloca, param);
+        typed_store(builder, alloca, param)?;
         var_assignment.insert(arg.name, VarValue::new(alloca));
     }
 
     // TODO: Save vararg parameters as list
 
-    let return_buffer = ret_type.map(|v| builder.build_alloca(v, "$ret").unwrap());
+    let return_buffer =
+        ret_type.map(|v| anyhow::Ok(builder.build_alloca(v, "$ret")?)).transpose()?;
 
     let static_values = {
         let store = registry.static_value_store.lock();
@@ -870,11 +869,11 @@ pub fn gen_func_impl<
 
     let exception_val = {
         let exn_type = ExceptionType::new(ctx).inner.llvm_ty;
-        let ptr = builder.build_alloca(exn_type, "exn").unwrap();
-        builder.build_pointer_cast(ptr, ctx.ptr, "exn").unwrap()
+        let ptr = builder.build_alloca(exn_type, "exn")?;
+        builder.build_pointer_cast(ptr, ctx.ptr, "exn")?
     };
 
-    builder.build_unconditional_branch(body_bb).unwrap();
+    builder.build_unconditional_branch(body_bb)?;
     builder.position_at_end(body_bb);
 
     let is_optimized = registry.codegen_options.opt_level != "0";
@@ -904,8 +903,7 @@ pub fn gen_func_impl<
         compile_unit.get_file(),
         Some(
             dibuilder
-                .create_basic_type("_", 0_u64, 0x00, inkwell::debug_info::DIFlags::PUBLIC)
-                .unwrap()
+                .create_basic_type("_", 0_u64, 0x00, inkwell::debug_info::DIFlags::PUBLIC)?
                 .as_type(),
         ),
         &[],
@@ -967,7 +965,7 @@ pub fn gen_func_impl<
 
     // after static analysis, only void functions can have no return at the end.
     if !code_gen_context.is_terminated() {
-        code_gen_context.builder.build_return(None).unwrap();
+        code_gen_context.builder.build_return(None)?;
     }
 
     code_gen_context.builder.unset_current_debug_location();
@@ -979,7 +977,6 @@ pub fn gen_func_impl<
 /// Generates LLVM IR for a function.
 ///
 /// * `context` - The [`CoreContext`] we are inserting into.
-/// * `builder` - The [`Builder`] used for generating LLVM IR.
 /// * `generator` - The [`CodeGenerator`] for generating various program constructs.
 /// * `registry` - The [`WorkerRegistry`] responsible for monitoring this function generation task.
 /// * `task` - The [`CodeGenTask`] associated with this function generation task.
@@ -990,26 +987,24 @@ pub fn gen_func<'ctx, 'a, G: CodeGenerator>(
     registry: &WorkerRegistry,
     task: CodeGenTask,
     unifier_cache: &mut [OnceCell<Unifier>],
-) -> Result<FunctionValue<'ctx>, String> {
+) -> anyhow::Result<FunctionValue<'ctx>> {
     let body = task.body.clone();
     gen_func_impl(context, builder, generator, registry, task, unifier_cache, |generator, ctx| {
         generator.gen_block(ctx, body.iter())
     })
 }
 
-#[must_use]
 pub fn bool_to_i1<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     bool_value: IntValue<'ctx>,
-) -> IntValue<'ctx> {
+) -> anyhow::Result<IntValue<'ctx>> {
     bool_to_int_type(ctx.builder, bool_value, ctx.i1)
 }
 
-#[must_use]
 pub fn bool_to_i8<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     bool_value: IntValue<'ctx>,
-) -> IntValue<'ctx> {
+) -> anyhow::Result<IntValue<'ctx>> {
     bool_to_int_type(ctx.builder, bool_value, ctx.i8)
 }
 
@@ -1023,18 +1018,21 @@ fn bool_to_int_type<'ctx>(
     builder: &Builder<'ctx>,
     value: IntValue<'ctx>,
     ty: IntType<'ctx>,
-) -> IntValue<'ctx> {
+) -> anyhow::Result<IntValue<'ctx>> {
     // i1 -> i1    : %value                                     ; no-op
     // i1 -> i<N>  : zext i1 %value to i<N>                     ; guaranteed to be 0 or 1 - see docs
     // i<M> -> i<N>: zext i1 (icmp eq i<M> %value, 0) to i<N>   ; same as i<M> -> i1 -> i<N>
     match (value.get_type().get_bit_width(), ty.get_bit_width()) {
-        (1, 1) => value,
-        (1, _) => builder.build_int_z_extend(value, ty, "frombool").unwrap(),
+        (1, 1) => Ok(value),
+        (1, _) => Ok(builder.build_int_z_extend(value, ty, "frombool")?),
         _ => bool_to_int_type(
             builder,
-            builder
-                .build_int_compare(IntPredicate::NE, value, value.get_type().const_zero(), "tobool")
-                .unwrap(),
+            builder.build_int_compare(
+                IntPredicate::NE,
+                value,
+                value.get_type().const_zero(),
+                "tobool",
+            )?,
             ty,
         ),
     }
@@ -1060,21 +1058,12 @@ fn gen_in_range_check<'ctx>(
     value: IntValue<'ctx>,
     stop: IntValue<'ctx>,
     step: IntValue<'ctx>,
-) -> IntValue<'ctx> {
-    let sign =
-        ctx.builder.build_int_compare(IntPredicate::SGT, step, ctx.i32.const_zero(), "").unwrap();
-    let lo = ctx
-        .builder
-        .build_select(sign, value, stop, "")
-        .map(BasicValueEnum::into_int_value)
-        .unwrap();
-    let hi = ctx
-        .builder
-        .build_select(sign, stop, value, "")
-        .map(BasicValueEnum::into_int_value)
-        .unwrap();
+) -> anyhow::Result<IntValue<'ctx>> {
+    let sign = ctx.builder.build_int_compare(IntPredicate::SGT, step, ctx.i32.const_zero(), "")?;
+    let lo = ctx.builder.build_select(sign, value, stop, "").map(BasicValueEnum::into_int_value)?;
+    let hi = ctx.builder.build_select(sign, stop, value, "").map(BasicValueEnum::into_int_value)?;
 
-    ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp").unwrap()
+    Ok(ctx.builder.build_int_compare(IntPredicate::SLT, lo, hi, "cmp")?)
 }
 
 /// Inserts an `alloca` instruction with allocation `size` given in bytes and the alignment of the
@@ -1087,13 +1076,13 @@ pub fn type_aligned_alloca<'ctx>(
     align_ty: impl Into<BasicTypeEnum<'ctx>>,
     size: IntValue<'ctx>,
     name: Option<&'static str>,
-) -> PointerValue<'ctx> {
+) -> anyhow::Result<PointerValue<'ctx>> {
     /// Round `val` up to its modulo `power_of_two`.
     fn round_up<'ctx>(
         ctx: &CodeGenContext<'ctx, '_>,
         val: IntValue<'ctx>,
         power_of_two: IntValue<'ctx>,
-    ) -> IntValue<'ctx> {
+    ) -> anyhow::Result<IntValue<'ctx>> {
         debug_assert_eq!(
             val.get_type().get_bit_width(),
             power_of_two.get_type().get_bit_width(),
@@ -1105,20 +1094,18 @@ pub fn type_aligned_alloca<'ctx>(
         let llvm_val_t = val.get_type();
 
         let max_rem =
-            ctx.builder.build_int_sub(power_of_two, llvm_val_t.const_int(1, false), "").unwrap();
-        ctx.builder
-            .build_and(
-                ctx.builder.build_int_add(val, max_rem, "").unwrap(),
-                ctx.builder.build_not(max_rem, "").unwrap(),
-                "",
-            )
-            .unwrap()
+            ctx.builder.build_int_sub(power_of_two, llvm_val_t.const_int(1, false), "")?;
+        Ok(ctx.builder.build_and(
+            ctx.builder.build_int_add(val, max_rem, "")?,
+            ctx.builder.build_not(max_rem, "")?,
+            "",
+        )?)
     }
 
     let llvm_usize = ctx.size_t;
     let align_ty: BasicTypeEnum<'ctx> = align_ty.into();
 
-    let size = ctx.builder.build_int_truncate_or_bit_cast(size, llvm_usize, "").unwrap();
+    let size = ctx.builder.build_int_truncate_or_bit_cast(size, llvm_usize, "")?;
 
     debug_assert_eq!(
         size.get_type().get_bit_width(),
@@ -1129,32 +1116,30 @@ pub fn type_aligned_alloca<'ctx>(
     );
 
     let alignment = align_ty.get_alignment();
-    let alignment = ctx.builder.build_int_truncate_or_bit_cast(alignment, llvm_usize, "").unwrap();
+    let alignment = ctx.builder.build_int_truncate_or_bit_cast(alignment, llvm_usize, "")?;
 
     if ctx.registry.codegen_options.debug {
-        let alignment_bitcount = llvm_intrinsics::call_int_ctpop(ctx, alignment, None);
+        let alignment_bitcount = llvm_intrinsics::call_int_ctpop(ctx, alignment, None)?;
 
         ctx.make_assert(
-            ctx.builder
-                .build_int_compare(
-                    IntPredicate::EQ,
-                    alignment_bitcount,
-                    alignment_bitcount.get_type().const_int(1, false),
-                    "",
-                )
-                .unwrap(),
+            ctx.builder.build_int_compare(
+                IntPredicate::EQ,
+                alignment_bitcount,
+                alignment_bitcount.get_type().const_int(1, false),
+                "",
+            )?,
             "0:AssertionError",
             "Expected power-of-two alignment for aligned_alloca, got {0}",
             [Some(alignment), None, None],
             ctx.current_loc,
-        );
+        )?;
     }
 
-    let buffer_size = round_up(ctx, size, alignment);
-    let aligned_slices = ctx.builder.build_int_unsigned_div(buffer_size, alignment, "").unwrap();
+    let buffer_size = round_up(ctx, size, alignment)?;
+    let aligned_slices = ctx.builder.build_int_unsigned_div(buffer_size, alignment, "")?;
 
     // Just to be absolutely sure, alloca in [i8 x alignment] slices
-    gen_dyn_array_var(ctx, align_ty, aligned_slices, name).value.0
+    Ok(gen_dyn_array_var(ctx, align_ty, aligned_slices, name)?.value.0)
 }
 
 /// Contains all global LLVM state that is attached to an LLVM [`Module`] and independent

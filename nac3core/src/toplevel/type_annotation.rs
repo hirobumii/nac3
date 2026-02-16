@@ -1,8 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
+use anyhow::anyhow;
 use itertools::Itertools as _;
 use nac3parser::ast::{self, Constant, Expr, Location, StrRef};
 use parking_lot::RwLock;
@@ -88,11 +86,9 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     id: StrRef,
     (obj_id, type_args): (DefinitionId, Option<&Expr<T>>),
     location: &Location,
-) -> Result<TypeAnnotation, HashSet<String>> {
+) -> Result<TypeAnnotation, Vec<anyhow::Error>> {
     let Some(top_level_def) = top_level_defs.get(obj_id.0) else {
-        return Err(HashSet::from([format!(
-            "NameError: name '{id}' is not defined (at {location})",
-        )]));
+        return Err(vec![anyhow!("NameError: name '{id}' is not defined (at {location})",)]);
     };
 
     // We need to use `try_read` here, since the composer may be processing our class right now,
@@ -104,9 +100,7 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
         if let TopLevelDef::Class { type_vars, .. } = &*def_read {
             type_vars.clone()
         } else {
-            return Err(HashSet::from([format!(
-                "function cannot be used as a type (at {location})",
-            )]));
+            return Err(vec![anyhow!("function cannot be used as a type (at {location})",)]);
         }
     } else {
         locked.get(&obj_id).unwrap().clone()
@@ -121,12 +115,12 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
         };
 
         if type_vars.len() != params_ast.len() {
-            return Err(HashSet::from([format!(
+            return Err(vec![anyhow!(
                 "expect {} type parameters but got {} (at {})",
                 type_vars.len(),
                 params_ast.len(),
                 params_ast[0].location,
-            )]));
+            )]);
         }
 
         let result = params_ast
@@ -168,18 +162,18 @@ fn class_def_id_to_type_annotation<T, S: std::hash::BuildHasher + Clone>(
         if type_vars_in_result.is_empty() || all_type_vars_in_scope {
             result
         } else {
-            return Err(HashSet::from([format!(
+            return Err(vec![anyhow!(
                 "application of type vars to generic class is not currently supported (at {})",
                 params_ast[0].location
-            )]));
+            )]);
         }
     } else {
         // check param number here
         if !type_vars.is_empty() {
-            return Err(HashSet::from([format!(
+            return Err(vec![anyhow!(
                 "expect {} type variable parameter but got 0 (at {location})",
                 type_vars.len(),
-            )]));
+            )]);
         }
 
         Vec::new()
@@ -197,7 +191,7 @@ fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     primitives: &PrimitiveStore,
     locked: HashMap<DefinitionId, Vec<Type>, S>,
     expr: &ast::Expr<T>,
-) -> Result<TypeAnnotation, HashSet<String>> {
+) -> Result<TypeAnnotation, Vec<anyhow::Error>> {
     let location = &expr.location;
     let ast::ExprKind::Name { id, .. } = &expr.node else { unreachable!("must be name expr here") };
     if let Some(builtin) = builtin_registry.match_builtin(&erase_expr_type(expr)) {
@@ -234,13 +228,13 @@ fn parse_name_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     } else if let Ok(ty) = resolver.get_symbol_type(unifier, top_level_defs, primitives, *id) {
         if let TypeEnum::TVar { .. } = unifier.get_ty(ty).as_ref() {
             let var = unifier.get_fresh_var(Some(*id), Some(*location)).ty;
-            unifier.unify(var, ty).unwrap();
+            unifier.unify(var, ty).map_err(|e| vec![anyhow!("{e:?}")])?;
             Ok(TypeAnnotation::TypeVar(ty))
         } else {
-            Err(HashSet::from([format!("`{id}` is not a valid type annotation (at {location})",)]))
+            Err(vec![anyhow!("`{id}` is not a valid type annotation (at {location})",)])
         }
     } else {
-        Err(HashSet::from([format!("`{id}` is not a valid type annotation (at {location})",)]))
+        Err(vec![anyhow!("`{id}` is not a valid type annotation (at {location})",)])
     }
 }
 
@@ -257,7 +251,7 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
     id: StrRef,
     slice: &Expr<T>,
     location: &Location,
-) -> Result<TypeAnnotation, HashSet<String>> {
+) -> Result<TypeAnnotation, Vec<anyhow::Error>> {
     let obj_id = if let Some(builtin) = builtin_registry.match_builtin(&erase_expr_type(value)) {
         match builtin {
             PrimDef::Auto
@@ -267,9 +261,7 @@ fn parse_class_id_as_type_annotation<T, S: std::hash::BuildHasher + Clone>(
             | PrimDef::None
             | PrimDef::Virtual
             | PrimDef::Option => {
-                return Err(HashSet::from([format!(
-                    "keywords cannot be class name (at {location})"
-                )]));
+                return Err(vec![anyhow!("keywords cannot be class name (at {location})")]);
             }
             _ => builtin.id(),
         }
@@ -295,7 +287,7 @@ fn resolve_class_to_id<T>(
     resolver: &(dyn SymbolResolver + Send + Sync),
     top_level_defs: &[Arc<RwLock<TopLevelDef>>],
     expr: &Expr<T>,
-) -> Result<DefinitionId, HashSet<String>> {
+) -> Result<DefinitionId, Vec<anyhow::Error>> {
     /// Variant of `resolve_class_to_id` that accepts a tuple of the parent qualified expression
     /// `value` and the attribute `attr`.
     fn resolve_id<T>(
@@ -303,7 +295,7 @@ fn resolve_class_to_id<T>(
         top_level_defs: &[Arc<RwLock<TopLevelDef>>],
         (parent, attr): (Option<&Expr<T>>, &StrRef),
         location: &Location,
-    ) -> Result<DefinitionId, HashSet<String>> {
+    ) -> Result<DefinitionId, Vec<anyhow::Error>> {
         // If the path is unqualified, directly resolve using the provided `resolver`
         let Some(parent) = parent else {
             return resolver.get_identifier_def(*attr);
@@ -314,9 +306,9 @@ fn resolve_class_to_id<T>(
             ast::ExprKind::Attribute { value, attr, .. } => (Some(value.as_ref()), attr),
             ast::ExprKind::Name { id, .. } => (None, id),
             _ => {
-                return Err(HashSet::from([format!(
+                return Err(vec![anyhow!(
                     "unsupported expression type for class name (at {location})",
-                )]));
+                )]);
             }
         };
 
@@ -324,10 +316,10 @@ fn resolve_class_to_id<T>(
         let parent_id =
             resolve_id(resolver, top_level_defs, (parent_value, parent_attr), &parent.location)?;
         let Some(mod_tld) = top_level_defs.get(parent_id.0) else {
-            return Err(HashSet::from([format!(
+            return Err(vec![anyhow!(
                 "NameError: name '{parent_attr}' is not defined (at {})",
                 parent.location
-            )]));
+            )]);
         };
         let TopLevelDef::Module { simple_name: mod_name, resolver: mod_resolver, .. } =
             &*mod_tld.read()
@@ -343,9 +335,9 @@ fn resolve_class_to_id<T>(
             location,
         )
         .map_err(|_| {
-            HashSet::from([format!(
+            vec![anyhow!(
                 "AttributeError: module '{mod_name}' has no attribute '{attr}' (at {location})",
-            )])
+            )]
         })
     }
 
@@ -358,10 +350,9 @@ fn resolve_class_to_id<T>(
             resolve_id(resolver, top_level_defs, (Some(value), attr), &expr.location)
         }
 
-        _ => Err(HashSet::from([format!(
-            "unsupported expression type for class name (at {})",
-            expr.location
-        )])),
+        _ => {
+            Err(vec![anyhow!("unsupported expression type for class name (at {})", expr.location)])
+        }
     }
 }
 
@@ -380,7 +371,7 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
     expr: &ast::Expr<T>,
     // the key stores the type_var of this topleveldef::class, we only need this field here
     locked: HashMap<DefinitionId, Vec<Type>, S>,
-) -> Result<TypeAnnotation, HashSet<String>> {
+) -> Result<TypeAnnotation, Vec<anyhow::Error>> {
     match &expr.node {
         ast::ExprKind::Name { .. } => parse_name_as_type_annotation::<T, S>(
             resolver,
@@ -489,10 +480,10 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                     if type_annotations.len() == 1 {
                         Ok(TypeAnnotation::Literal(type_annotations))
                     } else {
-                        Err(HashSet::from([format!(
+                        Err(vec![anyhow!(
                             "multiple literal bounds are currently unsupported (at {})",
                             value.location
-                        )]))
+                        )])
                     }
                 }
 
@@ -529,10 +520,10 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
                         )
                     }
 
-                    _ => Err(HashSet::from([format!(
+                    _ => Err(vec![anyhow!(
                         "unsupported expression type for class name (at {})",
                         value.location
-                    )])),
+                    )]),
                 },
             }
         }
@@ -559,10 +550,9 @@ pub fn parse_ast_to_type_annotation_kinds<T, S: std::hash::BuildHasher + Clone>(
             )
         }
 
-        _ => Err(HashSet::from([format!(
-            "unsupported expression for type annotation (at {})",
-            expr.location
-        )])),
+        _ => {
+            Err(vec![anyhow!("unsupported expression for type annotation (at {})", expr.location)])
+        }
     }
 }
 
@@ -575,7 +565,7 @@ pub fn get_type_from_type_annotation_kinds(
     primitives: &PrimitiveStore,
     ann: &TypeAnnotation,
     subst_list: &mut Option<Vec<Type>>,
-) -> Result<Type, HashSet<String>> {
+) -> Result<Type, Vec<anyhow::Error>> {
     match ann {
         TypeAnnotation::CustomClass { id: obj_id, params } => {
             // let def_read = top_level_defs[obj_id.0].read();
@@ -585,11 +575,11 @@ pub fn get_type_from_type_annotation_kinds(
             };
 
             if type_vars.len() != params.len() {
-                return Err(HashSet::from([format!(
+                return Err(vec![anyhow!(
                     "unexpected number of type parameters: expected {} but got {}",
                     type_vars.len(),
                     params.len()
-                )]));
+                )]);
             }
 
             let param_ty = params
@@ -660,7 +650,7 @@ pub fn get_type_from_type_annotation_kinds(
                                 if ok {
                                     result.insert(*id, p);
                                 } else {
-                                    return Err(HashSet::from([format!(
+                                    return Err(vec![anyhow!(
                                         "cannot apply type {} to type variable with id {:?}",
                                         unifier.internal_stringify(
                                             p,
@@ -669,7 +659,7 @@ pub fn get_type_from_type_annotation_kinds(
                                             &mut None
                                         ),
                                         *id
-                                    )]));
+                                    )]);
                                 }
                             }
 
@@ -688,11 +678,11 @@ pub fn get_type_from_type_annotation_kinds(
                                 if ok {
                                     result.insert(*id, p);
                                 } else {
-                                    return Err(HashSet::from([format!(
+                                    return Err(vec![anyhow!(
                                         "cannot apply type {} to type variable {}",
                                         unifier.stringify(p),
                                         name.unwrap_or_else(|| format!("typevar{id}").into()),
-                                    )]));
+                                    )]);
                                 }
                             }
 
@@ -736,7 +726,7 @@ pub fn get_type_from_type_annotation_kinds(
                 .iter()
                 .map(SymbolValue::from_constant_inferred)
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|err| HashSet::from([err]))?;
+                .map_err(|err| vec![err])?;
 
             let var = unifier.get_fresh_literal(values, None);
             Ok(var)

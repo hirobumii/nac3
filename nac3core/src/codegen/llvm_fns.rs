@@ -213,9 +213,9 @@ impl<'ctx> FunctionStore<'ctx> {
         decl: &FunctionDecl<'ctx>,
         builder: &Builder<'ctx>,
         args: &[T],
-        call: impl FnOnce(FunctionValue<'ctx>, &[T]) -> CallSiteValue<'ctx>,
-        mut alloca: impl FnMut(BasicTypeEnum<'ctx>) -> PointerValue<'ctx>,
-    ) -> Option<BasicValueEnum<'ctx>>
+        call: impl FnOnce(FunctionValue<'ctx>, &[T]) -> anyhow::Result<CallSiteValue<'ctx>>,
+        mut alloca: impl FnMut(BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>>,
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>>
     where
         T: Copy + TryInto<BasicValueEnum<'ctx>, Error: Debug>,
         BasicValueEnum<'ctx>: Into<T>,
@@ -232,9 +232,9 @@ impl<'ctx> FunctionStore<'ctx> {
             if param.get_element_type().is_struct_type()
                 && p.get_type().get_element_type().is_struct_type()
             {
-                arg = ptr_to_t(builder.build_pointer_cast(p, param, "").unwrap());
+                arg = ptr_to_t(builder.build_pointer_cast(p, param, "")?);
             }
-            arg
+            anyhow::Ok(arg)
         };
 
         let (value, ref info) = self.functions[&decl.name];
@@ -244,24 +244,27 @@ impl<'ctx> FunctionStore<'ctx> {
 
                 let slot = match *ret {
                     Some(TyAndCallConv { ty, call_conv: ArgCallConv::Indirect(attr) }) => {
-                        Some((alloca(ty), attr))
+                        Some((alloca(ty)?, attr))
                     }
                     _ => None,
                 };
-                let normal_args = params.iter().map(|&TyAndCallConv { ty, call_conv }| {
-                    let mut next = *args.next().expect("arguments fewer than parameters");
-                    if let BasicTypeEnum::PointerType(p) = ty {
-                        next = fixup_ptr_arg(next, p);
-                    }
+                let normal_args = params
+                    .iter()
+                    .map(|&TyAndCallConv { ty, call_conv }| {
+                        let mut next = *args.next().expect("arguments fewer than parameters");
+                        if let BasicTypeEnum::PointerType(p) = ty {
+                            next = fixup_ptr_arg(next, p)?;
+                        }
 
-                    if let ArgCallConv::Indirect(attr) = call_conv {
-                        let p = alloca(ty);
-                        typed_store(builder, p, next.try_into().unwrap());
-                        (ptr_to_t(p), attr)
-                    } else {
-                        (next, None)
-                    }
-                });
+                        if let ArgCallConv::Indirect(attr) = call_conv {
+                            let p = alloca(ty)?;
+                            typed_store(builder, p, next.try_into().unwrap())?;
+                            anyhow::Ok((ptr_to_t(p), attr))
+                        } else {
+                            Ok((next, None))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
 
                 let normal_slot = slot.map(|(p, attr)| (ptr_to_t(p), attr));
                 let (mut llvm_args, attrs): (Vec<_>, Vec<_>) =
@@ -272,7 +275,7 @@ impl<'ctx> FunctionStore<'ctx> {
                     assert!(args.as_slice().is_empty(), "too many arguments");
                 }
 
-                let result = call(value, &llvm_args);
+                let result = call(value, &llvm_args)?;
                 for (loc, attr) in get_attrs(attrs) {
                     result.add_attribute(loc, attr);
                 }
@@ -280,10 +283,10 @@ impl<'ctx> FunctionStore<'ctx> {
                 let mut result = result.try_as_basic_value().basic();
                 if let Some((ptr, _)) = slot {
                     assert!(result.is_none());
-                    result = Some(builder.build_load(ptr, "slot").unwrap());
+                    result = Some(builder.build_load(ptr, "slot")?);
                 }
                 assert_eq!(result.map(|val| val.get_type()), ret.map(|ret_type| ret_type.ty));
-                result
+                Ok(result)
             }
             FunctionInfo::Internal { ret, params, export } => {
                 assert!(!export, "attempted to call a non-exported function");
@@ -295,16 +298,16 @@ impl<'ctx> FunctionStore<'ctx> {
                         if let BasicMetadataTypeEnum::PointerType(p) = *param {
                             fixup_ptr_arg(arg, p)
                         } else {
-                            arg
+                            Ok(arg)
                         }
                     })
-                    .collect_vec();
+                    .collect::<Result<Vec<_>, _>>()?;
 
-                let inst = call(value, &args);
+                let inst = call(value, &args)?;
                 inst.set_call_convention(INTERNAL_CALL_CONV);
                 let result = inst.try_as_basic_value().basic();
                 assert_eq!(result.map(|val| val.get_type()), *ret);
-                result
+                Ok(result)
             }
         }
     }

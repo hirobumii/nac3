@@ -1,5 +1,6 @@
 use std::iter::once;
 
+use anyhow::{anyhow, bail};
 use inkwell::{
     AddressSpace, IntPredicate,
     basic_block::BasicBlock,
@@ -53,8 +54,8 @@ pub(crate) fn get_personality<'ctx>(
 fn get_var_builder<'ctx, T>(
     ctx: &CodeGenContext<'ctx, '_>,
     late: bool,
-    b: impl FnOnce(&Builder<'ctx>) -> T,
-) -> T {
+    b: impl FnOnce(&Builder<'ctx>) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
     // Restore debug location
     let di_loc = ctx.debug_info.0.create_debug_location(
         ctx.ctx,
@@ -65,7 +66,7 @@ fn get_var_builder<'ctx, T>(
     );
 
     let new_builder;
-    let builder: &Builder<'ctx> = if late {
+    let builder = if late {
         ctx.builder
     } else {
         new_builder = ctx.ctx.create_builder();
@@ -89,9 +90,9 @@ pub fn gen_var<'ctx, T: BasicType<'ctx> + Copy>(
     ctx: &CodeGenContext<'ctx, '_>,
     ty: T,
     name: Option<&str>,
-) -> PointerValue<'ctx> {
+) -> anyhow::Result<PointerValue<'ctx>> {
     let ty = ty.as_basic_type_enum();
-    get_var_builder(ctx, false, |builder| builder.build_alloca(ty, name.unwrap_or("")).unwrap())
+    get_var_builder(ctx, false, |builder| Ok(builder.build_alloca(ty, name.unwrap_or(""))?))
 }
 
 /// Allocates an LLVM stack variable for temporary storage. The alloca is inserted
@@ -100,9 +101,9 @@ pub fn gen_dyn_var<'ctx, T: BasicType<'ctx> + Copy>(
     ctx: &CodeGenContext<'ctx, '_>,
     ty: T,
     name: Option<&str>,
-) -> PointerValue<'ctx> {
+) -> anyhow::Result<PointerValue<'ctx>> {
     let ty = ty.as_basic_type_enum();
-    get_var_builder(ctx, true, |builder| builder.build_alloca(ty, name.unwrap_or("")).unwrap())
+    get_var_builder(ctx, true, |builder| Ok(builder.build_alloca(ty, name.unwrap_or(""))?))
 }
 
 /// Allocates an LLVM stack array for temporary storage. The variable is stored
@@ -116,14 +117,14 @@ pub fn gen_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
     ty: T,
     size: u64,
     name: Option<&'static str>,
-) -> ArraySliceValue<'ctx> {
+) -> anyhow::Result<ArraySliceValue<'ctx>> {
     let size = ctx.size_t.const_int(size, false);
     let ty = ty.as_basic_type_enum();
     let ptr = get_var_builder(ctx, false, |builder| {
-        builder.build_array_alloca(ty, size, name.unwrap_or("")).unwrap()
-    });
-    let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or("")).unwrap();
-    ArraySliceValue::new(ty, ptr, size, name)
+        Ok(builder.build_array_alloca(ty, size, name.unwrap_or(""))?)
+    })?;
+    let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or(""))?;
+    Ok(ArraySliceValue::new(ty, ptr, size, name))
 }
 
 /// Allocates an LLVM stack array for temporary storage.
@@ -135,13 +136,13 @@ pub fn gen_dyn_array_var<'ctx, 'a, T: BasicType<'ctx> + Copy>(
     ty: T,
     size: IntValue<'ctx>,
     name: Option<&'static str>,
-) -> ArraySliceValue<'ctx> {
+) -> anyhow::Result<ArraySliceValue<'ctx>> {
     let ty = ty.as_basic_type_enum();
     let ptr = get_var_builder(ctx, true, |builder| {
-        builder.build_array_alloca(ty, size, name.unwrap_or("")).unwrap()
-    });
-    let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or("")).unwrap();
-    ArraySliceValue::new(ty, ptr, size, name)
+        Ok(builder.build_array_alloca(ty, size, name.unwrap_or(""))?)
+    })?;
+    let ptr = ctx.builder.build_pointer_cast(ptr, ctx.ptr, name.unwrap_or(""))?;
+    Ok(ArraySliceValue::new(ty, ptr, size, name))
 }
 
 /// See [`CodeGenerator::gen_store_target`].
@@ -150,14 +151,14 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     pattern: &Expr<Option<Type>>,
     name: Option<&str>,
-) -> Result<Option<PointerValue<'ctx>>, String> {
+) -> anyhow::Result<Option<PointerValue<'ctx>>> {
     // very similar to gen_expr, but we don't do an extra load at the end
     // and we flatten nested tuples
     Ok(Some(match &pattern.node {
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
             None => {
                 let ptr_ty = ctx.get_llvm_type(pattern.custom.unwrap());
-                let ptr = gen_var(ctx, ptr_ty, name);
+                let ptr = gen_var(ctx, ptr_ty, name)?;
                 ctx.var_assignment.insert(*id, VarValue::new(ptr));
                 ptr
             }
@@ -175,45 +176,42 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                 codegen_unreachable!(ctx);
             };
             let alloca_ty = ctx.get_alloca_type(value.custom.unwrap());
-            let ptr = ctx
-                .builder
-                .build_pointer_cast(ptr, alloca_ty.ptr_type(AddressSpace::default()), "")
-                .unwrap();
+            let ptr = ctx.builder.build_pointer_cast(
+                ptr,
+                alloca_ty.ptr_type(AddressSpace::default()),
+                "",
+            )?;
             unsafe {
                 ctx.builder.build_in_bounds_gep(
                     ptr,
                     &[ctx.i32.const_zero(), ctx.i32.const_int(index as u64, false)],
                     name.unwrap_or(""),
-                )
+                )?
             }
-            .unwrap()
         }
         ExprKind::Tuple { elts, .. } => {
             let elts = elts
                 .iter()
                 .map(|e| {
-                    generator.gen_store_target(ctx, e, name).and_then(|v| {
-                        v.ok_or_else(|| "failed to generate store target".to_string())
-                    })
+                    generator
+                        .gen_store_target(ctx, e, name)
+                        .and_then(|v| v.ok_or_else(|| anyhow!("failed to generate store target")))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let struct_ty =
                 ctx.ctx.struct_type(&elts.iter().map(|p| p.get_type().into()).collect_vec(), false);
-            let struct_ptr = gen_var(ctx, struct_ty, name);
+            let struct_ptr = gen_var(ctx, struct_ty, name)?;
             for (i, elt) in elts.iter().enumerate() {
-                ctx.builder
-                    .build_store(
-                        unsafe {
-                            ctx.builder.build_in_bounds_gep(
-                                struct_ptr,
-                                &[ctx.i32.const_zero(), ctx.i32.const_int(i as u64, false)],
-                                "",
-                            )
-                        }
-                        .unwrap(),
-                        *elt,
-                    )
-                    .unwrap();
+                ctx.builder.build_store(
+                    unsafe {
+                        ctx.builder.build_in_bounds_gep(
+                            struct_ptr,
+                            &[ctx.i32.const_zero(), ctx.i32.const_int(i as u64, false)],
+                            "",
+                        )?
+                    },
+                    *elt,
+                )?;
             }
             struct_ptr
         }
@@ -228,7 +226,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
     target: &Expr<Option<Type>>,
     value: &ValueEnum<'ctx>,
     value_ty: Type,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     // See https://docs.python.org/3/reference/simple_stmts.html#assignment-statements.
     match &target.node {
         ExprKind::Subscript { value: target, slice: key, .. } => {
@@ -262,12 +260,12 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
 
             // Perform i1 <-> i8 conversion as needed
             let val = if ctx.unifier.unioned(target.custom.unwrap(), ctx.primitives.bool) {
-                bool_to_i8(ctx, val.into_int_value()).into()
+                bool_to_i8(ctx, val.into_int_value())?.into()
             } else {
                 val
             };
 
-            typed_store(ctx.builder, ptr, val);
+            typed_store(ctx.builder, ptr, val)?;
         }
     }
     Ok(())
@@ -280,7 +278,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     targets: &[Expr<Option<Type>>],
     value: &ValueEnum<'ctx>,
     value_ty: Type,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let do_assign = |generator: &mut G, ctx: &mut _, targets, values: &[_]| {
         izip!(targets, values).try_for_each(|(target, &(val_ty, val))| {
             generator.gen_assign(&mut *ctx, target, &ValueEnum::Dynamic(val), val_ty)
@@ -288,8 +286,8 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     };
     let do_assign_list = |generator: &mut G, ctx: &mut _, target, list: &ListValue<'ctx>| {
         let ptr = generator.gen_store_target(ctx, target, Some("starred_target.addr"))?.unwrap();
-        typed_store(ctx.builder, ptr, list.value);
-        Ok::<_, String>(())
+        typed_store(ctx.builder, ptr, list.value)?;
+        anyhow::Ok(())
     };
 
     // Find the starred target if it exists.
@@ -311,17 +309,20 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let tuple = tuple_tys
                 .iter()
                 .enumerate()
-                .map(|(i, ty)| (*ty, tuple.extract(ctx, i as u32)))
-                .collect_vec();
+                .map(|(i, ty)| {
+                    let elem = tuple.extract(ctx, i as u32)?;
+                    anyhow::Ok((*ty, elem))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
             // Unlike in python we require the starred target to consume one or more items when the
             // RHS is a tuple. Otherwise, it would be impossible type the starred target.
             if tuple.len() < targets.len() {
-                return Err(format!(
+                bail!(
                     "Tuple unpacking requires at least as many values as targets including the starred target, but got {} values and {} targets",
                     tuple_tys.len(),
                     targets.len()
-                ));
+                );
             }
 
             let Some((head, mid, tail)) = starred_target_index else {
@@ -343,10 +344,10 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             );
             let tup_mid_len = ctx.size_t.const_int(tup_mid.len() as u64, false);
             let starred_list =
-                ListType::new(ctx, tup_mid_ty).construct(ctx, tup_mid_len, Some("starred_list"));
-            let starred_list_data = starred_list.data(ctx);
+                ListType::new(ctx, tup_mid_ty).construct(ctx, tup_mid_len, Some("starred_list"))?;
+            let starred_list_data = starred_list.data(ctx)?;
             for (i, &(_, val)) in tup_mid.iter().enumerate() {
-                starred_list_data.set(ctx, &ctx.size_t.const_int(i as u64, false), val, None);
+                starred_list_data.set(ctx, &ctx.size_t.const_int(i as u64, false), val, None)?;
             }
             do_assign_list(generator, ctx, mid, &starred_list)?;
 
@@ -355,12 +356,13 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
             let list = value.to_basic_value_enum(ctx, value_ty)?.into_pointer_value();
             let list = ListType::from_unifier_type(ctx, value_ty).map_value(list, None);
-            let list_data = list.data(ctx);
+            let list_data = list.data(ctx)?;
             let elem_ty = list.ty.item_ty;
             let rhs_size = list_data.value.1;
 
             let do_read = |ctx: &mut CodeGenContext<'ctx, '_>, at: _| {
-                (elem_ty, list_data.get_unchecked(ctx, &at, None))
+                let elem: BasicValueEnum<'ctx> = list_data.get_unchecked(ctx, &at, None)?;
+                Ok((elem_ty, elem))
             };
             let read_fixed = |ctx: &mut CodeGenContext<'ctx, '_>, to: usize| {
                 (0..to)
@@ -368,7 +370,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                         let i = ctx.size_t.const_int(i as u64, false);
                         do_read(ctx, i)
                     })
-                    .collect_vec()
+                    .collect::<anyhow::Result<Vec<_>>>()
             };
 
             let Some((head, mid, tail)) = starred_target_index else {
@@ -376,16 +378,19 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
 
                 let lhs_size = ctx.size_t.const_int(targets.len() as u64, false);
                 ctx.make_assert(
-                    ctx.builder
-                        .build_int_compare(IntPredicate::EQ, rhs_size, lhs_size, "list_size_check")
-                        .unwrap(),
+                    ctx.builder.build_int_compare(
+                        IntPredicate::EQ,
+                        rhs_size,
+                        lhs_size,
+                        "list_size_check",
+                    )?,
                     "ValueError",
                     "incorrect number of values to unpack (expected {1})",
                     [Some(rhs_size), Some(lhs_size), None],
                     Location::default(),
-                );
+                )?;
 
-                let values = read_fixed(ctx, targets.len());
+                let values = read_fixed(ctx, targets.len())?;
                 return do_assign(generator, ctx, targets, &values);
             };
 
@@ -393,37 +398,40 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let min_size = targets.len() - 1;
             let min_size_ = ctx.size_t.const_int(min_size as u64, false);
             ctx.make_assert(
-                ctx.builder
-                    .build_int_compare(IntPredicate::ULE, min_size_, rhs_size, "list_size_check")
-                    .unwrap(),
+                ctx.builder.build_int_compare(
+                    IntPredicate::ULE,
+                    min_size_,
+                    rhs_size,
+                    "list_size_check",
+                )?,
                 "ValueError",
                 "too few values to unpack (expected at least {0}, got {1})",
                 [Some(min_size_), Some(rhs_size), None],
                 targets[0].location,
-            );
+            )?;
 
-            let head_values = read_fixed(ctx, head.len());
+            let head_values = read_fixed(ctx, head.len())?;
             do_assign(generator, ctx, head, &head_values)?;
 
             // Here we just share data with the previous list.
             let head_len = ctx.size_t.const_int(head.len() as u64, false);
-            let mid_len = ctx.builder.build_int_sub(rhs_size, min_size_, "mid_len").unwrap();
-            let mid_begin = list_data.ptr_offset_unchecked(ctx, &head_len, Some("mid_begin"));
+            let mid_len = ctx.builder.build_int_sub(rhs_size, min_size_, "mid_len")?;
+            let mid_begin = list_data.ptr_offset_unchecked(ctx, &head_len, Some("mid_begin"))?;
             let tail_len = ctx.size_t.const_int(tail.len() as u64, false);
-            let tail_begin = ctx.builder.build_int_sub(rhs_size, tail_len, "tail_begin").unwrap();
+            let tail_begin = ctx.builder.build_int_sub(rhs_size, tail_len, "tail_begin")?;
 
-            let mid_list = ListType::new(ctx, elem_ty).alloca(ctx, None);
-            mid_list.store(ctx, field!(items), mid_begin);
-            mid_list.store(ctx, field!(len), mid_len);
+            let mid_list = ListType::new(ctx, elem_ty).alloca(ctx, None)?;
+            mid_list.store(ctx, field!(items), mid_begin)?;
+            mid_list.store(ctx, field!(len), mid_len)?;
             do_assign_list(generator, ctx, mid, &mid_list)?;
 
             let list_tail = (0..tail.len())
                 .map(|i| {
                     let i = ctx.size_t.const_int(i as u64, false);
-                    let idx = ctx.builder.build_int_add(tail_begin, i, "tail_index").unwrap();
+                    let idx = ctx.builder.build_int_add(tail_begin, i, "tail_index")?;
                     do_read(ctx, idx)
                 })
-                .collect_vec();
+                .collect::<anyhow::Result<Vec<_>>>()?;
             do_assign(generator, ctx, tail, &list_tail)?;
         }
         // The typechecker ensures this
@@ -440,7 +448,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
     key: &Expr<Option<Type>>,
     value: &ValueEnum<'ctx>,
     value_ty: Type,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let target_ty = target.custom.unwrap();
 
     match &*ctx.unifier.get_ty(target_ty) {
@@ -459,7 +467,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 let ExprKind::Slice { lower, upper, step } = &key.node else {
                     codegen_unreachable!(ctx)
                 };
-                let size = target.load(ctx, field!(len));
+                let size = target.load(ctx, field!(len))?;
                 let Some((start, end, step)) =
                     handle_slice_indices(lower, upper, step, ctx, generator, size)?
                 else {
@@ -470,7 +478,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 let value = ListType::from_unifier_type(ctx, value_ty).map_value(value_val, None);
 
                 let target_item_ty = ctx.get_llvm_type(target_item_ty);
-                let size = value.load(ctx, field!(len));
+                let size = value.load(ctx, field!(len))?;
                 let Some(src_ind) =
                     handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                 else {
@@ -483,44 +491,43 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                     (start, end, step),
                     value,
                     src_ind,
-                );
+                )?;
             } else {
                 // Handle assigning to an index
-                let len = target.load(ctx, field!(len));
+                let len = target.load(ctx, field!(len))?;
 
                 let index =
                     generator.gen_expr(ctx, key)?.to_basic_value_enum(ctx)?.into_int_value();
-                let index = ctx.builder.build_int_s_extend(index, ctx.size_t, "sext").unwrap();
+                let index = ctx.builder.build_int_s_extend(index, ctx.size_t, "sext")?;
 
                 // handle negative index
-                let is_negative = ctx
-                    .builder
-                    .build_int_compare(IntPredicate::SLT, index, ctx.size_t.const_zero(), "is_neg")
-                    .unwrap();
-                let adjusted = ctx.builder.build_int_add(index, len, "adjusted").unwrap();
+                let is_negative = ctx.builder.build_int_compare(
+                    IntPredicate::SLT,
+                    index,
+                    ctx.size_t.const_zero(),
+                    "is_neg",
+                )?;
+                let adjusted = ctx.builder.build_int_add(index, len, "adjusted")?;
                 let index = ctx
                     .builder
                     .build_select(is_negative, adjusted, index, "index")
-                    .map(BasicValueEnum::into_int_value)
-                    .unwrap();
+                    .map(BasicValueEnum::into_int_value)?;
 
                 // unsigned less than is enough, because negative index after adjustment is
                 // bigger than the length (for unsigned cmp)
-                let bound_check = ctx
-                    .builder
-                    .build_int_compare(IntPredicate::ULT, index, len, "inbound")
-                    .unwrap();
+                let bound_check =
+                    ctx.builder.build_int_compare(IntPredicate::ULT, index, len, "inbound")?;
                 ctx.make_assert(
                     bound_check,
                     "0:IndexError",
                     "index {0} out of bounds 0:{1}",
                     [Some(index), Some(len), None],
                     key.location,
-                );
+                )?;
 
                 // Write value to index on list
                 let value = value.to_basic_value_enum(ctx, value_ty)?;
-                target.data(ctx).set(ctx, &index, value, Some("list_item"));
+                target.data(ctx)?.set(ctx, &index, value, Some("list_item"))?;
             }
         }
         TypeEnum::TObj { obj_id, .. }
@@ -551,16 +558,16 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
             let target = NDArrayType::from_unifier_type(ctx, target_ty)
                 .map_value(target.into_pointer_value(), None);
-            let target = target.index(ctx, &key);
+            let target = target.index(ctx, &key)?;
 
-            let value = ScalarOrNDArray::from_value(ctx, (value_ty, value)).to_ndarray(ctx);
+            let value = ScalarOrNDArray::from_value(ctx, (value_ty, value)).to_ndarray(ctx)?;
 
-            let broadcast_result = broadcast(ctx, &[target, value]);
+            let broadcast_result = broadcast(ctx, &[target, value])?;
 
             let target = broadcast_result.ndarrays[0];
             let value = broadcast_result.ndarrays[1];
 
-            target.copy_data_from(ctx, &value);
+            target.copy_data_from(ctx, &value)?;
         }
         _ => {
             panic!("encountered unknown target type: {}", ctx.unifier.stringify(target_ty));
@@ -603,20 +610,20 @@ pub fn gen_for_callback<'ctx, 'a, G, I, InitFn, CondFn, BodyFn, UpdateFn, OrElse
     body: BodyFn,
     update: UpdateFn,
     orelse: OrElseFn,
-) -> Result<(), String>
+) -> anyhow::Result<()>
 where
     G: ?Sized,
     I: Clone,
-    InitFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<I, String>,
-    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<IntValue<'ctx>, String>,
+    InitFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<I>,
+    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> anyhow::Result<IntValue<'ctx>>,
     BodyFn: FnOnce(
         &mut G,
         &mut CodeGenContext<'ctx, 'a>,
         BreakContinueHooks<'ctx>,
         I,
-    ) -> Result<(), String>,
-    UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> Result<(), String>,
-    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+    ) -> anyhow::Result<()>,
+    UpdateFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>, I) -> anyhow::Result<()>,
+    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<()>,
 {
     let label = label.unwrap_or("for");
 
@@ -645,19 +652,19 @@ where
         }
     };
 
-    ctx.builder.build_unconditional_branch(init_bb).unwrap();
+    ctx.builder.build_unconditional_branch(init_bb)?;
 
     ctx.builder.position_at_end(init_bb);
     let loop_var = init(generator, ctx)?;
     if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+        ctx.builder.build_unconditional_branch(cond_bb)?;
     }
 
     ctx.builder.position_at_end(cond_bb);
     let cond = cond(generator, ctx, loop_var.clone())?;
     assert_eq!(cond.get_type().get_bit_width(), ctx.i1.get_bit_width());
     if !ctx.is_terminated() {
-        ctx.builder.build_conditional_branch(cond, body_bb, orelse_bb).unwrap();
+        ctx.builder.build_conditional_branch(cond, body_bb, orelse_bb)?;
     }
 
     ctx.builder.position_at_end(body_bb);
@@ -665,19 +672,19 @@ where
     body(generator, ctx, hooks, loop_var.clone())?;
     restore_var_assignment(ctx);
     if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(update_bb).unwrap();
+        ctx.builder.build_unconditional_branch(update_bb)?;
     }
 
     ctx.builder.position_at_end(update_bb);
     update(generator, ctx, loop_var)?;
     if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(cond_bb).unwrap();
+        ctx.builder.build_unconditional_branch(cond_bb)?;
     }
 
     ctx.builder.position_at_end(orelse_bb);
     orelse(generator, ctx)?;
     if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+        ctx.builder.build_unconditional_branch(cont_bb)?;
     }
 
     restore_var_assignment(ctx);
@@ -694,7 +701,7 @@ fn build_tuple_elem_switch<'ctx>(
     element_ty: Option<Type>,
     start: IntValue<'ctx>,
     next_i: IntValue<'ctx>,
-) -> BasicValueEnum<'ctx> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     let int32 = ctx.i32;
     let update_bb = ctx.builder.get_insert_block().unwrap();
     let merge_bb = ctx.ctx.insert_basic_block_after(update_bb, "tuple.merge");
@@ -708,24 +715,22 @@ fn build_tuple_elem_switch<'ctx>(
         tmp_bb = case_bb;
     }
 
-    ctx.builder
-        .build_switch(ctx.builder.build_int_sub(next_i, start, "sub").unwrap(), merge_bb, &cases)
-        .unwrap();
+    ctx.builder.build_switch(ctx.builder.build_int_sub(next_i, start, "sub")?, merge_bb, &cases)?;
 
     ctx.builder.position_at_end(merge_bb);
-    let phi = ctx.builder.build_phi(default_element_ty, "tuple.elem.phi").unwrap();
+    let phi = ctx.builder.build_phi(default_element_ty, "tuple.elem.phi")?;
 
     for (idx, (_, case_bb)) in cases.iter().take(tuple_len as usize).enumerate() {
         ctx.builder.position_at_end(*case_bb);
-        let elem_val = tuple.extract(ctx, idx as u32);
-        ctx.builder.build_unconditional_branch(merge_bb).unwrap();
+        let elem_val = tuple.extract(ctx, idx as u32)?;
+        ctx.builder.build_unconditional_branch(merge_bb)?;
         phi.add_incoming(&[(&elem_val, *case_bb)]);
     }
 
     ctx.builder.position_at_end(merge_bb);
     let default_value = default_element_ty.const_zero();
     phi.add_incoming(&[(&default_value, update_bb)]);
-    phi.as_basic_value()
+    Ok(phi.as_basic_value())
 }
 
 /// Generates a `for` statement with `enumerate(iterable)` as its iterable object.
@@ -752,11 +757,12 @@ fn gen_for_enumerate<'ctx, G, GetFirst, GetNext, U>(
     get_next_elem: GetNext,
     body: &[Stmt<Option<Type>>],
     orelse: &[Stmt<Option<Type>>],
-) -> Result<(), String>
+) -> anyhow::Result<()>
 where
     G: CodeGenerator,
-    GetFirst: Fn(&mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx>,
-    GetNext: Fn(&mut CodeGenContext<'ctx, '_>, IntValue<'ctx>) -> BasicValueEnum<'ctx>,
+    GetFirst: Fn(&mut CodeGenContext<'ctx, '_>) -> anyhow::Result<BasicValueEnum<'ctx>>,
+    GetNext:
+        Fn(&mut CodeGenContext<'ctx, '_>, IntValue<'ctx>) -> anyhow::Result<BasicValueEnum<'ctx>>,
 {
     let int32 = ctx.i32;
     let default_element_ty = ctx.get_llvm_type(element_ty.unwrap_or(ctx.primitives.int32));
@@ -766,51 +772,45 @@ where
         None,
         |_, ctx| {
             let element_struct = ctx.ctx.struct_type(&[int32.into(), default_element_ty], false);
-            let iv_pair = gen_var(ctx, element_struct, Some("for.v.addr"));
-            let i = ctx.builder.build_struct_gep(iv_pair, 0, "i").unwrap();
-            ctx.builder.build_store(i, start).unwrap();
+            let iv_pair = gen_var(ctx, element_struct, Some("for.v.addr"))?;
+            let i = ctx.builder.build_struct_gep(iv_pair, 0, "i")?;
+            ctx.builder.build_store(i, start)?;
             if element_ty.is_some() {
-                let first_v = get_first_elem(ctx);
-                let v = ctx.builder.build_struct_gep(iv_pair, 1, "v").unwrap();
-                ctx.builder.build_store(v, first_v).unwrap();
+                let first_v = get_first_elem(ctx)?;
+                let v = ctx.builder.build_struct_gep(iv_pair, 1, "v")?;
+                ctx.builder.build_store(v, first_v)?;
             }
             Ok(iv_pair)
         },
         |_, ctx, iv_pair| {
-            let i = ctx.builder.build_struct_gep(iv_pair, 0, "i").unwrap();
-            let i_val =
-                ctx.builder.build_load(i, "i_val").map(BasicValueEnum::into_int_value).unwrap();
-            Ok(gen_in_range_check(
+            let i = ctx.builder.build_struct_gep(iv_pair, 0, "i")?;
+            let i_val = ctx.builder.build_load(i, "i_val").map(BasicValueEnum::into_int_value)?;
+            gen_in_range_check(
                 ctx,
-                ctx.builder.build_int_sub(i_val, start, "sub").unwrap(),
+                ctx.builder.build_int_sub(i_val, start, "sub")?,
                 length,
                 int32.const_int(1, false),
-            ))
+            )
         },
         |generator, ctx, _, iv_pair| {
             match target_expr {
                 ExprKind::Tuple { elts, .. } if elts.len() == 2 => {
-                    let i = ctx.builder.build_struct_gep(iv_pair, 0, "i").unwrap();
-                    let i_val = ctx
-                        .builder
-                        .build_load(i, "i_val")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap();
-                    let ptr_1 = ctx.builder.build_struct_gep(target_i, 0, "tuple.0").unwrap();
+                    let i = ctx.builder.build_struct_gep(iv_pair, 0, "i")?;
+                    let i_val =
+                        ctx.builder.build_load(i, "i_val").map(BasicValueEnum::into_int_value)?;
+                    let ptr_1 = ctx.builder.build_struct_gep(target_i, 0, "tuple.0")?;
                     let addr_1 =
-                        ctx.builder.build_load(ptr_1, "tuple.0.addr").unwrap().into_pointer_value();
-                    ctx.builder.build_store(addr_1, i_val).unwrap();
-                    let v = ctx.builder.build_struct_gep(iv_pair, 1, "v").unwrap();
-                    let v_val = ctx.builder.build_load(v, "").unwrap();
-                    let ptr_2 = ctx.builder.build_struct_gep(target_i, 1, "tuple.1").unwrap();
+                        ctx.builder.build_load(ptr_1, "tuple.0.addr")?.into_pointer_value();
+                    ctx.builder.build_store(addr_1, i_val)?;
+                    let v = ctx.builder.build_struct_gep(iv_pair, 1, "v")?;
+                    let v_val = ctx.builder.build_load(v, "")?;
+                    let ptr_2 = ctx.builder.build_struct_gep(target_i, 1, "tuple.1")?;
                     let addr_2 =
-                        ctx.builder.build_load(ptr_2, "tuple.1.addr").unwrap().into_pointer_value();
-                    ctx.builder.build_store(addr_2, v_val).unwrap();
+                        ctx.builder.build_load(ptr_2, "tuple.1.addr")?.into_pointer_value();
+                    ctx.builder.build_store(addr_2, v_val)?;
                 }
                 ExprKind::Name { .. } => {
-                    ctx.builder
-                        .build_store(target_i, ctx.builder.build_load(iv_pair, "iv").unwrap())
-                        .unwrap();
+                    ctx.builder.build_store(target_i, ctx.builder.build_load(iv_pair, "iv")?)?;
                 }
                 _ => codegen_unreachable!(
                     ctx,
@@ -821,16 +821,14 @@ where
             Ok(())
         },
         |_, ctx, iv_pair| {
-            let i = ctx.builder.build_struct_gep(iv_pair, 0, "i").unwrap();
-            let i_val =
-                ctx.builder.build_load(i, "i_val").map(BasicValueEnum::into_int_value).unwrap();
-            let next_i =
-                ctx.builder.build_int_add(i_val, int32.const_int(1, false), "inc").unwrap();
-            ctx.builder.build_store(i, next_i).unwrap();
+            let i = ctx.builder.build_struct_gep(iv_pair, 0, "i")?;
+            let i_val = ctx.builder.build_load(i, "i_val").map(BasicValueEnum::into_int_value)?;
+            let next_i = ctx.builder.build_int_add(i_val, int32.const_int(1, false), "inc")?;
+            ctx.builder.build_store(i, next_i)?;
             if element_ty.is_some() {
-                let next_v = get_next_elem(ctx, next_i);
-                let v = ctx.builder.build_struct_gep(iv_pair, 1, "v").unwrap();
-                ctx.builder.build_store(v, next_v).unwrap();
+                let next_v = get_next_elem(ctx, next_i)?;
+                let v = ctx.builder.build_struct_gep(iv_pair, 1, "v")?;
+                ctx.builder.build_store(v, next_v)?;
             }
             Ok(())
         },
@@ -843,7 +841,7 @@ pub fn gen_for<G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let StmtKind::For { iter, target, body, orelse, .. } = &stmt.node else {
         codegen_unreachable!(ctx)
     };
@@ -861,20 +859,18 @@ pub fn gen_for<G: CodeGenerator>(
             let iter_val =
                 RangeType::new(ctx).map_value(iter_val.into_pointer_value(), Some("range"));
 
-            let (start, stop, step) = destructure_range(ctx, iter_val);
+            let (start, stop, step) = destructure_range(ctx, iter_val)?;
 
             // Check "If step is zero, ValueError is raised."
-            let rangenez = ctx
-                .builder
-                .build_int_compare(IntPredicate::NE, step, int32.const_zero(), "")
-                .unwrap();
+            let rangenez =
+                ctx.builder.build_int_compare(IntPredicate::NE, step, int32.const_zero(), "")?;
             ctx.make_assert(
                 rangenez,
                 "ValueError",
                 "range() arg 3 must not be zero",
                 [None, None, None],
                 ctx.current_loc,
-            );
+            )?;
 
             gen_for_callback(
                 generator,
@@ -882,7 +878,7 @@ pub fn gen_for<G: CodeGenerator>(
                 None,
                 |generator, ctx| {
                     // Internal variable for loop; Cannot be assigned
-                    let i = gen_var(ctx, int32, Some("for.i.addr"));
+                    let i = gen_var(ctx, int32, Some("for.i.addr"))?;
                     // Variable declared in "target" expression of the loop; Can be reassigned *or* shadowed
                     let Some(target_i) =
                         generator.gen_store_target(ctx, target, Some("for.target.addr"))?
@@ -890,41 +886,35 @@ pub fn gen_for<G: CodeGenerator>(
                         codegen_unreachable!(ctx)
                     };
 
-                    typed_store(ctx.builder, i, start);
+                    typed_store(ctx.builder, i, start)?;
 
                     Ok((i, target_i))
                 },
                 |_, ctx, (i, _)| {
-                    Ok(gen_in_range_check(
+                    gen_in_range_check(
                         ctx,
-                        ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
+                        ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value)?,
                         stop,
                         step,
-                    ))
+                    )
                 },
                 |generator, ctx, _, (i, target_i)| {
                     typed_store(
                         ctx.builder,
                         target_i,
-                        ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value).unwrap(),
-                    );
+                        ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value)?,
+                    )?;
                     generator.gen_block(ctx, body.iter())?;
 
                     Ok(())
                 },
                 |_, ctx, (i, _)| {
-                    let next_i = ctx
-                        .builder
-                        .build_int_add(
-                            ctx.builder
-                                .build_load(i, "")
-                                .map(BasicValueEnum::into_int_value)
-                                .unwrap(),
-                            step,
-                            "inc",
-                        )
-                        .unwrap();
-                    typed_store(ctx.builder, i, next_i);
+                    let next_i = ctx.builder.build_int_add(
+                        ctx.builder.build_load(i, "").map(BasicValueEnum::into_int_value)?,
+                        step,
+                        "inc",
+                    )?;
+                    typed_store(ctx.builder, i, next_i)?;
 
                     Ok(())
                 },
@@ -936,7 +926,7 @@ pub fn gen_for<G: CodeGenerator>(
         {
             let enumerate =
                 EnumerateType::new(ctx).map_value(iter_val.into_pointer_value(), Some("enumerate"));
-            let start = enumerate.load(ctx, field!(start));
+            let start = enumerate.load(ctx, field!(start))?;
             let Some(target_i) =
                 generator.gen_store_target(ctx, target, Some("for.target.addr"))?
             else {
@@ -947,7 +937,7 @@ pub fn gen_for<G: CodeGenerator>(
                 let iterable_ty = args[0].custom.unwrap();
                 (iterable_ty, ag)
             } else {
-                let iterable_ptr = enumerate.load(ctx, field!(iterable));
+                let iterable_ptr = enumerate.load(ctx, field!(iterable))?;
                 let iterable_struct_ty =
                     ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
                 let iterable_struct_val = typed_load(
@@ -955,12 +945,10 @@ pub fn gen_for<G: CodeGenerator>(
                     iterable_ptr,
                     iterable_struct_ty.into(),
                     "iterable_struct",
-                )
+                )?
                 .into_struct_value();
-                let iterable_data_i8ptr = ctx
-                    .builder
-                    .build_extract_value(iterable_struct_val, 0, "iterable_data")
-                    .unwrap();
+                let iterable_data_i8ptr =
+                    ctx.builder.build_extract_value(iterable_struct_val, 0, "iterable_data")?;
                 let iterable_ty = iter_type_vars(params).nth(1).unwrap().ty;
                 let iterable_llvm_ty = ctx.get_llvm_type(iterable_ty);
                 let ag = typed_load(
@@ -968,7 +956,7 @@ pub fn gen_for<G: CodeGenerator>(
                     iterable_data_i8ptr.into_pointer_value(),
                     iterable_llvm_ty,
                     "iterable_struct",
-                );
+                )?;
                 (iterable_ty, ag)
             };
             match &*ctx.unifier.get_ty(iterable_ty) {
@@ -977,8 +965,8 @@ pub fn gen_for<G: CodeGenerator>(
                 {
                     let iterable = ListType::from_unifier_type(ctx, iterable_ty)
                         .map_value(iterable_val.into_pointer_value(), Some("list"));
-                    let length = iterable.load(ctx, field!(len));
-                    let length = ctx.builder.build_int_truncate(length, int32, "length").unwrap();
+                    let length = iterable.load(ctx, field!(len))?;
+                    let length = ctx.builder.build_int_truncate(length, int32, "length")?;
                     let val = arraylike_flatten_element_type(&mut ctx.unifier, iterable_ty);
                     let element_ty =
                         if ctx.unifier.is_concrete(val, &[]) { Some(val) } else { None };
@@ -991,16 +979,16 @@ pub fn gen_for<G: CodeGenerator>(
                         &target.node,
                         target_i,
                         |ctx| {
-                            iterable.data(ctx).get_unchecked(
+                            iterable.data(ctx)?.get_unchecked(
                                 ctx,
                                 &int32.const_int(0, false),
                                 Some("first_v"),
                             )
                         },
                         |ctx, next_i| {
-                            iterable.data(ctx).get_unchecked(
+                            iterable.data(ctx)?.get_unchecked(
                                 ctx,
-                                &ctx.builder.build_int_sub(next_i, start, "sub").unwrap(),
+                                &ctx.builder.build_int_sub(next_i, start, "sub")?,
                                 Some("next_v"),
                             )
                         },
@@ -1034,10 +1022,10 @@ pub fn gen_for<G: CodeGenerator>(
                     )?;
                 }
                 _ => {
-                    return Err(format!(
+                    bail!(
                         "enumerate() with unsupported iterable type: {:?}",
                         ctx.unifier.get_ty(iterable_ty)
-                    ));
+                    );
                 }
             }
         }
@@ -1048,15 +1036,15 @@ pub fn gen_for<G: CodeGenerator>(
             let iter_val = ListType::new(ctx, list_elem_ty)
                 .map_value(iter_val.into_pointer_value(), Some("list"));
 
-            let len = iter_val.load(ctx, field!(len));
+            let len = iter_val.load(ctx, field!(len))?;
 
             gen_for_callback(
                 generator,
                 ctx,
                 None,
                 |_, ctx| {
-                    let index_addr = gen_var(ctx, size_t, Some("for.index.addr"));
-                    typed_store(ctx.builder, index_addr, size_t.const_zero());
+                    let index_addr = gen_var(ctx, size_t, Some("for.index.addr"))?;
+                    typed_store(ctx.builder, index_addr, size_t.const_zero())?;
 
                     Ok(index_addr)
                 },
@@ -1064,12 +1052,9 @@ pub fn gen_for<G: CodeGenerator>(
                     let index = ctx
                         .builder
                         .build_load(index_addr, "for.index")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap();
-                    let cmp = ctx
-                        .builder
-                        .build_int_compare(IntPredicate::SLT, index, len, "cond")
-                        .unwrap();
+                        .map(BasicValueEnum::into_int_value)?;
+                    let cmp =
+                        ctx.builder.build_int_compare(IntPredicate::SLT, index, len, "cond")?;
 
                     Ok(cmp)
                 },
@@ -1077,10 +1062,9 @@ pub fn gen_for<G: CodeGenerator>(
                     let index = ctx
                         .builder
                         .build_load(index_addr, "for.index")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap();
+                        .map(BasicValueEnum::into_int_value)?;
                     let val: BasicValueEnum =
-                        iter_val.data(ctx).get_unchecked(ctx, &index, Some("val"));
+                        iter_val.data(ctx)?.get_unchecked(ctx, &index, Some("val"))?;
                     let val_ty = iter_type_vars(list_params).next().unwrap().ty;
                     generator.gen_assign(ctx, target, &val.into(), val_ty)?;
                     generator.gen_block(ctx, body.iter())?;
@@ -1091,11 +1075,9 @@ pub fn gen_for<G: CodeGenerator>(
                     let index = ctx
                         .builder
                         .build_load(index_addr, "")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap();
-                    let inc =
-                        ctx.builder.build_int_add(index, size_t.const_int(1, true), "inc").unwrap();
-                    typed_store(ctx.builder, index_addr, inc);
+                        .map(BasicValueEnum::into_int_value)?;
+                    let inc = ctx.builder.build_int_add(index, size_t.const_int(1, true), "inc")?;
+                    typed_store(ctx.builder, index_addr, inc)?;
 
                     Ok(())
                 },
@@ -1110,15 +1092,15 @@ pub fn gen_for<G: CodeGenerator>(
             let ndarray = NDArrayType::from_unifier_type(ctx, iter_ty)
                 .map_value(iter_val.into_pointer_value(), None);
 
-            let shape_dim0 = ndarray.len(ctx);
+            let shape_dim0 = ndarray.len(ctx)?;
 
             gen_for_callback(
                 generator,
                 ctx,
                 None,
                 |_, ctx| {
-                    let index_addr = gen_var(ctx, size_t, Some("for.index.addr"));
-                    typed_store(ctx.builder, index_addr, size_t.const_zero());
+                    let index_addr = gen_var(ctx, size_t, Some("for.index.addr"))?;
+                    typed_store(ctx.builder, index_addr, size_t.const_zero())?;
 
                     Ok(index_addr)
                 },
@@ -1126,12 +1108,13 @@ pub fn gen_for<G: CodeGenerator>(
                     let index = ctx
                         .builder
                         .build_load(index_addr, "for.index")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap();
-                    let cmp = ctx
-                        .builder
-                        .build_int_compare(IntPredicate::SLT, index, shape_dim0, "cond")
-                        .unwrap();
+                        .map(BasicValueEnum::into_int_value)?;
+                    let cmp = ctx.builder.build_int_compare(
+                        IntPredicate::SLT,
+                        index,
+                        shape_dim0,
+                        "cond",
+                    )?;
 
                     Ok(cmp)
                 },
@@ -1139,19 +1122,16 @@ pub fn gen_for<G: CodeGenerator>(
                     let index = ctx
                         .builder
                         .build_load(index_addr, "for.index")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap();
+                        .map(BasicValueEnum::into_int_value)?;
 
                     let val = ndarray
                         .index(
                             ctx,
                             &[RustNDIndex::SingleElement(
-                                ctx.builder
-                                    .build_int_truncate_or_bit_cast(index, int32, "")
-                                    .unwrap(),
+                                ctx.builder.build_int_truncate_or_bit_cast(index, int32, "")?,
                             )],
-                        )
-                        .split_unsized(ctx)
+                        )?
+                        .split_unsized(ctx)?
                         .to_basic_value_enum();
 
                     let val_ty = if ndims == 1 {
@@ -1176,13 +1156,10 @@ pub fn gen_for<G: CodeGenerator>(
                     let index = ctx
                         .builder
                         .build_load(index_addr, "")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap();
-                    let inc = ctx
-                        .builder
-                        .build_int_add(index, size_t.const_int(1, false), "inc")
-                        .unwrap();
-                    typed_store(ctx.builder, index_addr, inc);
+                        .map(BasicValueEnum::into_int_value)?;
+                    let inc =
+                        ctx.builder.build_int_add(index, size_t.const_int(1, false), "inc")?;
+                    typed_store(ctx.builder, index_addr, inc)?;
 
                     Ok(())
                 },
@@ -1210,14 +1187,16 @@ pub struct BreakContinueHooks<'ctx> {
 impl<'ctx> BreakContinueHooks<'ctx> {
     /// Creates a [`br` instruction][Builder::build_unconditional_branch] to the exit
     /// [`BasicBlock`], as if by calling `break`.
-    pub fn build_break_branch(&self, builder: &Builder<'ctx>) {
-        builder.build_unconditional_branch(self.exit_bb).unwrap();
+    pub fn build_break_branch(&self, builder: &Builder<'ctx>) -> anyhow::Result<()> {
+        builder.build_unconditional_branch(self.exit_bb)?;
+        Ok(())
     }
 
     /// Creates a [`br` instruction][Builder::build_unconditional_branch] to the latch
     /// [`BasicBlock`], as if by calling `continue`.
-    pub fn build_continue_branch(&self, builder: &Builder<'ctx>) {
-        builder.build_unconditional_branch(self.latch_bb).unwrap();
+    pub fn build_continue_branch(&self, builder: &Builder<'ctx>) -> anyhow::Result<()> {
+        builder.build_unconditional_branch(self.latch_bb)?;
+        Ok(())
     }
 }
 
@@ -1248,7 +1227,7 @@ pub fn gen_for_callback_incrementing<'ctx, 'a, G, BodyFn, OrElseFn>(
     body: BodyFn,
     incr_val: IntValue<'ctx>,
     orelse: OrElseFn,
-) -> Result<(), String>
+) -> anyhow::Result<()>
 where
     G: ?Sized,
     BodyFn: FnOnce(
@@ -1256,8 +1235,8 @@ where
         &mut CodeGenContext<'ctx, 'a>,
         BreakContinueHooks<'ctx>,
         IntValue<'ctx>,
-    ) -> Result<(), String>,
-    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+    ) -> anyhow::Result<()>,
+    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<()>,
 {
     let init_val_t = init_val.get_type();
 
@@ -1266,31 +1245,29 @@ where
         ctx,
         label,
         |_, ctx| {
-            let i_addr = gen_var(ctx, init_val_t, None);
-            typed_store(ctx.builder, i_addr, init_val);
+            let i_addr = gen_var(ctx, init_val_t, None)?;
+            typed_store(ctx.builder, i_addr, init_val)?;
 
             Ok(i_addr)
         },
         |_, ctx, i_addr| {
             let cmp_op = if max_val.1 { IntPredicate::ULE } else { IntPredicate::ULT };
 
-            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();
-            let max_val =
-                ctx.builder.build_int_z_extend_or_bit_cast(max_val.0, init_val_t, "").unwrap();
+            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value)?;
+            let max_val = ctx.builder.build_int_z_extend_or_bit_cast(max_val.0, init_val_t, "")?;
 
-            Ok(ctx.builder.build_int_compare(cmp_op, i, max_val, "").unwrap())
+            Ok(ctx.builder.build_int_compare(cmp_op, i, max_val, "")?)
         },
         |generator, ctx, hooks, i_addr| {
-            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();
+            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value)?;
 
             body(generator, ctx, hooks, i)
         },
         |_, ctx, i_addr| {
-            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();
-            let incr_val =
-                ctx.builder.build_int_z_extend_or_bit_cast(incr_val, init_val_t, "").unwrap();
-            let i = ctx.builder.build_int_add(i, incr_val, "").unwrap();
-            typed_store(ctx.builder, i_addr, i);
+            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value)?;
+            let incr_val = ctx.builder.build_int_z_extend_or_bit_cast(incr_val, init_val_t, "")?;
+            let i = ctx.builder.build_int_add(i, incr_val, "")?;
+            typed_store(ctx.builder, i_addr, i)?;
 
             Ok(())
         },
@@ -1330,51 +1307,48 @@ pub fn gen_for_range_callback<'ctx, 'a, G, StartFn, StopFn, StepFn, BodyFn, OrEl
     step_fn: StepFn,
     body_fn: BodyFn,
     orelse: OrElseFn,
-) -> Result<(), String>
+) -> anyhow::Result<()>
 where
     G: ?Sized,
-    StartFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
-    StopFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
-    StepFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
+    StartFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<IntValue<'ctx>>,
+    StopFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<IntValue<'ctx>>,
+    StepFn: Fn(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<IntValue<'ctx>>,
     BodyFn: FnOnce(
         &mut G,
         &mut CodeGenContext<'ctx, 'a>,
         BreakContinueHooks<'ctx>,
         IntValue<'ctx>,
-    ) -> Result<(), String>,
-    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+    ) -> anyhow::Result<()>,
+    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<()>,
 {
-    let init_val_t = start_fn(generator, ctx).map(IntValue::get_type).unwrap();
+    let init_val_t = start_fn(generator, ctx)?.get_type();
 
     gen_for_callback(
         generator,
         ctx,
         label,
         |generator, ctx| {
-            let i_addr = gen_var(ctx, init_val_t, None);
+            let i_addr = gen_var(ctx, init_val_t, None)?;
 
             let start = start_fn(generator, ctx)?;
-            typed_store(ctx.builder, i_addr, start);
+            typed_store(ctx.builder, i_addr, start)?;
 
             let start = start_fn(generator, ctx)?;
             let stop = stop_fn(generator, ctx)?;
             let stop = if stop.get_type().get_bit_width() == start.get_type().get_bit_width() {
                 stop
             } else if is_unsigned {
-                ctx.builder.build_int_z_extend(stop, start.get_type(), "").unwrap()
+                ctx.builder.build_int_z_extend(stop, start.get_type(), "")?
             } else {
-                ctx.builder.build_int_s_extend(stop, start.get_type(), "").unwrap()
+                ctx.builder.build_int_s_extend(stop, start.get_type(), "")?
             };
 
-            let incr = ctx
-                .builder
-                .build_int_compare(
-                    if is_unsigned { IntPredicate::ULE } else { IntPredicate::SLE },
-                    start,
-                    stop,
-                    "",
-                )
-                .unwrap();
+            let incr = ctx.builder.build_int_compare(
+                if is_unsigned { IntPredicate::ULE } else { IntPredicate::SLE },
+                start,
+                stop,
+                "",
+            )?;
 
             Ok((i_addr, incr))
         },
@@ -1386,46 +1360,45 @@ where
                 (false, false) => (IntPredicate::SLT, IntPredicate::SGT),
             };
 
-            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();
+            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value)?;
             let stop = stop_fn(generator, ctx)?;
             let stop = if stop.get_type().get_bit_width() == i.get_type().get_bit_width() {
                 stop
             } else if is_unsigned {
-                ctx.builder.build_int_z_extend(stop, i.get_type(), "").unwrap()
+                ctx.builder.build_int_z_extend(stop, i.get_type(), "")?
             } else {
-                ctx.builder.build_int_s_extend(stop, i.get_type(), "").unwrap()
+                ctx.builder.build_int_s_extend(stop, i.get_type(), "")?
             };
 
-            let i_lt_end = ctx.builder.build_int_compare(lt_cmp_op, i, stop, "").unwrap();
-            let i_gt_end = ctx.builder.build_int_compare(gt_cmp_op, i, stop, "").unwrap();
+            let i_lt_end = ctx.builder.build_int_compare(lt_cmp_op, i, stop, "")?;
+            let i_gt_end = ctx.builder.build_int_compare(gt_cmp_op, i, stop, "")?;
 
             let cond = ctx
                 .builder
                 .build_select(incr, i_lt_end, i_gt_end, "")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
+                .map(BasicValueEnum::into_int_value)?;
 
             Ok(cond)
         },
         |generator, ctx, hooks, (i_addr, _)| {
-            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();
+            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value)?;
 
             body_fn(generator, ctx, hooks, i)
         },
         |generator, ctx, (i_addr, _)| {
-            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value).unwrap();
+            let i = ctx.builder.build_load(i_addr, "").map(BasicValueEnum::into_int_value)?;
 
             let incr_val = step_fn(generator, ctx)?;
             let incr_val = if incr_val.get_type().get_bit_width() == i.get_type().get_bit_width() {
                 incr_val
             } else if is_unsigned {
-                ctx.builder.build_int_z_extend(incr_val, i.get_type(), "").unwrap()
+                ctx.builder.build_int_z_extend(incr_val, i.get_type(), "")?
             } else {
-                ctx.builder.build_int_s_extend(incr_val, i.get_type(), "").unwrap()
+                ctx.builder.build_int_s_extend(incr_val, i.get_type(), "")?
             };
 
-            let i = ctx.builder.build_int_add(i, incr_val, "").unwrap();
-            typed_store(ctx.builder, i_addr, i);
+            let i = ctx.builder.build_int_add(i, incr_val, "")?;
+            typed_store(ctx.builder, i_addr, i)?;
 
             Ok(())
         },
@@ -1453,12 +1426,12 @@ pub fn gen_while_callback<'ctx, 'a, G, CondFn, BodyFn, OrElseFn>(
     cond: CondFn,
     body: BodyFn,
     orelse: OrElseFn,
-) -> Result<(), String>
+) -> anyhow::Result<()>
 where
     G: CodeGenerator + ?Sized,
-    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
-    BodyFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
-    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<IntValue<'ctx>>,
+    BodyFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<()>,
+    OrElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<()>,
 {
     let label = label.unwrap_or("while");
 
@@ -1484,25 +1457,25 @@ where
     // store loop bb information and restore it later
     let loop_bb = ctx.loop_target.replace((test_bb, cont_bb));
 
-    ctx.builder.build_unconditional_branch(test_bb).unwrap();
+    ctx.builder.build_unconditional_branch(test_bb)?;
 
     ctx.builder.position_at_end(test_bb);
     let test = cond(generator, ctx)?;
     if !ctx.is_terminated() {
-        ctx.builder.build_conditional_branch(bool_to_i1(ctx, test), body_bb, orelse_bb).unwrap();
+        ctx.builder.build_conditional_branch(bool_to_i1(ctx, test)?, body_bb, orelse_bb)?;
     }
 
     ctx.builder.position_at_end(body_bb);
     body(generator, ctx)?;
     restore_var_assignment(ctx);
     if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(test_bb).unwrap();
+        ctx.builder.build_unconditional_branch(test_bb)?;
     }
 
     ctx.builder.position_at_end(orelse_bb);
     orelse(generator, ctx)?;
     if !ctx.is_terminated() {
-        ctx.builder.build_unconditional_branch(cont_bb).unwrap();
+        ctx.builder.build_unconditional_branch(cont_bb)?;
     }
 
     restore_var_assignment(ctx);
@@ -1517,7 +1490,7 @@ pub fn gen_while<G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let StmtKind::While { test, body, orelse, .. } = &stmt.node else { codegen_unreachable!(ctx) };
 
     gen_while_callback(
@@ -1557,12 +1530,12 @@ pub fn gen_if_else_expr_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn, R>(
     cond_fn: CondFn,
     then_fn: ThenFn,
     else_fn: ElseFn,
-) -> Result<Option<R>, String>
+) -> anyhow::Result<Option<R>>
 where
     G: ?Sized,
-    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
-    ThenFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<Option<R>, String>,
-    ElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<Option<R>, String>,
+    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<IntValue<'ctx>>,
+    ThenFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<Option<R>>,
+    ElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<Option<R>>,
     R: BasicValue<'ctx> + TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
 {
     let current_bb = ctx.builder.get_insert_block().unwrap();
@@ -1573,7 +1546,7 @@ where
 
     let cond = cond_fn(generator, ctx)?;
     assert_eq!(cond.get_type().get_bit_width(), ctx.i1.get_bit_width());
-    ctx.builder.build_conditional_branch(cond, then_bb, else_bb).unwrap();
+    ctx.builder.build_conditional_branch(cond, then_bb, else_bb)?;
 
     ctx.builder.position_at_end(then_bb);
     let then_val = then_fn(generator, ctx)?;
@@ -1595,7 +1568,7 @@ where
             let tv_ty = tv.as_basic_value_enum().get_type();
             assert_eq!(tv_ty, ev.as_basic_value_enum().get_type());
 
-            let phi = ctx.builder.build_phi(tv_ty, "").unwrap();
+            let phi = ctx.builder.build_phi(tv_ty, "")?;
             phi.add_incoming(&[(&tv, then_end_bb), (&ev, else_end_bb)]);
 
             Some(phi.as_basic_value().try_into().unwrap())
@@ -1623,12 +1596,12 @@ pub fn gen_if_callback<'ctx, 'a, G, CondFn, ThenFn, ElseFn>(
     cond_fn: CondFn,
     then_fn: ThenFn,
     else_fn: ElseFn,
-) -> Result<(), String>
+) -> anyhow::Result<()>
 where
     G: ?Sized,
-    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<IntValue<'ctx>, String>,
-    ThenFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
-    ElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> Result<(), String>,
+    CondFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<IntValue<'ctx>>,
+    ThenFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<()>,
+    ElseFn: FnOnce(&mut G, &mut CodeGenContext<'ctx, 'a>) -> anyhow::Result<()>,
 {
     gen_if_else_expr_callback(
         generator,
@@ -1652,14 +1625,14 @@ pub fn gen_if<G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let StmtKind::If { test, body, orelse, .. } = &stmt.node else { codegen_unreachable!(ctx) };
 
     // var_assignment static values may be changed in another branch
     // if so, remove the static value as it may not be correct in this branch
     let var_assignment = ctx.var_assignment.clone();
 
-    let current = ctx.builder.get_insert_block().unwrap().get_parent().unwrap();
+    let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let test_bb = ctx.ctx.append_basic_block(current, "if.test");
     let body_bb = ctx.ctx.append_basic_block(current, "if.body");
     let mut cont_bb = None;
@@ -1670,7 +1643,7 @@ pub fn gen_if<G: CodeGenerator>(
     } else {
         ctx.ctx.append_basic_block(current, "if.orelse")
     };
-    ctx.builder.build_unconditional_branch(test_bb).unwrap();
+    ctx.builder.build_unconditional_branch(test_bb)?;
     ctx.builder.position_at_end(test_bb);
     let test = generator
         .gen_expr(ctx, test)?
@@ -1678,7 +1651,7 @@ pub fn gen_if<G: CodeGenerator>(
         .map(|val| val.to_basic_value_enum(ctx, test.custom.unwrap()))
         .transpose()?;
     if let Some(BasicValueEnum::IntValue(test)) = test {
-        ctx.builder.build_conditional_branch(bool_to_i1(ctx, test), body_bb, orelse_bb).unwrap();
+        ctx.builder.build_conditional_branch(bool_to_i1(ctx, test)?, body_bb, orelse_bb)?;
     }
     ctx.builder.position_at_end(body_bb);
     generator.gen_block(ctx, body.iter())?;
@@ -1694,7 +1667,7 @@ pub fn gen_if<G: CodeGenerator>(
         if cont_bb.is_none() {
             cont_bb = Some(ctx.ctx.append_basic_block(current, "cont"));
         }
-        ctx.builder.build_unconditional_branch(cont_bb.unwrap()).unwrap();
+        ctx.builder.build_unconditional_branch(cont_bb.unwrap())?;
     }
     if !orelse.is_empty() {
         ctx.builder.position_at_end(orelse_bb);
@@ -1703,7 +1676,7 @@ pub fn gen_if<G: CodeGenerator>(
             if cont_bb.is_none() {
                 cont_bb = Some(ctx.ctx.append_basic_block(current, "cont"));
             }
-            ctx.builder.build_unconditional_branch(cont_bb.unwrap()).unwrap();
+            ctx.builder.build_unconditional_branch(cont_bb.unwrap())?;
         }
     }
     if let Some(cont_bb) = cont_bb {
@@ -1725,16 +1698,17 @@ pub fn final_proxy<'ctx>(
     target: BasicBlock<'ctx>,
     block: BasicBlock<'ctx>,
     final_data: &mut (PointerValue, Vec<BasicBlock<'ctx>>, Vec<BasicBlock<'ctx>>),
-) {
+) -> anyhow::Result<()> {
     let (final_state, final_targets, final_paths) = final_data;
     let prev = ctx.builder.get_insert_block().unwrap();
     ctx.builder.position_at_end(block);
     unsafe {
-        typed_store(ctx.builder, *final_state, target.get_address().unwrap());
+        typed_store(ctx.builder, *final_state, target.get_address().unwrap())?;
     }
     ctx.builder.position_at_end(prev);
     final_targets.push(target);
     final_paths.push(block);
+    Ok(())
 }
 
 /// Inserts the declaration of the builtin function with the specified `symbol` name, and returns
@@ -1763,7 +1737,7 @@ pub fn exn_constructor<'ctx>(
     obj: Option<(Type, ValueEnum<'ctx>)>,
     _fun: (&FunSignature, DefinitionId),
     args: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-) -> Result<Option<BasicValueEnum<'ctx>>, String> {
+) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
     let (zelf_ty, zelf) = obj.unwrap();
     let zelf = zelf.to_basic_value_enum(ctx, zelf_ty)?.into_pointer_value();
     let zelf_id = if let TypeEnum::TObj { obj_id, .. } = &*ctx.unifier.get_ty(zelf_ty) {
@@ -1782,32 +1756,33 @@ pub fn exn_constructor<'ctx>(
     let exception_name = format!("{}:{}", ctx.resolver.get_exception_id(zelf_id), zelf_name);
 
     let id = ctx.resolver.get_string_id(&exception_name);
-    zelf.store(ctx, field!(name), ctx.i32.const_int(id as u64, false));
+    zelf.store(ctx, field!(name), ctx.i32.const_int(id as u64, false))?;
 
-    let empty_string = StringType::new(ctx).constant(ctx, "", None).value;
+    let empty_string = StringType::new(ctx).constant(ctx, "", None)?.value;
 
     let msg = match args.next() {
-        Some((_, v)) => v.to_basic_value_enum(ctx, ctx.primitives.str).unwrap().try_into().unwrap(),
+        Some((_, v)) => v.to_basic_value_enum(ctx, ctx.primitives.str)?.try_into().unwrap(),
         None => empty_string,
     };
-    zelf.store(ctx, field!(message), msg);
+    zelf.store(ctx, field!(message), msg)?;
 
-    let [param0, param1, param2] = std::array::from_fn(|_| match args.next() {
-        Some((_, v)) => {
-            v.to_basic_value_enum(ctx, ctx.primitives.int64).unwrap().try_into().unwrap()
-        }
-        None => ctx.i64.const_zero(),
+    let [param0, param1, param2] = std::array::from_fn(|_| {
+        anyhow::Ok(match args.next() {
+            Some((_, v)) => v.to_basic_value_enum(ctx, ctx.primitives.int64)?.try_into().unwrap(),
+            None => ctx.i64.const_zero(),
+        })
     });
+    let [param0, param1, param2] = [param0?, param1?, param2?];
 
-    zelf.store(ctx, field!(param0), param0);
-    zelf.store(ctx, field!(param1), param1);
-    zelf.store(ctx, field!(param2), param2);
+    zelf.store(ctx, field!(param0), param0)?;
+    zelf.store(ctx, field!(param1), param1)?;
+    zelf.store(ctx, field!(param2), param2)?;
 
-    zelf.store(ctx, field!(file), empty_string);
-    zelf.store(ctx, field!(func), empty_string);
+    zelf.store(ctx, field!(file), empty_string)?;
+    zelf.store(ctx, field!(func), empty_string)?;
 
-    zelf.store(ctx, field!(line), ctx.i32.const_zero());
-    zelf.store(ctx, field!(col), ctx.i32.const_zero());
+    zelf.store(ctx, field!(line), ctx.i32.const_zero())?;
+    zelf.store(ctx, field!(col), ctx.i32.const_zero())?;
 
     Ok(Some(zelf.value.into()))
 }
@@ -1820,28 +1795,29 @@ pub fn gen_raise<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     exception: Option<&ExceptionValue<'ctx>>,
     loc: Location,
-) {
+) -> anyhow::Result<()> {
     if let Some(exception) = exception {
         // exception.store(ctx, field!(location), loc);
-        let file = ctx.gen_string(loc.file.0);
+        let file = ctx.gen_string(loc.file.0)?;
         let row = ctx.i32.const_int(loc.row as u64, false);
         let col = ctx.i32.const_int(loc.column as u64, false);
-        exception.store(ctx, field!(file), file);
-        exception.store(ctx, field!(line), row);
-        exception.store(ctx, field!(col), col);
+        exception.store(ctx, field!(file), file)?;
+        exception.store(ctx, field!(line), row)?;
+        exception.store(ctx, field!(col), col)?;
 
         let current_fun = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
-        let fun_name = ctx.gen_string(current_fun.get_name().to_str().unwrap());
-        exception.store(ctx, field!(func), fun_name);
+        let fun_name = ctx.gen_string(current_fun.get_name().to_str().unwrap())?;
+        exception.store(ctx, field!(func), fun_name)?;
 
         let raise = get_builtins(ctx, "__nac3_raise");
-        let exception = ctx.builder.build_pointer_cast(exception.value, ctx.ptr, "").unwrap();
-        let _ = ctx.build_call_or_invoke(&raise, &[exception.into()], "raise");
+        let exception = ctx.builder.build_pointer_cast(exception.value, ctx.ptr, "")?;
+        ctx.build_call_or_invoke(&raise, &[exception.into()], "raise")?;
     } else {
         let resume = get_builtins(ctx, "__nac3_resume");
-        let _ = ctx.build_call_or_invoke(&resume, &[], "resume");
+        ctx.build_call_or_invoke(&resume, &[], "resume")?;
     }
-    ctx.builder.build_unreachable().unwrap();
+    ctx.builder.build_unreachable()?;
+    Ok(())
 }
 
 /// Generates IR for a `try` statement.
@@ -1849,7 +1825,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     target: &Stmt<Option<Type>>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let StmtKind::Try { body, handlers, orelse, finalbody, .. } = &target.node else {
         codegen_unreachable!(ctx)
     };
@@ -1864,7 +1840,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     let dispatcher = ctx.ctx.append_basic_block(current_fun, "try.dispatch");
     let mut dispatcher_end = dispatcher;
     ctx.builder.position_at_end(dispatcher);
-    let exn = ctx.builder.build_phi(exception_type, "exn").unwrap();
+    let exn = ctx.builder.build_phi(exception_type, "exn")?;
     ctx.builder.position_at_end(current_block);
 
     let mut cleanup = None;
@@ -1873,26 +1849,28 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     let mut final_data = None;
     let has_cleanup = !finalbody.is_empty();
     if has_cleanup {
-        let final_state = gen_var(ctx, ptr_type, Some("try.final_state.addr"));
+        let final_state = gen_var(ctx, ptr_type, Some("try.final_state.addr"))?;
         final_data = Some((final_state, Vec::new(), Vec::new()));
         if let Some((continue_target, break_target)) = ctx.loop_target {
             let break_proxy = ctx.ctx.append_basic_block(current_fun, "try.break");
             let continue_proxy = ctx.ctx.append_basic_block(current_fun, "try.continue");
-            final_proxy(ctx, break_target, break_proxy, final_data.as_mut().unwrap());
-            final_proxy(ctx, continue_target, continue_proxy, final_data.as_mut().unwrap());
+            final_proxy(ctx, break_target, break_proxy, final_data.as_mut().unwrap())?;
+            final_proxy(ctx, continue_target, continue_proxy, final_data.as_mut().unwrap())?;
             old_loop_target = ctx.loop_target.replace((continue_proxy, break_proxy));
         }
         let return_proxy = ctx.ctx.append_basic_block(current_fun, "try.return");
         if let Some(return_target) = ctx.return_target {
-            final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap());
+            final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
         } else {
             let return_target = ctx.ctx.append_basic_block(current_fun, "try.return_target");
             ctx.builder.position_at_end(return_target);
-            let return_value =
-                ctx.return_buffer.map(|v| ctx.builder.build_load(v, "$ret").unwrap());
-            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue)).unwrap();
+            let return_value = ctx
+                .return_buffer
+                .map(|v| anyhow::Ok(ctx.builder.build_load(v, "$ret")?))
+                .transpose()?;
+            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
             ctx.builder.position_at_end(current_block);
-            final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap());
+            final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
         }
         old_return = ctx.return_target.replace(return_proxy);
         cleanup = Some(ctx.ctx.append_basic_block(current_fun, "try.cleanup"));
@@ -1906,7 +1884,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         if type_.is_none()
             || ctx
                 .unifier
-                .unioned(type_.as_ref().unwrap().custom.unwrap(), ctx.primitives.exception)
+                .unioned(type_.as_ref().and_then(|t| t.custom).unwrap(), ctx.primitives.exception)
         {
             clauses.push(None);
             found_catch_all = true;
@@ -1956,16 +1934,14 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     } else {
         let final_landingpad = ctx.ctx.append_basic_block(current_fun, "try.catch.final");
         ctx.builder.position_at_end(final_landingpad);
-        ctx.builder
-            .build_landing_pad(
-                ctx.ctx.struct_type(&[ptr_type.into(), exception_type], false),
-                personality,
-                &[],
-                true,
-                "try.catch.final",
-            )
-            .unwrap();
-        ctx.builder.build_unconditional_branch(cleanup.unwrap()).unwrap();
+        ctx.builder.build_landing_pad(
+            ctx.ctx.struct_type(&[ptr_type.into(), exception_type], false),
+            personality,
+            &[],
+            true,
+            "try.catch.final",
+        )?;
+        ctx.builder.build_unconditional_branch(cleanup.unwrap())?;
         ctx.builder.position_at_end(body);
         ctx.unwind_target.replace(final_landingpad)
     };
@@ -1973,20 +1949,29 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     // run end_catch before continue/break/return
     let mut final_proxy_lambda =
         |ctx: &mut CodeGenContext<'ctx, 'a>, target: BasicBlock<'ctx>, block: BasicBlock<'ctx>| {
-            final_proxy(ctx, target, block, final_data.as_mut().unwrap());
+            final_proxy(ctx, target, block, final_data.as_mut().unwrap())
         };
     let mut redirect_lambda =
         |ctx: &mut CodeGenContext<'ctx, 'a>, target: BasicBlock<'ctx>, block: BasicBlock<'ctx>| {
             ctx.builder.position_at_end(block);
-            ctx.builder.build_unconditional_branch(target).unwrap();
+            ctx.builder.build_unconditional_branch(target)?;
             ctx.builder.position_at_end(body);
+            Ok(())
         };
     let redirect = if has_cleanup {
         &mut final_proxy_lambda
-            as &mut dyn FnMut(&mut CodeGenContext<'ctx, 'a>, BasicBlock<'ctx>, BasicBlock<'ctx>)
+            as &mut dyn FnMut(
+                &mut CodeGenContext<'ctx, 'a>,
+                BasicBlock<'ctx>,
+                BasicBlock<'ctx>,
+            ) -> anyhow::Result<()>
     } else {
         &mut redirect_lambda
-            as &mut dyn FnMut(&mut CodeGenContext<'ctx, 'a>, BasicBlock<'ctx>, BasicBlock<'ctx>)
+            as &mut dyn FnMut(
+                &mut CodeGenContext<'ctx, 'a>,
+                BasicBlock<'ctx>,
+                BasicBlock<'ctx>,
+            ) -> anyhow::Result<()>
     };
     let resume = get_builtins(ctx, "__nac3_resume");
     let end_catch = get_builtins(ctx, "__nac3_end_catch");
@@ -1994,26 +1979,32 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "try.break");
         let continue_proxy = ctx.ctx.append_basic_block(current_fun, "try.continue");
         ctx.builder.position_at_end(break_proxy);
-        let _ = ctx.build_call(&end_catch, &[], "end_catch");
+        ctx.build_call(&end_catch, &[], "end_catch")?;
         ctx.builder.position_at_end(continue_proxy);
-        let _ = ctx.build_call(&end_catch, &[], "end_catch");
+        ctx.build_call(&end_catch, &[], "end_catch")?;
         ctx.builder.position_at_end(body);
-        redirect(ctx, break_target, break_proxy);
-        redirect(ctx, continue_target, continue_proxy);
+        redirect(ctx, break_target, break_proxy)?;
+        redirect(ctx, continue_target, continue_proxy)?;
         ctx.loop_target = Some((continue_proxy, break_proxy));
         old_loop_target = Some((continue_target, break_target));
     }
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "try.return");
     ctx.builder.position_at_end(return_proxy);
-    let _ = ctx.build_call(&end_catch, &[], "end_catch");
-    let return_target = ctx.return_target.take().unwrap_or_else(|| {
-        let doreturn = ctx.ctx.append_basic_block(current_fun, "try.doreturn");
-        ctx.builder.position_at_end(doreturn);
-        let return_value = ctx.return_buffer.map(|v| ctx.builder.build_load(v, "$ret").unwrap());
-        ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue)).unwrap();
-        doreturn
-    });
-    redirect(ctx, return_target, return_proxy);
+    ctx.build_call(&end_catch, &[], "end_catch")?;
+    let return_target = ctx.return_target.take().map_or_else(
+        || {
+            let doreturn = ctx.ctx.append_basic_block(current_fun, "try.doreturn");
+            ctx.builder.position_at_end(doreturn);
+            let return_value = ctx
+                .return_buffer
+                .map(|v| anyhow::Ok(ctx.builder.build_load(v, "$ret")?))
+                .transpose()?;
+            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
+            anyhow::Ok(doreturn)
+        },
+        Ok,
+    )?;
+    redirect(ctx, return_target, return_proxy)?;
     ctx.return_target = Some(return_proxy);
     old_return = Some(return_target);
 
@@ -2025,7 +2016,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(dispatcher);
         let exn = exn.as_basic_value().into_pointer_value();
         let exn = ExceptionType::new(ctx).map_value(exn, Some("exn"));
-        Some(exn.load(ctx, field!(name)))
+        Some(exn.load(ctx, field!(name))?)
     };
 
     for (handler_node, exn_type) in handlers.iter().zip(clauses.iter()) {
@@ -2034,16 +2025,16 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(handler_bb);
         if let Some(name) = name {
             let exn_ty = ctx.get_llvm_type(type_.as_ref().unwrap().custom.unwrap());
-            let exn_store = gen_var(ctx, exn_ty, Some("try.exn_store.addr"));
+            let exn_store = gen_var(ctx, exn_ty, Some("try.exn_store.addr"))?;
             ctx.var_assignment.insert(*name, VarValue::new(exn_store));
-            typed_store(ctx.builder, exn_store, exn.as_basic_value());
+            typed_store(ctx.builder, exn_store, exn.as_basic_value())?;
         }
         generator.gen_block(ctx, body.iter())?;
         let current = ctx.builder.get_insert_block().unwrap();
         // only need to call end catch if not terminated
         // otherwise, we already handled in return/break/continue/raise
         if current.get_terminator().is_none() {
-            let _ = ctx.build_call(&end_catch, &[], "end_catch");
+            ctx.build_call(&end_catch, &[], "end_catch")?;
         }
         post_handlers.push(current);
         ctx.builder.position_at_end(dispatcher_end);
@@ -2052,17 +2043,18 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             let actual_id = exnid.unwrap();
             let expected_id = ctx
                 .builder
-                .build_load(exn_type.into_pointer_value(), "expected_id")
-                .map(BasicValueEnum::into_int_value)
-                .unwrap();
-            let result = ctx
-                .builder
-                .build_int_compare(IntPredicate::EQ, actual_id, expected_id, "exncheck")
-                .unwrap();
-            ctx.builder.build_conditional_branch(result, handler_bb, dispatcher_cont).unwrap();
+                .build_load(exn_type.into_pointer_value(), "expected_id")?
+                .into_int_value();
+            let result = ctx.builder.build_int_compare(
+                IntPredicate::EQ,
+                actual_id,
+                expected_id,
+                "exncheck",
+            )?;
+            ctx.builder.build_conditional_branch(result, handler_bb, dispatcher_cont)?;
             dispatcher_end = dispatcher_cont;
         } else {
-            ctx.builder.build_unconditional_branch(handler_bb).unwrap();
+            ctx.builder.build_unconditional_branch(handler_bb)?;
             break;
         }
     }
@@ -2084,23 +2076,22 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             &clauses,
             has_cleanup,
             "try.landingpad",
-        )
-        .map(BasicValueEnum::into_struct_value)
-        .unwrap();
-    let exn_val = ctx.builder.build_extract_value(landingpad_value, 1, "exn").unwrap();
-    ctx.builder.build_unconditional_branch(dispatcher).unwrap();
+        )?
+        .into_struct_value();
+    let exn_val = ctx.builder.build_extract_value(landingpad_value, 1, "exn")?;
+    ctx.builder.build_unconditional_branch(dispatcher)?;
     exn.add_incoming(&[(&exn_val, landingpad)]);
 
     if dispatcher_end.get_terminator().is_none() {
         ctx.builder.position_at_end(dispatcher_end);
         if let Some(cleanup) = cleanup {
-            ctx.builder.build_unconditional_branch(cleanup).unwrap();
+            ctx.builder.build_unconditional_branch(cleanup)?;
         } else if let Some((_, outer_dispatcher, phi)) = ctx.outer_catch_clauses {
             phi.add_incoming(&[(&exn_val, dispatcher_end)]);
-            ctx.builder.build_unconditional_branch(outer_dispatcher).unwrap();
+            ctx.builder.build_unconditional_branch(outer_dispatcher)?;
         } else {
-            let _ = ctx.build_call_or_invoke(&resume, &[], "resume");
-            ctx.builder.build_unreachable().unwrap();
+            ctx.build_call_or_invoke(&resume, &[], "resume")?;
+            ctx.builder.build_unreachable()?;
         }
     }
 
@@ -2108,7 +2099,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         let tail = ctx.ctx.append_basic_block(current_fun, "try.tail");
         if body.get_terminator().is_none() {
             ctx.builder.position_at_end(body);
-            ctx.builder.build_unconditional_branch(tail).unwrap();
+            ctx.builder.build_unconditional_branch(tail)?;
         }
         if matches!(cleanup, Some(cleanup) if cleanup.get_terminator().is_none()) {
             ctx.builder.position_at_end(cleanup.unwrap());
@@ -2117,7 +2108,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         for post_handler in post_handlers {
             if post_handler.get_terminator().is_none() {
                 ctx.builder.position_at_end(post_handler);
-                ctx.builder.build_unconditional_branch(tail).unwrap();
+                ctx.builder.build_unconditional_branch(tail)?;
             }
         }
         ctx.builder.position_at_end(tail);
@@ -2127,8 +2118,8 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(cleanup);
         generator.gen_block(ctx, finalbody.iter())?;
         if !ctx.is_terminated() {
-            let _ = ctx.build_call_or_invoke(&resume, &[], "resume");
-            ctx.builder.build_unreachable().unwrap();
+            ctx.build_call_or_invoke(&resume, &[], "resume")?;
+            ctx.builder.build_unreachable()?;
         }
 
         // normal path
@@ -2139,22 +2130,22 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         ctx.builder.position_at_end(finalizer);
         generator.gen_block(ctx, finalbody.iter())?;
         if !ctx.is_terminated() {
-            let dest = ctx.builder.build_load(final_state, "final_dest").unwrap();
-            ctx.builder.build_indirect_branch(dest, &final_targets).unwrap();
+            let dest = ctx.builder.build_load(final_state, "final_dest")?;
+            ctx.builder.build_indirect_branch(dest, &final_targets)?;
         }
         for block in &final_paths {
             if block.get_terminator().is_none() {
                 ctx.builder.position_at_end(*block);
-                ctx.builder.build_unconditional_branch(finalizer).unwrap();
+                ctx.builder.build_unconditional_branch(finalizer)?;
             }
         }
         for block in once(&body).chain(post_handlers.iter()) {
             if block.get_terminator().is_none() {
                 ctx.builder.position_at_end(*block);
                 unsafe {
-                    typed_store(ctx.builder, final_state, tail.get_address().unwrap());
+                    typed_store(ctx.builder, final_state, tail.get_address().unwrap())?;
                 }
-                ctx.builder.build_unconditional_branch(finalizer).unwrap();
+                ctx.builder.build_unconditional_branch(finalizer)?;
             }
         }
         ctx.builder.position_at_end(tail);
@@ -2168,7 +2159,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'ctx, 'a>,
     stmt: &Stmt<Option<Type>>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let StmtKind::With { items, body, .. } = &stmt.node else { codegen_unreachable!(ctx) };
     let mut exits = vec![];
     let mut enters = vec![];
@@ -2220,45 +2211,43 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         exits.push((expr_ty, expr, exit_signature.clone(), exit_fun_id));
     }
 
-    let body_gen_lambda =
-        |ctx: &mut CodeGenContext<'ctx, 'a>, generator: &mut G| -> Result<(), String> {
-            for enter in &enters {
-                // call __enter__()
-                let enter_ret = generator.gen_call(
+    let body_gen_lambda = |ctx: &mut CodeGenContext<'ctx, 'a>, generator: &mut G| {
+        for enter in &enters {
+            // call __enter__()
+            let enter_ret = generator.gen_call(
+                ctx,
+                Some((enter.0, enter.1.clone())),
+                (&enter.2, enter.3),
+                Vec::default(),
+            )?;
+
+            // deal with assignments (`as`)
+            if let Some(optional_vars) = &enter.4 {
+                generator.gen_assign(
                     ctx,
-                    Some((enter.0, enter.1.clone())),
-                    (&enter.2, enter.3),
-                    Vec::default(),
-                )?;
-
-                // deal with assignments (`as`)
-                if let Some(optional_vars) = &enter.4 {
-                    generator.gen_assign(
-                        ctx,
-                        optional_vars,
-                        &enter_ret.unwrap().into(),
-                        enter.2.ret,
-                    )?;
-                }
-            }
-
-            // generate the `with` body
-            generator.gen_block(ctx, body.iter())
-        };
-
-    let exit_gen_lambda =
-        |ctx: &mut CodeGenContext<'ctx, 'a>, generator: &mut G| -> Result<(), String> {
-            // call __exit__()s in the reverse order
-            for exit in exits.iter().rev() {
-                generator.gen_call(
-                    ctx,
-                    Some((exit.0, exit.1.clone())),
-                    (&exit.2, exit.3),
-                    Vec::default(),
+                    optional_vars,
+                    &enter_ret.unwrap().into(),
+                    enter.2.ret,
                 )?;
             }
-            Ok(())
-        };
+        }
+
+        // generate the `with` body
+        generator.gen_block(ctx, body.iter())
+    };
+
+    let exit_gen_lambda = |ctx: &mut CodeGenContext<'ctx, 'a>, generator: &mut G| {
+        // call __exit__()s in the reverse order
+        for exit in exits.iter().rev() {
+            generator.gen_call(
+                ctx,
+                Some((exit.0, exit.1.clone())),
+                (&exit.2, exit.3),
+                Vec::default(),
+            )?;
+        }
+        anyhow::Ok(())
+    };
 
     // copied and trimmed from gen_try, to cover try (setup, enter)..finally (exit)
     let personality = get_personality(ctx.top_level, ctx).unwrap();
@@ -2270,29 +2259,32 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     let dispatcher = ctx.ctx.append_basic_block(current_fun, "with.dispatch");
     let dispatcher_end = dispatcher;
     ctx.builder.position_at_end(dispatcher);
-    let exn = ctx.builder.build_phi(exception_type, "exn").unwrap();
+    let exn = ctx.builder.build_phi(exception_type, "exn")?;
     ctx.builder.position_at_end(current_block);
 
     let mut old_loop_target = None;
-    let final_state = gen_var(ctx, ptr_type, Some("with.final_state.addr"));
+    let final_state = gen_var(ctx, ptr_type, Some("with.final_state.addr"))?;
     let mut final_data = Some((final_state, Vec::new(), Vec::new()));
     if let Some((continue_target, break_target)) = ctx.loop_target {
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "with.break");
         let continue_proxy = ctx.ctx.append_basic_block(current_fun, "with.continue");
-        final_proxy(ctx, break_target, break_proxy, final_data.as_mut().unwrap());
-        final_proxy(ctx, continue_target, continue_proxy, final_data.as_mut().unwrap());
+        final_proxy(ctx, break_target, break_proxy, final_data.as_mut().unwrap())?;
+        final_proxy(ctx, continue_target, continue_proxy, final_data.as_mut().unwrap())?;
         old_loop_target = ctx.loop_target.replace((continue_proxy, break_proxy));
     }
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "with.return");
     if let Some(return_target) = ctx.return_target {
-        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap());
+        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
     } else {
         let return_target = ctx.ctx.append_basic_block(current_fun, "with.return_target");
         ctx.builder.position_at_end(return_target);
-        let return_value = ctx.return_buffer.map(|v| ctx.builder.build_load(v, "$ret").unwrap());
-        ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue)).unwrap();
+        let return_value = ctx
+            .return_buffer
+            .map(|v| anyhow::Ok(ctx.builder.build_load(v, "$ret")?))
+            .transpose()?;
+        ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
         ctx.builder.position_at_end(current_block);
-        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap());
+        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
     }
     let old_return = ctx.return_target.replace(return_proxy);
     let cleanup = ctx.ctx.append_basic_block(current_fun, "with.cleanup");
@@ -2308,25 +2300,27 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
 
     let final_landingpad = ctx.ctx.append_basic_block(current_fun, "with.catch.final");
     ctx.builder.position_at_end(final_landingpad);
-    ctx.builder
-        .build_landing_pad(
-            ctx.ctx.struct_type(&[ptr_type.into(), exception_type], false),
-            personality,
-            &[],
-            true,
-            "with.catch.final",
-        )
-        .unwrap();
-    ctx.builder.build_unconditional_branch(cleanup).unwrap();
+    ctx.builder.build_landing_pad(
+        ctx.ctx.struct_type(&[ptr_type.into(), exception_type], false),
+        personality,
+        &[],
+        true,
+        "with.catch.final",
+    )?;
+    ctx.builder.build_unconditional_branch(cleanup)?;
     ctx.builder.position_at_end(body);
     let old_unwind = ctx.unwind_target.replace(final_landingpad);
 
     let mut final_proxy_lambda =
         |ctx: &mut CodeGenContext<'ctx, 'a>, target: BasicBlock<'ctx>, block: BasicBlock<'ctx>| {
-            final_proxy(ctx, target, block, final_data.as_mut().unwrap());
+            final_proxy(ctx, target, block, final_data.as_mut().unwrap())
         };
     let redirect = &mut final_proxy_lambda
-        as &mut dyn FnMut(&mut CodeGenContext<'ctx, 'a>, BasicBlock<'ctx>, BasicBlock<'ctx>);
+        as &mut dyn FnMut(
+            &mut CodeGenContext<'ctx, 'a>,
+            BasicBlock<'ctx>,
+            BasicBlock<'ctx>,
+        ) -> anyhow::Result<()>;
 
     let resume = get_builtins(ctx, "__nac3_resume");
     let end_catch = get_builtins(ctx, "__nac3_end_catch");
@@ -2334,26 +2328,32 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         let break_proxy = ctx.ctx.append_basic_block(current_fun, "with.break");
         let continue_proxy = ctx.ctx.append_basic_block(current_fun, "with.continue");
         ctx.builder.position_at_end(break_proxy);
-        let _ = ctx.build_call(&end_catch, &[], "end_catch");
+        ctx.build_call(&end_catch, &[], "end_catch")?;
         ctx.builder.position_at_end(continue_proxy);
-        let _ = ctx.build_call(&end_catch, &[], "end_catch");
+        ctx.build_call(&end_catch, &[], "end_catch")?;
         ctx.builder.position_at_end(body);
-        redirect(ctx, break_target, break_proxy);
-        redirect(ctx, continue_target, continue_proxy);
+        redirect(ctx, break_target, break_proxy)?;
+        redirect(ctx, continue_target, continue_proxy)?;
         ctx.loop_target = Some((continue_proxy, break_proxy));
         old_loop_target = Some((continue_target, break_target));
     }
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "with.return");
     ctx.builder.position_at_end(return_proxy);
-    let _ = ctx.build_call(&end_catch, &[], "end_catch");
-    let return_target = ctx.return_target.take().unwrap_or_else(|| {
-        let doreturn = ctx.ctx.append_basic_block(current_fun, "with.doreturn");
-        ctx.builder.position_at_end(doreturn);
-        let return_value = ctx.return_buffer.map(|v| ctx.builder.build_load(v, "$ret").unwrap());
-        ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue)).unwrap();
-        doreturn
-    });
-    redirect(ctx, return_target, return_proxy);
+    ctx.build_call(&end_catch, &[], "end_catch")?;
+    let return_target = ctx.return_target.take().map_or_else(
+        || {
+            let doreturn = ctx.ctx.append_basic_block(current_fun, "with.doreturn");
+            ctx.builder.position_at_end(doreturn);
+            let return_value = ctx
+                .return_buffer
+                .map(|v| anyhow::Ok(ctx.builder.build_load(v, "$ret")?))
+                .transpose()?;
+            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
+            anyhow::Ok(doreturn)
+        },
+        Ok,
+    )?;
+    redirect(ctx, return_target, return_proxy)?;
     ctx.return_target = Some(return_proxy);
     let old_return = Some(return_target);
 
@@ -2371,23 +2371,22 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
             &Vec::new(),
             true,
             "try.landingpad",
-        )
-        .map(BasicValueEnum::into_struct_value)
-        .unwrap();
-    let exn_val = ctx.builder.build_extract_value(landingpad_value, 1, "exn").unwrap();
-    ctx.builder.build_unconditional_branch(dispatcher).unwrap();
+        )?
+        .into_struct_value();
+    let exn_val = ctx.builder.build_extract_value(landingpad_value, 1, "exn")?;
+    ctx.builder.build_unconditional_branch(dispatcher)?;
     exn.add_incoming(&[(&exn_val, landingpad)]);
 
     if dispatcher_end.get_terminator().is_none() {
         ctx.builder.position_at_end(dispatcher_end);
-        ctx.builder.build_unconditional_branch(cleanup).unwrap();
+        ctx.builder.build_unconditional_branch(cleanup)?;
     }
 
     // exception path
     ctx.builder.position_at_end(cleanup);
     exit_gen_lambda(ctx, generator)?;
-    let _ = ctx.build_call_or_invoke(&resume, &[], "resume");
-    ctx.builder.build_unreachable().unwrap();
+    ctx.build_call_or_invoke(&resume, &[], "resume")?;
+    ctx.builder.build_unreachable()?;
 
     // normal path
     let (final_state, mut final_targets, final_paths) = final_data.unwrap();
@@ -2396,21 +2395,21 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     let finalizer = ctx.ctx.append_basic_block(current_fun, "with.exits");
     ctx.builder.position_at_end(finalizer);
     exit_gen_lambda(ctx, generator)?;
-    let dest = ctx.builder.build_load(final_state, "final_dest").unwrap();
-    ctx.builder.build_indirect_branch(dest, &final_targets).unwrap();
+    let dest = ctx.builder.build_load(final_state, "final_dest")?;
+    ctx.builder.build_indirect_branch(dest, &final_targets)?;
     for block in &final_paths {
         if block.get_terminator().is_none() {
             ctx.builder.position_at_end(*block);
-            ctx.builder.build_unconditional_branch(finalizer).unwrap();
+            ctx.builder.build_unconditional_branch(finalizer)?;
         }
     }
     for block in &[body] {
         if block.get_terminator().is_none() {
             ctx.builder.position_at_end(*block);
             unsafe {
-                typed_store(ctx.builder, final_state, tail.get_address().unwrap());
+                typed_store(ctx.builder, final_state, tail.get_address().unwrap())?;
             }
-            ctx.builder.build_unconditional_branch(finalizer).unwrap();
+            ctx.builder.build_unconditional_branch(finalizer)?;
         }
     }
 
@@ -2424,7 +2423,7 @@ pub fn gen_return<G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'_, '_>,
     value: &Option<Box<Expr<Option<Type>>>>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     let func = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let value = if let Some(v_expr) = value.as_ref() {
         generator
@@ -2441,21 +2440,21 @@ pub fn gen_return<G: CodeGenerator>(
         // The "return type" of a sret function is in the first parameter
         let expected_ty = func.get_type().get_return_type().unwrap().into();
 
-        if matches!(expected_ty, BasicMetadataTypeEnum::IntType(ty) if ty.get_bit_width() == 1) {
-            bool_to_i1(ctx, ret_val.into_int_value()).into()
+        anyhow::Ok(if matches!(expected_ty, BasicMetadataTypeEnum::IntType(ty) if ty.get_bit_width() == 1) {
+            bool_to_i1(ctx, ret_val.into_int_value())?.into()
         } else {
             ret_val
-        }
-    });
+        })
+    }).transpose()?;
 
     if let Some(return_target) = ctx.return_target {
         if let Some(value) = value {
-            typed_store(ctx.builder, ctx.return_buffer.unwrap(), value);
+            typed_store(ctx.builder, ctx.return_buffer.unwrap(), value)?;
         }
-        ctx.builder.build_unconditional_branch(return_target).unwrap();
+        ctx.builder.build_unconditional_branch(return_target)?;
     } else {
         let value = value.as_ref().map(|v| v as &dyn BasicValue);
-        ctx.builder.build_return(value).unwrap();
+        ctx.builder.build_return(value)?;
     }
     Ok(())
 }
@@ -2465,7 +2464,7 @@ pub fn gen_stmt<G: CodeGenerator>(
     generator: &mut G,
     ctx: &mut CodeGenContext<'_, '_>,
     stmt: &Stmt<Option<Type>>,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     ctx.current_loc = stmt.location;
 
     let loc = ctx.debug_info.0.create_debug_location(
@@ -2498,10 +2497,10 @@ pub fn gen_stmt<G: CodeGenerator>(
             }
         }
         StmtKind::Continue { .. } => {
-            ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().0).unwrap();
+            ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().0)?;
         }
         StmtKind::Break { .. } => {
-            ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().1).unwrap();
+            ctx.builder.build_unconditional_branch(ctx.loop_target.unwrap().1)?;
         }
         StmtKind::If { .. } => generator.gen_if(ctx, stmt)?,
         StmtKind::While { .. } => generator.gen_while(ctx, stmt)?,
@@ -2527,18 +2526,19 @@ pub fn gen_stmt<G: CodeGenerator>(
             if let Some(exc) = exc {
                 let exn = if let ExprKind::Name { id, .. } = &exc.node {
                     // Handle "raise Exception" short form
-                    let def_id = ctx.resolver.get_identifier_def(*id).map_err(|e| {
-                        format!("{} (at {})", e.iter().next().unwrap(), exc.location)
-                    })?;
+                    let def_id = ctx
+                        .resolver
+                        .get_identifier_def(*id)
+                        .map_err(|e| anyhow!("{} (at {})", e.first().unwrap(), exc.location))?;
                     let def = ctx.top_level.definitions.read();
                     let TopLevelDef::Class { constructor, .. } = *def[def_id.0].read() else {
-                        return Err(format!("Failed to resolve symbol {id} (at {})", exc.location));
+                        bail!("Failed to resolve symbol {id} (at {})", exc.location);
                     };
 
                     let TypeEnum::TFunc(signature) =
                         ctx.unifier.get_ty(constructor.unwrap()).as_ref().clone()
                     else {
-                        return Err(format!("Failed to resolve symbol {id} (at {})", exc.location));
+                        bail!("Failed to resolve symbol {id} (at {})", exc.location);
                     };
 
                     generator
@@ -2554,9 +2554,9 @@ pub fn gen_stmt<G: CodeGenerator>(
                     return Ok(());
                 };
                 let exc = ExceptionType::new(ctx).map_value(exc.into_pointer_value(), None);
-                gen_raise(ctx, Some(&exc), stmt.location);
+                gen_raise(ctx, Some(&exc), stmt.location)?;
             } else {
-                gen_raise(ctx, None, stmt.location);
+                gen_raise(ctx, None, stmt.location)?;
             }
         }
         StmtKind::Assert { test, msg, .. } => {
@@ -2564,15 +2564,15 @@ pub fn gen_stmt<G: CodeGenerator>(
 
             let err_msg = match msg {
                 Some(msg) => generator.gen_expr(ctx, msg)?.to_basic_value_enum(ctx)?,
-                None => ctx.gen_string("").into(),
+                None => ctx.gen_string("")?.into(),
             };
             ctx.make_assert_impl(
-                bool_to_i1(ctx, test.into_int_value()),
+                bool_to_i1(ctx, test.into_int_value())?,
                 "0:AssertionError",
                 err_msg,
                 [None, None, None],
                 stmt.location,
-            );
+            )?;
         }
         _ => unimplemented!(),
     }
@@ -2584,7 +2584,7 @@ pub fn gen_block<'a, G: CodeGenerator, I: Iterator<Item = &'a Stmt<Option<Type>>
     generator: &mut G,
     ctx: &mut CodeGenContext<'_, '_>,
     stmts: I,
-) -> Result<(), String> {
+) -> anyhow::Result<()> {
     for stmt in stmts {
         generator.gen_stmt(ctx, stmt)?;
         if ctx.is_terminated() {

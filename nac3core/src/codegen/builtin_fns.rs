@@ -42,13 +42,13 @@ fn unsupported_type(ctx: &CodeGenContext<'_, '_>, fn_name: &str, tys: &[Type]) -
 pub fn call_len<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (arg_ty, arg): (Type, BasicValueEnum<'ctx>),
-) -> Result<IntValue<'ctx>, String> {
+) -> anyhow::Result<IntValue<'ctx>> {
     let range_ty = ctx.primitives.range;
 
     Ok(if ctx.unifier.unioned(arg_ty, range_ty) {
         let arg = RangeType::new(ctx).map_value(arg.into_pointer_value(), Some("range"));
-        let (start, end, step) = destructure_range(ctx, arg);
-        calculate_len_for_slice_range(ctx, start, end, step)
+        let (start, end, step) = destructure_range(ctx, arg)?;
+        calculate_len_for_slice_range(ctx, start, end, step)?
     } else {
         match &*ctx.unifier.get_ty_immutable(arg_ty) {
             TypeEnum::TTuple { .. } => {
@@ -62,8 +62,8 @@ pub fn call_len<'ctx>(
             {
                 let ndarray = NDArrayType::from_unifier_type(ctx, arg_ty)
                     .map_value(arg.into_pointer_value(), None);
-                let len = ndarray.len(ctx);
-                ctx.builder.build_int_truncate_or_bit_cast(len, ctx.i32, "len").unwrap()
+                let len = ndarray.len(ctx)?;
+                ctx.builder.build_int_truncate_or_bit_cast(len, ctx.i32, "len")?
             }
 
             TypeEnum::TObj { obj_id, .. }
@@ -71,8 +71,8 @@ pub fn call_len<'ctx>(
             {
                 let list = ListType::from_unifier_type(ctx, arg_ty)
                     .map_value(arg.into_pointer_value(), None);
-                let size = list.load(ctx, field!(len));
-                ctx.builder.build_int_truncate_or_bit_cast(size, ctx.i32, "len").unwrap()
+                let size = list.load(ctx, field!(len))?;
+                ctx.builder.build_int_truncate_or_bit_cast(size, ctx.i32, "len")?
             }
 
             _ => unsupported_type(ctx, "len", &[arg_ty]),
@@ -84,12 +84,12 @@ pub fn call_len<'ctx>(
 pub fn call_int32<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.bool));
 
-            ctx.builder.build_int_z_extend(n, ctx.i32, "zext").map(Into::into).unwrap()
+            ctx.builder.build_int_z_extend(n, ctx.i32, "zext")?.into()
         }
 
         BasicValueEnum::IntValue(n) if n.get_type().get_bit_width() == 32 => {
@@ -109,14 +109,14 @@ pub fn call_int32<'ctx>(
                     .any(|ty| ctx.unifier.unioned(n_ty, *ty))
             );
 
-            ctx.builder.build_int_truncate(n, ctx.i32, "trunc").map(Into::into).unwrap()
+            ctx.builder.build_int_truncate(n, ctx.i32, "trunc")?.into()
         }
 
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            let to_int64 = ctx.builder.build_float_to_signed_int(n, ctx.i64, "").unwrap();
-            ctx.builder.build_int_truncate(to_int64, ctx.i32, "conv").map(Into::into).unwrap()
+            let to_int64 = ctx.builder.build_float_to_signed_int(n, ctx.i64, "")?;
+            ctx.builder.build_int_truncate(to_int64, ctx.i32, "conv")?.into()
         }
 
         BasicValueEnum::PointerValue(n)
@@ -125,11 +125,11 @@ pub fn call_int32<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
-            let result = ndarray
-                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.i32.into() }, |ctx, scalar| {
-                    call_int32(ctx, (elem_ty, scalar))
-                })
-                .unwrap();
+            let result = ndarray.map(
+                ctx,
+                NDArrayOut::NewNDArray { dtype: ctx.i32.into() },
+                |ctx, scalar| call_int32(ctx, (elem_ty, scalar)),
+            )?;
 
             result.value.into()
         }
@@ -142,7 +142,7 @@ pub fn call_int32<'ctx>(
 pub fn call_int64<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8 | 32) => {
             debug_assert!(
@@ -152,9 +152,9 @@ pub fn call_int64<'ctx>(
             );
 
             if ctx.unifier.unioned(n_ty, ctx.primitives.int32) {
-                ctx.builder.build_int_s_extend(n, ctx.i64, "sext").map(Into::into).unwrap()
+                ctx.builder.build_int_s_extend(n, ctx.i64, "sext")?.into()
             } else {
-                ctx.builder.build_int_z_extend(n, ctx.i64, "zext").map(Into::into).unwrap()
+                ctx.builder.build_int_z_extend(n, ctx.i64, "zext")?.into()
             }
         }
 
@@ -171,7 +171,7 @@ pub fn call_int64<'ctx>(
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            ctx.builder.build_float_to_signed_int(n, ctx.i64, "fptosi").map(Into::into).unwrap()
+            ctx.builder.build_float_to_signed_int(n, ctx.i64, "fptosi")?.into()
         }
 
         BasicValueEnum::PointerValue(n)
@@ -180,11 +180,11 @@ pub fn call_int64<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
-            let result = ndarray
-                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.i64.into() }, |ctx, scalar| {
-                    call_int64(ctx, (elem_ty, scalar))
-                })
-                .unwrap();
+            let result = ndarray.map(
+                ctx,
+                NDArrayOut::NewNDArray { dtype: ctx.i64.into() },
+                |ctx, scalar| call_int64(ctx, (elem_ty, scalar)),
+            )?;
 
             result.value.into()
         }
@@ -197,12 +197,12 @@ pub fn call_int64<'ctx>(
 pub fn call_uint32<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.bool));
 
-            ctx.builder.build_int_z_extend(n, ctx.i32, "zext").map(Into::into).unwrap()
+            ctx.builder.build_int_z_extend(n, ctx.i32, "zext")?.into()
         }
 
         BasicValueEnum::IntValue(n) if n.get_type().get_bit_width() == 32 => {
@@ -221,28 +221,28 @@ pub fn call_uint32<'ctx>(
                     || ctx.unifier.unioned(n_ty, ctx.primitives.uint64)
             );
 
-            ctx.builder.build_int_truncate(n, ctx.i32, "trunc").map(Into::into).unwrap()
+            ctx.builder.build_int_truncate(n, ctx.i32, "trunc")?.into()
         }
 
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            let n_gez = ctx
-                .builder
-                .build_float_compare(FloatPredicate::OGE, n, n.get_type().const_zero(), "")
-                .unwrap();
+            let n_gez = ctx.builder.build_float_compare(
+                FloatPredicate::OGE,
+                n,
+                n.get_type().const_zero(),
+                "",
+            )?;
 
-            let to_int32 = ctx.builder.build_float_to_signed_int(n, ctx.i32, "").unwrap();
-            let to_uint64 = ctx.builder.build_float_to_unsigned_int(n, ctx.i64, "").unwrap();
+            let to_int32 = ctx.builder.build_float_to_signed_int(n, ctx.i32, "")?;
+            let to_uint64 = ctx.builder.build_float_to_unsigned_int(n, ctx.i64, "")?;
 
-            ctx.builder
-                .build_select(
-                    n_gez,
-                    ctx.builder.build_int_truncate(to_uint64, ctx.i32, "").unwrap(),
-                    to_int32,
-                    "conv",
-                )
-                .unwrap()
+            ctx.builder.build_select(
+                n_gez,
+                ctx.builder.build_int_truncate(to_uint64, ctx.i32, "")?,
+                to_int32,
+                "conv",
+            )?
         }
 
         BasicValueEnum::PointerValue(n)
@@ -251,11 +251,11 @@ pub fn call_uint32<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
-            let result = ndarray
-                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.i32.into() }, |ctx, scalar| {
-                    call_uint32(ctx, (elem_ty, scalar))
-                })
-                .unwrap();
+            let result = ndarray.map(
+                ctx,
+                NDArrayOut::NewNDArray { dtype: ctx.i32.into() },
+                |ctx, scalar| call_uint32(ctx, (elem_ty, scalar)),
+            )?;
 
             result.value.into()
         }
@@ -268,7 +268,7 @@ pub fn call_uint32<'ctx>(
 pub fn call_uint64<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8 | 32) => {
             debug_assert!(
@@ -278,9 +278,9 @@ pub fn call_uint64<'ctx>(
             );
 
             if ctx.unifier.unioned(n_ty, ctx.primitives.int32) {
-                ctx.builder.build_int_s_extend(n, ctx.i64, "sext").map(Into::into).unwrap()
+                ctx.builder.build_int_s_extend(n, ctx.i64, "sext")?.into()
             } else {
-                ctx.builder.build_int_z_extend(n, ctx.i64, "zext").map(Into::into).unwrap()
+                ctx.builder.build_int_z_extend(n, ctx.i64, "zext")?.into()
             }
         }
 
@@ -297,15 +297,17 @@ pub fn call_uint64<'ctx>(
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            let val_gez = ctx
-                .builder
-                .build_float_compare(FloatPredicate::OGE, n, n.get_type().const_zero(), "")
-                .unwrap();
+            let val_gez = ctx.builder.build_float_compare(
+                FloatPredicate::OGE,
+                n,
+                n.get_type().const_zero(),
+                "",
+            )?;
 
-            let to_int64 = ctx.builder.build_float_to_signed_int(n, ctx.i64, "").unwrap();
-            let to_uint64 = ctx.builder.build_float_to_unsigned_int(n, ctx.i64, "").unwrap();
+            let to_int64 = ctx.builder.build_float_to_signed_int(n, ctx.i64, "")?;
+            let to_uint64 = ctx.builder.build_float_to_unsigned_int(n, ctx.i64, "")?;
 
-            ctx.builder.build_select(val_gez, to_uint64, to_int64, "conv").unwrap()
+            ctx.builder.build_select(val_gez, to_uint64, to_int64, "conv")?
         }
 
         BasicValueEnum::PointerValue(n)
@@ -314,11 +316,11 @@ pub fn call_uint64<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
-            let result = ndarray
-                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.i64.into() }, |ctx, scalar| {
-                    call_uint64(ctx, (elem_ty, scalar))
-                })
-                .unwrap();
+            let result = ndarray.map(
+                ctx,
+                NDArrayOut::NewNDArray { dtype: ctx.i64.into() },
+                |ctx, scalar| call_uint64(ctx, (elem_ty, scalar)),
+            )?;
 
             result.value.into()
         }
@@ -331,7 +333,7 @@ pub fn call_uint64<'ctx>(
 pub fn call_float<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     Ok(match n {
         BasicValueEnum::IntValue(n) if matches!(n.get_type().get_bit_width(), 1 | 8 | 32 | 64) => {
             debug_assert!(
@@ -350,12 +352,9 @@ pub fn call_float<'ctx>(
                 .iter()
                 .any(|ty| ctx.unifier.unioned(n_ty, *ty))
             {
-                ctx.builder.build_signed_int_to_float(n, ctx.f64, "sitofp").map(Into::into).unwrap()
+                ctx.builder.build_signed_int_to_float(n, ctx.f64, "sitofp")?.into()
             } else {
-                ctx.builder
-                    .build_unsigned_int_to_float(n, ctx.f64, "uitofp")
-                    .map(Into::into)
-                    .unwrap()
+                ctx.builder.build_unsigned_int_to_float(n, ctx.f64, "uitofp")?.into()
             }
         }
 
@@ -371,11 +370,11 @@ pub fn call_float<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
-            let result = ndarray
-                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.f64.into() }, |ctx, scalar| {
-                    call_float(ctx, (elem_ty, scalar))
-                })
-                .unwrap();
+            let result = ndarray.map(
+                ctx,
+                NDArrayOut::NewNDArray { dtype: ctx.f64.into() },
+                |ctx, scalar| call_float(ctx, (elem_ty, scalar)),
+            )?;
 
             result.value.into()
         }
@@ -389,7 +388,7 @@ pub fn call_round<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
     ret_elem_ty: Type,
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "round";
 
     let llvm_ret_elem_ty = ctx.get_llvm_abi_type(ret_elem_ty).into_int_type();
@@ -398,11 +397,8 @@ pub fn call_round<'ctx>(
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            let val = llvm_intrinsics::call_float_round(ctx, n, None);
-            ctx.builder
-                .build_float_to_signed_int(val, llvm_ret_elem_ty, FN_NAME)
-                .map(Into::into)
-                .unwrap()
+            let val = llvm_intrinsics::call_float_round(ctx, n, None)?;
+            ctx.builder.build_float_to_signed_int(val, llvm_ret_elem_ty, FN_NAME)?.into()
         }
 
         BasicValueEnum::PointerValue(n)
@@ -411,13 +407,11 @@ pub fn call_round<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
-            let result = ndarray
-                .map(
-                    ctx,
-                    NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty.into() },
-                    |ctx, scalar| call_round(ctx, (elem_ty, scalar), ret_elem_ty),
-                )
-                .unwrap();
+            let result = ndarray.map(
+                ctx,
+                NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty.into() },
+                |ctx, scalar| call_round(ctx, (elem_ty, scalar), ret_elem_ty),
+            )?;
 
             result.value.into()
         }
@@ -430,14 +424,14 @@ pub fn call_round<'ctx>(
 pub fn call_numpy_round<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_round";
 
     Ok(match n {
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            llvm_intrinsics::call_float_rint(ctx, n, None).into()
+            llvm_intrinsics::call_float_rint(ctx, n, None)?.into()
         }
 
         BasicValueEnum::PointerValue(n)
@@ -446,11 +440,11 @@ pub fn call_numpy_round<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
-            let result = ndarray
-                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.f64.into() }, |ctx, scalar| {
-                    call_numpy_round(ctx, (elem_ty, scalar))
-                })
-                .unwrap();
+            let result = ndarray.map(
+                ctx,
+                NDArrayOut::NewNDArray { dtype: ctx.f64.into() },
+                |ctx, scalar| call_numpy_round(ctx, (elem_ty, scalar)),
+            )?;
 
             result.value.into()
         }
@@ -463,7 +457,7 @@ pub fn call_numpy_round<'ctx>(
 pub fn call_bool<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "bool";
 
     Ok(match n {
@@ -486,18 +480,16 @@ pub fn call_bool<'ctx>(
             );
 
             ctx.builder
-                .build_int_compare(IntPredicate::NE, n, n.get_type().const_zero(), FN_NAME)
-                .map(Into::into)
-                .unwrap()
+                .build_int_compare(IntPredicate::NE, n, n.get_type().const_zero(), FN_NAME)?
+                .into()
         }
 
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
             ctx.builder
-                .build_float_compare(FloatPredicate::UNE, n, n.get_type().const_zero(), FN_NAME)
-                .map(Into::into)
-                .unwrap()
+                .build_float_compare(FloatPredicate::UNE, n, n.get_type().const_zero(), FN_NAME)?
+                .into()
         }
 
         BasicValueEnum::PointerValue(n)
@@ -506,12 +498,14 @@ pub fn call_bool<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
-            let result = ndarray
-                .map(ctx, NDArrayOut::NewNDArray { dtype: ctx.i8.into() }, |ctx, scalar| {
+            let result = ndarray.map(
+                ctx,
+                NDArrayOut::NewNDArray { dtype: ctx.i8.into() },
+                |ctx, scalar| {
                     let elem = call_bool(ctx, (elem_ty, scalar))?;
-                    Ok(bool_to_i8(ctx, elem.into_int_value()).into())
-                })
-                .unwrap();
+                    Ok(bool_to_i8(ctx, elem.into_int_value())?.into())
+                },
+            )?;
 
             result.value.into()
         }
@@ -525,7 +519,7 @@ pub fn call_floor<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
     ret_elem_ty: Type,
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "floor";
 
     let llvm_ret_elem_ty = ctx.get_llvm_abi_type(ret_elem_ty);
@@ -534,12 +528,9 @@ pub fn call_floor<'ctx>(
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            let val = llvm_intrinsics::call_float_floor(ctx, n, None);
+            let val = llvm_intrinsics::call_float_floor(ctx, n, None)?;
             if let BasicTypeEnum::IntType(llvm_ret_elem_ty) = llvm_ret_elem_ty {
-                ctx.builder
-                    .build_float_to_signed_int(val, llvm_ret_elem_ty, FN_NAME)
-                    .map(Into::into)
-                    .unwrap()
+                ctx.builder.build_float_to_signed_int(val, llvm_ret_elem_ty, FN_NAME)?.into()
             } else {
                 val.into()
             }
@@ -551,11 +542,11 @@ pub fn call_floor<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
-            let result = ndarray
-                .map(ctx, NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty }, |ctx, scalar| {
-                    call_floor(ctx, (elem_ty, scalar), ret_elem_ty)
-                })
-                .unwrap();
+            let result = ndarray.map(
+                ctx,
+                NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty },
+                |ctx, scalar| call_floor(ctx, (elem_ty, scalar), ret_elem_ty),
+            )?;
 
             result.value.into()
         }
@@ -569,7 +560,7 @@ pub fn call_ceil<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
     ret_elem_ty: Type,
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "ceil";
 
     let llvm_ret_elem_ty = ctx.get_llvm_abi_type(ret_elem_ty);
@@ -578,12 +569,9 @@ pub fn call_ceil<'ctx>(
         BasicValueEnum::FloatValue(n) => {
             debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-            let val = llvm_intrinsics::call_float_ceil(ctx, n, None);
+            let val = llvm_intrinsics::call_float_ceil(ctx, n, None)?;
             if let BasicTypeEnum::IntType(llvm_ret_elem_ty) = llvm_ret_elem_ty {
-                ctx.builder
-                    .build_float_to_signed_int(val, llvm_ret_elem_ty, FN_NAME)
-                    .map(Into::into)
-                    .unwrap()
+                ctx.builder.build_float_to_signed_int(val, llvm_ret_elem_ty, FN_NAME)?.into()
             } else {
                 val.into()
             }
@@ -595,11 +583,11 @@ pub fn call_ceil<'ctx>(
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
             let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
-            let result = ndarray
-                .map(ctx, NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty }, |ctx, scalar| {
-                    call_ceil(ctx, (elem_ty, scalar), ret_elem_ty)
-                })
-                .unwrap();
+            let result = ndarray.map(
+                ctx,
+                NDArrayOut::NewNDArray { dtype: llvm_ret_elem_ty },
+                |ctx, scalar| call_ceil(ctx, (elem_ty, scalar), ret_elem_ty),
+            )?;
 
             result.value.into()
         }
@@ -613,7 +601,7 @@ pub fn call_min<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (m_ty, m): (Type, BasicValueEnum<'ctx>),
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
-) -> BasicValueEnum<'ctx> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "min";
 
     let common_ty = if ctx.unifier.unioned(m_ty, n_ty) {
@@ -622,7 +610,7 @@ pub fn call_min<'ctx>(
         unsupported_type(ctx, FN_NAME, &[m_ty, n_ty])
     };
 
-    match (m, n) {
+    Ok(match (m, n) {
         (BasicValueEnum::IntValue(m), BasicValueEnum::IntValue(n)) => {
             debug_assert!(
                 [
@@ -640,20 +628,20 @@ pub fn call_min<'ctx>(
                 .iter()
                 .any(|ty| ctx.unifier.unioned(common_ty, *ty))
             {
-                llvm_intrinsics::call_int_smin(ctx, m, n, Some(FN_NAME)).into()
+                llvm_intrinsics::call_int_smin(ctx, m, n, Some(FN_NAME))?.into()
             } else {
-                llvm_intrinsics::call_int_umin(ctx, m, n, Some(FN_NAME)).into()
+                llvm_intrinsics::call_int_umin(ctx, m, n, Some(FN_NAME))?.into()
             }
         }
 
         (BasicValueEnum::FloatValue(m), BasicValueEnum::FloatValue(n)) => {
             debug_assert!(ctx.unifier.unioned(common_ty, ctx.primitives.float));
 
-            llvm_intrinsics::call_float_minnum(ctx, m, n, Some(FN_NAME)).into()
+            llvm_intrinsics::call_float_minnum(ctx, m, n, Some(FN_NAME))?.into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[m_ty, n_ty]),
-    }
+    })
 }
 
 /// Invokes the `np_minimum` builtin function.
@@ -661,7 +649,7 @@ pub fn call_numpy_minimum<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_minimum";
 
     let common_ty = if ctx.unifier.unioned(x1_ty, x2_ty) { Some(x1_ty) } else { None };
@@ -681,13 +669,13 @@ pub fn call_numpy_minimum<'ctx>(
                 .any(|ty| ctx.unifier.unioned(common_ty.unwrap(), *ty))
             );
 
-            call_min(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))
+            call_min(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))?
         }
 
         (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
             debug_assert!(ctx.unifier.unioned(common_ty.unwrap(), ctx.primitives.float));
 
-            call_min(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))
+            call_min(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))?
         }
 
         (x1, x2)
@@ -695,8 +683,8 @@ pub fn call_numpy_minimum<'ctx>(
                 ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
-            let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1)).to_ndarray(ctx);
-            let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2)).to_ndarray(ctx);
+            let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1)).to_ndarray(ctx)?;
+            let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2)).to_ndarray(ctx)?;
 
             let x1_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
             let x2_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x2_ty);
@@ -711,10 +699,9 @@ pub fn call_numpy_minimum<'ctx>(
                 |ctx, scalars| {
                     let x1_scalar = scalars[0];
                     let x2_scalar = scalars[1];
-                    Ok(call_min(ctx, (x1_dtype, x1_scalar), (x2_dtype, x2_scalar)))
+                    call_min(ctx, (x1_dtype, x1_scalar), (x2_dtype, x2_scalar))
                 },
-            )
-            .unwrap();
+            )?;
 
             result.value.into()
         }
@@ -728,7 +715,7 @@ pub fn call_max<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (m_ty, m): (Type, BasicValueEnum<'ctx>),
     (n_ty, n): (Type, BasicValueEnum<'ctx>),
-) -> BasicValueEnum<'ctx> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "max";
 
     let common_ty = if ctx.unifier.unioned(m_ty, n_ty) {
@@ -737,7 +724,7 @@ pub fn call_max<'ctx>(
         unsupported_type(ctx, FN_NAME, &[m_ty, n_ty])
     };
 
-    match (m, n) {
+    Ok(match (m, n) {
         (BasicValueEnum::IntValue(m), BasicValueEnum::IntValue(n)) => {
             debug_assert!(
                 [
@@ -755,20 +742,20 @@ pub fn call_max<'ctx>(
                 .iter()
                 .any(|ty| ctx.unifier.unioned(common_ty, *ty))
             {
-                llvm_intrinsics::call_int_smax(ctx, m, n, Some(FN_NAME)).into()
+                llvm_intrinsics::call_int_smax(ctx, m, n, Some(FN_NAME))?.into()
             } else {
-                llvm_intrinsics::call_int_umax(ctx, m, n, Some(FN_NAME)).into()
+                llvm_intrinsics::call_int_umax(ctx, m, n, Some(FN_NAME))?.into()
             }
         }
 
         (BasicValueEnum::FloatValue(m), BasicValueEnum::FloatValue(n)) => {
             debug_assert!(ctx.unifier.unioned(common_ty, ctx.primitives.float));
 
-            llvm_intrinsics::call_float_maxnum(ctx, m, n, Some(FN_NAME)).into()
+            llvm_intrinsics::call_float_maxnum(ctx, m, n, Some(FN_NAME))?.into()
         }
 
         _ => unsupported_type(ctx, FN_NAME, &[m_ty, n_ty]),
-    }
+    })
 }
 
 /// Invokes the `np_max`, `np_min`, `np_argmax`, `np_argmin` functions
@@ -777,7 +764,7 @@ pub fn call_numpy_max_min<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (a_ty, a): (Type, BasicValueEnum<'ctx>),
     fn_name: &str,
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     debug_assert!(["np_argmin", "np_argmax", "np_max", "np_min"].contains(&fn_name));
 
     Ok(match a {
@@ -813,9 +800,8 @@ pub fn call_numpy_max_min<'ctx>(
             let zero = ctx.size_t.const_zero();
 
             if ctx.registry.codegen_options.debug {
-                let size = ndarray.size(ctx);
-                let size_nez =
-                    ctx.builder.build_int_compare(IntPredicate::NE, size, zero, "").unwrap();
+                let size = ndarray.size(ctx)?;
+                let size_nez = ctx.builder.build_int_compare(IntPredicate::NE, size, zero, "")?;
 
                 ctx.make_assert(
                     size_nez,
@@ -823,88 +809,74 @@ pub fn call_numpy_max_min<'ctx>(
                     format!("zero-size array to reduction operation {fn_name}").as_str(),
                     [None, None, None],
                     ctx.current_loc,
-                );
+                )?;
             }
 
-            let extremum = gen_var(ctx, llvm_dtype, None);
-            let extremum_idx = gen_var(ctx, ctx.size_t, None);
+            let extremum = gen_var(ctx, llvm_dtype, None)?;
+            let extremum_idx = gen_var(ctx, ctx.size_t, None)?;
 
-            let first_value = ndarray.first_element(ctx);
-            typed_store(ctx.builder, extremum, first_value);
-            typed_store(ctx.builder, extremum_idx, zero);
+            let first_value = ndarray.first_element(ctx)?;
+            typed_store(ctx.builder, extremum, first_value)?;
+            typed_store(ctx.builder, extremum_idx, zero)?;
 
             // The first element is iterated, but this doesn't matter.
-            ndarray
-                .foreach(ctx, |ctx, _, nditer| {
-                    let old_extremum = ctx.builder.build_load(extremum, "").unwrap();
-                    let old_extremum_idx = ctx
-                        .builder
-                        .build_load(extremum_idx, "")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap();
+            ndarray.foreach(ctx, |ctx, _, nditer| {
+                let old_extremum = ctx.builder.build_load(extremum, "")?;
+                let old_extremum_idx = ctx.builder.build_load(extremum_idx, "")?.into_int_value();
 
-                    let curr_value = nditer.get_scalar(ctx);
-                    let curr_idx = nditer.get_index(ctx);
+                let curr_value = nditer.get_scalar(ctx)?;
+                let curr_idx = nditer.get_index(ctx)?;
 
-                    let new_extremum = match fn_name {
-                        "np_argmin" | "np_min" => {
-                            call_min(ctx, (elem_ty, old_extremum), (elem_ty, curr_value))
-                        }
-                        "np_argmax" | "np_max" => {
-                            call_max(ctx, (elem_ty, old_extremum), (elem_ty, curr_value))
-                        }
-                        _ => codegen_unreachable!(ctx),
-                    };
+                let new_extremum = match fn_name {
+                    "np_argmin" | "np_min" => {
+                        call_min(ctx, (elem_ty, old_extremum), (elem_ty, curr_value))?
+                    }
+                    "np_argmax" | "np_max" => {
+                        call_max(ctx, (elem_ty, old_extremum), (elem_ty, curr_value))?
+                    }
+                    _ => codegen_unreachable!(ctx),
+                };
 
-                    let new_extremum_idx = match (old_extremum, new_extremum) {
-                        (BasicValueEnum::IntValue(m), BasicValueEnum::IntValue(n)) => ctx
-                            .builder
-                            .build_select(
-                                ctx.builder.build_int_compare(IntPredicate::NE, m, n, "").unwrap(),
-                                curr_idx,
-                                old_extremum_idx,
-                                "",
-                            )
-                            .unwrap(),
-                        (BasicValueEnum::FloatValue(m), BasicValueEnum::FloatValue(n)) => ctx
-                            .builder
-                            .build_select(
-                                ctx.builder
-                                    .build_float_compare(FloatPredicate::ONE, m, n, "")
-                                    .unwrap(),
-                                curr_idx,
-                                old_extremum_idx,
-                                "",
-                            )
-                            .unwrap(),
-                        _ =>
-                        {
-                            #[allow(clippy::tuple_array_conversions)]
-                            unsupported_type(ctx, fn_name, &[elem_ty, elem_ty])
-                        }
-                    };
+                let new_extremum_idx = match (old_extremum, new_extremum) {
+                    (BasicValueEnum::IntValue(m), BasicValueEnum::IntValue(n)) => {
+                        ctx.builder.build_select(
+                            ctx.builder.build_int_compare(IntPredicate::NE, m, n, "")?,
+                            curr_idx,
+                            old_extremum_idx,
+                            "",
+                        )?
+                    }
+                    (BasicValueEnum::FloatValue(m), BasicValueEnum::FloatValue(n)) => {
+                        ctx.builder.build_select(
+                            ctx.builder.build_float_compare(FloatPredicate::ONE, m, n, "")?,
+                            curr_idx,
+                            old_extremum_idx,
+                            "",
+                        )?
+                    }
+                    _ =>
+                    {
+                        #[allow(clippy::tuple_array_conversions)]
+                        unsupported_type(ctx, fn_name, &[elem_ty, elem_ty])
+                    }
+                };
 
-                    typed_store(ctx.builder, extremum, new_extremum);
-                    typed_store(ctx.builder, extremum_idx, new_extremum_idx);
+                typed_store(ctx.builder, extremum, new_extremum)?;
+                typed_store(ctx.builder, extremum_idx, new_extremum_idx)?;
 
-                    Ok(())
-                })
-                .unwrap();
+                Ok(())
+            })?;
 
             match fn_name {
                 "np_argmin" | "np_argmax" => ctx
                     .builder
                     .build_int_s_extend_or_bit_cast(
-                        ctx.builder
-                            .build_load(extremum_idx, "")
-                            .map(BasicValueEnum::into_int_value)
-                            .unwrap(),
+                        ctx.builder.build_load(extremum_idx, "")?.into_int_value(),
                         ctx.i64,
                         "",
-                    )
-                    .unwrap()
+                    )?
                     .into(),
-                "np_max" | "np_min" => ctx.builder.build_load(extremum, "").unwrap(),
+                "np_max" | "np_min" => ctx.builder.build_load(extremum, "")?,
                 _ => codegen_unreachable!(ctx),
             }
         }
@@ -918,7 +890,7 @@ pub fn call_numpy_maximum<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_maximum";
 
     let common_ty = if ctx.unifier.unioned(x1_ty, x2_ty) { Some(x1_ty) } else { None };
@@ -938,13 +910,13 @@ pub fn call_numpy_maximum<'ctx>(
                 .any(|ty| ctx.unifier.unioned(common_ty.unwrap(), *ty))
             );
 
-            call_max(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))
+            call_max(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))?
         }
 
         (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
             debug_assert!(ctx.unifier.unioned(common_ty.unwrap(), ctx.primitives.float));
 
-            call_max(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))
+            call_max(ctx, (x1_ty, x1.into()), (x2_ty, x2.into()))?
         }
 
         (x1, x2)
@@ -952,8 +924,8 @@ pub fn call_numpy_maximum<'ctx>(
                 ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id())
             }) =>
         {
-            let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1)).to_ndarray(ctx);
-            let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2)).to_ndarray(ctx);
+            let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1)).to_ndarray(ctx)?;
+            let x2 = ScalarOrNDArray::from_value(ctx, (x2_ty, x2)).to_ndarray(ctx)?;
 
             let x1_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x1_ty);
             let x2_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x2_ty);
@@ -968,10 +940,9 @@ pub fn call_numpy_maximum<'ctx>(
                 |ctx, scalars| {
                     let x1_scalar = scalars[0];
                     let x2_scalar = scalars[1];
-                    Ok(call_max(ctx, (x1_dtype, x1_scalar), (x2_dtype, x2_scalar)))
+                    call_max(ctx, (x1_dtype, x1_scalar), (x2_dtype, x2_scalar))
                 },
-            )
-            .unwrap();
+            )?;
 
             result.value.into()
         }
@@ -994,13 +965,13 @@ fn helper_call_numpy_unary_elementwise<'ctx, OnScalarFn, RetElemFn>(
     fn_name: &str,
     get_ret_elem_type: &RetElemFn,
     on_scalar: &OnScalarFn,
-) -> Result<BasicValueEnum<'ctx>, String>
+) -> anyhow::Result<BasicValueEnum<'ctx>>
 where
     OnScalarFn: Fn(
         &mut CodeGenContext<'ctx, '_>,
         Type,
         BasicValueEnum<'ctx>,
-    ) -> Option<BasicValueEnum<'ctx>>,
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>>,
     RetElemFn: Fn(&mut CodeGenContext<'ctx, '_>, Type) -> Type,
 {
     let arg = ScalarOrNDArray::from_value(ctx, (arg_ty, arg_val));
@@ -1010,7 +981,7 @@ where
     let ret_ty = get_ret_elem_type(ctx, dtype);
     let llvm_ret_ty = ctx.get_llvm_type(ret_ty);
     let result = arg.map(ctx, llvm_ret_ty, |ctx, scalar| {
-        let Some(result) = on_scalar(ctx, dtype, scalar) else {
+        let Some(result) = on_scalar(ctx, dtype, scalar)? else {
             unsupported_type(ctx, fn_name, &[arg_ty])
         };
         Ok(result)
@@ -1022,7 +993,7 @@ where
 pub fn call_abs<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     n: (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "abs";
 
     helper_call_numpy_unary_elementwise(
@@ -1031,7 +1002,7 @@ pub fn call_abs<'ctx>(
         FN_NAME,
         &|_ctx, elem_ty| elem_ty,
         &|ctx, val_ty, val| match val {
-            BasicValueEnum::IntValue(n) => Some({
+            BasicValueEnum::IntValue(n) => {
                 debug_assert!(
                     [
                         ctx.primitives.bool,
@@ -1044,23 +1015,26 @@ pub fn call_abs<'ctx>(
                     .any(|ty| ctx.unifier.unioned(val_ty, *ty))
                 );
 
-                if [ctx.primitives.int32, ctx.primitives.int64]
-                    .iter()
-                    .any(|ty| ctx.unifier.unioned(val_ty, *ty))
-                {
-                    llvm_intrinsics::call_int_abs(ctx, n, ctx.i1.const_zero(), Some(FN_NAME)).into()
-                } else {
-                    n.into()
-                }
-            }),
+                Ok(Some(
+                    if [ctx.primitives.int32, ctx.primitives.int64]
+                        .iter()
+                        .any(|ty| ctx.unifier.unioned(val_ty, *ty))
+                    {
+                        llvm_intrinsics::call_int_abs(ctx, n, ctx.i1.const_zero(), Some(FN_NAME))?
+                            .into()
+                    } else {
+                        n.into()
+                    },
+                ))
+            }
 
-            BasicValueEnum::FloatValue(n) => Some({
+            BasicValueEnum::FloatValue(n) => {
                 debug_assert!(ctx.unifier.unioned(val_ty, ctx.primitives.float));
 
-                llvm_intrinsics::call_float_fabs(ctx, n, Some(FN_NAME)).into()
-            }),
+                Ok(Some(llvm_intrinsics::call_float_fabs(ctx, n, Some(FN_NAME))?.into()))
+            }
 
-            _ => None,
+            _ => Ok(None),
         },
     )
 }
@@ -1080,7 +1054,7 @@ macro_rules! create_helper_call_numpy_unary_elementwise {
         pub fn $name<'ctx>(
             ctx: &mut CodeGenContext<'ctx, '_>,
             arg: (Type, BasicValueEnum<'ctx>),
-        ) -> Result<BasicValueEnum<'ctx>, String> {
+        ) -> anyhow::Result<BasicValueEnum<'ctx>> {
             helper_call_numpy_unary_elementwise(
                 ctx,
                 arg,
@@ -1100,13 +1074,12 @@ macro_rules! create_helper_call_numpy_unary_elementwise {
 /// * `$on_scalar:expr`: The closure (see below for its type) that acts on float scalar values and returns
 ///   the boolean results of LLVM type `i1`. The returned `i1` value will be converted into an `i8`.
 ///
-/// ```ignore
+/// ```rust,ignore
 /// // Type of `$on_scalar:expr`
 /// fn on_scalar<'ctx>(
-///
 ///     ctx: &mut CodeGenContext<'ctx, '_>,
 ///     arg: FloatValue<'ctx>
-/// ) -> IntValue<'ctx> // of LLVM type `i1`
+/// ) -> anyhow::Result<IntValue<'ctx>> // of LLVM type `i1`
 /// ```
 macro_rules! create_helper_call_numpy_unary_elementwise_float_to_bool {
     ($name:ident, $fn_name:literal, $on_scalar:expr) => {
@@ -1119,10 +1092,10 @@ macro_rules! create_helper_call_numpy_unary_elementwise_float_to_bool {
                     BasicValueEnum::FloatValue(n) => {
                         debug_assert!(ctx.unifier.unioned(n_ty, ctx.primitives.float));
 
-                        let ret = $on_scalar(ctx, n, Option::<&str>::None);
-                        Some(bool_to_i8(ctx, ret).into())
+                        let ret = $on_scalar(ctx, n, Option::<&str>::None)?;
+                        Ok(Some(bool_to_i8(ctx, ret)?.into()))
                     }
-                    _ => None,
+                    _ => Ok(None),
                 }
             }
         );
@@ -1136,13 +1109,13 @@ macro_rules! create_helper_call_numpy_unary_elementwise_float_to_bool {
 /// * `$fn_name:literal`: To be passed to the `fn_name` parameter of [`helper_call_numpy_unary_elementwise`].
 /// * `$on_scalar:expr`: The closure (see below for its type) that acts on float scalar values and returns float results.
 ///
-/// ```ignore
+/// ```rust,ignore
 /// // Type of `$on_scalar:expr`
 /// fn on_scalar<'ctx>(
 ///
 ///     ctx: &mut CodeGenContext<'ctx, '_>,
 ///     arg: FloatValue<'ctx>
-/// ) -> FloatValue<'ctx>
+/// ) -> anyhow::Result<FloatValue<'ctx>>
 /// ```
 macro_rules! create_helper_call_numpy_unary_elementwise_float_to_float {
     ($name:ident, $fn_name:literal, $elem_call:expr) => {
@@ -1155,9 +1128,9 @@ macro_rules! create_helper_call_numpy_unary_elementwise_float_to_float {
                     BasicValueEnum::FloatValue(n) => {
                         debug_assert!(ctx.unifier.unioned(val_ty, ctx.primitives.float));
 
-                        Some($elem_call(ctx, n, Option::<&str>::None).into())
+                        Ok(Some($elem_call(ctx, n, Option::<&str>::None)?.into()))
                     }
-                    _ => None,
+                    _ => Ok(None),
                 }
             }
         );
@@ -1329,7 +1302,7 @@ pub fn call_numpy_arctan2<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_arctan2";
 
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
@@ -1342,12 +1315,11 @@ pub fn call_numpy_arctan2<'ctx>(
 
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
-                    Ok(irrt::call_atan2(ctx, x1, x2, None).into())
+                    Ok(irrt::call_atan2(ctx, x1, x2, None)?.into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        })
-        .unwrap();
+        })?;
 
     Ok(result.to_basic_value_enum())
 }
@@ -1357,7 +1329,7 @@ pub fn call_numpy_copysign<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_copysign";
 
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
@@ -1370,12 +1342,11 @@ pub fn call_numpy_copysign<'ctx>(
 
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
-                    Ok(llvm_intrinsics::call_float_copysign(ctx, x1, x2, None).into())
+                    Ok(llvm_intrinsics::call_float_copysign(ctx, x1, x2, None)?.into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        })
-        .unwrap();
+        })?;
 
     Ok(result.to_basic_value_enum())
 }
@@ -1385,7 +1356,7 @@ pub fn call_numpy_fmax<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_fmax";
 
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
@@ -1398,12 +1369,11 @@ pub fn call_numpy_fmax<'ctx>(
 
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
-                    Ok(llvm_intrinsics::call_float_maxnum(ctx, x1, x2, None).into())
+                    Ok(llvm_intrinsics::call_float_maxnum(ctx, x1, x2, None)?.into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        })
-        .unwrap();
+        })?;
 
     Ok(result.to_basic_value_enum())
 }
@@ -1413,7 +1383,7 @@ pub fn call_numpy_fmin<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_fmin";
 
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
@@ -1426,12 +1396,11 @@ pub fn call_numpy_fmin<'ctx>(
 
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
-                    Ok(llvm_intrinsics::call_float_minnum(ctx, x1, x2, None).into())
+                    Ok(llvm_intrinsics::call_float_minnum(ctx, x1, x2, None)?.into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        })
-        .unwrap();
+        })?;
 
     Ok(result.to_basic_value_enum())
 }
@@ -1441,7 +1410,7 @@ pub fn call_numpy_ldexp<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_ldexp";
 
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
@@ -1456,12 +1425,11 @@ pub fn call_numpy_ldexp<'ctx>(
                 (BasicValueEnum::FloatValue(x1_scalar), BasicValueEnum::IntValue(x2_scalar)) => {
                     debug_assert_eq!(x1.get_dtype(), ctx.f64.into());
                     debug_assert_eq!(x2.get_dtype(), ctx.i32.into());
-                    Ok(irrt::call_ldexp(ctx, x1_scalar, x2_scalar, None).into())
+                    Ok(irrt::call_ldexp(ctx, x1_scalar, x2_scalar, None)?.into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        })
-        .unwrap();
+        })?;
 
     Ok(result.to_basic_value_enum())
 }
@@ -1471,7 +1439,7 @@ pub fn call_numpy_hypot<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_hypot";
 
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
@@ -1484,12 +1452,11 @@ pub fn call_numpy_hypot<'ctx>(
 
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
-                    Ok(irrt::call_hypot(ctx, x1, x2, None).into())
+                    Ok(irrt::call_hypot(ctx, x1, x2, None)?.into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        })
-        .unwrap();
+        })?;
 
     Ok(result.to_basic_value_enum())
 }
@@ -1499,7 +1466,7 @@ pub fn call_numpy_nextafter<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_nextafter";
 
     let x1 = ScalarOrNDArray::from_value(ctx, (x1_ty, x1));
@@ -1512,12 +1479,11 @@ pub fn call_numpy_nextafter<'ctx>(
 
             match (x1_scalar, x2_scalar) {
                 (BasicValueEnum::FloatValue(x1), BasicValueEnum::FloatValue(x2)) => {
-                    Ok(irrt::call_nextafter(ctx, x1, x2, None).into())
+                    Ok(irrt::call_nextafter(ctx, x1, x2, None)?.into())
                 }
                 _ => unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty]),
             }
-        })
-        .unwrap();
+        })?;
 
     Ok(result.to_basic_value_enum())
 }
@@ -1526,7 +1492,7 @@ pub fn call_numpy_nextafter<'ctx>(
 pub fn call_np_linalg_cholesky<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_linalg_cholesky";
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
@@ -1537,13 +1503,13 @@ pub fn call_np_linalg_cholesky<'ctx>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct(ctx, None);
-    out.copy_shape_from(ctx, &x1);
-    out.create_data(ctx);
+    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct(ctx, None)?;
+    out.copy_shape_from(ctx, &x1)?;
+    out.create_data(ctx)?;
 
-    let x1_c = x1.make_contiguous_ndarray(ctx);
-    let out_c = out.make_contiguous_ndarray(ctx);
-    extern_fns::call_np_linalg_cholesky(ctx, x1_c.value.into(), out_c.value.into(), None);
+    let x1_c = x1.make_contiguous_ndarray(ctx)?;
+    let out_c = out.make_contiguous_ndarray(ctx)?;
+    extern_fns::call_np_linalg_cholesky(ctx, x1_c.value.into(), out_c.value.into(), None)?;
     Ok(out.value.into())
 }
 
@@ -1551,7 +1517,7 @@ pub fn call_np_linalg_cholesky<'ctx>(
 pub fn call_np_linalg_qr<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_linalg_qr";
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
@@ -1562,22 +1528,28 @@ pub fn call_np_linalg_qr<'ctx>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let x1_shape = x1.shape(ctx);
-    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None);
-    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None);
-    let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
+    let x1_shape = x1.shape(ctx)?;
+    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
     let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
-    let q = out_ndarray_ty.with_shape(ctx, &[d0, dk], None);
-    let r = out_ndarray_ty.with_shape(ctx, &[dk, d1], None);
+    let q = out_ndarray_ty.with_shape(ctx, &[d0, dk], None)?;
+    let r = out_ndarray_ty.with_shape(ctx, &[dk, d1], None)?;
 
-    let x1_c = x1.make_contiguous_ndarray(ctx);
-    let q_c = q.make_contiguous_ndarray(ctx);
-    let r_c = r.make_contiguous_ndarray(ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx)?;
+    let q_c = q.make_contiguous_ndarray(ctx)?;
+    let r_c = r.make_contiguous_ndarray(ctx)?;
 
-    extern_fns::call_np_linalg_qr(ctx, x1_c.value.into(), q_c.value.into(), r_c.value.into(), None);
+    extern_fns::call_np_linalg_qr(
+        ctx,
+        x1_c.value.into(),
+        q_c.value.into(),
+        r_c.value.into(),
+        None,
+    )?;
 
-    let tuple = TupleValue::new(ctx, &[q.value, r.value], None);
+    let tuple = TupleValue::new(ctx, &[q.value, r.value], None)?;
     Ok(tuple.value.into())
 }
 
@@ -1585,7 +1557,7 @@ pub fn call_np_linalg_qr<'ctx>(
 pub fn call_np_linalg_svd<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_linalg_svd";
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
@@ -1596,22 +1568,22 @@ pub fn call_np_linalg_svd<'ctx>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let x1_shape = x1.shape(ctx);
-    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None);
-    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None);
-    let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
+    let x1_shape = x1.shape(ctx)?;
+    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
     let out_ndarray1_ty = NDArrayType::new(ctx, ctx.f64.into(), 1);
     let out_ndarray2_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
-    let u = out_ndarray2_ty.with_shape(ctx, &[d0, d0], None);
-    let s = out_ndarray1_ty.with_shape(ctx, &[dk], None);
-    let vh = out_ndarray2_ty.with_shape(ctx, &[d1, d1], None);
+    let u = out_ndarray2_ty.with_shape(ctx, &[d0, d0], None)?;
+    let s = out_ndarray1_ty.with_shape(ctx, &[dk], None)?;
+    let vh = out_ndarray2_ty.with_shape(ctx, &[d1, d1], None)?;
 
-    let x1_c = x1.make_contiguous_ndarray(ctx);
-    let u_c = u.make_contiguous_ndarray(ctx);
-    let s_c = s.make_contiguous_ndarray(ctx);
-    let vh_c = vh.make_contiguous_ndarray(ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx)?;
+    let u_c = u.make_contiguous_ndarray(ctx)?;
+    let s_c = s.make_contiguous_ndarray(ctx)?;
+    let vh_c = vh.make_contiguous_ndarray(ctx)?;
 
     extern_fns::call_np_linalg_svd(
         ctx,
@@ -1620,9 +1592,9 @@ pub fn call_np_linalg_svd<'ctx>(
         s_c.value.into(),
         vh_c.value.into(),
         None,
-    );
+    )?;
 
-    let tuple = TupleValue::new(ctx, &[u.value, s.value, vh.value], None);
+    let tuple = TupleValue::new(ctx, &[u.value, s.value, vh.value], None)?;
     Ok(tuple.value.into())
 }
 
@@ -1630,7 +1602,7 @@ pub fn call_np_linalg_svd<'ctx>(
 pub fn call_np_linalg_inv<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_linalg_inv";
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
@@ -1641,13 +1613,13 @@ pub fn call_np_linalg_inv<'ctx>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct(ctx, None);
-    out.copy_shape_from(ctx, &x1);
-    out.create_data(ctx);
+    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct(ctx, None)?;
+    out.copy_shape_from(ctx, &x1)?;
+    out.create_data(ctx)?;
 
-    let x1_c = x1.make_contiguous_ndarray(ctx);
-    let out_c = out.make_contiguous_ndarray(ctx);
-    extern_fns::call_np_linalg_inv(ctx, x1_c.value.into(), out_c.value.into(), None);
+    let x1_c = x1.make_contiguous_ndarray(ctx)?;
+    let out_c = out.make_contiguous_ndarray(ctx)?;
+    extern_fns::call_np_linalg_inv(ctx, x1_c.value.into(), out_c.value.into(), None)?;
 
     Ok(out.value.into())
 }
@@ -1656,7 +1628,7 @@ pub fn call_np_linalg_inv<'ctx>(
 pub fn call_np_linalg_pinv<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_linalg_pinv";
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
@@ -1667,15 +1639,15 @@ pub fn call_np_linalg_pinv<'ctx>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let x1_shape = x1.shape(ctx);
-    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None);
-    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None);
+    let x1_shape = x1.shape(ctx)?;
+    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
 
-    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).with_shape(ctx, &[d0, d1], None);
+    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).with_shape(ctx, &[d0, d1], None)?;
 
-    let x1_c = x1.make_contiguous_ndarray(ctx);
-    let out_c = out.make_contiguous_ndarray(ctx);
-    extern_fns::call_np_linalg_pinv(ctx, x1_c.value.into(), out_c.value.into(), None);
+    let x1_c = x1.make_contiguous_ndarray(ctx)?;
+    let out_c = out.make_contiguous_ndarray(ctx)?;
+    extern_fns::call_np_linalg_pinv(ctx, x1_c.value.into(), out_c.value.into(), None)?;
 
     Ok(out.value.into())
 }
@@ -1684,7 +1656,7 @@ pub fn call_np_linalg_pinv<'ctx>(
 pub fn call_sp_linalg_lu<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "sp_linalg_lu";
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
@@ -1695,22 +1667,28 @@ pub fn call_sp_linalg_lu<'ctx>(
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let x1_shape = x1.shape(ctx);
-    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None);
-    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None);
-    let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None);
+    let x1_shape = x1.shape(ctx)?;
+    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
     let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
-    let l = out_ndarray_ty.with_shape(ctx, &[d0, dk], None);
-    let u = out_ndarray_ty.with_shape(ctx, &[dk, d1], None);
+    let l = out_ndarray_ty.with_shape(ctx, &[d0, dk], None)?;
+    let u = out_ndarray_ty.with_shape(ctx, &[dk, d1], None)?;
 
-    let x1_c = x1.make_contiguous_ndarray(ctx);
-    let l_c = l.make_contiguous_ndarray(ctx);
-    let u_c = u.make_contiguous_ndarray(ctx);
-    extern_fns::call_sp_linalg_lu(ctx, x1_c.value.into(), l_c.value.into(), u_c.value.into(), None);
+    let x1_c = x1.make_contiguous_ndarray(ctx)?;
+    let l_c = l.make_contiguous_ndarray(ctx)?;
+    let u_c = u.make_contiguous_ndarray(ctx)?;
+    extern_fns::call_sp_linalg_lu(
+        ctx,
+        x1_c.value.into(),
+        l_c.value.into(),
+        u_c.value.into(),
+        None,
+    )?;
 
-    let tuple = TupleValue::new(ctx, &[l.value, u.value], None);
+    let tuple = TupleValue::new(ctx, &[l.value, u.value], None)?;
     Ok(tuple.value.into())
 }
 
@@ -1719,7 +1697,7 @@ pub fn call_np_linalg_matrix_power<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
     (x2_ty, x2): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_linalg_matrix_power";
 
     let BasicValueEnum::PointerValue(x1) = x1 else {
@@ -1741,16 +1719,16 @@ pub fn call_np_linalg_matrix_power<'ctx>(
         unsupported_type(ctx, FN_NAME, &[x1_ty, x2_ty])
     };
 
-    let x2 = NDArrayValue::new_scalar(ctx, x2.into(), None);
-    let x2 = x2.atleast_nd(ctx, 1); // x2.shape == [1]
+    let x2 = NDArrayValue::new_scalar(ctx, x2.into(), None)?;
+    let x2 = x2.atleast_nd(ctx, 1)?; // x2.shape == [1]
 
-    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct(ctx, None);
-    out.copy_shape_from(ctx, &x1);
-    out.create_data(ctx);
+    let out = NDArrayType::new(ctx, ctx.f64.into(), 2).construct(ctx, None)?;
+    out.copy_shape_from(ctx, &x1)?;
+    out.create_data(ctx)?;
 
-    let x1_c = x1.make_contiguous_ndarray(ctx);
-    let x2_c = x2.make_contiguous_ndarray(ctx);
-    let out_c = out.make_contiguous_ndarray(ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx)?;
+    let x2_c = x2.make_contiguous_ndarray(ctx)?;
+    let out_c = out.make_contiguous_ndarray(ctx)?;
 
     extern_fns::call_np_linalg_matrix_power(
         ctx,
@@ -1758,7 +1736,7 @@ pub fn call_np_linalg_matrix_power<'ctx>(
         x2_c.value.into(),
         out_c.value.into(),
         None,
-    );
+    )?;
 
     Ok(out.value.into())
 }
@@ -1767,7 +1745,7 @@ pub fn call_np_linalg_matrix_power<'ctx>(
 pub fn call_np_linalg_det<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "np_linalg_matrix_power";
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
@@ -1780,14 +1758,14 @@ pub fn call_np_linalg_det<'ctx>(
 
     // The output is a float64, but we are using an ndarray (shape == [1]) for uniformity in function call.
     let shape = ctx.size_t.const_int(1, false);
-    let det = NDArrayType::new(ctx, ctx.f64.into(), 1).with_shape(ctx, &[shape], None);
+    let det = NDArrayType::new(ctx, ctx.f64.into(), 1).with_shape(ctx, &[shape], None)?;
 
-    let x1_c = x1.make_contiguous_ndarray(ctx);
-    let out_c = det.make_contiguous_ndarray(ctx);
-    extern_fns::call_np_linalg_det(ctx, x1_c.value.into(), out_c.value.into(), None);
+    let x1_c = x1.make_contiguous_ndarray(ctx)?;
+    let out_c = det.make_contiguous_ndarray(ctx)?;
+    extern_fns::call_np_linalg_det(ctx, x1_c.value.into(), out_c.value.into(), None)?;
 
     // Get the determinant out of `out`
-    let det = det.first_element(ctx);
+    let det = det.first_element(ctx)?;
     Ok(det)
 }
 
@@ -1795,7 +1773,7 @@ pub fn call_np_linalg_det<'ctx>(
 pub fn call_sp_linalg_schur<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "sp_linalg_schur";
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
@@ -1809,26 +1787,26 @@ pub fn call_sp_linalg_schur<'ctx>(
 
     let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
-    let t = out_ndarray_ty.construct(ctx, None);
-    t.copy_shape_from(ctx, &x1);
-    t.create_data(ctx);
+    let t = out_ndarray_ty.construct(ctx, None)?;
+    t.copy_shape_from(ctx, &x1)?;
+    t.create_data(ctx)?;
 
-    let z = out_ndarray_ty.construct(ctx, None);
-    z.copy_shape_from(ctx, &x1);
-    z.create_data(ctx);
+    let z = out_ndarray_ty.construct(ctx, None)?;
+    z.copy_shape_from(ctx, &x1)?;
+    z.create_data(ctx)?;
 
-    let x1_c = x1.make_contiguous_ndarray(ctx);
-    let t_c = t.make_contiguous_ndarray(ctx);
-    let z_c = z.make_contiguous_ndarray(ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx)?;
+    let t_c = t.make_contiguous_ndarray(ctx)?;
+    let z_c = z.make_contiguous_ndarray(ctx)?;
     extern_fns::call_sp_linalg_schur(
         ctx,
         x1_c.value.into(),
         t_c.value.into(),
         z_c.value.into(),
         None,
-    );
+    )?;
 
-    let tuple = TupleValue::new(ctx, &[t.value, z.value], None);
+    let tuple = TupleValue::new(ctx, &[t.value, z.value], None)?;
     Ok(tuple.value.into())
 }
 
@@ -1836,7 +1814,7 @@ pub fn call_sp_linalg_schur<'ctx>(
 pub fn call_sp_linalg_hessenberg<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (x1_ty, x1): (Type, BasicValueEnum<'ctx>),
-) -> Result<BasicValueEnum<'ctx>, String> {
+) -> anyhow::Result<BasicValueEnum<'ctx>> {
     const FN_NAME: &str = "sp_linalg_hessenberg";
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
@@ -1850,25 +1828,25 @@ pub fn call_sp_linalg_hessenberg<'ctx>(
 
     let out_ndarray_ty = NDArrayType::new(ctx, ctx.f64.into(), 2);
 
-    let h = out_ndarray_ty.construct(ctx, None);
-    h.copy_shape_from(ctx, &x1);
-    h.create_data(ctx);
+    let h = out_ndarray_ty.construct(ctx, None)?;
+    h.copy_shape_from(ctx, &x1)?;
+    h.create_data(ctx)?;
 
-    let q = out_ndarray_ty.construct(ctx, None);
-    q.copy_shape_from(ctx, &x1);
-    q.create_data(ctx);
+    let q = out_ndarray_ty.construct(ctx, None)?;
+    q.copy_shape_from(ctx, &x1)?;
+    q.create_data(ctx)?;
 
-    let x1_c = x1.make_contiguous_ndarray(ctx);
-    let h_c = h.make_contiguous_ndarray(ctx);
-    let q_c = q.make_contiguous_ndarray(ctx);
+    let x1_c = x1.make_contiguous_ndarray(ctx)?;
+    let h_c = h.make_contiguous_ndarray(ctx)?;
+    let q_c = q.make_contiguous_ndarray(ctx)?;
     extern_fns::call_sp_linalg_hessenberg(
         ctx,
         x1_c.value.into(),
         h_c.value.into(),
         q_c.value.into(),
         None,
-    );
+    )?;
 
-    let tuple = TupleValue::new(ctx, &[h.value, q.value], None);
+    let tuple = TupleValue::new(ctx, &[h.value, q.value], None)?;
     Ok(tuple.value.into())
 }

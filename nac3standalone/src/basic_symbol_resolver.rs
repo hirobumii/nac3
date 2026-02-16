@@ -1,8 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
+use anyhow::anyhow;
 use nac3core::{
     codegen::CodeGenContext,
     inkwell::{module::Linkage, values::BasicValue},
@@ -40,11 +38,11 @@ impl ResolverInternal {
 pub struct Resolver(pub Arc<ResolverInternal>);
 
 impl SymbolResolver for Resolver {
-    fn get_default_param_value(&self, expr: &ast::Expr) -> Option<SymbolValue> {
-        match &expr.node {
+    fn get_default_param_value(&self, expr: &ast::Expr) -> anyhow::Result<Option<SymbolValue>> {
+        Ok(match &expr.node {
             ast::ExprKind::Name { id, .. } => self.0.module_globals.lock().get(id).cloned(),
             _ => unimplemented!("other type of expr not supported at {}", expr.location),
-        }
+        })
     }
 
     fn get_symbol_type(
@@ -53,7 +51,7 @@ impl SymbolResolver for Resolver {
         _: &[Arc<RwLock<TopLevelDef>>],
         primitives: &PrimitiveStore,
         str: StrRef,
-    ) -> Result<Type, String> {
+    ) -> anyhow::Result<Type> {
         self.0
             .id_to_type
             .lock()
@@ -67,41 +65,51 @@ impl SymbolResolver for Resolver {
                     .cloned()
                     .map(|v| v.get_type(primitives, unifier))
             })
-            .ok_or_else(|| format!("cannot get type of {str}"))
+            .ok_or_else(|| anyhow!("cannot get type of {str}"))
     }
 
     fn get_symbol_value<'ctx>(
         &self,
         str: StrRef,
         ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> Option<ValueEnum<'ctx>> {
-        self.0.module_globals.lock().get(&str).cloned().map(|v| {
-            ctx.module
-                .get_global(&str.to_string())
-                .unwrap_or_else(|| {
-                    let ty = v.get_type(&ctx.primitives, &mut ctx.unifier);
+    ) -> anyhow::Result<Option<ValueEnum<'ctx>>> {
+        self.0
+            .module_globals
+            .lock()
+            .get(&str)
+            .cloned()
+            .map(|v| {
+                Ok(ctx
+                    .module
+                    .get_global(&str.to_string())
+                    .map_or_else(
+                        || {
+                            let ty = v.get_type(&ctx.primitives, &mut ctx.unifier);
 
-                    let init_val = ctx.gen_symbol_val(&v, ty);
-                    let llvm_ty = init_val.get_type();
+                            let init_val = ctx.gen_symbol_val(&v, ty)?;
+                            let llvm_ty = init_val.get_type();
 
-                    let global = ctx.module.add_global(llvm_ty, None, &str.to_string());
-                    global.set_linkage(Linkage::LinkOnceAny);
-                    global.set_initializer(&init_val);
+                            let global = ctx.module.add_global(llvm_ty, None, &str.to_string());
+                            global.set_linkage(Linkage::LinkOnceAny);
+                            global.set_initializer(&init_val);
 
-                    global
-                })
-                .as_basic_value_enum()
-                .into()
-        })
+                            anyhow::Ok(global)
+                        },
+                        Ok,
+                    )?
+                    .as_basic_value_enum()
+                    .into())
+            })
+            .transpose()
     }
 
-    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
+    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, Vec<anyhow::Error>> {
         self.0
             .id_to_def
             .lock()
             .get(&id)
             .copied()
-            .ok_or_else(|| HashSet::from([format!("Undefined identifier `{id}`")]))
+            .ok_or_else(|| vec![anyhow!("Undefined identifier `{id}`")])
     }
 
     fn get_string_id(&self, s: &str) -> i32 {

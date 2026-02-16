@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use anyhow::anyhow;
 use indexmap::IndexMap;
 use nac3parser::ast::StrRef;
 
@@ -234,14 +235,14 @@ impl ConcreteTypeStore {
         primitives: &PrimitiveStore,
         cty: ConcreteType,
         cache: &mut HashMap<ConcreteType, Option<Type>>,
-    ) -> Type {
+    ) -> anyhow::Result<Type> {
         if let Some(ty) = cache.get_mut(&cty) {
-            return if let Some(ty) = ty {
+            return Ok(if let Some(ty) = ty {
                 *ty
             } else {
                 *ty = Some(unifier.get_dummy_var().ty);
                 ty.unwrap()
-            };
+            });
         }
         cache.insert(cty, None);
         let result = match &self.store[cty.0] {
@@ -259,46 +260,60 @@ impl ConcreteTypeStore {
                     Primitive::Exception => primitives.exception,
                 };
                 *cache.get_mut(&cty).unwrap() = Some(ty);
-                return ty;
+                return Ok(ty);
             }
             ConcreteTypeEnum::TTuple { ty, is_vararg_ctx } => TypeEnum::TTuple {
                 ty: ty
                     .iter()
-                    .map(|cty| self.to_unifier_type(unifier, primitives, *cty, cache))
-                    .collect(),
+                    .map(|cty| anyhow::Ok(self.to_unifier_type(unifier, primitives, *cty, cache)?))
+                    .collect::<anyhow::Result<_>>()?,
                 is_vararg_ctx: *is_vararg_ctx,
             },
             ConcreteTypeEnum::TVirtual { ty } => {
-                TypeEnum::TVirtual { ty: self.to_unifier_type(unifier, primitives, *ty, cache) }
+                TypeEnum::TVirtual { ty: self.to_unifier_type(unifier, primitives, *ty, cache)? }
             }
             ConcreteTypeEnum::TObj { obj_id, fields, params } => TypeEnum::TObj {
                 obj_id: *obj_id,
                 fields: fields
                     .iter()
                     .map(|(name, cty)| {
-                        (*name, (self.to_unifier_type(unifier, primitives, cty.0, cache), cty.1))
+                        anyhow::Ok((
+                            *name,
+                            (self.to_unifier_type(unifier, primitives, cty.0, cache)?, cty.1),
+                        ))
                     })
-                    .collect::<HashMap<_, _>>(),
-                params: into_var_map(params.iter().map(|(&id, cty)| {
-                    let ty = self.to_unifier_type(unifier, primitives, *cty, cache);
-                    TypeVar { id, ty }
-                })),
+                    .collect::<anyhow::Result<HashMap<_, _>>>()?,
+                params: into_var_map(
+                    params
+                        .iter()
+                        .map(|(&id, cty)| {
+                            let ty = self.to_unifier_type(unifier, primitives, *cty, cache)?;
+                            anyhow::Ok(TypeVar { id, ty })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?,
+                ),
             },
             ConcreteTypeEnum::TFunc { args, ret, vars } => TypeEnum::TFunc(FunSignature {
                 args: args
                     .iter()
-                    .map(|arg| FuncArg {
-                        name: arg.name,
-                        ty: self.to_unifier_type(unifier, primitives, arg.ty, cache),
-                        default_value: arg.default_value.clone(),
-                        is_vararg: false,
+                    .map(|arg| {
+                        anyhow::Ok(FuncArg {
+                            name: arg.name,
+                            ty: self.to_unifier_type(unifier, primitives, arg.ty, cache)?,
+                            default_value: arg.default_value.clone(),
+                            is_vararg: false,
+                        })
                     })
-                    .collect(),
-                ret: self.to_unifier_type(unifier, primitives, *ret, cache),
-                vars: into_var_map(vars.iter().map(|(&id, cty)| {
-                    let ty = self.to_unifier_type(unifier, primitives, *cty, cache);
-                    TypeVar { id, ty }
-                })),
+                    .collect::<anyhow::Result<_>>()?,
+                ret: self.to_unifier_type(unifier, primitives, *ret, cache)?,
+                vars: into_var_map(
+                    vars.iter()
+                        .map(|(&id, cty)| {
+                            let ty = self.to_unifier_type(unifier, primitives, *cty, cache)?;
+                            anyhow::Ok(TypeVar { id, ty })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?,
+                ),
             }),
             ConcreteTypeEnum::TLiteral { values, .. } => {
                 TypeEnum::TLiteral { values: values.clone(), loc: None }
@@ -306,10 +321,10 @@ impl ConcreteTypeStore {
         };
         let result = unifier.add_ty(result);
         if let Some(ty) = cache.get(&cty).unwrap() {
-            unifier.unify(*ty, result).unwrap();
+            unifier.unify(*ty, result).map_err(|e| anyhow!("{}", e.to_display(unifier)))?;
         }
         cache.insert(cty, Some(result));
-        result
+        Ok(result)
     }
 
     pub fn add_cty(&mut self, cty: ConcreteTypeEnum) -> ConcreteType {

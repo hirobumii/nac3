@@ -30,17 +30,16 @@ impl<'ctx> StringType<'ctx> {
         Self { inner: BuiltinStruct::new(ctx, "str") }
     }
 
-    #[must_use]
     pub fn constant(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
         v: &str,
         name: Option<&'static str>,
-    ) -> StringValue<'ctx> {
-        let str_ptr = ctx.builder.build_global_string_ptr(v, "const").unwrap().as_pointer_value();
+    ) -> anyhow::Result<StringValue<'ctx>> {
+        let str_ptr = ctx.builder.build_global_string_ptr(v, "const")?.as_pointer_value();
         let size = ctx.size_t.const_int(v.len() as u64, false);
         let value = self.inner.llvm_ty.const_named_struct(&[str_ptr.into(), size.into()]);
-        self.map_value(value, name)
+        Ok(self.map_value(value, name))
     }
 }
 
@@ -48,11 +47,12 @@ pub type StringValue<'ctx> = Value<'ctx, StringType<'ctx>>;
 
 impl<'ctx> StringValue<'ctx> {
     /// Returns the pointer to the string data.
-    pub fn ptr(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> PointerValue<'ctx> {
+    pub fn ptr(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<PointerValue<'ctx>> {
         self.ty.inner.fields.ptr.extract_value(ctx, self.value)
     }
+
     /// Returns the length of the string.
-    pub fn len(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn len(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
         self.ty.inner.fields.len.extract_value(ctx, self.value)
     }
 }

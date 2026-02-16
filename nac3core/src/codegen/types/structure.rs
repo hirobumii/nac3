@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use anyhow::anyhow;
 use inkwell::{
     AddressSpace,
     types::{BasicType, BasicTypeEnum},
@@ -117,17 +118,16 @@ impl<'ctx, Value> StructField<'ctx, Value> {
         struct_ty: BasicTypeEnum<'ctx>,
         pobj: PointerValue<'ctx>,
         idx: &[IntValue<'ctx>],
-    ) -> PointerValue<'ctx> {
+    ) -> anyhow::Result<PointerValue<'ctx>> {
         let ptr_ty = struct_ty.ptr_type(AddressSpace::default());
-        let cast = ctx.builder.build_pointer_cast(pobj, ptr_ty, "").unwrap();
-        unsafe {
+        let cast = ctx.builder.build_pointer_cast(pobj, ptr_ty, "")?;
+        Ok(unsafe {
             ctx.builder.build_in_bounds_gep(
                 cast,
                 &[idx, &[ctx.i32.const_int(u64::from(self.index), false)]].concat(),
                 "",
-            )
-        }
-        .unwrap()
+            )?
+        })
     }
 
     /// Creates a pointer to this field in an arbitrary structure by performing the equivalent of
@@ -138,54 +138,50 @@ impl<'ctx, Value> StructField<'ctx, Value> {
         struct_ty: BasicTypeEnum<'ctx>,
         pobj: PointerValue<'ctx>,
         obj_name: Option<&str>,
-    ) -> PointerValue<'ctx> {
+    ) -> anyhow::Result<PointerValue<'ctx>> {
         let ptr_ty = struct_ty.ptr_type(AddressSpace::default());
-        let cast = ctx.builder.build_pointer_cast(pobj, ptr_ty, "").unwrap();
-        ctx.builder
-            .build_struct_gep(
-                cast,
-                self.index,
-                &obj_name.map(|name| format!("{name}.{}.addr", self.name)).unwrap_or_default(),
-            )
-            .unwrap()
+        let cast = ctx.builder.build_pointer_cast(pobj, ptr_ty, "")?;
+        Ok(ctx.builder.build_struct_gep(
+            cast,
+            self.index,
+            &obj_name.map(|name| format!("{name}.{}.addr", self.name)).unwrap_or_default(),
+        )?)
     }
 
     /// Gets the value of this field for a given `obj`.
-    #[must_use]
-    pub fn extract_value(&self, ctx: &CodeGenContext<'ctx, '_>, obj: StructValue<'ctx>) -> Value
+    pub fn extract_value(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        obj: StructValue<'ctx>,
+    ) -> anyhow::Result<Value>
     where
         Value: TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
     {
-        Value::try_from(
-            ctx.builder
-                .build_extract_value(
-                    obj,
-                    self.index,
-                    &format!("{}.{}", obj.get_name().to_str().unwrap(), self.name),
-                )
-                .unwrap(),
-        )
-        .unwrap()
+        Value::try_from(ctx.builder.build_extract_value(
+            obj,
+            self.index,
+            &format!("{}.{}", obj.get_name().to_str().unwrap(), self.name),
+        )?)
+        .map_err(|e| anyhow!("{e:?}"))
     }
 
     /// Sets the value of this field for a given `obj`.
-    #[must_use]
     pub fn insert_value(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
         obj: StructValue<'ctx>,
         value: Value,
-    ) -> StructValue<'ctx>
+    ) -> anyhow::Result<StructValue<'ctx>>
     where
         Value: BasicValue<'ctx>,
     {
         let obj_name = obj.get_name().to_str().unwrap();
         let new_obj_name = if obj_name.chars().all(char::is_numeric) { "" } else { obj_name };
 
-        ctx.builder
+        Ok(ctx
+            .builder
             .build_insert_value(obj, value, self.index, new_obj_name)
-            .map(AggregateValueEnum::into_struct_value)
-            .unwrap()
+            .map(AggregateValueEnum::into_struct_value)?)
     }
 
     /// Loads the value of this field for a pointer-to-structure.
@@ -195,18 +191,18 @@ impl<'ctx, Value> StructField<'ctx, Value> {
         struct_ty: BasicTypeEnum<'ctx>,
         pobj: PointerValue<'ctx>,
         obj_name: Option<&str>,
-    ) -> Value
+    ) -> anyhow::Result<Value>
     where
         Value: TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
     {
         typed_load(
             ctx.builder,
-            self.ptr_by_gep(ctx, struct_ty, pobj, obj_name),
+            self.ptr_by_gep(ctx, struct_ty, pobj, obj_name)?,
             self.ty,
             &obj_name.map(|name| format!("{name}.{}", self.name)).unwrap_or_default(),
-        )
+        )?
         .try_into()
-        .unwrap()
+        .map_err(|e| anyhow!("{e:?}"))
     }
 
     /// Stores the value of this field for a pointer-to-structure.
@@ -217,10 +213,12 @@ impl<'ctx, Value> StructField<'ctx, Value> {
         pobj: PointerValue<'ctx>,
         value: Value,
         obj_name: Option<&str>,
-    ) where
+    ) -> anyhow::Result<()>
+    where
         Value: BasicValue<'ctx>,
     {
-        typed_store(ctx.builder, self.ptr_by_gep(ctx, struct_ty, pobj, obj_name), value);
+        typed_store(ctx.builder, self.ptr_by_gep(ctx, struct_ty, pobj, obj_name)?, value)?;
+        Ok(())
     }
 }
 

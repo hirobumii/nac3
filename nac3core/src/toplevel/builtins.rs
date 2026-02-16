@@ -670,22 +670,19 @@ impl<'a> BuiltinBuilder<'a> {
                     let step = match step {
                         Some(step) => {
                             // assert step != 0, throw exception if not
-                            let not_zero = ctx
-                                .builder
-                                .build_int_compare(
-                                    IntPredicate::NE,
-                                    step,
-                                    step.get_type().const_zero(),
-                                    "range_step_ne",
-                                )
-                                .unwrap();
+                            let not_zero = ctx.builder.build_int_compare(
+                                IntPredicate::NE,
+                                step,
+                                step.get_type().const_zero(),
+                                "range_step_ne",
+                            )?;
                             ctx.make_assert(
                                 not_zero,
                                 "0:ValueError",
                                 "range() step must not be zero",
                                 [None, None, None],
                                 ctx.current_loc,
-                            );
+                            )?;
                             step
                         }
                         None => int32.const_int(1, false),
@@ -697,9 +694,9 @@ impl<'a> BuiltinBuilder<'a> {
                     });
                     let start = start.unwrap_or_else(|| int32.const_zero());
 
-                    zelf.store_field(ctx, RangeField::Start, start);
-                    zelf.store_field(ctx, RangeField::End, stop);
-                    zelf.store_field(ctx, RangeField::Step, step);
+                    zelf.store_field(ctx, RangeField::Start, start)?;
+                    zelf.store_field(ctx, RangeField::End, stop)?;
+                    zelf.store_field(ctx, RangeField::Step, step)?;
 
                     Ok(Some(zelf.value.into()))
                 })))),
@@ -744,7 +741,7 @@ impl<'a> BuiltinBuilder<'a> {
                     simple_name: prim
                         .name()
                         .rsplit_once('.')
-                        .map_or(prim.name(), |(_, nme)| nme)
+                        .map_or_else(|| prim.name(), |(_, nme)| nme)
                         .to_string(),
                     object_id: prim.id(),
                     type_vars: Vec::default(),
@@ -790,7 +787,7 @@ impl<'a> BuiltinBuilder<'a> {
 
                     let start = start.unwrap_or_else(|| int32.const_zero());
 
-                    zelf.store(ctx, field!(start), start);
+                    zelf.store(ctx, field!(start), start)?;
 
                     Ok(Some(zelf.value.into()))
                 })))),
@@ -909,7 +906,7 @@ impl<'a> BuiltinBuilder<'a> {
                         }
                         _ => unreachable!(),
                     };
-                    Ok(Some(returned_int.map(Into::into).unwrap()))
+                    Ok(Some(returned_int?.into()))
                 })))),
                 loc: None,
             },
@@ -935,8 +932,8 @@ impl<'a> BuiltinBuilder<'a> {
                 codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args| {
                     let arg_ty = fun.0.args[0].ty;
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
-                    let alloca = gen_var(ctx, arg_val.get_type(), Some("alloca_some"));
-                    typed_store(ctx.builder, alloca, arg_val);
+                    let alloca = gen_var(ctx, arg_val.get_type(), Some("alloca_some"))?;
+                    typed_store(ctx.builder, alloca, arg_val)?;
                     Ok(Some(alloca.into()))
                 })))),
                 loc: None,
@@ -1419,9 +1416,8 @@ impl<'a> BuiltinBuilder<'a> {
                     let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
                         .map_value(ndarray.into_pointer_value(), None);
 
-                    let size = ndarray.size(ctx);
-                    let size =
-                        ctx.builder.build_int_truncate_or_bit_cast(size, ctx.i32, "").unwrap();
+                    let size = ndarray.size(ctx)?;
+                    let size = ctx.builder.build_int_truncate_or_bit_cast(size, ctx.i32, "")?;
                     Ok(Some(size.into()))
                 }),
             ),
@@ -1450,8 +1446,8 @@ impl<'a> BuiltinBuilder<'a> {
                             .map_value(ndarray.into_pointer_value(), None);
 
                         let result_tuple = match prim {
-                            PrimDef::FunNpShape => ndarray.make_shape_tuple(ctx),
-                            PrimDef::FunNpStrides => ndarray.make_strides_tuple(ctx),
+                            PrimDef::FunNpShape => ndarray.make_shape_tuple(ctx)?,
+                            PrimDef::FunNpStrides => ndarray.make_strides_tuple(ctx)?,
                             _ => unreachable!(),
                         };
 
@@ -1490,7 +1486,7 @@ impl<'a> BuiltinBuilder<'a> {
                     let ndarray = NDArrayType::from_unifier_type(ctx, arg_ty)
                         .map_value(arg_val.into_pointer_value(), None);
 
-                    let ndarray = ndarray.transpose(ctx, None); // TODO: Add axes argument
+                    let ndarray = ndarray.transpose(ctx, None)?; // TODO: Add axes argument
                     Ok(Some(ndarray.value.into()))
                 }),
             ),
@@ -1526,17 +1522,15 @@ impl<'a> BuiltinBuilder<'a> {
                         let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
                             .map_value(ndarray_val.into_pointer_value(), None);
 
-                        let shape = parse_numpy_int_sequence(ctx, (shape_ty, shape_val));
+                        let shape = parse_numpy_int_sequence(ctx, (shape_ty, shape_val))?;
 
                         // The ndims after reshaping is gotten from the return type of the call.
                         let (_, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, fun.0.ret);
                         let ndims = extract_ndims(&ctx.unifier, ndims);
 
                         let new_ndarray = match prim {
-                            PrimDef::FunNpBroadcastTo => ndarray.broadcast_to(ctx, ndims, shape),
-
-                            PrimDef::FunNpReshape => ndarray.reshape_or_copy(ctx, ndims, shape),
-
+                            PrimDef::FunNpBroadcastTo => ndarray.broadcast_to(ctx, ndims, shape)?,
+                            PrimDef::FunNpReshape => ndarray.reshape_or_copy(ctx, ndims, shape)?,
                             _ => unreachable!(),
                         };
                         Ok(Some(new_ndarray.value.as_basic_value_enum()))
@@ -1698,7 +1692,7 @@ impl<'a> BuiltinBuilder<'a> {
                     PrimDef::FunMax => builtin_fns::call_max,
                     _ => unreachable!(),
                 };
-                Ok(Some(func(ctx, (m_ty, m_val), (n_ty, n_val))))
+                Ok(Some(func(ctx, (m_ty, m_val), (n_ty, n_val))?))
             })))),
             loc: None,
         }
@@ -1877,14 +1871,11 @@ impl<'a> BuiltinBuilder<'a> {
                     &mut (),
                     ctx,
                     |(), ctx| {
-                        Ok(ctx
-                            .builder
-                            .build_int_compare(IntPredicate::EQ, acc, sc_val, "")
-                            .unwrap())
+                        Ok(ctx.builder.build_int_compare(IntPredicate::EQ, acc, sc_val, "")?)
                     },
                     |(), ctx| {
                         if let Some(hooks) = hooks {
-                            hooks.build_break_branch(ctx.builder);
+                            hooks.build_break_branch(ctx.builder)?;
                         }
                         Ok(())
                     },
@@ -1894,8 +1885,8 @@ impl<'a> BuiltinBuilder<'a> {
                 let is_truthy = builtin_fns::call_bool(ctx, (a_elem_ty, elem))?.into_int_value();
 
                 Ok(match prim {
-                    PrimDef::FunNpAny => ctx.builder.build_or(acc, is_truthy, "").unwrap(),
-                    PrimDef::FunNpAll => ctx.builder.build_and(acc, is_truthy, "").unwrap(),
+                    PrimDef::FunNpAny => ctx.builder.build_or(acc, is_truthy, "")?,
+                    PrimDef::FunNpAll => ctx.builder.build_and(acc, is_truthy, "")?,
                     _ => unreachable!(),
                 })
             })?;

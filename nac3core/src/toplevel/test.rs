@@ -1,8 +1,6 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
+use anyhow::anyhow;
 use indoc::indoc;
 use itertools::Itertools as _;
 use nac3parser::{
@@ -47,7 +45,7 @@ impl SymbolResolver for Resolver {
     fn get_default_param_value(
         &self,
         _: &ast::Expr,
-    ) -> Option<crate::symbol_resolver::SymbolValue> {
+    ) -> anyhow::Result<Option<crate::symbol_resolver::SymbolValue>> {
         unimplemented!()
     }
 
@@ -57,30 +55,25 @@ impl SymbolResolver for Resolver {
         _: &[Arc<RwLock<TopLevelDef>>],
         _: &PrimitiveStore,
         str: StrRef,
-    ) -> Result<Type, String> {
+    ) -> anyhow::Result<Type> {
         self.0
             .id_to_type
             .lock()
             .get(&str)
             .copied()
-            .ok_or_else(|| format!("cannot find symbol `{str}`"))
+            .ok_or_else(|| anyhow!("cannot find symbol `{str}`"))
     }
 
     fn get_symbol_value<'ctx>(
         &self,
         _: StrRef,
         _: &mut CodeGenContext<'ctx, '_>,
-    ) -> Option<ValueEnum<'ctx>> {
+    ) -> anyhow::Result<Option<ValueEnum<'ctx>>> {
         unimplemented!()
     }
 
-    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, HashSet<String>> {
-        self.0
-            .id_to_def
-            .lock()
-            .get(&id)
-            .copied()
-            .ok_or_else(|| HashSet::from(["Unknown identifier".to_string()]))
+    fn get_identifier_def(&self, id: StrRef) -> Result<DefinitionId, Vec<anyhow::Error>> {
+        self.0.id_to_def.lock().get(&id).copied().ok_or_else(|| vec![anyhow!("Unknown identifier")])
     }
 
     fn get_string_id(&self, _: &str) -> i32 {
@@ -583,9 +576,14 @@ fn test_analyze(source: &[&str], res: &[&str], case_name: &str) {
 
     if let Err(msg) = composer.start_analysis(false) {
         if print {
-            println!("{}", msg.iter().sorted().join("\n----------\n"));
+            println!(
+                "{}",
+                msg.iter()
+                    .sorted_by(|lhs, rhs| Ord::cmp(&lhs.to_string(), &rhs.to_string()))
+                    .join("\n----------\n")
+            );
         } else {
-            assert_eq!(res[0], msg.iter().next().unwrap());
+            assert_eq!(res[0], msg.first().unwrap().to_string());
         }
     } else {
         // skip 5 to skip primitives
@@ -770,9 +768,14 @@ fn test_inference(source: Vec<&str>, res: &[&str]) {
 
     if let Err(msg) = composer.start_analysis(true) {
         if print {
-            println!("{}", msg.iter().sorted().join("\n----------\n"));
+            println!(
+                "{}",
+                msg.iter()
+                    .sorted_by(|lhs, rhs| Ord::cmp(&lhs.to_string(), &rhs.to_string()))
+                    .join("\n----------\n")
+            );
         } else {
-            assert_eq!(res[0], msg.iter().next().unwrap());
+            assert_eq!(res[0], msg.first().unwrap().to_string());
         }
     } else {
         // skip 5 to skip primitives

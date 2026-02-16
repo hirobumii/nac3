@@ -55,42 +55,43 @@ impl<'ctx> TupleType<'ctx> {
 
 impl<'ctx> TupleValue<'ctx> {
     /// Creates a new `TupleValue` directly from the given element values.
-    #[must_use]
     pub fn new(
         ctx: &mut CodeGenContext<'ctx, '_>,
         values: &[impl BasicValue<'ctx>],
         name: Option<&'static str>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let types = values.iter().map(|v| v.as_basic_value_enum().get_type()).collect_vec();
         let value = TupleType::new(ctx, &types).poison(name);
         values
             .iter()
             .enumerate()
-            .fold(value, |acc, (i, v)| acc.insert(ctx, i as u32, v.as_basic_value_enum()))
+            .try_fold(value, |acc, (i, v)| acc.insert(ctx, i as u32, v.as_basic_value_enum()))
     }
 
     /// Loads a value from the tuple element at the given `index`.
-    #[must_use]
-    pub fn extract(&self, ctx: &mut CodeGenContext<'ctx, '_>, index: u32) -> BasicValueEnum<'ctx> {
+    pub fn extract(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        index: u32,
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         let name = format!("{}.{}", self.name.unwrap_or("tuple"), index);
-        ctx.builder.build_extract_value(self.value, index, &name).unwrap()
+        Ok(ctx.builder.build_extract_value(self.value, index, &name)?)
     }
 
     /// Stores a value into the tuple element at the given `index`.
-    #[must_use]
     pub fn insert(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         index: u32,
         element: impl BasicValue<'ctx>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         assert!(index < self.ty.num_elements());
         assert_eq!(element.as_basic_value_enum().get_type(), unsafe {
             self.ty.inner.get_field_type_at_index_unchecked(index)
         });
         let name = self.name.unwrap_or_default();
 
-        let new_value = ctx.builder.build_insert_value(self.value, element, index, name).unwrap();
-        self.ty.map_value(new_value.into_struct_value(), self.name)
+        let new_value = ctx.builder.build_insert_value(self.value, element, index, name)?;
+        Ok(self.ty.map_value(new_value.into_struct_value(), self.name))
     }
 }

@@ -28,7 +28,7 @@ fn matmul_at_least_2d<'ctx>(
     dst_dtype: Type,
     (in_a_ty, in_a): (Type, NDArrayValue<'ctx>),
     (in_b_ty, in_b): (Type, NDArrayValue<'ctx>),
-) -> NDArrayValue<'ctx> {
+) -> anyhow::Result<NDArrayValue<'ctx>> {
     assert!(in_a.ty.ndims >= 2, "in_a (which is {}) must be >= 2", in_a.ty.ndims);
     assert!(in_b.ty.ndims >= 2, "in_b (which is {}) must be >= 2", in_b.ty.ndims);
 
@@ -44,10 +44,11 @@ fn matmul_at_least_2d<'ctx>(
     // Broadcasts `in_a.shape[:-2]` and `in_b.shape[:-2]` together and allocate the
     // destination ndarray to store the result of matmul.
     let (lhs, rhs, dst) = {
-        let in_lhs_shape = in_a.shape(ctx);
-        let in_rhs_shape = in_b.shape(ctx);
+        let in_lhs_shape = in_a.shape(ctx)?;
+        let in_rhs_shape = in_b.shape(ctx)?;
         let [lhs_shape, rhs_shape, dst_shape] =
             core::array::from_fn(|_| gen_array_var(ctx, ctx.size_t, ndims_int, None));
+        let [lhs_shape, rhs_shape, dst_shape] = [lhs_shape?, rhs_shape?, dst_shape?];
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_matmul_calculate_shapes");
         call_extern!(ctx: void _ = name(
@@ -57,17 +58,18 @@ fn matmul_at_least_2d<'ctx>(
             lhs_shape.value.0,
             rhs_shape.value.0,
             dst_shape.value.0,
-        ));
+        ))?;
 
-        let lhs = in_a.broadcast_to(ctx, ndims_int, lhs_shape);
-        let rhs = in_b.broadcast_to(ctx, ndims_int, rhs_shape);
+        let lhs = in_a.broadcast_to(ctx, ndims_int, lhs_shape)?;
+        let rhs = in_b.broadcast_to(ctx, ndims_int, rhs_shape)?;
         let dst =
-            NDArrayOut::NewNDArray { dtype: llvm_dst_dtype }.resolve(ctx, ndims_int, dst_shape);
+            NDArrayOut::NewNDArray { dtype: llvm_dst_dtype }.resolve(ctx, ndims_int, dst_shape)?;
 
         (lhs, rhs, dst)
     };
 
-    let len = lhs.shape(ctx).get_unchecked(ctx, &ctx.size_t.const_int(ndims_int - 1, false), None);
+    let len =
+        lhs.shape(ctx)?.get_unchecked(ctx, &ctx.size_t.const_int(ndims_int - 1, false), None)?;
 
     let [at_row, at_col] = [ndims_int - 2, ndims_int - 1].map(|x| ctx.size_t.const_int(x, true));
 
@@ -75,13 +77,13 @@ fn matmul_at_least_2d<'ctx>(
     let dst_zero = dst_dtype_llvm.const_zero();
 
     dst.foreach(ctx, |ctx, _, hdl| {
-        let pdst_ij = hdl.curr_ptr(ctx);
+        let pdst_ij = hdl.curr_ptr(ctx)?;
 
-        typed_store(ctx.builder, pdst_ij, dst_zero);
+        typed_store(ctx.builder, pdst_ij, dst_zero)?;
 
-        let indices = hdl.indices(ctx);
-        let i = indices.get_unchecked::<IntValue<'ctx>>(ctx, &at_row, None);
-        let j = indices.get_unchecked::<IntValue<'ctx>>(ctx, &at_col, None);
+        let indices = hdl.indices(ctx)?;
+        let i = indices.get_unchecked::<IntValue<'ctx>>(ctx, &at_row, None)?;
+        let j = indices.get_unchecked::<IntValue<'ctx>>(ctx, &at_col, None)?;
 
         let num_0 = ctx.size_t.const_int(0, false);
         let num_1 = ctx.size_t.const_int(1, false);
@@ -94,17 +96,17 @@ fn matmul_at_least_2d<'ctx>(
             (len, false),
             |(), ctx, _, k| {
                 // `indices` is modified to index into `a` and `b`, and restored.
-                indices.set_unchecked(ctx, &at_row, i, None);
-                indices.set_unchecked(ctx, &at_col, k, None);
-                let a_ik = lhs.get_unchecked(ctx, &indices, None);
+                indices.set_unchecked(ctx, &at_row, i, None)?;
+                indices.set_unchecked(ctx, &at_col, k, None)?;
+                let a_ik = lhs.get_unchecked(ctx, &indices, None)?;
 
-                indices.set_unchecked(ctx, &at_row, k, None);
-                indices.set_unchecked(ctx, &at_col, j, None);
-                let b_kj = rhs.get_unchecked(ctx, &indices, None);
+                indices.set_unchecked(ctx, &at_row, k, None)?;
+                indices.set_unchecked(ctx, &at_col, j, None)?;
+                let b_kj = rhs.get_unchecked(ctx, &indices, None)?;
 
                 // Restore `indices`.
-                indices.set_unchecked(ctx, &at_row, i, None);
-                indices.set_unchecked(ctx, &at_col, j, None);
+                indices.set_unchecked(ctx, &at_row, i, None)?;
+                indices.set_unchecked(ctx, &at_col, j, None)?;
 
                 // x = a_[...]ik * b_[...]kj
                 let x = gen_prim_binop_expr(
@@ -116,7 +118,7 @@ fn matmul_at_least_2d<'ctx>(
                 .expect("matmul: ndarray should contain primtives only");
 
                 // dst_[...]ij += x
-                let dst_ij = typed_load(ctx.builder, pdst_ij, dst_dtype_llvm, "");
+                let dst_ij = typed_load(ctx.builder, pdst_ij, dst_dtype_llvm, "")?;
                 let dst_ij = gen_prim_binop_expr(
                     ctx,
                     (&Some(dst_dtype), dst_ij),
@@ -124,17 +126,16 @@ fn matmul_at_least_2d<'ctx>(
                     (&Some(dst_dtype), x),
                 )?
                 .expect("matmul: ndarray should contain primtives only");
-                typed_store(ctx.builder, pdst_ij, dst_ij);
+                typed_store(ctx.builder, pdst_ij, dst_ij)?;
 
                 Ok(())
             },
             num_1,
             |(), _| Ok(()),
         )
-    })
-    .unwrap();
+    })?;
 
-    dst
+    Ok(dst)
 }
 
 impl<'ctx> NDArrayValue<'ctx> {
@@ -144,14 +145,13 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// [`NDArrayValue::split_unsized`] to handle when the output could be a scalar.
     ///
     /// `dst_dtype` defines the dtype of the returned ndarray.
-    #[must_use]
     pub fn matmul(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         self_ty: Type,
         (other_ty, other): (Type, Self),
         (out_dtype, out): (Type, NDArrayOut<'ctx>),
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         // Sanity check, but type inference should prevent this.
         assert!(self.ty.ndims > 0 && other.ty.ndims > 0, "np.matmul disallows scalar input");
 
@@ -170,19 +170,19 @@ impl<'ctx> NDArrayValue<'ctx> {
             // Prepend 1 to its dimensions
             self.index(ctx, &[RustNDIndex::NewAxis, RustNDIndex::Ellipsis])
         } else {
-            *self
-        };
+            Ok(*self)
+        }?;
 
         let new_b = if other.ty.ndims == 1 {
             // Append 1 to its dimensions
             other.index(ctx, &[RustNDIndex::Ellipsis, RustNDIndex::NewAxis])
         } else {
-            other
-        };
+            Ok(other)
+        }?;
 
         // NOTE: `result` will always be a newly allocated ndarray.
         // Current implementation cannot do in-place matrix muliplication.
-        let mut result = matmul_at_least_2d(ctx, out_dtype, (self_ty, new_a), (other_ty, new_b));
+        let mut result = matmul_at_least_2d(ctx, out_dtype, (self_ty, new_a), (other_ty, new_b))?;
 
         // Postprocessing on the result to remove prepended/appended axes.
         let mut postindices = vec![];
@@ -200,19 +200,19 @@ impl<'ctx> NDArrayValue<'ctx> {
         }
 
         if !postindices.is_empty() {
-            result = result.index(ctx, &postindices);
+            result = result.index(ctx, &postindices)?;
         }
 
-        match out {
+        Ok(match out {
             NDArrayOut::NewNDArray { .. } => result,
             NDArrayOut::WriteToNDArray { ndarray: out_ndarray } => {
-                let result_shape = result.shape(ctx);
-                let out_shape = out_ndarray.shape(ctx);
-                assert_ndarray_can_be_written_by_out(ctx, result_shape, out_shape);
+                let result_shape = result.shape(ctx)?;
+                let out_shape = out_ndarray.shape(ctx)?;
+                assert_ndarray_can_be_written_by_out(ctx, result_shape, out_shape)?;
 
-                out_ndarray.copy_data_from(ctx, &result);
+                out_ndarray.copy_data_from(ctx, &result)?;
                 out_ndarray
             }
-        }
+        })
     }
 }

@@ -1,8 +1,4 @@
-use inkwell::{
-    IntPredicate,
-    types::BasicTypeEnum,
-    values::{BasicValueEnum, IntValue},
-};
+use inkwell::{IntPredicate, types::BasicTypeEnum, values::IntValue};
 
 use crate::codegen::{
     CodeGenContext,
@@ -23,7 +19,7 @@ pub fn list_slice_assignment<'ctx>(
     dest_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
     src_arr: ListValue<'ctx>,
     src_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
-) {
+) -> anyhow::Result<()> {
     let llvm_usize = ctx.size_t;
     let llvm_i32 = ctx.i32;
 
@@ -38,12 +34,10 @@ pub fn list_slice_assignment<'ctx>(
 
     let zero = llvm_i32.const_zero();
     let one = llvm_i32.const_int(1, false);
-    let (dest_ptr, dest_len) = dest_arr.data(ctx).value;
-    let dest_len =
-        ctx.builder.build_int_truncate_or_bit_cast(dest_len, llvm_i32, "srclen32").unwrap();
-    let (src_ptr, src_len) = src_arr.data(ctx).value;
-    let src_len =
-        ctx.builder.build_int_truncate_or_bit_cast(src_len, llvm_i32, "srclen32").unwrap();
+    let (dest_ptr, dest_len) = dest_arr.data(ctx)?.value;
+    let dest_len = ctx.builder.build_int_truncate_or_bit_cast(dest_len, llvm_i32, "srclen32")?;
+    let (src_ptr, src_len) = src_arr.data(ctx)?.value;
+    let src_len = ctx.builder.build_int_truncate_or_bit_cast(src_len, llvm_i32, "srclen32")?;
 
     // index in bound and positive should be done
     // assert if dest.step == 1 then len(src) <= len(dest) else len(src) == len(dest), and
@@ -51,51 +45,50 @@ pub fn list_slice_assignment<'ctx>(
     let src_end = ctx
         .builder
         .build_select(
-            ctx.builder.build_int_compare(IntPredicate::SLT, src_idx.2, zero, "is_neg").unwrap(),
-            ctx.builder.build_int_sub(src_idx.1, one, "e_min_one").unwrap(),
-            ctx.builder.build_int_add(src_idx.1, one, "e_add_one").unwrap(),
+            ctx.builder.build_int_compare(IntPredicate::SLT, src_idx.2, zero, "is_neg")?,
+            ctx.builder.build_int_sub(src_idx.1, one, "e_min_one")?,
+            ctx.builder.build_int_add(src_idx.1, one, "e_add_one")?,
             "final_e",
-        )
-        .map(BasicValueEnum::into_int_value)
-        .unwrap();
+        )?
+        .into_int_value();
     let dest_end = ctx
         .builder
         .build_select(
-            ctx.builder.build_int_compare(IntPredicate::SLT, dest_idx.2, zero, "is_neg").unwrap(),
-            ctx.builder.build_int_sub(dest_idx.1, one, "e_min_one").unwrap(),
-            ctx.builder.build_int_add(dest_idx.1, one, "e_add_one").unwrap(),
+            ctx.builder.build_int_compare(IntPredicate::SLT, dest_idx.2, zero, "is_neg")?,
+            ctx.builder.build_int_sub(dest_idx.1, one, "e_min_one")?,
+            ctx.builder.build_int_add(dest_idx.1, one, "e_add_one")?,
             "final_e",
-        )
-        .map(BasicValueEnum::into_int_value)
-        .unwrap();
-    let src_slice_len = calculate_len_for_slice_range(ctx, src_idx.0, src_end, src_idx.2);
-    let dest_slice_len = calculate_len_for_slice_range(ctx, dest_idx.0, dest_end, dest_idx.2);
-    let src_eq_dest = ctx
-        .builder
-        .build_int_compare(IntPredicate::EQ, src_slice_len, dest_slice_len, "slice_src_eq_dest")
-        .unwrap();
-    let src_slt_dest = ctx
-        .builder
-        .build_int_compare(IntPredicate::SLT, src_slice_len, dest_slice_len, "slice_src_slt_dest")
-        .unwrap();
-    let dest_step_eq_one = ctx
-        .builder
-        .build_int_compare(
-            IntPredicate::EQ,
-            dest_idx.2,
-            dest_idx.2.get_type().const_int(1, false),
-            "slice_dest_step_eq_one",
-        )
-        .unwrap();
-    let cond_1 = ctx.builder.build_and(dest_step_eq_one, src_slt_dest, "slice_cond_1").unwrap();
-    let cond = ctx.builder.build_or(src_eq_dest, cond_1, "slice_cond").unwrap();
+        )?
+        .into_int_value();
+    let src_slice_len = calculate_len_for_slice_range(ctx, src_idx.0, src_end, src_idx.2)?;
+    let dest_slice_len = calculate_len_for_slice_range(ctx, dest_idx.0, dest_end, dest_idx.2)?;
+    let src_eq_dest = ctx.builder.build_int_compare(
+        IntPredicate::EQ,
+        src_slice_len,
+        dest_slice_len,
+        "slice_src_eq_dest",
+    )?;
+    let src_slt_dest = ctx.builder.build_int_compare(
+        IntPredicate::SLT,
+        src_slice_len,
+        dest_slice_len,
+        "slice_src_slt_dest",
+    )?;
+    let dest_step_eq_one = ctx.builder.build_int_compare(
+        IntPredicate::EQ,
+        dest_idx.2,
+        dest_idx.2.get_type().const_int(1, false),
+        "slice_dest_step_eq_one",
+    )?;
+    let cond_1 = ctx.builder.build_and(dest_step_eq_one, src_slt_dest, "slice_cond_1")?;
+    let cond = ctx.builder.build_or(src_eq_dest, cond_1, "slice_cond")?;
     ctx.make_assert(
         cond,
         "0:ValueError",
         "attempt to assign sequence of size {0} to slice of size {1} with step size {2}",
         [Some(src_slice_len), Some(dest_slice_len), Some(dest_idx.2)],
         ctx.current_loc,
-    );
+    )?;
 
     let new_len = call_extern!(ctx: llvm_i32 "slice_assign" = fun_symbol(
         dest_idx.0,   // dest start idx
@@ -116,27 +109,25 @@ pub fn list_slice_assignment<'ctx>(
                 BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
                 _ => codegen_unreachable!(ctx),
             };
-            ctx.builder.build_int_truncate_or_bit_cast(s, llvm_i32, "size").unwrap()
+            ctx.builder.build_int_truncate_or_bit_cast(s, llvm_i32, "size")?
         }
-    ));
+    ))?;
 
     // update length
     gen_if_callback(
         &mut (),
         ctx,
         |(), ctx| {
-            Ok(ctx
-                .builder
-                .build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update")
-                .unwrap())
+            Ok(ctx.builder.build_int_compare(IntPredicate::NE, new_len, dest_len, "need_update")?)
         },
         |(), ctx| {
             let new_len =
-                ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len").unwrap();
-            dest_arr.store(ctx, field!(len), new_len);
+                ctx.builder.build_int_z_extend_or_bit_cast(new_len, llvm_usize, "new_len")?;
+            dest_arr.store(ctx, field!(len), new_len)?;
             Ok(())
         },
         |(), _| Ok(()),
-    )
-    .unwrap();
+    )?;
+
+    Ok(())
 }

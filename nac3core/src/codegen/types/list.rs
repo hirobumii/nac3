@@ -59,22 +59,19 @@ impl<'ctx> ListType<'ctx> {
     }
 
     /// Allocates a new list with the given length.
-    #[must_use]
     pub fn construct(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         len: IntValue<'ctx>,
         name: Option<&'static str>,
-    ) -> ListValue<'ctx> {
-        let list = self.alloca(ctx, name);
+    ) -> anyhow::Result<ListValue<'ctx>> {
+        let list = self.alloca(ctx, name)?;
 
-        let len = ctx.builder.build_int_z_extend(len, ctx.size_t, "").unwrap();
-        list.store(ctx, field!(len), len);
+        let len = ctx.builder.build_int_z_extend(len, ctx.size_t, "")?;
+        list.store(ctx, field!(len), len)?;
 
-        let len_eqz = ctx
-            .builder
-            .build_int_compare(IntPredicate::EQ, len, ctx.size_t.const_zero(), "")
-            .unwrap();
+        let len_eqz =
+            ctx.builder.build_int_compare(IntPredicate::EQ, len, ctx.size_t.const_zero(), "")?;
         let null = ctx.ptr.const_null();
 
         let data = if let TypeEnum::TVar { .. } = &*ctx.unifier.get_ty_immutable(self.item_ty) {
@@ -86,17 +83,17 @@ impl<'ctx> ListType<'ctx> {
                     "Cannot allocate a non-empty list with unknown element type",
                     [None, None, None],
                     ctx.current_loc,
-                );
+                )?;
             }
             null
         } else {
             let ty = ctx.get_llvm_type(self.item_ty);
-            let array = gen_dyn_array_var(ctx, ty, len, None).value.0;
-            ctx.builder.build_select(len_eqz, null, array, "").unwrap().into_pointer_value()
+            let array = gen_dyn_array_var(ctx, ty, len, None)?.value.0;
+            ctx.builder.build_select(len_eqz, null, array, "")?.into_pointer_value()
         };
 
-        list.store(ctx, field!(items), data);
-        list
+        list.store(ctx, field!(items), data)?;
+        Ok(list)
     }
 }
 
@@ -104,7 +101,10 @@ pub type ListValue<'ctx> = Value<'ctx, ListType<'ctx>>;
 
 impl<'ctx> ListValue<'ctx> {
     /// Returns the data of this list as an [`ArraySliceValue`].
-    pub fn data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> ArraySliceValue<'ctx> {
+    pub fn data(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<ArraySliceValue<'ctx>> {
         let item_ty = if let TypeEnum::TVar { .. } = &*ctx.unifier.get_ty_immutable(self.ty.item_ty)
         {
             // Use a placeholder type.
@@ -113,12 +113,12 @@ impl<'ctx> ListValue<'ctx> {
             ctx.get_llvm_type(self.ty.item_ty)
         };
 
-        ArraySliceValue::new(
+        Ok(ArraySliceValue::new(
             item_ty,
-            self.load(ctx, field!(items)),
-            self.load(ctx, field!(len)),
+            self.load(ctx, field!(items))?,
+            self.load(ctx, field!(len))?,
             self.name,
-        )
+        ))
     }
 
     /// Creates an empty list with the given item type.
@@ -129,7 +129,7 @@ impl<'ctx> ListValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         item_ty: Type,
         name: Option<&'static str>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let list_ty = ListType::new(ctx, item_ty);
         list_ty.construct(ctx, ctx.size_t.const_zero(), name)
     }

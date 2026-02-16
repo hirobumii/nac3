@@ -1,5 +1,6 @@
 use std::{collections::HashSet, iter::once};
 
+use anyhow::anyhow;
 use nac3parser::ast::{
     self, Constant, Expr, ExprKind,
     Operator::{LShift, RShift},
@@ -16,9 +17,9 @@ use crate::{
 };
 
 impl Inferencer<'_> {
-    fn should_have_value(&mut self, expr: &Expr<Option<Type>>) -> Result<(), HashSet<String>> {
+    fn should_have_value(&mut self, expr: &Expr<Option<Type>>) -> Result<(), Vec<anyhow::Error>> {
         if matches!(expr.custom, Some(ty) if self.unifier.unioned(ty, self.primitives.none)) {
-            Err(HashSet::from([format!("Error at {}: cannot have value none", expr.location)]))
+            Err(vec![anyhow!("Error at {}: cannot have value none", expr.location)])
         } else {
             Ok(())
         }
@@ -28,10 +29,10 @@ impl Inferencer<'_> {
         &mut self,
         pattern: &Expr<Option<Type>>,
         defined_identifiers: &mut HashSet<StrRef>,
-    ) -> Result<(), HashSet<String>> {
+    ) -> Result<(), Vec<anyhow::Error>> {
         match &pattern.node {
             ExprKind::Name { id, .. } if id == &"none".into() => {
-                Err(HashSet::from([format!("cannot assign to a `none` (at {})", pattern.location)]))
+                Err(vec![anyhow!("cannot assign to a `none` (at {})", pattern.location)])
             }
             ExprKind::Name { id, .. } => {
                 defined_identifiers.insert(*id);
@@ -55,17 +56,16 @@ impl Inferencer<'_> {
                 self.should_have_value(value)?;
                 self.check_expr(slice, defined_identifiers)?;
                 if let TypeEnum::TTuple { .. } = &*self.unifier.get_ty(value.custom.unwrap()) {
-                    return Err(HashSet::from([format!(
+                    return Err(vec![anyhow!(
                         "Error at {}: cannot assign to tuple element",
                         value.location
-                    )]));
+                    )]);
                 }
                 Ok(())
             }
-            ExprKind::Constant { .. } => Err(HashSet::from([format!(
-                "cannot assign to a constant (at {})",
-                pattern.location
-            )])),
+            ExprKind::Constant { .. } => {
+                Err(vec![anyhow!("cannot assign to a constant (at {})", pattern.location)])
+            }
             _ => self.check_expr(pattern, defined_identifiers),
         }
     }
@@ -74,7 +74,7 @@ impl Inferencer<'_> {
         &mut self,
         expr: &Expr<Option<Type>>,
         defined_identifiers: &mut HashSet<StrRef>,
-    ) -> Result<(), HashSet<String>> {
+    ) -> Result<(), Vec<anyhow::Error>> {
         // there are some cases where the custom field is None
         if let Some(ty) = &expr.custom
             && !matches!(&expr.node, ExprKind::Constant { value: Constant::Ellipsis, .. })
@@ -105,10 +105,10 @@ impl Inferencer<'_> {
             };
 
             let expr_desc = get_expr_desc(expr);
-            return Err(HashSet::from([format!(
+            return Err(vec![anyhow!(
                 "expected concrete type for {expr_desc} at {}, but type could not be inferred. {hint}",
                 expr.location
-            )]));
+            )]);
         }
         match &expr.node {
             ExprKind::Name { id, .. } => {
@@ -125,10 +125,10 @@ impl Inferencer<'_> {
                     );
                     if let Err(e) = value {
                         defined_identifiers.remove(id);
-                        return Err(HashSet::from([format!(
+                        return Err(vec![anyhow!(
                             "type error at identifier `{id}` ({e}) at {}",
                             expr.location
-                        )]));
+                        )]);
                     }
                 }
             }
@@ -157,10 +157,7 @@ impl Inferencer<'_> {
                     let Constant::Int(rhs_val) = value else { unreachable!() };
 
                     if *rhs_val < 0 {
-                        return Err(HashSet::from([format!(
-                            "shift count is negative at {}",
-                            right.location
-                        )]));
+                        return Err(vec![anyhow!("shift count is negative at {}", right.location)]);
                     }
                 }
             }
@@ -258,7 +255,7 @@ impl Inferencer<'_> {
         &mut self,
         stmt: &Stmt<Option<Type>>,
         defined_identifiers: &mut HashSet<StrRef>,
-    ) -> Result<bool, HashSet<String>> {
+    ) -> Result<bool, Vec<anyhow::Error>> {
         match &stmt.node {
             StmtKind::For { target, iter, body, orelse, .. } => {
                 self.check_expr(iter, defined_identifiers)?;
@@ -362,11 +359,11 @@ impl Inferencer<'_> {
                         }
 
                         if !self.check_return_value_ty(ret_ty) {
-                            return Err(HashSet::from([format!(
+                            return Err(vec![anyhow!(
                                 "return value of type {} must be a primitive or a tuple of primitives at {}",
                                 self.unifier.stringify(ret_ty),
                                 value.location,
-                            )]));
+                            )]);
                         }
                     }
                 }
@@ -378,10 +375,9 @@ impl Inferencer<'_> {
                 }
                 Ok(true)
             }
-            StmtKind::Global { .. } => Err(HashSet::from([format!(
-                "global statement is not supported at {}",
-                stmt.location
-            )])),
+            StmtKind::Global { .. } => {
+                Err(vec![anyhow!("global statement is not supported at {}", stmt.location)])
+            }
             // break, raise, etc.
             _ => Ok(false),
         }
@@ -391,7 +387,7 @@ impl Inferencer<'_> {
         &mut self,
         block: &[Stmt<Option<Type>>],
         defined_identifiers: &mut HashSet<StrRef>,
-    ) -> Result<bool, HashSet<String>> {
+    ) -> Result<bool, Vec<anyhow::Error>> {
         let mut ret = false;
         for stmt in block {
             if ret {

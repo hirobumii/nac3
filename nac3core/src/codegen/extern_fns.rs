@@ -7,7 +7,7 @@ pub fn call_j1<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     arg: FloatValue<'ctx>,
     name: Option<&str>,
-) -> FloatValue<'ctx> {
+) -> anyhow::Result<FloatValue<'ctx>> {
     let llvm_f64 = ctx.f64;
     debug_assert_eq!(arg.get_type(), llvm_f64);
     call_extern!(ctx: llvm_f64 name? = ["nounwind"] "j1"(arg))
@@ -41,7 +41,7 @@ macro_rules! generate_linalg_extern_fn {
             ctx: &mut CodeGenContext<'ctx, '_>,
             $($input_matrix: BasicValueEnum<'ctx>,)*
             name: Option<&str>,
-        ) {
+        ) -> anyhow::Result<()> {
             call_extern!(ctx: void name? = ["nounwind"] (stringify!($extern_fn))($($input_matrix),*))
         }
     };

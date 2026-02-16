@@ -7,6 +7,7 @@ from numpy import int32
 
 # Self-referential ProtoRev types
 
+@compile
 class ProtoRev8:
     cpld: KernelInvariant[CPLD[ProtoRev8]]
 

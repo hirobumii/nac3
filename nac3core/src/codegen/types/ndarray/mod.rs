@@ -3,7 +3,6 @@ use inkwell::{
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue},
 };
-use itertools::Itertools as _;
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::{
@@ -68,9 +67,9 @@ impl<'ctx, S> Value<'ctx, NDArrayLikeType<'ctx, S>> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         field: impl FnOnce(&NDArrayLikeType<'ctx, S>) -> StructField<'ctx, PointerValue<'ctx>>,
-    ) -> ArraySliceValue<'ctx> {
-        let ptr = self.load(ctx, field);
-        ArraySliceValue::new(ctx.size_t.into(), ptr, self.ty.ndims_val(ctx), self.name)
+    ) -> anyhow::Result<ArraySliceValue<'ctx>> {
+        let ptr = self.load(ctx, field)?;
+        Ok(ArraySliceValue::new(ctx.size_t.into(), ptr, self.ty.ndims_val(ctx), self.name))
     }
 }
 
@@ -122,46 +121,44 @@ impl<'ctx> NDArrayType<'ctx> {
     /// Once you properly set up the `shape` array, you can construct a fully usable ndarray with
     /// [`create_data`][NDArrayValue::create_data]. To construct a fully usable ndarray directly
     /// when the shape is known, use [`NDArrayType::with_shape`].
-    #[must_use]
     pub fn construct(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&'static str>,
-    ) -> NDArrayValue<'ctx> {
-        let ndarray = self.alloca(ctx, name);
+    ) -> anyhow::Result<NDArrayValue<'ctx>> {
+        let ndarray = self.alloca(ctx, name)?;
 
         let size = self.itemsize_val(ctx);
-        ndarray.store(ctx, field!(itemsize), size);
+        ndarray.store(ctx, field!(itemsize), size)?;
         let (ndims_int, ndims) = (self.ndims, self.ndims_val(ctx));
-        ndarray.store(ctx, field!(ndims), ndims);
+        ndarray.store(ctx, field!(ndims), ndims)?;
 
-        let shape = gen_array_var(ctx, ctx.size_t, ndims_int, None).value.0;
-        ndarray.store(ctx, field!(shape), shape);
-        let strides = gen_array_var(ctx, ctx.size_t, ndims_int, None).value.0;
-        ndarray.store(ctx, field!(strides), strides);
+        let shape = gen_array_var(ctx, ctx.size_t, ndims_int, None)?.value.0;
+        ndarray.store(ctx, field!(shape), shape)?;
+        let strides = gen_array_var(ctx, ctx.size_t, ndims_int, None)?.value.0;
+        ndarray.store(ctx, field!(strides), strides)?;
 
-        ndarray
+        Ok(ndarray)
     }
 
     /// Creates a new, contiguous `NDArrayValue` with a given shape.
     ///
     /// The shape array is initialized to `shape`. The strides array is prepared accordingly.
     /// The data array is allocated but uninitialized.
-    #[must_use]
     pub fn with_shape(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         shape: &[IntValue<'ctx>],
         name: Option<&'static str>,
-    ) -> NDArrayValue<'ctx> {
-        let ndarray = self.construct(ctx, name);
-        let dst = ndarray.shape(ctx);
+    ) -> anyhow::Result<NDArrayValue<'ctx>> {
+        let ndarray = self.construct(ctx, name)?;
+        let dst = ndarray.shape(ctx)?;
         for (i, &dim) in shape.iter().enumerate() {
             let i = ctx.size_t.const_int(i as _, false);
-            dst.set_unchecked(ctx, &i, dim, name);
+            dst.set_unchecked(ctx, &i, dim, name)?;
         }
-        ndarray.create_data(ctx);
-        ndarray
+        ndarray.create_data(ctx)?;
+        Ok(ndarray)
     }
 }
 
@@ -169,116 +166,130 @@ pub type NDArrayValue<'ctx> = Value<'ctx, NDArrayType<'ctx>>;
 
 impl<'ctx> NDArrayValue<'ctx> {
     /// Returns the shape of this array.
-    #[must_use]
-    pub fn shape(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> ArraySliceValue<'ctx> {
+    pub fn shape(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<ArraySliceValue<'ctx>> {
         self.load_ndims_slice(ctx, field!(shape))
     }
 
     /// Returns the strides of this array.
-    #[must_use]
-    pub fn strides(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> ArraySliceValue<'ctx> {
+    pub fn strides(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<ArraySliceValue<'ctx>> {
         self.load_ndims_slice(ctx, field!(strides))
     }
 
     /// Returns a new scalar `NDArrayValue` containing `value`.
     ///
     /// The returned value has 0 dimensions.
-    #[must_use]
     pub fn new_scalar(
         ctx: &mut CodeGenContext<'ctx, '_>,
         value: BasicValueEnum<'ctx>,
         name: Option<&'static str>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let dtype = value.get_type();
-        let ndarray = NDArrayType::new(ctx, dtype, 0).construct(ctx, name);
-        let data = gen_var(ctx, value.get_type(), Some("map_unsized"));
-        typed_store(ctx.builder, data, value);
-        let data = ctx.builder.build_pointer_cast(data, ctx.ptr, "").unwrap();
-        ndarray.store(ctx, field!(data), data);
-        ndarray
+        let ndarray = NDArrayType::new(ctx, dtype, 0).construct(ctx, name)?;
+        let data = gen_var(ctx, value.get_type(), Some("map_unsized"))?;
+        typed_store(ctx.builder, data, value)?;
+        let data = ctx.builder.build_pointer_cast(data, ctx.ptr, "")?;
+        ndarray.store(ctx, field!(data), data)?;
+        Ok(ndarray)
     }
 
     /// Computes the total number of (scalar) elements in this array.
-    #[must_use]
-    pub fn size(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        let shape = self.shape(ctx);
+    pub fn size(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
+        let shape = self.shape(ctx)?;
         let mut product = ctx.size_t.const_int(1, false);
         for i in 0..self.ty.ndims {
             let idx = ctx.size_t.const_int(i, false);
-            let dim = shape.get_unchecked(ctx, &idx, None);
-            product = ctx.builder.build_int_mul(product, dim, "").unwrap();
+            let dim = shape.get_unchecked(ctx, &idx, None)?;
+            product = ctx.builder.build_int_mul(product, dim, "")?;
         }
-        product
+        Ok(product)
     }
 
     /// Allocates contiguous memory for the data array and assigns strides correspondingly.
     ///
     /// Assumes `shape` has been correctly prepared.
-    pub fn create_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) {
-        let size = self.size(ctx);
-        let alloc = gen_dyn_array_var(ctx, self.ty.dtype, size, None).value.0;
-        self.store(ctx, field!(data), alloc);
-        self.set_strides_contiguous(ctx);
+    pub fn create_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
+        let size = self.size(ctx)?;
+        let alloc = gen_dyn_array_var(ctx, self.ty.dtype, size, None)?.value.0;
+        self.store(ctx, field!(data), alloc)?;
+        self.set_strides_contiguous(ctx)?;
+        Ok(())
     }
 
     /// Assigns strides for a contiguous array.
     ///
     /// Assumes `shape` has been correctly prepared.
-    pub fn set_strides_contiguous(&self, ctx: &mut CodeGenContext<'ctx, '_>) {
-        let shape = self.shape(ctx);
-        let strides = self.strides(ctx);
+    pub fn set_strides_contiguous(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
+        let shape = self.shape(ctx)?;
+        let strides = self.strides(ctx)?;
 
         let mut stride = self.ty.itemsize_val(ctx);
         for i in (0..self.ty.ndims).rev() {
             let idx = ctx.size_t.const_int(i, false);
-            strides.set_unchecked(ctx, &idx, stride, self.name);
-            let dim = shape.get_unchecked(ctx, &idx, None);
-            stride = ctx.builder.build_int_mul(stride, dim, "").unwrap();
+            strides.set_unchecked(ctx, &idx, stride, self.name)?;
+            let dim = shape.get_unchecked(ctx, &idx, None)?;
+            stride = ctx.builder.build_int_mul(stride, dim, "")?;
         }
+
+        Ok(())
     }
 
     /// Returns the length of the first dimension of the array.
-    #[must_use]
-    pub fn len(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn len(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
         assert!(self.ty.ndims >= 1);
-        self.shape(ctx).get_unchecked(ctx, &ctx.size_t.const_zero(), self.name)
+        self.shape(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), self.name)
     }
 
     /// Returns the number of bytes consumed by the array data.
-    #[must_use]
-    pub fn nbytes(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
-        let size = self.size(ctx);
+    pub fn nbytes(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
+        let size = self.size(ctx)?;
         let itemsize = self.ty.itemsize_val(ctx);
-        ctx.builder.build_int_mul(size, itemsize, "").unwrap()
+        Ok(ctx.builder.build_int_mul(size, itemsize, "")?)
     }
 
     /// Checks if the array is C-contiguous.
-    #[must_use]
-    pub fn is_c_contiguous(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
+    pub fn is_c_contiguous(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<IntValue<'ctx>> {
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_is_c_contiguous");
         call_extern!(ctx: (ctx.i1) "is_c_contiguous" = name(self.value))
     }
 
     /// Creates a copy of this array.
-    #[must_use]
-    pub fn make_copy(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Self {
-        let shape = self.shape(ctx);
+    pub fn make_copy(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<Self> {
+        let shape = self.shape(ctx)?;
         let clone =
-            NDArrayOut::NewNDArray { dtype: self.ty.dtype }.resolve(ctx, self.ty.ndims, shape);
-        clone.copy_data_from(ctx, self);
-        clone
+            NDArrayOut::NewNDArray { dtype: self.ty.dtype }.resolve(ctx, self.ty.ndims, shape)?;
+        clone.copy_data_from(ctx, self)?;
+        Ok(clone)
     }
 
     /// Copies data from `src` into this array.
-    pub fn copy_data_from(&self, ctx: &mut CodeGenContext<'ctx, '_>, src: &Self) {
+    pub fn copy_data_from(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        src: &Self,
+    ) -> anyhow::Result<()> {
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_copy_data");
-        call_extern!(ctx: void _ = name(src.value, self.value));
+        call_extern!(ctx: void _ = name(src.value, self.value))?;
+        Ok(())
     }
 
     /// Copies the shape of `src` into this array.
-    pub fn copy_shape_from(&self, ctx: &mut CodeGenContext<'ctx, '_>, src: &Self) {
-        let shape = src.shape(ctx);
-        self.shape(ctx).memcpy_from(ctx, shape.value.0);
+    pub fn copy_shape_from(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        src: &Self,
+    ) -> anyhow::Result<()> {
+        let shape = src.shape(ctx)?;
+        self.shape(ctx)?.memcpy_from(ctx, shape.value.0)?;
+        Ok(())
     }
 
     fn read_shape_or_stride_as_tuple(
@@ -286,61 +297,71 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         arr: ArraySliceValue<'ctx>,
         name: &'static str,
-    ) -> TupleValue<'ctx> {
-        // let types = vec![ctx.size_t.into(); self.ty.ndims as usize];
-        // let ty = TupleType::new(ctx, &types);
+    ) -> anyhow::Result<TupleValue<'ctx>> {
         let values = (0..self.ty.ndims)
             .map(|i| {
                 let idx = ctx.size_t.const_int(i as _, false);
-                let val = arr.get_unchecked::<IntValue<'ctx>>(ctx, &idx, None);
-                ctx.builder.build_int_truncate_or_bit_cast(val, ctx.i32, "").unwrap()
+                let val = arr.get_unchecked::<IntValue<'ctx>>(ctx, &idx, None)?;
+                Ok(ctx.builder.build_int_truncate_or_bit_cast(val, ctx.i32, "")?)
             })
-            .collect_vec();
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         TupleValue::new(ctx, &values, Some(name))
     }
 
     /// Returns a `tuple` representing the shape of this array.
-    #[must_use]
-    pub fn make_shape_tuple(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> TupleValue<'ctx> {
-        let shape = self.shape(ctx);
+    pub fn make_shape_tuple(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<TupleValue<'ctx>> {
+        let shape = self.shape(ctx)?;
         self.read_shape_or_stride_as_tuple(ctx, shape, "shape")
     }
 
     /// Returns a `tuple` representing the strides of this array.
-    #[must_use]
-    pub fn make_strides_tuple(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> TupleValue<'ctx> {
-        let strides = self.strides(ctx);
+    pub fn make_strides_tuple(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<TupleValue<'ctx>> {
+        let strides = self.strides(ctx)?;
         self.read_shape_or_stride_as_tuple(ctx, strides, "strides")
     }
 
     /// If this ndarray is unsized, return its sole value as an [`BasicValueEnum`].
     /// Otherwise, do nothing and return the ndarray itself.
-    #[must_use]
-    pub fn split_unsized(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> ScalarOrNDArray<'ctx> {
-        if self.ty.ndims == 0 {
-            ScalarOrNDArray::Scalar(self.first_element(ctx))
+    pub fn split_unsized(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<ScalarOrNDArray<'ctx>> {
+        Ok(if self.ty.ndims == 0 {
+            ScalarOrNDArray::Scalar(self.first_element(ctx)?)
         } else {
             ScalarOrNDArray::NDArray(*self)
-        }
+        })
     }
 
     /// Fills the array with the given value.
-    pub fn fill(&self, ctx: &mut CodeGenContext<'ctx, '_>, value: BasicValueEnum<'ctx>) {
+    pub fn fill(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        value: BasicValueEnum<'ctx>,
+    ) -> anyhow::Result<()> {
         // TODO: It is possible to optimize this by exploiting contiguous strides with memset.
         //       Probably best to implement in IRRT.
         self.foreach(ctx, |ctx, _, nditer| {
-            let p = nditer.curr_ptr(ctx);
-            typed_store(ctx.builder, p, value);
+            let p = nditer.curr_ptr(ctx)?;
+            typed_store(ctx.builder, p, value)?;
             Ok(())
-        })
-        .unwrap();
+        })?;
+        Ok(())
     }
 
     /// Returns the first element of this ndarray.
-    #[must_use]
-    pub fn first_element(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
-        let data = self.load(ctx, field!(data));
+    pub fn first_element(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
+        let data = self.load(ctx, field!(data))?;
         typed_load(ctx.builder, data, self.ty.dtype, "first_element")
     }
 }
@@ -369,7 +390,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for NDArrayValue<'ctx> 
         ctx: &mut CodeGenContext<'ctx, '_>,
         idx: &ArraySliceValue<'ctx>,
         name: Option<&str>,
-    ) -> PointerValue<'ctx> {
+    ) -> anyhow::Result<PointerValue<'ctx>> {
         let name = name.unwrap_or("pelement");
         let fn_name =
             get_usize_dependent_function_name(ctx, "__nac3_ndarray_get_pelement_by_indices");
@@ -381,22 +402,22 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for NDArrayValue<'ctx> 
         ctx: &mut CodeGenContext<'ctx, '_>,
         idx: &ArraySliceValue<'ctx>,
         name: Option<&str>,
-    ) -> PointerValue<'ctx> {
+    ) -> anyhow::Result<PointerValue<'ctx>> {
         let llvm_usize = ctx.size_t;
 
         let indices_len = idx.value.1;
         let ndims = self.ty.ndims_val(ctx);
         let nidx_leq_ndims =
-            ctx.builder.build_int_compare(IntPredicate::SLE, indices_len, ndims, "").unwrap();
+            ctx.builder.build_int_compare(IntPredicate::SLE, indices_len, ndims, "")?;
         ctx.make_assert(
             nidx_leq_ndims,
             "0:IndexError",
             "invalid index to scalar variable",
             [None, None, None],
             ctx.current_loc,
-        );
+        )?;
 
-        let len = call_int_umin(ctx, indices_len, ndims, None);
+        let len = call_int_umin(ctx, indices_len, ndims, None)?;
         gen_for_callback_incrementing(
             &mut (),
             ctx,
@@ -405,16 +426,14 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for NDArrayValue<'ctx> 
             (len, false),
             |(), ctx, _, i| {
                 let (dim_idx, dim_sz) = (
-                    idx.get_unchecked::<IntValue<'ctx>>(ctx, &i, None),
-                    self.shape(ctx).get_unchecked::<IntValue<'ctx>>(ctx, &i, None),
+                    idx.get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
+                    self.shape(ctx)?.get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
                 );
-                let dim_idx = ctx
-                    .builder
-                    .build_int_z_extend_or_bit_cast(dim_idx, dim_sz.get_type(), "")
-                    .unwrap();
+                let dim_idx =
+                    ctx.builder.build_int_z_extend_or_bit_cast(dim_idx, dim_sz.get_type(), "")?;
 
                 let dim_lt =
-                    ctx.builder.build_int_compare(IntPredicate::SLT, dim_idx, dim_sz, "").unwrap();
+                    ctx.builder.build_int_compare(IntPredicate::SLT, dim_idx, dim_sz, "")?;
 
                 ctx.make_assert(
                     dim_lt,
@@ -422,14 +441,13 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for NDArrayValue<'ctx> 
                     "index {0} is out of bounds for axis 0 with size {1}",
                     [Some(dim_idx), Some(dim_sz), None],
                     ctx.current_loc,
-                );
+                )?;
 
                 Ok(())
             },
             llvm_usize.const_int(1, false),
             |(), _| Ok(()),
-        )
-        .unwrap();
+        )?;
 
         self.ptr_offset_unchecked(ctx, idx, name)
     }
@@ -447,11 +465,12 @@ pub fn assert_ndarray_can_be_written_by_out<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     src_shape: ArraySliceValue<'ctx>,
     dst_shape: ArraySliceValue<'ctx>,
-) {
+) -> anyhow::Result<()> {
     let name =
         get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_output_shape_same");
     let ((src_ptr, src_len), (dst_ptr, dst_len)) = (src_shape.value, dst_shape.value);
-    call_extern!(ctx: (ctx.size_t) _ = name(src_len, src_ptr, dst_len, dst_ptr));
+    call_extern!(ctx: (ctx.size_t) _ = name(src_len, src_ptr, dst_len, dst_ptr))?;
+    Ok(())
 }
 
 impl<'ctx> ScalarOrNDArray<'ctx> {
@@ -490,11 +509,13 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
     /// If this is a scalar, create a scalar ndarray from it. Otherwise, return the ndarray itself.
     ///
     /// This is the opposite of [`ScalarOrNDArray::from_value`].
-    #[must_use]
-    pub fn to_ndarray(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> NDArrayValue<'ctx> {
+    pub fn to_ndarray(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<NDArrayValue<'ctx>> {
         match self {
             ScalarOrNDArray::Scalar(v) => NDArrayValue::new_scalar(ctx, *v, None),
-            ScalarOrNDArray::NDArray(val) => *val,
+            ScalarOrNDArray::NDArray(val) => Ok(*val),
         }
     }
 
@@ -534,26 +555,25 @@ impl<'ctx> NDArrayOut<'ctx> {
 
     /// Produce an `NDArrayValue` according to this output specification and the actual
     /// required output shape.
-    #[must_use]
     pub fn resolve(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         ndims: u64,
         shape: ArraySliceValue<'ctx>,
-    ) -> NDArrayValue<'ctx> {
+    ) -> anyhow::Result<NDArrayValue<'ctx>> {
         match self {
             NDArrayOut::NewNDArray { dtype } => {
-                let result_ndarray = NDArrayType::new(ctx, *dtype, ndims).construct(ctx, None);
-                result_ndarray.shape(ctx).memcpy_from(ctx, shape.value.0);
-                result_ndarray.create_data(ctx);
-                result_ndarray
+                let result_ndarray = NDArrayType::new(ctx, *dtype, ndims).construct(ctx, None)?;
+                result_ndarray.shape(ctx)?.memcpy_from(ctx, shape.value.0)?;
+                result_ndarray.create_data(ctx)?;
+                Ok(result_ndarray)
             }
 
             NDArrayOut::WriteToNDArray { ndarray: result } => {
                 // Use an existing ndarray.
-                let out_shape = result.shape(ctx);
-                assert_ndarray_can_be_written_by_out(ctx, shape, out_shape);
-                *result
+                let out_shape = result.shape(ctx)?;
+                assert_ndarray_can_be_written_by_out(ctx, shape, out_shape)?;
+                Ok(*result)
             }
         }
     }

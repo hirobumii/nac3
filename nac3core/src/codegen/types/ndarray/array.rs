@@ -38,30 +38,30 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         (list_ty, list): (Type, ListValue<'ctx>),
         name: Option<&'static str>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let (dtype, ndims_int) = get_list_object_dtype_and_ndims(ctx, list_ty);
 
         // Validate `list` has a consistent shape.
         // Raise an exception if `list` is something abnormal like `[[1, 2], [3]]`.
         // If `list` has a consistent shape, deduce the shape and write it to `shape`.
         let ndims = ctx.size_t.const_int(ndims_int, false);
-        let shape = gen_array_var(ctx, ctx.size_t, ndims_int, None);
+        let shape = gen_array_var(ctx, ctx.size_t, ndims_int, None)?;
         let fn_name = get_usize_dependent_function_name(
             ctx,
             "__nac3_ndarray_array_set_and_validate_list_shape",
         );
-        call_extern!(ctx: void _ = fn_name(list.value, ndims, shape.value.0));
+        call_extern!(ctx: void _ = fn_name(list.value, ndims, shape.value.0))?;
 
-        let ndarray = NDArrayType::new(ctx, dtype, ndims_int).construct(ctx, name);
-        ndarray.shape(ctx).memcpy_from(ctx, shape.value.0);
-        ndarray.create_data(ctx);
+        let ndarray = NDArrayType::new(ctx, dtype, ndims_int).construct(ctx, name)?;
+        ndarray.shape(ctx)?.memcpy_from(ctx, shape.value.0)?;
+        ndarray.create_data(ctx)?;
 
         // Copy all contents from the list.
         let fn_name =
             get_usize_dependent_function_name(ctx, "__nac3_ndarray_array_write_list_to_array");
-        call_extern!(ctx: void _ = fn_name(list.value, ndarray.value));
+        call_extern!(ctx: void _ = fn_name(list.value, ndarray.value))?;
 
-        ndarray
+        Ok(ndarray)
     }
 
     /// Implementation of `np_array(<list>, copy=None)`
@@ -69,7 +69,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         (list_ty, list): (Type, ListValue<'ctx>),
         name: Option<&'static str>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         // np_array without copying is only possible `list` is not nested.
         //
         // If `list` is `list[T]`, we can create an ndarray with `data` set
@@ -82,16 +82,16 @@ impl<'ctx> NDArrayValue<'ctx> {
             // `list` is not nested
             assert_eq!(ndims, 1);
 
-            let ndarray = NDArrayType::new(ctx, dtype, 1).construct(ctx, name);
+            let ndarray = NDArrayType::new(ctx, dtype, 1).construct(ctx, name)?;
 
-            let (data, len) = list.data(ctx).value;
-            ndarray.store(ctx, field!(data), data);
+            let (data, len) = list.data(ctx)?.value;
+            ndarray.store(ctx, field!(data), data)?;
             // ndarray->shape[0] = list->len;
-            ndarray.shape(ctx).set_unchecked(ctx, &ctx.size_t.const_zero(), len, None);
+            ndarray.shape(ctx)?.set_unchecked(ctx, &ctx.size_t.const_zero(), len, None)?;
             // Set strides, the `data` is contiguous
-            ndarray.set_strides_contiguous(ctx);
+            ndarray.set_strides_contiguous(ctx)?;
 
-            ndarray
+            Ok(ndarray)
         } else {
             // `list` is nested, copy
             Self::from_list_must_copy(ctx, (list_ty, list), name)
@@ -104,7 +104,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         (list_ty, list): (Type, ListValue<'ctx>),
         copy: IntValue<'ctx>,
         name: Option<&'static str>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         assert_eq!(copy.get_type(), ctx.i1);
 
         let (dtype, ndims) = get_list_object_dtype_and_ndims(ctx, list_ty);
@@ -114,18 +114,17 @@ impl<'ctx> NDArrayValue<'ctx> {
             ctx,
             |(), _ctx| Ok(copy),
             |(), ctx| {
-                let ndarray = Self::from_list_must_copy(ctx, (list_ty, list), name);
+                let ndarray = Self::from_list_must_copy(ctx, (list_ty, list), name)?;
                 Ok(Some(ndarray.value))
             },
             |(), ctx| {
-                let ndarray = Self::from_list_maybe_copy(ctx, (list_ty, list), name);
+                let ndarray = Self::from_list_maybe_copy(ctx, (list_ty, list), name)?;
                 Ok(Some(ndarray.value))
             },
-        )
-        .unwrap()
+        )?
         .unwrap();
 
-        NDArrayType::new(ctx, dtype, ndims).map_value(ndarray, None)
+        Ok(NDArrayType::new(ctx, dtype, ndims).map_value(ndarray, None))
     }
 
     /// Implementation of `np_array(<ndarray>, copy=copy)`.
@@ -134,7 +133,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         ndarray: Self,
         copy: IntValue<'ctx>,
         name: Option<&'static str>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         assert_eq!(copy.get_type(), ctx.i1);
 
         let ndarray_val = gen_if_else_expr_callback(
@@ -142,18 +141,17 @@ impl<'ctx> NDArrayValue<'ctx> {
             ctx,
             |(), _ctx| Ok(copy),
             |(), ctx| {
-                let ndarray = ndarray.make_copy(ctx); // Force copy
+                let ndarray = ndarray.make_copy(ctx)?; // Force copy
                 Ok(Some(ndarray.value))
             },
             |(), _ctx| {
                 // No need to copy. Return `ndarray` itself.
                 Ok(Some(ndarray.value))
             },
-        )
-        .unwrap()
+        )?
         .unwrap();
 
-        ndarray.ty.map_value(ndarray_val, name)
+        Ok(ndarray.ty.map_value(ndarray_val, name))
     }
 
     /// Create a new ndarray like
@@ -167,7 +165,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         (object_ty, object): (Type, BasicValueEnum<'ctx>),
         copy: IntValue<'ctx>,
         name: Option<&'static str>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         match &*ctx.unifier.get_ty_immutable(object_ty) {
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>

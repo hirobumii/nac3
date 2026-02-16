@@ -59,12 +59,11 @@ impl<'ctx> RangeValue<'ctx> {
     ///
     /// Due to a slightly different internal representation, the [`Value::load`] method cannot
     /// be used directly here. Instead, use the [`RangeField`] enum to specify which field to load.
-    #[must_use]
     pub fn load_field(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         field: RangeField,
-    ) -> IntValue<'ctx> {
+    ) -> anyhow::Result<IntValue<'ctx>> {
         let (name, arr, idx) = self.field_ptr(ctx, field);
         arr.get_unchecked(ctx, &idx, name.as_deref())
     }
@@ -78,9 +77,9 @@ impl<'ctx> RangeValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         field: RangeField,
         value: IntValue<'ctx>,
-    ) {
+    ) -> anyhow::Result<()> {
         let (name, arr, idx) = self.field_ptr(ctx, field);
-        arr.set_unchecked(ctx, &idx, value, name.as_deref());
+        arr.set_unchecked(ctx, &idx, value, name.as_deref())
     }
 }
 

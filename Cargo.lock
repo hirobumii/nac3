@@ -633,6 +633,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 name = "nac3artiq"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "indexmap",
  "itertools",
  "nac3binutils",
@@ -710,6 +711,7 @@ dependencies = [
 name = "nac3standalone"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "nac3core",
  "parking_lot",

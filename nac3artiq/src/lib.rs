@@ -585,88 +585,107 @@ impl Nac3 {
                 StmtKind::Import { .. } => true,
                 StmtKind::ClassDef { ref decorator_list, ref mut body, ref mut bases, .. } => {
                     // Check if the class is a NAC3 class by looking for `compile` decorator
-                    let nac3_class = Python::attach(|py| {
+                    let nac3_class = Python::attach(|py| -> PyResult<_> {
                         let module = module.bind(py);
 
-                        decorator_list.iter().any(|decorator| {
-                            is_decor_fn_same(
-                                decorator,
-                                module,
-                                &[self.primitive_ids.artiq.compile_decor_fn],
-                            )
-                            .unwrap()
+                        decorator_list.iter().try_fold(false, |acc, decorator| {
+                            Ok(acc
+                                || is_decor_fn_same(
+                                    decorator,
+                                    module,
+                                    &[self.primitive_ids.artiq.compile_decor_fn],
+                                )?)
                         })
-                    });
+                    })?;
 
                     if !nac3_class {
                         continue;
                     }
 
                     // Drop unregistered (i.e. host-only) base classes.
-                    bases.retain(|base| {
-                        Python::attach(|py| -> PyResult<bool> {
-                            let Some((path, id)) = class_expr_id_path(base) else {
-                                return Ok(true);
-                            };
+                    *bases = {
+                        let len = bases.len();
+                        bases.drain(..).try_fold(Vec::with_capacity(len), |mut bases, base| {
+                            let retain = Python::attach(|py| -> PyResult<_> {
+                                let Some((path, id)) = class_expr_id_path(&base) else {
+                                    return Ok(true);
+                                };
 
-                            let module = module.bind(py);
-                            let Some(base_obj) = resolve_qname((path, id), module)? else {
-                                return Ok(false);
-                            };
-                            let base_id = py_interp::extract_id(&base_obj)?;
-
-                            Ok(base_id == self.primitive_ids.builtins.exception
-                                || base_id == self.primitive_ids.typing.generic
-                                || registered_class_ids.contains(&base_id))
-                        })
-                        .unwrap()
-                    });
-
-                    body.retain(|stmt| {
-                        if let StmtKind::FunctionDef { ref decorator_list, .. } = stmt.node {
-                            Python::attach(|py| {
                                 let module = module.bind(py);
+                                let Some(base_obj) = resolve_qname((path, id), module)? else {
+                                    return Ok(false);
+                                };
+                                let base_id = py_interp::extract_id(&base_obj)?;
 
-                                // Keep all class functions decorated with `kernel`, `portable`, or `rpc` decorator
-                                decorator_list.iter().any(|decorator| {
-                                    is_decor_fn_same(
-                                        decorator,
-                                        module,
-                                        &[
-                                            self.primitive_ids.artiq.kernel_decor_fn,
-                                            self.primitive_ids.artiq.portable_decor_fn,
-                                            self.primitive_ids.artiq.rpc_decor_fn,
-                                        ],
-                                    )
-                                    .unwrap()
-                                })
-                            })
-                        } else {
-                            true
-                        }
-                    });
+                                Ok(base_id == self.primitive_ids.builtins.exception
+                                    || base_id == self.primitive_ids.typing.generic
+                                    || registered_class_ids.contains(&base_id))
+                            })?;
+
+                            if retain {
+                                bases.push(base);
+                            }
+
+                            Ok::<_, PyErr>(bases)
+                        })?
+                    };
+
+                    *body = {
+                        let len = body.len();
+                        body.drain(..).try_fold(Vec::with_capacity(len), |mut body, stmt| {
+                            let retain =
+                                if let StmtKind::FunctionDef { ref decorator_list, .. } = stmt.node
+                                {
+                                    Python::attach(|py| -> PyResult<_> {
+                                        let module = module.bind(py);
+
+                                        // Keep all class functions decorated with `kernel`, `portable`, or `rpc` decorator
+                                        decorator_list.iter().try_fold(false, |acc, decorator| {
+                                            Ok(acc
+                                                || is_decor_fn_same(
+                                                    decorator,
+                                                    module,
+                                                    &[
+                                                        self.primitive_ids.artiq.kernel_decor_fn,
+                                                        self.primitive_ids.artiq.portable_decor_fn,
+                                                        self.primitive_ids.artiq.rpc_decor_fn,
+                                                    ],
+                                                )?)
+                                        })
+                                    })?
+                                } else {
+                                    true
+                                };
+
+                            if retain {
+                                body.push(stmt);
+                            }
+
+                            Ok::<_, PyErr>(body)
+                        })?
+                    };
 
                     true
                 }
                 StmtKind::FunctionDef { ref decorator_list, .. } => {
-                    Python::attach(|py| {
+                    Python::attach(|py| -> PyResult<_> {
                         let module = module.bind(py);
 
                         // Keep all top-level functions decorated with `extern`, `kernel`, `portable`, or `rpc` decorator
-                        decorator_list.iter().any(|decorator| {
-                            is_decor_fn_same(
-                                decorator,
-                                module,
-                                &[
-                                    self.primitive_ids.artiq.extern_decor_fn,
-                                    self.primitive_ids.artiq.kernel_decor_fn,
-                                    self.primitive_ids.artiq.portable_decor_fn,
-                                    self.primitive_ids.artiq.rpc_decor_fn,
-                                ],
-                            )
-                            .unwrap()
+                        decorator_list.iter().try_fold(false, |acc, decorator| {
+                            Ok(acc
+                                || is_decor_fn_same(
+                                    decorator,
+                                    module,
+                                    &[
+                                        self.primitive_ids.artiq.extern_decor_fn,
+                                        self.primitive_ids.artiq.kernel_decor_fn,
+                                        self.primitive_ids.artiq.portable_decor_fn,
+                                        self.primitive_ids.artiq.rpc_decor_fn,
+                                    ],
+                                )?)
                         })
-                    })
+                    })?
                 }
 
                 _ => false,
@@ -843,11 +862,10 @@ impl Nac3 {
             size_t,
         );
 
-        let store_obj = embedding_map.getattr("store_object").unwrap();
-        let store_str = embedding_map.getattr("store_str").unwrap();
-        let store_fun = embedding_map.getattr("store_function").unwrap().into_py_any(py)?;
-        let host_attributes =
-            embedding_map.getattr("attributes_writeback").unwrap().into_py_any(py)?;
+        let store_obj = embedding_map.getattr("store_object")?;
+        let store_str = embedding_map.getattr("store_str")?;
+        let store_fun = embedding_map.getattr("store_function")?.into_py_any(py)?;
+        let host_attributes = embedding_map.getattr("attributes_writeback")?.into_py_any(py)?;
         let global_value_ids: Arc<RwLock<HashMap<_, _>>> = Arc::new(RwLock::new(HashMap::new()));
         let helper = PythonHelper {
             store_obj: Arc::new(store_obj.clone().into_py_any(py)?),
@@ -884,8 +902,8 @@ impl Nac3 {
                 let mut name_to_pyid: HashMap<StrRef, u64> = HashMap::new();
                 let members = py_module.dict();
                 for (key, val) in members {
-                    let key: &str = key.extract().unwrap();
-                    let val = py_interp::extract_id(&val).unwrap();
+                    let key: &str = key.extract()?;
+                    let val = py_interp::extract_id(&val)?;
                     name_to_pyid.insert(key.into(), val);
                 }
                 let resolver = Arc::new(Resolver(Arc::new(InnerResolver {
@@ -921,7 +939,7 @@ impl Nac3 {
             let py_module = module.bind(py).cast::<PyModule>()?;
             let class_obj;
             if let StmtKind::ClassDef { name, .. } = &stmt.node {
-                let class = py_module.getattr(name.to_string().as_str()).unwrap();
+                let class = py_module.getattr(name.to_string().as_str())?;
                 if py_interp::extract_issubclass(&class, py_interp::get_exception_class(py)?)?
                     && class.getattr("artiq_builtin").is_err()
                 {
@@ -967,15 +985,10 @@ impl Nac3 {
                         let decor_fn_id = py_interp::extract_id(&decor_fn.into_pyobject(py)?)?;
 
                         if decor_fn_id == self.primitive_ids.artiq.rpc_decor_fn {
-                            store_fun
-                                .call1(
-                                    py,
-                                    (
-                                        def_id.0.into_py_any(py)?,
-                                        py_module.getattr(name.to_string()).unwrap(),
-                                    ),
-                                )
-                                .unwrap();
+                            store_fun.call1(
+                                py,
+                                (def_id.0.into_py_any(py)?, py_module.getattr(name.to_string())?),
+                            )?;
                             let is_async = decorator_list
                                 .iter()
                                 .flat_map(get_decorator_flags)
@@ -1001,7 +1014,7 @@ impl Nac3 {
                 }
                 StmtKind::ClassDef { name, body, .. } => {
                     let class_name = name.to_string();
-                    let class_obj = py_module.getattr(class_name.as_str()).unwrap();
+                    let class_obj = py_module.getattr(class_name.as_str())?;
                     for stmt in body {
                         if let StmtKind::FunctionDef { name, decorator_list, .. } = &stmt.node {
                             for decorator in decorator_list {
@@ -1138,7 +1151,7 @@ impl Nac3 {
 
         if let Err(e) = composer.start_analysis(true) {
             // report error of __modinit__ separately
-            return if e.iter().any(|err| err.contains("<nac3_synthesized_modinit>")) {
+            return if e.iter().any(|err| err.to_string().contains("<nac3_synthesized_modinit>")) {
                 let msg = Self::report_modinit(
                     &arg_names,
                     method_name,
@@ -1149,12 +1162,17 @@ impl Nac3 {
                 );
                 Err(CompileError::new_err(format!(
                     "compilation failed\n----------\n{}",
-                    msg.unwrap_or_else(|| e.iter().sorted().join("\n----------\n"))
+                    msg.unwrap_or_else(|| e
+                        .iter()
+                        .sorted_by(|lhs, rhs| Ord::cmp(&lhs.to_string(), &rhs.to_string()))
+                        .join("\n----------\n"))
                 )))
             } else {
                 Err(CompileError::new_err(format!(
                     "compilation failed\n----------\n{}",
-                    e.iter().sorted().join("\n----------\n"),
+                    e.iter()
+                        .sorted_by(|lhs, rhs| Ord::cmp(&lhs.to_string(), &rhs.to_string()))
+                        .join("\n----------\n"),
                 )))
             };
         }
@@ -1177,15 +1195,13 @@ impl Nac3 {
                                 &mut *defs[id.0].write()
                             {
                                 *codegen_callback = Some(rpc_codegen_callback(*is_async));
-                                store_fun
-                                    .call1(
-                                        py,
-                                        (
-                                            id.0.into_py_any(py)?,
-                                            class_def.getattr(name.to_string().as_str()).unwrap(),
-                                        ),
-                                    )
-                                    .unwrap();
+                                store_fun.call1(
+                                    py,
+                                    (
+                                        id.0.into_py_any(py)?,
+                                        class_def.getattr(name.to_string().as_str()).unwrap(),
+                                    ),
+                                )?;
                             }
                         }
                     }
@@ -1294,7 +1310,7 @@ impl Nac3 {
             membuffer.lock().push(buffer);
         });
 
-        embedding_map.setattr("expects_return", has_return).unwrap();
+        embedding_map.setattr("expects_return", has_return)?;
 
         let emit_llvm_bc = std::env::var(ENV_NAC3_EMIT_LLVM_BC).is_ok();
         let emit_llvm_ll = std::env::var(ENV_NAC3_EMIT_LLVM_LL).is_ok();
@@ -1362,13 +1378,12 @@ impl Nac3 {
         }
         emit_llvm(&main, "main.post-opt");
 
-        Python::attach(|py| {
+        Python::attach(|py| -> PyResult<()> {
             let string_store = self.string_store.read();
             let mut string_store_vec = string_store.iter().collect::<Vec<_>>();
             string_store_vec.sort_by(|(_s1, key1), (_s2, key2)| key1.cmp(key2));
             for (s, key) in string_store_vec {
-                let embed_key: i32 =
-                    helper.store_str.bind(py).call1((s,)).unwrap().extract().unwrap();
+                let embed_key: i32 = helper.store_str.bind(py).call1((s,))?.extract()?;
                 assert_eq!(
                     embed_key, *key,
                     "string {s} is out of sync between embedding map (key={embed_key}) and \
@@ -1376,7 +1391,8 @@ impl Nac3 {
                 );
             }
             drop(string_store);
-        });
+            Ok(())
+        })?;
 
         link_fn(&main)
     }
@@ -1578,7 +1594,7 @@ impl Nac3 {
                 "now_mu".into(),
                 FunSignature { args: vec![], ret: primitive.int64, vars: VarMap::new() },
                 Arc::new(GenCall::new(Box::new(move |ctx, _, _, _| {
-                    Ok(Some(time_fns.emit_now_mu(ctx)))
+                    Ok(Some(time_fns.emit_now_mu(ctx)?))
                 }))),
             ),
             (
@@ -1595,8 +1611,8 @@ impl Nac3 {
                 },
                 Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args| {
                     let arg_ty = fun.0.args[0].ty;
-                    let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty).unwrap();
-                    time_fns.emit_at_mu(ctx, arg);
+                    let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
+                    time_fns.emit_at_mu(ctx, arg)?;
                     Ok(None)
                 }))),
             ),
@@ -1614,14 +1630,14 @@ impl Nac3 {
                 },
                 Arc::new(GenCall::new(Box::new(move |ctx, _, fun, args| {
                     let arg_ty = fun.0.args[0].ty;
-                    let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty).unwrap();
-                    time_fns.emit_delay_mu(ctx, arg);
+                    let arg = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
+                    time_fns.emit_delay_mu(ctx, arg)?;
                     Ok(None)
                 }))),
             ),
         ];
 
-        let get_artiq_builtin_id = |mod_name: Option<&str>, name: &str| -> PyResult<u64> {
+        let get_artiq_builtin_id = |mod_name: Option<&str>, name: &str| -> PyResult<_> {
             let dict = if let Some(mod_name) = mod_name {
                 artiq_builtins
                     .get_item(mod_name)?
@@ -1883,7 +1899,7 @@ impl Nac3 {
         }
 
         let get_special_ids =
-            |name: &str| -> PyResult<u64> { special_ids.get_item(name)?.unwrap().extract::<u64>() };
+            |name: &str| -> PyResult<_> { special_ids.get_item(name)?.unwrap().extract::<u64>() };
 
         self.special_ids = SpecialPythonId {
             parallel: get_special_ids("parallel")?,

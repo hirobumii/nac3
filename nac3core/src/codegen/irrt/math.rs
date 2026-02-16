@@ -12,7 +12,7 @@ pub fn integer_power<'ctx>(
     base: IntValue<'ctx>,
     exp: IntValue<'ctx>,
     signed: bool,
-) -> IntValue<'ctx> {
+) -> anyhow::Result<IntValue<'ctx>> {
     let base_type = base.get_type();
 
     let symbol = match (base_type.get_bit_width(), exp.get_type().get_bit_width(), signed) {
@@ -24,22 +24,19 @@ pub fn integer_power<'ctx>(
     };
 
     // throw exception when exp < 0
-    let ge_zero = ctx
-        .builder
-        .build_int_compare(
-            IntPredicate::SGE,
-            exp,
-            exp.get_type().const_zero(),
-            "assert_int_pow_ge_0",
-        )
-        .unwrap();
+    let ge_zero = ctx.builder.build_int_compare(
+        IntPredicate::SGE,
+        exp,
+        exp.get_type().const_zero(),
+        "assert_int_pow_ge_0",
+    )?;
     ctx.make_assert(
         ge_zero,
         "0:ValueError",
         "integer power must be positive or zero",
         [None, None, None],
         ctx.current_loc,
-    );
+    )?;
 
     call_extern!(ctx: base_type "call_int_pow" = symbol(base, exp))
 }
@@ -48,14 +45,17 @@ pub fn integer_power<'ctx>(
 pub fn call_gammaln<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     v: FloatValue<'ctx>,
-) -> FloatValue<'ctx> {
+) -> anyhow::Result<FloatValue<'ctx>> {
     let llvm_f64 = ctx.f64;
     assert_eq!(v.get_type(), llvm_f64);
     call_extern!(ctx: llvm_f64 "gammaln" = "__nac3_gammaln"(v))
 }
 
 /// Generates a call to `j0` in IR. Returns an `f64` representing the result.
-pub fn call_j0<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, v: FloatValue<'ctx>) -> FloatValue<'ctx> {
+pub fn call_j0<'ctx>(
+    ctx: &mut CodeGenContext<'ctx, '_>,
+    v: FloatValue<'ctx>,
+) -> anyhow::Result<FloatValue<'ctx>> {
     let llvm_f64 = ctx.f64;
     assert_eq!(v.get_type(), llvm_f64);
     call_extern!(ctx: llvm_f64 "j0" = "__nac3_j0"(v))

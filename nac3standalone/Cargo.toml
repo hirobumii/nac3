@@ -8,6 +8,7 @@ edition = "2024"
 no-escape-analysis = ["nac3core/no-escape-analysis"]
 
 [dependencies]
+anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 parking_lot = "0.12"
 nac3core = { path = "../nac3core" }

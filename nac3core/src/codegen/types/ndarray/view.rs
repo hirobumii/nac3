@@ -20,8 +20,11 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///
     /// If this ndarray's `ndims` is less than `ndmin`, a view is created on this with 1s prepended
     /// to the shape. Otherwise, this function does nothing and return this ndarray.
-    #[must_use]
-    pub fn atleast_nd(&self, ctx: &mut CodeGenContext<'ctx, '_>, ndmin: u64) -> Self {
+    pub fn atleast_nd(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        ndmin: u64,
+    ) -> anyhow::Result<Self> {
         let ndims = self.ty.ndims;
 
         if ndims < ndmin {
@@ -31,7 +34,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 .collect_vec();
             self.index(ctx, &indices)
         } else {
-            *self
+            Ok(*self)
         }
     }
 
@@ -46,13 +49,12 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///
     /// * `new_ndims` - The number of dimensions of `new_shape` as a [`Type`].
     /// * `new_shape` - The target shape to do `np.reshape()`.
-    #[must_use]
     pub fn reshape_or_copy(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         new_ndims: u64,
         new_shape: ArraySliceValue<'ctx>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         assert_eq!(new_shape.ty.item_ty, ctx.size_t.into());
 
         // TODO: The current criterion for whether to do a full copy or not is by checking
@@ -60,39 +62,38 @@ impl<'ctx> NDArrayValue<'ctx> {
         //       not contiguous but could be reshaped without copying data. Look into how numpy does
         //       it.
 
-        let dst_ndarray = NDArrayType::new(ctx, self.ty.dtype, new_ndims).construct(ctx, None);
-        dst_ndarray.shape(ctx).memcpy_from(ctx, new_shape.value.0);
+        let dst_ndarray = NDArrayType::new(ctx, self.ty.dtype, new_ndims).construct(ctx, None)?;
+        dst_ndarray.shape(ctx)?.memcpy_from(ctx, new_shape.value.0)?;
 
         // Resolve negative indices
-        let size = self.size(ctx);
-        let (dst_shape, dst_ndims) = dst_ndarray.shape(ctx).value;
+        let size = self.size(ctx)?;
+        let (dst_shape, dst_ndims) = dst_ndarray.shape(ctx)?.value;
         let name = get_usize_dependent_function_name(
             ctx,
             "__nac3_ndarray_reshape_resolve_and_check_new_shape",
         );
-        call_extern!(ctx: void _ = name(size, dst_ndims, dst_shape));
+        call_extern!(ctx: void _ = name(size, dst_ndims, dst_shape))?;
 
         gen_if_callback(
             &mut (),
             ctx,
-            |(), ctx| Ok(self.is_c_contiguous(ctx)),
+            |(), ctx| self.is_c_contiguous(ctx),
             |(), ctx| {
                 // Reshape is possible without copying
-                dst_ndarray.set_strides_contiguous(ctx);
-                let data = self.load(ctx, field!(data));
-                dst_ndarray.store(ctx, field!(data), data);
+                dst_ndarray.set_strides_contiguous(ctx)?;
+                let data = self.load(ctx, field!(data))?;
+                dst_ndarray.store(ctx, field!(data), data)?;
                 Ok(())
             },
             |(), ctx| {
                 // Reshape is impossible without copying
-                dst_ndarray.create_data(ctx);
-                dst_ndarray.copy_data_from(ctx, self);
+                dst_ndarray.create_data(ctx)?;
+                dst_ndarray.copy_data_from(ctx, self)?;
                 Ok(())
             },
-        )
-        .unwrap();
+        )?;
 
-        dst_ndarray
+        Ok(dst_ndarray)
     }
 
     /// Create a transposed view on this ndarray like
@@ -100,14 +101,13 @@ impl<'ctx> NDArrayValue<'ctx> {
     ///
     /// * `axes` - If specified, should be an array of the permutation (negative indices are
     ///   **allowed**).
-    #[must_use]
     pub fn transpose(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         axes: Option<PointerValue<'ctx>>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         // Define models
-        let transposed_ndarray = self.ty.construct(ctx, None);
+        let transposed_ndarray = self.ty.construct(ctx, None)?;
 
         let (axes, num_axes) = match axes {
             Some(axes) => (axes, self.ty.ndims_val(ctx)),
@@ -119,8 +119,8 @@ impl<'ctx> NDArrayValue<'ctx> {
             self.value,
             transposed_ndarray.value,
             num_axes, axes,
-        ));
+        ))?;
 
-        transposed_ndarray
+        Ok(transposed_ndarray)
     }
 }

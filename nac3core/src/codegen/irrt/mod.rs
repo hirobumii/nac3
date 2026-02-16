@@ -135,12 +135,12 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     generator: &mut G,
     length: IntValue<'ctx>,
-) -> Result<Option<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>)>, String> {
+) -> anyhow::Result<Option<(IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>)>> {
     let llvm_i32 = ctx.i32;
 
     let zero = llvm_i32.const_zero();
     let one = llvm_i32.const_int(1, false);
-    let length = ctx.builder.build_int_truncate_or_bit_cast(length, llvm_i32, "leni32").unwrap();
+    let length = ctx.builder.build_int_truncate_or_bit_cast(length, llvm_i32, "leni32")?;
     Ok(Some(match (start, end, step) {
         (s, e, None) => (
             if let Some(s) = s.as_ref() {
@@ -160,7 +160,7 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                 } else {
                     length
                 };
-                ctx.builder.build_int_sub(e, one, "final_end").unwrap()
+                ctx.builder.build_int_sub(e, one, "final_end")?
             },
             one,
         ),
@@ -168,27 +168,22 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
             let step = generator.gen_expr(ctx, step)?.to_basic_value_enum(ctx)?.into_int_value();
 
             // assert step != 0, throw exception if not
-            let not_zero = ctx
-                .builder
-                .build_int_compare(
-                    IntPredicate::NE,
-                    step,
-                    step.get_type().const_zero(),
-                    "range_step_ne",
-                )
-                .unwrap();
+            let not_zero = ctx.builder.build_int_compare(
+                IntPredicate::NE,
+                step,
+                step.get_type().const_zero(),
+                "range_step_ne",
+            )?;
             ctx.make_assert(
                 not_zero,
                 "0:ValueError",
                 "slice step cannot be zero",
                 [None, None, None],
                 ctx.current_loc,
-            );
-            let len_id = ctx.builder.build_int_sub(length, one, "lenmin1").unwrap();
-            let neg = ctx
-                .builder
-                .build_int_compare(IntPredicate::SLT, step, zero, "step_is_neg")
-                .unwrap();
+            )?;
+            let len_id = ctx.builder.build_int_sub(length, one, "lenmin1")?;
+            let neg =
+                ctx.builder.build_int_compare(IntPredicate::SLT, step, zero, "step_is_neg")?;
             (
                 match s {
                     Some(s) => {
@@ -197,32 +192,26 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                         };
                         ctx.builder
                             .build_select(
-                                ctx.builder
-                                    .build_and(
-                                        ctx.builder
-                                            .build_int_compare(
-                                                IntPredicate::EQ,
-                                                s,
-                                                length,
-                                                "s_eq_len",
-                                            )
-                                            .unwrap(),
-                                        neg,
-                                        "should_minus_one",
-                                    )
-                                    .unwrap(),
-                                ctx.builder.build_int_sub(s, one, "s_min").unwrap(),
+                                ctx.builder.build_and(
+                                    ctx.builder.build_int_compare(
+                                        IntPredicate::EQ,
+                                        s,
+                                        length,
+                                        "s_eq_len",
+                                    )?,
+                                    neg,
+                                    "should_minus_one",
+                                )?,
+                                ctx.builder.build_int_sub(s, one, "s_min")?,
                                 s,
                                 "final_start",
                             )
-                            .map(BasicValueEnum::into_int_value)
-                            .unwrap()
+                            .map(BasicValueEnum::into_int_value)?
                     }
                     None => ctx
                         .builder
                         .build_select(neg, len_id, zero, "stt")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap(),
+                        .map(BasicValueEnum::into_int_value)?,
                 },
                 match e {
                     Some(e) => {
@@ -232,18 +221,16 @@ pub fn handle_slice_indices<'ctx, G: CodeGenerator>(
                         ctx.builder
                             .build_select(
                                 neg,
-                                ctx.builder.build_int_add(e, one, "end_add_one").unwrap(),
-                                ctx.builder.build_int_sub(e, one, "end_sub_one").unwrap(),
+                                ctx.builder.build_int_add(e, one, "end_add_one")?,
+                                ctx.builder.build_int_sub(e, one, "end_sub_one")?,
                                 "final_end",
                             )
-                            .map(BasicValueEnum::into_int_value)
-                            .unwrap()
+                            .map(BasicValueEnum::into_int_value)?
                     }
                     None => ctx
                         .builder
                         .build_select(neg, zero, len_id, "end")
-                        .map(BasicValueEnum::into_int_value)
-                        .unwrap(),
+                        .map(BasicValueEnum::into_int_value)?,
                 },
                 step,
             )

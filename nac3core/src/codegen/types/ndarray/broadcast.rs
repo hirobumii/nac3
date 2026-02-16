@@ -2,7 +2,6 @@ use inkwell::{
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue},
 };
-use itertools::Itertools as _;
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
@@ -52,23 +51,22 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// * `target_ndims` - The ndims type after broadcasting to the given shape.
     ///   The caller has to figure this out for this function.
     /// * `target_shape` - An array pointer pointing to the target shape.
-    #[must_use]
     pub fn broadcast_to(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         target_ndims: u64,
         target_shape: ArraySliceValue<'ctx>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         assert!(self.ty.ndims <= target_ndims);
         assert_eq!(target_shape.ty.item_ty, ctx.size_t.into());
 
         let broadcast_ndarray =
-            NDArrayType::new(ctx, self.ty.dtype, target_ndims).construct(ctx, None);
-        broadcast_ndarray.shape(ctx).memcpy_from(ctx, target_shape.value.0);
+            NDArrayType::new(ctx, self.ty.dtype, target_ndims).construct(ctx, None)?;
+        broadcast_ndarray.shape(ctx)?.memcpy_from(ctx, target_shape.value.0)?;
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_to");
-        call_extern!(ctx: void _ = name(self.value, broadcast_ndarray.value));
-        broadcast_ndarray
+        call_extern!(ctx: void _ = name(self.value, broadcast_ndarray.value))?;
+        Ok(broadcast_ndarray)
     }
 }
 
@@ -97,34 +95,36 @@ pub struct BroadcastAllResult<'ctx> {
 pub fn broadcast<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ndarrays: &[NDArrayValue<'ctx>],
-) -> BroadcastAllResult<'ctx> {
+) -> anyhow::Result<BroadcastAllResult<'ctx>> {
     let shape_entry_ty = ShapeEntryType::new(ctx);
     let shape_entries = ctx.size_t.const_int(ndarrays.len() as _, false);
-    let arr = gen_array_var(ctx, shape_entry_ty.inner.llvm_ty, ndarrays.len() as _, None);
+    let arr = gen_array_var(ctx, shape_entry_ty.inner.llvm_ty, ndarrays.len() as _, None)?;
 
     // Store shapes into memory.
     for (i, ndarray) in ndarrays.iter().enumerate() {
         let idx = ctx.size_t.const_int(i as _, false);
-        let pshape_entry = arr.ptr_offset_unchecked(ctx, &idx, None);
+        let pshape_entry = arr.ptr_offset_unchecked(ctx, &idx, None)?;
         let shape_entry = shape_entry_ty.map_value(pshape_entry, None);
         let ndims = ndarray.ty.ndims_val(ctx);
-        let shape = ndarray.shape(ctx).value.0;
-        shape_entry.store(ctx, field!(ndims), ndims);
-        shape_entry.store(ctx, field!(shape), shape);
+        let shape = ndarray.shape(ctx)?.value.0;
+        shape_entry.store(ctx, field!(ndims), ndims)?;
+        shape_entry.store(ctx, field!(shape), shape)?;
     }
 
     let ndims = ndarrays.iter().map(|ndarray| ndarray.ty.ndims).max().unwrap();
-    let new_shape_ptr = gen_array_var(ctx, ctx.size_t, ndims, None).value.0;
+    let new_shape_ptr = gen_array_var(ctx, ctx.size_t, ndims, None)?.value.0;
 
     let ndims_v = ctx.size_t.const_int(ndims, false);
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");
-    call_extern!(ctx: void _ = name(shape_entries, arr.value.0, ndims_v, new_shape_ptr));
+    call_extern!(ctx: void _ = name(shape_entries, arr.value.0, ndims_v, new_shape_ptr))?;
 
     // Now this new shape is initialized.
     let new_shape = ArraySliceValue::new(ctx.size_t.into(), new_shape_ptr, ndims_v, None);
-    let new_ndarrays =
-        ndarrays.iter().map(|ndarray| ndarray.broadcast_to(ctx, ndims, new_shape)).collect_vec();
-    BroadcastAllResult { ndims, shape: new_shape, ndarrays: new_ndarrays }
+    let new_ndarrays = ndarrays
+        .iter()
+        .map(|ndarray| ndarray.broadcast_to(ctx, ndims, new_shape))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(BroadcastAllResult { ndims, shape: new_shape, ndarrays: new_ndarrays })
 }
 
 /// Generate LLVM IR to broadcast `ndarray`s together, and starmap through them with `mapping`
@@ -141,19 +141,19 @@ pub fn broadcast_starmap<'ctx, 'a, MappingFn>(
     ndarrays: &[NDArrayValue<'ctx>],
     out: NDArrayOut<'ctx>,
     mapping: MappingFn,
-) -> Result<NDArrayValue<'ctx>, String>
+) -> anyhow::Result<NDArrayValue<'ctx>>
 where
     MappingFn: FnOnce(
         &mut CodeGenContext<'ctx, 'a>,
         &[BasicValueEnum<'ctx>],
-    ) -> Result<BasicValueEnum<'ctx>, String>,
+    ) -> anyhow::Result<BasicValueEnum<'ctx>>,
 {
     // Broadcast inputs
-    let broadcast_result = broadcast(ctx, ndarrays);
-    let out_ndarray = out.resolve(ctx, broadcast_result.ndims, broadcast_result.shape);
+    let broadcast_result = broadcast(ctx, ndarrays)?;
+    let out_ndarray = out.resolve(ctx, broadcast_result.ndims, broadcast_result.shape)?;
 
     // Map element-wise and store results into `mapped_ndarray`.
-    let nditer = NDIterValue::new(ctx, out_ndarray);
+    let nditer = NDIterValue::new(ctx, out_ndarray)?;
     gen_for_callback(
         &mut (),
         ctx,
@@ -164,31 +164,34 @@ where
                 .ndarrays
                 .iter()
                 .map(|ndarray| NDIterValue::new(ctx, *ndarray))
-                .collect_vec();
+                .collect::<anyhow::Result<Vec<_>>>()?;
             Ok((nditer, other_nditers))
         },
         |(), ctx, (out_nditer, _in_nditers)| {
             // We can simply use `out_nditer`'s `has_element()`.
             // `in_nditers`' `has_element()`s should return the same value.
-            Ok(out_nditer.has_element(ctx))
+            out_nditer.has_element(ctx)
         },
         |(), ctx, _hooks, (out_nditer, in_nditers)| {
             // Get all the scalars from the broadcasted input ndarrays, pass them to `mapping`,
             // and write to `out_ndarray`.
-            let in_scalars = in_nditers.iter().map(|nditer| nditer.get_scalar(ctx)).collect_vec();
+            let in_scalars = in_nditers
+                .iter()
+                .map(|nditer| nditer.get_scalar(ctx))
+                .collect::<anyhow::Result<Vec<_>>>()?;
 
             let result = mapping(ctx, &in_scalars)?;
 
-            let p = out_nditer.curr_ptr(ctx);
-            typed_store(ctx.builder, p, result);
+            let p = out_nditer.curr_ptr(ctx)?;
+            typed_store(ctx.builder, p, result)?;
 
             Ok(())
         },
         |(), ctx, (out_nditer, in_nditers)| {
             // Advance all iterators
-            out_nditer.next(ctx);
+            out_nditer.next(ctx)?;
             for nditer in &in_nditers {
-                nditer.next(ctx);
+                nditer.next(ctx)?;
             }
             Ok(())
         },
@@ -228,12 +231,12 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
         inputs: &[Self],
         ret_dtype: BasicTypeEnum<'ctx>,
         mapping: MappingFn,
-    ) -> Result<Self, String>
+    ) -> anyhow::Result<Self>
     where
         MappingFn: FnOnce(
             &mut CodeGenContext<'ctx, 'a>,
             &[BasicValueEnum<'ctx>],
-        ) -> Result<BasicValueEnum<'ctx>, String>,
+        ) -> anyhow::Result<BasicValueEnum<'ctx>>,
     {
         // Check if all inputs are Scalars
         let all_scalars: Option<Vec<_>> = inputs
@@ -249,7 +252,10 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
             Ok(ScalarOrNDArray::Scalar(value))
         } else {
             // Promote all input to ndarrays and map through them.
-            let inputs = inputs.iter().map(|input| input.to_ndarray(ctx)).collect_vec();
+            let inputs = inputs
+                .iter()
+                .map(|input| input.to_ndarray(ctx))
+                .collect::<anyhow::Result<Vec<_>>>()?;
             let ret = NDArrayOut::NewNDArray { dtype: ret_dtype };
             let ndarray = broadcast_starmap(ctx, &inputs, ret, mapping)?;
             Ok(ScalarOrNDArray::NDArray(ndarray))
@@ -264,12 +270,12 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, 'a>,
         out: NDArrayOut<'ctx>,
         mapping: Mapping,
-    ) -> Result<Self, String>
+    ) -> anyhow::Result<Self>
     where
         Mapping: FnOnce(
             &mut CodeGenContext<'ctx, 'a>,
             BasicValueEnum<'ctx>,
-        ) -> Result<BasicValueEnum<'ctx>, String>,
+        ) -> anyhow::Result<BasicValueEnum<'ctx>>,
     {
         broadcast_starmap(ctx, &[*self], out, |ctx, scalars| mapping(ctx, scalars[0]))
     }
@@ -288,12 +294,12 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
         ctx: &mut CodeGenContext<'ctx, 'a>,
         ret_dtype: BasicTypeEnum<'ctx>,
         mapping: Mapping,
-    ) -> Result<Self, String>
+    ) -> anyhow::Result<Self>
     where
         Mapping: FnOnce(
             &mut CodeGenContext<'ctx, 'a>,
             BasicValueEnum<'ctx>,
-        ) -> Result<BasicValueEnum<'ctx>, String>,
+        ) -> anyhow::Result<BasicValueEnum<'ctx>>,
     {
         ScalarOrNDArray::broadcasting_starmap(ctx, &[*self], ret_dtype, |ctx, scalars| {
             mapping(ctx, scalars[0])

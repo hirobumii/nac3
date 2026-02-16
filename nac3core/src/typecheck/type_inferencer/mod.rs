@@ -6,6 +6,7 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::{Context, anyhow};
 use itertools::{Itertools as _, izip};
 use nac3parser::ast::{
     self, Arguments, Comprehension, Expr, ExprContext, ExprKind, Located, Location, StrRef,
@@ -108,7 +109,7 @@ pub struct Inferencer<'a> {
     pub in_handler: bool,
 }
 
-type InferenceError = HashSet<String>;
+type InferenceError = Vec<anyhow::Error>;
 type OverrideResult = Result<Option<ast::Expr<Option<Type>>>, InferenceError>;
 
 struct NaiveFolder();
@@ -121,11 +122,11 @@ impl Fold<()> for NaiveFolder {
 }
 
 fn report_error<T>(msg: &str, location: Location) -> Result<T, InferenceError> {
-    Err(HashSet::from([format!("{msg} (at {location})")]))
+    Err(vec![anyhow!("{msg} (at {location})")])
 }
 
 fn report_type_error<T>(err: TypeError, unifier: &Unifier) -> Result<T, InferenceError> {
-    Err(HashSet::from([err.to_display(unifier).to_string()]))
+    Err(vec![anyhow!("{}", err.to_display(unifier).to_string())])
 }
 
 /// Traverse through a LHS expression in an assignment and set [`ExprContext`] to [`ExprContext::Store`]
@@ -2090,7 +2091,8 @@ impl Inferencer<'_> {
                                     self.primitives,
                                     attr,
                                 )
-                                .or_else(|err| report_error(&err, value.location))
+                                .with_context(|| value.location)
+                                .map_err(|err| vec![err])
                         } else {
                             report_type_error(
                                 TypeError::new(

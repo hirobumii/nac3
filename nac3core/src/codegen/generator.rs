@@ -30,7 +30,7 @@ pub trait CodeGenerator {
         obj: Option<(Type, ValueEnum<'ctx>)>,
         fun: (&FunSignature, DefinitionId),
         params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-    ) -> Result<Option<BasicValueEnum<'ctx>>, String>
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>>
     where
         Self: Sized,
     {
@@ -47,7 +47,7 @@ pub trait CodeGenerator {
         signature: &FunSignature,
         def: &TopLevelDef,
         params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
-    ) -> Result<BasicValueEnum<'ctx>, String>
+    ) -> anyhow::Result<BasicValueEnum<'ctx>>
     where
         Self: Sized,
     {
@@ -68,7 +68,7 @@ pub trait CodeGenerator {
         obj: Option<Type>,
         fun: (&FunSignature, &mut TopLevelDef, String),
         id: usize,
-    ) -> Result<String, String> {
+    ) -> anyhow::Result<String> {
         gen_func_instance(ctx, obj, fun, id)
     }
 
@@ -77,7 +77,7 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         expr: &Expr<Option<Type>>,
-    ) -> Result<RtValue<'ctx>, String>
+    ) -> anyhow::Result<RtValue<'ctx>>
     where
         Self: Sized,
     {
@@ -90,7 +90,7 @@ pub trait CodeGenerator {
         ctx: &mut CodeGenContext<'ctx, '_>,
         pattern: &Expr<Option<Type>>,
         name: Option<&str>,
-    ) -> Result<Option<PointerValue<'ctx>>, String>
+    ) -> anyhow::Result<Option<PointerValue<'ctx>>>
     where
         Self: Sized,
     {
@@ -104,7 +104,7 @@ pub trait CodeGenerator {
         target: &Expr<Option<Type>>,
         value: &ValueEnum<'ctx>,
         value_ty: Type,
-    ) -> Result<(), String>
+    ) -> anyhow::Result<()>
     where
         Self: Sized,
     {
@@ -120,7 +120,7 @@ pub trait CodeGenerator {
         targets: &[Expr<Option<Type>>],
         value: &ValueEnum<'ctx>,
         value_ty: Type,
-    ) -> Result<(), String>
+    ) -> anyhow::Result<()>
     where
         Self: Sized,
     {
@@ -137,7 +137,7 @@ pub trait CodeGenerator {
         key: &Expr<Option<Type>>,
         value: &ValueEnum<'ctx>,
         value_ty: Type,
-    ) -> Result<(), String>
+    ) -> anyhow::Result<()>
     where
         Self: Sized,
     {
@@ -150,7 +150,7 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
-    ) -> Result<(), String>
+    ) -> anyhow::Result<()>
     where
         Self: Sized,
     {
@@ -163,7 +163,7 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
-    ) -> Result<(), String>
+    ) -> anyhow::Result<()>
     where
         Self: Sized,
     {
@@ -176,7 +176,7 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
-    ) -> Result<(), String>
+    ) -> anyhow::Result<()>
     where
         Self: Sized,
     {
@@ -187,7 +187,7 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
-    ) -> Result<(), String>
+    ) -> anyhow::Result<()>
     where
         Self: Sized,
     {
@@ -201,7 +201,7 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'_, '_>,
         stmt: &Stmt<Option<Type>>,
-    ) -> Result<(), String>
+    ) -> anyhow::Result<()>
     where
         Self: Sized,
     {
@@ -213,7 +213,7 @@ pub trait CodeGenerator {
         &mut self,
         ctx: &mut CodeGenContext<'_, '_>,
         stmts: I,
-    ) -> Result<(), String>
+    ) -> anyhow::Result<()>
     where
         Self: Sized,
     {

@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::anyhow;
 use itertools::Itertools as _;
 use nac3parser::ast::{self, Constant, ExprKind, Located, Location, Stmt, StrRef};
 use parking_lot::RwLock;
@@ -751,21 +752,24 @@ impl TopLevelComposer {
     pub fn get_class_method_def_info(
         class_methods_def: &[(StrRef, Type, DefinitionId)],
         method_name: StrRef,
-    ) -> Result<(Type, DefinitionId), HashSet<String>> {
+    ) -> Result<(Type, DefinitionId), Vec<anyhow::Error>> {
         for (name, ty, def_id) in class_methods_def {
             if name == &method_name {
                 return Ok((*ty, *def_id));
             }
         }
-        Err(HashSet::from([format!("no method {method_name} in the current class")]))
+        Err(vec![anyhow!("no method {method_name} in the current class")])
     }
 
     /// get the `var_id` of a given `TVar` type
-    pub fn get_var_id(var_ty: Type, unifier: &mut Unifier) -> Result<TypeVarId, HashSet<String>> {
+    pub fn get_var_id(
+        var_ty: Type,
+        unifier: &mut Unifier,
+    ) -> Result<TypeVarId, Vec<anyhow::Error>> {
         if let TypeEnum::TVar { id, .. } = unifier.get_ty(var_ty).as_ref() {
             Ok(*id)
         } else {
-            Err(HashSet::from(["not type var".to_string()]))
+            Err(vec![anyhow!("not type var")])
         }
     }
 
@@ -837,7 +841,7 @@ impl TopLevelComposer {
         class_id: usize,
         definition_ast_list: &Vec<DefAst>,
         stmts: &[Stmt<()>],
-    ) -> Result<HashSet<StrRef>, HashSet<String>> {
+    ) -> Result<HashSet<StrRef>, Vec<anyhow::Error>> {
         let mut result = HashSet::new();
         for s in stmts {
             match &s.node {
@@ -854,10 +858,10 @@ impl TopLevelComposer {
                         }
                     } =>
                 {
-                    return Err(HashSet::from([format!(
+                    return Err(vec![anyhow!(
                         "redundant type annotation for class fields at {}",
                         s.location
-                    )]));
+                    )]);
                 }
                 ast::StmtKind::Assign { targets, .. } => {
                     for t in targets {
@@ -947,7 +951,7 @@ impl TopLevelComposer {
 
                     let class_name = if *id == "self".into() {
                         let ast::StmtKind::ClassDef { name, .. } =
-                            &definition_ast_list[class_id].1.as_ref().unwrap().node
+                            &definition_ast_list[class_id].1.as_ref().map(|ast| &ast.node).unwrap()
                         else {
                             unreachable!()
                         };
@@ -995,10 +999,12 @@ impl TopLevelComposer {
                             method_body.as_slice(),
                         )?);
                     } else {
-                        return Err(HashSet::from([format!(
+                        return Err(vec![anyhow!(
                             "{}.{} not found in class {class_name} at {}",
-                            *id, *attr, value.location
-                        )]));
+                            *id,
+                            *attr,
+                            value.location
+                        )]);
                     }
                 }
                 ast::StmtKind::Pass { .. }
@@ -1017,7 +1023,7 @@ impl TopLevelComposer {
         default: &ast::Expr,
         resolver: &(dyn SymbolResolver + Send + Sync),
         builtin_registry: &Arc<dyn BuiltinRegistry>,
-    ) -> Result<SymbolValue, HashSet<String>> {
+    ) -> Result<SymbolValue, Vec<anyhow::Error>> {
         parse_parameter_default_value(default, resolver, builtin_registry)
     }
 
@@ -1079,7 +1085,7 @@ impl TopLevelComposer {
         unifier: &mut Unifier,
         primitives_store: &PrimitiveStore,
         builtin_registry: &Arc<dyn BuiltinRegistry>,
-    ) -> Result<(), HashSet<String>> {
+    ) -> Result<(), Vec<anyhow::Error>> {
         let TopLevelDef::Class {
             object_id: class_def_id,
             ancestors: class_ancestors,
@@ -1096,7 +1102,7 @@ impl TopLevelComposer {
         else {
             unreachable!()
         };
-        let class_resolver = resolver.as_ref().unwrap().as_ref();
+        let class_resolver = resolver.as_ref().map(Arc::as_ref).unwrap();
 
         let mut is_generic = false;
         let mut has_base = false;
@@ -1111,13 +1117,13 @@ impl TopLevelComposer {
                 ast::ExprKind::Subscript { slice, .. }
                     if builtin_registry
                         .has_generic_ann(b)
-                        .map_err(|err| HashSet::from([err.to_string()]))? =>
+                        .map_err(|err| vec![anyhow!("{err}")])? =>
                 {
                     if is_generic {
-                        return Err(HashSet::from([format!(
+                        return Err(vec![anyhow!(
                             "only single Generic[...] is allowed (at {})",
-                            b.location
-                        )]));
+                            b.location,
+                        )]);
                     }
                     is_generic = true;
 
@@ -1146,10 +1152,10 @@ impl TopLevelComposer {
                 }
                 ast::ExprKind::Name { .. } | ast::ExprKind::Subscript { .. } => {
                     if has_base {
-                        return Err(HashSet::from([format!(
+                        return Err(vec![anyhow!(
                             "a class definition can only have at most one base class declaration and one generic declaration (at {})",
                             b.location
-                        )]));
+                        )]);
                     }
                     has_base = true;
                     // the function parse_ast_to make sure that no type var occurred in
@@ -1168,17 +1174,17 @@ impl TopLevelComposer {
                     if let TypeAnnotation::CustomClass { .. } = &base_ty {
                         class_ancestors.push(base_ty);
                     } else {
-                        return Err(HashSet::from([format!(
+                        return Err(vec![anyhow!(
                             "class base declaration can only be custom class (at {})",
                             b.location
-                        )]));
+                        )]);
                     }
                 }
                 _ => {
-                    return Err(HashSet::from([format!(
+                    return Err(vec![anyhow!(
                         "unsupported statement in class defintion (at {})",
                         b.location
-                    )]));
+                    )]);
                 }
             }
         }
@@ -1220,11 +1226,11 @@ pub fn parse_parameter_default_value(
     default: &ast::Expr,
     resolver: &(dyn SymbolResolver + Send + Sync),
     builtin_registry: &Arc<dyn BuiltinRegistry>,
-) -> Result<SymbolValue, HashSet<String>> {
-    fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, HashSet<String>> {
+) -> Result<SymbolValue, Vec<anyhow::Error>> {
+    fn handle_constant(val: &Constant, loc: &Location) -> Result<SymbolValue, Vec<anyhow::Error>> {
         match val {
             Constant::Int(v) => (*v).try_into().map_or_else(
-                |_| Err(HashSet::from([format!("integer value out of range at {loc}")])),
+                |_| Err(vec![anyhow!("integer value out of range at {loc}")]),
                 |v| Ok(SymbolValue::I32(v)),
             ),
             Constant::Float(v) => Ok(SymbolValue::Double(*v)),
@@ -1232,9 +1238,9 @@ pub fn parse_parameter_default_value(
             Constant::Tuple(tuple) => Ok(SymbolValue::Tuple(
                 tuple.iter().map(|x| handle_constant(x, loc)).collect::<Result<Vec<_>, _>>()?,
             )),
-            Constant::None => Err(HashSet::from([format!(
+            Constant::None => Err(vec![anyhow!(
                 "`None` is not supported, use `none` for option type instead ({loc})"
-            )])),
+            )]),
             _ => unimplemented!("this constant is not supported at {}", loc),
         }
     }
@@ -1247,60 +1253,57 @@ pub fn parse_parameter_default_value(
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
                         (*v).try_into().map_or_else(
                             |_| {
-                                Err(HashSet::from([format!(
+                                Err(vec![anyhow!(
                                     "default param value out of range at {}",
                                     default.location
-                                )]))
+                                )])
                             },
                             |v| Ok(SymbolValue::I64(v)),
                         )
                     }
-                    _ => Err(HashSet::from([format!(
+                    _ => Err(vec![anyhow!(
                         "only allow constant integer here at {}",
                         default.location
-                    )])),
+                    )]),
                 },
                 Some(PrimDef::UInt32) => match &args[0].node {
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
                         (*v).try_into().map_or_else(
                             |_| {
-                                Err(HashSet::from([format!(
+                                Err(vec![anyhow!(
                                     "default param value out of range at {}",
                                     default.location
-                                )]))
+                                )])
                             },
                             |v| Ok(SymbolValue::U32(v)),
                         )
                     }
-                    _ => Err(HashSet::from([format!(
+                    _ => Err(vec![anyhow!(
                         "only allow constant integer here at {}",
                         default.location
-                    )])),
+                    )]),
                 },
                 Some(PrimDef::UInt64) => match &args[0].node {
                     ast::ExprKind::Constant { value: Constant::Int(v), .. } => {
                         (*v).try_into().map_or_else(
                             |_| {
-                                Err(HashSet::from([format!(
+                                Err(vec![anyhow!(
                                     "default param value out of range at {}",
                                     default.location
-                                )]))
+                                )])
                             },
                             |v| Ok(SymbolValue::U64(v)),
                         )
                     }
-                    _ => Err(HashSet::from([format!(
+                    _ => Err(vec![anyhow!(
                         "only allow constant integer here at {}",
                         default.location
-                    )])),
+                    )]),
                 },
                 Some(PrimDef::FunSome) => Ok(SymbolValue::OptionSome(Box::new(
                     parse_parameter_default_value(&args[0], resolver, builtin_registry)?,
                 ))),
-                _ => Err(HashSet::from([format!(
-                    "unsupported default parameter at {}",
-                    default.location
-                )])),
+                _ => Err(vec![anyhow!("unsupported default parameter at {}", default.location)]),
             }
         }
         ast::ExprKind::Tuple { elts, .. } => Ok(SymbolValue::Tuple(
@@ -1313,19 +1316,20 @@ pub fn parse_parameter_default_value(
         {
             Ok(SymbolValue::OptionNone)
         }
-        ast::ExprKind::Name { id, .. } => {
-            resolver.get_default_param_value(default).ok_or_else(|| {
-                HashSet::from([format!(
-                    "`{}` cannot be used as a default parameter at {} \
+        ast::ExprKind::Name { id, .. } => resolver
+            .get_default_param_value(default)
+            .map_err(|e| vec![anyhow!("{e:?}")])?
+            .ok_or_else(|| {
+                vec![anyhow!(
+                    "`{id}` cannot be used as a default parameter at {} \
                         (not primitive type, option or tuple / not defined?)",
-                    id, default.location
-                )])
-            })
-        }
-        _ => Err(HashSet::from([format!(
+                    default.location
+                )]
+            }),
+        _ => Err(vec![anyhow!(
             "unsupported default parameter (not primitive type, option or tuple) at {}",
             default.location
-        )])),
+        )]),
     }
 }
 
