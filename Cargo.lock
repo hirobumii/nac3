@@ -662,6 +662,7 @@ dependencies = [
 name = "nac3core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "crossbeam",
  "function_name",
  "indexmap",

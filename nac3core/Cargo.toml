@@ -10,6 +10,7 @@ derive = ["dep:nac3core_derive"]
 no-escape-analysis = []
 
 [dependencies]
+anyhow = "1.0"
 itertools = "0.14"
 crossbeam = "0.8"
 indexmap = "2.12"
