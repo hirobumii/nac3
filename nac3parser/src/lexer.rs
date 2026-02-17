@@ -6,10 +6,10 @@ use std::{char, cmp::Ordering, num::IntErrorKind, str::FromStr};
 use unic_emoji_char::is_emoji_presentation;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
 
+pub use crate::token::Tok;
 use crate::{
     ast::{FileName, Location},
     error::{LexicalError, LexicalErrorType},
-    token::Tok,
 };
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
