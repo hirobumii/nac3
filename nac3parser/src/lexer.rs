@@ -1282,7 +1282,7 @@ mod tests {
     fn test_nac3comment() {
         let src = "\
 a: int32
-# nac3:
+# nac3: 
 b: int64";
         let tokens = lex_source(src);
         assert_eq!(
