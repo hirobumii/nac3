@@ -16,6 +16,7 @@ macro_rules! impl_proxy_type {
         }
 
         impl $($pre)* $crate::codegen::types::ProxyType<'ctx> for $($post)* {
+            #[allow(unused_variables)]
             fn llvm_ty(&$self, $ctx: &$crate::codegen::types::ModuleContext<'ctx>) -> $crate::inkwell::types::BasicTypeEnum<'ctx> {
                 ::core::convert::Into::<$crate::inkwell::types::BasicTypeEnum<'ctx>>::into($llvm_ty)
             }
@@ -27,6 +28,7 @@ macro_rules! impl_proxy_type {
         }
 
         impl $($pre)* $crate::codegen::types::RefType<'ctx> for $($post)* {
+            #[allow(unused_variables)]
             fn alloca_ty(
                 &$self,
                 $ctx: &mut $crate::codegen::types::CodeGenContext<'ctx, '_>,
