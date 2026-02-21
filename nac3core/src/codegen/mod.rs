@@ -231,10 +231,10 @@ impl TargetMachineOptions {
 
 pub struct CodeGenContext<'ctx, 'a> {
     /// The [`CoreContext`] instance which includes the module and target-specific information.
-    pub inner: ModuleContext<'ctx>,
+    pub inner: &'a mut ModuleContext<'ctx>,
 
     /// The [`Builder`] instance for creating LLVM IR statements.
-    pub builder: Builder<'ctx>,
+    pub builder: &'a Builder<'ctx>,
     /// The [`DebugInfoBuilder`], [compilation unit information][DICompileUnit], and
     /// [scope information][DIScope] of this context.
     pub debug_info: (DebugInfoBuilder<'ctx>, DICompileUnit<'ctx>, DIScope<'ctx>),
@@ -290,13 +290,13 @@ impl<'ctx> std::ops::Deref for CodeGenContext<'ctx, '_> {
     type Target = ModuleContext<'ctx>;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner
     }
 }
 
 impl std::ops::DerefMut for CodeGenContext<'_, '_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
+        self.inner
     }
 }
 
@@ -444,25 +444,18 @@ impl WorkerRegistry {
         context_ref!(ctx);
         let options = &self.codegen_options.target;
         let mut context = ModuleContext::new(ctx, generator.get_name(), options);
-        let mut builder = context.ctx.create_builder();
+        let builder = context.ctx.create_builder();
         let mut unifier_cache = vec![OnceCell::new(); self.top_level_ctx.unifiers.read().len()];
 
         let mut errors = HashSet::new();
         while let Some(task) = self.receiver.recv().unwrap() {
-            let (context_, builder_, result) =
-                gen_func(context, builder, generator, self, task, &mut unifier_cache);
-            builder = builder_;
-            context = match result {
-                Ok(_) => context_,
-                Err(e) => {
-                    errors.insert(e);
-                    ModuleContext::new(
-                        context_.ctx,
-                        &format!("{}_recover", generator.get_name()),
-                        &self.codegen_options.target,
-                    )
-                }
-            };
+            let result =
+                gen_func(&mut context, &builder, generator, self, task, &mut unifier_cache);
+            if let Err(e) = result {
+                errors.insert(e);
+                context =
+                    ModuleContext::new(ctx, &format!("{}_recover", generator.get_name()), options);
+            }
             *self.task_count.lock() -= 1;
             self.wait_condvar.notify_all();
         }
@@ -545,7 +538,7 @@ fn get_alloca_type<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicT
             let fields = fields_list
                 .iter()
                 .map(|f| {
-                    get_llvm_type(&ctx.inner, &mut ctx.unifier, &mut ctx.type_cache, fields[&f.0].0)
+                    get_llvm_type(ctx.inner, &mut ctx.unifier, &mut ctx.type_cache, fields[&f.0].0)
                 })
                 .collect_vec();
             struct_type.set_body(&fields, false);
@@ -706,17 +699,18 @@ where
 )]
 pub fn gen_func_impl<
     'ctx,
+    'a,
     G: CodeGenerator,
     F: FnOnce(&mut G, &mut CodeGenContext) -> Result<(), String>,
 >(
-    mut ctx: ModuleContext<'ctx>,
-    builder: Builder<'ctx>,
+    ctx: &'a mut ModuleContext<'ctx>,
+    builder: &'a Builder<'ctx>,
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
     unifier_cache: &mut [OnceCell<Unifier>],
     codegen_function: F,
-) -> (ModuleContext<'ctx>, Builder<'ctx>, Result<FunctionValue<'ctx>, String>) {
+) -> Result<FunctionValue<'ctx>, String> {
     let top_level_ctx = registry.top_level_ctx.clone();
     let static_value_store = registry.static_value_store.clone();
     let (mut unifier, primitives) = {
@@ -777,10 +771,10 @@ pub fn gen_func_impl<
         (primitives.uint64, ctx.i64.into()),
         (primitives.float, ctx.f64.into()),
         (primitives.bool, ctx.i8.into()),
-        (primitives.str, { StringType::new(&ctx).llvm_ty(&ctx) }),
-        (primitives.range, RangeType::new(&ctx).llvm_ty(&ctx)),
-        (primitives.enumerate, EnumerateType::new(&ctx).llvm_ty(&ctx)),
-        (primitives.exception, { ExceptionType::new(&ctx).llvm_ty(&ctx) }),
+        (primitives.str, { StringType::new(ctx).llvm_ty(ctx) }),
+        (primitives.range, RangeType::new(ctx).llvm_ty(ctx)),
+        (primitives.enumerate, EnumerateType::new(ctx).llvm_ty(ctx)),
+        (primitives.exception, { ExceptionType::new(ctx).llvm_ty(ctx) }),
     ]
     .iter()
     .copied()
@@ -800,7 +794,7 @@ pub fn gen_func_impl<
     let ret_type = if unifier.unioned(ret, primitives.none) {
         None
     } else {
-        Some(get_llvm_abi_type(&ctx, &mut unifier, &mut type_cache, &primitives, ret))
+        Some(get_llvm_abi_type(ctx, &mut unifier, &mut type_cache, &primitives, ret))
     };
 
     let params = args
@@ -815,7 +809,7 @@ pub fn gen_func_impl<
     let params_type = params
         .iter()
         .map(|arg| {
-            get_llvm_abi_type(&ctx, &mut unifier, &mut type_cache, &primitives, arg.ty).into()
+            get_llvm_abi_type(ctx, &mut unifier, &mut type_cache, &primitives, arg.ty).into()
         })
         .collect_vec();
 
@@ -824,7 +818,7 @@ pub fn gen_func_impl<
     // so we must redefine the function from scratch.
     let (_, fn_val) = ctx.declare_internal(symbol, ret_type, &params_type, task.export_symbol);
 
-    if let Some(personality) = get_personality(&top_level_ctx, &ctx) {
+    if let Some(personality) = get_personality(&top_level_ctx, ctx) {
         fn_val.set_personality_function(personality);
     }
 
@@ -837,7 +831,7 @@ pub fn gen_func_impl<
 
     for (n, arg) in params.iter().enumerate().filter(|(_, arg)| !arg.is_vararg) {
         let param = fn_val.get_nth_param(n as u32).unwrap();
-        let local_type = get_llvm_type(&ctx, &mut unifier, &mut type_cache, arg.ty);
+        let local_type = get_llvm_type(ctx, &mut unifier, &mut type_cache, arg.ty);
         let alloca =
             builder.build_alloca(local_type, &format!("{}.addr", &arg.name.to_string())).unwrap();
 
@@ -847,7 +841,7 @@ pub fn gen_func_impl<
             let param_val = param.into_int_value();
 
             if expected_ty.get_bit_width() == 8 && param_val.get_type().get_bit_width() == 1 {
-                bool_to_int_type(&builder, param_val, ctx.i8)
+                bool_to_int_type(builder, param_val, ctx.i8)
             } else {
                 param_val
             }
@@ -856,7 +850,7 @@ pub fn gen_func_impl<
             param
         };
 
-        typed_store(&builder, alloca, param);
+        typed_store(builder, alloca, param);
         var_assignment.insert(arg.name, VarValue::new(alloca));
     }
 
@@ -875,7 +869,7 @@ pub fn gen_func_impl<
     }
 
     let exception_val = {
-        let exn_type = ExceptionType::new(&ctx).inner.llvm_ty;
+        let exn_type = ExceptionType::new(ctx).inner.llvm_ty;
         let ptr = builder.build_alloca(exn_type, "exn").unwrap();
         builder.build_pointer_cast(ptr, ctx.ptr, "exn").unwrap()
     };
@@ -979,8 +973,7 @@ pub fn gen_func_impl<
     code_gen_context.builder.unset_current_debug_location();
     code_gen_context.debug_info.0.finalize();
 
-    let CodeGenContext { inner, builder, .. } = code_gen_context;
-    (inner, builder, result)
+    result
 }
 
 /// Generates LLVM IR for a function.
@@ -990,31 +983,34 @@ pub fn gen_func_impl<
 /// * `generator` - The [`CodeGenerator`] for generating various program constructs.
 /// * `registry` - The [`WorkerRegistry`] responsible for monitoring this function generation task.
 /// * `task` - The [`CodeGenTask`] associated with this function generation task.
-pub fn gen_func<'ctx, G: CodeGenerator>(
-    context: ModuleContext<'ctx>,
-    builder: Builder<'ctx>,
+pub fn gen_func<'ctx, 'a, G: CodeGenerator>(
+    context: &'a mut ModuleContext<'ctx>,
+    builder: &'a Builder<'ctx>,
     generator: &mut G,
     registry: &WorkerRegistry,
     task: CodeGenTask,
     unifier_cache: &mut [OnceCell<Unifier>],
-) -> (ModuleContext<'ctx>, Builder<'ctx>, Result<FunctionValue<'ctx>, String>) {
+) -> Result<FunctionValue<'ctx>, String> {
     let body = task.body.clone();
     gen_func_impl(context, builder, generator, registry, task, unifier_cache, |generator, ctx| {
         generator.gen_block(ctx, body.iter())
     })
 }
 
+#[must_use]
 pub fn bool_to_i1<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     bool_value: IntValue<'ctx>,
 ) -> IntValue<'ctx> {
-    bool_to_int_type(&ctx.builder, bool_value, ctx.i1)
+    bool_to_int_type(ctx.builder, bool_value, ctx.i1)
 }
+
+#[must_use]
 pub fn bool_to_i8<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     bool_value: IntValue<'ctx>,
 ) -> IntValue<'ctx> {
-    bool_to_int_type(&ctx.builder, bool_value, ctx.i8)
+    bool_to_int_type(ctx.builder, bool_value, ctx.i8)
 }
 
 /// Converts the value of a boolean-like value `value` into an arbitrary [`IntType`].

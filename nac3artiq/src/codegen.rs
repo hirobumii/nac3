@@ -150,7 +150,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
                     store_name.map(|name| format!("{name}.addr")).as_deref(),
                 )?
                 .unwrap();
-            typed_store(&ctx.builder, end_store, max);
+            typed_store(ctx.builder, end_store, max);
         }
 
         Ok(())
@@ -275,7 +275,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
                                 let start = self
                                     .gen_store_target(ctx, &start_expr, Some("start.addr"))?
                                     .unwrap();
-                                typed_store(&ctx.builder, start, now);
+                                typed_store(ctx.builder, start, now);
                                 Ok(Some(start_expr)) as Result<_, String>
                             },
                             |v| Ok(Some(v)),
@@ -288,7 +288,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
                             custom: Some(ctx.primitives.int64),
                         };
                         let end = self.gen_store_target(ctx, &end_expr, Some("end.addr"))?.unwrap();
-                        typed_store(&ctx.builder, end, now);
+                        typed_store(ctx.builder, end, now);
                         self.end = Some(end_expr);
                         self.name_counter += 1;
                         self.parallel_mode = if python_id == self.special_ids.parallel {
@@ -485,7 +485,7 @@ fn format_rpc_arg<'ctx>(
 
         _ => {
             let arg_slot = gen_var(ctx, arg.get_type(), Some(&format!("rpc.arg{arg_idx}")));
-            typed_store(&ctx.builder, arg_slot, arg);
+            typed_store(ctx.builder, arg_slot, arg);
 
             ctx.builder
                 .build_bit_cast(arg_slot, llvm_pi8, "rpc.arg")
@@ -521,7 +521,7 @@ fn format_rpc_ret<'ctx>(
         ctx.declare_external("rpc_recv", Some(llvm_i32.into()), &[llvm_pi8.into()], false, &[]);
 
     if ctx.unifier.unioned(ret_ty, ctx.primitives.none) {
-        ctx.build_call_or_invoke(&rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv");
+        let _ = ctx.build_call_or_invoke(&rpc_recv, &[llvm_pi8.const_null().into()], "rpc_recv");
         return None;
     }
 
@@ -1043,7 +1043,7 @@ fn polymorphic_print<'ctx>(
             TypeEnum::TTuple { ty: tys, is_vararg_ctx: false } => {
                 let pvalue = {
                     let pvalue = gen_var(ctx, value.get_type(), None);
-                    typed_store(&ctx.builder, pvalue, value);
+                    typed_store(ctx.builder, pvalue, value);
                     pvalue
                 };
 

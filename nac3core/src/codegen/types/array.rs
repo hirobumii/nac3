@@ -39,9 +39,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> V {
         let ptr = self.ptr_offset_unchecked(ctx, idx, name);
-        typed_load(&ctx.builder, ptr, self.item_type(), name.unwrap_or_default())
-            .try_into()
-            .unwrap()
+        typed_load(ctx.builder, ptr, self.item_type(), name.unwrap_or_default()).try_into().unwrap()
     }
 
     /// Loads the value at the `idx`-th index with bounds checking.
@@ -52,9 +50,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> V {
         let ptr = self.ptr_offset(ctx, idx, name);
-        typed_load(&ctx.builder, ptr, self.item_type(), name.unwrap_or_default())
-            .try_into()
-            .unwrap()
+        typed_load(ctx.builder, ptr, self.item_type(), name.unwrap_or_default()).try_into().unwrap()
     }
 
     /// Stores the `value` at the `idx`-th index without bounds checking.
@@ -66,7 +62,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) {
         let ptr = self.ptr_offset_unchecked(ctx, idx, name);
-        typed_store(&ctx.builder, ptr, value.as_basic_value_enum());
+        typed_store(ctx.builder, ptr, value.as_basic_value_enum());
     }
 
     /// Stores the `value` at the `idx`-th index with bounds checking.
@@ -78,7 +74,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) {
         let ptr = self.ptr_offset(ctx, idx, name);
-        typed_store(&ctx.builder, ptr, value.as_basic_value_enum());
+        typed_store(ctx.builder, ptr, value.as_basic_value_enum());
     }
 }
 

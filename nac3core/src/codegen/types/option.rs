@@ -48,7 +48,7 @@ impl OptionType {
         match value {
             Some(v) => {
                 let value = self.alloca(ctx, name);
-                typed_store(&ctx.builder, value.value, v);
+                typed_store(ctx.builder, value.value, v);
                 value
             }
             None => self.map_value(ctx.ptr.const_null(), name),
@@ -73,6 +73,6 @@ impl<'ctx> OptionValue<'ctx> {
         name: Option<&str>,
     ) -> BasicValueEnum<'ctx> {
         let ty = self.ty.alloca_ty(ctx);
-        typed_load(&ctx.builder, self.value, ty, name.or(self.name).unwrap_or(""))
+        typed_load(ctx.builder, self.value, ty, name.or(self.name).unwrap_or(""))
     }
 }

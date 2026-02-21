@@ -830,8 +830,8 @@ pub fn call_numpy_max_min<'ctx>(
             let extremum_idx = gen_var(ctx, ctx.size_t, None);
 
             let first_value = ndarray.first_element(ctx);
-            typed_store(&ctx.builder, extremum, first_value);
-            typed_store(&ctx.builder, extremum_idx, zero);
+            typed_store(ctx.builder, extremum, first_value);
+            typed_store(ctx.builder, extremum_idx, zero);
 
             // The first element is iterated, but this doesn't matter.
             ndarray
@@ -884,8 +884,8 @@ pub fn call_numpy_max_min<'ctx>(
                         }
                     };
 
-                    typed_store(&ctx.builder, extremum, new_extremum);
-                    typed_store(&ctx.builder, extremum_idx, new_extremum_idx);
+                    typed_store(ctx.builder, extremum, new_extremum);
+                    typed_store(ctx.builder, extremum_idx, new_extremum_idx);
 
                     Ok(())
                 })

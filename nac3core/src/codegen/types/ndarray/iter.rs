@@ -97,7 +97,7 @@ impl<'ctx> NDIterValue<'ctx> {
     #[must_use]
     pub fn get_scalar(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
         let p = self.curr_ptr(ctx);
-        typed_load(&ctx.builder, p, self.ty.dtype, "value")
+        typed_load(ctx.builder, p, self.ty.dtype, "value")
     }
 
     /// Returns the current iteration index (i.e., how many elements have been iterated so far).
@@ -165,7 +165,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     {
         let init = init.as_basic_value_enum();
         let acc_ptr = gen_var(ctx, init.get_type(), None);
-        typed_store(&ctx.builder, acc_ptr, init);
+        typed_store(ctx.builder, acc_ptr, init);
 
         gen_for_callback(
             &mut (),
@@ -176,7 +176,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             |(), ctx, hooks, nditer| {
                 let acc = V::try_from(ctx.builder.build_load(acc_ptr, "").unwrap()).unwrap();
                 let acc = f(ctx, hooks, acc, nditer)?;
-                typed_store(&ctx.builder, acc_ptr, acc);
+                typed_store(ctx.builder, acc_ptr, acc);
                 Ok(())
             },
             |(), ctx, nditer| {

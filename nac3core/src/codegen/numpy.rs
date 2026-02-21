@@ -316,7 +316,7 @@ pub fn ndarray_dot<'ctx>(
             let dtype_llvm = ctx.get_llvm_type(common_dtype);
 
             let result = gen_var(ctx, dtype_llvm, Some("np_dot_result"));
-            typed_store(&ctx.builder, result, dtype_llvm.const_zero());
+            typed_store(ctx.builder, result, dtype_llvm.const_zero());
 
             // Do dot product.
             gen_for_callback(
@@ -357,7 +357,7 @@ pub fn ndarray_dot<'ctx>(
                         }
                     };
 
-                    typed_store(&ctx.builder, result, new_result);
+                    typed_store(ctx.builder, result, new_result);
                     Ok(())
                 },
                 |(), ctx, (a_iter, b_iter)| {

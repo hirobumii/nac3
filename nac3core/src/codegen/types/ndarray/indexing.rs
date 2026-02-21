@@ -226,7 +226,7 @@ impl<'ctx> RustNDIndex<'ctx> {
         match *self {
             RustNDIndex::SingleElement(in_index) => {
                 let index_ptr = gen_var(ctx, ctx.i32, None);
-                typed_store(&ctx.builder, index_ptr, in_index);
+                typed_store(ctx.builder, index_ptr, in_index);
                 dst_ndindex.store(ctx, field!(data), index_ptr);
             }
             RustNDIndex::Slice(slice) => {

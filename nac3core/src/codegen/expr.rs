@@ -198,7 +198,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
 
     /// See [`get_llvm_type`].
     pub fn get_llvm_type(&mut self, ty: Type) -> BasicTypeEnum<'ctx> {
-        get_llvm_type(&self.inner, &mut self.unifier, &mut self.type_cache, ty)
+        get_llvm_type(self.inner, &mut self.unifier, &mut self.type_cache, ty)
     }
 
     /// Returns the type for performing memory allocation for the given `ty`.
@@ -208,13 +208,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
 
     /// See [`get_llvm_abi_type`].
     pub fn get_llvm_abi_type(&mut self, ty: Type) -> BasicTypeEnum<'ctx> {
-        get_llvm_abi_type(
-            &self.inner,
-            &mut self.unifier,
-            &mut self.type_cache,
-            &self.primitives,
-            ty,
-        )
+        get_llvm_abi_type(self.inner, &mut self.unifier, &mut self.type_cache, &self.primitives, ty)
     }
 
     /// Generates an LLVM variable for a [constant value][value] with a given [type][ty].
@@ -451,7 +445,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                 let args: Vec<_> = args.iter().map(|v| (*v).into()).collect();
                 self.fn_store.do_call(
                     fun,
-                    &self.builder,
+                    self.builder,
                     &args,
                     |value, args| self.builder.build_call(value, args, call_name).unwrap(),
                     alloca,
@@ -463,7 +457,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
                     self.ctx.append_basic_block(current, &format!("after.{call_name}"));
                 let result = self.fn_store.do_call(
                     fun,
-                    &self.builder,
+                    self.builder,
                     args,
                     |value, args| {
                         self.builder
@@ -479,6 +473,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     }
 
     /// Calls a declared function.
+    #[must_use]
     pub fn build_call_or_invoke(
         &self,
         fun: &FunctionDecl<'ctx>,
@@ -489,6 +484,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
     }
 
     /// Calls a declared function, ignoring unwind info.
+    #[must_use]
     pub fn build_call(
         &self,
         fun: &FunctionDecl<'ctx>,
@@ -851,7 +847,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let zero_32 = int32.const_zero();
 
     let index = gen_var(ctx, size_t, Some("index.addr"));
-    typed_store(&ctx.builder, index, zero_size_t);
+    typed_store(ctx.builder, index, zero_size_t);
 
     let elem_ty = elt.custom.unwrap();
     let list;
@@ -893,7 +889,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 
             let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
             typed_store(
-                &ctx.builder,
+                ctx.builder,
                 i,
                 ctx.builder.build_int_sub(start, step, "start_init").unwrap(),
             );
@@ -916,7 +912,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                     "start_loop",
                 )
                 .unwrap();
-            typed_store(&ctx.builder, i, tmp);
+            typed_store(ctx.builder, i, tmp);
             ctx.builder
                 .build_conditional_branch(
                     gen_in_range_check(ctx, tmp, stop, step),
@@ -937,14 +933,14 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 
             let counter = gen_var(ctx, size_t, Some("counter.addr"));
             // counter = -1
-            typed_store(&ctx.builder, counter, size_t.const_all_ones());
+            typed_store(ctx.builder, counter, size_t.const_all_ones());
             ctx.builder.build_unconditional_branch(test_bb).unwrap();
 
             ctx.builder.position_at_end(test_bb);
             let tmp =
                 ctx.builder.build_load(counter, "i").map(BasicValueEnum::into_int_value).unwrap();
             let tmp = ctx.builder.build_int_add(tmp, size_t.const_int(1, false), "inc").unwrap();
-            typed_store(&ctx.builder, counter, tmp);
+            typed_store(ctx.builder, counter, tmp);
             let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, length, "cmp").unwrap();
             ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb).unwrap();
 
@@ -982,9 +978,9 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let i = ctx.builder.build_load(index, "i").map(BasicValueEnum::into_int_value).unwrap();
     let elem_ptr = list.data(ctx).ptr_offset_unchecked(ctx, &i, Some("elem_ptr"));
     let val = generator.gen_expr(ctx, elt)?.to_basic_value_enum(ctx)?;
-    typed_store(&ctx.builder, elem_ptr, val);
+    typed_store(ctx.builder, elem_ptr, val);
     typed_store(
-        &ctx.builder,
+        ctx.builder,
         index,
         ctx.builder.build_int_add(i, size_t.const_int(1, false), "inc").unwrap(),
     );
@@ -1300,7 +1296,7 @@ pub fn gen_unaryop_expr_with_values<'ctx>(
                 .build_int_compare(IntPredicate::EQ, val, val.get_type().const_zero(), "not")
                 .unwrap();
 
-            bool_to_int_type(&ctx.builder, not, val.get_type()).into()
+            bool_to_int_type(ctx.builder, not, val.get_type()).into()
         } else {
             let llvm_i32 = ctx.i32;
 
@@ -1588,7 +1584,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         |_, _ctx| Ok(eq_len),
                         |generator, ctx| {
                             let acc_addr = gen_var(ctx, ctx.i8, None);
-                            typed_store(&ctx.builder, acc_addr, ctx.i8.const_all_ones());
+                            typed_store(ctx.builder, acc_addr, ctx.i8.const_all_ones());
 
                             gen_for_callback_incrementing(
                                 &mut (),
@@ -1620,8 +1616,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                         ctx,
                                         |(), _ctx| Ok(bool_res),
                                         |(), ctx| {
-                                            typed_store(&ctx.builder, acc_addr, false_);
-                                            hooks.build_break_branch(&ctx.builder);
+                                            typed_store(ctx.builder, acc_addr, false_);
+                                            hooks.build_break_branch(ctx.builder);
 
                                             Ok(())
                                         },
@@ -1676,7 +1672,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 // Assume `true` by default
                 let cmp_addr = gen_var(ctx, llvm_i8, None);
-                typed_store(&ctx.builder, cmp_addr, llvm_i8.const_all_ones());
+                typed_store(ctx.builder, cmp_addr, llvm_i8.const_all_ones());
 
                 let current_bb = ctx.builder.get_insert_block().unwrap();
                 let post_foreach_cmp = ctx.ctx.insert_basic_block_after(current_bb, "foreach.cmp.end");
@@ -2031,7 +2027,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         None => None,
         Some(v) => {
             let a = a.to_basic_value_enum(ctx)?;
-            Some(typed_store(&ctx.builder, v, a))
+            Some(typed_store(ctx.builder, v, a))
         }
     };
     ctx.builder.build_unconditional_branch(cont_bb).unwrap();
@@ -2042,7 +2038,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         None => None,
         Some(v) => {
             let b = b.to_basic_value_enum(ctx)?;
-            Some(typed_store(&ctx.builder, v, b))
+            Some(typed_store(ctx.builder, v, b))
         }
     };
     ctx.builder.build_unconditional_branch(cont_bb).unwrap();
@@ -2400,7 +2396,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             let llvm_ty = ctx.get_llvm_type(ty);
             match ctx.var_assignment.get(id) {
                 Some(VarValue { ptr, static_value: None, .. }) => {
-                    let val = typed_load(&ctx.builder, *ptr, llvm_ty, id.to_string().as_str());
+                    let val = typed_load(ctx.builder, *ptr, llvm_ty, id.to_string().as_str());
                     Ok(RtValue::dynamic(ty, val))
                 }
                 Some(VarValue { static_value: Some(static_value), .. }) => {

@@ -192,7 +192,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         let dtype = value.get_type();
         let ndarray = NDArrayType::new(ctx, dtype, 0).construct(ctx, name);
         let data = gen_var(ctx, value.get_type(), Some("map_unsized"));
-        typed_store(&ctx.builder, data, value);
+        typed_store(ctx.builder, data, value);
         let data = ctx.builder.build_pointer_cast(data, ctx.ptr, "").unwrap();
         ndarray.store(ctx, field!(data), data);
         ndarray
@@ -331,7 +331,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         //       Probably best to implement in IRRT.
         self.foreach(ctx, |ctx, _, nditer| {
             let p = nditer.curr_ptr(ctx);
-            typed_store(&ctx.builder, p, value);
+            typed_store(ctx.builder, p, value);
             Ok(())
         })
         .unwrap();
@@ -341,7 +341,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     #[must_use]
     pub fn first_element(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> BasicValueEnum<'ctx> {
         let data = self.load(ctx, field!(data));
-        typed_load(&ctx.builder, data, self.ty.dtype, "first_element")
+        typed_load(ctx.builder, data, self.ty.dtype, "first_element")
     }
 }
 

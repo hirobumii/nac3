@@ -200,7 +200,7 @@ impl<'ctx, Value> StructField<'ctx, Value> {
         Value: TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
     {
         typed_load(
-            &ctx.builder,
+            ctx.builder,
             self.ptr_by_gep(ctx, struct_ty, pobj, obj_name),
             self.ty,
             &obj_name.map(|name| format!("{name}.{}", self.name)).unwrap_or_default(),
@@ -220,7 +220,7 @@ impl<'ctx, Value> StructField<'ctx, Value> {
     ) where
         Value: BasicValue<'ctx>,
     {
-        typed_store(&ctx.builder, self.ptr_by_gep(ctx, struct_ty, pobj, obj_name), value);
+        typed_store(ctx.builder, self.ptr_by_gep(ctx, struct_ty, pobj, obj_name), value);
     }
 }
 

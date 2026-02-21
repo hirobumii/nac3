@@ -86,10 +86,10 @@ impl TimeFns for NowPinningTimeFns64 {
             ctx.builder.build_gep(now_hiptr, &[i32_type.const_int(2, false)], "now.lo.addr")
         }
         .unwrap();
-        typed_store(&ctx.builder, now_hiptr, time_hi)
+        typed_store(ctx.builder, now_hiptr, time_hi)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
-        typed_store(&ctx.builder, now_loptr, time_lo)
+        typed_store(ctx.builder, now_loptr, time_lo)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
     }
@@ -143,10 +143,10 @@ impl TimeFns for NowPinningTimeFns64 {
             .unwrap();
         let time_lo = ctx.builder.build_int_truncate(time, i32_type, "time.lo").unwrap();
 
-        typed_store(&ctx.builder, now_hiptr, time_hi)
+        typed_store(ctx.builder, now_hiptr, time_hi)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
-        typed_store(&ctx.builder, now_loptr, time_lo)
+        typed_store(ctx.builder, now_loptr, time_lo)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
     }
@@ -205,10 +205,10 @@ impl TimeFns for NowPinningTimeFns {
             ctx.builder.build_gep(now_hiptr, &[i32_type.const_int(1, false)], "now.lo.addr")
         }
         .unwrap();
-        typed_store(&ctx.builder, now_hiptr, time_hi)
+        typed_store(ctx.builder, now_hiptr, time_hi)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
-        typed_store(&ctx.builder, now_loptr, time_lo)
+        typed_store(ctx.builder, now_loptr, time_lo)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
     }
@@ -252,10 +252,10 @@ impl TimeFns for NowPinningTimeFns {
             ctx.builder.build_gep(now_hiptr, &[i32_type.const_int(1, false)], "now.lo.addr")
         }
         .unwrap();
-        typed_store(&ctx.builder, now_hiptr, time_hi)
+        typed_store(ctx.builder, now_hiptr, time_hi)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
-        typed_store(&ctx.builder, now_loptr, time_lo)
+        typed_store(ctx.builder, now_loptr, time_lo)
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)
             .unwrap();
     }

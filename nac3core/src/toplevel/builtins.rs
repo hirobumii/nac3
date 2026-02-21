@@ -773,7 +773,7 @@ impl<'a> BuiltinBuilder<'a> {
                 codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, obj, _, args| {
                     let (zelf_ty, zelf) = obj.unwrap();
                     let zelf = zelf.to_basic_value_enum(ctx, zelf_ty)?.into_pointer_value();
-                    let zelf = EnumerateType::new(&ctx.inner).map_value(zelf, Some("enumerate"));
+                    let zelf = EnumerateType::new(ctx.inner).map_value(zelf, Some("enumerate"));
 
                     let ty_i32 = ctx.primitives.int32;
                     let int32 = ctx.i32;
@@ -936,7 +936,7 @@ impl<'a> BuiltinBuilder<'a> {
                     let arg_ty = fun.0.args[0].ty;
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
                     let alloca = gen_var(ctx, arg_val.get_type(), Some("alloca_some"));
-                    typed_store(&ctx.builder, alloca, arg_val);
+                    typed_store(ctx.builder, alloca, arg_val);
                     Ok(Some(alloca.into()))
                 })))),
                 loc: None,
@@ -1884,7 +1884,7 @@ impl<'a> BuiltinBuilder<'a> {
                     },
                     |(), ctx| {
                         if let Some(hooks) = hooks {
-                            hooks.build_break_branch(&ctx.builder);
+                            hooks.build_break_branch(ctx.builder);
                         }
                         Ok(())
                     },

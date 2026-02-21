@@ -184,7 +184,7 @@ impl<'ctx> NDArrayType<'ctx> {
                 let value = ctx.builder.build_select(be_one, ndone, ndzero, "value").unwrap();
 
                 let p = nditer.curr_ptr(ctx);
-                typed_store(&ctx.builder, p, value);
+                typed_store(ctx.builder, p, value);
 
                 Ok(())
             })

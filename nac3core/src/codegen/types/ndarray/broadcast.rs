@@ -180,7 +180,7 @@ where
             let result = mapping(ctx, &in_scalars)?;
 
             let p = out_nditer.curr_ptr(ctx);
-            typed_store(&ctx.builder, p, result);
+            typed_store(ctx.builder, p, result);
 
             Ok(())
         },

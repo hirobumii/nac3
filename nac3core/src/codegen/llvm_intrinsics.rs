@@ -63,6 +63,7 @@ pub fn call_va_end<'ctx>(ctx: &CodeGenContext<'ctx, '_>, arglist: PointerValue<'
 }
 
 #[doc = llvm_doc!("va_stacksave")]
+#[must_use]
 pub fn call_stacksave<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     name: Option<&str>,
@@ -235,6 +236,7 @@ macro_rules! generate_llvm_intrinsic_fn {
 ///
 /// * `src` - The value for which the absolute value is to be returned.
 /// * `is_int_min_poison` - Whether `poison` is to be returned if `src` is `INT_MIN`.
+#[must_use]
 pub fn call_int_abs<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     src: IntValue<'ctx>,
@@ -272,6 +274,7 @@ generate_llvm_intrinsic_fn!(float call_float_round: "round"(val));
 generate_llvm_intrinsic_fn!(float call_float_rint: "rint"(val));
 
 #[doc = llvm_doc!("powi")]
+#[must_use]
 pub fn call_float_powi<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     val: FloatValue<'ctx>,
@@ -282,6 +285,7 @@ pub fn call_float_powi<'ctx>(
 }
 
 #[doc = llvm_doc!("ctpop")]
+#[must_use]
 pub fn call_int_ctpop<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     src: IntValue<'ctx>,

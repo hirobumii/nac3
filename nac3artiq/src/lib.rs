@@ -1259,13 +1259,13 @@ impl Nac3 {
             );
 
             context_ref!(context);
-            let context = ModuleContext::new(context, "main", &self.codegen_options.target);
+            let mut context = ModuleContext::new(context, "main", &self.codegen_options.target);
             let builder = context.ctx.create_builder();
             let mut unifier_cache = vec![OnceCell::new(); top_level.unifiers.read().len()];
 
-            let (context, _, result) = gen_func_impl(
-                context,
-                builder,
+            let result = gen_func_impl(
+                &mut context,
+                &builder,
                 &mut generator,
                 &registry,
                 task,

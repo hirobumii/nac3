@@ -1322,7 +1322,7 @@ impl InnerResolver {
 
             {
                 if self.global_value_ids.read().contains_key(&id) {
-                    let enum_ty = EnumerateType::new(&ctx.inner);
+                    let enum_ty = EnumerateType::new(ctx.inner);
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
                         ctx.module.add_global(
                             enum_ty.inner.llvm_ty,
@@ -1412,7 +1412,7 @@ impl InnerResolver {
             // }
             // Note: This matches EnumerateType in enumerate.rs where the structure wraps
             // the iterable pointer and start value.
-            let enum_ty = EnumerateType::new(&ctx.inner);
+            let enum_ty = EnumerateType::new(ctx.inner);
             let enum_struct_ty = enum_ty.inner.llvm_ty;
 
             let enum_struct_val = enum_struct_ty.const_named_struct(&[

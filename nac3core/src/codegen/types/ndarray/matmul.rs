@@ -77,7 +77,7 @@ fn matmul_at_least_2d<'ctx>(
     dst.foreach(ctx, |ctx, _, hdl| {
         let pdst_ij = hdl.curr_ptr(ctx);
 
-        typed_store(&ctx.builder, pdst_ij, dst_zero);
+        typed_store(ctx.builder, pdst_ij, dst_zero);
 
         let indices = hdl.indices(ctx);
         let i = indices.get_unchecked::<IntValue<'ctx>>(ctx, &at_row, None);
@@ -116,7 +116,7 @@ fn matmul_at_least_2d<'ctx>(
                 .expect("matmul: ndarray should contain primtives only");
 
                 // dst_[...]ij += x
-                let dst_ij = typed_load(&ctx.builder, pdst_ij, dst_dtype_llvm, "");
+                let dst_ij = typed_load(ctx.builder, pdst_ij, dst_dtype_llvm, "");
                 let dst_ij = gen_prim_binop_expr(
                     ctx,
                     (&Some(dst_dtype), dst_ij),
@@ -124,7 +124,7 @@ fn matmul_at_least_2d<'ctx>(
                     (&Some(dst_dtype), x),
                 )?
                 .expect("matmul: ndarray should contain primtives only");
-                typed_store(&ctx.builder, pdst_ij, dst_ij);
+                typed_store(ctx.builder, pdst_ij, dst_ij);
 
                 Ok(())
             },
