@@ -40,7 +40,7 @@ use nac3core::{
     },
 };
 use pyo3::{
-    PyResult, Python,
+    Python,
     prelude::*,
     types::{PyDict, PyList},
 };
@@ -845,21 +845,15 @@ pub fn attributes_writeback<'ctx>(
     host_attributes: &Py<PyAny>,
     return_obj: Option<(Type, ValueEnum<'ctx>)>,
 ) -> anyhow::Result<()> {
-    Python::attach(|py| -> PyResult<anyhow::Result<()>> {
-        let host_attributes = host_attributes.cast_bound::<PyList>(py)?;
+    Python::attach(|py| -> anyhow::Result<()> {
+        let host_attributes = host_attributes.cast_bound::<PyList>(py).map_err(PyErr::from)?;
         let int32 = ctx.i32;
         let zero = int32.const_zero();
         let mut values = Vec::new();
         let mut scratch_buffer = Vec::new();
 
         if let Some((ty, obj)) = return_obj {
-            values.push((
-                ty,
-                match obj.to_basic_value_enum(ctx, ty) {
-                    Ok(v) => v,
-                    Err(e) => return Ok(Err(e)),
-                },
-            ));
+            values.push((ty, obj.to_basic_value_enum(ctx, ty)?));
         }
 
         for val in (*inner_resolver.global_value_ids.read()).values() {
@@ -871,10 +865,6 @@ pub fn attributes_writeback<'ctx>(
                 &ctx.top_level.definitions.read(),
                 &ctx.primitives,
             )?;
-            let ty = match ty {
-                Ok(ty) => ty,
-                Err(e) => return Ok(Err(anyhow!("{e}"))),
-            };
             match &*ctx.unifier.get_ty(ty) {
                 TypeEnum::TObj { obj_id, params, .. } if *obj_id == PrimDef::List.id() => {
                     let elem_ty = iter_type_vars(params).next().unwrap().ty;
@@ -883,10 +873,7 @@ pub fn attributes_writeback<'ctx>(
                         let pydict = PyDict::new(py);
                         pydict.set_item("obj", val)?;
                         host_attributes.append(pydict)?;
-                        let value = match inner_resolver.get_obj_value(py, val, ctx, ty)? {
-                            Ok(v) => v.unwrap(),
-                            Err(err) => return Ok(Err(err)),
-                        };
+                        let value = inner_resolver.get_obj_value(py, val, ctx, ty)?.unwrap();
                         values.push((ty, value));
                     }
                 }
@@ -896,10 +883,7 @@ pub fn attributes_writeback<'ctx>(
                     // we only care about primitive attributes
                     // for non-primitive attributes, they should be in another global
                     let mut attributes = Vec::new();
-                    let obj = match inner_resolver.get_obj_value(py, val, ctx, ty)? {
-                        Ok(v) => v.unwrap(),
-                        Err(err) => return Ok(Err(err)),
-                    };
+                    let obj = inner_resolver.get_obj_value(py, val, ctx, ty)?.unwrap();
                     for (name, (field_ty, attr_kind)) in fields {
                         if !attr_kind.is_mutable() {
                             continue;
@@ -909,14 +893,11 @@ pub fn attributes_writeback<'ctx>(
                             let (index, _) = ctx.get_attr_index(ty, *name);
                             values.push((
                                 *field_ty,
-                                match ctx.build_gep_and_load(
+                                ctx.build_gep_and_load(
                                     obj.into_pointer_value(),
                                     &[zero, int32.const_int(index as u64, false)],
                                     None,
-                                ) {
-                                    Ok(v) => v,
-                                    Err(e) => return Ok(Err(e)),
-                                },
+                                )?,
                             ));
                         }
                     }
@@ -946,11 +927,9 @@ pub fn attributes_writeback<'ctx>(
         };
         let args: Vec<_> =
             values.into_iter().map(|(_, val)| (None, ValueEnum::Dynamic(val))).collect();
-        if let Err(e) = rpc_codegen_callback_fn(ctx, None, (&fun, DefinitionId(0)), args, true) {
-            return Ok(Err(e));
-        }
-        Ok(anyhow::Ok(()))
-    })??;
+        rpc_codegen_callback_fn(ctx, None, (&fun, DefinitionId(0)), args, true)?;
+        anyhow::Ok(())
+    })?;
     Ok(())
 }
 

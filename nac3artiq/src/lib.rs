@@ -1261,7 +1261,7 @@ impl Nac3 {
 
         let membuffer = membuffers.clone();
         let mut has_return = false;
-        py.detach(|| {
+        let result = py.detach(|| {
             let mut generator = ArtiqCodeGenerator::new(
                 "main".to_string(),
                 self.time_fns,
@@ -1279,7 +1279,7 @@ impl Nac3 {
             let builder = context.ctx.create_builder();
             let mut unifier_cache = vec![OnceCell::new(); top_level.unifiers.read().len()];
 
-            let result = gen_func_impl(
+            gen_func_impl(
                 &mut context,
                 &builder,
                 &mut generator,
@@ -1303,12 +1303,18 @@ impl Nac3 {
                     registry.wait_tasks_complete(handles);
                     attributes_writeback(ctx, inner_resolver.as_ref(), &host_attributes, return_obj)
                 },
-            );
-            result.unwrap();
+            )?;
             let buffer = context.module.write_bitcode_to_memory();
             let buffer = buffer.as_slice().into();
             membuffer.lock().push(buffer);
+            anyhow::Ok(())
         });
+        if let Err(e) = result {
+            return Err(match e.downcast::<PyErr>() {
+                Ok(e) => e,
+                Err(e) => CompileError::new_err(format!("compilation failed\n----------\n{e}")),
+            });
+        }
 
         embedding_map.setattr("expects_return", has_return)?;
 

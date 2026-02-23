@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, ensure};
 use itertools::Itertools as _;
 use nac3core::{
     codegen::{
@@ -175,10 +175,10 @@ impl StaticValue for PythonValue {
             return Ok(global.as_pointer_value().into());
         }
 
-        Python::attach(|py| -> PyResult<anyhow::Result<_>> {
+        Python::attach(|py| {
             self.resolver
                 .get_obj_value(py, (*self.value).bind(py), ctx, expected_ty)
-                .map(|v| Ok(v?.unwrap()))
+                .map(|v| Ok(v.unwrap()))
         })?
     }
 
@@ -297,30 +297,25 @@ impl InnerResolver {
         unifier: &mut Unifier,
         defs: &[Arc<RwLock<TopLevelDef>>],
         primitives: &PrimitiveStore,
-    ) -> PyResult<anyhow::Result<Type>> {
-        let mut ty = match self.get_obj_type(py, &list.get_item(0)?, unifier, defs, primitives)? {
-            Ok(t) => t,
-            Err(e) => return Ok(Err(anyhow!("type error ({e}) at element #0 of the list"))),
-        };
+    ) -> anyhow::Result<Type> {
+        let mut ty = self
+            .get_obj_type(py, &list.get_item(0)?, unifier, defs, primitives)
+            .map_err(|e| anyhow!("type error ({e}) at element #0 of the list").context(e))?;
         for i in 1..len {
-            let b = match list
-                .get_item(i)
-                .map(|elem| self.get_obj_type(py, &elem, unifier, defs, primitives))??
-            {
-                Ok(t) => t,
-                Err(e) => return Ok(Err(anyhow!("type error ({e}) at element #{i} of the list"))),
-            };
+            let b = self
+                .get_obj_type(py, &list.get_item(i)?, unifier, defs, primitives)
+                .map_err(|e| anyhow!("type error ({e}) at element #{i} of the list").context(e))?;
             ty = match unifier.unify(ty, b) {
                 Ok(()) => ty,
                 Err(e) => {
-                    return Ok(Err(anyhow!(
+                    bail!(
                         "inhomogeneous type ({}) at element #{i} of the list",
                         e.to_display(unifier)
-                    )));
+                    );
                 }
             };
         }
-        Ok(Ok(ty))
+        Ok(ty)
     }
 
     fn get_enumerate_elem_and_iterable_type<'py>(
@@ -330,18 +325,18 @@ impl InnerResolver {
         unifier: &mut Unifier,
         defs: &[Arc<RwLock<TopLevelDef>>],
         primitives: &PrimitiveStore,
-    ) -> PyResult<Result<(Type, Type), String>> {
+    ) -> anyhow::Result<(Type, Type)> {
         let reduce_tuple = obj.call_method0("__reduce__")?;
-        let reduce_tuple = reduce_tuple.cast::<PyTuple>()?;
+        let reduce_tuple = reduce_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
         let args_tuple = reduce_tuple.get_item(1)?;
-        let args_tuple = args_tuple.cast::<PyTuple>()?;
+        let args_tuple = args_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
 
         let iterable_obj = args_tuple.get_item(0)?;
 
         let reduce_tuple = iterable_obj.call_method0("__reduce__")?;
-        let reduce_tuple = reduce_tuple.cast::<PyTuple>()?;
+        let reduce_tuple = reduce_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
         let args = reduce_tuple.get_item(1)?;
-        let args = args.cast::<PyTuple>()?;
+        let args = args.cast::<PyTuple>().map_err(PyErr::from)?;
 
         let iterable = &args.get_item(0)?;
         let list_len = py_interp::extract_len(iterable)?;
@@ -371,14 +366,10 @@ impl InnerResolver {
             (elem_ty, iterable_ty)
         } else if iterable.is_instance_of::<PyList>() {
             let first_elem = iterable.get_item(0)?;
-            let elem_ty = match self.get_obj_type(py, &first_elem, unifier, defs, primitives)? {
-                Ok(ty) => ty,
-                Err(e) => {
-                    return Err(super::CompileError::new_err(format!(
-                        "Failed to infer element type: {e}"
-                    )));
-                }
-            };
+            let elem_ty =
+                self.get_obj_type(py, &first_elem, unifier, defs, primitives).map_err(|e| {
+                    super::CompileError::new_err(format!("Failed to infer element type: {e}"))
+                })?;
 
             let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
                 &*unifier.get_ty_immutable(primitives.list)
@@ -395,14 +386,14 @@ impl InnerResolver {
 
             (elem_ty, list_ty)
         } else if iterable.is_instance_of::<PyTuple>() {
-            let iterable_ty: Result<Result<Vec<_>, _>, _> = (0..py_interp::extract_len(iterable)?)
+            let iterable_ty: anyhow::Result<Vec<_>, _> = (0..py_interp::extract_len(iterable)?)
                 .map(|i| {
                     let item = iterable.get_item(i)?;
                     self.get_obj_type(py, &item, unifier, defs, primitives)
                 })
                 .collect();
 
-            let tuple_elem_types = iterable_ty?.map_err(|e| {
+            let tuple_elem_types = iterable_ty.map_err(|e| {
                 super::CompileError::new_err(format!("Failed to infer iterable type: {e}"))
             })?;
 
@@ -413,7 +404,8 @@ impl InnerResolver {
             if !tuple_elem_types.iter().all(|t| unifier.unioned(*first_elem_ty, *t)) {
                 return Err(super::CompileError::new_err(
                     "enumerate() only accepts tuple with items of the same type".to_string(),
-                ));
+                )
+                .into());
             }
 
             let tuple_ty = unifier
@@ -424,7 +416,7 @@ impl InnerResolver {
             unreachable!("unexpected iterable type for enumerate")
         };
 
-        Ok(Ok((elem_ty, iterable_ty)))
+        Ok((elem_ty, iterable_ty))
     }
 
     /// Handles python objects that represent types themselves,
@@ -439,32 +431,32 @@ impl InnerResolver {
         unifier: &mut Unifier,
         defs: &[Arc<RwLock<TopLevelDef>>],
         primitives: &PrimitiveStore,
-    ) -> PyResult<anyhow::Result<(Type, bool)>> {
+    ) -> anyhow::Result<(Type, bool)> {
         let ty_id = py_interp::extract_id(pyty)?;
         let ty_ty_id = py_interp::extract_id(&py_interp::call_type(pyty)?.into_any())?;
 
-        if ty_id == self.primitive_ids.builtins.int || ty_id == self.primitive_ids.numpy.int32 {
-            Ok(Ok((primitives.int32, true)))
+        Ok(if ty_id == self.primitive_ids.builtins.int || ty_id == self.primitive_ids.numpy.int32 {
+            (primitives.int32, true)
         } else if ty_id == self.primitive_ids.numpy.int64 {
-            Ok(Ok((primitives.int64, true)))
+            (primitives.int64, true)
         } else if ty_id == self.primitive_ids.numpy.uint32 {
-            Ok(Ok((primitives.uint32, true)))
+            (primitives.uint32, true)
         } else if ty_id == self.primitive_ids.numpy.uint64 {
-            Ok(Ok((primitives.uint64, true)))
+            (primitives.uint64, true)
         } else if ty_id == self.primitive_ids.builtins.bool
             || ty_id == self.primitive_ids.numpy.bool_
         {
-            Ok(Ok((primitives.bool, true)))
+            (primitives.bool, true)
         } else if ty_id == self.primitive_ids.builtins.str_class
             || ty_id == self.primitive_ids.numpy.str_
         {
-            Ok(Ok((primitives.str, true)))
+            (primitives.str, true)
         } else if ty_id == self.primitive_ids.builtins.float
             || ty_id == self.primitive_ids.numpy.float64
         {
-            Ok(Ok((primitives.float, true)))
+            (primitives.float, true)
         } else if ty_id == self.primitive_ids.builtins.exception {
-            Ok(Ok((primitives.exception, true)))
+            (primitives.exception, true)
         } else if ty_id == self.primitive_ids.builtins.list {
             // do not handle type var param and concrete check here
             let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
@@ -480,20 +472,20 @@ impl InnerResolver {
             let list = unifier
                 .subst(primitives.list, &into_var_map([TypeVar { id: list_tvar.id, ty: var }]))
                 .unwrap();
-            Ok(Ok((list, false)))
+            (list, false)
         } else if ty_id == self.primitive_ids.builtins.enumerate {
-            Ok(Ok((primitives.enumerate, true)))
+            (primitives.enumerate, true)
         } else if ty_id == self.primitive_ids.numpy.ndarray {
             // do not handle type var param and concrete check here
             let var = unifier.get_dummy_var().ty;
             let ndims = unifier.get_fresh_const_generic_var(primitives.usize(), None, None).ty;
             let ndarray = make_ndarray_ty(unifier, primitives, Some(var), Some(ndims));
-            Ok(Ok((ndarray, false)))
+            (ndarray, false)
         } else if ty_id == self.primitive_ids.builtins.tuple {
             // do not handle type var param and concrete check here
-            Ok(Ok((unifier.add_ty(TypeEnum::TTuple { ty: vec![], is_vararg_ctx: false }), false)))
+            (unifier.add_ty(TypeEnum::TTuple { ty: vec![], is_vararg_ctx: false }), false)
         } else if ty_id == self.primitive_ids.artiq.option {
-            Ok(Ok((primitives.option, false)))
+            (primitives.option, false)
         } else if ty_id == self.primitive_ids.artiq.none {
             unreachable!("none cannot be typeid")
         } else if let Some(def_id) = { self.pyid_to_def.read().get(&ty_id).copied() } {
@@ -505,48 +497,45 @@ impl InnerResolver {
             };
 
             // do not handle type var param and concrete check here, and no subst
-            Ok(Ok({
-                // Check if any type_vars have been unified to non-TVar types
-                let has_unified_vars = type_vars
-                    .iter()
-                    .any(|x| !matches!(&*unifier.get_ty(*x), TypeEnum::TVar { .. }));
+            // Check if any type_vars have been unified to non-TVar types
+            let has_unified_vars =
+                type_vars.iter().any(|x| !matches!(&*unifier.get_ty(*x), TypeEnum::TVar { .. }));
 
-                let ty = TypeEnum::TObj {
-                    obj_id: *object_id,
-                    params: if has_unified_vars {
-                        // If type_vars have been unified (e.g., due to circular references during type checking),
-                        // treat this as an already-instantiated type with no free type parameters.
-                        // This avoids issues where unified types are not concrete and fail validation.
-                        VarMap::new()
-                    } else {
-                        type_vars
-                            .iter()
-                            .map(|x| {
-                                let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*x) else {
-                                    unreachable!()
-                                };
+            let ty = TypeEnum::TObj {
+                obj_id: *object_id,
+                params: if has_unified_vars {
+                    // If type_vars have been unified (e.g., due to circular references during type checking),
+                    // treat this as an already-instantiated type with no free type parameters.
+                    // This avoids issues where unified types are not concrete and fail validation.
+                    VarMap::new()
+                } else {
+                    type_vars
+                        .iter()
+                        .map(|x| {
+                            let TypeEnum::TVar { id, .. } = &*unifier.get_ty(*x) else {
+                                unreachable!()
+                            };
 
-                                (*id, *x)
-                            })
-                            .collect()
-                    },
-                    fields: {
-                        let mut res = methods
-                            .iter()
-                            .map(|(iden, ty, _)| (*iden, (*ty, AttrKind::Method)))
-                            .collect::<HashMap<_, _>>();
-                        res.extend(
-                            fields
-                                .clone()
-                                .into_iter()
-                                .map(|x| (x.0, (x.1, AttrKind::Field { mutable: x.2 }))),
-                        );
-                        res
-                    },
-                };
-                // here also false, later instantiation use python object to check compatible
-                (unifier.add_ty(ty), false)
-            }))
+                            (*id, *x)
+                        })
+                        .collect()
+                },
+                fields: {
+                    let mut res = methods
+                        .iter()
+                        .map(|(iden, ty, _)| (*iden, (*ty, AttrKind::Method)))
+                        .collect::<HashMap<_, _>>();
+                    res.extend(
+                        fields
+                            .clone()
+                            .into_iter()
+                            .map(|x| (x.0, (x.1, AttrKind::Field { mutable: x.2 }))),
+                    );
+                    res
+                },
+            };
+            // here also false, later instantiation use python object to check compatible
+            (unifier.add_ty(ty), false)
         } else if ty_ty_id == self.primitive_ids.typing.typevar {
             let name = pyty.getattr("__name__")?;
             let name = name.extract::<&str>()?;
@@ -568,20 +557,15 @@ impl InnerResolver {
                             result.push(unifier.get_dummy_var().ty);
                         } else {
                             result.push({
-                                match self.get_pyty_obj_type(constr, unifier, defs, primitives)? {
-                                    Ok((ty, _)) => {
-                                        if unifier.is_concrete(ty, &[]) {
-                                            ty
-                                        } else {
-                                            return Ok(Err(anyhow!(
-                                                "the {}th constraint of TypeVar `{}` is not concrete",
-                                                i + 1,
-                                                pyty.getattr("__name__")?.extract::<String>()?
-                                            )));
-                                        }
-                                    }
-                                    Err(err) => return Ok(Err(err)),
-                                }
+                                let (ty, _) =
+                                    self.get_pyty_obj_type(constr, unifier, defs, primitives)?;
+                                ensure!(
+                                    unifier.is_concrete(ty, &[]),
+                                    "the {}th constraint of TypeVar `{}` is not concrete",
+                                    i + 1,
+                                    pyty.getattr("__name__")?.extract::<String>()?
+                                );
+                                ty
                             });
                         }
                     } else {
@@ -592,7 +576,7 @@ impl InnerResolver {
                 if !is_const_generic && needs_defer {
                     self.deferred_eval_store.store.write().push((
                         result.clone(),
-                        constraints.extract()?,
+                        constraints.extract().map_err(PyErr::from)?,
                         pyty.getattr("__name__")?.extract::<String>()?,
                     ));
                 }
@@ -601,49 +585,37 @@ impl InnerResolver {
             };
 
             let res = if is_const_generic {
-                if constraint_types.len() != 1 {
-                    return Ok(Err(anyhow!(
-                        "ConstGeneric expects 1 argument, got {}",
-                        constraint_types.len()
-                    )));
-                }
+                ensure!(
+                    constraint_types.len() == 1,
+                    "ConstGeneric expects 1 argument, got {}",
+                    constraint_types.len()
+                );
 
                 unifier.get_fresh_const_generic_var(constraint_types[0], Some(name.into()), None).ty
             } else {
                 unifier.get_fresh_var_with_range(&constraint_types, Some(name.into()), None).ty
             };
 
-            Ok(Ok((res, true)))
+            (res, true)
         } else if ty_ty_id == self.primitive_ids.typing.generic_alias
             || ty_ty_id == self.primitive_ids.types.generic_alias
         {
             let origin = py_interp::typing::call_get_origin(pyty)?;
             let args = py_interp::typing::call_get_args(pyty)?;
-            let origin_ty = match self.get_pyty_obj_type(&origin, unifier, defs, primitives)? {
-                Ok((ty, false)) => ty,
-                Ok((_, true)) => {
-                    return Ok(Err(anyhow!("instantiated type does not take type parameters")));
-                }
-                Err(err) => return Ok(Err(err)),
+            let (origin_ty, false) = self.get_pyty_obj_type(&origin, unifier, defs, primitives)?
+            else {
+                bail!("instantiated type does not take type parameters")
             };
 
             match &*unifier.get_ty(origin_ty) {
                 TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
                     if args.len() == 1 {
-                        let ty = match self.get_pyty_obj_type(
-                            &args.get_item(0)?,
-                            unifier,
-                            defs,
-                            primitives,
-                        )? {
-                            Ok(ty) => ty,
-                            Err(err) => return Ok(Err(err)),
-                        };
-                        if !unifier.is_concrete(ty.0, &[]) && !ty.1 {
-                            return Ok(Err(anyhow!(
-                                "type list should take concrete parameters in typevar range",
-                            )));
-                        }
+                        let ty =
+                            self.get_pyty_obj_type(&args.get_item(0)?, unifier, defs, primitives)?;
+                        ensure!(
+                            unifier.is_concrete(ty.0, &[]) || ty.1,
+                            "type list should take concrete parameters in typevar range"
+                        );
                         let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
                             &*unifier.get_ty_immutable(primitives.list)
                         {
@@ -658,137 +630,106 @@ impl InnerResolver {
                                 &into_var_map([TypeVar { id: list_tvar.id, ty: ty.0 }]),
                             )
                             .unwrap();
-                        Ok(Ok((list, true)))
+                        (list, true)
                     } else {
-                        Ok(Err(anyhow!(
-                            "type list needs exactly 1 type parameters, found {}",
-                            args.len()
-                        )))
+                        bail!("type list needs exactly 1 type parameters, found {}", args.len())
                     }
                 }
                 TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
                     if args.len() != 2 {
-                        return Ok(Err(anyhow!(
-                            "type list needs exactly 2 type parameters, found {}",
-                            args.len()
-                        )));
+                        bail!("type list needs exactly 2 type parameters, found {}", args.len());
                     }
 
                     // npt.NDArray[T] == np.ndarray[Any, np.dtype[T]]
                     let ndarray_dtype_pyty = py_interp::typing::call_get_args(&args.get_item(1)?)?;
                     let dtype = ndarray_dtype_pyty.get_item(0)?;
 
-                    let ty = match self.get_pyty_obj_type(&dtype, unifier, defs, primitives)? {
-                        Ok(ty) => ty,
-                        Err(err) => return Ok(Err(err)),
-                    };
+                    let ty = self.get_pyty_obj_type(&dtype, unifier, defs, primitives)?;
 
-                    if !unifier.is_concrete(ty.0, &[]) && !ty.1 {
-                        return Ok(Err(anyhow!(
-                            "type `ndarray` should take concrete parameters for dtype"
-                        )));
-                    }
+                    ensure!(
+                        unifier.is_concrete(ty.0, &[]) || ty.1,
+                        "type `ndarray` should take concrete parameters for dtype"
+                    );
 
-                    Ok(Ok((make_ndarray_ty(unifier, primitives, Some(ty.0), None), true)))
+                    (make_ndarray_ty(unifier, primitives, Some(ty.0), None), true)
                 }
                 TypeEnum::TTuple { .. } => {
-                    let args = match args
+                    let args = args
                         .iter()
                         .map(|x| self.get_pyty_obj_type(&x, unifier, defs, primitives))
-                        .collect::<Result<Vec<_>, _>>()?
+                        .collect::<anyhow::Result<Vec<_>>>()?;
+                    ensure!(!args.is_empty(), "tuple type needs at least 1 type parameters");
+                    let args = args
                         .into_iter()
-                        .collect::<Result<Vec<_>, _>>() {
-                            Ok(args) if !args.is_empty() => args
-                                .into_iter()
-                                .map(|(x, check)| if !unifier.is_concrete(x, &[]) && !check {
-                                        panic!("type tuple should take concrete parameters in type var ranges")
-                                    } else {
-                                        x
-                                    }
-                                )
-                                .collect::<Vec<_>>(),
-                            Err(err) => return Ok(Err(err)),
-                            _ => return Ok(Err(anyhow!("tuple type needs at least 1 type parameters")))
-                        };
-                    Ok(Ok((
-                        unifier.add_ty(TypeEnum::TTuple { ty: args, is_vararg_ctx: false }),
-                        true,
-                    )))
+                        .map(|(x, check)| {
+                            ensure!(
+                                unifier.is_concrete(x, &[]) || check,
+                                "type tuple should take concrete parameters in type var ranges"
+                            );
+                            Ok(x)
+                        })
+                        .try_collect()?;
+                    (unifier.add_ty(TypeEnum::TTuple { ty: args, is_vararg_ctx: false }), true)
                 }
                 TypeEnum::TObj { params, obj_id, .. } => {
                     let subst = {
                         if params.len() != args.len() {
-                            return Ok(Err(anyhow!(
+                            bail!(
                                 "for class #{}, expect {} type parameters, got {}.",
                                 obj_id.0,
                                 params.len(),
                                 args.len(),
-                            )));
+                            );
                         }
-                        let args = match args
+                        let args = args
                             .iter()
                             .map(|x| self.get_pyty_obj_type(&x, unifier, defs, primitives))
-                            .collect::<Result<Vec<_>, _>>()?
+                            .collect::<anyhow::Result<Vec<_>>>()?;
+                        let args = args
                             .into_iter()
-                            .collect::<Result<Vec<_>, _>>() {
-                                Ok(args) => args
-                                .into_iter()
-                                .map(|(x, check)| if !unifier.is_concrete(x, &[]) && !check {
-                                        panic!("type class should take concrete parameters in type var ranges")
-                                    } else {
-                                        x
-                                    }
-                                )
-                                .collect::<Vec<_>>(),
-                                Err(err) => return Ok(Err(err)),
-                            };
+                            .map(|(x, check)| {
+                                ensure!(
+                                    unifier.is_concrete(x, &[]) || check,
+                                    "type class should take concrete parameters in type var ranges"
+                                );
+                                Ok(x)
+                            })
+                            .collect::<anyhow::Result<Vec<_>>>()?;
                         params
                             .iter()
                             .zip(args.iter())
                             .map(|((id, _), ty)| (*id, *ty))
                             .collect::<VarMap>()
                     };
-                    Ok(Ok((unifier.subst(origin_ty, &subst).unwrap_or(origin_ty), true)))
+                    (unifier.subst(origin_ty, &subst).unwrap_or(origin_ty), true)
                 }
                 TypeEnum::TVirtual { .. } => {
                     if args.len() == 1 {
-                        let ty = match self.get_pyty_obj_type(
-                            &args.get_item(0)?,
-                            unifier,
-                            defs,
-                            primitives,
-                        )? {
-                            Ok(ty) => ty,
-                            Err(err) => return Ok(Err(err)),
-                        };
-                        assert!(
+                        let ty =
+                            self.get_pyty_obj_type(&args.get_item(0)?, unifier, defs, primitives)?;
+                        ensure!(
                             unifier.is_concrete(ty.0, &[]) || ty.1,
                             "virtual class should take concrete parameters in type var ranges"
                         );
-                        Ok(Ok((unifier.add_ty(TypeEnum::TVirtual { ty: ty.0 }), true)))
+                        (unifier.add_ty(TypeEnum::TVirtual { ty: ty.0 }), true)
                     } else {
-                        Ok(Err(anyhow!(
-                            "virtual class needs exactly 1 type parameters, found {}",
-                            args.len()
-                        )))
+                        bail!("virtual class needs exactly 1 type parameters, found {}", args.len())
                     }
                 }
                 _ => unimplemented!(),
             }
         } else if ty_id == self.primitive_ids.artiq.virtual_class {
-            Ok(Ok((
+            (
                 {
                     let ty = TypeEnum::TVirtual { ty: unifier.get_dummy_var().ty };
                     unifier.add_ty(ty)
                 },
                 false,
-            )))
+            )
         } else {
             let str_repr = py_interp::extract_repr(pyty)?;
-            Ok(Err(anyhow!(
-                "{str_repr} is not registered with the compiler (@compile decorator missing?)"
-            )))
-        }
+            bail!("{str_repr} is not registered with the compiler (@compile decorator missing?)")
+        })
     }
 
     pub fn get_obj_type<'py>(
@@ -798,11 +739,11 @@ impl InnerResolver {
         unifier: &mut Unifier,
         defs: &[Arc<RwLock<TopLevelDef>>],
         primitives: &PrimitiveStore,
-    ) -> PyResult<anyhow::Result<Type>> {
+    ) -> anyhow::Result<Type> {
         let ty = py_interp::call_type(obj)?;
         let py_obj_id = py_interp::extract_id(obj)?;
         if let Some(ty) = self.pyid_to_type.read().get(&py_obj_id) {
-            return Ok(Ok(*ty));
+            return Ok(*ty);
         }
 
         // check if constructor function exists in the methods list
@@ -836,22 +777,20 @@ impl InnerResolver {
 
             for name in classes.iter().map(|(nm, _)| nm) {
                 let class_obj = obj.getattr(name.to_string().as_str())?;
-                let class_ty = self.get_obj_type(py, &class_obj, unifier, defs, primitives)?;
-                if let Ok(class_ty) = class_ty {
-                    module_attributes.insert(*name, (class_ty, AttrKind::Class));
-                } else {
-                    return Ok(Err(anyhow!("Unable to resolve {module_name}.{name}")));
-                }
+                let Ok(class_ty) = self.get_obj_type(py, &class_obj, unifier, defs, primitives)
+                else {
+                    bail!("Unable to resolve {module_name}.{name}");
+                };
+                module_attributes.insert(*name, (class_ty, AttrKind::Class));
             }
 
             for name in functions.iter().map(|(nm, _)| nm) {
                 let method_obj = obj.getattr(name.to_string().as_str())?;
-                let method_ty = self.get_obj_type(py, &method_obj, unifier, defs, primitives)?;
-                if let Ok(method_ty) = method_ty {
-                    module_attributes.insert(*name, (method_ty, AttrKind::Method));
-                } else {
-                    return Ok(Err(anyhow!("Unable to resolve {module_name}.{name}")));
-                }
+                let Ok(method_ty) = self.get_obj_type(py, &method_obj, unifier, defs, primitives)
+                else {
+                    bail!("Unable to resolve {module_name}.{name}");
+                };
+                module_attributes.insert(*name, (method_ty, AttrKind::Method));
             }
 
             let module_ty = TypeEnum::TObj {
@@ -861,12 +800,12 @@ impl InnerResolver {
             };
 
             let ty = unifier.add_ty(module_ty);
-            return Ok(Ok(ty));
+            return Ok(ty);
         }
 
         if let Some(ty) = constructor_ty {
             self.pyid_to_type.write().insert(py_obj_id, ty);
-            return Ok(Ok(ty));
+            return Ok(ty);
         }
 
         let (extracted_ty, inst_check) = match self.get_pyty_obj_type(
@@ -886,12 +825,19 @@ impl InnerResolver {
             unifier,
             defs,
             primitives,
-        )? {
+        ) {
             Ok(s) => s,
             Err(e) => {
-                // Allow access to Class Attributes of Classes without having to initialize Objects
-                if self.pyid_to_def.read().contains_key(&py_obj_id) {
-                    if let Some(def_id) = { self.pyid_to_def.read().get(&py_obj_id).copied() } {
+                match e.downcast::<PyErr>() {
+                    Ok(e) => return Err(e.into()),
+                    Err(e) => {
+                        // Allow access to Class Attributes of Classes without having to initialize Objects
+                        if !self.pyid_to_def.read().contains_key(&py_obj_id) {
+                            return Err(e);
+                        }
+                        let Some(def_id) = self.pyid_to_def.read().get(&py_obj_id).copied() else {
+                            return Err(e);
+                        };
                         let TopLevelDef::Class { object_id, .. } = &*defs[def_id.0].read() else {
                             // only object is supported, functions are not supported
                             unreachable!("function type is not supported, should not be queried")
@@ -903,11 +849,7 @@ impl InnerResolver {
                             fields: HashMap::new(),
                         };
                         (unifier.add_ty(ty), true)
-                    } else {
-                        return Ok(Err(e));
                     }
-                } else {
-                    return Ok(Err(e));
                 }
             }
         };
@@ -922,46 +864,30 @@ impl InnerResolver {
                         TypeEnum::TVar { fields: None, range, .. }
                             if range.is_empty()
                     ));
-                    Ok(Ok(extracted_ty))
+                    Ok(extracted_ty)
                 } else {
-                    let actual_ty =
-                        self.get_list_elem_type(py, obj, len, unifier, defs, primitives)?;
-                    match actual_ty {
-                        Ok(t) => match unifier.unify(ty, t) {
-                            Ok(()) => {
-                                let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
-                                    &*unifier.get_ty_immutable(primitives.list)
-                                {
-                                    assert_eq!(*obj_id, PrimDef::List.id());
-                                    iter_type_vars(params).nth(0).unwrap()
-                                } else {
-                                    unreachable!()
-                                };
-                                let list = unifier
-                                    .subst(
-                                        primitives.list,
-                                        &into_var_map([TypeVar { id: list_tvar.id, ty }]),
-                                    )
-                                    .unwrap();
-                                Ok(Ok(list))
-                            }
+                    let t = self.get_list_elem_type(py, obj, len, unifier, defs, primitives)?;
+                    unifier.unify(ty, t).map_err(|e| {
+                        anyhow!("type error ({}) for the list", e.to_display(unifier))
+                    })?;
 
-                            Err(e) => Ok(Err(anyhow!(
-                                "type error ({}) for the list",
-                                e.to_display(unifier)
-                            ))),
-                        },
-                        Err(e) => Ok(Err(e)),
-                    }
+                    let list_tvar = if let TypeEnum::TObj { obj_id, params, .. } =
+                        &*unifier.get_ty_immutable(primitives.list)
+                    {
+                        assert_eq!(*obj_id, PrimDef::List.id());
+                        iter_type_vars(params).nth(0).unwrap()
+                    } else {
+                        unreachable!()
+                    };
+                    let list = unifier
+                        .subst(primitives.list, &into_var_map([TypeVar { id: list_tvar.id, ty }]))
+                        .unwrap();
+                    Ok(list)
                 }
             }
             (TypeEnum::TObj { obj_id, .. }, true) if *obj_id == PrimDef::Enumerate.id() => {
-                let (elem_ty, iterable_ty) = match self
-                    .get_enumerate_elem_and_iterable_type(py, obj, unifier, defs, primitives)?
-                {
-                    Ok(types) => types,
-                    Err(e) => return Ok(Err(anyhow!("{e}"))),
-                };
+                let (elem_ty, iterable_ty) =
+                    self.get_enumerate_elem_and_iterable_type(py, obj, unifier, defs, primitives)?;
 
                 let enumerate_fields = if let TypeEnum::TObj { fields, .. } =
                     &*unifier.get_ty_immutable(primitives.enumerate)
@@ -978,18 +904,18 @@ impl InnerResolver {
                     is_vararg_ctx: false,
                 });
 
-                if let Err(e) = unifier.unify(return_tvar.ty, target_ty) {
-                    return Ok(Err(anyhow!("{}", e.to_display(unifier))));
-                }
-                if let Err(e) = unifier.unify(iterable_tvar.ty, iterable_ty) {
-                    return Ok(Err(anyhow!("{}", e.to_display(unifier))));
-                }
+                unifier
+                    .unify(return_tvar.ty, target_ty)
+                    .map_err(|e| anyhow!("{}", e.to_display(unifier)))?;
+                unifier
+                    .unify(iterable_tvar.ty, iterable_ty)
+                    .map_err(|e| anyhow!("{}", e.to_display(unifier)))?;
 
-                Ok(Ok(unifier.add_ty(TypeEnum::TObj {
+                Ok(unifier.add_ty(TypeEnum::TObj {
                     obj_id: PrimDef::Enumerate.id(),
                     fields: enumerate_fields,
                     params: into_var_map([return_tvar, iterable_tvar]),
-                })))
+                }))
             }
             (TypeEnum::TObj { obj_id, .. }, false) if *obj_id == PrimDef::NDArray.id() => {
                 let (ty, ndims) = unpack_ndarray_var_tys(unifier, extracted_ty);
@@ -1000,37 +926,25 @@ impl InnerResolver {
                         TypeEnum::TVar { fields: None, range, .. }
                             if range.is_empty()
                     ));
-                    Ok(Ok(extracted_ty))
+                    Ok(extracted_ty)
                 } else {
                     let dtype = obj.getattr("dtype")?.getattr("type")?;
-                    let dtype_ty = self.get_pyty_obj_type(&dtype, unifier, defs, primitives)?;
-                    match dtype_ty {
-                        Ok((t, _)) => match unifier.unify(ty, t) {
-                            Ok(()) => {
-                                let ndarray_ty =
-                                    make_ndarray_ty(unifier, primitives, Some(ty), Some(ndims));
+                    let (t, _) = self.get_pyty_obj_type(&dtype, unifier, defs, primitives)?;
+                    unifier.unify(ty, t).map_err(|e| {
+                        anyhow!("type error ({}) for the ndarray", e.to_display(unifier))
+                    })?;
+                    let ndarray_ty = make_ndarray_ty(unifier, primitives, Some(ty), Some(ndims));
 
-                                Ok(Ok(ndarray_ty))
-                            }
-                            Err(e) => Ok(Err(anyhow!(
-                                "type error ({}) for the ndarray",
-                                e.to_display(unifier),
-                            ))),
-                        },
-                        Err(e) => Ok(Err(e)),
-                    }
+                    Ok(ndarray_ty)
                 }
             }
             (TypeEnum::TTuple { .. }, false) => {
-                let elements = obj.cast::<PyTuple>()?;
-                let types: Result<Result<Vec<_>, _>, _> = elements
+                let elements = obj.cast::<PyTuple>().map_err(PyErr::from)?;
+                let types = elements
                     .iter()
                     .map(|elem| self.get_obj_type(py, &elem, unifier, defs, primitives))
-                    .collect();
-                let types = types?;
-                Ok(types.map(|types| {
-                    unifier.add_ty(TypeEnum::TTuple { ty: types, is_vararg_ctx: false })
-                }))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                Ok(unifier.add_ty(TypeEnum::TTuple { ty: types, is_vararg_ctx: false }))
             }
             // special handling for option type since its class member layout in python side
             // is special and cannot be mapped directly to a nac3 type as below
@@ -1058,20 +972,15 @@ impl InnerResolver {
                         let ty = unifier.get_fresh_var_with_range(range, *name, *loc).ty;
                         TypeVar { id: *id, ty }
                     }));
-                    return Ok(Ok(unifier.subst(primitives.option, &var_map).unwrap()));
+                    return Ok(unifier.subst(primitives.option, &var_map).unwrap());
                 }
 
-                let ty = match self.get_obj_type(py, field_data, unifier, defs, primitives)? {
-                    Ok(t) => t,
-                    Err(e) => {
-                        return Ok(Err(anyhow!(
-                            "error when getting type of the option object ({e})"
-                        )));
-                    }
-                };
+                let ty = self
+                    .get_obj_type(py, field_data, unifier, defs, primitives)
+                    .map_err(|e| anyhow!("error when getting type of the option object ({e})"))?;
                 let new_var_map: VarMap = params.iter().map(|(id, _)| (*id, ty)).collect();
                 let res = unifier.subst(extracted_ty, &new_var_map).unwrap_or(extracted_ty);
-                Ok(Ok(res))
+                Ok(res)
             }
             (TypeEnum::TObj { params, fields, .. }, false) => {
                 let var_map = into_var_map(iter_type_vars(params).map(|tvar| {
@@ -1094,27 +1003,19 @@ impl InnerResolver {
                         if let TypeEnum::TFunc(..) = &*unifier.get_ty(field.1.0) {
                             continue;
                         }
-                        let field_data = &match obj.getattr(name.as_str()) {
-                            Ok(d) => d,
-                            Err(e) => return Ok(Err(anyhow!("{e}"))),
-                        };
+                        let field_data = &obj.getattr(name.as_str())?;
                         let ty =
-                            match self.get_obj_type(py, field_data, unifier, defs, primitives)? {
-                                Ok(t) => t,
-                                Err(e) => {
-                                    return Ok(Err(anyhow!(
-                                        "error when getting type of field `{name}` ({e})"
-                                    )));
-                                }
-                            };
+                            self.get_obj_type(py, field_data, unifier, defs, primitives).map_err(
+                                |e| anyhow!("error when getting type of field `{name}` ({e})"),
+                            )?;
                         let field_ty = unifier.subst(field.1.0, &var_map).unwrap_or(field.1.0);
-                        if let Err(e) = unifier.unify(ty, field_ty) {
+                        unifier.unify(ty, field_ty).map_err(|e| {
                             // field type mismatch
-                            return Ok(Err(anyhow!(
+                            anyhow!(
                                 "error when getting type of field `{name}` ({})",
                                 e.to_display(unifier)
-                            )));
-                        }
+                            )
+                        })?;
                     }
                     for ty in var_map.values() {
                         // must be concrete type, but allow TVars with constraints (bounded type variables)
@@ -1129,58 +1030,58 @@ impl InnerResolver {
                         };
 
                         if !is_acceptable {
-                            return Ok(Err(anyhow!("object is not of concrete type")));
+                            bail!("object is not of concrete type");
                         }
                     }
                     let extracted_ty =
                         unifier.subst(extracted_ty, &var_map).unwrap_or(extracted_ty);
-                    Ok(Ok(extracted_ty))
+                    Ok(extracted_ty)
                 };
                 let result = instantiate_obj();
                 // update/remove the cache according to the result
-                match result {
-                    Ok(Ok(ty)) => self.pyid_to_type.write().insert(py_obj_id, ty),
-                    _ => self.pyid_to_type.write().remove(&py_obj_id),
-                };
+                result.as_ref().map_or_else(
+                    |_| self.pyid_to_type.write().remove(&py_obj_id),
+                    |ty| self.pyid_to_type.write().insert(py_obj_id, *ty),
+                );
                 result
             }
             _ => {
                 // check integer bounds
                 if unifier.unioned(extracted_ty, primitives.int32) {
                     obj.extract::<i32>().map_or_else(
-                        |_| Ok(Err(anyhow!("{obj:?} is not in the range of int32"))),
-                        |_| Ok(Ok(extracted_ty)),
+                        |_| Err(anyhow!("{obj:?} is not in the range of int32")),
+                        |_| Ok(extracted_ty),
                     )
                 } else if unifier.unioned(extracted_ty, primitives.int64) {
                     obj.extract::<i64>().map_or_else(
-                        |_| Ok(Err(anyhow!("{obj:?} is not in the range of int64"))),
-                        |_| Ok(Ok(extracted_ty)),
+                        |_| Err(anyhow!("{obj:?} is not in the range of int64")),
+                        |_| Ok(extracted_ty),
                     )
                 } else if unifier.unioned(extracted_ty, primitives.uint32) {
                     obj.extract::<u32>().map_or_else(
-                        |_| Ok(Err(anyhow!("{obj:?} is not in the range of uint32"))),
-                        |_| Ok(Ok(extracted_ty)),
+                        |_| Err(anyhow!("{obj:?} is not in the range of uint32")),
+                        |_| Ok(extracted_ty),
                     )
                 } else if unifier.unioned(extracted_ty, primitives.uint64) {
                     obj.extract::<u64>().map_or_else(
-                        |_| Ok(Err(anyhow!("{obj:?} is not in the range of uint64"))),
-                        |_| Ok(Ok(extracted_ty)),
+                        |_| Err(anyhow!("{obj:?} is not in the range of uint64")),
+                        |_| Ok(extracted_ty),
                     )
                 } else if unifier.unioned(extracted_ty, primitives.bool) {
                     if obj.extract::<bool>().is_ok()
                         || obj.call_method("__bool__", (), None)?.extract::<bool>().is_ok()
                     {
-                        Ok(Ok(extracted_ty))
+                        Ok(extracted_ty)
                     } else {
-                        Ok(Err(anyhow!("{obj:?} is not in the range of bool")))
+                        Err(anyhow!("{obj:?} is not in the range of bool"))
                     }
                 } else if unifier.unioned(extracted_ty, primitives.float) {
                     obj.extract::<f64>().map_or_else(
-                        |_| Ok(Err(anyhow!("{obj:?} is not in the range of float64"))),
-                        |_| Ok(Ok(extracted_ty)),
+                        |_| Err(anyhow!("{obj:?} is not in the range of float64")),
+                        |_| Ok(extracted_ty),
                     )
                 } else {
-                    Ok(Ok(extracted_ty))
+                    Ok(extracted_ty)
                 }
             }
         }
@@ -1192,10 +1093,10 @@ impl InnerResolver {
         obj: &Bound<'py, PyAny>,
         ctx: &mut CodeGenContext<'ctx, '_>,
         expected_ty: Type,
-    ) -> PyResult<anyhow::Result<Option<BasicValueEnum<'ctx>>>> {
+    ) -> anyhow::Result<Option<BasicValueEnum<'ctx>>> {
         let ty_id = py_interp::extract_id(py_interp::call_type(obj)?.as_any())?;
         let id = py_interp::extract_id(obj)?;
-        Ok(if ty_id == self.primitive_ids.builtins.int || ty_id == self.primitive_ids.numpy.int32 {
+        if ty_id == self.primitive_ids.builtins.int || ty_id == self.primitive_ids.numpy.int32 {
             let val: i32 = obj.extract()?;
             self.id_to_primitive.write().insert(id, PrimitiveValue::I32(val));
             Ok(Some(ctx.i32.const_int(val as u64, false).into()))
@@ -1235,7 +1136,7 @@ impl InnerResolver {
             let id_str = id.to_string();
 
             if let Some(global) = ctx.module.get_global(&id_str) {
-                return Ok(Ok(Some(global.as_pointer_value().into())));
+                return Ok(Some(global.as_pointer_value().into()));
             }
 
             let len = py_interp::extract_len(obj)?;
@@ -1263,24 +1164,20 @@ impl InnerResolver {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
                         ctx.module.add_global(arr_ty, Some(AddressSpace::default()), &id_str)
                     });
-                    return Ok(Ok(Some(global.as_pointer_value().into())));
+                    return Ok(Some(global.as_pointer_value().into()));
                 }
                 self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
 
             let arr = (0..len)
                 .map(|i| {
-                    obj.get_item(i).and_then(|elem| {
-                        self.get_obj_value(py, &elem, ctx, elem_ty).map_err(|e| {
-                            super::CompileError::new_err(format!("Error getting element {i}: {e}"))
-                        })
-                    })
+                    let elem = obj.get_item(i)?;
+                    Ok(self.get_obj_value(py, &elem, ctx, elem_ty).map_err(|e| {
+                        super::CompileError::new_err(format!("Error getting element {i}: {e}"))
+                    })?)
                 })
-                .collect::<PyResult<anyhow::Result<Option<Vec<_>>>>>()?;
-            let arr = match arr {
-                Ok(arr) => arr.unwrap(),
-                Err(e) => return Ok(Err(e)),
-            };
+                .collect::<anyhow::Result<Option<Vec<_>>>>()?
+                .unwrap();
 
             let arr_global = ctx.module.add_global(
                 ty.array_type(len as u32),
@@ -1324,7 +1221,7 @@ impl InnerResolver {
             let id_str = id.to_string();
 
             if let Some(global) = ctx.module.get_global(&id_str) {
-                return Ok(Ok(Some(global.as_pointer_value().into())));
+                return Ok(Some(global.as_pointer_value().into()));
             }
 
             {
@@ -1337,46 +1234,44 @@ impl InnerResolver {
                             &id_str,
                         )
                     });
-                    return Ok(Ok(Some(global.as_pointer_value().into())));
+                    return Ok(Some(global.as_pointer_value().into()));
                 }
                 self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
 
             let reduce_tuple = obj.call_method0("__reduce__")?;
-            let reduce_tuple = reduce_tuple.cast::<PyTuple>()?;
+            let reduce_tuple = reduce_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
             let args_tuple = reduce_tuple.get_item(1)?;
-            let args_tuple = args_tuple.cast::<PyTuple>()?;
+            let args_tuple = args_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
             let start_obj = args_tuple.get_item(1)?;
             let start: i32 = start_obj.extract()?;
 
             // Get element and iterable types using the helper function
             let top_level_defs = ctx.top_level.definitions.read();
-            let (_, iterable_ty) = match self.get_enumerate_elem_and_iterable_type(
-                py,
-                obj,
-                &mut ctx.unifier,
-                &top_level_defs,
-                &ctx.primitives,
-            )? {
-                Ok(types) => types,
-                Err(e) => return Err(super::CompileError::new_err(e)),
-            };
+            let (_, iterable_ty) = self
+                .get_enumerate_elem_and_iterable_type(
+                    py,
+                    obj,
+                    &mut ctx.unifier,
+                    &top_level_defs,
+                    &ctx.primitives,
+                )
+                .map_err(|e| super::CompileError::new_err(format!("{e}")))?;
 
             // Get the actual iterable object for value generation
             let iterable_obj = args_tuple.get_item(0)?;
             let reduce_tuple = iterable_obj.call_method0("__reduce__")?;
-            let reduce_tuple = reduce_tuple.cast::<PyTuple>()?;
+            let reduce_tuple = reduce_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
             let args = reduce_tuple.get_item(1)?;
-            let args = args.cast::<PyTuple>()?;
+            let args = args.cast::<PyTuple>().map_err(PyErr::from)?;
             let iterable = &args.get_item(0)?;
             let list_len = py_interp::extract_len(iterable)?;
 
             let iterable =
                 if iterable.is_instance_of::<PyList>() || iterable.is_instance_of::<PyTuple>() {
-                    let iterable_value = match self.get_obj_value(py, iterable, ctx, iterable_ty)? {
-                        Ok(v) => v.expect("must have iterable value"),
-                        Err(e) => return Ok(Err(e)),
-                    };
+                    let iterable_value = self
+                        .get_obj_value(py, iterable, ctx, iterable_ty)?
+                        .expect("must have iterable value");
 
                     if iterable.is_instance_of::<PyList>() {
                         // Cast list pointer to i8*
@@ -1437,7 +1332,7 @@ impl InnerResolver {
             let id_str = id.to_string();
 
             if let Some(global) = ctx.module.get_global(&id_str) {
-                return Ok(Ok(Some(global.as_pointer_value().into())));
+                return Ok(Some(global.as_pointer_value().into()));
             }
 
             let ndarray_ty = if matches!(&*ctx.unifier.get_ty_immutable(expected_ty), TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id())
@@ -1459,7 +1354,7 @@ impl InnerResolver {
                         let ndarray_ty = llvm_ndarray.alloca_ty(ctx);
                         ctx.module.add_global(ndarray_ty, Some(AddressSpace::default()), &id_str)
                     });
-                    return Ok(Ok(Some(global.as_pointer_value().into())));
+                    return Ok(Some(global.as_pointer_value().into()));
                 }
                 self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
@@ -1468,7 +1363,7 @@ impl InnerResolver {
 
             // Obtain the shape of the ndarray
             let shape_tuple = obj.getattr("shape")?;
-            let shape_tuple = shape_tuple.cast::<PyTuple>()?;
+            let shape_tuple = shape_tuple.cast::<PyTuple>().map_err(PyErr::from)?;
             assert_eq!(shape_tuple.len(), ndims as usize);
 
             let shape_values = shape_tuple
@@ -1479,26 +1374,13 @@ impl InnerResolver {
                         .get_obj_value(py, &elem, ctx, ctx.primitives.usize())
                         .map_err(|e| {
                             super::CompileError::new_err(format!("Error getting element {i}: {e}"))
-                        })?;
-                    let value = match value {
-                        Ok(v) => v.unwrap(),
-                        Err(e) => return Ok(Err(e)),
-                    };
-                    let value = match ctx.builder.build_int_z_extend(
-                        value.into_int_value(),
-                        llvm_usize,
-                        "",
-                    ) {
-                        Ok(v) => v,
-                        Err(e) => return Ok(Err(e.into())),
-                    };
-                    Ok(Ok(value))
+                        })?
+                        .unwrap();
+                    let value =
+                        ctx.builder.build_int_z_extend(value.into_int_value(), llvm_usize, "")?;
+                    Ok(value)
                 })
-                .collect::<PyResult<anyhow::Result<Vec<_>>>>()?;
-            let shape_values = match shape_values {
-                Ok(v) => v,
-                Err(e) => return Ok(Err(e)),
-            };
+                .collect::<anyhow::Result<Vec<_>>>()?;
 
             // Also use this opportunity to get the constant values of `shape_values` for calculating strides.
             let shape_u64s = shape_values
@@ -1520,24 +1402,20 @@ impl InnerResolver {
 
             // Obtain the (flattened) elements of the ndarray
             let sz: usize = obj.getattr("size")?.extract()?;
-            let data: Result<Vec<_>, _> = (0..sz)
+            let data = (0..sz)
                 .map(|i| {
                     let elem = obj.getattr("flat")?.get_item(i)?;
                     let value = self
                         .get_obj_value(py, &elem, ctx, ndarray_dtype)
                         .map_err(|e| {
                             super::CompileError::new_err(format!("Error getting element {i}: {e}"))
-                        })??
+                        })?
                         .unwrap();
 
                     assert_eq!(value.get_type(), dtype);
                     anyhow::Ok(value)
                 })
-                .try_collect();
-            let data = match data {
-                Ok(v) => v,
-                Err(e) => return e.downcast::<PyErr>().map_or_else(|e| Ok(Err(e)), Err),
-            };
+                .collect::<anyhow::Result<Vec<_>>>()?;
             let data = data.into_iter();
             let data = match dtype {
                 BasicTypeEnum::ArrayType(ty) => {
@@ -1607,10 +1485,7 @@ impl InnerResolver {
 
             // NOTE: data_global is an array of dtype, we want a `u8*`.
             let ndarray_data = data_global.as_pointer_value();
-            let ndarray_data = match ctx.builder.build_pointer_cast(ndarray_data, llvm_pi8, "") {
-                Ok(v) => v,
-                Err(e) => return Ok(Err(e.into())),
-            };
+            let ndarray_data = ctx.builder.build_pointer_cast(ndarray_data, llvm_pi8, "")?;
 
             let ndarray_itemsize = llvm_usize.const_int(itemsize, false);
 
@@ -1625,11 +1500,7 @@ impl InnerResolver {
                     ndarray_shape,
                     &[llvm_usize.const_zero(), llvm_usize.const_zero()],
                     "",
-                )
-            };
-            let ndarray_shape = match ndarray_shape {
-                Ok(v) => v,
-                Err(e) => return Ok(Err(e.into())),
+                )?
             };
 
             let ndarray_strides = strides_global.as_pointer_value();
@@ -1638,11 +1509,7 @@ impl InnerResolver {
                     ndarray_strides,
                     &[llvm_usize.const_zero(), llvm_usize.const_zero()],
                     "",
-                )
-            };
-            let ndarray_strides = match ndarray_strides {
-                Ok(v) => v,
-                Err(e) => return Ok(Err(e.into())),
+                )?
             };
 
             let ndarray_struct_ty = llvm_ndarray.alloca_ty(ctx).into_struct_type();
@@ -1666,22 +1533,19 @@ impl InnerResolver {
             };
 
             let tup_tys = ty.iter();
-            let elements = obj.cast::<PyTuple>()?;
+            let elements = obj.cast::<PyTuple>().map_err(PyErr::from)?;
             assert_eq!(elements.len(), tup_tys.len());
-            let val: Result<Option<Vec<_>>, _> = elements
+            let val = elements
                 .iter()
                 .enumerate()
                 .zip(tup_tys)
                 .map(|((i, elem), ty)| {
-                    self.get_obj_value(py, &elem, ctx, *ty).map_err(|e| {
+                    Ok(self.get_obj_value(py, &elem, ctx, *ty).map_err(|e| {
                         super::CompileError::new_err(format!("Error getting element {i}: {e}"))
-                    })?
+                    })?)
                 })
-                .try_collect();
-            let val = match val {
-                Ok(v) => v.unwrap(),
-                Err(e) => return e.downcast::<PyErr>().map_or_else(|e| Ok(Err(e)), Err),
-            };
+                .collect::<anyhow::Result<Option<Vec<_>>>>()?
+                .unwrap();
             let val = ctx.ctx.const_struct(&val, false);
             Ok(Some(val.into()))
         } else if ty_id == self.primitive_ids.artiq.option {
@@ -1702,16 +1566,13 @@ impl InnerResolver {
                         .into(),
                 ))
             } else {
-                match match self
+                match self
                     .get_obj_value(py, &obj.getattr("_nac3_option").unwrap(), ctx, option_val_ty)
                     .map_err(|e| {
                         super::CompileError::new_err(format!(
                             "Error getting value of Option object: {e}"
                         ))
                     })? {
-                    Ok(v) => v,
-                    Err(e) => return e.downcast::<PyErr>().map_or_else(|e| Ok(Err(e)), Err),
-                } {
                     Some(v) => {
                         let global_str = format!("{id}_option");
                         {
@@ -1724,7 +1585,7 @@ impl InnerResolver {
                                             &global_str,
                                         )
                                     });
-                                return Ok(Ok(Some(global.as_pointer_value().into())));
+                                return Ok(Some(global.as_pointer_value().into()));
                             }
                             self.global_value_ids
                                 .write()
@@ -1745,28 +1606,23 @@ impl InnerResolver {
             let id_str = id.to_string();
 
             if let Some(global) = ctx.module.get_global(&id_str) {
-                return Ok(Ok(Some(global.as_pointer_value().into())));
+                return Ok(Some(global.as_pointer_value().into()));
             }
 
-            let ty = match {
-                self.get_obj_type(
-                    py,
-                    obj,
-                    &mut ctx.unifier,
-                    &ctx.top_level.definitions.read(),
-                    &ctx.primitives,
-                )?
-            } {
-                Ok(v) => v,
-                Err(e) => return Ok(Err(e)),
-            };
+            let ty = self.get_obj_type(
+                py,
+                obj,
+                &mut ctx.unifier,
+                &ctx.top_level.definitions.read(),
+                &ctx.primitives,
+            )?;
             let ty = ctx.get_alloca_type(ty).into_struct_type();
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
                         ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
                     });
-                    return Ok(Ok(Some(global.as_pointer_value().into())));
+                    return Ok(Some(global.as_pointer_value().into()));
                 }
                 self.global_value_ids.write().insert(id, obj.as_unbound().into_py_any(py)?);
             }
@@ -1778,19 +1634,16 @@ impl InnerResolver {
                 unreachable!()
             };
 
-            let values: Result<Option<Vec<_>>, _> = fields
+            let values = fields
                 .iter()
                 .map(|(name, ty, _)| {
-                    self.get_obj_value(py, &obj.getattr(name.to_string().as_str())?, ctx, *ty)
+                    Ok(self
+                        .get_obj_value(py, &obj.getattr(name.to_string().as_str())?, ctx, *ty)
                         .map_err(|e| {
-                            super::CompileError::new_err(format!("Error getting field {name}: {e}"))
-                        })?
+                        super::CompileError::new_err(format!("Error getting field {name}: {e}"))
+                    })?)
                 })
-                .try_collect();
-            let values = match values {
-                Ok(v) => v,
-                Err(e) => return e.downcast::<PyErr>().map_or_else(|e| Ok(Err(e)), Err),
-            };
+                .collect::<anyhow::Result<Option<Vec<_>>>>()?;
             if let Some(values) = values {
                 let val = ty.const_named_struct(&values);
                 let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
@@ -1801,57 +1654,57 @@ impl InnerResolver {
             } else {
                 Ok(None)
             }
-        })
+        }
     }
 
-    fn get_default_param_obj_value(
-        &self,
-        obj: &Bound<'_, PyAny>,
-    ) -> PyResult<Result<SymbolValue, String>> {
+    fn get_default_param_obj_value(&self, obj: &Bound<'_, PyAny>) -> anyhow::Result<SymbolValue> {
         let id = py_interp::extract_id(obj)?;
         let ty_id = py_interp::extract_id(py_interp::call_type(obj)?.as_any())?;
         Ok(if ty_id == self.primitive_ids.builtins.int || ty_id == self.primitive_ids.numpy.int32 {
             let val: i32 = obj.extract()?;
-            Ok(SymbolValue::I32(val))
+            SymbolValue::I32(val)
         } else if ty_id == self.primitive_ids.numpy.int64 {
             let val: i64 = obj.extract()?;
-            Ok(SymbolValue::I64(val))
+            SymbolValue::I64(val)
         } else if ty_id == self.primitive_ids.numpy.uint32 {
             let val: u32 = obj.extract()?;
-            Ok(SymbolValue::U32(val))
+            SymbolValue::U32(val)
         } else if ty_id == self.primitive_ids.numpy.uint64 {
             let val: u64 = obj.extract()?;
-            Ok(SymbolValue::U64(val))
+            SymbolValue::U64(val)
         } else if ty_id == self.primitive_ids.builtins.bool {
             let val: bool = obj.extract()?;
-            Ok(SymbolValue::Bool(val))
+            SymbolValue::Bool(val)
         } else if ty_id == self.primitive_ids.numpy.bool_ {
             let val: bool = obj.call_method("__bool__", (), None)?.extract()?;
-            Ok(SymbolValue::Bool(val))
+            SymbolValue::Bool(val)
         } else if ty_id == self.primitive_ids.builtins.str_class
             || ty_id == self.primitive_ids.numpy.str_
         {
             let val: String = obj.extract()?;
-            Ok(SymbolValue::Str(val))
+            SymbolValue::Str(val)
         } else if ty_id == self.primitive_ids.builtins.float
             || ty_id == self.primitive_ids.numpy.float64
         {
             let val: f64 = obj.extract()?;
-            Ok(SymbolValue::Double(val))
+            SymbolValue::Double(val)
         } else if ty_id == self.primitive_ids.builtins.tuple {
-            let elements = obj.cast::<PyTuple>()?;
-            let elements: Result<Result<Vec<_>, String>, _> =
-                elements.iter().map(|elem| self.get_default_param_obj_value(&elem)).collect();
-            elements?.map(SymbolValue::Tuple)
+            let elements = obj.cast::<PyTuple>().map_err(PyErr::from)?;
+            let elements = elements
+                .iter()
+                .map(|elem| self.get_default_param_obj_value(&elem))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            SymbolValue::Tuple(elements)
         } else if ty_id == self.primitive_ids.artiq.option {
             if id == self.primitive_ids.artiq.none {
-                Ok(SymbolValue::OptionNone)
+                SymbolValue::OptionNone
             } else {
-                self.get_default_param_obj_value(&obj.getattr("_nac3_option").unwrap())?
-                    .map(|v| SymbolValue::OptionSome(Box::new(v)))
+                SymbolValue::OptionSome(Box::new(
+                    self.get_default_param_obj_value(&obj.getattr("_nac3_option")?)?,
+                ))
             }
         } else {
-            Err("only primitives values, option and tuple can be default parameter value".into())
+            bail!("only primitives values, option and tuple can be default parameter value")
         })
     }
 }
@@ -1870,7 +1723,7 @@ impl SymbolResolver for Resolver {
             for (key, val) in members {
                 let key: &str = key.extract()?;
                 if key == id.to_string() {
-                    if let Ok(Ok(v)) = self.0.get_default_param_obj_value(&val) {
+                    if let Ok(v) = self.0.get_default_param_obj_value(&val) {
                         sym_value = Some(v);
                     }
                     break;
@@ -1899,16 +1752,15 @@ impl SymbolResolver for Resolver {
 
             { self.0.pyid_to_type.read().get(id).copied() }.map_or_else(
                 || {
-                    Python::attach(|py| -> PyResult<anyhow::Result<_>> {
+                    Python::attach(|py| -> anyhow::Result<_> {
                         let obj = self.0.module.bind(py);
                         let mut sym_ty = Err(anyhow!("cannot find symbol `{str}`"));
                         let members = obj.getattr("__dict__")?;
-                        let members = members.cast::<PyDict>()?;
+                        let members = members.cast::<PyDict>().map_err(PyErr::from)?;
                         for (key, val) in members {
                             let key: &str = key.extract()?;
                             if key == str.to_string() {
-                                sym_ty =
-                                    self.0.get_obj_type(py, &val, unifier, defs, primitives)?;
+                                sym_ty = self.0.get_obj_type(py, &val, unifier, defs, primitives);
                                 break;
                             }
                         }
@@ -2004,30 +1856,27 @@ impl SymbolResolver for Resolver {
         if self.0.deferred_eval_store.needs_defer.load(Relaxed) {
             self.0.deferred_eval_store.needs_defer.store(false, Relaxed);
             let store = self.0.deferred_eval_store.store.read();
-            Python::attach(|py| -> PyResult<anyhow::Result<()>> {
+            Python::attach(|py| -> anyhow::Result<()> {
                 for (variables, constraints, name) in store.iter() {
                     let constraints = constraints.bind(py);
                     for (i, var) in variables.iter().enumerate() {
                         if let Ok(constr) = &constraints.get_item(i) {
-                            match self.0.get_pyty_obj_type(constr, unifier, defs, primitives)? {
-                                Ok((ty, _)) => {
-                                    if !unifier.is_concrete(ty, &[]) {
-                                        return Ok(Err(anyhow!(
-                                            "the {}th constraint of TypeVar `{name}` is not concrete",
-                                            i + 1,
-                                        )));
-                                    }
-                                    unifier.unify(ty, *var).unwrap();
-                                }
-                                Err(err) => return Ok(Err(err)),
+                            let (ty, _) =
+                                self.0.get_pyty_obj_type(constr, unifier, defs, primitives)?;
+                            if !unifier.is_concrete(ty, &[]) {
+                                bail!(
+                                    "the {}th constraint of TypeVar `{name}` is not concrete",
+                                    i + 1
+                                );
                             }
+                            unifier.unify(ty, *var).unwrap();
                         } else {
                             break;
                         }
                     }
                 }
-                Ok(Ok(()))
-            })??;
+                Ok(())
+            })?;
         }
         Ok(())
     }
@@ -2080,7 +1929,7 @@ impl SymbolResolver for Resolver {
                 anyhow!(
                     "Auto type error: cannot infer type of `{class_name}.{field_name}`: {e}"
                 )
-            })?
+            })
         }).map(Some)
     }
 }
