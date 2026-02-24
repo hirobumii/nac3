@@ -146,19 +146,13 @@ pub trait RefCountedValue<'ctx> {
 
 #[derive(Clone, Copy)]
 pub struct OpaqueRefCountedType<'ctx> {
-    inner: StructType<'ctx>,
+    _inner: StructType<'ctx>,
 }
 
 impl<'ctx> OpaqueRefCountedType<'ctx> {
     /// Creates a new instance of this type.
     pub fn new(ctx: &ModuleContext<'ctx>) -> Self {
-        Self {
-            inner: ObjectHeaderType::new(ctx)
-                .llvm_ty(ctx)
-                .into_pointer_type()
-                .get_element_type()
-                .into_struct_type(),
-        }
+        Self { _inner: ObjectHeaderType::new(ctx).alloca_ty(ctx).into_struct_type() }
     }
 }
 
@@ -234,23 +228,10 @@ pub struct TypedRefCountedType<'ctx, T: RefType<'ctx> + Copy> {
 impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
     /// Creates a new instance of this type.
     pub fn new(ctx: &mut CodeGenContext<'ctx, '_>, object_ty: T) -> Self {
+        let header = ObjectHeaderType::new(ctx).alloca_ty(ctx).into_struct_type();
         let object = object_ty.alloca_ty(ctx);
 
-        Self {
-            inner: ctx.ctx.struct_type(
-                &[
-                    ObjectHeaderType::new(ctx)
-                        .llvm_ty(ctx)
-                        .into_pointer_type()
-                        .get_element_type()
-                        .into_struct_type()
-                        .into(),
-                    object,
-                ],
-                false,
-            ),
-            object: object_ty,
-        }
+        Self { inner: ctx.ctx.struct_type(&[header.into(), object], false), object: object_ty }
     }
 }
 
@@ -483,8 +464,8 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for RefCountedArrayTyp
 }
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyType<'ctx> for RefCountedArrayType<'ctx, T> {
-    fn llvm_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
-        self.inner.into()
+    fn llvm_ty(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
+        ctx.ptr.into()
     }
 }
 
