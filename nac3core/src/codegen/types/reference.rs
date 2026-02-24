@@ -314,7 +314,7 @@ pub struct TypedRefCountedType<'ctx, T: RefType<'ctx> + Copy> {
 
 impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
     /// Creates a new instance of this type.
-    pub fn new(ctx: &mut CodeGenContext<'ctx, '_>, object_ty: T) -> Self {
+    pub fn new(ctx: &ModuleContext<'ctx>, object_ty: T) -> Self {
         let header = ObjectHeaderType::new(ctx).alloca_ty(ctx).into_struct_type();
         let object = object_ty.alloca_ty(ctx);
 

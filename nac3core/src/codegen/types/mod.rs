@@ -183,6 +183,14 @@ pub trait WithTypeinfo<'ctx> {
 pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> {
     /// Returns the LLVM type used for allocating this reference type.
     fn alloca_ty(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx>;
+
+    /// Creates a [`TypedRefCountedType`] for this reference type.
+    fn refcounted_type(&self, ctx: &ModuleContext<'ctx>) -> TypedRefCountedType<'ctx, Self>
+    where
+        Self: Copy,
+    {
+        TypedRefCountedType::new(ctx, *self)
+    }
 }
 
 #[derive(Clone, Copy)]
