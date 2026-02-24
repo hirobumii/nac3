@@ -16,7 +16,8 @@ use crate::{
         typed_store,
         types::{
             ArrayLikeIndexer, ListType, NDArrayOut, NDArrayType, NDArrayValue, ProxyTypeBase,
-            RangeType, ScalarOrNDArray, TupleType, TupleValue, broadcast_starmap, field,
+            RangeType, ScalarOrNDArray, TupleType, TupleValue, TypedRefCountedType,
+            broadcast_starmap, field,
         },
     },
     toplevel::{
@@ -68,9 +69,10 @@ pub fn call_len<'ctx>(
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
             {
-                let list = ListType::from_unifier_type(ctx, arg_ty)
+                let list_ty = ListType::from_unifier_type(ctx, arg_ty);
+                let list = TypedRefCountedType::new(ctx, list_ty)
                     .map_value(arg.into_pointer_value(), None);
-                let size = list.load(ctx, field!(len))?;
+                let size = list.inner_value(ctx)?.load(ctx, field!(len))?;
                 ctx.builder.build_int_truncate_or_bit_cast(size, ctx.i32, "len")?
             }
 
