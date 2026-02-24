@@ -813,6 +813,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
 
     // The function instance should have already been constructed (at least declared) here.
 
+    // TODO(Derppening): Investigate how Python manages refcounts for C functions
     // increment the refcount for all values
     for p in
         param_vals.iter().filter_map(|(v, refcounted)| if *refcounted { Some(*v) } else { None })
@@ -2402,6 +2403,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             match ctx.var_assignment.get(id) {
                 Some(VarValue { ptr, static_value: None, .. }) => {
                     let val = typed_load(ctx.builder, *ptr, llvm_ty, id.to_string().as_str())?;
+                    // TODO(Derppening): Add refcount incr here instead(?)
                     Ok(RtValue::dynamic(ty, val))
                 }
                 Some(VarValue { static_value: Some(static_value), .. }) => {

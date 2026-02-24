@@ -480,17 +480,6 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
 
         let value = self.map_value(value_ptr, name);
 
-        // Zero-initialize the array if this array stores pointers to avoid unintentional access of
-        // uninitialized values
-        if self.array.get_element_type().is_pointer_type() {
-            llvm_intrinsics::call_memset_generic_array(
-                ctx,
-                value.inner_ptr(ctx)?,
-                ctx.i8.const_zero(),
-                size,
-            )?;
-        }
-
         value.header(ctx).init(ctx, true, Self::typeinfo(ctx))?;
 
         // Store the size into the array metadata
@@ -500,7 +489,30 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
             llvm_dyn_array_ty.llvm_ty(ctx).into_pointer_type(),
             "",
         )?;
-        typed_store(ctx.builder, psize, size)?;
+        if self.array.get_element_type().is_pointer_type() {
+            typed_store(ctx.builder, psize, size)?;
+        } else {
+            typed_store(ctx.builder, psize, ctx.size_t.const_zero())?;
+        }
+
+        // Zero-initialize the array if this array stores pointers to avoid unintentional access of
+        // uninitialized values
+        if self.array.get_element_type().is_pointer_type() {
+            llvm_intrinsics::call_memset(
+                ctx,
+                ctx.builder.build_pointer_cast(value.inner_value(ctx)?.value.0, ctx.ptr, "")?,
+                ctx.i8.const_zero(),
+                ctx.builder.build_int_mul(
+                    self.array
+                        .get_element_type()
+                        .size_of()
+                        .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
+                        .unwrap(),
+                    size,
+                    "",
+                )?,
+            )?;
+        }
 
         Ok(value)
     }

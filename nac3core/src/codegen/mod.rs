@@ -643,7 +643,13 @@ pub fn typed_gep<'ctx, T: BasicType<'ctx>>(
         }
     };
 
-    Ok(unsafe { b.build_gep(ptr, ordered_indexes, name)? })
+    let gep_ptr = unsafe { b.build_gep(ptr, ordered_indexes, &format!("{name}.typed_addr"))? };
+
+    Ok(b.build_pointer_cast(
+        gep_ptr,
+        ptr.get_type().get_context().i8_type().ptr_type(AddressSpace::default()),
+        name,
+    )?)
 }
 
 /// Retrieves the [LLVM type][`BasicTypeEnum`] corresponding to the [`Type`].

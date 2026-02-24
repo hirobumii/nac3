@@ -152,33 +152,14 @@ impl<'ctx> WithTypeinfo<'ctx> for ListType<'ctx> {
                 .get_global(&format!("refcounted_fields array for {NAME}"))
                 .unwrap_or_else(|| {
                     let refcounted_field_offsets = ctx.module.add_global(
-                        ctx.i32.array_type(1),
+                        ctx.i32.array_type(2),
                         None,
                         "refcounted_fields array for __nac3_list",
                     );
                     refcounted_field_offsets.set_linkage(Linkage::WeakAny);
-                    refcounted_field_offsets
-                        .set_initializer(&ctx.i32.const_array(&[ctx.i32.const_zero()]));
-                    // refcounted_field_offsets.set_initializer(&ctx.i32.const_array(&[
-                    //     ctx.i32.const_int(1, false),
-                    //     unsafe {
-                    //         let zero = self.as_base_type().const_null();
-                    //         let begin_ptr = zero
-                    //             .const_in_bounds_gep(&[ctx.size_t.const_zero(), ctx.i32.const_zero()])
-                    //             .const_to_int(ctx.size_t)
-                    //             .const_cast(ctx.i32, false);
-                    //         let field_idx = self.get_fields().index_of_field(|f| f.items);
-                    //         let field_ptr = zero
-                    //             .const_in_bounds_gep(&[
-                    //                 ctx.size_t.const_zero(),
-                    //                 ctx.i32.const_int(u64::from(field_idx), false),
-                    //             ])
-                    //             .const_to_int(ctx.size_t)
-                    //             .const_cast(ctx.i32, false);
-
-                    //         field_ptr.const_sub(begin_ptr)
-                    //     },
-                    // ]));
+                    refcounted_field_offsets.set_initializer(
+                        &ctx.i32.const_array(&[ctx.i32.const_int(1, false), ctx.i32.const_zero()]),
+                    );
                     refcounted_field_offsets.set_constant(true);
 
                     refcounted_field_offsets
