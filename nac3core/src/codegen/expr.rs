@@ -430,8 +430,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         );
         self.builder.set_current_debug_location(loc);
 
-        let allocate =
-            |ty| self.build_allocate(AllocationScope::StackStartOfFunc, ty, Some(call_name));
+        let allocate = |ty| self.build_allocate(AllocationScope::Default, ty, Some(call_name));
 
         unwind_target.map_or_else(
             || {
@@ -2027,11 +2026,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         None
     } else {
         let llvm_ty = ctx.get_llvm_type(body_ty);
-        Some(ctx.build_allocate(
-            AllocationScope::StackStartOfFunc,
-            llvm_ty,
-            Some("if_exp_result"),
-        )?)
+        Some(ctx.build_allocate(AllocationScope::Default, llvm_ty, Some("if_exp_result"))?)
     };
     let current = ctx.builder.get_insert_block().and_then(BasicBlock::get_parent).unwrap();
     let then_bb = ctx.ctx.append_basic_block(current, "then");

@@ -517,6 +517,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         Ok(value)
     }
 
+    #[deprecated]
     pub fn alloca(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -579,6 +580,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
 impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for RefCountedArrayType<'ctx, T> {
     type Value = PointerValue<'ctx>;
 
+    #[allow(deprecated)]
     fn alloca(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,

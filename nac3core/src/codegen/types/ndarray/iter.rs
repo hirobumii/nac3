@@ -179,8 +179,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         ) -> anyhow::Result<V>,
     {
         let init = init.as_basic_value_enum();
-        let acc_ptr =
-            ctx.build_allocate(AllocationScope::StackStartOfFunc, init.get_type(), None)?;
+        let acc_ptr = ctx.build_allocate(AllocationScope::Default, init.get_type(), None)?;
         typed_store(ctx.builder, acc_ptr, init)?;
 
         gen_for_callback(
