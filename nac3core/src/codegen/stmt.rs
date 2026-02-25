@@ -442,15 +442,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let tail_len = ctx.size_t.const_int(tail.len() as u64, false);
             let tail_begin = ctx.builder.build_int_sub(rhs_size, tail_len, "tail_begin")?;
 
-            let mid_list = {
-                let list_ty = ListType::new(ctx, elem_ty);
-                TypedRefCountedType::new(ctx, list_ty).allocate(
-                    ctx,
-                    AllocationScope::Default,
-                    true,
-                    None,
-                )?
-            };
+            let mid_list = ListType::new(ctx, elem_ty).construct(ctx, mid_len, Some("mid_list"))?;
             let mid_list_data = mid_list.inner_value(ctx)?.data(ctx)?;
             let llvm_list_elem_ty = ctx.get_llvm_type(elem_ty);
             llvm_intrinsics::call_memcpy(
@@ -466,7 +458,6 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     "",
                 )?,
             )?;
-            mid_list.inner_value(ctx)?.store(ctx, field!(len), mid_len)?;
             do_assign_list(generator, ctx, mid, &mid_list)?;
 
             let list_tail = (0..tail.len())
