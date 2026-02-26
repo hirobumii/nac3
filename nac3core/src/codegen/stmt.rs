@@ -1006,9 +1006,10 @@ pub fn gen_for<G: CodeGenerator>(
                 TypeEnum::TObj { obj_id, .. }
                     if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
                 {
-                    let iterable = ListType::from_unifier_type(ctx, iterable_ty)
+                    let list_ty = ListType::from_unifier_type(ctx, iterable_ty);
+                    let iterable = TypedRefCountedType::new(ctx, list_ty)
                         .map_value(iterable_val.into_pointer_value(), Some("list"));
-                    let length = iterable.load(ctx, field!(len))?;
+                    let length = iterable.inner_value(ctx)?.load(ctx, field!(len))?;
                     let length = ctx.builder.build_int_truncate(length, int32, "length")?;
                     let val = arraylike_flatten_element_type(&mut ctx.unifier, iterable_ty);
                     let element_ty =
@@ -1022,14 +1023,14 @@ pub fn gen_for<G: CodeGenerator>(
                         &target.node,
                         target_i,
                         |ctx| {
-                            iterable.data(ctx)?.get_unchecked(
+                            iterable.inner_value(ctx)?.data(ctx)?.get_unchecked(
                                 ctx,
                                 &int32.const_int(0, false),
                                 Some("first_v"),
                             )
                         },
                         |ctx, next_i| {
-                            iterable.data(ctx)?.get_unchecked(
+                            iterable.inner_value(ctx)?.data(ctx)?.get_unchecked(
                                 ctx,
                                 &ctx.builder.build_int_sub(next_i, start, "sub")?,
                                 Some("next_v"),

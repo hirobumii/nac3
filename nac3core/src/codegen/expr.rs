@@ -946,9 +946,10 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         TypeEnum::TObj { obj_id, .. }
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
-            let iter_val = ListType::from_unifier_type(ctx, iter_ty)
+            let llvm_list_ty = ListType::from_unifier_type(ctx, iter_ty);
+            let iter_val = TypedRefCountedType::new(ctx, llvm_list_ty)
                 .map_value(iter_val.into_pointer_value(), Some("list"));
-            let length = iter_val.load(ctx, field!(len))?;
+            let length = iter_val.inner_value(ctx)?.load(ctx, field!(len))?;
             list = ListType::new(ctx, elem_ty).construct(ctx, length, Some("listcomp"))?;
 
             let counter =
@@ -965,8 +966,9 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb)?;
 
             ctx.builder.position_at_end(body_bb);
-            let val = iter_val.data(ctx)?.get_unchecked(ctx, &tmp, Some("val"))?;
-            generator.gen_assign(ctx, target, &val, elt.custom.unwrap())?;
+            let val =
+                iter_val.inner_value(ctx)?.data(ctx)?.get_unchecked(ctx, &tmp, Some("val"))?;
+            generator.gen_assign(ctx, target, &val, target.custom.unwrap())?;
         }
         _ => {
             bail!(
@@ -1063,8 +1065,13 @@ pub fn gen_prim_binop_expr<'ctx>(
                 debug_assert_eq!(ty2.obj_id(&ctx.unifier), Some(PrimDef::List.id()));
 
                 let list_ty = ListType::from_unifier_type(ctx, ty1);
-                let [left, right] = [left_val, right_val]
-                    .map(|val| list_ty.map_value(val.into_pointer_value(), None).data(ctx));
+                let rc_list_ty = TypedRefCountedType::new(ctx, list_ty);
+                let [left, right] = [left_val, right_val].map(|val| {
+                    rc_list_ty
+                        .map_value(val.into_pointer_value(), None)
+                        .inner_value(ctx)
+                        .and_then(|inner| inner.data(ctx))
+                });
                 let [left, right] = [left?, right?];
                 let new_len = ctx.builder.build_int_add(left.value.1, right.value.1, "")?;
                 let new_list = list_ty.construct(ctx, new_len, None)?;
@@ -1091,13 +1098,14 @@ pub fn gen_prim_binop_expr<'ctx>(
                         codegen_unreachable!(ctx)
                     };
                 let list_ty = ListType::from_unifier_type(ctx, list_ty);
-                let list_val = list_ty.map_value(list_val.into_pointer_value(), None);
+                let list_val = TypedRefCountedType::new(ctx, list_ty)
+                    .map_value(list_val.into_pointer_value(), None);
                 let int_val =
                     ctx.builder.build_int_s_extend(int_val.into_int_value(), llvm_usize, "")?;
                 // [...] * (i where i < 0) => []
                 let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None)?;
 
-                let (old_list_ptr, size) = list_val.data(ctx)?.value;
+                let (old_list_ptr, size) = list_val.inner_value(ctx)?.data(ctx)?.value;
                 let new_list =
                     list_ty.construct(ctx, ctx.builder.build_int_mul(size, int_val, "")?, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
@@ -1584,12 +1592,14 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         todo!("Only __eq__ and __ne__ is implemented for lists")
                     }
 
-                    let left = ListType::from_unifier_type(ctx, left_ty)
+                    let left_list_ty = ListType::from_unifier_type(ctx, left_ty);
+                    let left = TypedRefCountedType::new(ctx, left_list_ty)
                         .map_value(lhs.into_pointer_value(), None);
-                    let right = ListType::from_unifier_type(ctx, right_ty)
+                    let right_list_ty = ListType::from_unifier_type(ctx, right_ty);
+                    let right = TypedRefCountedType::new(ctx, right_list_ty)
                         .map_value(rhs.into_pointer_value(), None);
-                    let left_size = left.load(ctx, field!(len))?;
-                    let right_size = right.load(ctx, field!(len))?;
+                    let left_size = left.inner_value(ctx)?.load(ctx, field!(len))?;
+                    let right_size = right.inner_value(ctx)?.load(ctx, field!(len))?;
 
                     let eq_len = ctx
                         .builder
@@ -1610,15 +1620,15 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                 llvm_usize.const_zero(),
                                 (left_size, false),
                                 |(), ctx, hooks, i| {
-                                    let left_v = left.data(ctx)?.get_unchecked(ctx, &i, None)?;
-                                    let right_v = right.data(ctx)?.get_unchecked(ctx, &i, None)?;
+                                    let left_v = left.inner_value(ctx)?.data(ctx)?.get_unchecked(ctx, &i, None)?;
+                                    let right_v = right.inner_value(ctx)?.data(ctx)?.get_unchecked(ctx, &i, None)?;
 
                                     let res = gen_cmpop_expr_with_values(
                                         generator,
                                         ctx,
-                                        (Some(left.ty.item_ty), left_v),
+                                        (Some(left_list_ty.item_ty), left_v),
                                         &[Cmpop::Eq],
-                                        &[(Some(right.ty.item_ty), right_v)],
+                                        &[(Some(right_list_ty.item_ty), right_v)],
                                     )?
                                     .into_int_value();
                                     let bool_res = ctx.builder.build_int_compare(

@@ -5,7 +5,10 @@ use crate::{
         CodeGenContext,
         allocator::AllocationScope,
         stmt::gen_for_callback_incrementing,
-        types::{ArrayLikeIndexer, ArraySliceValue, ListType, ProxyTypeBase, TupleType, field},
+        types::{
+            ArrayLikeIndexer, ArraySliceValue, ListType, ProxyTypeBase, TupleType,
+            TypedRefCountedType, field,
+        },
     },
     typecheck::typedef::{Type, TypeEnum},
 };
@@ -37,10 +40,11 @@ pub fn parse_numpy_int_sequence<'ctx>(
         {
             // 1. A list of `int32`; e.g., `np.empty([600, 800, 3])`
 
-            let input_seq = ListType::from_unifier_type(ctx, input_seq_ty)
+            let llvm_list_ty = ListType::from_unifier_type(ctx, input_seq_ty);
+            let input_seq = TypedRefCountedType::new(ctx, llvm_list_ty)
                 .map_value(input_seq.into_pointer_value(), None);
 
-            let len = input_seq.load(ctx, field!(len))?;
+            let len = input_seq.inner_value(ctx)?.load(ctx, field!(len))?;
             // TODO: Find a way to remove this mid-BB allocation
             let result = {
                 #[cfg(feature = "malloc")]
@@ -59,7 +63,8 @@ pub fn parse_numpy_int_sequence<'ctx>(
                 (len, false),
                 |(), ctx, _, i| {
                     // Load the i-th int32 in the input sequence
-                    let int: IntValue<'ctx> = input_seq.data(ctx)?.get_unchecked(ctx, &i, None)?;
+                    let int: IntValue<'ctx> =
+                        input_seq.inner_value(ctx)?.data(ctx)?.get_unchecked(ctx, &i, None)?;
 
                     // Cast to SizeT
                     let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "")?;
