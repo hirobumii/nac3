@@ -1,7 +1,9 @@
 #pragma once
 
+#include "irrt/stdlib/cstdint.h"
+#include "irrt/stdlib/algorithm.h"
+
 #include "irrt/int_types.hpp"
-#include "irrt/math_util.hpp"
 #include "irrt/slice.hpp"
 #include "irrt/reference/header.hpp"
 
@@ -59,9 +61,10 @@ SliceIndex __nac3_list_slice_assign_var_size(SliceIndex dest_start,
         return dest_arr_len - (dest_len - src_len);
     }
     /* if two range overlaps, need alloca */
-    uint8_t need_alloca = (dest_arr == src_arr)
-                          && !(max(dest_start, dest_end) < min(src_start, src_end)
-                               || max(src_start, src_end) < min(dest_start, dest_end));
+    uint8_t need_alloca =
+        (dest_arr == src_arr)
+        && !(__nac3_impl::stdlib::max(dest_start, dest_end) < __nac3_impl::stdlib::min(src_start, src_end)
+             || __nac3_impl::stdlib::max(src_start, src_end) < __nac3_impl::stdlib::min(dest_start, dest_end));
     if (need_alloca) {
         void* tmp = __builtin_alloca(src_arr_len * size);
         __builtin_memcpy(tmp, src_arr, src_arr_len * size);

@@ -1,8 +1,10 @@
 #pragma once
 
+#include "irrt/stdlib/cstdint.h"
+#include "irrt/stdlib/algorithm.h"
+
 #include "irrt/debug.hpp"
 #include "irrt/exception.hpp"
-#include "irrt/int_types.hpp"
 #include "irrt/ndarray/basic.hpp"
 #include "irrt/ndarray/broadcast.hpp"
 #include "irrt/ndarray/iter.hpp"
@@ -43,7 +45,7 @@ void calculate_shapes(SizeT a_ndims,
                       SizeT* dst_shape) {
     debug_assert(SizeT, a_ndims >= 2);
     debug_assert(SizeT, b_ndims >= 2);
-    debug_assert_eq(SizeT, max(a_ndims, b_ndims), final_ndims);
+    debug_assert_eq(SizeT, __nac3_impl::stdlib::max(a_ndims, b_ndims), final_ndims);
 
     // Check that a and b are compatible for matmul
     if (a_shape[a_ndims - 1] != b_shape[b_ndims - 2]) {

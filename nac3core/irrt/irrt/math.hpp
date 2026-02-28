@@ -1,6 +1,6 @@
 #pragma once
 
-#include "irrt/int_types.hpp"
+#include "irrt/stdlib/cstdint.h"
 
 namespace {
 // adapted from GNU Scientific Library: https://git.savannah.gnu.org/cgit/gsl.git/tree/sys/pow_int.c

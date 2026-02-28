@@ -1,6 +1,7 @@
 #pragma once
 
-#include "irrt/int_types.hpp"
+#include "irrt/stdlib/cstdint.h"
+
 #include "irrt/ndarray/def.hpp"
 
 namespace {

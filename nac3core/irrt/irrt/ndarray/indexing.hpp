@@ -1,7 +1,8 @@
 #pragma once
 
+#include "irrt/stdlib/cstdint.h"
+
 #include "irrt/exception.hpp"
-#include "irrt/int_types.hpp"
 #include "irrt/ndarray/basic.hpp"
 #include "irrt/ndarray/def.hpp"
 #include "irrt/range.hpp"

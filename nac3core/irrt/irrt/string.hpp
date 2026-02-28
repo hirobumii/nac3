@@ -1,6 +1,6 @@
 #pragma once
 
-#include "irrt/int_types.hpp"
+#include "irrt/stdlib/cstdint.h"
 
 namespace __nac3_impl {
 template<typename SizeT>

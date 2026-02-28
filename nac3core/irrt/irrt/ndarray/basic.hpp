@@ -1,8 +1,9 @@
 #pragma once
 
+#include "irrt/stdlib/cstdint.h"
+
 #include "irrt/debug.hpp"
 #include "irrt/exception.hpp"
-#include "irrt/int_types.hpp"
 #include "irrt/ndarray/def.hpp"
 
 namespace {

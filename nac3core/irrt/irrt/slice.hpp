@@ -1,9 +1,11 @@
 #pragma once
 
+#include "irrt/stdlib/cstdint.h"
+#include "irrt/stdlib/algorithm.h"
+
 #include "irrt/debug.hpp"
 #include "irrt/exception.hpp"
 #include "irrt/int_types.hpp"
-#include "irrt/math_util.hpp"
 #include "irrt/range.hpp"
 
 namespace {
@@ -53,13 +55,14 @@ void indices(bool start_defined,
     }
 
     if (start_defined) {
-        *range_start = start < 0 ? max(lower, start + length) : min(upper, start);
+        *range_start =
+            start < 0 ? __nac3_impl::stdlib::max(lower, start + length) : __nac3_impl::stdlib::min(upper, start);
     } else {
         *range_start = step_is_negative ? upper : lower;
     }
 
     if (stop_defined) {
-        *range_stop = stop < 0 ? max(lower, stop + length) : min(upper, stop);
+        *range_stop = stop < 0 ? __nac3_impl::stdlib::max(lower, stop + length) : __nac3_impl::stdlib::min(upper, stop);
     } else {
         *range_stop = step_is_negative ? lower : upper;
     }

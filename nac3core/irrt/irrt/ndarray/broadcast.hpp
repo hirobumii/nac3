@@ -1,6 +1,8 @@
 #pragma once
 
-#include "irrt/int_types.hpp"
+#include "irrt/stdlib/cstdint.h"
+#include "irrt/stdlib/algorithm.h"
+
 #include "irrt/ndarray/def.hpp"
 #include "irrt/slice.hpp"
 
@@ -63,7 +65,7 @@ void broadcast_shapes(SizeT num_shapes, const ShapeEntry<SizeT>* shapes, SizeT d
         debug_assert(SizeT, entry.ndims <= dst_ndims);
 
 #ifdef IRRT_DEBUG_ASSERT
-        max_ndims_found = max(max_ndims_found, entry.ndims);
+        max_ndims_found = __nac3_impl::stdlib::max(max_ndims_found, entry.ndims);
 #endif
 
         for (SizeT j = 0; j < entry.ndims; j++) {
