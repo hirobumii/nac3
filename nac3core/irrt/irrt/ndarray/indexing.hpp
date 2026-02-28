@@ -61,7 +61,7 @@ struct NDIndex {
      *
      * Please see the comment of each enum constant.
      */
-    uint8_t* data;
+    void* data;
 };
 }  // namespace
 
@@ -75,6 +75,7 @@ namespace ndarray::indexing {
  * This function also does proper assertions on `indices` to check for out of bounds access and more.
  *
  * # Notes on `dst_ndarray`
+ *
  * The caller is responsible for allocating space for the resulting ndarray.
  * Here is what this function expects from `dst_ndarray` when called:
  *   - `dst_ndarray->data` does not have to be initialized.
@@ -83,12 +84,17 @@ namespace ndarray::indexing {
  *       indexing `src_ndarray` with `indices`.
  *   - `dst_ndarray->shape` must be allocated, through it can contain uninitialized values.
  *   - `dst_ndarray->strides` must be allocated, through it can contain uninitialized values.
+ *   - `dst_ndarray->base` does not have to be initialized.
+ *   - `dst_ndarray->offset` does not have to be initialized.
+ *
  * When this function call ends:
  *   - `dst_ndarray->data` is set to `src_ndarray->data`.
  *   - `dst_ndarray->itemsize` is set to `src_ndarray->itemsize`.
  *   - `dst_ndarray->ndims` is unchanged.
  *   - `dst_ndarray->shape` is updated according to how `src_ndarray` is indexed.
  *   - `dst_ndarray->strides` is updated accordingly by how ndarray indexing works.
+ *   - `dst_ndarray->base` is set to `src_ndarray`.
+ *   - `dst_ndarray->offset` is set to the offset of the first element
  *
  * @param indices indices to index `src_ndarray`, ordered in the same way you would write them in Python.
  * @param src_ndarray The NDArray to be indexed.
@@ -133,7 +139,10 @@ void index(SizeT num_indices, const NDIndex* indices, NDArray<SizeT>* src_ndarra
                         src_ndarray->ndims, num_indices, NO_PARAM);
     }
 
+    dst_ndarray->base = src_ndarray;
+
     dst_ndarray->data = src_ndarray->data;
+    dst_ndarray->offset = 0;
     dst_ndarray->itemsize = src_ndarray->itemsize;
     dst_ndarray->base = src_ndarray;
     dst_ndarray->offset = src_ndarray->offset;

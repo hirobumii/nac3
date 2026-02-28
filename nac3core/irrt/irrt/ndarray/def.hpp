@@ -54,7 +54,7 @@ struct NDArray {
     NDArray<SizeT>* base;
 
     /**
-     * @brief The offset in bytes from the start of the base array to the start of this array.
+     * @brief The offset in bytes from the start of the base array to the first element of this `ndarray`.
      */
     SizeT offset;
 };

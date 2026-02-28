@@ -152,6 +152,7 @@ impl<'ctx> NDArrayType<'ctx> {
             .0;
         ndarray.store(ctx, field!(strides), strides)?;
 
+        // Set `base` to `null` to prevent accidental refcounting of uninitialized memory
         ndarray.store(ctx, field!(base), ctx.ptr.const_null())?;
 
         Ok(ndarray)
@@ -239,6 +240,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             .value
             .0;
         self.store(ctx, field!(data), alloc)?;
+        self.store(ctx, field!(offset), ctx.size_t.const_zero())?;
         self.set_strides_contiguous(ctx)?;
         self.store(ctx, field!(base), ctx.ptr.const_null())?;
         self.store(ctx, field!(offset), ctx.size_t.const_zero())?;
