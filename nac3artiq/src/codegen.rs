@@ -14,7 +14,7 @@ use nac3core::{
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
-        type_aligned_allocate, typed_store,
+        type_aligned_allocate, typed_gep, typed_store,
         types::{
             ArrayLikeIndexer, ExceptionType, ListType, NDArrayType, ProxyTypeBase, RangeType, field,
         },
@@ -656,7 +656,10 @@ fn format_rpc_ret<'ctx>(
                 )?;
             }
 
+            let ndarray_offset = ndarray.load(ctx, field!(offset))?;
             let ndarray_data = ndarray.load(ctx, field!(data))?;
+            let ndarray_data =
+                typed_gep(ctx.builder, &ctx.i8, ndarray_data, &[ndarray_offset], "")?;
 
             let entry_bb = ctx.builder.get_insert_block().unwrap();
             ctx.builder.build_unconditional_branch(head_bb)?;

@@ -83,7 +83,7 @@ void assert_transpose_axes(SizeT ndims, SizeT num_axes, const SizeT* axes) {
  * @param axes Axes permutation. Set it to `nullptr` if `<axes>` is `None`.
  */
 template<typename SizeT>
-void transpose(const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray, SizeT num_axes, const SizeT* axes) {
+void transpose(NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray, SizeT num_axes, const SizeT* axes) {
     debug_assert_eq(SizeT, src_ndarray->ndims, dst_ndarray->ndims);
     const auto ndims = src_ndarray->ndims;
 
@@ -92,6 +92,8 @@ void transpose(const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray, S
 
     dst_ndarray->data = src_ndarray->data;
     dst_ndarray->itemsize = src_ndarray->itemsize;
+    dst_ndarray->base = src_ndarray;
+    dst_ndarray->offset = src_ndarray->offset;
 
     // Check out https://ajcr.net/stride-guide-part-2/ to see how `np.transpose` works behind the scenes.
     if (axes == nullptr) {
@@ -127,14 +129,14 @@ void transpose(const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray, S
 
 extern "C" {
 using namespace ndarray::transpose;
-void __nac3_ndarray_transpose(const NDArray<int32_t>* src_ndarray,
+void __nac3_ndarray_transpose(NDArray<int32_t>* src_ndarray,
                               NDArray<int32_t>* dst_ndarray,
                               int32_t num_axes,
                               const int32_t* axes) {
     transpose(src_ndarray, dst_ndarray, num_axes, axes);
 }
 
-void __nac3_ndarray_transpose64(const NDArray<int64_t>* src_ndarray,
+void __nac3_ndarray_transpose64(NDArray<int64_t>* src_ndarray,
                                 NDArray<int64_t>* dst_ndarray,
                                 int64_t num_axes,
                                 const int64_t* axes) {

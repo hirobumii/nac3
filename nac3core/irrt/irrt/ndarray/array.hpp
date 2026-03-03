@@ -87,7 +87,7 @@ void write_list_to_array_helper(SizeT axis, SizeT* index, List<SizeT>* list, NDA
     if (axis + 1 == ndarray->ndims) {
         // `list` has type `list[scalar]`
         // `ndarray` is contiguous, so we can do this, and this is fast.
-        uint8_t* dst = static_cast<uint8_t*>(ndarray->data) + (ndarray->itemsize * (*index));
+        uint8_t* dst = static_cast<uint8_t*>(ndarray->data) + ndarray->offset + (ndarray->itemsize * (*index));
         __builtin_memcpy(dst, list->items, ndarray->itemsize * list->len);
         *index += list->len;
     } else {

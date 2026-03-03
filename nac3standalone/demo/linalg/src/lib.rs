@@ -1,11 +1,23 @@
-// Uses `nalgebra` crate to invoke `np_linalg` and `sp_linalg` functions
-// When converting between `nalgebra::Matrix` and `NDArray` following considerations are necessary
-//
-// * Both `nalgebra::Matrix` and `NDArray` require their content to be stored in row-major order
-// * `NDArray` data pointer can be directly read and converted to `nalgebra::Matrix` (row and column number must be known)
-// * `nalgebra::Matrix::as_slice` returns the content of matrix in column-major order and initial data needs to be transposed before storing it in `NDArray` data pointer
+//! Uses `nalgebra` crate to invoke `np_linalg` and `sp_linalg` functions
+//! When converting between `nalgebra::Matrix` and `NDArray` following considerations are necessary
+//!
+//! * Both `nalgebra::Matrix` and `NDArray` require their content to be stored in row-major order
+//! * `NDArray` data pointer can be directly read and converted to `nalgebra::Matrix` (row and column number must be known)
+//! * `nalgebra::Matrix::as_slice` returns the content of matrix in column-major order and initial data needs to be transposed before storing it in `NDArray` data pointer
 
-use core::slice;
+#![deny(future_incompatible, let_underscore, nonstandard_style, clippy::all)]
+#![warn(clippy::pedantic, clippy::nursery)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    clippy::similar_names,
+    clippy::too_many_lines
+)]
+
+use std::slice;
+
 use nalgebra::DMatrix;
 
 fn report_error(
@@ -17,8 +29,7 @@ fn report_error(
     err_msg: &str,
 ) -> ! {
     panic!(
-        "Exception {} from {} in {}:{}:{}, message: {}",
-        error_name, fn_name, file_name, line_num, col_num, err_msg
+        "Exception {error_name} from {fn_name} in {file_name}:{line_num}:{col_num}, message: {err_msg}"
     );
 }
 
@@ -26,7 +37,10 @@ pub struct InputMatrix {
     pub ndims: usize,
     pub dims: *const usize,
     pub data: *mut f64,
+    pub base: *mut u8,
+    pub offset: isize,
 }
+
 impl InputMatrix {
     fn get_dims(&mut self) -> Vec<usize> {
         let dims = unsafe { slice::from_raw_parts(self.dims, self.ndims) };
@@ -55,8 +69,11 @@ pub unsafe extern "C" fn np_linalg_cholesky(mat1: *mut InputMatrix, out: *mut In
     }
 
     let outdim = out.get_dims();
-    let out_slice = unsafe { slice::from_raw_parts_mut(out.data, outdim[0] * outdim[1]) };
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
+    let out_slice = unsafe {
+        slice::from_raw_parts_mut(out.data.byte_offset(out.offset), outdim[0] * outdim[1])
+    };
+    let data_slice1 =
+        unsafe { slice::from_raw_parts_mut(mat1.data.byte_offset(mat1.offset), dim1[0] * dim1[1]) };
 
     let matrix1 = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
     let result = matrix1.cholesky();
@@ -74,7 +91,7 @@ pub unsafe extern "C" fn np_linalg_cholesky(mat1: *mut InputMatrix, out: *mut In
                 "Matrix is not positive definite",
             );
         }
-    };
+    }
 }
 
 /// # Safety
@@ -99,9 +116,14 @@ pub unsafe extern "C" fn np_linalg_qr(
     let outq_dim = (*out_q).get_dims();
     let outr_dim = (*out_r).get_dims();
 
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
-    let out_q_slice = unsafe { slice::from_raw_parts_mut(out_q.data, outq_dim[0] * outq_dim[1]) };
-    let out_r_slice = unsafe { slice::from_raw_parts_mut(out_r.data, outr_dim[0] * outr_dim[1]) };
+    let data_slice1 =
+        unsafe { slice::from_raw_parts_mut(mat1.data.byte_offset(mat1.offset), dim1[0] * dim1[1]) };
+    let out_q_slice = unsafe {
+        slice::from_raw_parts_mut(out_q.data.byte_offset(out_q.offset), outq_dim[0] * outq_dim[1])
+    };
+    let out_r_slice = unsafe {
+        slice::from_raw_parts_mut(out_r.data.byte_offset(out_r.offset), outr_dim[0] * outr_dim[1])
+    };
 
     // Refer to https://github.com/dimforge/nalgebra/issues/735
     let matrix1 = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
@@ -139,11 +161,16 @@ pub unsafe extern "C" fn np_linalg_svd(
     let outs_dim = (*outs).get_dims();
     let outvh_dim = (*outvh).get_dims();
 
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
-    let out_u_slice = unsafe { slice::from_raw_parts_mut(outu.data, outu_dim[0] * outu_dim[1]) };
-    let out_s_slice = unsafe { slice::from_raw_parts_mut(outs.data, outs_dim[0]) };
-    let out_vh_slice =
-        unsafe { slice::from_raw_parts_mut(outvh.data, outvh_dim[0] * outvh_dim[1]) };
+    let data_slice1 =
+        unsafe { slice::from_raw_parts_mut(mat1.data.byte_offset(mat1.offset), dim1[0] * dim1[1]) };
+    let out_u_slice = unsafe {
+        slice::from_raw_parts_mut(outu.data.byte_offset(outu.offset), outu_dim[0] * outu_dim[1])
+    };
+    let out_s_slice =
+        unsafe { slice::from_raw_parts_mut(outs.data.byte_offset(outs.offset), outs_dim[0]) };
+    let out_vh_slice = unsafe {
+        slice::from_raw_parts_mut(outvh.data.byte_offset(outvh.offset), outvh_dim[0] * outvh_dim[1])
+    };
 
     let matrix = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
     let result = matrix.svd(true, true);
@@ -173,8 +200,11 @@ pub unsafe extern "C" fn np_linalg_inv(mat1: *mut InputMatrix, out: *mut InputMa
     }
 
     let outdim = out.get_dims();
-    let out_slice = unsafe { slice::from_raw_parts_mut(out.data, outdim[0] * outdim[1]) };
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
+    let out_slice = unsafe {
+        slice::from_raw_parts_mut(out.data.byte_offset(out.offset), outdim[0] * outdim[1])
+    };
+    let data_slice1 =
+        unsafe { slice::from_raw_parts_mut(mat1.data.byte_offset(mat1.offset), dim1[0] * dim1[1]) };
 
     let matrix = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
     if !matrix.is_invertible() {
@@ -205,8 +235,11 @@ pub unsafe extern "C" fn np_linalg_pinv(mat1: *mut InputMatrix, out: *mut InputM
     }
     let dim1 = (*mat1).get_dims();
     let outdim = out.get_dims();
-    let out_slice = unsafe { slice::from_raw_parts_mut(out.data, outdim[0] * outdim[1]) };
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
+    let out_slice = unsafe {
+        slice::from_raw_parts_mut(out.data.byte_offset(out.offset), outdim[0] * outdim[1])
+    };
+    let data_slice1 =
+        unsafe { slice::from_raw_parts_mut(mat1.data.byte_offset(mat1.offset), dim1[0] * dim1[1]) };
 
     let matrix = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
     let svd = matrix.svd(true, true);
@@ -241,11 +274,14 @@ pub unsafe extern "C" fn np_linalg_matrix_power(
     }
 
     let dim1 = (*mat1).get_dims();
-    let power = unsafe { slice::from_raw_parts_mut(mat2.data, 1) };
+    let power = unsafe { slice::from_raw_parts_mut(mat2.data.byte_offset(mat2.offset), 1) };
     let power = power[0];
     let outdim = out.get_dims();
-    let out_slice = unsafe { slice::from_raw_parts_mut(out.data, outdim[0] * outdim[1]) };
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
+    let out_slice = unsafe {
+        slice::from_raw_parts_mut(out.data.byte_offset(out.offset), outdim[0] * outdim[1])
+    };
+    let data_slice1 =
+        unsafe { slice::from_raw_parts_mut(mat1.data.byte_offset(mat1.offset), dim1[0] * dim1[1]) };
 
     let abs_pow = power.abs();
     let matrix1 = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
@@ -280,8 +316,9 @@ pub unsafe extern "C" fn np_linalg_det(mat1: *mut InputMatrix, out: *mut InputMa
         report_error("ValueError", "np_linalg_det", file!(), line!(), column!(), &err_msg);
     }
     let dim1 = (*mat1).get_dims();
-    let out_slice = unsafe { slice::from_raw_parts_mut(out.data, 1) };
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
+    let out_slice = unsafe { slice::from_raw_parts_mut(out.data.byte_offset(out.offset), 1) };
+    let data_slice1 =
+        unsafe { slice::from_raw_parts_mut(mat1.data.byte_offset(mat1.offset), dim1[0] * dim1[1]) };
 
     let matrix = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
     if !matrix.is_square() {
@@ -314,9 +351,14 @@ pub unsafe extern "C" fn sp_linalg_lu(
     let outl_dim = (*out_l).get_dims();
     let outu_dim = (*out_u).get_dims();
 
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
-    let out_l_slice = unsafe { slice::from_raw_parts_mut(out_l.data, outl_dim[0] * outl_dim[1]) };
-    let out_u_slice = unsafe { slice::from_raw_parts_mut(out_u.data, outu_dim[0] * outu_dim[1]) };
+    let data_slice1 =
+        unsafe { slice::from_raw_parts_mut(mat1.data.byte_offset(mat1.offset), dim1[0] * dim1[1]) };
+    let out_l_slice = unsafe {
+        slice::from_raw_parts_mut(out_l.data.byte_offset(out_l.offset), outl_dim[0] * outl_dim[1])
+    };
+    let out_u_slice = unsafe {
+        slice::from_raw_parts_mut(out_u.data.byte_offset(out_u.offset), outu_dim[0] * outu_dim[1])
+    };
 
     let matrix = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
     let (_, l, u) = matrix.lu().unpack();
@@ -354,9 +396,14 @@ pub unsafe extern "C" fn sp_linalg_schur(
     let out_t_dim = (*out_t).get_dims();
     let out_z_dim = (*out_z).get_dims();
 
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
-    let out_t_slice = unsafe { slice::from_raw_parts_mut(out_t.data, out_t_dim[0] * out_t_dim[1]) };
-    let out_z_slice = unsafe { slice::from_raw_parts_mut(out_z.data, out_z_dim[0] * out_z_dim[1]) };
+    let data_slice1 =
+        unsafe { slice::from_raw_parts_mut(mat1.data.byte_offset(mat1.offset), dim1[0] * dim1[1]) };
+    let out_t_slice = unsafe {
+        slice::from_raw_parts_mut(out_t.data.byte_offset(out_t.offset), out_t_dim[0] * out_t_dim[1])
+    };
+    let out_z_slice = unsafe {
+        slice::from_raw_parts_mut(out_z.data.byte_offset(out_z.offset), out_z_dim[0] * out_z_dim[1])
+    };
 
     let matrix = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
     let (z, t) = matrix.schur().unpack();
@@ -394,9 +441,14 @@ pub unsafe extern "C" fn sp_linalg_hessenberg(
     let out_h_dim = (*out_h).get_dims();
     let out_q_dim = (*out_q).get_dims();
 
-    let data_slice1 = unsafe { slice::from_raw_parts_mut(mat1.data, dim1[0] * dim1[1]) };
-    let out_h_slice = unsafe { slice::from_raw_parts_mut(out_h.data, out_h_dim[0] * out_h_dim[1]) };
-    let out_q_slice = unsafe { slice::from_raw_parts_mut(out_q.data, out_q_dim[0] * out_q_dim[1]) };
+    let data_slice1 =
+        unsafe { slice::from_raw_parts_mut(mat1.data.byte_offset(mat1.offset), dim1[0] * dim1[1]) };
+    let out_h_slice = unsafe {
+        slice::from_raw_parts_mut(out_h.data.byte_offset(out_h.offset), out_h_dim[0] * out_h_dim[1])
+    };
+    let out_q_slice = unsafe {
+        slice::from_raw_parts_mut(out_q.data.byte_offset(out_q.offset), out_q_dim[0] * out_q_dim[1])
+    };
 
     let matrix = DMatrix::from_row_slice(dim1[0], dim1[1], data_slice1);
     let (q, h) = matrix.hessenberg().unpack();

@@ -47,5 +47,15 @@ struct NDArray {
      * @brief The underlying data this `ndarray` is pointing to.
      */
     void* data;
+
+    /**
+     * @brief The base array that owns the memory this `ndarray` is pointing to.
+     */
+    NDArray<SizeT>* base;
+
+    /**
+     * @brief The offset in bytes from the start of the base array to the start of this array.
+     */
+    SizeT offset;
 };
 }  // namespace

@@ -179,7 +179,7 @@ bool is_c_contiguous(const NDArray<SizeT>* ndarray) {
  */
 template<typename SizeT>
 void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const SizeT* indices) {
-    void* element = ndarray->data;
+    void* element = static_cast<void*>(static_cast<uint8_t*>(ndarray->data) + ndarray->offset);
     for (SizeT dim_i = 0; dim_i < ndarray->ndims; dim_i++)
         element = static_cast<uint8_t*>(element) + indices[dim_i] * ndarray->strides[dim_i];
     return element;
@@ -192,7 +192,7 @@ void* get_pelement_by_indices(const NDArray<SizeT>* ndarray, const SizeT* indice
  */
 template<typename SizeT>
 void* get_nth_pelement(const NDArray<SizeT>* ndarray, SizeT nth) {
-    void* element = ndarray->data;
+    void* element = static_cast<void*>(static_cast<uint8_t*>(ndarray->data) + ndarray->offset);
     for (SizeT i = 0; i < ndarray->ndims; i++) {
         SizeT axis = ndarray->ndims - i - 1;
         SizeT dim = ndarray->shape[axis];

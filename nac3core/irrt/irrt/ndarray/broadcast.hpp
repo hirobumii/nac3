@@ -114,7 +114,7 @@ void broadcast_shapes(SizeT num_shapes, const ShapeEntry<SizeT>* shapes, SizeT d
  *   - `dst_ndarray->strides` is updated accordingly by how ndarray broadcast_to works.
  */
 template<typename SizeT>
-void broadcast_to(const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
+void broadcast_to(NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
     if (!ndarray::broadcast::can_broadcast_shape_to(dst_ndarray->ndims, dst_ndarray->shape, src_ndarray->ndims,
                                                     src_ndarray->shape)) {
         raise_exception(SizeT, EXN_VALUE_ERROR, "operands could not be broadcast together", NO_PARAM, NO_PARAM,
@@ -123,6 +123,8 @@ void broadcast_to(const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray
 
     dst_ndarray->data = src_ndarray->data;
     dst_ndarray->itemsize = src_ndarray->itemsize;
+    dst_ndarray->base = src_ndarray->base;
+    dst_ndarray->offset = src_ndarray->offset;
 
     for (SizeT i = 0; i < dst_ndarray->ndims; i++) {
         SizeT src_axis = src_ndarray->ndims - i - 1;

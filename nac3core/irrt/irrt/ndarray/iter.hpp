@@ -88,9 +88,10 @@ struct NDIter {
     }
 
     void initialize_by_ndarray(NDArray<SizeT>* ndarray, SizeT* indices) {
-        // NOTE: ndarray->data is pointing to the first element, and `NDIter`'s `element` should also point to the first
-        // element as well.
-        this->initialize(ndarray->ndims, ndarray->shape, ndarray->strides, ndarray->data, indices);
+        // NOTE: `NDIter`'s `element` should point to the first element of the ndarray view,
+        // which is at `data + offset`.
+        void* first_element = static_cast<void*>(static_cast<uint8_t*>(ndarray->data) + ndarray->offset);
+        this->initialize(ndarray->ndims, ndarray->shape, ndarray->strides, first_element, indices);
     }
 
     // Is the current iteration valid?

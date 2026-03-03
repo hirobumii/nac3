@@ -94,7 +94,7 @@ namespace ndarray::indexing {
  * @param dst_ndarray The resulting NDArray after indexing. Further details in the comments above,
  */
 template<typename SizeT>
-void index(SizeT num_indices, const NDIndex* indices, const NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
+void index(SizeT num_indices, const NDIndex* indices, NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
     // Validate `indices`.
 
     // Expected value of `dst_ndarray->ndims`.
@@ -134,6 +134,8 @@ void index(SizeT num_indices, const NDIndex* indices, const NDArray<SizeT>* src_
 
     dst_ndarray->data = src_ndarray->data;
     dst_ndarray->itemsize = src_ndarray->itemsize;
+    dst_ndarray->base = src_ndarray;
+    dst_ndarray->offset = src_ndarray->offset;
 
     // Reference code:
     // https://github.com/wadetb/tinynumpy/blob/0d23d22e07062ffab2afa287374c7b366eebdda1/tinynumpy/tinynumpy.py#L652
@@ -153,7 +155,7 @@ void index(SizeT num_indices, const NDIndex* indices, const NDArray<SizeT>* src_
                                 input, src_axis, src_ndarray->shape[src_axis]);
             }
 
-            dst_ndarray->data = static_cast<uint8_t*>(dst_ndarray->data) + k * src_ndarray->strides[src_axis];
+            dst_ndarray->offset += k * src_ndarray->strides[src_axis];
 
             src_axis++;
         } else if (index->type == ND_INDEX_TYPE_SLICE) {
@@ -161,8 +163,7 @@ void index(SizeT num_indices, const NDIndex* indices, const NDArray<SizeT>* src_
 
             Range<int32_t> range = slice->indices_checked<SizeT>(src_ndarray->shape[src_axis]);
 
-            dst_ndarray->data =
-                static_cast<uint8_t*>(dst_ndarray->data) + (SizeT)range.start * src_ndarray->strides[src_axis];
+            dst_ndarray->offset += static_cast<SizeT>(range.start) * src_ndarray->strides[src_axis];
             dst_ndarray->strides[dst_axis] = ((SizeT)range.step) * src_ndarray->strides[src_axis];
             dst_ndarray->shape[dst_axis] = (SizeT)range.len<SizeT>();
 

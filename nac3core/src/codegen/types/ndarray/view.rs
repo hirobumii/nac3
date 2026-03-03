@@ -83,6 +83,10 @@ impl<'ctx> NDArrayValue<'ctx> {
                 dst_ndarray.set_strides_contiguous(ctx)?;
                 let data = self.load(ctx, field!(data))?;
                 dst_ndarray.store(ctx, field!(data), data)?;
+                let base = self.load(ctx, field!(base))?;
+                dst_ndarray.store(ctx, field!(base), base)?;
+                let offset = self.load(ctx, field!(offset))?;
+                dst_ndarray.store(ctx, field!(offset), offset)?;
                 Ok(())
             },
             |(), ctx| {

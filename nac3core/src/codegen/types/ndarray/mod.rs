@@ -13,7 +13,7 @@ use crate::{
         irrt::get_usize_dependent_function_name,
         llvm_intrinsics::call_int_umin,
         stmt::gen_for_callback_incrementing,
-        typed_load, typed_store,
+        typed_gep, typed_load, typed_store,
         types::{
             ProxyTypeBase, Value,
             array::{ArrayLikeIndexer, ArraySliceValue},
@@ -93,6 +93,12 @@ pub struct NDArrayStructFields<'ctx> {
     /// Pointer to an array containing the array data
     #[value_type(ptr)]
     pub data: StructField<'ctx, PointerValue<'ctx>>,
+    /// Pointer to the base of the array if this array is a view.
+    #[value_type(ptr)]
+    pub base: StructField<'ctx, PointerValue<'ctx>>,
+    /// The offset in bytes from the base pointer to the first element of this array.
+    #[value_type(size_t)]
+    pub offset: StructField<'ctx, IntValue<'ctx>>,
 }
 
 pub type NDArrayType<'ctx> = NDArrayLikeType<'ctx, NDArrayStructFields<'ctx>>;
@@ -117,7 +123,8 @@ impl<'ctx> NDArrayType<'ctx> {
 
     /// Creates a new `NDArrayValue`.
     ///
-    /// The shape and strides arrays are allocated but uninitialized. The data array is not allocated.
+    /// The `shape` and `strides` arrays are allocated but uninitialized, the `data` array is not
+    /// allocated, `base` is set to `null`, and `offset` is uninitialized.
     ///
     /// Once you properly set up the `shape` array, you can construct a fully usable ndarray with
     /// [`create_data`][NDArrayValue::create_data]. To construct a fully usable ndarray directly
@@ -144,6 +151,8 @@ impl<'ctx> NDArrayType<'ctx> {
             .value
             .0;
         ndarray.store(ctx, field!(strides), strides)?;
+
+        ndarray.store(ctx, field!(base), ctx.ptr.const_null())?;
 
         Ok(ndarray)
     }
@@ -203,6 +212,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         typed_store(ctx.builder, data, value)?;
         let data = ctx.builder.build_pointer_cast(data, ctx.ptr, "")?;
         ndarray.store(ctx, field!(data), data)?;
+        ndarray.store(ctx, field!(base), ctx.ptr.const_null())?;
+        ndarray.store(ctx, field!(offset), ctx.size_t.const_zero())?;
         Ok(ndarray)
     }
 
@@ -229,6 +240,8 @@ impl<'ctx> NDArrayValue<'ctx> {
             .0;
         self.store(ctx, field!(data), alloc)?;
         self.set_strides_contiguous(ctx)?;
+        self.store(ctx, field!(base), ctx.ptr.const_null())?;
+        self.store(ctx, field!(offset), ctx.size_t.const_zero())?;
         Ok(())
     }
 
@@ -372,7 +385,9 @@ impl<'ctx> NDArrayValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
+        let offset = self.load(ctx, field!(offset))?;
         let data = self.load(ctx, field!(data))?;
+        let data = typed_gep(ctx.builder, &ctx.i8, data, &[offset], "")?;
         typed_load(ctx.builder, data, self.ty.dtype, "first_element")
     }
 }

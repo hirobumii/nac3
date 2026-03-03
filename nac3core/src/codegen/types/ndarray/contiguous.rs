@@ -21,6 +21,10 @@ pub struct ContiguousNDArrayStructFields<'ctx> {
     pub shape: StructField<'ctx, PointerValue<'ctx>>,
     #[value_type(ptr)]
     pub data: StructField<'ctx, PointerValue<'ctx>>,
+    #[value_type(ptr)]
+    pub base: StructField<'ctx, PointerValue<'ctx>>,
+    #[value_type(size_t)]
+    pub offset: StructField<'ctx, IntValue<'ctx>>,
 }
 
 pub type ContiguousNDArrayType<'ctx> = NDArrayLikeType<'ctx, ContiguousNDArrayStructFields<'ctx>>;
@@ -63,6 +67,13 @@ impl<'ctx> NDArrayValue<'ctx> {
                 // This ndarray is contiguous.
                 let data = self.load(ctx, field!(data))?;
                 result.store(ctx, field!(data), data)?;
+
+                let base = self.load(ctx, field!(base))?;
+                result.store(ctx, field!(base), base)?;
+
+                let offset = self.load(ctx, field!(offset))?;
+                result.store(ctx, field!(offset), offset)?;
+
                 Ok(())
             },
             |(), ctx| {
@@ -71,6 +82,9 @@ impl<'ctx> NDArrayValue<'ctx> {
                 let copied_ndarray = self.make_copy(ctx)?;
                 let data = copied_ndarray.load(ctx, field!(data))?;
                 result.store(ctx, field!(data), data)?;
+
+                result.store(ctx, field!(base), ctx.ptr.const_null())?;
+                result.store(ctx, field!(offset), ctx.size_t.const_zero())?;
 
                 Ok(())
             },
@@ -105,6 +119,12 @@ impl<'ctx> NDArrayValue<'ctx> {
         // Share data
         let data = carray.load(ctx, field!(data))?;
         ndarray.store(ctx, field!(data), data)?;
+
+        let base = carray.load(ctx, field!(base))?;
+        ndarray.store(ctx, field!(base), base)?;
+
+        let offset = carray.load(ctx, field!(offset))?;
+        ndarray.store(ctx, field!(offset), offset)?;
 
         Ok(ndarray)
     }
