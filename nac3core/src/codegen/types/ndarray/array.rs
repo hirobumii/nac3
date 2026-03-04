@@ -14,9 +14,9 @@ use crate::{
             ProxyTypeBase,
             array::ArrayLikeIndexer,
             field,
-            list::ListType,
-            reference::{TypedRefCountedType, TypedRefCountedValue},
+            list::RawListType,
             ndarray::{NDArrayType, NDArrayValue},
+            reference::{TypedRefCountedType, TypedRefCountedValue},
         },
     },
     toplevel::helper::{arraylike_flatten_element_type, arraylike_get_ndims},
@@ -38,7 +38,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// Implementation of `np_array(<list>, copy=True)`
     fn from_list_must_copy(
         ctx: &mut CodeGenContext<'ctx, '_>,
-        (list_ty, list): (Type, TypedRefCountedValue<'ctx, ListType<'ctx>>),
+        (list_ty, list): (Type, TypedRefCountedValue<'ctx, RawListType<'ctx>>),
         name: Option<&'static str>,
     ) -> anyhow::Result<Self> {
         let (dtype, ndims_int) = get_list_object_dtype_and_ndims(ctx, list_ty);
@@ -70,7 +70,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// Implementation of `np_array(<list>, copy=None)`
     fn from_list_maybe_copy(
         ctx: &mut CodeGenContext<'ctx, '_>,
-        (list_ty, list): (Type, TypedRefCountedValue<'ctx, ListType<'ctx>>),
+        (list_ty, list): (Type, TypedRefCountedValue<'ctx, RawListType<'ctx>>),
         name: Option<&'static str>,
     ) -> anyhow::Result<Self> {
         // np_array without copying is only possible `list` is not nested.
@@ -87,7 +87,7 @@ impl<'ctx> NDArrayValue<'ctx> {
 
             let ndarray = NDArrayType::new(ctx, dtype, 1).construct(ctx, name)?;
 
-            let (data, len) = list.inner_value(ctx)?.data(ctx)?.value;
+            let (data, len) = list.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.value;
             ndarray.store(ctx, field!(data), data)?;
             // ndarray->shape[0] = list->len;
             ndarray.shape(ctx)?.set_unchecked(ctx, &ctx.size_t.const_zero(), len, None)?;
@@ -104,7 +104,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// Implementation of `np_array(<list>, copy=copy)`
     fn from_list(
         ctx: &mut CodeGenContext<'ctx, '_>,
-        (list_ty, list): (Type, TypedRefCountedValue<'ctx, ListType<'ctx>>),
+        (list_ty, list): (Type, TypedRefCountedValue<'ctx, RawListType<'ctx>>),
         copy: IntValue<'ctx>,
         name: Option<&'static str>,
     ) -> anyhow::Result<Self> {
@@ -174,7 +174,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
             {
                 let obj = object.into_pointer_value();
-                let list_ty = ListType::from_unifier_type(ctx, object_ty);
+                let list_ty = RawListType::from_unifier_type(ctx, object_ty);
                 let list = TypedRefCountedType::new(ctx, list_ty).map_value(obj, None);
                 Self::from_list(ctx, (object_ty, list), copy, name)
             }

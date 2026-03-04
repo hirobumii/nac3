@@ -25,9 +25,9 @@ use crate::{
         typed_load, typed_store,
         types::{
             ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
-            ListType, NDArrayType, OpaqueRefCountedType, ProxyTypeBase, RangeType, RefCountedType,
-            RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType, TupleType, TupleValue,
-            TypedRefCountedType, TypedRefCountedValue, broadcast, field,
+            ListType, NDArrayType, OpaqueRefCountedType, ProxyTypeBase, RangeType, RawListType,
+            RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType, TupleType,
+            TupleValue, TypedRefCountedType, TypedRefCountedValue, broadcast, field,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -130,7 +130,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                     &*ctx.unifier.get_ty(pattern.custom.unwrap())
                     && *obj_id == PrimDef::List.id()
                 {
-                    let list_ty = ListType::from_unifier_type(ctx, pattern.custom.unwrap());
+                    let list_ty = RawListType::from_unifier_type(ctx, pattern.custom.unwrap());
                     TypedRefCountedType::new(ctx, list_ty)
                         .allocate(ctx, AllocationScope::Default, true, None)?
                         .value
@@ -305,7 +305,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
         |generator: &mut G,
          ctx: &mut _,
          target,
-         list: &TypedRefCountedValue<'ctx, ListType<'ctx>>| {
+         list: &TypedRefCountedValue<'ctx, RawListType<'ctx>>| {
             let ptr =
                 generator.gen_store_target(ctx, target, Some("starred_target.addr"))?.unwrap();
             typed_store(ctx.builder, ptr, list.value)?;
@@ -365,11 +365,19 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                 "Starred target must have same type for all items"
             );
             let tup_mid_len = ctx.size_t.const_int(tup_mid.len() as u64, false);
-            let starred_list =
-                ListType::new(ctx, tup_mid_ty).construct(ctx, tup_mid_len, Some("starred_list"))?;
+            let starred_list = ListType::create(ctx, tup_mid_ty).construct(
+                ctx,
+                tup_mid_len,
+                Some("starred_list"),
+            )?;
             let starred_list_data = starred_list.inner_value(ctx)?.data(ctx)?;
             for (i, &(_, val)) in tup_mid.iter().enumerate() {
-                starred_list_data.set(ctx, &ctx.size_t.const_int(i as u64, false), val, None)?;
+                starred_list_data.inner_value(ctx)?.set(
+                    ctx,
+                    &ctx.size_t.const_int(i as u64, false),
+                    val,
+                    None,
+                )?;
             }
             do_assign_list(generator, ctx, mid, &starred_list)?;
 
@@ -378,13 +386,14 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
             let list = value.to_basic_value_enum(ctx, value_ty)?.into_pointer_value();
             let list_ty = ListType::from_unifier_type(ctx, value_ty);
-            let list = TypedRefCountedType::new(ctx, list_ty).map_value(list, None);
+            let list = list_ty.map_value(list, None);
             let list_data = list.inner_value(ctx)?.data(ctx)?;
             let elem_ty = list.ty.object.item_ty;
-            let rhs_size = list_data.value.1;
+            let rhs_size = list_data.inner_value(ctx)?.value.1;
 
             let do_read = |ctx: &mut CodeGenContext<'ctx, '_>, at: _| {
-                let elem: BasicValueEnum<'ctx> = list_data.get_unchecked(ctx, &at, None)?;
+                let elem: BasicValueEnum<'ctx> =
+                    list_data.inner_value(ctx)?.get_unchecked(ctx, &at, None)?;
                 Ok((elem_ty, elem))
             };
             let read_fixed = |ctx: &mut CodeGenContext<'ctx, '_>, to: usize| {
@@ -438,16 +447,21 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
 
             let head_len = ctx.size_t.const_int(head.len() as u64, false);
             let mid_len = ctx.builder.build_int_sub(rhs_size, min_size_, "mid_len")?;
-            let mid_begin = list_data.ptr_offset_unchecked(ctx, &head_len, Some("mid_begin"))?;
+            let mid_begin = list_data.inner_value(ctx)?.ptr_offset_unchecked(
+                ctx,
+                &head_len,
+                Some("mid_begin"),
+            )?;
             let tail_len = ctx.size_t.const_int(tail.len() as u64, false);
             let tail_begin = ctx.builder.build_int_sub(rhs_size, tail_len, "tail_begin")?;
 
-            let mid_list = ListType::new(ctx, elem_ty).construct(ctx, mid_len, Some("mid_list"))?;
+            let mid_list =
+                ListType::create(ctx, elem_ty).construct(ctx, mid_len, Some("mid_list"))?;
             let mid_list_data = mid_list.inner_value(ctx)?.data(ctx)?;
             let llvm_list_elem_ty = ctx.get_llvm_type(elem_ty);
             llvm_intrinsics::call_memcpy(
                 ctx,
-                mid_list_data.value.0,
+                mid_list_data.inner_value(ctx)?.value.0,
                 mid_begin,
                 ctx.builder.build_int_mul(
                     mid_len,
@@ -496,7 +510,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             let target = generator.gen_expr(ctx, target)?;
             let target_val = target.to_basic_value_enum(ctx)?.into_pointer_value();
             let target = {
-                let list_ty = ListType::from_unifier_type(ctx, target_ty);
+                let list_ty = RawListType::from_unifier_type(ctx, target_ty);
                 TypedRefCountedType::new(ctx, list_ty).map_value(target_val, None)
             };
 
@@ -514,7 +528,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 let value_val = value.to_basic_value_enum(ctx, value_ty)?.into_pointer_value();
                 let value = {
-                    let list_ty = ListType::from_unifier_type(ctx, target_ty);
+                    let list_ty = RawListType::from_unifier_type(ctx, target_ty);
                     TypedRefCountedType::new(ctx, list_ty).map_value(value_val, None)
                 };
 
@@ -568,7 +582,12 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 // Write value to index on list
                 let value = value.to_basic_value_enum(ctx, value_ty)?;
-                target.inner_value(ctx)?.data(ctx)?.set(ctx, &index, value, Some("list_item"))?;
+                target.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.set(
+                    ctx,
+                    &index,
+                    value,
+                    Some("list_item"),
+                )?;
             }
         }
         TypeEnum::TObj { obj_id, .. }
@@ -1006,7 +1025,7 @@ pub fn gen_for<G: CodeGenerator>(
                 TypeEnum::TObj { obj_id, .. }
                     if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
                 {
-                    let list_ty = ListType::from_unifier_type(ctx, iterable_ty);
+                    let list_ty = RawListType::from_unifier_type(ctx, iterable_ty);
                     let iterable = TypedRefCountedType::new(ctx, list_ty)
                         .map_value(iterable_val.into_pointer_value(), Some("list"));
                     let length = iterable.inner_value(ctx)?.load(ctx, field!(len))?;
@@ -1023,14 +1042,14 @@ pub fn gen_for<G: CodeGenerator>(
                         &target.node,
                         target_i,
                         |ctx| {
-                            iterable.inner_value(ctx)?.data(ctx)?.get_unchecked(
+                            iterable.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(
                                 ctx,
                                 &int32.const_int(0, false),
                                 Some("first_v"),
                             )
                         },
                         |ctx, next_i| {
-                            iterable.inner_value(ctx)?.data(ctx)?.get_unchecked(
+                            iterable.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(
                                 ctx,
                                 &ctx.builder.build_int_sub(next_i, start, "sub")?,
                                 Some("next_v"),
@@ -1077,7 +1096,7 @@ pub fn gen_for<G: CodeGenerator>(
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
             let list_elem_ty = iter_type_vars(list_params).next().unwrap().ty;
-            let list_ty = ListType::new(ctx, list_elem_ty);
+            let list_ty = RawListType::new(ctx, list_elem_ty);
             let iter_val = TypedRefCountedType::new(ctx, list_ty)
                 .map_value(iter_val.into_pointer_value(), Some("list"));
 
@@ -1112,11 +1131,11 @@ pub fn gen_for<G: CodeGenerator>(
                         .builder
                         .build_load(index_addr, "for.index")
                         .map(BasicValueEnum::into_int_value)?;
-                    let val: BasicValueEnum = iter_val.inner_value(ctx)?.data(ctx)?.get_unchecked(
-                        ctx,
-                        &index,
-                        Some("val"),
-                    )?;
+                    let val: BasicValueEnum = iter_val
+                        .inner_value(ctx)?
+                        .data(ctx)?
+                        .inner_value(ctx)?
+                        .get_unchecked(ctx, &index, Some("val"))?;
                     let val_ty = iter_type_vars(list_params).next().unwrap().ty;
                     generator.gen_assign(ctx, target, &val.into(), val_ty)?;
                     generator.gen_block(ctx, body.iter())?;

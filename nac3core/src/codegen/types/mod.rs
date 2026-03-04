@@ -92,7 +92,7 @@ pub use array::{ArrayLikeIndexer, ArraySliceType, ArraySliceValue};
 pub use builtin::BuiltinStruct;
 pub use enumerate::{EnumerateType, EnumerateValue};
 pub use exception::{ExceptionType, ExceptionValue};
-pub use list::{ListStructFields, ListType, ListValue};
+pub use list::{ListStructFields, ListType, ListValue, RawListType, RawListValue};
 pub use ndarray::{
     BroadcastAllResult, ContiguousNDArrayType, ContiguousNDArrayValue, NDArrayLikeType, NDArrayOut,
     NDArrayType, NDArrayValue, NDIndexType, NDIndexValue, NDIterType, NDIterValue, RustNDIndex,

@@ -42,8 +42,9 @@ use crate::{
         types::{
             ArrayLikeIndexer, ExceptionType, ListType, NDArrayOut, NDArrayType,
             OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType, RangeValue,
-            RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType, TupleType,
-            TupleValue, TypedRefCountedType, TypedRefCountedValue, broadcast_starmap, field,
+            RawListType, RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
+            TupleType, TupleValue, TypedRefCountedType, TypedRefCountedValue, broadcast_starmap,
+            field,
         },
     },
     symbol_resolver::{StaticValue, SymbolValue, ValueEnum},
@@ -912,7 +913,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                 zero_size_t,
                 "listcomp.alloc_size",
             )?;
-            list = ListType::new(ctx, elem_ty).construct(
+            list = ListType::create(ctx, elem_ty).construct(
                 ctx,
                 list_alloc_size.into_int_value(),
                 Some("listcomp"),
@@ -946,11 +947,11 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         TypeEnum::TObj { obj_id, .. }
             if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
         {
-            let llvm_list_ty = ListType::from_unifier_type(ctx, iter_ty);
+            let llvm_list_ty = RawListType::from_unifier_type(ctx, iter_ty);
             let iter_val = TypedRefCountedType::new(ctx, llvm_list_ty)
                 .map_value(iter_val.into_pointer_value(), Some("list"));
             let length = iter_val.inner_value(ctx)?.load(ctx, field!(len))?;
-            list = ListType::new(ctx, elem_ty).construct(ctx, length, Some("listcomp"))?;
+            list = ListType::create(ctx, elem_ty).construct(ctx, length, Some("listcomp"))?;
 
             let counter =
                 ctx.build_allocate(AllocationScope::Default, size_t, Some("counter.addr"))?;
@@ -966,8 +967,11 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb)?;
 
             ctx.builder.position_at_end(body_bb);
-            let val =
-                iter_val.inner_value(ctx)?.data(ctx)?.get_unchecked(ctx, &tmp, Some("val"))?;
+            let val = iter_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(
+                ctx,
+                &tmp,
+                Some("val"),
+            )?;
             generator.gen_assign(ctx, target, &val, target.custom.unwrap())?;
         }
         _ => {
@@ -979,16 +983,17 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     }
 
     // Emits the content of `cont_bb`
-    let emit_cont_bb = |ctx: &mut CodeGenContext<'ctx, '_>,
-                        list: TypedRefCountedValue<'ctx, ListType<'ctx>>| {
-        ctx.builder.position_at_end(cont_bb);
-        list.inner_value(ctx)?.store(
-            ctx,
-            field!(len),
-            ctx.builder.build_load(index, "index")?.into_int_value(),
-        )?;
-        anyhow::Ok(())
-    };
+    let emit_cont_bb =
+        |ctx: &mut CodeGenContext<'ctx, '_>,
+         list: TypedRefCountedValue<'ctx, RawListType<'ctx>>| {
+            ctx.builder.position_at_end(cont_bb);
+            list.inner_value(ctx)?.store(
+                ctx,
+                field!(len),
+                ctx.builder.build_load(index, "index")?.into_int_value(),
+            )?;
+            anyhow::Ok(())
+        };
 
     for cond in ifs {
         let result = generator.gen_expr(ctx, cond)?.to_basic_value_enum(ctx)?.into_int_value();
@@ -1000,8 +1005,11 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     }
 
     let i = ctx.builder.build_load(index, "i")?.into_int_value();
-    let elem_ptr =
-        list.inner_value(ctx)?.data(ctx)?.ptr_offset_unchecked(ctx, &i, Some("elem_ptr"))?;
+    let elem_ptr = list.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.ptr_offset_unchecked(
+        ctx,
+        &i,
+        Some("elem_ptr"),
+    )?;
     let val = generator.gen_expr(ctx, elt)?.to_basic_value_enum(ctx)?;
     typed_store(ctx.builder, elem_ptr, val)?;
     typed_store(
@@ -1065,25 +1073,37 @@ pub fn gen_prim_binop_expr<'ctx>(
                 debug_assert_eq!(ty2.obj_id(&ctx.unifier), Some(PrimDef::List.id()));
 
                 let list_ty = ListType::from_unifier_type(ctx, ty1);
-                let rc_list_ty = TypedRefCountedType::new(ctx, list_ty);
                 let [left, right] = [left_val, right_val].map(|val| {
-                    rc_list_ty
+                    list_ty
                         .map_value(val.into_pointer_value(), None)
                         .inner_value(ctx)
                         .and_then(|inner| inner.data(ctx))
                 });
                 let [left, right] = [left?, right?];
-                let new_len = ctx.builder.build_int_add(left.value.1, right.value.1, "")?;
+                let new_len = ctx.builder.build_int_add(
+                    left.inner_value(ctx)?.value.1,
+                    right.inner_value(ctx)?.value.1,
+                    "",
+                )?;
                 let new_list = list_ty.construct(ctx, new_len, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
 
-                let left_chunk =
-                    new_list_data.ty.map_value((new_list_data.value.0, left.value.1), None);
-                left_chunk.memcpy_from(ctx, left.value.0)?;
+                let left_chunk = new_list_data.inner_value(ctx)?.ty.map_value(
+                    (new_list_data.inner_value(ctx)?.value.0, left.inner_value(ctx)?.value.1),
+                    None,
+                );
+                left_chunk.memcpy_from(ctx, left.inner_value(ctx)?.value.0)?;
 
-                let right_pos = new_list_data.ptr_offset_unchecked(ctx, &left.value.1, None)?;
-                let right_chunk = new_list_data.ty.map_value((right_pos, right.value.1), None);
-                right_chunk.memcpy_from(ctx, right.value.0)?;
+                let right_pos = new_list_data.inner_value(ctx)?.ptr_offset_unchecked(
+                    ctx,
+                    &left.inner_value(ctx)?.value.1,
+                    None,
+                )?;
+                let right_chunk = new_list_data
+                    .inner_value(ctx)?
+                    .ty
+                    .map_value((right_pos, right.inner_value(ctx)?.value.1), None);
+                right_chunk.memcpy_from(ctx, right.inner_value(ctx)?.value.0)?;
 
                 Ok(new_list.value.into())
             }
@@ -1098,14 +1118,14 @@ pub fn gen_prim_binop_expr<'ctx>(
                         codegen_unreachable!(ctx)
                     };
                 let list_ty = ListType::from_unifier_type(ctx, list_ty);
-                let list_val = TypedRefCountedType::new(ctx, list_ty)
-                    .map_value(list_val.into_pointer_value(), None);
+                let list_val = list_ty.map_value(list_val.into_pointer_value(), None);
                 let int_val =
                     ctx.builder.build_int_s_extend(int_val.into_int_value(), llvm_usize, "")?;
                 // [...] * (i where i < 0) => []
                 let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None)?;
 
-                let (old_list_ptr, size) = list_val.inner_value(ctx)?.data(ctx)?.value;
+                let (old_list_ptr, size) =
+                    list_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.value;
                 let new_list =
                     list_ty.construct(ctx, ctx.builder.build_int_mul(size, int_val, "")?, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
@@ -1118,8 +1138,10 @@ pub fn gen_prim_binop_expr<'ctx>(
                     (int_val, false),
                     |(), ctx, _, i| {
                         let offset = ctx.builder.build_int_mul(i, size, "")?;
-                        let ptr = new_list_data.ptr_offset_unchecked(ctx, &offset, None)?;
-                        let dest = new_list_data.ty.map_value((ptr, size), None);
+                        let ptr = new_list_data
+                            .inner_value(ctx)?
+                            .ptr_offset_unchecked(ctx, &offset, None)?;
+                        let dest = new_list_data.inner_value(ctx)?.ty.map_value((ptr, size), None);
                         dest.memcpy_from(ctx, old_list_ptr)?;
                         Ok(())
                     },
@@ -1592,10 +1614,10 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         todo!("Only __eq__ and __ne__ is implemented for lists")
                     }
 
-                    let left_list_ty = ListType::from_unifier_type(ctx, left_ty);
+                    let left_list_ty = RawListType::from_unifier_type(ctx, left_ty);
                     let left = TypedRefCountedType::new(ctx, left_list_ty)
                         .map_value(lhs.into_pointer_value(), None);
-                    let right_list_ty = ListType::from_unifier_type(ctx, right_ty);
+                    let right_list_ty = RawListType::from_unifier_type(ctx, right_ty);
                     let right = TypedRefCountedType::new(ctx, right_list_ty)
                         .map_value(rhs.into_pointer_value(), None);
                     let left_size = left.inner_value(ctx)?.load(ctx, field!(len))?;
@@ -1620,8 +1642,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                 llvm_usize.const_zero(),
                                 (left_size, false),
                                 |(), ctx, hooks, i| {
-                                    let left_v = left.inner_value(ctx)?.data(ctx)?.get_unchecked(ctx, &i, None)?;
-                                    let right_v = right.inner_value(ctx)?.data(ctx)?.get_unchecked(ctx, &i, None)?;
+                                    let left_v = left.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(ctx, &i, None)?;
+                                    let right_v = right.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(ctx, &i, None)?;
 
                                     let res = gen_cmpop_expr_with_values(
                                         generator,
@@ -1851,7 +1873,12 @@ fn gen_list_expr<'ctx, G: CodeGenerator>(
     let data = val.inner_value(ctx)?.data(ctx)?;
     for (i, v) in elements.iter().enumerate() {
         let v = v.to_basic_value_enum(ctx)?;
-        data.set_unchecked(ctx, &ctx.size_t.const_int(i as u64, false), v, None)?;
+        data.inner_value(ctx)?.set_unchecked(
+            ctx,
+            &ctx.size_t.const_int(i as u64, false),
+            v,
+            None,
+        )?;
     }
     Ok(RtValue::dynamic(ty, val.value.into()))
 }
@@ -2262,7 +2289,6 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
     let res = match &*ctx.unifier.get_ty(value_ty) {
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
             let list_ty = ListType::from_unifier_type(ctx, value_ty);
-            let list_ty = TypedRefCountedType::new(ctx, list_ty);
 
             let v_rt = generator.gen_expr(ctx, value)?;
             let v = v_rt.to_basic_value_enum(ctx)?.into_pointer_value();
@@ -2286,7 +2312,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                 let end_slice =
                     ctx.builder.build_select(cond, then, else_, "final_e")?.into_int_value();
                 let length = calculate_len_for_slice_range(ctx, start, end_slice, step)?;
-                let res_array_ret = list_ty.object.construct(ctx, length, Some("ret"))?;
+                let res_array_ret = list_ty.construct(ctx, length, Some("ret"))?;
                 let size = res_array_ret.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some(res_ind) =
                     handle_slice_indices(&None, &None, &None, ctx, generator, size)?
@@ -2324,7 +2350,8 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                     [Some(raw_index), Some(len), None],
                     expr.location,
                 )?;
-                let result = v.inner_value(ctx)?.data(ctx)?.get(ctx, &index, None)?;
+                let result =
+                    v.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get(ctx, &index, None)?;
                 RtValue::dynamic(ty, result)
             }
         }

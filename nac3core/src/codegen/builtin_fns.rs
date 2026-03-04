@@ -15,8 +15,8 @@ use crate::{
         macros::codegen_unreachable,
         typed_store,
         types::{
-            ArrayLikeIndexer, ListType, NDArrayOut, NDArrayType, NDArrayValue, ProxyTypeBase,
-            RangeType, ScalarOrNDArray, TupleType, TupleValue, TypedRefCountedType,
+            ArrayLikeIndexer, NDArrayOut, NDArrayType, NDArrayValue, ProxyTypeBase, RangeType,
+            RawListType, ScalarOrNDArray, TupleType, TupleValue, TypedRefCountedType,
             broadcast_starmap, field,
         },
     },
@@ -69,7 +69,7 @@ pub fn call_len<'ctx>(
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
             {
-                let list_ty = ListType::from_unifier_type(ctx, arg_ty);
+                let list_ty = RawListType::from_unifier_type(ctx, arg_ty);
                 let list = TypedRefCountedType::new(ctx, list_ty)
                     .map_value(arg.into_pointer_value(), None);
                 let size = list.inner_value(ctx)?.load(ctx, field!(len))?;

@@ -16,7 +16,8 @@ use nac3core::{
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_allocate, typed_gep, typed_store,
         types::{
-            ArrayLikeIndexer, ExceptionType, ListType, NDArrayType, ProxyTypeBase, RangeType, field,
+            ArrayLikeIndexer, ExceptionType, NDArrayType, ProxyTypeBase, RangeType, RawListType,
+            field,
         },
     },
     inkwell::{
@@ -1173,7 +1174,7 @@ fn polymorphic_print<'ctx>(
                 fmt.push('[');
                 flush(ctx, &mut fmt, &mut args)?;
 
-                let val = ListType::from_unifier_type(ctx, ty)
+                let val = RawListType::from_unifier_type(ctx, ty)
                     .map_value(value.into_pointer_value(), None);
                 let len = val.load(ctx, field!(len))?;
                 let last = ctx.builder.build_int_sub(len, llvm_usize.const_int(1, false), "")?;
@@ -1185,7 +1186,7 @@ fn polymorphic_print<'ctx>(
                     llvm_usize.const_zero(),
                     (len, false),
                     |(), ctx, _, i| {
-                        let elem = val.data(ctx)?.get_unchecked(ctx, &i, None)?;
+                        let elem = val.data(ctx)?.inner_value(ctx)?.get_unchecked(ctx, &i, None)?;
 
                         polymorphic_print(ctx, &[(elem_ty, elem)], "", None, true, as_rtio)?;
 

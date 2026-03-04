@@ -6,7 +6,7 @@ use crate::{
         allocator::AllocationScope,
         stmt::gen_for_callback_incrementing,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, ListType, ProxyTypeBase, TupleType,
+            ArrayLikeIndexer, ArraySliceValue, ProxyTypeBase, RawListType, TupleType,
             TypedRefCountedType, field,
         },
     },
@@ -40,7 +40,7 @@ pub fn parse_numpy_int_sequence<'ctx>(
         {
             // 1. A list of `int32`; e.g., `np.empty([600, 800, 3])`
 
-            let llvm_list_ty = ListType::from_unifier_type(ctx, input_seq_ty);
+            let llvm_list_ty = RawListType::from_unifier_type(ctx, input_seq_ty);
             let input_seq = TypedRefCountedType::new(ctx, llvm_list_ty)
                 .map_value(input_seq.into_pointer_value(), None);
 
@@ -63,8 +63,11 @@ pub fn parse_numpy_int_sequence<'ctx>(
                 (len, false),
                 |(), ctx, _, i| {
                     // Load the i-th int32 in the input sequence
-                    let int: IntValue<'ctx> =
-                        input_seq.inner_value(ctx)?.data(ctx)?.get_unchecked(ctx, &i, None)?;
+                    let int: IntValue<'ctx> = input_seq
+                        .inner_value(ctx)?
+                        .data(ctx)?
+                        .inner_value(ctx)?
+                        .get_unchecked(ctx, &i, None)?;
 
                     // Cast to SizeT
                     let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "")?;

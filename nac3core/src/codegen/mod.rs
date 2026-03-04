@@ -45,7 +45,7 @@ use crate::{
         llvm_fns::FunctionStore,
         stmt::get_personality,
         types::{
-            ArraySliceValue, EnumerateType, ExceptionType, ListType, NDArrayType,
+            ArraySliceValue, EnumerateType, ExceptionType, RawListType, NDArrayType,
             OpaqueRefCountedType, OptionType, ProxyType, RangeType, RefCountedType,
             RefCountedValue, RefType, StringType, TupleType,
         },
@@ -520,7 +520,7 @@ fn get_alloca_type<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicT
     } else if *obj_id == PrimDef::Exception.id() {
         ExceptionType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else if *obj_id == PrimDef::List.id() {
-        ListType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+        RawListType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else {
         // a struct with fields in the order of declaration
         let top_level_defs = ctx.top_level.definitions.read();
