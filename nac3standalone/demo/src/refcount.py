@@ -22,10 +22,10 @@ def create_list() -> list[int32]:
 def foo(lst: list[int32]):
     output_refcount(lst)
 
-
 def run() -> int32:
-    data = [0, 1, 2, 3]
+    output_refcount([1, 2, 3, 4])
 
+    data = [0, 1, 2, 3]
     output_refcount(data)
 
     data = data
@@ -51,6 +51,7 @@ def run() -> int32:
     lst = create_list()
     output_int32_list(lst)
     output_refcount(lst)
+    output_refcount(create_list())
 
     lst_2d = [[1, 2], [3, 4]]
     output_refcount(lst_2d)

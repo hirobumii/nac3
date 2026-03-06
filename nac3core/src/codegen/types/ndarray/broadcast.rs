@@ -6,7 +6,6 @@ use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
     CodeGenContext, ModuleContext,
-    allocator::AllocationScope,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
     stmt::gen_for_callback,
@@ -60,7 +59,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         target_shape: RefCountedArrayValue<'ctx, IntType<'ctx>>,
     ) -> anyhow::Result<Self> {
         assert!(self.ty.object.ndims <= target_ndims);
-        assert_eq!(target_shape.ty.elem, ctx.size_t.into());
+        assert_eq!(target_shape.ty.elem, ctx.size_t);
 
         let broadcast_ndarray =
             NDArrayType::create(ctx, self.inner_value(ctx)?.ty.dtype, target_ndims)
@@ -120,12 +119,12 @@ pub fn broadcast<'ctx>(
     }
 
     let ndims = ndarrays.iter().map(|ndarray| ndarray.ty.object.ndims).max().unwrap();
-    let new_shape_ptr =
-        ctx.build_array_allocate(AllocationScope::Default, ctx.size_t, ndims, None)?.value.0;
-
     let ndims_v = ctx.size_t.const_int(ndims, false);
+    let new_shape_ptr = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims as u32))
+        .allocate(ctx, ndims_v, None)?;
+
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");
-    call_extern!(ctx: void _ = name(shape_entries, arr.inner_value(ctx)?.value.0, ndims_v, new_shape_ptr))?;
+    call_extern!(ctx: void _ = name(shape_entries, arr.inner_value(ctx)?.value.0, ndims_v, new_shape_ptr.value))?;
 
     // Now this new shape is initialized.
     let new_shape = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims as _)).alloca(

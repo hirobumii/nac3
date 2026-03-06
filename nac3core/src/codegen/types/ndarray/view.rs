@@ -54,7 +54,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         new_ndims: u64,
         new_shape: ArraySliceValue<'ctx, IntType<'ctx>>,
     ) -> anyhow::Result<Self> {
-        assert_eq!(new_shape.ty.item_ty, ctx.size_t.into());
+        assert_eq!(new_shape.ty.item_ty, ctx.size_t);
 
         // TODO: The current criterion for whether to do a full copy or not is by checking
         //       `is_c_contiguous`, but this is not optimal - there are cases when the ndarray is

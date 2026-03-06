@@ -6,11 +6,10 @@ use inkwell::{
 use crate::{
     codegen::{
         CodeGenContext,
-        allocator::AllocationScope,
         stmt::gen_for_callback_incrementing,
         types::{
             ArrayLikeIndexer, ListType, ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue,
-            TupleType, TypedRefCountedType, field,
+            TupleType, field,
         },
     },
     typecheck::typedef::{Type, TypeEnum},
@@ -90,7 +89,7 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let result = RefCountedArrayType::new(ctx, llvm_usize, Some(len)).alloca(
                 ctx,
-                ctx.size_t.const_int(len as u64, false),
+                ctx.size_t.const_int(u64::from(len), false),
                 None,
             )?;
 

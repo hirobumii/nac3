@@ -39,9 +39,12 @@ mod shape;
 mod view;
 
 pub use broadcast::{BroadcastAllResult, broadcast, broadcast_starmap};
-pub use contiguous::{RawContiguousNDArrayType, RawContiguousNDArrayValue};
+pub use contiguous::{
+    ContiguousNDArrayType, ContiguousNDArrayValue, RawContiguousNDArrayType,
+    RawContiguousNDArrayValue,
+};
 pub use indexing::{NDIndexType, NDIndexValue, RustNDIndex};
-pub use iter::{RawNDIterType, RawNDIterValue};
+pub use iter::{NDIterType, NDIterValue, RawNDIterType, RawNDIterValue};
 pub use shape::parse_numpy_int_sequence;
 
 #[derive(Clone, Copy, ProxyType)]
@@ -88,16 +91,16 @@ pub struct NDArrayStructFields<'ctx> {
     // TODO: We currently store shape and strides as `size_t`, but np_shape returns `int32`.
     // Consider picking one.
     #[value_type(ptr)]
-    pub shape: StructField<'ctx, PointerValue<'ctx>>,
+    shape: StructField<'ctx, PointerValue<'ctx>>,
     /// Pointer to an array indicating the number of bytes between each element at a dimension
     #[value_type(ptr)]
-    pub strides: StructField<'ctx, PointerValue<'ctx>>,
+    strides: StructField<'ctx, PointerValue<'ctx>>,
     /// Pointer to an array containing the array data
     #[value_type(ptr)]
-    pub data: StructField<'ctx, PointerValue<'ctx>>,
+    data: StructField<'ctx, PointerValue<'ctx>>,
     /// Pointer to the base of the array if this array is a view.
     #[value_type(ptr)]
-    pub base: StructField<'ctx, PointerValue<'ctx>>,
+    base: StructField<'ctx, PointerValue<'ctx>>,
     /// The offset in bytes from the base pointer to the first element of this array.
     #[value_type(size_t)]
     pub offset: StructField<'ctx, IntValue<'ctx>>,
@@ -282,11 +285,8 @@ impl<'ctx> RawNDArrayValue<'ctx> {
     /// Assumes `shape` has been correctly prepared.
     pub fn create_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
         let size = self.size(ctx)?;
-        let alloc = ctx
-            .build_dyn_array_allocate(AllocationScope::Default, self.ty.dtype, size, None)?
-            .value
-            .0;
-        self.store(ctx, field!(data), alloc)?;
+        let alloc = RefCountedArrayType::new(ctx, self.ty.dtype, None).allocate(ctx, size, None)?;
+        self.store(ctx, field!(data), alloc.value)?;
         self.store(ctx, field!(offset), ctx.size_t.const_zero())?;
         self.set_strides_contiguous(ctx)?;
         self.store(ctx, field!(base), ctx.ptr.const_null())?;

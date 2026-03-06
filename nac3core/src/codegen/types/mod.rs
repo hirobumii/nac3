@@ -97,9 +97,10 @@ pub use enumerate::{EnumerateType, EnumerateValue};
 pub use exception::{ExceptionType, ExceptionValue};
 pub use list::{ListStructFields, ListType, ListValue, RawListType, RawListValue};
 pub use ndarray::{
-    BroadcastAllResult, NDArrayLikeType, NDArrayOut, NDArrayType, NDArrayValue, NDIndexType,
-    NDIndexValue, RawContiguousNDArrayType, RawContiguousNDArrayValue, RawNDArrayType,
-    RawNDArrayValue, RawNDIterType, RawNDIterValue, RustNDIndex, ScalarOrNDArray,
+    BroadcastAllResult, ContiguousNDArrayType, ContiguousNDArrayValue, NDArrayLikeType, NDArrayOut,
+    NDArrayType, NDArrayValue, NDIndexType, NDIndexValue, NDIterType, NDIterValue,
+    RawContiguousNDArrayType, RawContiguousNDArrayValue, RawNDArrayType, RawNDArrayValue,
+    RawNDIterType, RawNDIterValue, RustNDIndex, ScalarOrNDArray,
     assert_ndarray_can_be_written_by_out, broadcast, broadcast_starmap, make_contiguous_strides,
     parse_numpy_int_sequence,
 };

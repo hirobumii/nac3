@@ -91,7 +91,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
             RefCountedArrayType::new(ctx, ctx.i8, None)
                 .map_value(ndarray.inner_value(ctx)?.load(ctx, field!(data))?, None)
                 .header(ctx)
-                .increment_refcount(ctx);
+                .increment_refcount(ctx)?;
             // ndarray->data = list->data;
             ndarray.inner_value(ctx)?.store(ctx, field!(data), data)?;
             // ndarray->shape[0] = list->len;
@@ -193,8 +193,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
                 if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
             {
                 let obj = object.into_pointer_value();
-                let llvm_ndarray_ty = RawNDArrayType::from_unifier_type(ctx, object_ty);
-                let ndarray = TypedRefCountedType::new(ctx, llvm_ndarray_ty).map_value(obj, None);
+                let ndarray = NDArrayType::from_unifier_type(ctx, object_ty).map_value(obj, None);
                 Self::from_ndarray(ctx, ndarray, copy, name)
             }
 

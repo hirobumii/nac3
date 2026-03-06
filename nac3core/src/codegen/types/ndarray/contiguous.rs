@@ -24,11 +24,11 @@ pub struct ContiguousNDArrayStructFields<'ctx> {
     #[value_type(size_t)]
     pub ndims: StructField<'ctx, IntValue<'ctx>>,
     #[value_type(ptr)]
-    pub shape: StructField<'ctx, PointerValue<'ctx>>,
+    shape: StructField<'ctx, PointerValue<'ctx>>,
     #[value_type(ptr)]
-    pub data: StructField<'ctx, PointerValue<'ctx>>,
+    data: StructField<'ctx, PointerValue<'ctx>>,
     #[value_type(ptr)]
-    pub base: StructField<'ctx, PointerValue<'ctx>>,
+    base: StructField<'ctx, PointerValue<'ctx>>,
     #[value_type(size_t)]
     pub offset: StructField<'ctx, IntValue<'ctx>>,
 }
@@ -134,7 +134,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 // ndarray with contiguous `data`.
                 let copied_ndarray = self.make_copy(ctx)?;
                 let data = copied_ndarray.inner_value(ctx)?.load(ctx, field!(data))?;
-                copied_ndarray.header(ctx).increment_refcount(ctx);
+                copied_ndarray.header(ctx).increment_refcount(ctx)?;
                 result.inner_value(ctx)?.store(ctx, field!(data), data)?;
 
                 result.inner_value(ctx)?.store(ctx, field!(base), ctx.ptr.const_null())?;

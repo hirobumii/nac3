@@ -13,18 +13,18 @@ use crate::codegen::{
     stmt::{BreakContinueHooks, gen_for_callback},
     typed_load, typed_store,
     types::{
-        NDArrayType, NDArrayValue, ProxyTypeBase, TypedRefCountedType, TypedRefCountedValue, Value,
-        WithTypeinfo, array::ArraySliceValue, builtin::BuiltinStruct, field,
-        ndarray::ScalarOrNDArray, structure::StructField,
+        NDArrayType, NDArrayValue, ProxyTypeBase, RefCountedArrayType, TypedRefCountedType,
+        TypedRefCountedValue, Value, WithTypeinfo, array::ArraySliceValue, builtin::BuiltinStruct,
+        field, ndarray::ScalarOrNDArray, structure::StructField,
     },
 };
 
 #[derive(Clone, Copy, StructFields)]
 pub struct NDIterStructFields<'ctx> {
     #[value_type(ptr)]
-    pub array: StructField<'ctx, PointerValue<'ctx>>,
+    array: StructField<'ctx, PointerValue<'ctx>>,
     #[value_type(ptr)]
-    pub indices: StructField<'ctx, PointerValue<'ctx>>,
+    indices: StructField<'ctx, PointerValue<'ctx>>,
     #[value_type(size_t)]
     pub nth: StructField<'ctx, IntValue<'ctx>>,
     #[value_type(size_t)]
@@ -134,17 +134,11 @@ impl<'ctx> NDIterValue<'ctx> {
         let nditer = ty.allocate(ctx, AllocationScope::Default, None)?;
 
         // The caller has the responsibility to allocate 'indices' for `NDIter`.
-        let indices = ctx
-            .build_array_allocate(
-                AllocationScope::Default,
-                ctx.size_t,
-                ndarray.ty.object.ndims,
-                None,
-            )?
-            .value
-            .0;
+        let indices =
+            RefCountedArrayType::new(ctx, ctx.size_t, Some(ndarray.ty.object.ndims as u32))
+                .allocate(ctx, ctx.size_t.const_int(ndarray.ty.object.ndims, false), None)?;
         let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_initialize");
-        call_extern!(ctx: void _ = name(nditer.value, ndarray.value, indices))?;
+        call_extern!(ctx: void _ = name(nditer.value, ndarray.value, indices.value))?;
 
         Ok(nditer)
     }

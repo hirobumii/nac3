@@ -33,7 +33,7 @@ pub struct NDIndexStructFields<'ctx> {
 #[derive(Clone, Copy, ProxyType)]
 #[llvm_ref(self.inner.llvm_ty)]
 pub struct NDIndexType<'ctx> {
-    pub(crate) inner: BuiltinStruct<'ctx, NDIndexStructFields<'ctx>>,
+    inner: BuiltinStruct<'ctx, NDIndexStructFields<'ctx>>,
 }
 
 impl<'ctx> NDIndexType<'ctx> {

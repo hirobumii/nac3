@@ -21,7 +21,7 @@ use crate::{
 pub struct ListStructFields<'ctx> {
     /// Array pointer to content.
     #[value_type(ptr)]
-    pub items: StructField<'ctx, PointerValue<'ctx>>,
+    items: StructField<'ctx, PointerValue<'ctx>>,
 
     /// Number of items in the array.
     #[value_type(size_t)]

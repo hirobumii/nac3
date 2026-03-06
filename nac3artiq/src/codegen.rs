@@ -16,7 +16,7 @@ use nac3core::{
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_allocate, typed_gep, typed_store,
         types::{
-            ArrayLikeIndexer, ExceptionType, ProxyTypeBase, RangeType, RawListType, RawNDArrayType,
+            ArrayLikeIndexer, ExceptionType, NDArrayType, ProxyTypeBase, RangeType, RawListType,
             field,
         },
     },
@@ -451,7 +451,7 @@ fn format_rpc_arg<'ctx>(
             let ndims = extract_ndims(&ctx.unifier, ndims);
             let dtype = ctx.get_llvm_type(elem_ty);
             let ndarray =
-                RawNDArrayType::new(ctx, dtype, ndims).map_value(arg.into_pointer_value(), None);
+                NDArrayType::create(ctx, dtype, ndims).map_value(arg.into_pointer_value(), None);
 
             // `ndarray.data` is possibly not contiguous, and we need it to be contiguous for
             // the reader.
@@ -475,12 +475,16 @@ fn format_rpc_arg<'ctx>(
             let buf_shape = buf.ptr_offset_unchecked(ctx, &sizeof_pdata_, None)?;
 
             // Write to `buf->data`
-            let carray_data = carray.load(ctx, field!(data))?;
-            let carray_data = ctx.builder.build_pointer_cast(carray_data, llvm_pi8, "")?;
+            let carray_data = carray.inner_value(ctx)?.data(ctx)?;
+            let carray_data = ctx.builder.build_pointer_cast(
+                carray_data.inner_value(ctx)?.value.0,
+                llvm_pi8,
+                "",
+            )?;
             call_memcpy(ctx, buf_data, carray_data, sizeof_pdata_)?;
 
             // Write to `buf->shape`
-            let carray_shape = ndarray.shape(ctx)?.value.0;
+            let carray_shape = ndarray.shape(ctx)?.inner_value(ctx)?.value.0;
             let sizeof_buf_shape_ = ctx.size_t.const_int(sizeof_buf_shape, false);
             call_memcpy(ctx, buf_shape, carray_shape, sizeof_buf_shape_)?;
 
@@ -568,7 +572,7 @@ fn format_rpc_ret<'ctx>(
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ret_ty);
             let dtype_llvm = ctx.get_llvm_type(dtype);
             let ndims = extract_ndims(&ctx.unifier, ndims);
-            let ndarray = RawNDArrayType::new(ctx, dtype_llvm, ndims).construct(ctx, None)?;
+            let ndarray = NDArrayType::create(ctx, dtype_llvm, ndims).construct(ctx, None)?;
 
             // NOTE: Current content of `ndarray`:
             //   - * `data` - **NOT YET** allocated.
@@ -579,7 +583,7 @@ fn format_rpc_ret<'ctx>(
 
             let stackptr = call_stacksave(ctx, None)?;
 
-            let itemsize = ctx.sizeof(ndarray.ty.dtype);
+            let itemsize = ctx.sizeof(ndarray.ty.object.dtype);
             let sizeof_ptr = ctx.sizeof(ctx.ptr);
             let sizeof_shape = ndims * ctx.sizeof(ctx.size_t);
             // Size of the buffer for the initial `rpc_recv()`.
@@ -624,7 +628,7 @@ fn format_rpc_ret<'ctx>(
             // We need to skip the first `sizeof(uint8_t*)` bytes to skip the `pdata` in `[pdata, shape]`.
             let sizeof_ptr = ctx.size_t.const_int(sizeof_ptr, false);
             let pbuffer_shape = buffer.ptr_offset_unchecked(ctx, &sizeof_ptr, None)?;
-            ndarray.shape(ctx)?.memcpy_from(ctx, pbuffer_shape)?;
+            ndarray.shape(ctx)?.inner_value(ctx)?.memcpy_from(ctx, pbuffer_shape)?;
 
             // Restore stack from before allocation of buffer
             call_stackrestore(ctx, stackptr)?;
@@ -657,8 +661,8 @@ fn format_rpc_ret<'ctx>(
                 )?;
             }
 
-            let ndarray_offset = ndarray.load(ctx, field!(offset))?;
-            let ndarray_data = ndarray.load(ctx, field!(data))?;
+            let ndarray_offset = ndarray.inner_value(ctx)?.load(ctx, field!(offset))?;
+            let ndarray_data = ndarray.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.value.0;
             let ndarray_data =
                 typed_gep(ctx.builder, &ctx.i8, ndarray_data, &[ndarray_offset], "")?;
 
@@ -1219,15 +1223,15 @@ fn polymorphic_print<'ctx>(
                 flush(ctx, &mut fmt, &mut args)?;
 
                 let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
-                let ndarray = RawNDArrayType::from_unifier_type(ctx, ty)
+                let ndarray = NDArrayType::from_unifier_type(ctx, ty)
                     .map_value(value.into_pointer_value(), None);
 
                 let num_0 = llvm_usize.const_zero();
 
                 // Print `ndarray` as a flat list delimited by interspersed with ", \0"
                 ndarray.foreach(ctx, |ctx, _, hdl| {
-                    let i = hdl.get_index(ctx)?;
-                    let scalar = hdl.get_scalar(ctx)?;
+                    let i = hdl.inner_value(ctx)?.get_index(ctx)?;
+                    let scalar = hdl.inner_value(ctx)?.get_scalar(ctx)?;
 
                     // if (i != 0) puts(", ");
                     gen_if_callback(

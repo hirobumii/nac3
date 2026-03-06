@@ -15,9 +15,9 @@ use crate::{
         macros::codegen_unreachable,
         typed_store,
         types::{
-            ArrayLikeIndexer, NDArrayOut, ProxyTypeBase, RangeType, RawListType, RawNDArrayType,
-            RawNDArrayValue, ScalarOrNDArray, TupleType, TupleValue, TypedRefCountedType,
-            broadcast_starmap, field,
+            ArrayLikeIndexer, NDArrayOut, NDArrayType, ProxyTypeBase, RangeType, RawListType,
+            RawNDArrayType, RawNDArrayValue, ScalarOrNDArray, TupleType, TupleValue,
+            TypedRefCountedType, broadcast_starmap, field,
         },
     },
     toplevel::{
@@ -124,7 +124,7 @@ pub fn call_int32<'ctx>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
             let result = ndarray.map(
                 ctx,
@@ -179,7 +179,7 @@ pub fn call_int64<'ctx>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
             let result = ndarray.map(
                 ctx,
@@ -250,7 +250,7 @@ pub fn call_uint32<'ctx>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
             let result = ndarray.map(
                 ctx,
@@ -315,7 +315,7 @@ pub fn call_uint64<'ctx>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
             let result = ndarray.map(
                 ctx,
@@ -369,7 +369,7 @@ pub fn call_float<'ctx>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
             let result = ndarray.map(
                 ctx,
@@ -406,7 +406,7 @@ pub fn call_round<'ctx>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
             let result = ndarray.map(
                 ctx,
@@ -439,7 +439,7 @@ pub fn call_numpy_round<'ctx>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
             let result = ndarray.map(
                 ctx,
@@ -497,7 +497,7 @@ pub fn call_bool<'ctx>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
             let result = ndarray.map(
                 ctx,
@@ -541,7 +541,7 @@ pub fn call_floor<'ctx>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
             let result = ndarray.map(
                 ctx,
@@ -582,7 +582,7 @@ pub fn call_ceil<'ctx>(
             if n_ty.obj_id(&ctx.unifier).is_some_and(|id| id == PrimDef::NDArray.id()) =>
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, n_ty);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
+            let ndarray = NDArrayType::from_unifier_type(ctx, n_ty).map_value(n, None);
 
             let result = ndarray.map(
                 ctx,
@@ -691,7 +691,7 @@ pub fn call_numpy_minimum<'ctx>(
             let x2_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x2_ty);
 
             debug_assert!(ctx.unifier.unioned(x1_dtype, x2_dtype));
-            let llvm_common_dtype = x1.ty.dtype;
+            let llvm_common_dtype = x1.ty.object.dtype;
 
             let result = broadcast_starmap(
                 ctx,
@@ -795,8 +795,8 @@ pub fn call_numpy_max_min<'ctx>(
         {
             let (elem_ty, _) = unpack_ndarray_var_tys(&mut ctx.unifier, a_ty);
 
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, a_ty).map_value(n, None);
-            let llvm_dtype = ndarray.ty.dtype;
+            let ndarray = NDArrayType::from_unifier_type(ctx, a_ty).map_value(n, None);
+            let llvm_dtype = ndarray.ty.object.dtype;
 
             let zero = ctx.size_t.const_zero();
 
@@ -825,8 +825,8 @@ pub fn call_numpy_max_min<'ctx>(
                 let old_extremum = ctx.builder.build_load(extremum, "")?;
                 let old_extremum_idx = ctx.builder.build_load(extremum_idx, "")?.into_int_value();
 
-                let curr_value = nditer.get_scalar(ctx)?;
-                let curr_idx = nditer.get_index(ctx)?;
+                let curr_value = nditer.inner_value(ctx)?.get_scalar(ctx)?;
+                let curr_idx = nditer.inner_value(ctx)?.get_index(ctx)?;
 
                 let new_extremum = match fn_name {
                     "np_argmin" | "np_min" => {
@@ -932,7 +932,7 @@ pub fn call_numpy_maximum<'ctx>(
             let x2_dtype = arraylike_flatten_element_type(&mut ctx.unifier, x2_ty);
 
             debug_assert!(ctx.unifier.unioned(x1_dtype, x2_dtype));
-            let llvm_common_dtype = x1.ty.dtype;
+            let llvm_common_dtype = x1.ty.object.dtype;
 
             let result = broadcast_starmap(
                 ctx,
@@ -1498,13 +1498,13 @@ pub fn call_np_linalg_cholesky<'ctx>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = RawNDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
 
-    if !x1.ty.dtype.is_float_type() {
+    if !x1.ty.object.dtype.is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out = RawNDArrayType::new(ctx, ctx.f64.into(), 2).construct(ctx, None)?;
+    let out = NDArrayType::create(ctx, ctx.f64.into(), 2).construct(ctx, None)?;
     out.copy_shape_from(ctx, &x1)?;
     out.create_data(ctx)?;
 
@@ -1523,18 +1523,19 @@ pub fn call_np_linalg_qr<'ctx>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = RawNDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
 
-    if !x1.ty.dtype.is_float_type() {
+    if !x1.ty.object.dtype.is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
     let x1_shape = x1.shape(ctx)?;
-    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
-    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let d0 = x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d1 =
+        x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
-    let out_ndarray_ty = RawNDArrayType::new(ctx, ctx.f64.into(), 2);
+    let out_ndarray_ty = NDArrayType::create(ctx, ctx.f64.into(), 2);
     let q = out_ndarray_ty.with_shape(ctx, &[d0, dk], None)?;
     let r = out_ndarray_ty.with_shape(ctx, &[dk, d1], None)?;
 
@@ -1563,19 +1564,20 @@ pub fn call_np_linalg_svd<'ctx>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = RawNDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
 
-    if !x1.ty.dtype.is_float_type() {
+    if !x1.ty.object.dtype.is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
     let x1_shape = x1.shape(ctx)?;
-    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
-    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let d0 = x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d1 =
+        x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
-    let out_ndarray1_ty = RawNDArrayType::new(ctx, ctx.f64.into(), 1);
-    let out_ndarray2_ty = RawNDArrayType::new(ctx, ctx.f64.into(), 2);
+    let out_ndarray1_ty = NDArrayType::create(ctx, ctx.f64.into(), 1);
+    let out_ndarray2_ty = NDArrayType::create(ctx, ctx.f64.into(), 2);
 
     let u = out_ndarray2_ty.with_shape(ctx, &[d0, d0], None)?;
     let s = out_ndarray1_ty.with_shape(ctx, &[dk], None)?;
@@ -1608,13 +1610,13 @@ pub fn call_np_linalg_inv<'ctx>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = RawNDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
 
-    if !x1.ty.dtype.is_float_type() {
+    if !x1.ty.object.dtype.is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out = RawNDArrayType::new(ctx, ctx.f64.into(), 2).construct(ctx, None)?;
+    let out = NDArrayType::create(ctx, ctx.f64.into(), 2).construct(ctx, None)?;
     out.copy_shape_from(ctx, &x1)?;
     out.create_data(ctx)?;
 
@@ -1634,17 +1636,18 @@ pub fn call_np_linalg_pinv<'ctx>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = RawNDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
 
-    if !x1.ty.dtype.is_float_type() {
+    if !x1.ty.object.dtype.is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
     let x1_shape = x1.shape(ctx)?;
-    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
-    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let d0 = x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d1 =
+        x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
 
-    let out = RawNDArrayType::new(ctx, ctx.f64.into(), 2).with_shape(ctx, &[d0, d1], None)?;
+    let out = NDArrayType::create(ctx, ctx.f64.into(), 2).with_shape(ctx, &[d0, d1], None)?;
 
     let x1_c = x1.make_contiguous_ndarray(ctx)?;
     let out_c = out.make_contiguous_ndarray(ctx)?;
@@ -1662,18 +1665,19 @@ pub fn call_sp_linalg_lu<'ctx>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = RawNDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
 
-    if !x1.ty.dtype.is_float_type() {
+    if !x1.ty.object.dtype.is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
     let x1_shape = x1.shape(ctx)?;
-    let d0 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
-    let d1 = x1_shape.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let d0 = x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d1 =
+        x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
-    let out_ndarray_ty = RawNDArrayType::new(ctx, ctx.f64.into(), 2);
+    let out_ndarray_ty = NDArrayType::create(ctx, ctx.f64.into(), 2);
 
     let l = out_ndarray_ty.with_shape(ctx, &[d0, dk], None)?;
     let u = out_ndarray_ty.with_shape(ctx, &[dk, d1], None)?;
@@ -1708,9 +1712,9 @@ pub fn call_np_linalg_matrix_power<'ctx>(
     let (elem_ty, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, x1_ty);
     let ndims = extract_ndims(&ctx.unifier, ndims);
     let x1_elem_ty = ctx.get_llvm_type(elem_ty);
-    let x1 = RawNDArrayType::new(ctx, x1_elem_ty, ndims).map_value(x1, None);
+    let x1 = NDArrayType::create(ctx, x1_elem_ty, ndims).map_value(x1, None);
 
-    if !x1.ty.dtype.is_float_type() {
+    if !x1.ty.object.dtype.is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
@@ -1723,7 +1727,7 @@ pub fn call_np_linalg_matrix_power<'ctx>(
     let x2 = RawNDArrayValue::new_scalar(ctx, x2.into(), None)?;
     let x2 = x2.atleast_nd(ctx, 1)?; // x2.shape == [1]
 
-    let out = RawNDArrayType::new(ctx, ctx.f64.into(), 2).construct(ctx, None)?;
+    let out = NDArrayType::create(ctx, ctx.f64.into(), 2).construct(ctx, None)?;
     out.copy_shape_from(ctx, &x1)?;
     out.create_data(ctx)?;
 
@@ -1751,15 +1755,15 @@ pub fn call_np_linalg_det<'ctx>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = RawNDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
 
-    if !x1.ty.dtype.is_float_type() {
+    if !x1.ty.object.dtype.is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
     // The output is a float64, but we are using an ndarray (shape == [1]) for uniformity in function call.
     let shape = ctx.size_t.const_int(1, false);
-    let det = RawNDArrayType::new(ctx, ctx.f64.into(), 1).with_shape(ctx, &[shape], None)?;
+    let det = NDArrayType::create(ctx, ctx.f64.into(), 1).with_shape(ctx, &[shape], None)?;
 
     let x1_c = x1.make_contiguous_ndarray(ctx)?;
     let out_c = det.make_contiguous_ndarray(ctx)?;
@@ -1779,14 +1783,14 @@ pub fn call_sp_linalg_schur<'ctx>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = RawNDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
-    assert_eq!(x1.ty.ndims, 2);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
+    assert_eq!(x1.ty.object.ndims, 2);
 
-    if !x1.ty.dtype.is_float_type() {
+    if !x1.ty.object.dtype.is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out_ndarray_ty = RawNDArrayType::new(ctx, ctx.f64.into(), 2);
+    let out_ndarray_ty = NDArrayType::create(ctx, ctx.f64.into(), 2);
 
     let t = out_ndarray_ty.construct(ctx, None)?;
     t.copy_shape_from(ctx, &x1)?;
@@ -1820,14 +1824,14 @@ pub fn call_sp_linalg_hessenberg<'ctx>(
 
     let BasicValueEnum::PointerValue(x1) = x1 else { unsupported_type(ctx, FN_NAME, &[x1_ty]) };
 
-    let x1 = RawNDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
-    assert_eq!(x1.ty.ndims, 2);
+    let x1 = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(x1, None);
+    assert_eq!(x1.ty.object.ndims, 2);
 
-    if !x1.ty.dtype.is_float_type() {
+    if !x1.ty.object.dtype.is_float_type() {
         unsupported_type(ctx, FN_NAME, &[x1_ty]);
     }
 
-    let out_ndarray_ty = RawNDArrayType::new(ctx, ctx.f64.into(), 2);
+    let out_ndarray_ty = NDArrayType::create(ctx, ctx.f64.into(), 2);
 
     let h = out_ndarray_ty.construct(ctx, None)?;
     h.copy_shape_from(ctx, &x1)?;

@@ -25,9 +25,9 @@ use crate::{
         typed_load, typed_store,
         types::{
             ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
-            ListType, ListValue, OpaqueRefCountedType, ProxyTypeBase, RangeType, RawListType,
-            RawNDArrayType, RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray,
-            StringType, TupleType, TupleValue, TypedRefCountedType, broadcast, field,
+            ListType, ListValue, NDArrayType, OpaqueRefCountedType, ProxyTypeBase, RangeType,
+            RawListType, RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
+            TupleType, TupleValue, TypedRefCountedType, broadcast, field,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -611,7 +611,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             // # ...and finally copy 1-1 from value to target.
             // ```
 
-            let target = RawNDArrayType::from_unifier_type(ctx, target_ty)
+            let target = NDArrayType::from_unifier_type(ctx, target_ty)
                 .map_value(target.into_pointer_value(), None);
             let target = target.index(ctx, &key)?;
 
@@ -1155,7 +1155,7 @@ pub fn gen_for<G: CodeGenerator>(
         {
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, iter_ty);
             let ndims = extract_ndims(&ctx.unifier, ndims);
-            let ndarray = RawNDArrayType::from_unifier_type(ctx, iter_ty)
+            let ndarray = NDArrayType::from_unifier_type(ctx, iter_ty)
                 .map_value(iter_val.into_pointer_value(), None);
 
             let shape_dim0 = ndarray.len(ctx)?;
