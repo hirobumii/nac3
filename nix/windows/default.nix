@@ -46,7 +46,7 @@ in rec {
     cargoLock = {
       lockFile = ../../Cargo.lock;
     };
-    nativeBuildInputs = [pkgs.wineWowPackages.stable];
+    nativeBuildInputs = [pkgs.wineWow64Packages.stable];
     buildPhase = ''
       export HOME=`mktemp -d`
       export WINEDEBUG=-all
@@ -55,7 +55,7 @@ in rec {
       export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
       export CC=clang
       export LLVM_SYS_160_PREFIX=Z:${llvm}
-      wine64 cargo build --release -p nac3artiq
+      wine cargo build --release -p nac3artiq
     '';
     installPhase = ''
       mkdir $out $out/nix-support
@@ -64,7 +64,7 @@ in rec {
     '';
     doCheck = false; # https://git.m-labs.hk/M-Labs/nac3/issues/358
     checkPhase = ''
-      wine64 cargo test --release
+      wine cargo test --release
     '';
     dontFixup = true;
   };
@@ -90,7 +90,7 @@ in rec {
       export WINEDEBUG=-all
       export WINEPATH=Z:${msys2-env}/clang64/bin\;Z:${llvm}/bin\;Z:${llvm-tools-irrt}/bin
       export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
-      exec ${pkgs.wineWowPackages.stable}/bin/wine64 cmd
+      exec ${pkgs.wineWow64Packages.stable}/bin/wine cmd
     '';
   wine-msys2-build =
     pkgs.writeShellScriptBin "wine-msys2-build"
@@ -99,6 +99,6 @@ in rec {
       export WINEDEBUG=-all
       export WINEPATH=Z:${msys2-env}/clang64/bin
       ${silenceFontconfig}
-      exec ${pkgs.wineWowPackages.stable}/bin/wine64 $@
+      exec ${pkgs.wineWow64Packages.stable}/bin/wine $@
     '';
 }

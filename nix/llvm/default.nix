@@ -1,7 +1,7 @@
 {
   lib,
   stdenv,
-  wineWowPackages,
+  wineWow64Packages,
   fetchurl,
   fetchpatch,
   cmake,
@@ -33,7 +33,7 @@ in rec {
     nativeBuildInputs =
       if msys2-env == null
       then [cmake python3 ninja]
-      else [wineWowPackages.stable];
+      else [wineWow64Packages.stable];
     buildInputs =
       if msys2-env == null
       then [libxcrypt]
@@ -66,7 +66,7 @@ in rec {
     cmdPrefix =
       if msys2-env == null
       then ""
-      else "wine64";
+      else "wine";
 
     unpackPhase =
       ''
