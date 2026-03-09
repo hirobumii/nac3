@@ -9,12 +9,12 @@
   }: let
     pkgs = import nixpkgs {system = "x86_64-linux";};
     pkgs32 = import nixpkgs {system = "i686-linux";};
+    llvm-nac3 = pkgs.callPackage ./nix/llvm {
+      enableProjects = ["clang" "compiler-rt"];
+      llvmTools = ["llvm-config" "llvm-as" "llvm-profdata"];
+    };
   in rec {
     packages.x86_64-linux = rec {
-      llvm-nac3 = pkgs.callPackage ./nix/llvm {
-        enableProjects = ["clang" "compiler-rt"];
-        llvmTools = ["llvm-config" "llvm-as" "llvm-profdata"];
-      };
       inherit (llvm-nac3) llvm llvm-tools-irrt clang compiler-rt;
       demo-linalg-stub = pkgs.rustPlatform.buildRustPackage {
         name = "demo-linalg-stub";
@@ -206,8 +206,8 @@
 
     hydraJobs = {
       inherit (packages.x86_64-linux) nac3artiq nac3artiq-profile;
-      llvm-nac3 = packages.x86_64-linux.llvm-nac3.llvm;
-      llvm-nac3-msys2 = packages.x86_64-w64-mingw32.llvm-nac3.llvm;
+      llvm-nac3 = packages.x86_64-linux.llvm;
+      llvm-nac3-msys2 = packages.x86_64-w64-mingw32.llvm;
       nac3artiq-msys2 = packages.x86_64-w64-mingw32.nac3artiq;
       nac3artiq-msys2-pkg = packages.x86_64-w64-mingw32.nac3artiq-pkg;
     };

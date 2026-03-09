@@ -31,7 +31,6 @@
     '';
   };
   sources = import ../llvm/sources.nix {inherit (pkgs) fetchurl;};
-in rec {
   llvm-nac3 = pkgs.callPackage ../llvm {
     stdenv = pkgs.stdenvNoCC;
     inherit msys2-env;
@@ -39,6 +38,7 @@ in rec {
     llvmTools = ["llvm-config" "llvm-as"];
     extraConfig = silenceFontconfig;
   };
+in rec {
   inherit (llvm-nac3) llvm llvm-tools-irrt compiler-rt;
   nac3artiq = pkgs.rustPlatform.buildRustPackage {
     name = "nac3artiq-msys2";
