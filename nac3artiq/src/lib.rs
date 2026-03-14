@@ -1833,6 +1833,7 @@ impl Nac3 {
             "0:LinAlgError",
             "UnwrapNoneError",
             "CXPError",
+            "GrabberSerialError",
         ];
 
         // Preallocate runtime exception names
