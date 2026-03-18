@@ -326,6 +326,12 @@ impl WithCall {
     }
 }
 
+/// Thread pool for parallel code generation.
+///
+/// Workers consume `CodeGenTask` items from a shared channel. Each worker has its own LLVM
+/// `Context` and `CodeGenerator`. When a function call requires a new monomorphized instance,
+/// the worker queues a new task. The main thread waits for all tasks to complete, then
+/// collects the per-worker LLVM bitcode buffers for linking.
 pub struct WorkerRegistry {
     sender: Arc<Sender<Option<CodeGenTask>>>,
     receiver: Arc<Receiver<Option<CodeGenTask>>>,
@@ -485,6 +491,7 @@ impl WorkerRegistry {
     }
 }
 
+/// A unit of work for the codegen thread pool, representing one monomorphized function.
 pub struct CodeGenTask {
     pub subst: Vec<(Type, ConcreteType)>,
     pub store: ConcreteTypeStore,

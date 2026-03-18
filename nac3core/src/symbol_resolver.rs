@@ -349,6 +349,11 @@ impl<'ctx> ValueEnum<'ctx> {
     }
 }
 
+/// Trait for resolving identifiers to types and values.
+///
+/// Frontends implement this trait to bridge their name resolution (e.g., Python runtime objects
+/// in nac3artiq, or a simple hash map in nac3standalone) into the nac3core type system. The
+/// resolver is consulted during type inference, type analysis, and code generation.
 pub trait SymbolResolver {
     /// Get type of type variable identifier or top-level function type,
     fn get_symbol_type(

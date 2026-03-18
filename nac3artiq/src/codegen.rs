@@ -64,6 +64,8 @@ enum ParallelMode {
     Deep,
 }
 
+/// ARTIQ-specific code generator that extends the default with timeline manipulation,
+/// `with parallel`/`with sequential` block handling, and RPC support.
 pub struct ArtiqCodeGenerator<'a> {
     name: String,
 

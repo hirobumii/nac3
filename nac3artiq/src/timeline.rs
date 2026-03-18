@@ -3,7 +3,11 @@ use nac3core::{
     inkwell::{AtomicOrdering, values::BasicValueEnum},
 };
 
-/// Functions for manipulating the timeline.
+/// Trait for emitting LLVM IR for ARTIQ timeline operations.
+///
+/// Different implementations target different hardware backends: `NowPinningTimeFns64`
+/// directly reads/writes split 32-bit CSR registers on VexRiscv, while `ExternTimeFns`
+/// calls external C functions (used for host-mode execution and `runkernel`).
 pub trait TimeFns {
     /// Emits LLVM IR for `now_mu`.
     fn emit_now_mu<'ctx>(
