@@ -5,19 +5,42 @@ use inkwell::{
 };
 use nac3core_derive::{ProxyType, StructFields};
 
-use crate::codegen::{
-    CodeGenContext, ModuleContext,
-    allocator::AllocationScope,
-    expr::call_extern,
-    irrt::get_usize_dependent_function_name,
-    llvm_intrinsics,
-    stmt::gen_if_callback,
-    type_aligned_allocate, typed_gep, typed_load, typed_store,
-    types::{
-        ArraySliceValue, BuiltinStruct, ProxyType, ProxyTypeBase, RefType, TypeinfoValue, Value,
-        WithTypeinfo, structure::StructField,
+use crate::{
+    codegen::{
+        CodeGenContext, ModuleContext,
+        allocator::AllocationScope,
+        expr::call_extern,
+        irrt::get_usize_dependent_function_name,
+        llvm_intrinsics,
+        stmt::gen_if_callback,
+        type_aligned_allocate, typed_gep, typed_load, typed_store,
+        types::{
+            ArraySliceValue, BuiltinStruct, ProxyType, ProxyTypeBase, RefType, TypeinfoValue,
+            Value, WithTypeinfo, structure::StructField,
+        },
     },
+    toplevel::{DefinitionId, helper::PrimDef},
 };
+
+/// Returns `true` if the given `obj_id` corresponds to a type that uses reference counting.
+#[must_use]
+pub fn is_obj_id_refcounted(obj_id: DefinitionId) -> bool {
+    const NON_REFCOUNTED: &[PrimDef] = &[
+        PrimDef::Float,
+        PrimDef::Bool,
+        PrimDef::Str,
+        PrimDef::Int32,
+        PrimDef::Int64,
+        PrimDef::UInt32,
+        PrimDef::UInt64,
+        PrimDef::Range,
+        PrimDef::Exception,
+        PrimDef::Enumerate,
+        PrimDef::Tuple,
+        PrimDef::None,
+    ];
+    !NON_REFCOUNTED.iter().any(|p| p.id() == obj_id)
+}
 
 #[derive(Clone, Copy, StructFields)]
 pub struct ObjectHeaderStructFields<'ctx> {
