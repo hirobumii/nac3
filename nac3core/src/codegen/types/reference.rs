@@ -20,6 +20,7 @@ use crate::{
         },
     },
     toplevel::{DefinitionId, helper::PrimDef},
+    typecheck::typedef::{Type, TypeEnum, Unifier},
 };
 
 /// Returns `true` if the given `obj_id` corresponds to a type that uses reference counting.
@@ -40,6 +41,20 @@ pub fn is_obj_id_refcounted(obj_id: DefinitionId) -> bool {
         PrimDef::None,
     ];
     !NON_REFCOUNTED.iter().any(|p| p.id() == obj_id)
+}
+
+/// Returns whether the given unifier type is a reference-counted composite type.
+///
+/// Reference-counted types are heap-allocated composites: List, NDArray, Option, and
+/// user-defined classes. This delegates to [`is_obj_id_refcounted`] after extracting
+/// the `obj_id` from the unifier type.
+#[must_use]
+pub fn is_refcounted_type(unifier: &mut Unifier, ty: Type) -> bool {
+    let ty_enum = unifier.get_ty(ty);
+    match &*ty_enum {
+        TypeEnum::TObj { obj_id, .. } => is_obj_id_refcounted(*obj_id),
+        _ => false,
+    }
 }
 
 #[derive(Clone, Copy, StructFields)]

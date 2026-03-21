@@ -109,7 +109,7 @@ pub use range::{RangeField, RangeType, RangeValue};
 pub use reference::{
     OpaqueRefCountedType, OpaqueRefCountedValue, RefCountedArrayType, RefCountedArrayValue,
     RefCountedType, RefCountedValue, TypedRefCountedType, TypedRefCountedValue,
-    is_obj_id_refcounted,
+    is_obj_id_refcounted, is_refcounted_type,
 };
 pub use string::{StringType, StringValue};
 pub use tuple::{TupleType, TupleValue};
