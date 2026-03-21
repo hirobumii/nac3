@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use inkwell::{
     types::{BasicTypeEnum, IntType},
     values::{IntValue, PointerValue},
@@ -37,11 +39,11 @@ pub type RawContiguousNDArrayType<'ctx> =
     NDArrayLikeType<'ctx, ContiguousNDArrayStructFields<'ctx>>;
 
 impl<'ctx> WithTypeinfo<'ctx> for RawContiguousNDArrayType<'ctx> {
-    fn typename() -> &'static str {
-        "__nac3_contiguous_ndarray"
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_contiguous_ndarray")
     }
 
-    fn refcounted_field_offset(ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
         vec![
             ctx.i32.const_int(ctx.sizeof(ctx.size_t), false),
             ctx.i32.const_int(ctx.sizeof(ctx.size_t) + ctx.sizeof(ctx.ptr), false),

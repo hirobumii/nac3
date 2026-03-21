@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use inkwell::{
     IntPredicate,
     types::{BasicTypeEnum, IntType},
@@ -196,11 +198,11 @@ impl<'ctx> NDArrayType<'ctx> {
 }
 
 impl<'ctx> WithTypeinfo<'ctx> for RawNDArrayType<'ctx> {
-    fn typename() -> &'static str {
-        "__nac3_ndarray"
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_ndarray")
     }
 
-    fn refcounted_field_offset(ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
         vec![
             ctx.i32.const_int(2 * ctx.sizeof(ctx.size_t), false),
             ctx.i32.const_int(2 * ctx.sizeof(ctx.size_t) + ctx.sizeof(ctx.ptr), false),

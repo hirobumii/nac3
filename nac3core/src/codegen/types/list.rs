@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use inkwell::{
     IntPredicate,
     types::BasicTypeEnum,
@@ -125,11 +127,11 @@ impl<'ctx> ListType<'ctx> {
 }
 
 impl<'ctx> WithTypeinfo<'ctx> for RawListType<'ctx> {
-    fn typename() -> &'static str {
-        "__nac3_list"
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_list")
     }
 
-    fn refcounted_field_offset(ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
         vec![ctx.i32.const_zero()]
     }
 }

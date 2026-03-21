@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use inkwell::{
     AddressSpace,
     types::{AnyTypeEnum, ArrayType, BasicType, BasicTypeEnum, StructType},
@@ -379,7 +381,7 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
         let is_refcounted = matches!(scope, AllocationScope::Default | AllocationScope::Heap);
         #[cfg(not(feature = "malloc"))]
         let is_refcounted = false;
-        value.header(ctx).init(ctx, is_refcounted, T::typeinfo(ctx))?;
+        value.header(ctx).init(ctx, is_refcounted, self.object.typeinfo(ctx))?;
 
         Ok(value)
     }
@@ -525,7 +527,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         let is_refcounted = matches!(scope, AllocationScope::Default | AllocationScope::Heap);
         #[cfg(not(feature = "malloc"))]
         let is_refcounted = false;
-        value.header(ctx).init(ctx, is_refcounted, Self::typeinfo(ctx))?;
+        value.header(ctx).init(ctx, is_refcounted, self.typeinfo(ctx))?;
 
         // Store the size into the array metadata
         let inner = value.inner_ptr(ctx)?;
@@ -674,11 +676,11 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyType<'ctx> for RefCountedArrayType<'c
 }
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> WithTypeinfo<'ctx> for RefCountedArrayType<'ctx, T> {
-    fn typename() -> &'static str {
-        "__nac3_array"
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_array")
     }
 
-    fn refcounted_field_offset(ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
         vec![ctx.i32.const_all_ones()]
     }
 }

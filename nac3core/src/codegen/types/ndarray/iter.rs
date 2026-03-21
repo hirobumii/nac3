@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use anyhow::anyhow;
 use inkwell::{
     types::BasicTypeEnum,
@@ -107,11 +109,11 @@ impl<'ctx> RawNDIterValue<'ctx> {
 }
 
 impl<'ctx> WithTypeinfo<'ctx> for RawNDIterType<'ctx> {
-    fn typename() -> &'static str {
-        "__nac3_nditer"
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_nditer")
     }
 
-    fn refcounted_field_offset(ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
         vec![ctx.i32.const_zero(), ctx.i32.const_int(ctx.sizeof(ctx.ptr), false)]
     }
 }

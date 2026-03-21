@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use inkwell::{
     AddressSpace,
     module::Linkage,
@@ -182,8 +184,8 @@ pub trait ProxyType<'ctx>: ProxyTypeBase<'ctx> {
 pub trait WithTypeinfo<'ctx> {
     /// Returns a global instance of [`TypeinfoValue`] representing the type information of this
     /// reference type.
-    fn typeinfo(ctx: &ModuleContext<'ctx>) -> TypeinfoValue<'ctx> {
-        let typename = Self::typename();
+    fn typeinfo(&self, ctx: &ModuleContext<'ctx>) -> TypeinfoValue<'ctx> {
+        let typename = self.typename();
 
         let global =
             ctx.module.get_global(&format!("typeinfo for {typename}")).unwrap_or_else(|| {
@@ -231,7 +233,7 @@ pub trait WithTypeinfo<'ctx> {
                         name
                     });
 
-                let refcounted_field_offsets = Self::refcounted_field_offset(ctx);
+                let refcounted_field_offsets = self.refcounted_field_offset(ctx);
                 let refcounted_fields = ctx
                     .module
                     .get_global(&format!("refcounted_fields array for {typename}"))
@@ -281,10 +283,10 @@ pub trait WithTypeinfo<'ctx> {
     }
 
     /// Returns the name of this type, which is used for debugging and error messages.
-    fn typename() -> &'static str;
+    fn typename(&self) -> Cow<'static, str>;
 
     /// Returns a vector of byte offsets of the reference-counted fields in this type.
-    fn refcounted_field_offset(ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>>;
+    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>>;
 }
 
 /// Represents a type that is passed around by pointer.
