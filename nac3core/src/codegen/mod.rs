@@ -567,7 +567,9 @@ fn get_llvm_type<'ctx>(
         let ty_enum = unifier.get_ty(ty);
         let result = match &*ty_enum {
             // TODO(Derppening): Remove when all types are refcounted
-            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => {
+            TypeEnum::TObj { obj_id, .. }
+                if *obj_id == PrimDef::List.id() || *obj_id == PrimDef::Option.id() =>
+            {
                 OpaqueRefCountedType::new(ctx).llvm_ty(ctx)
             }
             TypeEnum::TObj { .. } => ctx.ptr.into(),
@@ -676,7 +678,11 @@ fn get_llvm_abi_type<'ctx>(
     } else {
         match &*unifier.get_ty(ty) {
             // TODO(Derppening): Remove when all types are refcounted
-            TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::List.id() => ctx.ptr.into(),
+            TypeEnum::TObj { obj_id, .. }
+                if *obj_id == PrimDef::List.id() || *obj_id == PrimDef::Option.id() =>
+            {
+                ctx.ptr.into()
+            }
             _ => get_llvm_type(ctx, unifier, type_cache, ty),
         }
     }

@@ -2235,7 +2235,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                             )?;
                             ctx.builder.position_at_end(unreachable_block);
                             let ptr = ctx
-                                .get_alloca_type(key)
+                                .get_llvm_type(ty)
                                 .ptr_type(AddressSpace::default())
                                 .const_null();
                             let loaded_val =
@@ -2244,7 +2244,7 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                         }
                     }
                     ValueEnum::Dynamic(BasicValueEnum::PointerValue(ptr)) => {
-                        let option = OptionType::new(ctx, ty).map_value(ptr, None);
+                        let option = OptionType::from_unifier_type(ctx, key).map_value(ptr, None);
                         let not_null = option.is_some(ctx)?;
                         ctx.make_assert(
                             not_null,

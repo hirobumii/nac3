@@ -47,7 +47,7 @@ pub fn is_obj_id_refcounted(obj_id: DefinitionId) -> bool {
 
 /// Returns whether the given unifier type is a reference-counted composite type.
 ///
-/// Reference-counted types are heap-allocated composites: List, NDArray, Option, and
+/// Reference-counted types are heap-allocated composites: `list`, `ndarray`, `option`, and
 /// user-defined classes. This delegates to [`is_obj_id_refcounted`] after extracting
 /// the `obj_id` from the unifier type.
 #[must_use]
