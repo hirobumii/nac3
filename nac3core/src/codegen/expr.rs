@@ -2373,7 +2373,13 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
             match rt_val.val {
                 Some(ValueEnum::Dynamic(v)) => {
                     let v = v.into_struct_value();
-                    let result = ctx.builder.build_extract_value(v, index, "tup_elem")?;
+                    // Extract inner fields struct (index 1), then extract element
+                    let inner = ctx.builder.build_extract_value(v, 1, "tup_inner")?;
+                    let result = ctx.builder.build_extract_value(
+                        inner.into_struct_value(),
+                        index,
+                        "tup_elem",
+                    )?;
                     RtValue::dynamic(ty, result)
                 }
                 Some(ValueEnum::Static(v)) => {
@@ -2383,7 +2389,13 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                     } else {
                         let tup =
                             v.to_basic_value_enum(ctx, value.custom.unwrap())?.into_struct_value();
-                        let result = ctx.builder.build_extract_value(tup, index, "tup_elem")?;
+                        // Extract inner fields struct (index 1), then extract element
+                        let inner = ctx.builder.build_extract_value(tup, 1, "tup_inner")?;
+                        let result = ctx.builder.build_extract_value(
+                            inner.into_struct_value(),
+                            index,
+                            "tup_elem",
+                        )?;
                         RtValue::dynamic(ty, result)
                     }
                 }
