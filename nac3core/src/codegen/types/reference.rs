@@ -437,17 +437,36 @@ pub struct RefCountedArrayType<'ctx, T: ProxyType<'ctx> + Copy> {
     inner: StructType<'ctx>,
     pub array: ArrayType<'ctx>,
     pub elem: T,
+
+    /// If `true`, elements are inline objects with `ObjectHeader`s (e.g., tuples).
+    inline_refcounted_elements: bool,
 }
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
     /// Creates a new instance of this type.
+    ///
+    /// Automatically detects whether elements are inline objects with `ObjectHeader`s (e.g.,
+    /// tuples). When the element LLVM type is a struct whose first field is an `ObjectHeader`,
+    /// the array's typeinfo will use `REFCOUNT_ARRAY_INLINE_MAGIC` so the IRRT iterates by
+    /// stride and passes element addresses directly to `refcount_decr`.
     pub fn new(ctx: &ModuleContext<'ctx>, elem_ty: T, static_size: Option<u32>) -> Self {
-        let object = elem_ty.llvm_ty(ctx).array_type(static_size.unwrap_or_default());
+        let elem_llvm_ty = elem_ty.llvm_ty(ctx);
+        let object = elem_llvm_ty.array_type(static_size.unwrap_or_default());
+
+        // Auto-detect inline elements: if the element type is a struct whose first field
+        // is an ObjectHeader, elements are stored inline with their own headers (e.g. tuples).
+        let header_ty = ObjectHeaderType::new(ctx).alloca_ty(ctx);
+        let inline_refcounted_elements = if let BasicTypeEnum::StructType(st) = elem_llvm_ty {
+            st.count_fields() >= 2
+                && unsafe { st.get_field_type_at_index_unchecked(0) } == header_ty
+        } else {
+            false
+        };
 
         Self {
             inner: ctx.ctx.struct_type(
                 &[
-                    ObjectHeaderType::new(ctx).alloca_ty(ctx).into_struct_type().into(),
+                    header_ty.into_struct_type().into(),
                     ctx.ctx
                         .struct_type(&[ctx.size_t.into(), object.as_basic_type_enum()], false)
                         .into(),
@@ -456,6 +475,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
             ),
             array: object,
             elem: elem_ty,
+            inline_refcounted_elements,
         }
     }
 
@@ -677,11 +697,31 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyType<'ctx> for RefCountedArrayType<'c
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> WithTypeinfo<'ctx> for RefCountedArrayType<'ctx, T> {
     fn typename(&self) -> Cow<'static, str> {
-        Cow::Borrowed("__nac3_array")
+        if self.inline_refcounted_elements {
+            // Inline element arrays need unique typeinfo per element type (different strides).
+            let elem_str = self.array.get_element_type().print_to_string();
+            let sanitized: String = elem_str
+                .to_str()
+                .unwrap_or("unknown")
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '_' })
+                .collect();
+            Cow::Owned(format!("__nac3_array_inline_{sanitized}"))
+        } else {
+            Cow::Borrowed("__nac3_array")
+        }
     }
 
     fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
-        vec![ctx.i32.const_all_ones()]
+        if self.inline_refcounted_elements {
+            // REFCOUNT_ARRAY_INLINE_MAGIC (0xFFFFFFFE) + stride (byte size of each element)
+            let data_layout = ctx.target.get_target_data();
+            let elem_size = data_layout.get_store_size(&self.array.get_element_type());
+            vec![ctx.i32.const_int(0xFFFF_FFFE, false), ctx.i32.const_int(elem_size, false)]
+        } else {
+            // REFCOUNT_ARRAY_MAGIC (0xFFFFFFFF) — pointer-element arrays
+            vec![ctx.i32.const_all_ones()]
+        }
     }
 }
 

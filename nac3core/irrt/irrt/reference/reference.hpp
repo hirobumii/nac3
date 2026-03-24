@@ -6,6 +6,7 @@
 namespace __nac3_impl::reference {
 namespace {
 constexpr const uint32_t REFCOUNT_ARRAY_MAGIC = 0xffff'ffff;
+constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 
 void* get_object_start(void* object) {
     if (object == nullptr) {
