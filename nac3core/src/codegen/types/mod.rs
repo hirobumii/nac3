@@ -294,7 +294,8 @@ pub trait WithTypeinfo<'ctx> {
 }
 
 /// Represents a type that is passed around by pointer.
-// TODO(Derppening): Uncomment the following line when all types implement `typeinfo`
+// TODO(Derppening): Uncomment the following line when all RefType implementors also implement
+// WithTypeinfo.
 // pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> + WithTypeinfo<'ctx> {
 pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> {
     /// Returns the LLVM type used for allocating this reference type.

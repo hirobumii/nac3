@@ -26,9 +26,9 @@ use crate::{
         types::{
             ArrayLikeIndexer, ArraySliceValue, ClassType, EnumerateType, ExceptionType,
             ExceptionValue, ListType, ListValue, NDArrayType, OpaqueRefCountedType, OptionType,
-            ProxyTypeBase, RangeType, RawClassType, RawListType, RefCountedType, RefCountedValue,
-            RustNDIndex, ScalarOrNDArray, StringType, TupleType, TupleValue, TypedRefCountedType,
-            broadcast, field, is_refcounted_type,
+            ProxyTypeBase, RangeType, RawClassType, RawListType, RefCountedValue, RustNDIndex,
+            ScalarOrNDArray, StringType, TupleType, TupleValue, TypedRefCountedType, broadcast,
+            field, is_refcounted_type,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -148,12 +148,12 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                 } else {
                     ctx.build_allocate(AllocationScope::Default, ptr_ty, name)?
                 };
-                ctx.var_assignment.insert(*id, VarValue::new(ptr));
+                ctx.var_assignment.insert(*id, VarValue::new(ptr, pattern.custom.unwrap()));
                 ptr
             }
             Some(v) => {
-                let VarValue { ptr, counter, .. } = *v;
-                ctx.var_assignment.insert(*id, VarValue { ptr, static_value: None, counter });
+                let VarValue { ptr, ty, counter, .. } = *v;
+                ctx.var_assignment.insert(*id, VarValue { ptr, ty, static_value: None, counter });
                 ptr
             }
         },
@@ -293,21 +293,24 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 None
             };
 
-            if let BasicValueEnum::PointerValue(val) = val {
-                let value_ty = ctx.get_llvm_type(value_ty).into_pointer_type();
-                let val = ctx.builder.build_pointer_cast(val, value_ty, "")?;
-                if let Some(object) =
-                    OpaqueRefCountedType::new(ctx).map_refcounted_value(val, None).as_ref()
-                {
-                    object.header(ctx).safe_increment_refcount(ctx)?;
-                }
+            if let BasicValueEnum::PointerValue(val) = val
+                && is_refcounted_type(&mut ctx.unifier, value_ty)
+            {
+                let value_llvm_ty = ctx.get_llvm_type(value_ty).into_pointer_type();
+                let val = ctx.builder.build_pointer_cast(val, value_llvm_ty, "")?;
+                OpaqueRefCountedType::new(ctx)
+                    .map_value(val, None)
+                    .header(ctx)
+                    .safe_increment_refcount(ctx)?;
             }
             typed_store(ctx.builder, ptr, val)?;
             if let Some(target) = target
-                && let Some(object) =
-                    OpaqueRefCountedType::new(ctx).map_refcounted_value(target, None).as_ref()
+                && is_refcounted_type(&mut ctx.unifier, value_ty)
             {
-                object.header(ctx).safe_decrement_refcount(ctx)?;
+                OpaqueRefCountedType::new(ctx)
+                    .map_value(target, None)
+                    .header(ctx)
+                    .safe_decrement_refcount(ctx)?;
             }
         }
     }
@@ -2124,7 +2127,8 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             let exn_ty = ctx.get_llvm_type(type_.as_ref().unwrap().custom.unwrap());
             let exn_store =
                 ctx.build_allocate(AllocationScope::Default, exn_ty, Some("try.exn_store.addr"))?;
-            ctx.var_assignment.insert(*name, VarValue::new(exn_store));
+            ctx.var_assignment
+                .insert(*name, VarValue::new(exn_store, type_.as_ref().unwrap().custom.unwrap()));
             typed_store(ctx.builder, exn_store, exn.as_basic_value())?;
         }
         generator.gen_block(ctx, body.iter())?;

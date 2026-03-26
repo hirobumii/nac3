@@ -42,7 +42,7 @@ use crate::{
         types::{
             ArrayLikeIndexer, ClassType, ExceptionType, ListType, ListValue, NDArrayOut,
             NDArrayType, OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType,
-            RangeValue, RawClassType, RawListType, RefCountedType, RefCountedValue, RustNDIndex,
+            RangeValue, RawClassType, RawListType, RefCountedValue, RustNDIndex,
             ScalarOrNDArray, StringType, TupleType, TupleValue, TypedRefCountedType,
             broadcast_starmap, field, is_refcounted_type,
         },
@@ -808,7 +808,7 @@ pub fn gen_call<'ctx, G: CodeGenerator>(
             } else if let BasicValueEnum::PointerValue(p) = v {
                 (
                     ctx.builder.build_pointer_cast(p, ctx.ptr, "ptr_cast")?.into(),
-                    OpaqueRefCountedType::new(ctx).map_refcounted_value(p, None).is_some(),
+                    is_refcounted_type(&mut ctx.unifier, t),
                 )
             } else {
                 (v, false)

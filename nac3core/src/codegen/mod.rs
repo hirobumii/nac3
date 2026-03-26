@@ -46,8 +46,9 @@ use crate::{
         stmt::get_personality,
         types::{
             ArraySliceValue, ClassType, EnumerateType, ExceptionType, OpaqueRefCountedType,
-            OptionType, ProxyType, RangeType, RawListType, RawNDArrayType, RefCountedType,
+            OptionType, ProxyType, ProxyTypeBase, RangeType, RawListType, RawNDArrayType,
             RefCountedValue, RefType, StringType, TupleType, is_obj_id_refcounted,
+            is_refcounted_type,
         },
     },
     symbol_resolver::{StaticValue, SymbolResolver},
@@ -121,6 +122,9 @@ pub struct VarValue<'ctx> {
     /// The pointer to the variable's storage.
     pub ptr: PointerValue<'ctx>,
 
+    /// The unifier type of this variable.
+    pub ty: Type,
+
     /// The static value of the variable, if any.
     pub static_value: Option<Arc<dyn StaticValue + Send + Sync>>,
 
@@ -135,15 +139,16 @@ impl<'ctx> VarValue<'ctx> {
     #[must_use]
     pub fn new_static(
         ptr: PointerValue<'ctx>,
+        ty: Type,
         static_value: Arc<dyn StaticValue + Send + Sync>,
     ) -> Self {
-        Self { ptr, static_value: Some(static_value), counter: 0 }
+        Self { ptr, ty, static_value: Some(static_value), counter: 0 }
     }
 
     /// Creates a new [`VarValue`] with a dynamic value.
     #[must_use]
-    pub fn new(ptr: PointerValue<'ctx>) -> Self {
-        Self { ptr, static_value: None, counter: 0 }
+    pub fn new(ptr: PointerValue<'ctx>, ty: Type) -> Self {
+        Self { ptr, ty, static_value: None, counter: 0 }
     }
 }
 
@@ -869,7 +874,7 @@ pub fn gen_func_impl<
         };
 
         typed_store(builder, alloca, param)?;
-        var_assignment.insert(arg.name, VarValue::new(alloca));
+        var_assignment.insert(arg.name, VarValue::new(alloca, arg.ty));
     }
 
     // TODO: Save vararg parameters as list
@@ -1000,18 +1005,18 @@ pub fn gen_func_impl<
         };
 
         // decrement the reference counts of all local variables
-        for local_ptr in code_gen_context.var_assignment.values().map(|v| v.ptr).collect_vec() {
-            if !local_ptr.get_type().get_element_type().is_pointer_type() {
+        for (local_ptr, ty) in
+            code_gen_context.var_assignment.values().map(|v| (v.ptr, v.ty)).collect_vec()
+        {
+            if !is_refcounted_type(&mut code_gen_context.unifier, ty) {
                 continue;
             }
 
             let ptr = code_gen_context.builder.build_load(local_ptr, "")?.into_pointer_value();
-            if let Some(object) = OpaqueRefCountedType::new(&code_gen_context)
-                .map_refcounted_value(ptr, None)
-                .as_ref()
-            {
-                object.header(&code_gen_context).safe_decrement_refcount(&mut code_gen_context)?;
-            }
+            OpaqueRefCountedType::new(&code_gen_context)
+                .map_value(ptr, None)
+                .header(&code_gen_context)
+                .safe_decrement_refcount(&mut code_gen_context)?;
         }
 
         // emit the stored `return` instruction after decrementing reference counts
