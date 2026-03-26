@@ -24,10 +24,11 @@ use crate::{
         macros::codegen_unreachable,
         typed_load, typed_store,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
-            ListType, ListValue, NDArrayType, OpaqueRefCountedType, ProxyTypeBase, RangeType,
-            RawListType, RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
-            TupleType, TupleValue, TypedRefCountedType, broadcast, field,
+            ArrayLikeIndexer, ArraySliceValue, ClassType, EnumerateType, ExceptionType,
+            ExceptionValue, ListType, ListValue, NDArrayType, OpaqueRefCountedType, OptionType,
+            ProxyTypeBase, RangeType, RawClassType, RawListType, RefCountedType, RefCountedValue,
+            RustNDIndex, ScalarOrNDArray, StringType, TupleType, TupleValue, TypedRefCountedType,
+            broadcast, field, is_refcounted_type,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -125,15 +126,25 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
             None => {
                 let ptr_ty = ctx.get_llvm_type(pattern.custom.unwrap());
-                // TODO(Derppening): Remove when all types are refcounted
-                let ptr = if let TypeEnum::TObj { obj_id, .. } =
-                    &*ctx.unifier.get_ty(pattern.custom.unwrap())
-                    && *obj_id == PrimDef::List.id()
-                {
-                    let list_ty = RawListType::from_unifier_type(ctx, pattern.custom.unwrap());
-                    TypedRefCountedType::new(ctx, list_ty)
-                        .allocate(ctx, AllocationScope::Default, None)?
-                        .value
+                let ptr = if is_refcounted_type(&mut ctx.unifier, pattern.custom.unwrap()) {
+                    let ty = pattern.custom.unwrap();
+                    let obj_id = match &*ctx.unifier.get_ty(ty) {
+                        TypeEnum::TObj { obj_id, .. } => *obj_id,
+                        _ => codegen_unreachable!(ctx),
+                    };
+
+                    if obj_id == PrimDef::List.id() {
+                        let list_ty = RawListType::from_unifier_type(ctx, ty);
+                        TypedRefCountedType::new(ctx, list_ty)
+                            .allocate(ctx, AllocationScope::Default, None)?
+                            .value
+                    } else if obj_id == PrimDef::Option.id() {
+                        let opt_ty = OptionType::from_unifier_type(ctx, ty);
+                        opt_ty.allocate(ctx, AllocationScope::Default, None)?.value
+                    } else {
+                        let class_ty = ClassType::from_unifier_type(ctx, ty);
+                        class_ty.allocate(ctx, AllocationScope::Default, None)?.value
+                    }
                 } else {
                     ctx.build_allocate(AllocationScope::Default, ptr_ty, name)?
                 };
@@ -153,12 +164,27 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             let BasicValueEnum::PointerValue(ptr) = val else {
                 codegen_unreachable!(ctx);
             };
-            let alloca_ty = ctx.get_alloca_type(value.custom.unwrap());
-            let ptr = ctx.builder.build_pointer_cast(
-                ptr,
-                alloca_ty.ptr_type(AddressSpace::default()),
-                "",
-            )?;
+
+            // For refcounted classes, use inner_ptr to skip past the ObjectHeader,
+            // then GEP into the inner struct with the original field index.
+            let is_refcounted = is_refcounted_type(&mut ctx.unifier, value.custom.unwrap());
+            let ptr = if is_refcounted {
+                let rc = OpaqueRefCountedType::new(ctx).map_value(ptr, None);
+                let inner_ptr = rc.inner_ptr(ctx)?;
+                let raw_class = RawClassType::from_unifier_type(ctx, value.custom.unwrap());
+                ctx.builder.build_pointer_cast(
+                    inner_ptr,
+                    raw_class.inner_type().ptr_type(AddressSpace::default()),
+                    "",
+                )?
+            } else {
+                let alloca_ty = ctx.get_alloca_type(value.custom.unwrap());
+                ctx.builder.build_pointer_cast(
+                    ptr,
+                    alloca_ty.ptr_type(AddressSpace::default()),
+                    "",
+                )?
+            };
             unsafe {
                 ctx.builder.build_in_bounds_gep(
                     ptr,

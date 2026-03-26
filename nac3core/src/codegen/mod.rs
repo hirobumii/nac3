@@ -45,13 +45,13 @@ use crate::{
         llvm_fns::FunctionStore,
         stmt::get_personality,
         types::{
-            ArraySliceValue, EnumerateType, ExceptionType, OpaqueRefCountedType, OptionType,
-            ProxyType, RangeType, RawListType, RawNDArrayType, RefCountedType, RefCountedValue,
-            RefType, StringType, TupleType,
+            ArraySliceValue, ClassType, EnumerateType, ExceptionType, OpaqueRefCountedType,
+            OptionType, ProxyType, RangeType, RawListType, RawNDArrayType, RefCountedType,
+            RefCountedValue, RefType, StringType, TupleType, is_obj_id_refcounted,
         },
     },
     symbol_resolver::{StaticValue, SymbolResolver},
-    toplevel::{TopLevelContext, TopLevelDef, helper::PrimDef},
+    toplevel::{TopLevelContext, helper::PrimDef},
     typecheck::{
         type_inferencer::{CodeLocation, PrimitiveStore},
         typedef::{CallId, FuncArg, Type, TypeEnum, Unifier},
@@ -507,7 +507,7 @@ fn get_alloca_type<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicT
     if let Some(item) = ctx.alloca_type_cache.get(&ty) {
         return *item;
     }
-    let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(ty) else {
+    let TypeEnum::TObj { obj_id, .. } = &*ctx.unifier.get_ty(ty) else {
         unreachable!("type {} has no alloca type", ctx.unifier.stringify(ty))
     };
 
@@ -522,29 +522,7 @@ fn get_alloca_type<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicT
     } else if *obj_id == PrimDef::List.id() {
         RawListType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else {
-        // a struct with fields in the order of declaration
-        let top_level_defs = ctx.top_level.definitions.read();
-        let TopLevelDef::Class { fields: fields_list, .. } = &*top_level_defs[obj_id.0].read()
-        else {
-            unreachable!()
-        };
-
-        let name = ctx.unifier.stringify(ty);
-        if let Some(t) = ctx.module.get_struct_type(&name) {
-            t
-        } else {
-            let struct_type = ctx.ctx.opaque_struct_type(&name);
-            ctx.alloca_type_cache.insert(ty, struct_type.into());
-            let fields = fields_list
-                .iter()
-                .map(|f| {
-                    get_llvm_type(ctx.inner, &mut ctx.unifier, &mut ctx.type_cache, fields[&f.0].0)
-                })
-                .collect_vec();
-            struct_type.set_body(&fields, false);
-            struct_type
-        }
-        .as_basic_type_enum()
+        ClassType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     };
 
     *ctx.alloca_type_cache.entry(ty).insert_entry(item).get()
@@ -566,10 +544,7 @@ fn get_llvm_type<'ctx>(
     type_cache.get(&unifier.get_representative(ty)).copied().unwrap_or_else(|| {
         let ty_enum = unifier.get_ty(ty);
         let result = match &*ty_enum {
-            // TODO(Derppening): Remove when all types are refcounted
-            TypeEnum::TObj { obj_id, .. }
-                if *obj_id == PrimDef::List.id() || *obj_id == PrimDef::Option.id() =>
-            {
+            TypeEnum::TObj { obj_id, .. } if is_obj_id_refcounted(*obj_id) => {
                 OpaqueRefCountedType::new(ctx).llvm_ty(ctx)
             }
             TypeEnum::TObj { .. } => ctx.ptr.into(),
@@ -677,12 +652,7 @@ fn get_llvm_abi_type<'ctx>(
         ctx.i1.into()
     } else {
         match &*unifier.get_ty(ty) {
-            // TODO(Derppening): Remove when all types are refcounted
-            TypeEnum::TObj { obj_id, .. }
-                if *obj_id == PrimDef::List.id() || *obj_id == PrimDef::Option.id() =>
-            {
-                ctx.ptr.into()
-            }
+            TypeEnum::TObj { obj_id, .. } if is_obj_id_refcounted(*obj_id) => ctx.ptr.into(),
             _ => get_llvm_type(ctx, unifier, type_cache, ty),
         }
     }

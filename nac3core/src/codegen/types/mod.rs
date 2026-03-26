@@ -81,6 +81,7 @@ pub use crate::__codegen_type_field as field;
 
 mod array;
 mod builtin;
+mod class;
 mod enumerate;
 mod exception;
 mod list;
@@ -95,6 +96,7 @@ mod typeinfo;
 
 pub use array::{ArrayLikeIndexer, ArraySliceType, ArraySliceValue};
 pub use builtin::BuiltinStruct;
+pub use class::{ClassType, ClassValue, RawClassType, RawClassValue};
 pub use enumerate::{EnumerateType, EnumerateValue};
 pub use exception::{ExceptionType, ExceptionValue};
 pub use list::{ListStructFields, ListType, ListValue, RawListType, RawListValue};

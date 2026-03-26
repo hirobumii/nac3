@@ -40,10 +40,11 @@ use crate::{
         },
         typed_load, typed_store,
         types::{
-            ArrayLikeIndexer, ExceptionType, ListType, ListValue, NDArrayOut, NDArrayType,
-            OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType, RangeValue,
-            RawListType, RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
-            TupleType, TupleValue, TypedRefCountedType, broadcast_starmap, field,
+            ArrayLikeIndexer, ClassType, ExceptionType, ListType, ListValue, NDArrayOut,
+            NDArrayType, OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType,
+            RangeValue, RawClassType, RawListType, RefCountedType, RefCountedValue, RustNDIndex,
+            ScalarOrNDArray, StringType, TupleType, TupleValue, TypedRefCountedType,
+            broadcast_starmap, field, is_refcounted_type,
         },
     },
     symbol_resolver::{StaticValue, SymbolValue, ValueEnum},
@@ -567,9 +568,9 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
 }
 
 /// See [`CodeGenerator::gen_constructor`].
-pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
+pub fn gen_constructor<'ctx, G: CodeGenerator>(
     generator: &mut G,
-    ctx: &mut CodeGenContext<'ctx, 'a>,
+    ctx: &mut CodeGenContext<'ctx, '_>,
     signature: &FunSignature,
     def: &TopLevelDef,
     params: Vec<(Option<StrRef>, ValueEnum<'ctx>)>,
@@ -578,21 +579,26 @@ pub fn gen_constructor<'ctx, 'a, G: CodeGenerator>(
 
     // TODO: what about other fields that require alloca?
     let fun_id = methods.iter().find(|method| method.0 == "__init__".into()).map(|method| method.2);
-    let ty = ctx.get_alloca_type(signature.ret);
-    let zelf: BasicValueEnum<'ctx> = {
+    let class_ty = ClassType::from_unifier_type(ctx, signature.ret);
+    let zelf = {
         #[cfg(feature = "malloc")]
         let scope = AllocationScope::Default;
         #[cfg(not(feature = "malloc"))]
         let scope = AllocationScope::StackCurrentLoc;
-        ctx.build_allocate(scope, ty, Some("alloca"))?.into()
+        class_ty.allocate(ctx, scope, Some("alloca"))?
     };
     // call `__init__` if there is one
     if let Some(fun_id) = fun_id {
         let mut sign = signature.clone();
         sign.ret = ctx.primitives.none;
-        generator.gen_call(ctx, Some((signature.ret, zelf.into())), (&sign, fun_id), params)?;
+        generator.gen_call(
+            ctx,
+            Some((signature.ret, zelf.value.into())),
+            (&sign, fun_id),
+            params,
+        )?;
     }
-    Ok(zelf)
+    Ok(zelf.value.into())
 }
 
 /// See [`CodeGenerator::gen_func_instance`].
@@ -1950,16 +1956,31 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
     let result = generator.gen_expr(ctx, value)?;
     let load_dyn = |ctx: &mut CodeGenContext<'ctx, '_>, v: BasicValueEnum<'ctx>| {
         let (index, _) = ctx.get_attr_index(value.custom.unwrap(), attr);
-        let alloca_type = ctx.get_alloca_type(result.ty);
-        let ptr = ctx.builder.build_pointer_cast(
-            v.into_pointer_value(),
-            alloca_type.ptr_type(AddressSpace::default()),
-            "attr_ptr",
-        )?;
+        let is_refcounted = is_refcounted_type(&mut ctx.unifier, value.custom.unwrap());
+
+        // For refcounted classes, use inner_ptr to skip past the ObjectHeader,
+        // then GEP into the inner struct with the original field index.
+        let ptr = if is_refcounted {
+            let rc = OpaqueRefCountedType::new(ctx).map_value(v.into_pointer_value(), None);
+            let inner_ptr = rc.inner_ptr(ctx)?;
+            let raw_class = RawClassType::from_unifier_type(ctx, value.custom.unwrap());
+            ctx.builder.build_pointer_cast(
+                inner_ptr,
+                raw_class.inner_type().ptr_type(AddressSpace::default()),
+                "attr_ptr",
+            )?
+        } else {
+            let alloca_type = ctx.get_alloca_type(result.ty);
+            ctx.builder.build_pointer_cast(
+                v.into_pointer_value(),
+                alloca_type.ptr_type(AddressSpace::default()),
+                "attr_ptr",
+            )?
+        };
         unsafe {
             ctx.build_gep_and_load(
                 ptr,
-                &[ctx.i32.const_int(0, false), ctx.i32.const_int(index as u64, false)],
+                &[ctx.i32.const_zero(), ctx.i32.const_int(index as u64, false)],
                 None,
             )
         }
