@@ -1628,17 +1628,23 @@ impl InnerResolver {
             }
             // should be classes
             let top_level_defs = ctx.top_level.definitions.read();
-            let TopLevelDef::Class { fields, .. } =
+            let TopLevelDef::Class { fields: fields_list, .. } =
                 &*top_level_defs[self.pyid_to_def.read()[&ty_id].0].read()
             else {
                 unreachable!()
             };
 
-            let values = fields
+            let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(ty) else {
+                // As guaranteed by invoking ctx.get_alloca_type(ty)
+                unreachable!("type {} must refer to a class instance", ctx.unifier.stringify(ty))
+            };
+            assert_eq!(*obj_id, self.pyid_to_def.read()[&ty_id], "unifier failed to infer the same object");
+
+            let values = fields_list
                 .iter()
-                .map(|(name, ty, _)| {
+                .map(|(name, _, _)| {
                     Ok(self
-                        .get_obj_value(py, &obj.getattr(name.to_string().as_str())?, ctx, *ty)
+                        .get_obj_value(py, &obj.getattr(name.to_string().as_str())?, ctx, fields[name].0)
                         .map_err(|e| {
                         super::CompileError::new_err(format!("Error getting field {name}: {e}"))
                     })?)
