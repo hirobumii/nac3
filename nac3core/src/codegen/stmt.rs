@@ -2552,7 +2552,7 @@ pub fn gen_return<G: CodeGenerator>(
         }
         ctx.builder.build_unconditional_branch(return_target)?;
     } else {
-        // TODO(Derppening): Remove once all objects are refcounted
+        // TODO(Derppening): Remove once all LLVM pointers are migrated to opaque pointers
         let value = value
             .map(|v| {
                 anyhow::Ok(if v.is_pointer_value() && v.get_type() != ctx.ptr.into() {
