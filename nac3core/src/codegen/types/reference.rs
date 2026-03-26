@@ -572,7 +572,6 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
     ) -> anyhow::Result<Value<'ctx, Self>> {
         self.allocate_impl(ctx, AllocationScope::Default, size, name)
     }
-
 }
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for RefCountedArrayType<'ctx, T> {

@@ -42,9 +42,9 @@ use crate::{
         types::{
             ArrayLikeIndexer, ClassType, ExceptionType, ListType, ListValue, NDArrayOut,
             NDArrayType, OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType,
-            RangeValue, RawClassType, RawListType, RefCountedValue, RustNDIndex,
-            ScalarOrNDArray, StringType, TupleType, TupleValue, TypedRefCountedType,
-            broadcast_starmap, field, is_refcounted_type,
+            RangeValue, RawClassType, RawListType, RefCountedValue, RustNDIndex, ScalarOrNDArray,
+            StringType, TupleType, TupleValue, TypedRefCountedType, broadcast_starmap, field,
+            is_refcounted_type,
         },
     },
     symbol_resolver::{StaticValue, SymbolValue, ValueEnum},
