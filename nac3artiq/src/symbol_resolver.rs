@@ -1616,11 +1616,11 @@ impl InnerResolver {
                 &ctx.top_level.definitions.read(),
                 &ctx.primitives,
             )?;
-            let ty = ctx.get_alloca_type(ty).into_struct_type();
+            let struct_ty = ctx.get_alloca_type(ty).into_struct_type();
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
+                        ctx.module.add_global(struct_ty, Some(AddressSpace::default()), &id_str)
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
@@ -1645,9 +1645,9 @@ impl InnerResolver {
                 })
                 .collect::<anyhow::Result<Option<Vec<_>>>>()?;
             if let Some(values) = values {
-                let val = ty.const_named_struct(&values);
+                let val = struct_ty.const_named_struct(&values);
                 let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                    ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
+                    ctx.module.add_global(struct_ty, Some(AddressSpace::default()), &id_str)
                 });
                 global.set_initializer(&val);
                 Ok(Some(global.as_pointer_value().into()))
