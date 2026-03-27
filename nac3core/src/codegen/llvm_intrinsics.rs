@@ -1,6 +1,6 @@
 use inkwell::{
     intrinsics::Intrinsic,
-    types::{AnyTypeEnum::IntType, BasicTypeEnum},
+    types::{BasicType, BasicTypeEnum},
     values::{BasicMetadataValueEnum, BasicValueEnum, FloatValue, IntValue, PointerValue},
 };
 
@@ -99,12 +99,6 @@ pub fn call_memcpy<'ctx>(
     src: PointerValue<'ctx>,
     len: IntValue<'ctx>,
 ) -> anyhow::Result<()> {
-    debug_assert!(dest.get_type().get_element_type().is_int_type());
-    debug_assert!(src.get_type().get_element_type().is_int_type());
-    debug_assert_eq!(
-        dest.get_type().get_element_type().into_int_type().get_bit_width(),
-        src.get_type().get_element_type().into_int_type().get_bit_width(),
-    );
     debug_assert_eq!(len.get_type(), ctx.size_t);
 
     let llvm_dest_t = dest.get_type();
@@ -120,69 +114,35 @@ pub fn call_memcpy<'ctx>(
 
 #[doc = llvm_doc!("memcpy")]
 ///
-/// Unlike [`call_memcpy`], this function accepts any type of pointer value. If `dest` or `src` is
-/// not a pointer to an integer, the pointer(s) will be cast to `i8*` before invoking `memcpy`.
+/// Unlike [`call_memcpy`], this function accepts any type of pointer value.
 pub fn call_memcpy_generic<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     dest: PointerValue<'ctx>,
     src: PointerValue<'ctx>,
     len: IntValue<'ctx>,
 ) -> anyhow::Result<()> {
-    let llvm_p0i8 = ctx.ptr;
-
-    let dest_elem_t = dest.get_type().get_element_type();
-    let src_elem_t = src.get_type().get_element_type();
-
-    let dest = if matches!(dest_elem_t, IntType(t) if t.get_bit_width() == 8) {
-        dest
-    } else {
-        ctx.builder.build_bit_cast(dest, llvm_p0i8, "")?.into_pointer_value()
-    };
-    let src = if matches!(src_elem_t, IntType(t) if t.get_bit_width() == 8) {
-        src
-    } else {
-        ctx.builder.build_bit_cast(src, llvm_p0i8, "").map(BasicValueEnum::into_pointer_value)?
-    };
-
     call_memcpy(ctx, dest, src, len)
 }
 
 #[doc = llvm_doc!("memcpy")]
 ///
-/// Unlike [`call_memcpy`], this function accepts any type of pointer value. If `dest` or `src` is
-/// not a pointer to an integer, the pointer(s) will be cast to `i8*` before invoking `memcpy`.
+/// Unlike [`call_memcpy`], this function accepts any type of pointer value.
 /// Moreover, `len` now refers to the number of elements to copy (rather than number of bytes to
-/// copy).
+/// copy). The caller must supply `elem_type` to compute the byte count.
 pub fn call_memcpy_generic_array<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     dest: PointerValue<'ctx>,
     src: PointerValue<'ctx>,
     len: IntValue<'ctx>,
+    elem_type: BasicTypeEnum<'ctx>,
 ) -> anyhow::Result<()> {
-    let llvm_p0i8 = ctx.ptr;
     let llvm_usize = ctx.size_t;
-
-    let dest_elem_t = dest.get_type().get_element_type();
-    let src_elem_t = src.get_type().get_element_type();
-
-    let dest = if matches!(dest_elem_t, IntType(t) if t.get_bit_width() == 8) {
-        dest
-    } else {
-        ctx.builder.build_bit_cast(dest, llvm_p0i8, "")?.into_pointer_value()
-    };
-    let src = if matches!(src_elem_t, IntType(t) if t.get_bit_width() == 8) {
-        src
-    } else {
-        ctx.builder.build_bit_cast(src, llvm_p0i8, "")?.into_pointer_value()
-    };
-
     let sizeof_elem = ctx.builder.build_int_truncate_or_bit_cast(
-        src_elem_t.size_of().unwrap(),
+        elem_type.size_of().unwrap(),
         llvm_usize,
         "",
     )?;
     let len = ctx.builder.build_int_mul(len, sizeof_elem, "")?;
-
     call_memcpy(ctx, dest, src, len)
 }
 

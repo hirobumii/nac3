@@ -173,7 +173,7 @@ impl<'ctx> ModuleContext<'ctx> {
             .into_iter()
             .chain(params.iter().copied())
             .map(|TyAndCallConv { ty, call_conv }| match call_conv {
-                ArgCallConv::Indirect(attr) => (ty.ptr_type(AddressSpace::default()).into(), attr),
+                ArgCallConv::Indirect(attr) => (ctx.ptr_type(AddressSpace::default()).into(), attr),
                 ArgCallConv::Direct => (BasicMetadataTypeEnum::from(ty), None),
             })
             .unzip();
@@ -222,18 +222,8 @@ impl<'ctx> FunctionStore<'ctx> {
     {
         let ptr_to_t = |p| BasicValueEnum::from(p).into();
 
-        let fixup_ptr_arg = |mut arg: T, param: PointerType<'ctx>| {
-            // HACK(ivan): Ignore mismatches in element types of pointers.
-            // This is because we had implemented inheritance by reinterpreting
-            // types of pointers liberally:
-            // https://git.m-labs.hk/M-Labs/nac3/pulls/295
-            // Fix the root cause of this when migrating to untyped pointers.
-            let p = arg.try_into().unwrap().into_pointer_value();
-            if param.get_element_type().is_struct_type()
-                && p.get_type().get_element_type().is_struct_type()
-            {
-                arg = ptr_to_t(builder.build_pointer_cast(p, param, "")?);
-            }
+        let fixup_ptr_arg = |arg: T, _param: PointerType<'ctx>| {
+            // With opaque pointers all pointers are the same type. No casting needed.
             anyhow::Ok(arg)
         };
 
@@ -244,7 +234,7 @@ impl<'ctx> FunctionStore<'ctx> {
 
                 let slot = match *ret {
                     Some(TyAndCallConv { ty, call_conv: ArgCallConv::Indirect(attr) }) => {
-                        Some((alloca(ty)?, attr))
+                        Some((alloca(ty)?, ty, attr))
                     }
                     _ => None,
                 };
@@ -266,7 +256,7 @@ impl<'ctx> FunctionStore<'ctx> {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
-                let normal_slot = slot.map(|(p, attr)| (ptr_to_t(p), attr));
+                let normal_slot = slot.map(|(p, _ty, attr)| (ptr_to_t(p), attr));
                 let (mut llvm_args, attrs): (Vec<_>, Vec<_>) =
                     normal_slot.into_iter().chain(normal_args).unzip();
                 if *is_c_varargs {
@@ -281,9 +271,9 @@ impl<'ctx> FunctionStore<'ctx> {
                 }
 
                 let mut result = result.try_as_basic_value().basic();
-                if let Some((ptr, _)) = slot {
+                if let Some((ptr, ty, _)) = slot {
                     assert!(result.is_none());
-                    result = Some(builder.build_load(ptr, "slot")?);
+                    result = Some(builder.build_load(ty, ptr, "slot")?);
                 }
                 assert_eq!(result.map(|val| val.get_type()), ret.map(|ret_type| ret_type.ty));
                 Ok(result)

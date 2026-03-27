@@ -279,6 +279,9 @@ pub struct CodeGenContext<'ctx, 'a> {
     /// The [`PointerValue`] containing the return value of the function.
     pub return_buffer: Option<PointerValue<'ctx>>,
 
+    /// The type of the value stored in [`return_buffer`].
+    pub return_buffer_type: Option<BasicTypeEnum<'ctx>>,
+
     // outer catch clauses
     pub outer_catch_clauses:
         Option<(Vec<Option<BasicValueEnum<'ctx>>>, BasicBlock<'ctx>, PhiValue<'ctx>)>,
@@ -594,8 +597,7 @@ pub fn typed_load<'ctx>(
     ty: BasicTypeEnum<'ctx>,
     name: &str,
 ) -> anyhow::Result<BasicValueEnum<'ctx>> {
-    let casted_ptr = b.build_pointer_cast(ptr, ty.ptr_type(AddressSpace::default()), "")?;
-    Ok(b.build_load(casted_ptr, name)?)
+    Ok(b.build_load(ty, ptr, name)?)
 }
 
 /// Stores `value` into the memory location pointed to by `ptr`.
@@ -607,9 +609,7 @@ pub fn typed_store<'ctx>(
     ptr: PointerValue<'ctx>,
     value: impl BasicValue<'ctx>,
 ) -> anyhow::Result<InstructionValue<'ctx>> {
-    let value_ty = value.as_basic_value_enum().get_type();
-    let casted_ptr = b.build_pointer_cast(ptr, value_ty.ptr_type(AddressSpace::default()), "")?;
-    Ok(b.build_store(casted_ptr, value)?)
+    Ok(b.build_store(ptr, value)?)
 }
 
 /// Retrieves the [LLVM type][`BasicTypeEnum`] corresponding to the [`Type`].
@@ -655,13 +655,7 @@ where
     match value {
         BasicTypeEnum::ArrayType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
         BasicTypeEnum::FloatType(_) | BasicTypeEnum::IntType(_) => ControlFlow::Continue(new_init),
-        BasicTypeEnum::PointerType(ty) => {
-            if let Ok(ty) = ty.get_element_type().try_into() {
-                try_fold_basic_type(new_init, &ty, f)
-            } else {
-                ControlFlow::Continue(new_init)
-            }
-        }
+        BasicTypeEnum::PointerType(_) => ControlFlow::Continue(new_init),
         BasicTypeEnum::StructType(ty) => {
             // fold all fields of the struct
             ty.get_field_types()
@@ -944,6 +938,7 @@ pub fn gen_func_impl<
         loop_target: None,
         return_target: None,
         return_buffer,
+        return_buffer_type: ret_type,
         unwind_target: None,
         outer_catch_clauses: None,
         const_strings: HashMap::default(),
@@ -1186,7 +1181,7 @@ impl<'ctx> ModuleContext<'ctx> {
         let i32 = ctx.i32_type();
         let i64 = ctx.i64_type();
         let f64 = ctx.f64_type();
-        let ptr = i8.ptr_type(AddressSpace::default());
+        let ptr = ctx.ptr_type(AddressSpace::default());
         let fn_store = FunctionStore::new(options);
 
         module.set_data_layout(&target.get_target_data().get_data_layout());

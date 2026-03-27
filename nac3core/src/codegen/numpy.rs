@@ -336,7 +336,7 @@ pub fn ndarray_dot<'ctx>(
                     let a_scalar = a_iter.get_scalar(ctx)?;
                     let b_scalar = b_iter.get_scalar(ctx)?;
 
-                    let old_result = ctx.builder.build_load(result, "")?;
+                    let old_result = ctx.builder.build_load(dtype_llvm, result, "")?;
                     let new_result: BasicValueEnum<'ctx> = match old_result {
                         BasicValueEnum::IntValue(old_result) => {
                             let a_scalar = a_scalar.into_int_value();
@@ -368,7 +368,7 @@ pub fn ndarray_dot<'ctx>(
                 |(), _| Ok(()),
             )?;
 
-            Ok(ctx.builder.build_load(result, "")?)
+            Ok(ctx.builder.build_load(dtype_llvm, result, "")?)
         }
 
         (BasicValueEnum::IntValue(e1), BasicValueEnum::IntValue(e2)) => {

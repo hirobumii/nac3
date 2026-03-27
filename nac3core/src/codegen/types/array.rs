@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use inkwell::{
-    AddressSpace, IntPredicate,
-    types::{BasicType, BasicTypeEnum},
+    IntPredicate,
+    types::BasicTypeEnum,
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
 };
 
@@ -136,13 +136,12 @@ impl<'ctx> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx> {
         let var_name = name.or(self.name).map(|v| format!("{v}.addr")).unwrap_or_default();
 
         unsafe {
-            let ptr = ctx.builder.build_pointer_cast(
+            Ok(ctx.builder.build_in_bounds_gep(
+                self.ty.item_ty,
                 self.value.0,
-                self.ty.item_ty.ptr_type(AddressSpace::default()),
-                "",
-            )?;
-            let r = ctx.builder.build_in_bounds_gep(ptr, &[*idx], var_name.as_str())?;
-            Ok(ctx.builder.build_pointer_cast(r, ctx.ptr, name.unwrap_or(""))?)
+                &[*idx],
+                var_name.as_str(),
+            )?)
         }
     }
 

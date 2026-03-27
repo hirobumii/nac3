@@ -175,7 +175,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         ) -> anyhow::Result<V>,
     {
         let init = init.as_basic_value_enum();
-        let acc_ptr = gen_var(ctx, init.get_type(), None)?;
+        let acc_ty = init.get_type();
+        let acc_ptr = gen_var(ctx, acc_ty, None)?;
         typed_store(ctx.builder, acc_ptr, init)?;
 
         gen_for_callback(
@@ -185,7 +186,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             |(), ctx| NDIterValue::new(ctx, *self),
             |(), ctx, nditer| nditer.has_element(ctx),
             |(), ctx, hooks, nditer| {
-                let acc = V::try_from(ctx.builder.build_load(acc_ptr, "")?)
+                let acc = V::try_from(ctx.builder.build_load(acc_ty, acc_ptr, "")?)
                     .map_err(|e| anyhow!("{e:?}"))?;
                 let acc = f(ctx, hooks, acc, nditer)?;
                 typed_store(ctx.builder, acc_ptr, acc)?;
@@ -198,7 +199,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             |(), _| Ok(()),
         )?;
 
-        let acc = ctx.builder.build_load(acc_ptr, "")?;
+        let acc = ctx.builder.build_load(acc_ty, acc_ptr, "")?;
         V::try_from(acc).map_err(|e| anyhow!("{e:?}"))
     }
 }
