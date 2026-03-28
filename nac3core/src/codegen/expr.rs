@@ -1108,6 +1108,30 @@ pub fn gen_prim_binop_expr<'ctx>(
                     .map_value((right_pos, right.inner_value(ctx)?.value.1), None);
                 right_chunk.memcpy_from(ctx, right.inner_value(ctx)?.value.0)?;
 
+                // Increment refcount for each copied element (they gain a new reference
+                // from the new list)
+                if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
+                    let new_list_data_inner = new_list_data.inner_value(ctx)?;
+                    gen_for_callback_incrementing(
+                        &mut (),
+                        ctx,
+                        None,
+                        llvm_usize.const_zero(),
+                        (new_len, false),
+                        |(), ctx, _, i| {
+                            let elem: PointerValue<'ctx> =
+                                new_list_data_inner.get_unchecked(ctx, &i, None)?;
+                            OpaqueRefCountedType::new(ctx)
+                                .map_value(elem, None)
+                                .header(ctx)
+                                .safe_increment_refcount(ctx)?;
+                            Ok(())
+                        },
+                        llvm_usize.const_int(1, false),
+                        |(), _| Ok(()),
+                    )?;
+                }
+
                 Ok(new_list.value.into())
             }
 
@@ -1151,6 +1175,30 @@ pub fn gen_prim_binop_expr<'ctx>(
                     llvm_usize.const_int(1, false),
                     |(), _| Ok(()),
                 )?;
+
+                // Increment refcount for each copied element in the new list
+                if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
+                    let total_len = ctx.builder.build_int_mul(size, int_val, "")?;
+                    let new_list_data_inner = new_list_data.inner_value(ctx)?;
+                    gen_for_callback_incrementing(
+                        &mut (),
+                        ctx,
+                        None,
+                        llvm_usize.const_zero(),
+                        (total_len, false),
+                        |(), ctx, _, i| {
+                            let elem: PointerValue<'ctx> =
+                                new_list_data_inner.get_unchecked(ctx, &i, None)?;
+                            OpaqueRefCountedType::new(ctx)
+                                .map_value(elem, None)
+                                .header(ctx)
+                                .safe_increment_refcount(ctx)?;
+                            Ok(())
+                        },
+                        llvm_usize.const_int(1, false),
+                        |(), _| Ok(()),
+                    )?;
+                }
 
                 Ok(new_list.value.into())
             }

@@ -18,7 +18,7 @@ use crate::{
         bool_to_i1, bool_to_i8,
         expr::{destructure_range, gen_binop_expr},
         gen_in_range_check,
-        irrt::{handle_slice_indices, list_slice_assignment},
+        irrt::{calculate_len_for_slice_range, handle_slice_indices, list_slice_assignment},
         llvm_fns::FunctionDecl,
         llvm_intrinsics,
         macros::codegen_unreachable,
@@ -402,6 +402,15 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     val,
                     None,
                 )?;
+                // Increment refcount: existing reference copied into new list
+                if let BasicValueEnum::PointerValue(p) = val
+                    && is_refcounted_type(&mut ctx.unifier, tup_mid_ty)
+                {
+                    OpaqueRefCountedType::new(ctx)
+                        .map_value(p, None)
+                        .header(ctx)
+                        .safe_increment_refcount(ctx)?;
+                }
             }
             do_assign_list(generator, ctx, mid, &starred_list)?;
 
@@ -496,6 +505,28 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
                     "",
                 )?,
             )?;
+            // Increment refcount for each copied element in the new mid_list
+            if is_refcounted_type(&mut ctx.unifier, elem_ty) {
+                let mid_list_data_inner = mid_list_data.inner_value(ctx)?;
+                gen_for_callback_incrementing(
+                    &mut (),
+                    ctx,
+                    None,
+                    ctx.size_t.const_zero(),
+                    (mid_len, false),
+                    |(), ctx, _, i| {
+                        let elem: PointerValue<'ctx> =
+                            mid_list_data_inner.get_unchecked(ctx, &i, None)?;
+                        OpaqueRefCountedType::new(ctx)
+                            .map_value(elem, None)
+                            .header(ctx)
+                            .safe_increment_refcount(ctx)?;
+                        Ok(())
+                    },
+                    ctx.size_t.const_int(1, false),
+                    |(), _| Ok(()),
+                )?;
+            }
             do_assign_list(generator, ctx, mid, &mid_list)?;
 
             let list_tail = (0..tail.len())
@@ -556,21 +587,144 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                     TypedRefCountedType::new(ctx, list_ty).map_value(value_val, None)
                 };
 
-                let target_item_ty = ctx.get_llvm_type(target_item_ty);
+                let target_item_llvm_ty = ctx.get_llvm_type(target_item_ty);
                 let size = value.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some(src_ind) =
                     handle_slice_indices(&None, &None, &None, ctx, generator, size)?
                 else {
                     return Ok(());
                 };
+
+                // Decrement refcounts of destination elements being overwritten
+                if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
+                    let dest_data = target.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?;
+                    let llvm_i32 = ctx.i32;
+                    let one = llvm_i32.const_int(1, false);
+                    let zero = llvm_i32.const_zero();
+                    let dest_end = ctx
+                        .builder
+                        .build_select(
+                            ctx.builder.build_int_compare(
+                                IntPredicate::SLT,
+                                step,
+                                zero,
+                                "is_neg",
+                            )?,
+                            ctx.builder.build_int_sub(end, one, "")?,
+                            ctx.builder.build_int_add(end, one, "")?,
+                            "",
+                        )?
+                        .into_int_value();
+                    let dest_slice_len =
+                        calculate_len_for_slice_range(ctx, start, dest_end, step)?;
+                    let dest_slice_len = ctx.builder.build_int_z_extend_or_bit_cast(
+                        dest_slice_len,
+                        ctx.size_t,
+                        "",
+                    )?;
+                    gen_for_callback_incrementing(
+                        &mut (),
+                        ctx,
+                        None,
+                        ctx.size_t.const_zero(),
+                        (dest_slice_len, false),
+                        |(), ctx, _, i| {
+                            let actual_idx = {
+                                let step_ext = ctx.builder.build_int_s_extend_or_bit_cast(
+                                    step,
+                                    ctx.size_t,
+                                    "",
+                                )?;
+                                let start_ext = ctx.builder.build_int_s_extend_or_bit_cast(
+                                    start,
+                                    ctx.size_t,
+                                    "",
+                                )?;
+                                let offset = ctx.builder.build_int_mul(i, step_ext, "")?;
+                                ctx.builder.build_int_add(start_ext, offset, "")?
+                            };
+                            let elem: PointerValue<'ctx> =
+                                dest_data.get_unchecked(ctx, &actual_idx, None)?;
+                            OpaqueRefCountedType::new(ctx)
+                                .map_value(elem, None)
+                                .header(ctx)
+                                .safe_decrement_refcount(ctx)?;
+                            Ok(())
+                        },
+                        ctx.size_t.const_int(1, false),
+                        |(), _| Ok(()),
+                    )?;
+                }
+
                 list_slice_assignment(
                     ctx,
-                    target_item_ty,
+                    target_item_llvm_ty,
                     target,
                     (start, end, step),
                     value,
                     src_ind,
                 )?;
+
+                // Increment refcounts of source elements that were copied into dest
+                if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
+                    let src_data = value.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?;
+                    let llvm_i32 = ctx.i32;
+                    let one = llvm_i32.const_int(1, false);
+                    let zero = llvm_i32.const_zero();
+                    let src_end = ctx
+                        .builder
+                        .build_select(
+                            ctx.builder.build_int_compare(
+                                IntPredicate::SLT,
+                                src_ind.2,
+                                zero,
+                                "is_neg",
+                            )?,
+                            ctx.builder.build_int_sub(src_ind.1, one, "")?,
+                            ctx.builder.build_int_add(src_ind.1, one, "")?,
+                            "",
+                        )?
+                        .into_int_value();
+                    let src_slice_len =
+                        calculate_len_for_slice_range(ctx, src_ind.0, src_end, src_ind.2)?;
+                    let src_slice_len = ctx.builder.build_int_z_extend_or_bit_cast(
+                        src_slice_len,
+                        ctx.size_t,
+                        "",
+                    )?;
+                    gen_for_callback_incrementing(
+                        &mut (),
+                        ctx,
+                        None,
+                        ctx.size_t.const_zero(),
+                        (src_slice_len, false),
+                        |(), ctx, _, i| {
+                            let actual_idx = {
+                                let step_ext = ctx.builder.build_int_s_extend_or_bit_cast(
+                                    src_ind.2,
+                                    ctx.size_t,
+                                    "",
+                                )?;
+                                let start_ext = ctx.builder.build_int_s_extend_or_bit_cast(
+                                    src_ind.0,
+                                    ctx.size_t,
+                                    "",
+                                )?;
+                                let offset = ctx.builder.build_int_mul(i, step_ext, "")?;
+                                ctx.builder.build_int_add(start_ext, offset, "")?
+                            };
+                            let elem: PointerValue<'ctx> =
+                                src_data.get_unchecked(ctx, &actual_idx, None)?;
+                            OpaqueRefCountedType::new(ctx)
+                                .map_value(elem, None)
+                                .header(ctx)
+                                .safe_increment_refcount(ctx)?;
+                            Ok(())
+                        },
+                        ctx.size_t.const_int(1, false),
+                        |(), _| Ok(()),
+                    )?;
+                }
             } else {
                 // Handle assigning to an index
                 let len = target.inner_value(ctx)?.load(ctx, field!(len))?;
@@ -606,12 +760,25 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 // Write value to index on list
                 let value = value.to_basic_value_enum(ctx, value_ty)?;
-                target.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.set(
-                    ctx,
-                    &index,
-                    value,
-                    Some("list_item"),
-                )?;
+                let list_data = target.inner_value(ctx)?.data(ctx)?;
+                let list_data_inner = list_data.inner_value(ctx)?;
+
+                if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
+                    // Load old element and increment new value before store
+                    let old_elem: PointerValue<'ctx> =
+                        list_data_inner.get_unchecked(ctx, &index, None)?;
+                    OpaqueRefCountedType::new(ctx)
+                        .map_value(value.into_pointer_value(), None)
+                        .header(ctx)
+                        .safe_increment_refcount(ctx)?;
+                    list_data_inner.set(ctx, &index, value, Some("list_item"))?;
+                    OpaqueRefCountedType::new(ctx)
+                        .map_value(old_elem, None)
+                        .header(ctx)
+                        .safe_decrement_refcount(ctx)?;
+                } else {
+                    list_data_inner.set(ctx, &index, value, Some("list_item"))?;
+                }
             }
         }
         TypeEnum::TObj { obj_id, .. }
