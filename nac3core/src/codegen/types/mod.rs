@@ -61,11 +61,11 @@ use impl_proxy_type;
 /// Retrieving a field from a builtin struct type passed around by pointer:
 ///
 /// ```
-/// # use nac3core::codegen::{CodeGenContext, types::{ListValue, field}};
+/// # use nac3core::codegen::{CodeGenContext, types::{RawListValue, field}};
 /// # use inkwell::values::IntValue;
 /// fn get_list_len<'ctx>(
 ///     ctx: &mut CodeGenContext<'ctx, '_>,
-///     list: &ListValue<'ctx>)
+///     list: &RawListValue<'ctx>)
 /// -> IntValue<'ctx> {
 ///     list.load(ctx, field!(len)).unwrap()
 /// }
