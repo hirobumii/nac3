@@ -113,8 +113,8 @@ void transpose(NDArray<SizeT>* src_ndarray,
          */
 
         for (auto axis = 0; axis < ndims; axis++) {
-            dst_ndarray->shape[axis] = src_ndarray->shape[ndims - axis - 1];
-            dst_ndarray->strides[axis] = src_ndarray->strides[ndims - axis - 1];
+            dst_ndarray->shape->data()[axis] = src_ndarray->shape->data()[ndims - axis - 1];
+            dst_ndarray->strides->data()[axis] = src_ndarray->strides->data()[ndims - axis - 1];
         }
     } else {
         // `np.transpose(<array>, <axes>)`
@@ -124,8 +124,8 @@ void transpose(NDArray<SizeT>* src_ndarray,
             // `i` cannot be OUT_OF_BOUNDS because of assertions
             SizeT i = slice::resolve_index_in_length(ndims, axes[axis]);
 
-            dst_ndarray->shape[axis] = src_ndarray->shape[i];
-            dst_ndarray->strides[axis] = src_ndarray->strides[i];
+            dst_ndarray->shape->data()[axis] = src_ndarray->shape->data()[i];
+            dst_ndarray->strides->data()[axis] = src_ndarray->strides->data()[i];
         }
     }
 }
