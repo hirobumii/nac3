@@ -64,10 +64,10 @@ impl<'ctx> NDArrayValue<'ctx> {
         let broadcast_ndarray =
             NDArrayType::create(ctx, self.inner_value(ctx)?.ty.dtype, target_ndims)
                 .construct(ctx, None)?;
-        broadcast_ndarray
-            .shape(ctx)?
-            .inner_value(ctx, None)?
-            .memcpy_from(ctx, target_shape.inner_value(ctx, Some(ctx.size_t.const_int(target_ndims, false)))?.value.0)?;
+        broadcast_ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(
+            ctx,
+            target_shape.inner_value(ctx, Some(ctx.size_t.const_int(target_ndims, false)))?.value.0,
+        )?;
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_to");
         call_extern!(ctx: void _ = name(self.value, broadcast_ndarray.value))?;
@@ -113,25 +113,20 @@ pub fn broadcast<'ctx>(
         let pshape_entry = arr.inner_value(ctx, None)?.ptr_offset_unchecked(ctx, &idx, None)?;
         let shape_entry = shape_entry_ty.map_value(pshape_entry, None);
         let ndims = ndarray.inner_value(ctx)?.ty.ndims_val(ctx);
-        let shape = ndarray.shape(ctx)?.inner_value(ctx, None)?.value.0;
+        let shape = ndarray.shape(ctx)?.value;
         shape_entry.store(ctx, field!(ndims), ndims)?;
         shape_entry.store(ctx, field!(shape), shape)?;
     }
 
     let ndims = ndarrays.iter().map(|ndarray| ndarray.ty.object.ndims).max().unwrap();
     let ndims_v = ctx.size_t.const_int(ndims, false);
-    let new_shape_ptr = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims as u32))
+    let new_shape = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims as u32))
         .allocate(ctx, ndims_v, None)?;
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");
-    call_extern!(ctx: void _ = name(shape_entries, arr.inner_value(ctx, None)?.value.0, ndims_v, new_shape_ptr.value))?;
+    call_extern!(ctx: void _ = name(shape_entries, arr.value, ndims_v, new_shape.value))?;
 
-    // Now this new shape is initialized.
-    let new_shape = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims as _)).alloca(
-        ctx,
-        ctx.size_t.const_int(ndims, false),
-        None,
-    )?;
+    // new_shape_ptr is now initialized with the broadcast result shape.
     let new_ndarrays = ndarrays
         .iter()
         .map(|ndarray| ndarray.broadcast_to(ctx, ndims, new_shape))
