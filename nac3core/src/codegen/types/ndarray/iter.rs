@@ -70,8 +70,9 @@ impl<'ctx> RawNDIterValue<'ctx> {
         call_extern!(ctx: (ctx.i1) _ = name(self.value))
     }
 
-    fn array(&self, ctx: &ModuleContext<'ctx>) -> NDArrayValue<'ctx> {
-        NDArrayType::create(ctx, self.ty.dtype, self.ty.ndims).map_value(self.value, self.name)
+    fn array(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<NDArrayValue<'ctx>> {
+        let array_ptr = self.load(ctx, field!(array))?;
+        Ok(NDArrayType::create(ctx, self.ty.dtype, self.ty.ndims).map_value(array_ptr, self.name))
     }
 
     /// Returns a pointer to the current element.
@@ -79,7 +80,7 @@ impl<'ctx> RawNDIterValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<PointerValue<'ctx>> {
-        let data = self.array(ctx).inner_value(ctx)?.data(ctx)?;
+        let data = self.array(ctx)?.inner_value(ctx)?.data(ctx)?;
         let array_size = self.load(ctx, field!(size))?;
         let data_ptr = data.inner_value(ctx, Some(array_size))?.value.0;
         Ok(unsafe { ctx.builder.build_gep(data_ptr, &[self.load(ctx, field!(offset))?], "")? })
@@ -141,7 +142,7 @@ impl<'ctx> NDIterValue<'ctx> {
             RefCountedArrayType::new(ctx, ctx.size_t, Some(ndarray.ty.object.ndims as u32))
                 .allocate(ctx, ctx.size_t.const_int(ndarray.ty.object.ndims, false), None)?;
         let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_initialize");
-        call_extern!(ctx: void _ = name(nditer.value, ndarray.value, indices.value))?;
+        call_extern!(ctx: void _ = name(nditer.inner_value(ctx)?.value, ndarray.value, indices.value))?;
 
         Ok(nditer)
     }
