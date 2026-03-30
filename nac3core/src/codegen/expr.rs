@@ -1076,37 +1076,34 @@ pub fn gen_prim_binop_expr<'ctx>(
                 debug_assert_eq!(ty2.obj_id(&ctx.unifier), Some(PrimDef::List.id()));
 
                 let list_ty = ListType::from_unifier_type(ctx, ty1);
-                let [left, right] = [left_val, right_val].map(|val| {
-                    list_ty
-                        .map_value(val.into_pointer_value(), None)
-                        .inner_value(ctx)
-                        .and_then(|inner| inner.data(ctx))
+                let [left_list, right_list] = [left_val, right_val]
+                    .map(|val| list_ty.map_value(val.into_pointer_value(), None));
+                let left_len = left_list.inner_value(ctx)?.load(ctx, field!(len))?;
+                let right_len = right_list.inner_value(ctx)?.load(ctx, field!(len))?;
+                let [left, right] = [left_list, right_list].map(|list| {
+                    list.inner_value(ctx).and_then(|inner| inner.data(ctx))
                 });
                 let [left, right] = [left?, right?];
-                let new_len = ctx.builder.build_int_add(
-                    left.inner_value(ctx)?.value.1,
-                    right.inner_value(ctx)?.value.1,
-                    "",
-                )?;
+                let new_len = ctx.builder.build_int_add(left_len, right_len, "")?;
                 let new_list = list_ty.construct(ctx, new_len, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
 
-                let left_chunk = new_list_data.inner_value(ctx)?.ty.map_value(
-                    (new_list_data.inner_value(ctx)?.value.0, left.inner_value(ctx)?.value.1),
+                let left_chunk = new_list_data.inner_value_with_len(ctx, new_len)?.ty.map_value(
+                    (new_list_data.inner_value_with_len(ctx, new_len)?.value.0, left_len),
                     None,
                 );
-                left_chunk.memcpy_from(ctx, left.inner_value(ctx)?.value.0)?;
+                left_chunk.memcpy_from(ctx, left.inner_value_with_len(ctx, left_len)?.value.0)?;
 
-                let right_pos = new_list_data.inner_value(ctx)?.ptr_offset_unchecked(
+                let right_pos = new_list_data.inner_value_with_len(ctx, new_len)?.ptr_offset_unchecked(
                     ctx,
-                    &left.inner_value(ctx)?.value.1,
+                    &left_len,
                     None,
                 )?;
                 let right_chunk = new_list_data
-                    .inner_value(ctx)?
+                    .inner_value_with_len(ctx, new_len)?
                     .ty
-                    .map_value((right_pos, right.inner_value(ctx)?.value.1), None);
-                right_chunk.memcpy_from(ctx, right.inner_value(ctx)?.value.0)?;
+                    .map_value((right_pos, right_len), None);
+                right_chunk.memcpy_from(ctx, right.inner_value_with_len(ctx, right_len)?.value.0)?;
 
                 // Increment refcount for each copied element (they gain a new reference
                 // from the new list)
@@ -1151,8 +1148,9 @@ pub fn gen_prim_binop_expr<'ctx>(
                 // [...] * (i where i < 0) => []
                 let int_val = call_int_smax(ctx, int_val, llvm_usize.const_zero(), None)?;
 
-                let (old_list_ptr, size) =
-                    list_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.value;
+                let size = list_val.inner_value(ctx)?.load(ctx, field!(len))?;
+                let (old_list_ptr, _) =
+                    list_val.inner_value(ctx)?.data(ctx)?.inner_value_with_len(ctx, size)?.value;
                 let new_list =
                     list_ty.construct(ctx, ctx.builder.build_int_mul(size, int_val, "")?, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
@@ -2417,7 +2415,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                     expr.location,
                 )?;
                 let result =
-                    v.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get(ctx, &index, None)?;
+                    v.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(ctx, &index, None)?;
                 RtValue::dynamic(ty, result)
             }
         }

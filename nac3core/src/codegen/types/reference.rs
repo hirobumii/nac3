@@ -671,9 +671,25 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
         Ok(typed_load(ctx.builder, psize, ctx.size_t.into(), "")?.into_int_value())
     }
 
+    /// Returns the data portion of this array as an [`ArraySliceValue`].
+    ///
+    /// The length used for bounds checking comes from the array's internal metadata field, which
+    /// tracks the number of refcounted elements (0 for non-pointer element types). Use
+    /// [`inner_value_with_len`](Self::inner_value_with_len) when you have the actual element
+    /// count (e.g., from a list's `len` field) and need correct bounds checking.
     pub fn inner_value(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<ArraySliceValue<'ctx, T>> {
+        self.inner_value_with_len(ctx, self.len(ctx)?)
+    }
+
+    /// Returns the data portion of this array as an [`ArraySliceValue`] with an explicit length
+    /// for bounds checking.
+    pub fn inner_value_with_len(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        len: IntValue<'ctx>,
     ) -> anyhow::Result<ArraySliceValue<'ctx, T>> {
         let pdata = unsafe {
             typed_gep(
@@ -685,7 +701,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
             )?
         };
 
-        Ok(ArraySliceValue::new(self.ty.elem, pdata, self.len(ctx)?, self.name))
+        Ok(ArraySliceValue::new(self.ty.elem, pdata, len, self.name))
     }
 }
 

@@ -87,7 +87,10 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
 
             let ndarray = NDArrayType::create(ctx, dtype, 1).construct(ctx, name)?;
 
-            let (data, len) = list.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.value;
+            let list_len = list.inner_value(ctx)?.load(ctx, field!(len))?;
+            let (data, _) =
+                list.inner_value(ctx)?.data(ctx)?.inner_value_with_len(ctx, list_len)?.value;
+            let len = list_len;
             // ndarray->data->refcount += 1;
             RefCountedArrayType::new(ctx, ctx.i8, None)
                 .map_value(ndarray.inner_value(ctx)?.load(ctx, field!(data))?, None)

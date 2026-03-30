@@ -396,7 +396,9 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             )?;
             let starred_list_data = starred_list.inner_value(ctx)?.data(ctx)?;
             for (i, &(_, val)) in tup_mid.iter().enumerate() {
-                starred_list_data.inner_value(ctx)?.set(
+                // Use set_unchecked: the array's internal length tracks refcounted
+                // element count (0 for non-pointer elements), not the actual capacity.
+                starred_list_data.inner_value(ctx)?.set_unchecked(
                     ctx,
                     &ctx.size_t.const_int(i as u64, false),
                     val,
@@ -422,7 +424,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let list = list_ty.map_value(list, None);
             let list_data = list.inner_value(ctx)?.data(ctx)?;
             let elem_ty = list.ty.object.item_ty;
-            let rhs_size = list_data.inner_value(ctx)?.value.1;
+            let rhs_size = list.inner_value(ctx)?.load(ctx, field!(len))?;
 
             let do_read = |ctx: &mut CodeGenContext<'ctx, '_>, at: _| {
                 let elem: BasicValueEnum<'ctx> =
@@ -771,13 +773,15 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                         .map_value(value.into_pointer_value(), None)
                         .header(ctx)
                         .safe_increment_refcount(ctx)?;
-                    list_data_inner.set(ctx, &index, value, Some("list_item"))?;
+                    // Bounds already verified above; array metadata tracks refcount
+                    // element count (0 for non-pointer elements), not actual capacity.
+                    list_data_inner.set_unchecked(ctx, &index, value, Some("list_item"))?;
                     OpaqueRefCountedType::new(ctx)
                         .map_value(old_elem, None)
                         .header(ctx)
                         .safe_decrement_refcount(ctx)?;
                 } else {
-                    list_data_inner.set(ctx, &index, value, Some("list_item"))?;
+                    list_data_inner.set_unchecked(ctx, &index, value, Some("list_item"))?;
                 }
             }
         }
@@ -1062,7 +1066,14 @@ where
                     ctx.builder.build_store(addr_2, v_val)?;
                 }
                 ExprKind::Name { .. } => {
-                    ctx.builder.build_store(target_i, ctx.builder.build_load(iv_pair, "iv")?)?;
+                    // Load i and v from the internal iv_pair struct
+                    let i = ctx.builder.build_struct_gep(iv_pair, 0, "i")?;
+                    let i_val = ctx.builder.build_load(i, "i_val")?;
+                    let v = ctx.builder.build_struct_gep(iv_pair, 1, "v")?;
+                    let v_val = ctx.builder.build_load(v, "v_val")?;
+                    // Construct a proper tuple (with ObjectHeader) from the values
+                    let tuple_val = TupleValue::new(ctx, &[i_val, v_val], Some("iv"))?;
+                    typed_store(ctx.builder, target_i, tuple_val.value)?;
                 }
                 _ => codegen_unreachable!(
                     ctx,
