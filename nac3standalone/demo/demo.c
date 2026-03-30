@@ -130,7 +130,7 @@ void output_refcount(const void* obj) {
     } else if (header->refcount == 0) {
         printf("<unsupported>");
     } else {
-        printf("%" PRIu32, header->refcount - 1);
+        printf("%" PRIu32, header->refcount - 2);
     }
     putchar('\n');
 
