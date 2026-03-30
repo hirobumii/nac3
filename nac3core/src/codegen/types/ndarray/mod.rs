@@ -190,7 +190,7 @@ impl<'ctx> NDArrayType<'ctx> {
         let dst = ndarray.shape(ctx)?;
         for (i, &dim) in shape.iter().enumerate() {
             let i = ctx.size_t.const_int(i as _, false);
-            dst.inner_value(ctx)?.set_unchecked(ctx, &i, dim, name)?;
+            dst.inner_value(ctx, None)?.set_unchecked(ctx, &i, dim, name)?;
         }
         ndarray.create_data(ctx)?;
         Ok(ndarray)
@@ -276,7 +276,7 @@ impl<'ctx> RawNDArrayValue<'ctx> {
         let mut product = ctx.size_t.const_int(1, false);
         for i in 0..self.ty.ndims {
             let idx = ctx.size_t.const_int(i, false);
-            let dim = shape.inner_value(ctx)?.get_unchecked(ctx, &idx, None)?;
+            let dim = shape.inner_value(ctx, None)?.get_unchecked(ctx, &idx, None)?;
             product = ctx.builder.build_int_mul(product, dim, "")?;
         }
         Ok(product)
@@ -306,8 +306,8 @@ impl<'ctx> RawNDArrayValue<'ctx> {
         let mut stride = self.ty.itemsize_val(ctx);
         for i in (0..self.ty.ndims).rev() {
             let idx = ctx.size_t.const_int(i, false);
-            strides.inner_value(ctx)?.set_unchecked(ctx, &idx, stride, self.name)?;
-            let dim = shape.inner_value(ctx)?.get_unchecked(ctx, &idx, None)?;
+            strides.inner_value(ctx, None)?.set_unchecked(ctx, &idx, stride, self.name)?;
+            let dim = shape.inner_value(ctx, None)?.get_unchecked(ctx, &idx, None)?;
             stride = ctx.builder.build_int_mul(stride, dim, "")?;
         }
 
@@ -317,7 +317,7 @@ impl<'ctx> RawNDArrayValue<'ctx> {
     /// Returns the length of the first dimension of the array.
     pub fn len(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
         assert!(self.ty.ndims >= 1);
-        self.shape(ctx)?.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), self.name)
+        self.shape(ctx)?.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_zero(), self.name)
     }
 
     /// Returns the number of bytes consumed by the array data.
@@ -334,7 +334,7 @@ impl<'ctx> RawNDArrayValue<'ctx> {
         src: &Self,
     ) -> anyhow::Result<()> {
         let shape = src.shape(ctx)?;
-        self.shape(ctx)?.inner_value(ctx)?.memcpy_from(ctx, shape.inner_value(ctx)?.value.0)?;
+        self.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
         Ok(())
     }
 
@@ -361,7 +361,7 @@ impl<'ctx> RawNDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<TupleValue<'ctx>> {
         let shape = self.shape(ctx)?;
-        self.read_shape_or_stride_as_tuple(ctx, shape.inner_value(ctx)?, "shape")
+        self.read_shape_or_stride_as_tuple(ctx, shape.inner_value(ctx, None)?, "shape")
     }
 
     /// Returns a `tuple` representing the strides of this array.
@@ -370,7 +370,7 @@ impl<'ctx> RawNDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<TupleValue<'ctx>> {
         let strides = self.strides(ctx)?;
-        self.read_shape_or_stride_as_tuple(ctx, strides.inner_value(ctx)?, "strides")
+        self.read_shape_or_stride_as_tuple(ctx, strides.inner_value(ctx, None)?, "strides")
     }
 
     /// Returns the first element of this ndarray.
@@ -378,8 +378,9 @@ impl<'ctx> RawNDArrayValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
+        let size = self.size(ctx)?;
         let offset = self.load(ctx, field!(offset))?;
-        self.data(ctx)?.inner_value(ctx)?.get_unchecked(ctx, &offset, Some("first_element"))
+        self.data(ctx)?.inner_value(ctx, Some(size))?.get_unchecked(ctx, &offset, Some("first_element"))
     }
 }
 
@@ -514,7 +515,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
         let clone = NDArrayOut::NewNDArray { dtype: self.inner_value(ctx)?.ty.dtype }.resolve(
             ctx,
             self.inner_value(ctx)?.ty.ndims,
-            shape.inner_value(ctx)?,
+            shape.inner_value(ctx, None)?,
         )?;
         clone.copy_data_from(ctx, self)?;
         Ok(clone)
@@ -583,7 +584,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for RawNDArrayValue<'ct
                 let (dim_idx, dim_sz) = (
                     idx.get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
                     self.shape(ctx)?
-                        .inner_value(ctx)?
+                        .inner_value(ctx, None)?
                         .get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
                 );
                 let dim_idx =
@@ -723,7 +724,7 @@ impl<'ctx> NDArrayOut<'ctx> {
             NDArrayOut::NewNDArray { dtype } => {
                 let result_ndarray =
                     NDArrayType::create(ctx, *dtype, ndims).construct(ctx, None)?;
-                result_ndarray.shape(ctx)?.inner_value(ctx)?.memcpy_from(ctx, shape.value.0)?;
+                result_ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape.value.0)?;
                 result_ndarray.create_data(ctx)?;
                 Ok(result_ndarray)
             }
@@ -731,7 +732,7 @@ impl<'ctx> NDArrayOut<'ctx> {
             NDArrayOut::WriteToNDArray { ndarray: result } => {
                 // Use an existing ndarray.
                 let out_shape = result.shape(ctx)?;
-                assert_ndarray_can_be_written_by_out(ctx, shape, out_shape.inner_value(ctx)?)?;
+                assert_ndarray_can_be_written_by_out(ctx, shape, out_shape.inner_value(ctx, None)?)?;
                 Ok(*result)
             }
         }

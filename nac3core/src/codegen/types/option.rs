@@ -61,7 +61,7 @@ impl<'ctx> OptionSomeValue<'ctx> {
         &self,
         ctx: &ModuleContext<'ctx>,
     ) -> RefCountedArrayValue<'ctx, BasicTypeEnum<'ctx>> {
-        RefCountedArrayType::new(ctx, self.ty.inner.elem, None).map_value(self.value, self.name)
+        RefCountedArrayType::new(ctx, self.ty.inner.elem, Some(1)).map_value(self.value, self.name)
     }
 
     /// Loads the element stored in this `__nac3_some` payload.
@@ -70,7 +70,7 @@ impl<'ctx> OptionSomeValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&str>,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
-        let arr_data = self.as_array(ctx).inner_value(ctx)?;
+        let arr_data = self.as_array(ctx).inner_value(ctx, None)?;
         let elem_llvm_ty = self.ty.inner.elem.llvm_ty(ctx);
         crate::codegen::typed_load(ctx.builder, arr_data.value.0, elem_llvm_ty, name.unwrap_or(""))
     }
@@ -81,7 +81,7 @@ impl<'ctx> OptionSomeValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         val: BasicValueEnum<'ctx>,
     ) -> anyhow::Result<()> {
-        let arr_data = self.as_array(ctx).inner_value(ctx)?;
+        let arr_data = self.as_array(ctx).inner_value(ctx, None)?;
         crate::codegen::typed_store(ctx.builder, arr_data.value.0, val)?;
         Ok(())
     }
@@ -97,7 +97,7 @@ impl<'ctx> RefCountedValue<'ctx> for OptionSomeValue<'ctx> {
     }
 
     fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<PointerValue<'ctx>> {
-        Ok(self.as_array(ctx).inner_value(ctx)?.value.0)
+        Ok(self.as_array(ctx).inner_value(ctx, None)?.value.0)
     }
 }
 

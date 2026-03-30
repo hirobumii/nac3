@@ -52,12 +52,12 @@ fn matmul_at_least_2d<'ctx>(
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_matmul_calculate_shapes");
         call_extern!(ctx: void _ = name(
-            in_lhs_shape.inner_value(ctx)?.value.1, in_lhs_shape.inner_value(ctx)?.value.0,
-            in_rhs_shape.inner_value(ctx)?.value.1, in_rhs_shape.inner_value(ctx)?.value.0,
+            in_lhs_shape.inner_value(ctx, None)?.value.1, in_lhs_shape.inner_value(ctx, None)?.value.0,
+            in_rhs_shape.inner_value(ctx, None)?.value.1, in_rhs_shape.inner_value(ctx, None)?.value.0,
             ndims,
-            lhs_shape.inner_value(ctx)?.value.0,
-            rhs_shape.inner_value(ctx)?.value.0,
-            dst_shape.inner_value(ctx)?.value.0,
+            lhs_shape.inner_value(ctx, None)?.value.0,
+            rhs_shape.inner_value(ctx, None)?.value.0,
+            dst_shape.inner_value(ctx, None)?.value.0,
         ))?;
 
         let lhs = in_a.broadcast_to(ctx, ndims_int, lhs_shape)?;
@@ -65,13 +65,13 @@ fn matmul_at_least_2d<'ctx>(
         let dst = NDArrayOut::NewNDArray { dtype: llvm_dst_dtype }.resolve(
             ctx,
             ndims_int,
-            dst_shape.inner_value(ctx)?,
+            dst_shape.inner_value(ctx, None)?,
         )?;
 
         (lhs, rhs, dst)
     };
 
-    let len = lhs.shape(ctx)?.inner_value(ctx)?.get_unchecked(
+    let len = lhs.shape(ctx)?.inner_value(ctx, None)?.get_unchecked(
         ctx,
         &ctx.size_t.const_int(ndims_int - 1, false),
         None,
@@ -219,8 +219,8 @@ impl<'ctx> NDArrayValue<'ctx> {
                 let out_shape = out_ndarray.shape(ctx)?;
                 assert_ndarray_can_be_written_by_out(
                     ctx,
-                    result_shape.inner_value(ctx)?,
-                    out_shape.inner_value(ctx)?,
+                    result_shape.inner_value(ctx, None)?,
+                    out_shape.inner_value(ctx, None)?,
                 )?;
 
                 out_ndarray.copy_data_from(ctx, &result)?;

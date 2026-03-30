@@ -61,14 +61,14 @@ pub fn parse_numpy_int_sequence<'ctx>(
                     let int: IntValue<'ctx> = input_seq
                         .inner_value(ctx)?
                         .data(ctx)?
-                        .inner_value(ctx)?
+                        .inner_value(ctx, Some(len))?
                         .get_unchecked(ctx, &i, None)?;
 
                     // Cast to SizeT
                     let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "")?;
 
                     // Store
-                    result.inner_value(ctx)?.set_unchecked(ctx, &i, int, None)?;
+                    result.inner_value(ctx, Some(len))?.set_unchecked(ctx, &i, int, None)?;
 
                     Ok(())
                 },
@@ -98,7 +98,7 @@ pub fn parse_numpy_int_sequence<'ctx>(
                 let int = input_seq.extract(ctx, i)?.into_int_value();
                 let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "")?;
 
-                result.inner_value(ctx)?.set_unchecked(
+                result.inner_value(ctx, None)?.set_unchecked(
                     ctx,
                     &llvm_usize.const_int(u64::from(i), false),
                     int,
@@ -124,7 +124,7 @@ pub fn parse_numpy_int_sequence<'ctx>(
             let int = ctx.builder.build_int_s_extend_or_bit_cast(input_int, llvm_usize, "")?;
 
             // Storing into result[0]
-            result.inner_value(ctx)?.set_unchecked(ctx, &zero, int, None)?;
+            result.inner_value(ctx, None)?.set_unchecked(ctx, &zero, int, None)?;
             result
         }
 

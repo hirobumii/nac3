@@ -1412,8 +1412,9 @@ impl<'a> BuiltinBuilder<'a> {
 
                     let ndarray_ty = fun.0.args[0].ty;
                     let ndarray = args[0].1.clone().to_basic_value_enum(ctx, ndarray_ty)?;
-                    let ndarray = RawNDArrayType::from_unifier_type(ctx, ndarray_ty)
-                        .map_value(ndarray.into_pointer_value(), None);
+                    let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
+                        .map_value(ndarray.into_pointer_value(), None)
+                        .inner_value(ctx)?;
 
                     let size = ndarray.size(ctx)?;
                     let size = ctx.builder.build_int_truncate_or_bit_cast(size, ctx.i32, "")?;
@@ -1441,8 +1442,9 @@ impl<'a> BuiltinBuilder<'a> {
                         let ndarray_ty = fun.0.args[0].ty;
                         let ndarray = args[0].1.clone().to_basic_value_enum(ctx, ndarray_ty)?;
 
-                        let ndarray = RawNDArrayType::from_unifier_type(ctx, ndarray_ty)
-                            .map_value(ndarray.into_pointer_value(), None);
+                        let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
+                            .map_value(ndarray.into_pointer_value(), None)
+                            .inner_value(ctx)?;
 
                         let result_tuple = match prim {
                             PrimDef::FunNpShape => ndarray.make_shape_tuple(ctx)?,
@@ -1530,7 +1532,7 @@ impl<'a> BuiltinBuilder<'a> {
                         let new_ndarray = match prim {
                             PrimDef::FunNpBroadcastTo => ndarray.broadcast_to(ctx, ndims, shape)?,
                             PrimDef::FunNpReshape => {
-                                ndarray.reshape_or_copy(ctx, ndims, shape.inner_value(ctx)?)?
+                                ndarray.reshape_or_copy(ctx, ndims, shape.inner_value(ctx, Some(ctx.size_t.const_int(ndims, false)))?)?
                             }
                             _ => unreachable!(),
                         };

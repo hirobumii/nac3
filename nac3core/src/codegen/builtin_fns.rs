@@ -60,7 +60,7 @@ pub fn call_len<'ctx>(
             TypeEnum::TObj { obj_id, .. }
                 if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
             {
-                let ndarray = RawNDArrayType::from_unifier_type(ctx, arg_ty)
+                let ndarray = NDArrayType::from_unifier_type(ctx, arg_ty)
                     .map_value(arg.into_pointer_value(), None);
                 let len = ndarray.len(ctx)?;
                 ctx.builder.build_int_truncate_or_bit_cast(len, ctx.i32, "len")?
@@ -1530,9 +1530,9 @@ pub fn call_np_linalg_qr<'ctx>(
     }
 
     let x1_shape = x1.shape(ctx)?;
-    let d0 = x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d0 = x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
     let d1 =
-        x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+        x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
     let out_ndarray_ty = NDArrayType::create(ctx, ctx.f64.into(), 2);
@@ -1571,9 +1571,9 @@ pub fn call_np_linalg_svd<'ctx>(
     }
 
     let x1_shape = x1.shape(ctx)?;
-    let d0 = x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d0 = x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
     let d1 =
-        x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+        x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
     let out_ndarray1_ty = NDArrayType::create(ctx, ctx.f64.into(), 1);
@@ -1643,9 +1643,9 @@ pub fn call_np_linalg_pinv<'ctx>(
     }
 
     let x1_shape = x1.shape(ctx)?;
-    let d0 = x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d0 = x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
     let d1 =
-        x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+        x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
 
     let out = NDArrayType::create(ctx, ctx.f64.into(), 2).with_shape(ctx, &[d0, d1], None)?;
 
@@ -1672,9 +1672,9 @@ pub fn call_sp_linalg_lu<'ctx>(
     }
 
     let x1_shape = x1.shape(ctx)?;
-    let d0 = x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
+    let d0 = x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
     let d1 =
-        x1_shape.inner_value(ctx)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+        x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
     let out_ndarray_ty = NDArrayType::create(ctx, ctx.f64.into(), 2);

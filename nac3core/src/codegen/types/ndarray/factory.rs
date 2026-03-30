@@ -199,12 +199,12 @@ impl<'ctx> NDArrayType<'ctx> {
         let ndarray = self.construct(ctx, name)?;
 
         // Validate `shape`
-        let (shape_ptr, shape_len) = shape.inner_value(ctx)?.value;
+        let (shape_ptr, shape_len) = shape.inner_value(ctx, Some(ctx.size_t.const_int(self.object.ndims, false)))?.value;
         let name =
             get_usize_dependent_function_name(ctx, "__nac3_ndarray_util_assert_shape_no_negative");
         call_extern!(ctx: (ctx.size_t) _ = name(shape_len, shape_ptr))?;
 
-        ndarray.shape(ctx)?.inner_value(ctx)?.memcpy_from(ctx, shape_ptr)?;
+        ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape_ptr)?;
         ndarray.create_data(ctx)?;
         Ok(ndarray)
     }

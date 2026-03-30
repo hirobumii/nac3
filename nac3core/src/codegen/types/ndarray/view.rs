@@ -63,11 +63,11 @@ impl<'ctx> NDArrayValue<'ctx> {
 
         let dst_ndarray =
             NDArrayType::create(ctx, self.ty.object.dtype, new_ndims).construct(ctx, None)?;
-        dst_ndarray.shape(ctx)?.inner_value(ctx)?.memcpy_from(ctx, new_shape.value.0)?;
+        dst_ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, new_shape.value.0)?;
 
         // Resolve negative indices
         let size = self.size(ctx)?;
-        let (dst_shape, dst_ndims) = dst_ndarray.shape(ctx)?.inner_value(ctx)?.value;
+        let (dst_shape, dst_ndims) = dst_ndarray.shape(ctx)?.inner_value(ctx, None)?.value;
         let name = get_usize_dependent_function_name(
             ctx,
             "__nac3_ndarray_reshape_resolve_and_check_new_shape",

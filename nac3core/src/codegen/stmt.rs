@@ -381,7 +381,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             for (i, &(_, val)) in tup_mid.iter().enumerate() {
                 // Use set_unchecked: the array's internal length tracks refcounted
                 // element count (0 for non-pointer elements), not the actual capacity.
-                starred_list_data.inner_value(ctx)?.set_unchecked(
+                starred_list_data.inner_value(ctx, Some(tup_mid_len))?.set_unchecked(
                     ctx,
                     &ctx.size_t.const_int(i as u64, false),
                     val,
@@ -411,7 +411,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
 
             let do_read = |ctx: &mut CodeGenContext<'ctx, '_>, at: _| {
                 let elem: BasicValueEnum<'ctx> =
-                    list_data.inner_value(ctx)?.get_unchecked(ctx, &at, None)?;
+                    list_data.inner_value(ctx, Some(rhs_size))?.get_unchecked(ctx, &at, None)?;
                 Ok((elem_ty, elem))
             };
             let read_fixed = |ctx: &mut CodeGenContext<'ctx, '_>, to: usize| {
@@ -465,7 +465,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
 
             let head_len = ctx.size_t.const_int(head.len() as u64, false);
             let mid_len = ctx.builder.build_int_sub(rhs_size, min_size_, "mid_len")?;
-            let mid_begin = list_data.inner_value(ctx)?.ptr_offset_unchecked(
+            let mid_begin = list_data.inner_value(ctx, Some(rhs_size))?.ptr_offset_unchecked(
                 ctx,
                 &head_len,
                 Some("mid_begin"),
@@ -479,7 +479,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             let llvm_list_elem_ty = ctx.get_llvm_type(elem_ty);
             llvm_intrinsics::call_memcpy(
                 ctx,
-                mid_list_data.inner_value(ctx)?.value.0,
+                mid_list_data.inner_value(ctx, Some(mid_len))?.value.0,
                 mid_begin,
                 ctx.builder.build_int_mul(
                     mid_len,
@@ -492,7 +492,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             )?;
             // Increment refcount for each copied element in the new mid_list
             if is_refcounted_type(&mut ctx.unifier, elem_ty) {
-                let mid_list_data_inner = mid_list_data.inner_value(ctx)?;
+                let mid_list_data_inner = mid_list_data.inner_value(ctx, Some(mid_len))?;
                 gen_for_callback_incrementing(
                     &mut (),
                     ctx,
@@ -559,9 +559,9 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 let ExprKind::Slice { lower, upper, step } = &key.node else {
                     codegen_unreachable!(ctx)
                 };
-                let size = target.inner_value(ctx)?.load(ctx, field!(len))?;
+                let target_size = target.inner_value(ctx)?.load(ctx, field!(len))?;
                 let Some((start, end, step)) =
-                    handle_slice_indices(lower, upper, step, ctx, generator, size)?
+                    handle_slice_indices(lower, upper, step, ctx, generator, target_size)?
                 else {
                     return Ok(());
                 };
@@ -582,7 +582,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 // Decrement refcounts of destination elements being overwritten
                 if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
-                    let dest_data = target.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?;
+                    let dest_data = target.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(target_size))?;
                     let llvm_i32 = ctx.i32;
                     let one = llvm_i32.const_int(1, false);
                     let zero = llvm_i32.const_zero();
@@ -652,7 +652,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 // Increment refcounts of source elements that were copied into dest
                 if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
-                    let src_data = value.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?;
+                    let src_data = value.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(size))?;
                     let llvm_i32 = ctx.i32;
                     let one = llvm_i32.const_int(1, false);
                     let zero = llvm_i32.const_zero();
@@ -746,7 +746,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                 // Write value to index on list
                 let value = value.to_basic_value_enum(ctx, value_ty)?;
                 let list_data = target.inner_value(ctx)?.data(ctx)?;
-                let list_data_inner = list_data.inner_value(ctx)?;
+                let list_data_inner = list_data.inner_value(ctx, Some(len))?;
 
                 if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
                     // Load old element and increment new value before store
@@ -1213,8 +1213,8 @@ pub fn gen_for<G: CodeGenerator>(
                     let list_ty = RawListType::from_unifier_type(ctx, iterable_ty);
                     let iterable = TypedRefCountedType::new(ctx, list_ty)
                         .map_value(iterable_val.into_pointer_value(), Some("list"));
-                    let length = iterable.inner_value(ctx)?.load(ctx, field!(len))?;
-                    let length = ctx.builder.build_int_truncate(length, int32, "length")?;
+                    let length_sizet = iterable.inner_value(ctx)?.load(ctx, field!(len))?;
+                    let length = ctx.builder.build_int_truncate(length_sizet, int32, "length")?;
                     let val = arraylike_flatten_element_type(&mut ctx.unifier, iterable_ty);
                     let element_ty =
                         if ctx.unifier.is_concrete(val, &[]) { Some(val) } else { None };
@@ -1227,14 +1227,14 @@ pub fn gen_for<G: CodeGenerator>(
                         &target.node,
                         target_i,
                         |ctx| {
-                            iterable.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(
+                            iterable.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(length_sizet))?.get_unchecked(
                                 ctx,
                                 &int32.const_int(0, false),
                                 Some("first_v"),
                             )
                         },
                         |ctx, next_i| {
-                            iterable.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(
+                            iterable.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(length_sizet))?.get_unchecked(
                                 ctx,
                                 &ctx.builder.build_int_sub(next_i, start, "sub")?,
                                 Some("next_v"),
@@ -1319,7 +1319,7 @@ pub fn gen_for<G: CodeGenerator>(
                     let val: BasicValueEnum = iter_val
                         .inner_value(ctx)?
                         .data(ctx)?
-                        .inner_value(ctx)?
+                        .inner_value(ctx, Some(len))?
                         .get_unchecked(ctx, &index, Some("val"))?;
                     let val_ty = iter_type_vars(list_params).next().unwrap().ty;
                     generator.gen_assign(ctx, target, &val.into(), val_ty)?;

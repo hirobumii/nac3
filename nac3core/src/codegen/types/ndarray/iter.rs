@@ -80,7 +80,8 @@ impl<'ctx> RawNDIterValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<PointerValue<'ctx>> {
         let data = self.array(ctx).inner_value(ctx)?.data(ctx)?;
-        let data_ptr = data.inner_value(ctx)?.value.0;
+        let array_size = self.load(ctx, field!(size))?;
+        let data_ptr = data.inner_value(ctx, Some(array_size))?.value.0;
         Ok(unsafe { ctx.builder.build_gep(data_ptr, &[self.load(ctx, field!(offset))?], "")? })
     }
 

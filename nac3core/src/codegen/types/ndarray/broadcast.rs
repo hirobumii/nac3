@@ -66,8 +66,8 @@ impl<'ctx> NDArrayValue<'ctx> {
                 .construct(ctx, None)?;
         broadcast_ndarray
             .shape(ctx)?
-            .inner_value(ctx)?
-            .memcpy_from(ctx, target_shape.inner_value(ctx)?.value.0)?;
+            .inner_value(ctx, None)?
+            .memcpy_from(ctx, target_shape.inner_value(ctx, Some(ctx.size_t.const_int(target_ndims, false)))?.value.0)?;
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_to");
         call_extern!(ctx: void _ = name(self.value, broadcast_ndarray.value))?;
@@ -110,10 +110,10 @@ pub fn broadcast<'ctx>(
     // Store shapes into memory.
     for (i, ndarray) in ndarrays.iter().enumerate() {
         let idx = ctx.size_t.const_int(i as _, false);
-        let pshape_entry = arr.inner_value(ctx)?.ptr_offset_unchecked(ctx, &idx, None)?;
+        let pshape_entry = arr.inner_value(ctx, None)?.ptr_offset_unchecked(ctx, &idx, None)?;
         let shape_entry = shape_entry_ty.map_value(pshape_entry, None);
         let ndims = ndarray.inner_value(ctx)?.ty.ndims_val(ctx);
-        let shape = ndarray.shape(ctx)?.inner_value(ctx)?.value.0;
+        let shape = ndarray.shape(ctx)?.inner_value(ctx, None)?.value.0;
         shape_entry.store(ctx, field!(ndims), ndims)?;
         shape_entry.store(ctx, field!(shape), shape)?;
     }
@@ -124,7 +124,7 @@ pub fn broadcast<'ctx>(
         .allocate(ctx, ndims_v, None)?;
 
     let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_broadcast_shapes");
-    call_extern!(ctx: void _ = name(shape_entries, arr.inner_value(ctx)?.value.0, ndims_v, new_shape_ptr.value))?;
+    call_extern!(ctx: void _ = name(shape_entries, arr.inner_value(ctx, None)?.value.0, ndims_v, new_shape_ptr.value))?;
 
     // Now this new shape is initialized.
     let new_shape = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims as _)).alloca(
@@ -163,7 +163,7 @@ where
     // Broadcast inputs
     let broadcast_result = broadcast(ctx, ndarrays)?;
     let out_ndarray =
-        out.resolve(ctx, broadcast_result.ndims, broadcast_result.shape.inner_value(ctx)?)?;
+        out.resolve(ctx, broadcast_result.ndims, broadcast_result.shape.inner_value(ctx, None)?)?;
 
     // Map element-wise and store results into `mapped_ndarray`.
     let nditer = NDIterValue::new(ctx, out_ndarray)?;

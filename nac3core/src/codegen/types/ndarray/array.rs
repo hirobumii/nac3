@@ -53,10 +53,10 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
             ctx,
             "__nac3_ndarray_array_set_and_validate_list_shape",
         );
-        call_extern!(ctx: void _ = fn_name(list.value, ndims, shape.inner_value(ctx)?.value.0))?;
+        call_extern!(ctx: void _ = fn_name(list.value, ndims, shape.inner_value(ctx, None)?.value.0))?;
 
         let ndarray = NDArrayType::create(ctx, dtype, ndims_int).construct(ctx, name)?;
-        ndarray.shape(ctx)?.inner_value(ctx)?.memcpy_from(ctx, shape.inner_value(ctx)?.value.0)?;
+        ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
         ndarray.create_data(ctx)?;
 
         // Copy all contents from the list.
@@ -89,7 +89,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
 
             let list_len = list.inner_value(ctx)?.load(ctx, field!(len))?;
             let (data, _) =
-                list.inner_value(ctx)?.data(ctx)?.inner_value_with_len(ctx, list_len)?.value;
+                list.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(list_len))?.value;
             let len = list_len;
             // ndarray->data->refcount += 1;
             RefCountedArrayType::new(ctx, ctx.i8, None)
@@ -99,7 +99,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
             // ndarray->data = list->data;
             ndarray.inner_value(ctx)?.store(ctx, field!(data), data)?;
             // ndarray->shape[0] = list->len;
-            ndarray.shape(ctx)?.inner_value(ctx)?.set_unchecked(
+            ndarray.shape(ctx)?.inner_value(ctx, None)?.set_unchecked(
                 ctx,
                 &ctx.size_t.const_zero(),
                 len,

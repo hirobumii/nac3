@@ -475,16 +475,17 @@ fn format_rpc_arg<'ctx>(
             let buf_shape = buf.ptr_offset_unchecked(ctx, &sizeof_pdata_, None)?;
 
             // Write to `buf->data`
+            let carray_nbytes = ndarray.nbytes(ctx)?;
             let carray_data = carray.inner_value(ctx)?.data(ctx)?;
             let carray_data = ctx.builder.build_pointer_cast(
-                carray_data.inner_value(ctx)?.value.0,
+                carray_data.inner_value(ctx, Some(carray_nbytes))?.value.0,
                 llvm_pi8,
                 "",
             )?;
             call_memcpy(ctx, buf_data, carray_data, sizeof_pdata_)?;
 
             // Write to `buf->shape`
-            let carray_shape = ndarray.shape(ctx)?.inner_value(ctx)?.value.0;
+            let carray_shape = ndarray.shape(ctx)?.inner_value(ctx, None)?.value.0;
             let sizeof_buf_shape_ = ctx.size_t.const_int(sizeof_buf_shape, false);
             call_memcpy(ctx, buf_shape, carray_shape, sizeof_buf_shape_)?;
 
@@ -628,7 +629,7 @@ fn format_rpc_ret<'ctx>(
             // We need to skip the first `sizeof(uint8_t*)` bytes to skip the `pdata` in `[pdata, shape]`.
             let sizeof_ptr = ctx.size_t.const_int(sizeof_ptr, false);
             let pbuffer_shape = buffer.ptr_offset_unchecked(ctx, &sizeof_ptr, None)?;
-            ndarray.shape(ctx)?.inner_value(ctx)?.memcpy_from(ctx, pbuffer_shape)?;
+            ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, pbuffer_shape)?;
 
             // Restore stack from before allocation of buffer
             call_stackrestore(ctx, stackptr)?;
@@ -662,7 +663,8 @@ fn format_rpc_ret<'ctx>(
             }
 
             let ndarray_offset = ndarray.inner_value(ctx)?.load(ctx, field!(offset))?;
-            let ndarray_data = ndarray.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.value.0;
+            let ndarray_num_elements = ndarray.size(ctx)?;
+            let ndarray_data = ndarray.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(ndarray_num_elements))?.value.0;
             let ndarray_data =
                 typed_gep(ctx.builder, &ctx.i8, ndarray_data, &[ndarray_offset], "")?;
 
@@ -1190,7 +1192,7 @@ fn polymorphic_print<'ctx>(
                     llvm_usize.const_zero(),
                     (len, false),
                     |(), ctx, _, i| {
-                        let elem = val.data(ctx)?.inner_value(ctx)?.get_unchecked(ctx, &i, None)?;
+                        let elem = val.data(ctx)?.inner_value(ctx, Some(len))?.get_unchecked(ctx, &i, None)?;
 
                         polymorphic_print(ctx, &[(elem_ty, elem)], "", None, true, as_rtio)?;
 

@@ -972,7 +972,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb)?;
 
             ctx.builder.position_at_end(body_bb);
-            let val = iter_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(
+            let val = iter_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(length))?.get_unchecked(
                 ctx,
                 &tmp,
                 Some("val"),
@@ -1008,7 +1008,8 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     }
 
     let i = ctx.builder.build_load(index, "i")?.into_int_value();
-    let elem_ptr = list.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.ptr_offset_unchecked(
+    let list_cap = list.inner_value(ctx)?.load(ctx, field!(len))?;
+    let elem_ptr = list.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(list_cap))?.ptr_offset_unchecked(
         ctx,
         &i,
         Some("elem_ptr"),
@@ -1088,27 +1089,27 @@ pub fn gen_prim_binop_expr<'ctx>(
                 let new_list = list_ty.construct(ctx, new_len, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
 
-                let left_chunk = new_list_data.inner_value_with_len(ctx, new_len)?.ty.map_value(
-                    (new_list_data.inner_value_with_len(ctx, new_len)?.value.0, left_len),
+                let left_chunk = new_list_data.inner_value(ctx, Some(new_len))?.ty.map_value(
+                    (new_list_data.inner_value(ctx, Some(new_len))?.value.0, left_len),
                     None,
                 );
-                left_chunk.memcpy_from(ctx, left.inner_value_with_len(ctx, left_len)?.value.0)?;
+                left_chunk.memcpy_from(ctx, left.inner_value(ctx, Some(left_len))?.value.0)?;
 
-                let right_pos = new_list_data.inner_value_with_len(ctx, new_len)?.ptr_offset_unchecked(
+                let right_pos = new_list_data.inner_value(ctx, Some(new_len))?.ptr_offset_unchecked(
                     ctx,
                     &left_len,
                     None,
                 )?;
                 let right_chunk = new_list_data
-                    .inner_value_with_len(ctx, new_len)?
+                    .inner_value(ctx, Some(new_len))?
                     .ty
                     .map_value((right_pos, right_len), None);
-                right_chunk.memcpy_from(ctx, right.inner_value_with_len(ctx, right_len)?.value.0)?;
+                right_chunk.memcpy_from(ctx, right.inner_value(ctx, Some(right_len))?.value.0)?;
 
                 // Increment refcount for each copied element (they gain a new reference
                 // from the new list)
                 if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
-                    let new_list_data_inner = new_list_data.inner_value(ctx)?;
+                    let new_list_data_inner = new_list_data.inner_value(ctx, Some(new_len))?;
                     gen_for_callback_incrementing(
                         &mut (),
                         ctx,
@@ -1150,7 +1151,7 @@ pub fn gen_prim_binop_expr<'ctx>(
 
                 let size = list_val.inner_value(ctx)?.load(ctx, field!(len))?;
                 let (old_list_ptr, _) =
-                    list_val.inner_value(ctx)?.data(ctx)?.inner_value_with_len(ctx, size)?.value;
+                    list_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(size))?.value;
                 let new_list =
                     list_ty.construct(ctx, ctx.builder.build_int_mul(size, int_val, "")?, None)?;
                 let new_list_data = new_list.inner_value(ctx)?.data(ctx)?;
@@ -1162,11 +1163,12 @@ pub fn gen_prim_binop_expr<'ctx>(
                     llvm_usize.const_zero(),
                     (int_val, false),
                     |(), ctx, _, i| {
+                        let total_len = ctx.builder.build_int_mul(size, int_val, "")?;
                         let offset = ctx.builder.build_int_mul(i, size, "")?;
                         let ptr = new_list_data
-                            .inner_value(ctx)?
+                            .inner_value(ctx, Some(total_len))?
                             .ptr_offset_unchecked(ctx, &offset, None)?;
-                        let dest = new_list_data.inner_value(ctx)?.ty.map_value((ptr, size), None);
+                        let dest = new_list_data.inner_value(ctx, Some(total_len))?.ty.map_value((ptr, size), None);
                         dest.memcpy_from(ctx, old_list_ptr)?;
                         Ok(())
                     },
@@ -1177,7 +1179,7 @@ pub fn gen_prim_binop_expr<'ctx>(
                 // Increment refcount for each copied element in the new list
                 if is_refcounted_type(&mut ctx.unifier, list_ty.object.item_ty) {
                     let total_len = ctx.builder.build_int_mul(size, int_val, "")?;
-                    let new_list_data_inner = new_list_data.inner_value(ctx)?;
+                    let new_list_data_inner = new_list_data.inner_value(ctx, Some(total_len))?;
                     gen_for_callback_incrementing(
                         &mut (),
                         ctx,
@@ -1691,8 +1693,8 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                 llvm_usize.const_zero(),
                                 (left_size, false),
                                 |(), ctx, hooks, i| {
-                                    let left_v = left.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(ctx, &i, None)?;
-                                    let right_v = right.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(ctx, &i, None)?;
+                                    let left_v = left.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(left_size))?.get_unchecked(ctx, &i, None)?;
+                                    let right_v = right.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(right_size))?.get_unchecked(ctx, &i, None)?;
 
                                     let res = gen_cmpop_expr_with_values(
                                         generator,
@@ -1922,7 +1924,7 @@ fn gen_list_expr<'ctx, G: CodeGenerator>(
     let data = val.inner_value(ctx)?.data(ctx)?;
     for (i, v) in elements.iter().enumerate() {
         let v = v.to_basic_value_enum(ctx)?;
-        data.inner_value(ctx)?.set_unchecked(
+        data.inner_value(ctx, Some(len))?.set_unchecked(
             ctx,
             &ctx.size_t.const_int(i as u64, false),
             v,
@@ -2415,7 +2417,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                     expr.location,
                 )?;
                 let result =
-                    v.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.get_unchecked(ctx, &index, None)?;
+                    v.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(len))?.get_unchecked(ctx, &index, None)?;
                 RtValue::dynamic(ty, result)
             }
         }

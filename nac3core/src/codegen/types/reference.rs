@@ -343,10 +343,7 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
         // in class fields) start as null rather than garbage.
         let inner_ptr = value.inner_ptr(ctx)?;
         let inner_ty = self.object.alloca_ty(ctx);
-        let inner_size = inner_ty
-            .size_of()
-            .map(|s| s.const_cast(ctx.size_t, false))
-            .unwrap();
+        let inner_size = inner_ty.size_of().map(|s| s.const_cast(ctx.size_t, false)).unwrap();
         llvm_intrinsics::call_memset(ctx, inner_ptr, ctx.i8.const_zero(), inner_size)?;
 
         Ok(value)
@@ -404,6 +401,13 @@ pub struct RefCountedArrayType<'ctx, T: ProxyType<'ctx> + Copy> {
     pub array: ArrayType<'ctx>,
     pub elem: T,
 
+    /// Compile-time-known number of elements, or `None` for dynamically-sized arrays.
+    ///
+    /// This is stored separately from `array.len()` because LLVM's `ArrayType::len()` returns 0
+    /// for both `[0 x T]` (static size 0, e.g. 0-dim ndarray shape) and dynamically-sized arrays,
+    /// making the two cases indistinguishable via the LLVM type alone.
+    static_size: Option<u32>,
+
     /// If `true`, elements are inline objects with `ObjectHeader`s (e.g., tuples).
     inline_refcounted_elements: bool,
 }
@@ -441,6 +445,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
             ),
             array: object,
             elem: elem_ty,
+            static_size,
             inline_refcounted_elements,
         }
     }
@@ -456,13 +461,13 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
 
         let llvm_dyn_array_ty = Self::new(ctx, self.elem, None);
 
-        let value_ptr = if !self.array.is_empty() && size.is_constant_int() {
+        let value_ptr = if let Some(n) = self.static_size.filter(|_| size.is_constant_int()) {
             assert_eq!(
                 size.get_zero_extended_constant(),
-                Some(u64::from(self.array.len())),
+                Some(u64::from(n)),
                 "Expected size {} to match static size {} of RefCountedArrayType",
                 size.get_zero_extended_constant().unwrap(),
-                self.array.len()
+                n
             );
 
             let alloca = self.alloca_ty(ctx);
@@ -539,7 +544,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         if self.array.get_element_type().is_pointer_type() {
             llvm_intrinsics::call_memset(
                 ctx,
-                ctx.builder.build_pointer_cast(value.inner_value(ctx)?.value.0, ctx.ptr, "")?,
+                ctx.builder.build_pointer_cast(value.inner_value(ctx, Some(size))?.value.0, ctx.ptr, "")?,
                 ctx.i8.const_zero(),
                 ctx.builder.build_int_mul(
                     self.array
@@ -564,7 +569,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
     ) -> anyhow::Result<Value<'ctx, Self>> {
         self.allocate_impl(
             ctx,
-            if self.array.is_empty() {
+            if self.static_size.is_none() {
                 AllocationScope::StackCurrentLoc
             } else {
                 AllocationScope::StackStartOfFunc
@@ -596,9 +601,9 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for RefCountedArrayTyp
     where
         Self: RefType<'ctx> + Copy,
     {
-        assert_ne!(self.array.len(), 0, "Cannot allocate RefCountedArrayType with unknown size");
+        let n = self.static_size.expect("Cannot allocate RefCountedArrayType with unknown size");
 
-        self.alloca(ctx, ctx.size_t.const_int(u64::from(self.array.len()), false), name)
+        self.alloca(ctx, ctx.size_t.const_int(u64::from(n), false), name)
     }
 
     fn allocate(
@@ -609,9 +614,9 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for RefCountedArrayTyp
     where
         Self: RefType<'ctx> + Copy,
     {
-        assert_ne!(self.array.len(), 0, "Cannot allocate RefCountedArrayType with unknown size");
+        let n = self.static_size.expect("Cannot allocate RefCountedArrayType with unknown size");
 
-        self.allocate(ctx, ctx.size_t.const_int(u64::from(self.array.len()), false), name)
+        self.allocate(ctx, ctx.size_t.const_int(u64::from(n), false), name)
     }
 }
 
@@ -653,9 +658,8 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> WithTypeinfo<'ctx> for RefCountedArrayType
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> RefType<'ctx> for RefCountedArrayType<'ctx, T> {
     fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
-        assert_ne!(
-            self.array.len(),
-            0,
+        assert!(
+            self.static_size.is_some(),
             "RefCountedArrayType with an unknown size cannot be allocated"
         );
 
@@ -668,39 +672,33 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedType<'ctx> for RefCountedArrayTy
 pub type RefCountedArrayValue<'ctx, T> = Value<'ctx, RefCountedArrayType<'ctx, T>>;
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
-    pub fn len(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
-        let psize = unsafe {
-            typed_gep(
-                ctx.builder,
-                &self.ty.inner.get_field_type_at_index_unchecked(1),
-                self.inner_ptr(ctx)?,
-                &[ctx.size_t.const_zero(), ctx.i32.const_zero()],
-                "",
-            )?
-        };
-        Ok(typed_load(ctx.builder, psize, ctx.size_t.into(), "")?.into_int_value())
-    }
-
     /// Returns the data portion of this array as an [`ArraySliceValue`].
     ///
-    /// The length used for bounds checking comes from the array's internal metadata field, which
-    /// tracks the number of refcounted elements (0 for non-pointer element types). Use
-    /// [`inner_value_with_len`](Self::inner_value_with_len) when you have the actual element
-    /// count (e.g., from a list's `len` field) and need correct bounds checking.
+    /// `len` controls the length of the returned slice, used for bounds checking in
+    /// [`get`][ArraySliceValue::get] / [`set`][ArraySliceValue::set] and byte calculations in
+    /// [`memcpy_from`][ArraySliceValue::memcpy_from]:
+    ///
+    /// - Pass `None` for arrays created with a known compile-time size (e.g., ndarray
+    ///   shape/strides via [`load_ndims_slice`][super::ndarray::NDArrayLikeValue::load_ndims_slice],
+    ///   or [`OptionSomeType`][super::OptionSomeType] with 1 element). The static size is used
+    ///   automatically and an assertion fires if none is set.
+    /// - Pass `Some(runtime_len)` for dynamically-sized arrays (e.g., list items) where the
+    ///   actual element count is known only at runtime.
     pub fn inner_value(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
+        len: Option<IntValue<'ctx>>,
     ) -> anyhow::Result<ArraySliceValue<'ctx, T>> {
-        self.inner_value_with_len(ctx, self.len(ctx)?)
-    }
-
-    /// Returns the data portion of this array as an [`ArraySliceValue`] with an explicit length
-    /// for bounds checking.
-    pub fn inner_value_with_len(
-        &self,
-        ctx: &CodeGenContext<'ctx, '_>,
-        len: IntValue<'ctx>,
-    ) -> anyhow::Result<ArraySliceValue<'ctx, T>> {
+        let len = match len {
+            Some(len) => len,
+            None => {
+                let n = self.ty.static_size.expect(
+                    "inner_value(None) called on a dynamically-sized RefCountedArrayType; \
+                     pass Some(runtime_len) or create with a static_size",
+                );
+                ctx.size_t.const_int(u64::from(n), false)
+            }
+        };
         let pdata = unsafe {
             typed_gep(
                 ctx.builder,
@@ -710,7 +708,6 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
                 "",
             )?
         };
-
         Ok(ArraySliceValue::new(self.ty.elem, pdata, len, self.name))
     }
 }
