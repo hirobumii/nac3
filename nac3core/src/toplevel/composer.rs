@@ -1980,14 +1980,14 @@ impl TopLevelComposer {
                 return Ok(());
             }
 
-            let (name, simple_name, signature, resolver) = {
-                let TopLevelDef::Function { name, simple_name, signature, resolver, .. } =
+            let (name, simple_name, signature, var_id, resolver) = {
+                let TopLevelDef::Function { name, simple_name, signature, var_id, resolver, .. } =
                     &*def.read()
                 else {
                     return Ok(());
                 };
 
-                (name.clone(), *simple_name, *signature, resolver.clone())
+                (name.clone(), *simple_name, *signature, var_id.clone(), resolver.clone())
             };
 
             let signature_ty_enum = unifier.get_ty(signature);
@@ -2068,6 +2068,13 @@ impl TopLevelComposer {
                 }
                 (result, no_ranges)
             };
+
+            // Collect TVar from the function
+            for id in var_id {
+                if let Some(ty) = vars.get(&id) {
+                    field_tvars.push(*ty);
+                }
+            }
 
             for subst in type_var_subst_comb {
                 // for each instance
