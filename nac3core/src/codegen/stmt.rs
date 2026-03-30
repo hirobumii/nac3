@@ -24,8 +24,8 @@ use crate::{
         macros::codegen_unreachable,
         typed_load, typed_store,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, ClassType, EnumerateType, ExceptionType,
-            ExceptionValue, ListType, ListValue, NDArrayType, OpaqueRefCountedType, OptionType,
+            ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType,
+            ExceptionValue, ListType, ListValue, NDArrayType, OpaqueRefCountedType,
             ProxyTypeBase, RangeType, RawClassType, RawListType, RefCountedValue, RustNDIndex,
             ScalarOrNDArray, StringType, TupleType, TupleValue, TypedRefCountedType, broadcast,
             field, is_refcounted_type,
@@ -126,28 +126,11 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
         ExprKind::Name { id, .. } => match ctx.var_assignment.get(id) {
             None => {
                 let ptr_ty = ctx.get_llvm_type(pattern.custom.unwrap());
-                let ptr = if is_refcounted_type(&mut ctx.unifier, pattern.custom.unwrap()) {
-                    let ty = pattern.custom.unwrap();
-                    let obj_id = match &*ctx.unifier.get_ty(ty) {
-                        TypeEnum::TObj { obj_id, .. } => *obj_id,
-                        _ => codegen_unreachable!(ctx),
-                    };
-
-                    if obj_id == PrimDef::List.id() {
-                        let list_ty = RawListType::from_unifier_type(ctx, ty);
-                        TypedRefCountedType::new(ctx, list_ty)
-                            .allocate(ctx, AllocationScope::Default, None)?
-                            .value
-                    } else if obj_id == PrimDef::Option.id() {
-                        let opt_ty = OptionType::from_unifier_type(ctx, ty);
-                        opt_ty.allocate(ctx, AllocationScope::Default, None)?.value
-                    } else {
-                        let class_ty = ClassType::from_unifier_type(ctx, ty);
-                        class_ty.allocate(ctx, AllocationScope::Default, None)?.value
-                    }
-                } else {
-                    ctx.build_allocate(AllocationScope::Default, ptr_ty, name)?
-                };
+                // Variable allocas are always stack-allocated at the function start.
+                // For refcounted types, ptr_ty is a pointer (holding a reference to the
+                // heap object); for value types like tuples, ptr_ty is the struct itself.
+                let ptr =
+                    ctx.build_allocate(AllocationScope::StackStartOfFunc, ptr_ty, name)?;
                 ctx.var_assignment.insert(*id, VarValue::new(ptr, pattern.custom.unwrap()));
                 ptr
             }
