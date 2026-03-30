@@ -108,9 +108,7 @@ pub use ndarray::{
     assert_ndarray_can_be_written_by_out, broadcast, broadcast_starmap, make_contiguous_strides,
     parse_numpy_int_sequence,
 };
-pub use option::{
-    OptionSomeType, OptionSomeValue, OptionType, OptionValue, RawOptionType, RawOptionValue,
-};
+pub use option::{OptionSomeType, OptionSomeValue, OptionType, OptionValue};
 pub use range::{RangeField, RangeType, RangeValue};
 pub use reference::{
     OpaqueRefCountedType, OpaqueRefCountedValue, RefCountedArrayType, RefCountedArrayValue,

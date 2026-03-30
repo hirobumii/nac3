@@ -12,7 +12,6 @@ use strum::IntoEnumIterator;
 
 use crate::{
     codegen::{
-        allocator::AllocationScope,
         builtin_fns,
         numpy::{
             gen_ndarray_array, gen_ndarray_copy, gen_ndarray_empty, gen_ndarray_eye,
@@ -20,10 +19,9 @@ use crate::{
             gen_ndarray_zeros, ndarray_dot,
         },
         stmt::{exn_constructor, gen_if_callback},
-        typed_store,
         types::{
-            EnumerateType, NDArrayType, ProxyTypeBase, RangeField, RangeType, RawNDArrayType,
-            ScalarOrNDArray, field, parse_numpy_int_sequence,
+            EnumerateType, NDArrayType, OptionType, ProxyTypeBase, RangeField, RangeType,
+            RawNDArrayType, ScalarOrNDArray, field, parse_numpy_int_sequence,
         },
     },
     symbol_resolver::SymbolValue,
@@ -933,13 +931,9 @@ impl<'a> BuiltinBuilder<'a> {
                 codegen_callback: Some(Arc::new(GenCall::new(Box::new(|ctx, _, fun, args| {
                     let arg_ty = fun.0.args[0].ty;
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
-                    let alloca = ctx.build_allocate(
-                        AllocationScope::Default,
-                        arg_val.get_type(),
-                        Some("alloca_some"),
-                    )?;
-                    typed_store(ctx.builder, alloca, arg_val)?;
-                    Ok(Some(alloca.into()))
+                    let option_ty = OptionType::from_unifier_type(ctx, fun.0.ret);
+                    let option = option_ty.construct(ctx, Some(arg_val), Some("alloca_some"))?;
+                    Ok(Some(option.value.into()))
                 })))),
                 loc: None,
             },

@@ -339,6 +339,16 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
         let is_refcounted = false;
         value.header(ctx).init(ctx, is_refcounted, self.object.typeinfo(ctx))?;
 
+        // Zero-initialize the inner data so that pointer fields (e.g. refcounted children
+        // in class fields) start as null rather than garbage.
+        let inner_ptr = value.inner_ptr(ctx)?;
+        let inner_ty = self.object.alloca_ty(ctx);
+        let inner_size = inner_ty
+            .size_of()
+            .map(|s| s.const_cast(ctx.size_t, false))
+            .unwrap();
+        llvm_intrinsics::call_memset(ctx, inner_ptr, ctx.i8.const_zero(), inner_size)?;
+
         Ok(value)
     }
 }

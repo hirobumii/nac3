@@ -46,7 +46,7 @@ use crate::{
         stmt::get_personality,
         types::{
             ArraySliceValue, ClassType, EnumerateType, ExceptionType, OpaqueRefCountedType,
-            OptionType, ProxyType, ProxyTypeBase, RangeType, RawListType, RawNDArrayType,
+            OptionType, OptionSomeType, ProxyType, ProxyTypeBase, RangeType, RawListType, RawNDArrayType,
             RefCountedValue, RefType, StringType, TupleType, is_obj_id_refcounted,
             is_refcounted_type,
         },
@@ -517,7 +517,7 @@ fn get_alloca_type<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicT
     };
 
     let item = if *obj_id == PrimDef::Option.id() {
-        OptionType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+        OptionType::from_unifier_type(ctx, ty).some_ty().alloca_ty(ctx)
     } else if *obj_id == PrimDef::NDArray.id() {
         RawNDArrayType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else if *obj_id == PrimDef::Range.id() {
