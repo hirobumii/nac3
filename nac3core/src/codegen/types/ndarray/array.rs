@@ -56,7 +56,10 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
         call_extern!(ctx: void _ = fn_name(list.value, ndims, shape.inner_value(ctx, None)?.value.0))?;
 
         let ndarray = NDArrayType::create(ctx, dtype, ndims_int).construct(ctx, name)?;
-        ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
+        ndarray
+            .shape(ctx)?
+            .inner_value(ctx, Some(ctx.size_t.const_int(ndims_int, false)))?
+            .memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
         ndarray.create_data(ctx)?;
 
         // Copy all contents from the list.
