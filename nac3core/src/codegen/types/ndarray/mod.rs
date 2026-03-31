@@ -555,9 +555,9 @@ pub fn make_contiguous_strides(shape: &[u64], itemsize: u64) -> Vec<u64> {
     strides
 }
 
-impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for RawNDArrayValue<'ctx> {
+impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for NDArrayValue<'ctx> {
     fn item_type(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
-        self.ty.dtype
+        self.ty.object.dtype
     }
 
     fn ptr_offset_unchecked(
@@ -581,7 +581,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for RawNDArrayValue<'ct
         let llvm_usize = ctx.size_t;
 
         let indices_len = idx.value.1;
-        let ndims = self.ty.ndims_val(ctx);
+        let ndims = self.inner_value(ctx)?.ty.ndims_val(ctx);
         let nidx_leq_ndims =
             ctx.builder.build_int_compare(IntPredicate::SLE, indices_len, ndims, "")?;
         ctx.make_assert(
@@ -602,7 +602,8 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for RawNDArrayValue<'ct
             |(), ctx, _, i| {
                 let (dim_idx, dim_sz) = (
                     idx.get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
-                    self.shape(ctx)?
+                    self.inner_value(ctx)?
+                        .shape(ctx)?
                         .inner_value(ctx, None)?
                         .get_unchecked::<IntValue<'ctx>>(ctx, &i, None)?,
                 );

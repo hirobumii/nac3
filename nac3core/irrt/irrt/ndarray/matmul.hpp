@@ -64,12 +64,12 @@ void calculate_shapes(__nac3_impl::stdlib::make_signed_t<SizeT> a_ndims,
     ndarray::broadcast::broadcast_shapes<SizeT>(num_entries, entries, final_ndims - 2, new_b_shape);
     ndarray::broadcast::broadcast_shapes<SizeT>(num_entries, entries, final_ndims - 2, dst_shape);
 
-    new_a_shape[final_ndims - 2] = a_shape[a_ndims - 2];
-    new_a_shape[final_ndims - 1] = a_shape[a_ndims - 1];
-    new_b_shape[final_ndims - 2] = b_shape[b_ndims - 2];
-    new_b_shape[final_ndims - 1] = b_shape[b_ndims - 1];
-    dst_shape[final_ndims - 2] = a_shape[a_ndims - 2];
-    dst_shape[final_ndims - 1] = b_shape[b_ndims - 1];
+    new_a_shape->data()[final_ndims - 2] = a_shape->data()[a_ndims - 2];
+    new_a_shape->data()[final_ndims - 1] = a_shape->data()[a_ndims - 1];
+    new_b_shape->data()[final_ndims - 2] = b_shape->data()[b_ndims - 2];
+    new_b_shape->data()[final_ndims - 1] = b_shape->data()[b_ndims - 1];
+    dst_shape->data()[final_ndims - 2] = a_shape->data()[a_ndims - 2];
+    dst_shape->data()[final_ndims - 1] = b_shape->data()[b_ndims - 1];
 }
 }  // namespace ndarray::matmul
 }  // namespace

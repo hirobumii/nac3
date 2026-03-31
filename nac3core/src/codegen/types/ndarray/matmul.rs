@@ -51,13 +51,15 @@ fn matmul_at_least_2d<'ctx>(
         let [lhs_shape, rhs_shape, dst_shape] = [lhs_shape?, rhs_shape?, dst_shape?];
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_matmul_calculate_shapes");
+        let a_ndims = ctx.size_t.const_int(in_a.ty.object.ndims, false);
+        let b_ndims = ctx.size_t.const_int(in_b.ty.object.ndims, false);
         call_extern!(ctx: void _ = name(
-            in_lhs_shape.inner_value(ctx, None)?.value.1, in_lhs_shape.inner_value(ctx, None)?.value.0,
-            in_rhs_shape.inner_value(ctx, None)?.value.1, in_rhs_shape.inner_value(ctx, None)?.value.0,
+            a_ndims, in_lhs_shape.value,
+            b_ndims, in_rhs_shape.value,
             ndims,
-            lhs_shape.inner_value(ctx, None)?.value.0,
-            rhs_shape.inner_value(ctx, None)?.value.0,
-            dst_shape.inner_value(ctx, None)?.value.0,
+            lhs_shape.value,
+            rhs_shape.value,
+            dst_shape.value,
         ))?;
 
         let lhs = in_a.broadcast_to(ctx, ndims_int, lhs_shape)?;
@@ -104,11 +106,11 @@ fn matmul_at_least_2d<'ctx>(
                 // `indices` is modified to index into `a` and `b`, and restored.
                 indices.set_unchecked(ctx, &at_row, i, None)?;
                 indices.set_unchecked(ctx, &at_col, k, None)?;
-                let a_ik = lhs.inner_value(ctx)?.get_unchecked(ctx, &indices, None)?;
+                let a_ik = lhs.get_unchecked(ctx, &indices, None)?;
 
                 indices.set_unchecked(ctx, &at_row, k, None)?;
                 indices.set_unchecked(ctx, &at_col, j, None)?;
-                let b_kj = rhs.inner_value(ctx)?.get_unchecked(ctx, &indices, None)?;
+                let b_kj = rhs.get_unchecked(ctx, &indices, None)?;
 
                 // Restore `indices`.
                 indices.set_unchecked(ctx, &at_row, i, None)?;
