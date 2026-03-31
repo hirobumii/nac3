@@ -280,11 +280,12 @@ impl<'ctx> RawNDArrayValue<'ctx> {
     ) -> anyhow::Result<TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>>> {
         let dtype = value.get_type();
         let ndarray = NDArrayType::create(ctx, dtype, 0).construct(ctx, name)?;
-        let data =
-            ctx.build_allocate(AllocationScope::Default, value.get_type(), Some("map_unsized"))?;
-        typed_store(ctx.builder, data, value)?;
-        let data = ctx.builder.build_pointer_cast(data, ctx.ptr, "")?;
-        ndarray.inner_value(ctx)?.store(ctx, field!(data), data)?;
+        // Allocate a 1-element RefCountedArray so the IRRT can find the value at the
+        // correct offset (past ObjectHeader + count) via `data->data<uint8_t>()`.
+        let alloc =
+            RefCountedArrayType::new(ctx, dtype, Some(1)).allocate(ctx, ctx.size_t.const_int(1, false), None)?;
+        alloc.inner_value(ctx, None)?.set_unchecked(ctx, &ctx.size_t.const_zero(), value, None)?;
+        ndarray.inner_value(ctx)?.store(ctx, field!(data), alloc.value)?;
         ndarray.inner_value(ctx)?.store(ctx, field!(base), ctx.ptr.const_null())?;
         ndarray.inner_value(ctx)?.store(ctx, field!(offset), ctx.size_t.const_zero())?;
         Ok(ndarray)
