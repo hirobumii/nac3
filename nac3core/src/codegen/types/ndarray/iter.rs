@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use anyhow::anyhow;
 use inkwell::{
-    types::BasicTypeEnum,
+    types::{BasicTypeEnum, IntType},
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
 };
 use nac3core_derive::{ProxyType, StructFields};
@@ -83,6 +83,7 @@ impl<'ctx> RawNDIterValue<'ctx> {
         let data = self.array(ctx)?.inner_value(ctx)?.base_data(ctx)?;
         let array_size = self.load(ctx, field!(size))?;
         let data_ptr = data.inner_value(ctx, Some(array_size))?.value.0;
+        // let data_ptr = ctx.builder.build_pointer_cast(data_ptr, ctx.ptr, "")?;
         Ok(unsafe { ctx.builder.build_gep(data_ptr, &[self.load(ctx, field!(offset))?], "")? })
     }
 
@@ -104,9 +105,12 @@ impl<'ctx> RawNDIterValue<'ctx> {
     pub fn indices(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-    ) -> anyhow::Result<ArraySliceValue<'ctx>> {
+    ) -> anyhow::Result<ArraySliceValue<'ctx, IntType<'ctx>>> {
         let indices_ptr = self.load(ctx, field!(indices))?;
-        Ok(ArraySliceValue::new(ctx.size_t.into(), indices_ptr, self.ty.ndims_val(ctx), self.name))
+        let ndims = self.ty.ndims_val(ctx);
+        let indices_arr = RefCountedArrayType::new(ctx, ctx.size_t, Some(self.ty.ndims as u32))
+            .map_value(indices_ptr, self.name);
+        indices_arr.inner_value(ctx, Some(ndims))
     }
 }
 

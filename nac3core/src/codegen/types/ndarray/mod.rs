@@ -555,7 +555,7 @@ pub fn make_contiguous_strides(shape: &[u64], itemsize: u64) -> Vec<u64> {
     strides
 }
 
-impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for NDArrayValue<'ctx> {
+impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx, IntType<'ctx>>> for NDArrayValue<'ctx> {
     fn item_type(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
         self.ty.object.dtype
     }
@@ -563,7 +563,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for NDArrayValue<'ctx> 
     fn ptr_offset_unchecked(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        idx: &ArraySliceValue<'ctx>,
+        idx: &ArraySliceValue<'ctx, IntType<'ctx>>,
         name: Option<&str>,
     ) -> anyhow::Result<PointerValue<'ctx>> {
         let name = name.unwrap_or("pelement");
@@ -575,7 +575,7 @@ impl<'ctx> ArrayLikeIndexer<'ctx, ArraySliceValue<'ctx>> for NDArrayValue<'ctx> 
     fn ptr_offset(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
-        idx: &ArraySliceValue<'ctx>,
+        idx: &ArraySliceValue<'ctx, IntType<'ctx>>,
         name: Option<&str>,
     ) -> anyhow::Result<PointerValue<'ctx>> {
         let llvm_usize = ctx.size_t;
