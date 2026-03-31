@@ -7,6 +7,7 @@
 #include "irrt/ndarray/basic.hpp"
 #include "irrt/ndarray/def.hpp"
 #include "irrt/range.hpp"
+#include "irrt/reference/reference.hpp"
 #include "irrt/slice.hpp"
 
 namespace {
@@ -150,6 +151,9 @@ void index(__nac3_impl::stdlib::make_signed_t<SizeT> num_indices,
     dst_ndarray->itemsize = src_ndarray->itemsize;
     dst_ndarray->base = src_ndarray;
     dst_ndarray->offset = src_ndarray->offset;
+
+    __nac3_impl::reference::refcount_incr<SizeT>(dst_ndarray->data);
+    __nac3_impl::reference::refcount_incr<SizeT>(dst_ndarray->base);
 
     // Reference code:
     // https://github.com/wadetb/tinynumpy/blob/0d23d22e07062ffab2afa287374c7b366eebdda1/tinynumpy/tinynumpy.py#L652

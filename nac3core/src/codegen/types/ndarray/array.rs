@@ -88,16 +88,12 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
             let ndarray = NDArrayType::create(ctx, dtype, 1).construct(ctx, name)?;
 
             let list_len = list.inner_value(ctx)?.load(ctx, field!(len))?;
-            let (data, _) =
-                list.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(list_len))?.value;
+            let list_data = list.inner_value(ctx)?.data(ctx)?;
             let len = list_len;
             // ndarray->data->refcount += 1;
-            RefCountedArrayType::new(ctx, ctx.i8, None)
-                .map_value(ndarray.inner_value(ctx)?.load(ctx, field!(data))?, None)
-                .header(ctx)
-                .increment_refcount(ctx)?;
+            list_data.header(ctx).safe_increment_refcount(ctx)?;
             // ndarray->data = list->data;
-            ndarray.inner_value(ctx)?.store(ctx, field!(data), data)?;
+            ndarray.inner_value(ctx)?.store(ctx, field!(data), list_data.value)?;
             // ndarray->shape[0] = list->len;
             ndarray.shape(ctx)?.inner_value(ctx, None)?.set_unchecked(
                 ctx,

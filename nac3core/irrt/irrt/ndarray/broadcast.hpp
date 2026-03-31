@@ -5,6 +5,7 @@
 #include "irrt/stdlib/type_traits.h"
 
 #include "irrt/ndarray/def.hpp"
+#include "irrt/reference/reference.hpp"
 #include "irrt/slice.hpp"
 
 namespace {
@@ -131,6 +132,9 @@ void broadcast_to(NDArray<SizeT>* src_ndarray, NDArray<SizeT>* dst_ndarray) {
     dst_ndarray->itemsize = src_ndarray->itemsize;
     dst_ndarray->base = src_ndarray->base;
     dst_ndarray->offset = src_ndarray->offset;
+
+    __nac3_impl::reference::refcount_incr<SizeT>(dst_ndarray->data);
+    __nac3_impl::reference::refcount_incr<SizeT>(dst_ndarray->base);
 
     for (auto i = 0; i < dst_ndarray->ndims; i++) {
         auto src_axis = src_ndarray->ndims - i - 1;
