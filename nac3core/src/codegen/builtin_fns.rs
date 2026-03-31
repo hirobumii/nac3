@@ -1510,7 +1510,7 @@ pub fn call_np_linalg_cholesky<'ctx>(
 
     let x1_c = x1.make_contiguous_ndarray(ctx)?;
     let out_c = out.make_contiguous_ndarray(ctx)?;
-    extern_fns::call_np_linalg_cholesky(ctx, x1_c.value.into(), out_c.value.into(), None)?;
+    extern_fns::call_np_linalg_cholesky(ctx, x1_c.inner_value(ctx)?.value.into(), out_c.inner_value(ctx)?.value.into(), None)?;
     Ok(out.value.into())
 }
 
@@ -1545,9 +1545,9 @@ pub fn call_np_linalg_qr<'ctx>(
 
     extern_fns::call_np_linalg_qr(
         ctx,
-        x1_c.value.into(),
-        q_c.value.into(),
-        r_c.value.into(),
+        x1_c.inner_value(ctx)?.value.into(),
+        q_c.inner_value(ctx)?.value.into(),
+        r_c.inner_value(ctx)?.value.into(),
         None,
     )?;
 
@@ -1590,10 +1590,10 @@ pub fn call_np_linalg_svd<'ctx>(
 
     extern_fns::call_np_linalg_svd(
         ctx,
-        x1_c.value.into(),
-        u_c.value.into(),
-        s_c.value.into(),
-        vh_c.value.into(),
+        x1_c.inner_value(ctx)?.value.into(),
+        u_c.inner_value(ctx)?.value.into(),
+        s_c.inner_value(ctx)?.value.into(),
+        vh_c.inner_value(ctx)?.value.into(),
         None,
     )?;
 
@@ -1622,7 +1622,7 @@ pub fn call_np_linalg_inv<'ctx>(
 
     let x1_c = x1.make_contiguous_ndarray(ctx)?;
     let out_c = out.make_contiguous_ndarray(ctx)?;
-    extern_fns::call_np_linalg_inv(ctx, x1_c.value.into(), out_c.value.into(), None)?;
+    extern_fns::call_np_linalg_inv(ctx, x1_c.inner_value(ctx)?.value.into(), out_c.inner_value(ctx)?.value.into(), None)?;
 
     Ok(out.value.into())
 }
@@ -1651,7 +1651,7 @@ pub fn call_np_linalg_pinv<'ctx>(
 
     let x1_c = x1.make_contiguous_ndarray(ctx)?;
     let out_c = out.make_contiguous_ndarray(ctx)?;
-    extern_fns::call_np_linalg_pinv(ctx, x1_c.value.into(), out_c.value.into(), None)?;
+    extern_fns::call_np_linalg_pinv(ctx, x1_c.inner_value(ctx)?.value.into(), out_c.inner_value(ctx)?.value.into(), None)?;
 
     Ok(out.value.into())
 }
@@ -1687,9 +1687,9 @@ pub fn call_sp_linalg_lu<'ctx>(
     let u_c = u.make_contiguous_ndarray(ctx)?;
     extern_fns::call_sp_linalg_lu(
         ctx,
-        x1_c.value.into(),
-        l_c.value.into(),
-        u_c.value.into(),
+        x1_c.inner_value(ctx)?.value.into(),
+        l_c.inner_value(ctx)?.value.into(),
+        u_c.inner_value(ctx)?.value.into(),
         None,
     )?;
 
@@ -1737,9 +1737,9 @@ pub fn call_np_linalg_matrix_power<'ctx>(
 
     extern_fns::call_np_linalg_matrix_power(
         ctx,
-        x1_c.value.into(),
-        x2_c.value.into(),
-        out_c.value.into(),
+        x1_c.inner_value(ctx)?.value.into(),
+        x2_c.inner_value(ctx)?.value.into(),
+        out_c.inner_value(ctx)?.value.into(),
         None,
     )?;
 
@@ -1767,7 +1767,7 @@ pub fn call_np_linalg_det<'ctx>(
 
     let x1_c = x1.make_contiguous_ndarray(ctx)?;
     let out_c = det.make_contiguous_ndarray(ctx)?;
-    extern_fns::call_np_linalg_det(ctx, x1_c.value.into(), out_c.value.into(), None)?;
+    extern_fns::call_np_linalg_det(ctx, x1_c.inner_value(ctx)?.value.into(), out_c.inner_value(ctx)?.value.into(), None)?;
 
     // Get the determinant out of `out`
     let det = det.first_element(ctx)?;
@@ -1805,9 +1805,9 @@ pub fn call_sp_linalg_schur<'ctx>(
     let z_c = z.make_contiguous_ndarray(ctx)?;
     extern_fns::call_sp_linalg_schur(
         ctx,
-        x1_c.value.into(),
-        t_c.value.into(),
-        z_c.value.into(),
+        x1_c.inner_value(ctx)?.value.into(),
+        t_c.inner_value(ctx)?.value.into(),
+        z_c.inner_value(ctx)?.value.into(),
         None,
     )?;
 
@@ -1846,9 +1846,9 @@ pub fn call_sp_linalg_hessenberg<'ctx>(
     let q_c = q.make_contiguous_ndarray(ctx)?;
     extern_fns::call_sp_linalg_hessenberg(
         ctx,
-        x1_c.value.into(),
-        h_c.value.into(),
-        q_c.value.into(),
+        x1_c.inner_value(ctx)?.value.into(),
+        h_c.inner_value(ctx)?.value.into(),
+        q_c.inner_value(ctx)?.value.into(),
         None,
     )?;
 

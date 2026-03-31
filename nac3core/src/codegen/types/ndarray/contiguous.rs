@@ -111,8 +111,9 @@ impl<'ctx> NDArrayValue<'ctx> {
         let ndims = self.ty.object.ndims_val(ctx);
         result.inner_value(ctx)?.store(ctx, field!(ndims), ndims)?;
 
-        let shape = self.inner_value(ctx)?.load(ctx, field!(shape))?;
-        result.inner_value(ctx)?.store(ctx, field!(shape), shape)?;
+        let shape = self.inner_value(ctx)?.shape(ctx)?;
+        let shape_data_ptr = shape.inner_value(ctx, Some(ndims))?.value.0;
+        result.inner_value(ctx)?.store(ctx, field!(shape), shape_data_ptr)?;
 
         gen_if_callback(
             &mut (),
@@ -120,11 +121,10 @@ impl<'ctx> NDArrayValue<'ctx> {
             |(), ctx| self.is_c_contiguous(ctx),
             |(), ctx| {
                 // This ndarray is contiguous.
-                let data = self.inner_value(ctx)?.load(ctx, field!(data))?;
-                result.inner_value(ctx)?.store(ctx, field!(data), data)?;
+                let data = self.inner_value(ctx)?.data(ctx)?;
+                result.inner_value(ctx)?.store(ctx, field!(data), data.value.0)?;
 
-                let base = self.inner_value(ctx)?.load(ctx, field!(base))?;
-                result.inner_value(ctx)?.store(ctx, field!(base), base)?;
+                result.inner_value(ctx)?.store(ctx, field!(base), ctx.ptr.const_null())?;
 
                 let offset = self.inner_value(ctx)?.load(ctx, field!(offset))?;
                 result.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
@@ -135,9 +135,9 @@ impl<'ctx> NDArrayValue<'ctx> {
                 // This ndarray is not contiguous. Do a full-copy on `data`. `make_copy` produces an
                 // ndarray with contiguous `data`.
                 let copied_ndarray = self.make_copy(ctx)?;
-                let data = copied_ndarray.inner_value(ctx)?.load(ctx, field!(data))?;
+                let data = copied_ndarray.inner_value(ctx)?.data(ctx)?;
                 copied_ndarray.header(ctx).increment_refcount(ctx)?;
-                result.inner_value(ctx)?.store(ctx, field!(data), data)?;
+                result.inner_value(ctx)?.store(ctx, field!(data), data.value.0)?;
 
                 result.inner_value(ctx)?.store(ctx, field!(base), ctx.ptr.const_null())?;
                 result.inner_value(ctx)?.store(ctx, field!(offset), ctx.size_t.const_zero())?;
