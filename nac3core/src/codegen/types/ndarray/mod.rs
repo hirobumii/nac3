@@ -233,13 +233,33 @@ impl<'ctx> RawNDArrayValue<'ctx> {
         self.load_ndims_slice(ctx, field!(strides))
     }
 
-    /// Returns the data of this array.
-    pub fn data(
+    /// Returns the underlying data [`RefCountedArrayValue`] of this ndarray.
+    ///
+    /// This points to the base of the data allocation. To get a slice starting at the ndarray's
+    /// current offset, use [`data`][Self::data] instead.
+    pub fn base_data(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<RefCountedArrayValue<'ctx, BasicTypeEnum<'ctx>>> {
         let data = self.load(ctx, field!(data))?;
         Ok(RefCountedArrayType::new(ctx, self.ty.dtype, None).map_value(data, self.name))
+    }
+
+    /// Returns an [`ArraySliceValue`] for the data of this ndarray, starting at the ndarray's
+    /// current byte offset.
+    ///
+    /// Element 0 of the returned slice corresponds to the first element of this ndarray view.
+    pub fn data(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<ArraySliceValue<'ctx, BasicTypeEnum<'ctx>>> {
+        let size = self.size(ctx)?;
+        let offset = self.load(ctx, field!(offset))?;
+        let itemsize = self.load(ctx, field!(itemsize))?;
+        let elem_idx = ctx.builder.build_int_unsigned_div(offset, itemsize, "")?;
+        let base_inner = self.base_data(ctx)?.inner_value(ctx, Some(size))?;
+        let ptr = base_inner.ptr_offset_unchecked(ctx, &elem_idx, None)?;
+        Ok(ArraySliceValue::new(base_inner.ty.item_ty, ptr, size, self.name))
     }
 
     /// Returns the base of this array.
@@ -378,9 +398,7 @@ impl<'ctx> RawNDArrayValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
-        let size = self.size(ctx)?;
-        let offset = self.load(ctx, field!(offset))?;
-        self.data(ctx)?.inner_value(ctx, Some(size))?.get_unchecked(ctx, &offset, Some("first_element"))
+        self.data(ctx)?.get_unchecked(ctx, &ctx.size_t.const_zero(), Some("first_element"))
     }
 }
 

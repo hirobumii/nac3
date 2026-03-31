@@ -81,7 +81,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             |(), ctx| {
                 // Reshape is possible without copying
                 dst_ndarray.set_strides_contiguous(ctx)?;
-                let data = self.inner_value(ctx)?.data(ctx)?;
+                let data = self.inner_value(ctx)?.base_data(ctx)?;
                 data.header(ctx).safe_increment_refcount(ctx)?;
                 dst_ndarray.inner_value(ctx)?.store(ctx, field!(data), data.value)?;
                 let base = self.inner_value(ctx)?.base(ctx)?;
