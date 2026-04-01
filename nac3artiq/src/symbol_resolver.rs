@@ -1157,7 +1157,7 @@ impl InnerResolver {
             };
             let arr_ty = ctx
                 .ctx
-                .struct_type(&[ty.ptr_type(AddressSpace::default()).into(), size_t.into()], false);
+                .struct_type(&[ctx.ptr.into(), size_t.into()], false);
 
             {
                 if self.global_value_ids.read().contains_key(&id) {
@@ -1206,10 +1206,7 @@ impl InnerResolver {
             arr_global.set_initializer(&arr);
 
             let val = arr_ty.const_named_struct(&[
-                arr_global
-                    .as_pointer_value()
-                    .const_cast(ty.ptr_type(AddressSpace::default()))
-                    .into(),
+                arr_global.as_pointer_value().into(),
                 size_t.const_int(len as u64, false).into(),
             ]);
 
@@ -1274,11 +1271,7 @@ impl InnerResolver {
                         .expect("must have iterable value");
 
                     if iterable.is_instance_of::<PyList>() {
-                        // Cast list pointer to i8*
-                        iterable_value
-                            .into_pointer_value()
-                            .const_cast(ctx.i8.ptr_type(AddressSpace::default()))
-                            .into()
+                        iterable_value.into_pointer_value().into()
                     } else {
                         // Tuple value is already a struct, we'll use it directly
                         iterable_value
@@ -1288,7 +1281,7 @@ impl InnerResolver {
                 };
 
             let iterable_struct_ty = ctx.ctx.struct_type(
-                &[ctx.i8.ptr_type(AddressSpace::default()).into(), ctx.size_t.into()],
+                &[ctx.ptr.into(), ctx.size_t.into()],
                 false,
             );
 
@@ -1497,6 +1490,7 @@ impl InnerResolver {
             let ndarray_shape = shape_global.as_pointer_value();
             let ndarray_shape = unsafe {
                 ctx.builder.build_in_bounds_gep(
+                    llvm_usize.array_type(ndims as u32),
                     ndarray_shape,
                     &[llvm_usize.const_zero(), llvm_usize.const_zero()],
                     "",
@@ -1506,6 +1500,7 @@ impl InnerResolver {
             let ndarray_strides = strides_global.as_pointer_value();
             let ndarray_strides = unsafe {
                 ctx.builder.build_in_bounds_gep(
+                    llvm_usize.array_type(ndims as u32),
                     ndarray_strides,
                     &[llvm_usize.const_zero(), llvm_usize.const_zero()],
                     "",
@@ -1559,12 +1554,7 @@ impl InnerResolver {
             };
             if id == self.primitive_ids.artiq.none {
                 // for option type, just a null ptr
-                Ok(Some(
-                    ctx.get_llvm_type(option_val_ty)
-                        .ptr_type(AddressSpace::default())
-                        .const_null()
-                        .into(),
-                ))
+                Ok(Some(ctx.ptr.const_null().into()))
             } else {
                 match self
                     .get_obj_value(py, &obj.getattr("_nac3_option").unwrap(), ctx, option_val_ty)

@@ -710,7 +710,7 @@ fn format_rpc_ret<'ctx>(
             ctx.builder.build_unconditional_branch(head_bb)?;
 
             ctx.builder.position_at_end(tail_bb);
-            ctx.builder.build_load(slot, "rpc.result")?
+            ctx.builder.build_load(llvm_ret_ty, slot, "rpc.result")?
         }
     };
 
@@ -891,12 +891,19 @@ pub fn attributes_writeback<'ctx>(
                         if gen_rpc_tag(ctx, *field_ty, &mut scratch_buffer).is_ok() {
                             attributes.push(name.to_string());
                             let (index, _) = ctx.get_attr_index(ty, *name);
+                            let obj_alloca_ty = ctx.get_alloca_type(ty);
+                            let field_llvm_ty = obj_alloca_ty
+                                .into_struct_type()
+                                .get_field_type_at_index(index as u32)
+                                .unwrap();
                             values.push((
                                 *field_ty,
                                 ctx.build_gep_and_load(
+                                    obj_alloca_ty,
                                     obj.into_pointer_value(),
                                     &[zero, int32.const_int(index as u64, false)],
                                     None,
+                                    field_llvm_ty,
                                 )?,
                             ));
                         }
@@ -1042,14 +1049,15 @@ fn polymorphic_print<'ctx>(
                 fmt.push('(');
                 flush(ctx, &mut fmt, &mut args)?;
 
+                let value_struct_ty = value.get_type().into_struct_type();
                 let tuple_vals = tys
                     .iter()
                     .enumerate()
                     .map(|(i, ty)| {
                         anyhow::Ok((*ty, {
-                            let pfield = ctx.builder.build_struct_gep(pvalue, i as u32, "")?;
-
-                            ValueEnum::from(ctx.builder.build_load(pfield, "")?)
+                            let field_ty = value_struct_ty.get_field_type_at_index(i as u32).unwrap();
+                            let pfield = ctx.builder.build_struct_gep(value_struct_ty, pvalue, i as u32, "")?;
+                            ValueEnum::from(ctx.builder.build_load(field_ty, pfield, "")?)
                         }))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
