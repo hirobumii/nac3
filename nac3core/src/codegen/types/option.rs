@@ -119,7 +119,11 @@ pub struct OptionType<'ctx> {
 impl<'ctx> OptionType<'ctx> {
     /// Creates an [`OptionType`] from an element LLVM type and unifier type.
     #[must_use]
-    pub fn new(ctx: &ModuleContext<'ctx>, elem_ty: Type, elem_llvm_ty: BasicTypeEnum<'ctx>) -> Self {
+    pub fn new(
+        ctx: &ModuleContext<'ctx>,
+        elem_ty: Type,
+        elem_llvm_ty: BasicTypeEnum<'ctx>,
+    ) -> Self {
         Self { some_ty: OptionSomeType::new(ctx, elem_llvm_ty), elem_ty }
     }
 
@@ -142,7 +146,7 @@ impl<'ctx> OptionType<'ctx> {
 
     /// Returns the underlying [`OptionSomeType`].
     #[must_use]
-    pub fn some_ty(&self) -> OptionSomeType<'ctx> {
+    pub const fn some_ty(&self) -> OptionSomeType<'ctx> {
         self.some_ty
     }
 
@@ -170,11 +174,7 @@ impl<'ctx> OptionType<'ctx> {
 impl<'ctx> ProxyTypeBase<'ctx> for OptionType<'ctx> {
     type Value = PointerValue<'ctx>;
 
-    fn map_value(
-        &self,
-        value: Self::Value,
-        name: Option<&'ctx str>,
-    ) -> Value<'ctx, Self>
+    fn map_value(&self, value: Self::Value, name: Option<&'ctx str>) -> Value<'ctx, Self>
     where
         Self: Sized + Copy,
     {
@@ -203,7 +203,7 @@ impl<'ctx> OptionValue<'ctx> {
     ///
     /// The caller must ensure that [`is_some`][Self::is_some] is true.
     #[must_use]
-    pub fn as_some(&self, ctx: &ModuleContext<'ctx>) -> OptionSomeValue<'ctx> {
+    pub fn as_some(&self) -> OptionSomeValue<'ctx> {
         self.ty.some_ty.map_value(self.value, self.name)
     }
 
@@ -215,6 +215,6 @@ impl<'ctx> OptionValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         name: Option<&str>,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
-        self.as_some(ctx).get(ctx, name)
+        self.as_some().get(ctx, name)
     }
 }

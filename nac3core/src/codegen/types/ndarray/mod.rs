@@ -282,8 +282,11 @@ impl<'ctx> RawNDArrayValue<'ctx> {
         let ndarray = NDArrayType::create(ctx, dtype, 0).construct(ctx, name)?;
         // Allocate a 1-element RefCountedArray so the IRRT can find the value at the
         // correct offset (past ObjectHeader + count) via `data->data<uint8_t>()`.
-        let alloc =
-            RefCountedArrayType::new(ctx, dtype, Some(1)).allocate(ctx, ctx.size_t.const_int(1, false), None)?;
+        let alloc = RefCountedArrayType::new(ctx, dtype, Some(1)).allocate(
+            ctx,
+            ctx.size_t.const_int(1, false),
+            None,
+        )?;
         alloc.inner_value(ctx, None)?.set_unchecked(ctx, &ctx.size_t.const_zero(), value, None)?;
         ndarray.inner_value(ctx)?.store(ctx, field!(data), alloc.value)?;
         ndarray.inner_value(ctx)?.store(ctx, field!(base), ctx.ptr.const_null())?;
@@ -338,7 +341,11 @@ impl<'ctx> RawNDArrayValue<'ctx> {
     /// Returns the length of the first dimension of the array.
     pub fn len(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
         assert!(self.ty.ndims >= 1);
-        self.shape(ctx)?.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_zero(), self.name)
+        self.shape(ctx)?.inner_value(ctx, None)?.get_unchecked(
+            ctx,
+            &ctx.size_t.const_zero(),
+            self.name,
+        )
     }
 
     /// Returns the number of bytes consumed by the array data.
@@ -355,7 +362,9 @@ impl<'ctx> RawNDArrayValue<'ctx> {
         src: &Self,
     ) -> anyhow::Result<()> {
         let shape = src.shape(ctx)?;
-        self.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
+        self.shape(ctx)?
+            .inner_value(ctx, None)?
+            .memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
         Ok(())
     }
 
@@ -744,7 +753,10 @@ impl<'ctx> NDArrayOut<'ctx> {
             NDArrayOut::NewNDArray { dtype } => {
                 let result_ndarray =
                     NDArrayType::create(ctx, *dtype, ndims).construct(ctx, None)?;
-                result_ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape.value.0)?;
+                result_ndarray
+                    .shape(ctx)?
+                    .inner_value(ctx, None)?
+                    .memcpy_from(ctx, shape.value.0)?;
                 result_ndarray.create_data(ctx)?;
                 Ok(result_ndarray)
             }
@@ -752,7 +764,11 @@ impl<'ctx> NDArrayOut<'ctx> {
             NDArrayOut::WriteToNDArray { ndarray: result } => {
                 // Use an existing ndarray.
                 let out_shape = result.shape(ctx)?;
-                assert_ndarray_can_be_written_by_out(ctx, shape, out_shape.inner_value(ctx, None)?)?;
+                assert_ndarray_can_be_written_by_out(
+                    ctx,
+                    shape,
+                    out_shape.inner_value(ctx, None)?,
+                )?;
                 Ok(*result)
             }
         }

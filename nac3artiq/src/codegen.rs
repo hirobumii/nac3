@@ -664,7 +664,12 @@ fn format_rpc_ret<'ctx>(
 
             let ndarray_offset = ndarray.inner_value(ctx)?.load(ctx, field!(offset))?;
             let ndarray_num_elements = ndarray.size(ctx)?;
-            let ndarray_data = ndarray.inner_value(ctx)?.base_data(ctx)?.inner_value(ctx, Some(ndarray_num_elements))?.value.0;
+            let ndarray_data = ndarray
+                .inner_value(ctx)?
+                .base_data(ctx)?
+                .inner_value(ctx, Some(ndarray_num_elements))?
+                .value
+                .0;
             let ndarray_data =
                 typed_gep(ctx.builder, &ctx.i8, ndarray_data, &[ndarray_offset], "")?;
 
@@ -1192,7 +1197,10 @@ fn polymorphic_print<'ctx>(
                     llvm_usize.const_zero(),
                     (len, false),
                     |(), ctx, _, i| {
-                        let elem = val.data(ctx)?.inner_value(ctx, Some(len))?.get_unchecked(ctx, &i, None)?;
+                        let elem = val
+                            .data(ctx)?
+                            .inner_value(ctx, Some(len))?
+                            .get_unchecked(ctx, &i, None)?;
 
                         polymorphic_print(ctx, &[(elem_ty, elem)], "", None, true, as_rtio)?;
 

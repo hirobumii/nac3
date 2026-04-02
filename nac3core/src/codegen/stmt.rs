@@ -24,11 +24,10 @@ use crate::{
         macros::codegen_unreachable,
         typed_load, typed_store,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType,
-            ExceptionValue, ListType, ListValue, NDArrayType, OpaqueRefCountedType,
-            ProxyTypeBase, RangeType, RawClassType, RawListType, RefCountedValue, RustNDIndex,
-            ScalarOrNDArray, StringType, TupleType, TupleValue, TypedRefCountedType, broadcast,
-            field, is_refcounted_type,
+            ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
+            ListType, ListValue, NDArrayType, OpaqueRefCountedType, ProxyTypeBase, RangeType,
+            RawClassType, RawListType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
+            TupleType, TupleValue, TypedRefCountedType, broadcast, field, is_refcounted_type,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -129,8 +128,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                 // Variable allocas are always stack-allocated at the function start.
                 // For refcounted types, ptr_ty is a pointer (holding a reference to the
                 // heap object); for value types like tuples, ptr_ty is the struct itself.
-                let ptr =
-                    ctx.build_allocate(AllocationScope::StackStartOfFunc, ptr_ty, name)?;
+                let ptr = ctx.build_allocate(AllocationScope::StackStartOfFunc, ptr_ty, name)?;
                 ctx.var_assignment.insert(*id, VarValue::new(ptr, pattern.custom.unwrap()));
                 ptr
             }
@@ -582,7 +580,8 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 // Decrement refcounts of destination elements being overwritten
                 if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
-                    let dest_data = target.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(target_size))?;
+                    let dest_data =
+                        target.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(target_size))?;
                     let llvm_i32 = ctx.i32;
                     let one = llvm_i32.const_int(1, false);
                     let zero = llvm_i32.const_zero();
@@ -600,8 +599,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                             "",
                         )?
                         .into_int_value();
-                    let dest_slice_len =
-                        calculate_len_for_slice_range(ctx, start, dest_end, step)?;
+                    let dest_slice_len = calculate_len_for_slice_range(ctx, start, dest_end, step)?;
                     let dest_slice_len = ctx.builder.build_int_z_extend_or_bit_cast(
                         dest_slice_len,
                         ctx.size_t,
@@ -615,16 +613,12 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                         (dest_slice_len, false),
                         |(), ctx, _, i| {
                             let actual_idx = {
-                                let step_ext = ctx.builder.build_int_s_extend_or_bit_cast(
-                                    step,
-                                    ctx.size_t,
-                                    "",
-                                )?;
-                                let start_ext = ctx.builder.build_int_s_extend_or_bit_cast(
-                                    start,
-                                    ctx.size_t,
-                                    "",
-                                )?;
+                                let step_ext = ctx
+                                    .builder
+                                    .build_int_s_extend_or_bit_cast(step, ctx.size_t, "")?;
+                                let start_ext = ctx
+                                    .builder
+                                    .build_int_s_extend_or_bit_cast(start, ctx.size_t, "")?;
                                 let offset = ctx.builder.build_int_mul(i, step_ext, "")?;
                                 ctx.builder.build_int_add(start_ext, offset, "")?
                             };
@@ -652,7 +646,8 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
 
                 // Increment refcounts of source elements that were copied into dest
                 if is_refcounted_type(&mut ctx.unifier, target_item_ty) {
-                    let src_data = value.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(size))?;
+                    let src_data =
+                        value.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(size))?;
                     let llvm_i32 = ctx.i32;
                     let one = llvm_i32.const_int(1, false);
                     let zero = llvm_i32.const_zero();
@@ -685,16 +680,12 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
                         (src_slice_len, false),
                         |(), ctx, _, i| {
                             let actual_idx = {
-                                let step_ext = ctx.builder.build_int_s_extend_or_bit_cast(
-                                    src_ind.2,
-                                    ctx.size_t,
-                                    "",
-                                )?;
-                                let start_ext = ctx.builder.build_int_s_extend_or_bit_cast(
-                                    src_ind.0,
-                                    ctx.size_t,
-                                    "",
-                                )?;
+                                let step_ext = ctx
+                                    .builder
+                                    .build_int_s_extend_or_bit_cast(src_ind.2, ctx.size_t, "")?;
+                                let start_ext = ctx
+                                    .builder
+                                    .build_int_s_extend_or_bit_cast(src_ind.0, ctx.size_t, "")?;
                                 let offset = ctx.builder.build_int_mul(i, step_ext, "")?;
                                 ctx.builder.build_int_add(start_ext, offset, "")?
                             };
@@ -1227,18 +1218,22 @@ pub fn gen_for<G: CodeGenerator>(
                         &target.node,
                         target_i,
                         |ctx| {
-                            iterable.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(length_sizet))?.get_unchecked(
-                                ctx,
-                                &int32.const_int(0, false),
-                                Some("first_v"),
-                            )
+                            iterable
+                                .inner_value(ctx)?
+                                .data(ctx)?
+                                .inner_value(ctx, Some(length_sizet))?
+                                .get_unchecked(ctx, &int32.const_int(0, false), Some("first_v"))
                         },
                         |ctx, next_i| {
-                            iterable.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(length_sizet))?.get_unchecked(
-                                ctx,
-                                &ctx.builder.build_int_sub(next_i, start, "sub")?,
-                                Some("next_v"),
-                            )
+                            iterable
+                                .inner_value(ctx)?
+                                .data(ctx)?
+                                .inner_value(ctx, Some(length_sizet))?
+                                .get_unchecked(
+                                    ctx,
+                                    &ctx.builder.build_int_sub(next_i, start, "sub")?,
+                                    Some("next_v"),
+                                )
                         },
                         body,
                         orelse,

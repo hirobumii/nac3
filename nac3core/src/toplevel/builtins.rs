@@ -21,7 +21,7 @@ use crate::{
         stmt::{exn_constructor, gen_if_callback},
         types::{
             EnumerateType, NDArrayType, OptionType, ProxyTypeBase, RangeField, RangeType,
-            RawNDArrayType, ScalarOrNDArray, field, parse_numpy_int_sequence,
+            ScalarOrNDArray, field, parse_numpy_int_sequence,
         },
     },
     symbol_resolver::SymbolValue,
@@ -1531,9 +1531,11 @@ impl<'a> BuiltinBuilder<'a> {
 
                         let new_ndarray = match prim {
                             PrimDef::FunNpBroadcastTo => ndarray.broadcast_to(ctx, ndims, shape)?,
-                            PrimDef::FunNpReshape => {
-                                ndarray.reshape_or_copy(ctx, ndims, shape.inner_value(ctx, Some(ctx.size_t.const_int(ndims, false)))?)?
-                            }
+                            PrimDef::FunNpReshape => ndarray.reshape_or_copy(
+                                ctx,
+                                ndims,
+                                shape.inner_value(ctx, Some(ctx.size_t.const_int(ndims, false)))?,
+                            )?,
                             _ => unreachable!(),
                         };
                         Ok(Some(new_ndarray.value.as_basic_value_enum()))

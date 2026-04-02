@@ -544,7 +544,11 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         if self.array.get_element_type().is_pointer_type() {
             llvm_intrinsics::call_memset(
                 ctx,
-                ctx.builder.build_pointer_cast(value.inner_value(ctx, Some(size))?.value.0, ctx.ptr, "")?,
+                ctx.builder.build_pointer_cast(
+                    value.inner_value(ctx, Some(size))?.value.0,
+                    ctx.ptr,
+                    "",
+                )?,
                 ctx.i8.const_zero(),
                 ctx.builder.build_int_mul(
                     self.array
@@ -689,16 +693,13 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
         ctx: &CodeGenContext<'ctx, '_>,
         len: Option<IntValue<'ctx>>,
     ) -> anyhow::Result<ArraySliceValue<'ctx, T>> {
-        let len = match len {
-            Some(len) => len,
-            None => {
-                let n = self.ty.static_size.expect(
-                    "inner_value(None) called on a dynamically-sized RefCountedArrayType; \
+        let len = len.unwrap_or_else(|| {
+            let n = self.ty.static_size.expect(
+                "inner_value(None) called on a dynamically-sized RefCountedArrayType; \
                      pass Some(runtime_len) or create with a static_size",
-                );
-                ctx.size_t.const_int(u64::from(n), false)
-            }
-        };
+            );
+            ctx.size_t.const_int(u64::from(n), false)
+        });
         let pdata = unsafe {
             typed_gep(
                 ctx.builder,

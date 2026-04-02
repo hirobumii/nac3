@@ -16,8 +16,8 @@ use crate::{
         typed_store,
         types::{
             ArrayLikeIndexer, NDArrayOut, NDArrayType, ProxyTypeBase, RangeType, RawListType,
-            RawNDArrayType, RawNDArrayValue, ScalarOrNDArray, TupleType, TupleValue,
-            TypedRefCountedType, broadcast_starmap, field,
+            RawNDArrayValue, ScalarOrNDArray, TupleType, TupleValue, TypedRefCountedType,
+            broadcast_starmap, field,
         },
     },
     toplevel::{
@@ -1510,7 +1510,12 @@ pub fn call_np_linalg_cholesky<'ctx>(
 
     let x1_c = x1.make_contiguous_ndarray(ctx)?;
     let out_c = out.make_contiguous_ndarray(ctx)?;
-    extern_fns::call_np_linalg_cholesky(ctx, x1_c.inner_value(ctx)?.value.into(), out_c.inner_value(ctx)?.value.into(), None)?;
+    extern_fns::call_np_linalg_cholesky(
+        ctx,
+        x1_c.inner_value(ctx)?.value.into(),
+        out_c.inner_value(ctx)?.value.into(),
+        None,
+    )?;
     Ok(out.value.into())
 }
 
@@ -1531,8 +1536,11 @@ pub fn call_np_linalg_qr<'ctx>(
 
     let x1_shape = x1.shape(ctx)?;
     let d0 = x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
-    let d1 =
-        x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let d1 = x1_shape.inner_value(ctx, None)?.get_unchecked(
+        ctx,
+        &ctx.size_t.const_int(1, false),
+        None,
+    )?;
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
     let out_ndarray_ty = NDArrayType::create(ctx, ctx.f64.into(), 2);
@@ -1572,8 +1580,11 @@ pub fn call_np_linalg_svd<'ctx>(
 
     let x1_shape = x1.shape(ctx)?;
     let d0 = x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
-    let d1 =
-        x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let d1 = x1_shape.inner_value(ctx, None)?.get_unchecked(
+        ctx,
+        &ctx.size_t.const_int(1, false),
+        None,
+    )?;
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
     let out_ndarray1_ty = NDArrayType::create(ctx, ctx.f64.into(), 1);
@@ -1622,7 +1633,12 @@ pub fn call_np_linalg_inv<'ctx>(
 
     let x1_c = x1.make_contiguous_ndarray(ctx)?;
     let out_c = out.make_contiguous_ndarray(ctx)?;
-    extern_fns::call_np_linalg_inv(ctx, x1_c.inner_value(ctx)?.value.into(), out_c.inner_value(ctx)?.value.into(), None)?;
+    extern_fns::call_np_linalg_inv(
+        ctx,
+        x1_c.inner_value(ctx)?.value.into(),
+        out_c.inner_value(ctx)?.value.into(),
+        None,
+    )?;
 
     Ok(out.value.into())
 }
@@ -1644,14 +1660,22 @@ pub fn call_np_linalg_pinv<'ctx>(
 
     let x1_shape = x1.shape(ctx)?;
     let d0 = x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
-    let d1 =
-        x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let d1 = x1_shape.inner_value(ctx, None)?.get_unchecked(
+        ctx,
+        &ctx.size_t.const_int(1, false),
+        None,
+    )?;
 
     let out = NDArrayType::create(ctx, ctx.f64.into(), 2).with_shape(ctx, &[d0, d1], None)?;
 
     let x1_c = x1.make_contiguous_ndarray(ctx)?;
     let out_c = out.make_contiguous_ndarray(ctx)?;
-    extern_fns::call_np_linalg_pinv(ctx, x1_c.inner_value(ctx)?.value.into(), out_c.inner_value(ctx)?.value.into(), None)?;
+    extern_fns::call_np_linalg_pinv(
+        ctx,
+        x1_c.inner_value(ctx)?.value.into(),
+        out_c.inner_value(ctx)?.value.into(),
+        None,
+    )?;
 
     Ok(out.value.into())
 }
@@ -1673,8 +1697,11 @@ pub fn call_sp_linalg_lu<'ctx>(
 
     let x1_shape = x1.shape(ctx)?;
     let d0 = x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_zero(), None)?;
-    let d1 =
-        x1_shape.inner_value(ctx, None)?.get_unchecked(ctx, &ctx.size_t.const_int(1, false), None)?;
+    let d1 = x1_shape.inner_value(ctx, None)?.get_unchecked(
+        ctx,
+        &ctx.size_t.const_int(1, false),
+        None,
+    )?;
     let dk = llvm_intrinsics::call_int_smin(ctx, d0, d1, None)?;
 
     let out_ndarray_ty = NDArrayType::create(ctx, ctx.f64.into(), 2);
@@ -1767,7 +1794,12 @@ pub fn call_np_linalg_det<'ctx>(
 
     let x1_c = x1.make_contiguous_ndarray(ctx)?;
     let out_c = det.make_contiguous_ndarray(ctx)?;
-    extern_fns::call_np_linalg_det(ctx, x1_c.inner_value(ctx)?.value.into(), out_c.inner_value(ctx)?.value.into(), None)?;
+    extern_fns::call_np_linalg_det(
+        ctx,
+        x1_c.inner_value(ctx)?.value.into(),
+        out_c.inner_value(ctx)?.value.into(),
+        None,
+    )?;
 
     // Get the determinant out of `out`
     let det = det.first_element(ctx)?;

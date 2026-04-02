@@ -170,7 +170,10 @@ impl<'ctx> NDArrayValue<'ctx> {
 
         // Copy shape and update strides
         let shape = carray.inner_value(ctx)?.shape(ctx)?;
-        ndarray.shape(ctx)?.inner_value(ctx, None)?.memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
+        ndarray
+            .shape(ctx)?
+            .inner_value(ctx, None)?
+            .memcpy_from(ctx, shape.inner_value(ctx, None)?.value.0)?;
         ndarray.set_strides_contiguous(ctx)?;
 
         // Share data

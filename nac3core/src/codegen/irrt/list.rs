@@ -42,8 +42,7 @@ pub fn list_slice_assignment<'ctx>(
     let src_list_len = src_arr.inner_value(ctx)?.load(ctx, field!(len))?;
     let (src_ptr, _) =
         src_arr.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(src_list_len))?.value;
-    let src_len =
-        ctx.builder.build_int_truncate_or_bit_cast(src_list_len, llvm_i32, "srclen32")?;
+    let src_len = ctx.builder.build_int_truncate_or_bit_cast(src_list_len, llvm_i32, "srclen32")?;
 
     // index in bound and positive should be done
     // assert if dest.step == 1 then len(src) <= len(dest) else len(src) == len(dest), and

@@ -46,7 +46,7 @@ use crate::{
         stmt::get_personality,
         types::{
             ArraySliceValue, ClassType, EnumerateType, ExceptionType, OpaqueRefCountedType,
-            OptionType, OptionSomeType, ProxyType, ProxyTypeBase, RangeType, RawListType, RawNDArrayType,
+            OptionType, ProxyType, ProxyTypeBase, RangeType, RawListType, RawNDArrayType,
             RefCountedValue, RefType, StringType, TupleType, is_obj_id_refcounted,
             is_refcounted_type,
         },

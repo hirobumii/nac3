@@ -972,11 +972,11 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb)?;
 
             ctx.builder.position_at_end(body_bb);
-            let val = iter_val.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(length))?.get_unchecked(
-                ctx,
-                &tmp,
-                Some("val"),
-            )?;
+            let val = iter_val
+                .inner_value(ctx)?
+                .data(ctx)?
+                .inner_value(ctx, Some(length))?
+                .get_unchecked(ctx, &tmp, Some("val"))?;
             generator.gen_assign(ctx, target, &val, target.custom.unwrap())?;
         }
         _ => {
@@ -1009,11 +1009,11 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
 
     let i = ctx.builder.build_load(index, "i")?.into_int_value();
     let list_cap = list.inner_value(ctx)?.load(ctx, field!(len))?;
-    let elem_ptr = list.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(list_cap))?.ptr_offset_unchecked(
-        ctx,
-        &i,
-        Some("elem_ptr"),
-    )?;
+    let elem_ptr = list
+        .inner_value(ctx)?
+        .data(ctx)?
+        .inner_value(ctx, Some(list_cap))?
+        .ptr_offset_unchecked(ctx, &i, Some("elem_ptr"))?;
     let val = generator.gen_expr(ctx, elt)?.to_basic_value_enum(ctx)?;
     typed_store(ctx.builder, elem_ptr, val)?;
     typed_store(
@@ -1081,9 +1081,8 @@ pub fn gen_prim_binop_expr<'ctx>(
                     .map(|val| list_ty.map_value(val.into_pointer_value(), None));
                 let left_len = left_list.inner_value(ctx)?.load(ctx, field!(len))?;
                 let right_len = right_list.inner_value(ctx)?.load(ctx, field!(len))?;
-                let [left, right] = [left_list, right_list].map(|list| {
-                    list.inner_value(ctx).and_then(|inner| inner.data(ctx))
-                });
+                let [left, right] = [left_list, right_list]
+                    .map(|list| list.inner_value(ctx).and_then(|inner| inner.data(ctx)));
                 let [left, right] = [left?, right?];
                 let new_len = ctx.builder.build_int_add(left_len, right_len, "")?;
                 let new_list = list_ty.construct(ctx, new_len, None)?;
@@ -1095,11 +1094,9 @@ pub fn gen_prim_binop_expr<'ctx>(
                 );
                 left_chunk.memcpy_from(ctx, left.inner_value(ctx, Some(left_len))?.value.0)?;
 
-                let right_pos = new_list_data.inner_value(ctx, Some(new_len))?.ptr_offset_unchecked(
-                    ctx,
-                    &left_len,
-                    None,
-                )?;
+                let right_pos = new_list_data
+                    .inner_value(ctx, Some(new_len))?
+                    .ptr_offset_unchecked(ctx, &left_len, None)?;
                 let right_chunk = new_list_data
                     .inner_value(ctx, Some(new_len))?
                     .ty
@@ -1168,7 +1165,10 @@ pub fn gen_prim_binop_expr<'ctx>(
                         let ptr = new_list_data
                             .inner_value(ctx, Some(total_len))?
                             .ptr_offset_unchecked(ctx, &offset, None)?;
-                        let dest = new_list_data.inner_value(ctx, Some(total_len))?.ty.map_value((ptr, size), None);
+                        let dest = new_list_data
+                            .inner_value(ctx, Some(total_len))?
+                            .ty
+                            .map_value((ptr, size), None);
                         dest.memcpy_from(ctx, old_list_ptr)?;
                         Ok(())
                     },
@@ -2416,8 +2416,11 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
                     [Some(raw_index), Some(len), None],
                     expr.location,
                 )?;
-                let result =
-                    v.inner_value(ctx)?.data(ctx)?.inner_value(ctx, Some(len))?.get_unchecked(ctx, &index, None)?;
+                let result = v
+                    .inner_value(ctx)?
+                    .data(ctx)?
+                    .inner_value(ctx, Some(len))?
+                    .get_unchecked(ctx, &index, None)?;
                 RtValue::dynamic(ty, result)
             }
         }
