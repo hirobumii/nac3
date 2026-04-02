@@ -353,3 +353,196 @@ fn test_simple_call() {
     registry.add_task(task);
     registry.wait_tasks_complete(handles);
 }
+
+// ---------------------------------------------------------------------------
+// Type layout tests — assert LLVM struct layouts for refcounted types
+// ---------------------------------------------------------------------------
+
+mod layout {
+    use inkwell::{
+        OptimizationLevel,
+        targets::{InitializationConfig, Target},
+        types::BasicTypeEnum,
+    };
+
+    use crate::{
+        codegen::{
+            ModuleContext, TargetMachineOptions,
+            types::{
+                ClassType, NDArrayType, ObjectHeaderType, OptionSomeType, ProxyType,
+                RefCountedArrayType, RefType, TupleType, TypeinfoType,
+            },
+        },
+        toplevel::DefinitionId,
+    };
+
+    /// Formats an LLVM struct layout: type string, ABI size/alignment, and per-field offsets.
+    fn format_layout(ctx: &ModuleContext<'_>, ty: BasicTypeEnum<'_>, label: &str) -> String {
+        let dl = ctx.target.get_target_data();
+        let mut lines = Vec::new();
+
+        lines.push(format!("{label}:"));
+        lines.push(format!("  llvm_type: {}", ty.print_to_string().to_string_lossy()));
+        lines.push(format!("  abi_size: {}", dl.get_abi_size(&ty)));
+        lines.push(format!("  abi_alignment: {}", dl.get_abi_alignment(&ty)));
+
+        if let BasicTypeEnum::StructType(st) = ty {
+            lines.push(format!("  fields ({}):", st.count_fields()));
+            for i in 0..st.count_fields() {
+                let field_ty = unsafe { st.get_field_type_at_index_unchecked(i) };
+                let offset = dl.offset_of_element(&st, i).unwrap();
+                lines.push(format!(
+                    "    [{i}] offset={offset}, type={}",
+                    field_ty.print_to_string().to_string_lossy()
+                ));
+            }
+        }
+
+        lines.join("\n")
+    }
+
+    /// Formats a struct and its immediate sub-structs.
+    fn format_layout_recursive(
+        ctx: &ModuleContext<'_>,
+        ty: BasicTypeEnum<'_>,
+        label: &str,
+    ) -> String {
+        let mut parts = vec![format_layout(ctx, ty, label)];
+
+        if let BasicTypeEnum::StructType(st) = ty {
+            for i in 0..st.count_fields() {
+                let field_ty = unsafe { st.get_field_type_at_index_unchecked(i) };
+                if let BasicTypeEnum::StructType(_) = field_ty {
+                    parts.push(format_layout(ctx, field_ty, &format!("{label}.field[{i}]")));
+                }
+            }
+        }
+
+        parts.join("\n")
+    }
+
+    fn create_module_context_64(ctx_ref: inkwell::context::ContextRef<'_>) -> ModuleContext<'_> {
+        Target::initialize_x86(&InitializationConfig::default());
+        let options = TargetMachineOptions {
+            triple: "x86_64-unknown-linux-gnu".to_string(),
+            cpu: String::new(),
+            features: String::new(),
+            reloc_mode: inkwell::targets::RelocMode::Default,
+            code_model: inkwell::targets::CodeModel::Default,
+            target_opt_level: OptimizationLevel::None,
+        };
+        ModuleContext::new(ctx_ref, "test_layout_64", &options)
+    }
+
+    fn create_module_context_32(ctx_ref: inkwell::context::ContextRef<'_>) -> ModuleContext<'_> {
+        Target::initialize_x86(&InitializationConfig::default());
+        let options = TargetMachineOptions {
+            triple: "i686-unknown-linux-gnu".to_string(),
+            cpu: String::new(),
+            features: String::new(),
+            reloc_mode: inkwell::targets::RelocMode::Default,
+            code_model: inkwell::targets::CodeModel::Default,
+            target_opt_level: OptimizationLevel::None,
+        };
+        ModuleContext::new(ctx_ref, "test_layout_32", &options)
+    }
+
+    /// Generates the layout snapshot string for all refcounted types.
+    fn generate_layouts(ctx: &ModuleContext<'_>) -> String {
+        let mut sections = Vec::new();
+
+        // ObjectHeader
+        let header_ty = ObjectHeaderType::new(ctx);
+        sections.push(format_layout(ctx, header_ty.alloca_ty(ctx), "ObjectHeader"));
+
+        // Typeinfo
+        let typeinfo_ty = TypeinfoType::new(ctx);
+        sections.push(format_layout(ctx, typeinfo_ty.llvm_ty(ctx), "Typeinfo"));
+
+        // RefCountedArray<i32> (e.g., list[int32] data backing)
+        let rc_array_i32 = RefCountedArrayType::new(ctx, ctx.i32, Some(0));
+        sections.push(format_layout_recursive(
+            ctx,
+            rc_array_i32.alloca_ty(ctx),
+            "RefCountedArray<i32>",
+        ));
+
+        // List: { ObjectHeader, { ptr items, size_t len } }
+        // Built manually since ListType::create requires a unifier Type.
+        let list_inner = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
+        let list_header = header_ty.alloca_ty(ctx).into_struct_type();
+        let list_outer = ctx.ctx.struct_type(&[list_header.into(), list_inner.into()], false);
+        sections.push(format_layout_recursive(ctx, list_outer.into(), "List"));
+
+        // NDArray<i32, ndims=1>
+        let ndarray_ty = NDArrayType::create(ctx, ctx.i32.into(), 1);
+        sections
+            .push(format_layout_recursive(ctx, ndarray_ty.alloca_ty(ctx), "NDArray<i32, 1>"));
+
+        // OptionSome<i32>
+        let option_some_i32 = OptionSomeType::new(ctx, ctx.i32.into());
+        sections.push(format_layout_recursive(
+            ctx,
+            option_some_i32.alloca_ty(ctx),
+            "OptionSome<i32>",
+        ));
+
+        // OptionSome<ptr> (refcounted element)
+        let option_some_ptr = OptionSomeType::new(ctx, ctx.ptr.into());
+        sections.push(format_layout_recursive(
+            ctx,
+            option_some_ptr.alloca_ty(ctx),
+            "OptionSome<ptr>",
+        ));
+
+        // Tuple<i32, i32>
+        let tuple_i32_i32 = TupleType::new(ctx, &[ctx.i32.into(), ctx.i32.into()]);
+        sections.push(format_layout_recursive(
+            ctx,
+            tuple_i32_i32.llvm_ty(ctx),
+            "Tuple<i32, i32>",
+        ));
+
+        // Tuple<ptr, i32> (one refcounted field)
+        let tuple_ptr_i32 = TupleType::new(ctx, &[ctx.ptr.into(), ctx.i32.into()]);
+        sections.push(format_layout_recursive(
+            ctx,
+            tuple_ptr_i32.llvm_ty(ctx),
+            "Tuple<ptr, i32>",
+        ));
+
+        // Class with two i32 fields (like Point)
+        let point_inner = ctx.ctx.struct_type(&[ctx.i32.into(), ctx.i32.into()], false);
+        let point_class = ClassType::create(ctx, point_inner, DefinitionId(100), 0);
+        sections.push(format_layout_recursive(
+            ctx,
+            point_class.alloca_ty(ctx),
+            "Class<i32, i32>",
+        ));
+
+        // Class with two ptr fields (like Container)
+        let container_inner = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.ptr.into()], false);
+        let container_class = ClassType::create(ctx, container_inner, DefinitionId(101), 0b11);
+        sections.push(format_layout_recursive(
+            ctx,
+            container_class.alloca_ty(ctx),
+            "Class<ptr, ptr>",
+        ));
+
+        sections.join("\n\n")
+    }
+
+    #[test]
+    fn test_type_layouts_64bit() {
+        crate::codegen::context_ref!(ctx_ref);
+        let ctx = create_module_context_64(ctx_ref);
+        insta::assert_snapshot!(generate_layouts(&ctx));
+    }
+
+    #[test]
+    fn test_type_layouts_32bit() {
+        crate::codegen::context_ref!(ctx_ref);
+        let ctx = create_module_context_32(ctx_ref);
+        insta::assert_snapshot!(generate_layouts(&ctx));
+    }
+}

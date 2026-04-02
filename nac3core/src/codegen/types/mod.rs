@@ -115,6 +115,8 @@ pub use reference::{
     RefCountedType, RefCountedValue, TypedRefCountedType, TypedRefCountedValue,
     is_obj_id_refcounted, is_refcounted_type,
 };
+#[cfg(test)]
+pub use reference::ObjectHeaderType;
 pub use string::{StringType, StringValue};
 pub use tuple::{TupleType, TupleValue};
 pub use typeinfo::{TypeinfoType, TypeinfoValue};
