@@ -110,13 +110,13 @@ pub use ndarray::{
 };
 pub use option::{OptionSomeType, OptionSomeValue, OptionType, OptionValue};
 pub use range::{RangeField, RangeType, RangeValue};
+#[cfg(test)]
+pub use reference::ObjectHeaderType;
 pub use reference::{
     OpaqueRefCountedType, OpaqueRefCountedValue, RefCountedArrayType, RefCountedArrayValue,
     RefCountedType, RefCountedValue, TypedRefCountedType, TypedRefCountedValue,
     is_obj_id_refcounted, is_refcounted_type,
 };
-#[cfg(test)]
-pub use reference::ObjectHeaderType;
 pub use string::{StringType, StringValue};
 pub use tuple::{TupleType, TupleValue};
 pub use typeinfo::{TypeinfoType, TypeinfoValue};

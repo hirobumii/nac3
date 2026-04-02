@@ -476,8 +476,7 @@ mod layout {
 
         // NDArray<i32, ndims=1>
         let ndarray_ty = NDArrayType::create(ctx, ctx.i32.into(), 1);
-        sections
-            .push(format_layout_recursive(ctx, ndarray_ty.alloca_ty(ctx), "NDArray<i32, 1>"));
+        sections.push(format_layout_recursive(ctx, ndarray_ty.alloca_ty(ctx), "NDArray<i32, 1>"));
 
         // OptionSome<i32>
         let option_some_i32 = OptionSomeType::new(ctx, ctx.i32.into());
@@ -497,28 +496,16 @@ mod layout {
 
         // Tuple<i32, i32>
         let tuple_i32_i32 = TupleType::new(ctx, &[ctx.i32.into(), ctx.i32.into()]);
-        sections.push(format_layout_recursive(
-            ctx,
-            tuple_i32_i32.llvm_ty(ctx),
-            "Tuple<i32, i32>",
-        ));
+        sections.push(format_layout_recursive(ctx, tuple_i32_i32.llvm_ty(ctx), "Tuple<i32, i32>"));
 
         // Tuple<ptr, i32> (one refcounted field)
         let tuple_ptr_i32 = TupleType::new(ctx, &[ctx.ptr.into(), ctx.i32.into()]);
-        sections.push(format_layout_recursive(
-            ctx,
-            tuple_ptr_i32.llvm_ty(ctx),
-            "Tuple<ptr, i32>",
-        ));
+        sections.push(format_layout_recursive(ctx, tuple_ptr_i32.llvm_ty(ctx), "Tuple<ptr, i32>"));
 
         // Class with two i32 fields (like Point)
         let point_inner = ctx.ctx.struct_type(&[ctx.i32.into(), ctx.i32.into()], false);
         let point_class = ClassType::create(ctx, point_inner, DefinitionId(100), 0);
-        sections.push(format_layout_recursive(
-            ctx,
-            point_class.alloca_ty(ctx),
-            "Class<i32, i32>",
-        ));
+        sections.push(format_layout_recursive(ctx, point_class.alloca_ty(ctx), "Class<i32, i32>"));
 
         // Class with two ptr fields (like Container)
         let container_inner = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.ptr.into()], false);
