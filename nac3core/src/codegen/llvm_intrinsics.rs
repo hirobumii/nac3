@@ -75,7 +75,7 @@ pub fn call_stacksave<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     name: Option<&str>,
 ) -> anyhow::Result<PointerValue<'ctx>> {
-    call_intrinsic!(ctx, name, "stacksave"() -> ptr)
+    call_intrinsic!(ctx, name, "stacksave"[ctx.ptr]() -> ptr)
 }
 
 #[doc = llvm_doc!("va_stackrestore")]
@@ -85,7 +85,7 @@ pub fn call_stackrestore<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     ptr: PointerValue<'ctx>,
 ) -> anyhow::Result<()> {
-    call_intrinsic!(ctx, None, "stackrestore"(ptr) -> void)
+    call_intrinsic!(ctx, None, "stackrestore"[ptr.get_type()](ptr) -> void)
 }
 
 #[doc = llvm_doc!("memcpy")]
