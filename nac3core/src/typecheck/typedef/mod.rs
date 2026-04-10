@@ -18,7 +18,7 @@ use crate::{
         magic_methods::{Binop, HasOpInfo, OpInfo},
         type_error::{TypeError, TypeErrorKind},
         type_inferencer::PrimitiveStore,
-        unification_table::{UnificationKey, UnificationTable},
+        unification_table::{UnificationKey, UnificationTable, ValueStatus},
     },
 };
 
@@ -445,6 +445,50 @@ impl Unifier {
     #[must_use]
     pub fn get_ty_immutable(&self, a: Type) -> Rc<TypeEnum> {
         self.unification_table.probe_value_immutable(a).clone()
+    }
+
+    /// Substitutes all type variables in the unification table by `ty_map`.
+    /// Type variables that do not appear in the mapping retain its original type variable.
+    pub fn subst_vars(&mut self, ty_map: &IndexMap<TypeVarId, TypeVarId>) {
+        self.unification_table.update_all_with(|value_opt| {
+            let Some(value) = value_opt else {
+                return ValueStatus::Keep;
+            };
+
+            match &**value {
+                TypeEnum::TFunc(FunSignature { args, ret, vars }) => {
+                    let new_vars = vars
+                        .iter()
+                        .map(|(k, v)| ty_map.get(k).map_or((*k, *v), |n_k| (*n_k, *v)))
+                        .collect();
+                    if new_vars == *vars {
+                        ValueStatus::Keep
+                    } else {
+                        let new_signature =
+                            FunSignature { args: args.clone(), ret: *ret, vars: new_vars };
+                        ValueStatus::Subst(Some(Rc::new(TypeEnum::TFunc(new_signature))))
+                    }
+                }
+
+                TypeEnum::TObj { obj_id, fields, params } => {
+                    let new_params = params
+                        .iter()
+                        .map(|(k, v)| ty_map.get(k).map_or((*k, *v), |n_k| (*n_k, *v)))
+                        .collect();
+                    if new_params == *params {
+                        ValueStatus::Keep
+                    } else {
+                        ValueStatus::Subst(Some(Rc::new(TypeEnum::TObj {
+                            obj_id: *obj_id,
+                            fields: fields.clone(),
+                            params: new_params,
+                        })))
+                    }
+                }
+
+                _ => ValueStatus::Keep,
+            }
+        });
     }
 
     pub fn get_fresh_rigid_var(&mut self, name: Option<StrRef>, loc: Option<Location>) -> TypeVar {

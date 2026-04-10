@@ -22,6 +22,12 @@ enum Action<V> {
     Marker { generation: u32 },
 }
 
+#[derive(Clone, Debug)]
+pub enum ValueStatus<V> {
+    Keep,
+    Subst(Option<V>),
+}
+
 impl<V> Default for UnificationTable<V> {
     fn default() -> Self {
         Self::new()
@@ -92,6 +98,16 @@ impl<V> UnificationTable<V> {
 
     pub fn get_representative(&mut self, key: UnificationKey) -> UnificationKey {
         UnificationKey(self.find(key))
+    }
+
+    pub fn update_all_with(&mut self, f: impl Fn(&Option<V>) -> ValueStatus<V>) {
+        for (index, value) in self.values.iter_mut().enumerate() {
+            if let ValueStatus::Subst(new_value) = f(value) {
+                let original_value = value.take();
+                *value = new_value;
+                self.log.push(Action::Value { key: index, original_value });
+            }
+        }
     }
 
     fn find(&mut self, key: UnificationKey) -> usize {
