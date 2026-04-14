@@ -89,7 +89,8 @@ impl<'ctx> RawNDIterValue<'ctx> {
         let array_size = self.load(ctx, field!(size))?;
         let data_ptr = data.inner_value(ctx, Some(array_size))?.value.0;
         let offset = self.load(ctx, field!(offset))?;
-        Ok(unsafe { ctx.builder.build_gep(self.ty.dtype, data_ptr, &[offset], "")? })
+        // `offset` is a byte offset (see IRRT `RawNDIter::initialize`), so GEP by i8 bytes.
+        Ok(unsafe { ctx.builder.build_gep(ctx.i8, data_ptr, &[offset], "")? })
     }
 
     /// Loads and returns the current element as a scalar value.
