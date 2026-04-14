@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use anyhow::anyhow;
 use inkwell::{
+    IntPredicate,
     types::{BasicTypeEnum, IntType},
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
 };
@@ -66,8 +67,12 @@ impl<'ctx> RawNDIterValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<IntValue<'ctx>> {
-        let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_has_element");
-        call_extern!(ctx: (ctx.i1) _ = name(self.value))
+        // NOTE: IRRT is compiled for WASM32, and -O3 bakes in struct field byte offsets for
+        // 32-bit pointers that are incorrect on 64-bit targets, so we emit the `nth < size`
+        // check directly instead of calling `__nac3_nditer_has_element`.
+        let nth = self.load(ctx, field!(nth))?;
+        let size = self.load(ctx, field!(size))?;
+        Ok(ctx.builder.build_int_compare(IntPredicate::SLT, nth, size, "has_element")?)
     }
 
     fn array(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<NDArrayValue<'ctx>> {
@@ -83,7 +88,8 @@ impl<'ctx> RawNDIterValue<'ctx> {
         let data = self.array(ctx)?.inner_value(ctx)?.base_data(ctx)?;
         let array_size = self.load(ctx, field!(size))?;
         let data_ptr = data.inner_value(ctx, Some(array_size))?.value.0;
-        Ok(unsafe { ctx.builder.build_gep(data_ptr, &[self.load(ctx, field!(offset))?], "")? })
+        let offset = self.load(ctx, field!(offset))?;
+        Ok(unsafe { ctx.builder.build_gep(self.ty.dtype, data_ptr, &[offset], "")? })
     }
 
     /// Loads and returns the current element as a scalar value.
@@ -201,7 +207,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         ) -> anyhow::Result<V>,
     {
         let init = init.as_basic_value_enum();
-        let acc_ptr = ctx.build_allocate(AllocationScope::Default, init.get_type(), None)?;
+        let acc_ty = init.get_type();
+        let acc_ptr = ctx.build_allocate(AllocationScope::Default, acc_ty, None)?;
         typed_store(ctx.builder, acc_ptr, init)?;
 
         gen_for_callback(
@@ -211,7 +218,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             |(), ctx| NDIterValue::new(ctx, *self),
             |(), ctx, nditer| nditer.inner_value(ctx)?.has_element(ctx),
             |(), ctx, hooks, nditer| {
-                let acc = V::try_from(ctx.builder.build_load(acc_ptr, "")?)
+                let acc = V::try_from(ctx.builder.build_load(acc_ty, acc_ptr, "")?)
                     .map_err(|e| anyhow!("{e:?}"))?;
                 let acc = f(ctx, hooks, acc, nditer)?;
                 typed_store(ctx.builder, acc_ptr, acc)?;
@@ -224,7 +231,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             |(), _| Ok(()),
         )?;
 
-        let acc = ctx.builder.build_load(acc_ptr, "")?;
+        let acc = ctx.builder.build_load(acc_ty, acc_ptr, "")?;
         V::try_from(acc).map_err(|e| anyhow!("{e:?}"))
     }
 }

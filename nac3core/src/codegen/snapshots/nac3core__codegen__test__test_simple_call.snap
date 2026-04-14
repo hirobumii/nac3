@@ -4,7 +4,7 @@ expression: "module.print_to_string().to_str().map(str::trim).unwrap()"
 ---
 ; ModuleID = 'test'
 source_filename = "test"
-target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
+target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
 
 @__nac3_global_begin = weak local_unnamed_addr constant i8 poison
@@ -12,16 +12,16 @@ target triple = "x86_64-unknown-linux-gnu"
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
 define i32 @testing(i32 %0) local_unnamed_addr #0 !dbg !5 {
 init:
-  %add.i = shl i32 %0, 1, !dbg !10
-  %mul = add i32 %add.i, 2, !dbg !10
-  ret i32 %mul, !dbg !10
+  %add.i = shl i32 %0, 1, !dbg !9
+  %mul = add i32 %add.i, 2, !dbg !9
+  ret i32 %mul, !dbg !9
 }
 
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn memory(none)
-define fastcc i32 @foo.0(i32 %0) local_unnamed_addr #0 !dbg !11 {
+define fastcc i32 @foo.0(i32 %0) local_unnamed_addr #0 !dbg !10 {
 init:
-  %add = add i32 %0, 1, !dbg !12
-  ret i32 %add, !dbg !12
+  %add = add i32 %0, 1, !dbg !11
+  ret i32 %add, !dbg !11
 }
 
 attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memory(none) }
@@ -34,11 +34,10 @@ attributes #0 = { mustprogress nofree norecurse nosync nounwind willreturn memor
 !2 = distinct !DICompileUnit(language: DW_LANG_Python, file: !3, producer: "NAC3", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug)
 !3 = !DIFile(filename: "unknown", directory: "")
 !4 = distinct !DICompileUnit(language: DW_LANG_Python, file: !3, producer: "NAC3", isOptimized: true, runtimeVersion: 0, emissionKind: FullDebug)
-!5 = distinct !DISubprogram(name: "testing", linkageName: "testing", scope: null, file: !3, line: 1, type: !6, scopeLine: 1, flags: DIFlagPublic, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !2, retainedNodes: !9)
+!5 = distinct !DISubprogram(name: "testing", linkageName: "testing", scope: null, file: !3, line: 1, type: !6, scopeLine: 1, flags: DIFlagPublic, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !2)
 !6 = !DISubroutineType(flags: DIFlagPublic, types: !7)
 !7 = !{!8}
 !8 = !DIBasicType(name: "_", flags: DIFlagPublic)
-!9 = !{}
-!10 = !DILocation(line: 2, column: 12, scope: !5)
-!11 = distinct !DISubprogram(name: "foo.0", linkageName: "foo.0", scope: null, file: !3, line: 1, type: !6, scopeLine: 1, flags: DIFlagPublic, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !4, retainedNodes: !9)
-!12 = !DILocation(line: 1, column: 12, scope: !11)
+!9 = !DILocation(line: 2, column: 12, scope: !5)
+!10 = distinct !DISubprogram(name: "foo.0", linkageName: "foo.0", scope: null, file: !3, line: 1, type: !6, scopeLine: 1, flags: DIFlagPublic, spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !4)
+!11 = !DILocation(line: 1, column: 12, scope: !10)

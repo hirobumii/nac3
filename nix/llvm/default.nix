@@ -79,24 +79,7 @@ in rec {
         mkdir cmake
         ln -s $PWD/llvm/cmake cmake/Modules
       '';
-    patches =
-      lib.lists.flatten (map (proj:
-        if proj == "clang"
-        then [
-          # clang ignores all "compile-only options" if it only performs linkage.
-          # "Include path options" are "compile-only options".
-          # However, clang-16 does not identify options such as -nostdlibinc as "include path options".
-          # Hence, clang-16 always emit unused arguments warning when only linking.
-          #
-          # TODO: Remove when updating llvm.
-          (fetchpatch {
-            url = "https://github.com/llvm/llvm-project/commit/5b77e752dcd073846b89559d6c0e1a7699e58615.patch";
-            sha256 = "sha256-W81hy5EWlRIpqu7BEEem+EKPFgHn3rYychH3cnD5aDc=";
-          })
-        ]
-        else [])
-      enableProjects)
-      ++ optionals (msys2-env == null) ([
+    patches = optionals (msys2-env == null) ([
           # Aggregate of 2 merged patches:
           # https://github.com/llvm/llvm-project/commit/7e44305041d96b064c197216b931ae3917a34ac1.patch
           # https://github.com/llvm/llvm-project/commit/7abf44069aec61eee147ca67a6333fc34583b524.patch

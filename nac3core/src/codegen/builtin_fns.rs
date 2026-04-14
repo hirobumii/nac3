@@ -822,8 +822,8 @@ pub fn call_numpy_max_min<'ctx>(
 
             // The first element is iterated, but this doesn't matter.
             ndarray.foreach(ctx, |ctx, _, nditer| {
-                let old_extremum = ctx.builder.build_load(extremum, "")?;
-                let old_extremum_idx = ctx.builder.build_load(extremum_idx, "")?.into_int_value();
+                let old_extremum = ctx.builder.build_load(llvm_dtype, extremum, "")?;
+                let old_extremum_idx = ctx.builder.build_load(ctx.size_t, extremum_idx, "")?.into_int_value();
 
                 let curr_value = nditer.inner_value(ctx)?.get_scalar(ctx)?;
                 let curr_idx = nditer.inner_value(ctx)?.get_index(ctx)?;
@@ -872,12 +872,12 @@ pub fn call_numpy_max_min<'ctx>(
                 "np_argmin" | "np_argmax" => ctx
                     .builder
                     .build_int_s_extend_or_bit_cast(
-                        ctx.builder.build_load(extremum_idx, "")?.into_int_value(),
+                        ctx.builder.build_load(ctx.size_t, extremum_idx, "")?.into_int_value(),
                         ctx.i64,
                         "",
                     )?
                     .into(),
-                "np_max" | "np_min" => ctx.builder.build_load(extremum, "")?,
+                "np_max" | "np_min" => ctx.builder.build_load(llvm_dtype, extremum, "")?,
                 _ => codegen_unreachable!(ctx),
             }
         }

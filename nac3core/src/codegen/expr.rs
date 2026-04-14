@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{anyhow, bail};
 use inkwell::{
-    AddressSpace, IntPredicate,
+    IntPredicate,
     basic_block::BasicBlock,
     types::{BasicType, BasicTypeEnum},
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
@@ -122,18 +122,16 @@ pub fn get_subst_key(
 impl<'ctx> CodeGenContext<'ctx, '_> {
     /// Builds a sequence of `getelementptr` and `load` instructions which stores the value of a
     /// struct field into an LLVM value.
-    ///
-    /// # Safety
-    ///
-    /// See [`inkwell::builder::Builder::build_gep`].
-    pub unsafe fn build_gep_and_load(
-        &self,
+    pub fn build_gep_and_load(
+        &mut self,
+        gep_ty: BasicTypeEnum<'ctx>,
         ptr: PointerValue<'ctx>,
         index: &[IntValue<'ctx>],
         name: Option<&str>,
+        load_ty: BasicTypeEnum<'ctx>
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
-        let gep = unsafe { self.builder.build_gep(ptr, index, "")? };
-        Ok(self.builder.build_load(gep, name.unwrap_or_default())?)
+        let gep = unsafe { self.builder.build_gep(gep_ty, ptr, index, "")? };
+        Ok(self.builder.build_load(load_ty, gep, name.unwrap_or_default())?)
     }
 
     fn get_subst_key(
@@ -936,7 +934,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             ctx.builder.position_at_end(test_bb);
             // add and test
             let tmp = ctx.builder.build_int_add(
-                ctx.builder.build_load(i, "i")?.into_int_value(),
+                ctx.builder.build_load(int32, i, "i")?.into_int_value(),
                 step,
                 "start_loop",
             )?;
@@ -965,7 +963,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             ctx.builder.build_unconditional_branch(test_bb)?;
 
             ctx.builder.position_at_end(test_bb);
-            let tmp = ctx.builder.build_load(counter, "i")?.into_int_value();
+            let tmp = ctx.builder.build_load(size_t, counter, "i")?.into_int_value();
             let tmp = ctx.builder.build_int_add(tmp, size_t.const_int(1, false), "inc")?;
             typed_store(ctx.builder, counter, tmp)?;
             let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, length, "cmp")?;
@@ -993,7 +991,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         list.inner_value(ctx)?.store(
             ctx,
             field!(len),
-            ctx.builder.build_load(index, "index")?.into_int_value(),
+            ctx.builder.build_load(size_t, index, "index")?.into_int_value(),
         )?;
         anyhow::Ok(())
     };
@@ -1007,7 +1005,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         ctx.builder.position_at_end(succ);
     }
 
-    let i = ctx.builder.build_load(index, "i")?.into_int_value();
+    let i = ctx.builder.build_load(size_t, index, "i")?.into_int_value();
     let list_cap = list.inner_value(ctx)?.load(ctx, field!(len))?;
     let elem_ptr = list
         .inner_value(ctx)?
@@ -1732,7 +1730,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                             let acc = ctx
                                 .builder
-                                .build_load(acc_addr, "")?
+                                .build_load(ctx.i8, acc_addr, "")?
                                 .into_int_value();
 
                             Ok(Some(acc))
@@ -2008,30 +2006,26 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
 
         // For refcounted classes, use inner_ptr to skip past the ObjectHeader,
         // then GEP into the inner struct with the original field index.
-        let ptr = if is_refcounted {
+        let (ptr, alloca_type) = if is_refcounted {
             let rc = OpaqueRefCountedType::new(ctx).map_value(v.into_pointer_value(), None);
             let inner_ptr = rc.inner_ptr(ctx)?;
             let raw_class = RawClassType::from_unifier_type(ctx, value.custom.unwrap());
-            ctx.builder.build_pointer_cast(
-                inner_ptr,
-                raw_class.inner_type().ptr_type(AddressSpace::default()),
-                "attr_ptr",
-            )?
+            (inner_ptr, raw_class.inner_type().as_basic_type_enum())
         } else {
-            let alloca_type = ctx.get_alloca_type(result.ty);
-            ctx.builder.build_pointer_cast(
-                v.into_pointer_value(),
-                alloca_type.ptr_type(AddressSpace::default()),
-                "attr_ptr",
-            )?
+            (v.into_pointer_value(), ctx.get_alloca_type(result.ty))
         };
-        unsafe {
-            ctx.build_gep_and_load(
-                ptr,
-                &[ctx.i32.const_zero(), ctx.i32.const_int(index as u64, false)],
-                None,
-            )
-        }
+        let field_ty = match alloca_type {
+            BasicTypeEnum::StructType(s) => s.get_field_type_at_index(index as u32).unwrap(),
+            BasicTypeEnum::ArrayType(a) => a.get_element_type(),
+            _ => codegen_unreachable!(ctx),
+        };
+        ctx.build_gep_and_load(
+            alloca_type,
+            ptr,
+            &[ctx.i32.const_int(0, false), ctx.i32.const_int(index as u64, false)],
+            None,
+            field_ty,
+        )
     };
     let res = match result.val {
         Some(ValueEnum::Static(v)) => match v.get_field(attr, ctx)? {
@@ -2161,7 +2155,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
 
     ctx.builder.position_at_end(cont_bb);
     Ok(if let Some(v) = result {
-        let val = ctx.builder.build_load(v, "if_exp_val_load")?;
+        let val = ctx.builder.build_load(ctx.get_llvm_type(body_ty), v, "if_exp_val_load")?;
         RtValue::dynamic(ty, val)
     } else {
         RtValue::none(ty)
@@ -2303,12 +2297,9 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                                 ctx.current_loc,
                             )?;
                             ctx.builder.position_at_end(unreachable_block);
-                            let ptr = ctx
-                                .get_llvm_type(ty)
-                                .ptr_type(AddressSpace::default())
-                                .const_null();
+                            let ptr = ctx.ptr.const_null();
                             let loaded_val =
-                                ctx.builder.build_load(ptr, "unwrap_none_unreachable_load")?;
+                                ctx.builder.build_load(ctx.get_llvm_type(ty), ptr, "unwrap_none_unreachable_load")?;
                             RtValue::dynamic(ty, loaded_val)
                         }
                     }

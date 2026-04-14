@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use inkwell::{
-    AddressSpace,
     module::Linkage,
     types::{BasicType, BasicTypeEnum},
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
@@ -271,13 +270,8 @@ pub trait WithTypeinfo<'ctx> {
                 value.set_linkage(Linkage::WeakAny);
                 value.set_initializer(
                     &llvm_typeinfo.const_named_struct(&[
-                        name.as_pointer_value()
-                            .const_cast(ctx.i8.ptr_type(AddressSpace::default()))
-                            .into(),
-                        refcounted_fields
-                            .as_pointer_value()
-                            .const_cast(ctx.i32.ptr_type(AddressSpace::default()))
-                            .into(),
+                        name.as_pointer_value().into(),
+                        refcounted_fields.as_pointer_value().into(),
                     ]),
                 );
                 value.set_constant(true);

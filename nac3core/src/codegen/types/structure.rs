@@ -2,8 +2,7 @@ use std::marker::PhantomData;
 
 use anyhow::anyhow;
 use inkwell::{
-    AddressSpace,
-    types::{BasicType, BasicTypeEnum},
+    types::BasicTypeEnum,
     values::{AggregateValueEnum, BasicValue, BasicValueEnum, IntValue, PointerValue, StructValue},
 };
 use itertools::Itertools as _;
@@ -119,11 +118,10 @@ impl<'ctx, Value> StructField<'ctx, Value> {
         pobj: PointerValue<'ctx>,
         idx: &[IntValue<'ctx>],
     ) -> anyhow::Result<PointerValue<'ctx>> {
-        let ptr_ty = struct_ty.ptr_type(AddressSpace::default());
-        let cast = ctx.builder.build_pointer_cast(pobj, ptr_ty, "")?;
         Ok(unsafe {
             ctx.builder.build_in_bounds_gep(
-                cast,
+                struct_ty,
+                pobj,
                 &[idx, &[ctx.i32.const_int(u64::from(self.index), false)]].concat(),
                 "",
             )?
@@ -139,10 +137,9 @@ impl<'ctx, Value> StructField<'ctx, Value> {
         pobj: PointerValue<'ctx>,
         obj_name: Option<&str>,
     ) -> anyhow::Result<PointerValue<'ctx>> {
-        let ptr_ty = struct_ty.ptr_type(AddressSpace::default());
-        let cast = ctx.builder.build_pointer_cast(pobj, ptr_ty, "")?;
         Ok(ctx.builder.build_struct_gep(
-            cast,
+            struct_ty.into_struct_type(),
+            pobj,
             self.index,
             &obj_name.map(|name| format!("{name}.{}.addr", self.name)).unwrap_or_default(),
         )?)

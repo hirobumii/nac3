@@ -97,7 +97,7 @@
           doCheck = false;
           configurePhase = ''
             export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS="-C link-arg=-L${compiler-rt}/x86_64-unknown-linux-gnu -C link-arg=-lclang_rt.profile"
-            export LLVM_SYS_160_PREFIX=${llvm-nac3-instrumented}
+            export LLVM_SYS_181_PREFIX=${llvm-nac3-instrumented}
           '';
           installPhase = ''
             TARGET_DIR=$out/${pkgs.python3Packages.python.sitePackages}

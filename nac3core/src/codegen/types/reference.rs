@@ -100,11 +100,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
     ) -> anyhow::Result<()> {
         const FUNC_NAME: &str = "__nac3_object_header_init";
 
-        let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
-            self.value
-        } else {
-            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap()
-        };
+        let value = self.value;
 
         call_extern!(ctx: void _ = FUNC_NAME(value, ctx.i1.const_int(u64::from(is_refcounted), false), typeinfo.value))?;
         Ok(())
@@ -117,22 +113,14 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
     ) -> anyhow::Result<IntValue<'ctx>> {
         const FUNC_NAME: &str = "__nac3_is_object_refcounted";
 
-        let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
-            self.value
-        } else {
-            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "").unwrap()
-        };
+        let value = self.value;
 
         call_extern!(ctx: (ctx.i1) _ = FUNC_NAME(value))
     }
 
     /// Recursively increments the reference count of this object by one.
     pub fn increment_refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
-        let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
-            self.value
-        } else {
-            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?
-        };
+        let value = self.value;
 
         let func_name = get_usize_dependent_function_name(ctx, "__nac3_refcount_incr");
 
@@ -162,11 +150,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
     ///
     /// When the reference count reaches zero, the object will be automatically deallocated.
     pub fn decrement_refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
-        let value = if self.value.get_type().get_element_type() == ctx.i8.into() {
-            self.value
-        } else {
-            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?
-        };
+        let value = self.value;
 
         let func_name = get_usize_dependent_function_name(ctx, "__nac3_refcount_decr");
 
@@ -288,18 +272,12 @@ impl<'ctx> RefCountedValue<'ctx> for OpaqueRefCountedValue<'ctx> {
     }
 
     fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<PointerValue<'ctx>> {
-        let obj_header = ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?;
-        Ok(unsafe {
-            ctx.builder.build_gep(
-                obj_header,
-                &[ObjectHeaderType::new(ctx)
-                    .alloca_ty(ctx)
-                    .size_of()
-                    .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
-                    .unwrap()],
-                "",
-            )?
-        })
+        let sizeof_header = ctx.builder.build_int_truncate_or_bit_cast(
+            ObjectHeaderType::new(ctx).alloca_ty(ctx).size_of().unwrap(),
+            ctx.size_t,
+            "",
+        )?;
+        Ok(unsafe { ctx.builder.build_gep(ctx.i8, self.value, &[sizeof_header], "")? })
     }
 }
 
@@ -343,7 +321,11 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
         // in class fields) start as null rather than garbage.
         let inner_ptr = value.inner_ptr(ctx)?;
         let inner_ty = self.object.alloca_ty(ctx);
-        let inner_size = inner_ty.size_of().map(|s| s.const_cast(ctx.size_t, false)).unwrap();
+        let inner_size = ctx.builder.build_int_truncate_or_bit_cast(
+            inner_ty.size_of().unwrap(),
+            ctx.size_t,
+            "",
+        )?;
         llvm_intrinsics::call_memset(ctx, inner_ptr, ctx.i8.const_zero(), inner_size)?;
 
         Ok(value)
@@ -371,18 +353,12 @@ impl<'ctx, T: RefType<'ctx> + Copy> RefCountedValue<'ctx> for TypedRefCountedVal
     }
 
     fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<PointerValue<'ctx>> {
-        let obj_header = ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?;
-        Ok(unsafe {
-            ctx.builder.build_gep(
-                obj_header,
-                &[ObjectHeaderType::new(ctx)
-                    .alloca_ty(ctx)
-                    .size_of()
-                    .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
-                    .unwrap()],
-                "",
-            )?
-        })
+        let sizeof_header = ctx.builder.build_int_truncate_or_bit_cast(
+            ObjectHeaderType::new(ctx).alloca_ty(ctx).size_of().unwrap(),
+            ctx.size_t,
+            "",
+        )?;
+        Ok(unsafe { ctx.builder.build_gep(ctx.i8, self.value, &[sizeof_header], "")? })
     }
 
     fn inner_value(
@@ -471,30 +447,20 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
             );
 
             let alloca = self.alloca_ty(ctx);
-            let ptr = ctx.build_allocate(scope, alloca, name)?;
-
-            // Pretend to be a dynamically-sized array for consistent types
-            ctx.builder.build_pointer_cast(
-                ptr,
-                llvm_dyn_array_ty.llvm_ty(ctx).into_pointer_type(),
-                "",
-            )?
+            ctx.build_allocate(scope, alloca, name)?
         } else {
             let align_ty = self.inner;
 
-            let sizeof_elem = self
-                .array
-                .get_element_type()
-                .size_of()
-                .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
-                .unwrap();
-            let sizeof_zero_elem = llvm_dyn_array_ty
-                .inner
-                .llvm_ty(ctx)
-                .into_struct_type()
-                .size_of()
-                .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
-                .unwrap();
+            let sizeof_elem = ctx.builder.build_int_truncate_or_bit_cast(
+                self.array.get_element_type().size_of().unwrap(),
+                ctx.size_t,
+                "",
+            )?;
+            let sizeof_zero_elem = ctx.builder.build_int_truncate_or_bit_cast(
+                llvm_dyn_array_ty.inner.llvm_ty(ctx).into_struct_type().size_of().unwrap(),
+                ctx.size_t,
+                "",
+            )?;
 
             // sizeof(arr) = sizeof(ObjectHeader) + sizeof(elem) * n
             let alloc_size = ctx.builder.build_int_add(
@@ -504,11 +470,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
             )?;
 
             let ptr = type_aligned_allocate(ctx, scope, align_ty, alloc_size, name)?;
-            ctx.builder.build_pointer_cast(
-                ptr.value.0,
-                llvm_dyn_array_ty.llvm_ty(ctx).into_pointer_type(),
-                "",
-            )?
+            ptr.value.0
         };
 
         let value = self.map_value(value_ptr, name);
@@ -521,12 +483,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         value.header(ctx).init(ctx, is_refcounted, self.typeinfo(ctx))?;
 
         // Store the size into the array metadata
-        let inner = value.inner_ptr(ctx)?;
-        let psize = ctx.builder.build_pointer_cast(
-            inner,
-            llvm_dyn_array_ty.llvm_ty(ctx).into_pointer_type(),
-            "",
-        )?;
+        let psize = value.inner_ptr(ctx)?;
 
         // Store the number of refcounted elements in the array for recursive reference count
         // updates
@@ -542,23 +499,16 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         // Zero-initialize the array if this array stores pointers to avoid unintentional access of
         // uninitialized values
         if self.array.get_element_type().is_pointer_type() {
+            let sizeof_elem = ctx.builder.build_int_truncate_or_bit_cast(
+                self.array.get_element_type().size_of().unwrap(),
+                ctx.size_t,
+                "",
+            )?;
             llvm_intrinsics::call_memset(
                 ctx,
-                ctx.builder.build_pointer_cast(
-                    value.inner_value(ctx, Some(size))?.value.0,
-                    ctx.ptr,
-                    "",
-                )?,
+                value.inner_value(ctx, Some(size))?.value.0,
                 ctx.i8.const_zero(),
-                ctx.builder.build_int_mul(
-                    self.array
-                        .get_element_type()
-                        .size_of()
-                        .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
-                        .unwrap(),
-                    size,
-                    "",
-                )?,
+                ctx.builder.build_int_mul(sizeof_elem, size, "")?,
             )?;
         }
 
@@ -723,21 +673,11 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedValue<'ctx> for RefCountedArrayV
     }
 
     fn inner_ptr(&self, ctx: &CodeGenContext<'ctx, '_>) -> anyhow::Result<PointerValue<'ctx>> {
-        let obj_header = if self.value.get_type() == ctx.ptr {
-            self.value
-        } else {
-            ctx.builder.build_pointer_cast(self.value, ctx.ptr, "")?
-        };
-        Ok(unsafe {
-            ctx.builder.build_gep(
-                obj_header,
-                &[ObjectHeaderType::new(ctx)
-                    .alloca_ty(ctx)
-                    .size_of()
-                    .map(|sizeof| sizeof.const_cast(ctx.size_t, false))
-                    .unwrap()],
-                "",
-            )?
-        })
+        let sizeof_header = ctx.builder.build_int_truncate_or_bit_cast(
+            ObjectHeaderType::new(ctx).alloca_ty(ctx).size_of().unwrap(),
+            ctx.size_t,
+            "",
+        )?;
+        Ok(unsafe { ctx.builder.build_gep(ctx.i8, self.value, &[sizeof_header], "")? })
     }
 }

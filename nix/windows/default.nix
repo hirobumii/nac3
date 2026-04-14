@@ -54,7 +54,7 @@ in rec {
       ${silenceFontconfig}
       export PYO3_CONFIG_FILE=Z:${pyo3-mingw-config}
       export CC=clang
-      export LLVM_SYS_160_PREFIX=Z:${llvm}
+      export LLVM_SYS_181_PREFIX=Z:${llvm}
       wine cargo build --release -p nac3artiq
     '';
     installPhase = ''

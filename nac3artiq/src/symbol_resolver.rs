@@ -1157,7 +1157,7 @@ impl InnerResolver {
             };
             let arr_ty = ctx
                 .ctx
-                .struct_type(&[ty.ptr_type(AddressSpace::default()).into(), size_t.into()], false);
+                .struct_type(&[ctx.ptr.into(), size_t.into()], false);
 
             {
                 if self.global_value_ids.read().contains_key(&id) {
@@ -1206,10 +1206,7 @@ impl InnerResolver {
             arr_global.set_initializer(&arr);
 
             let val = arr_ty.const_named_struct(&[
-                arr_global
-                    .as_pointer_value()
-                    .const_cast(ty.ptr_type(AddressSpace::default()))
-                    .into(),
+                arr_global.as_pointer_value().into(),
                 size_t.const_int(len as u64, false).into(),
             ]);
 
@@ -1274,11 +1271,7 @@ impl InnerResolver {
                         .expect("must have iterable value");
 
                     if iterable.is_instance_of::<PyList>() {
-                        // Cast list pointer to i8*
-                        iterable_value
-                            .into_pointer_value()
-                            .const_cast(ctx.i8.ptr_type(AddressSpace::default()))
-                            .into()
+                        iterable_value.into_pointer_value().into()
                     } else {
                         // Tuple value is already a struct, we'll use it directly
                         iterable_value
@@ -1288,7 +1281,7 @@ impl InnerResolver {
                 };
 
             let iterable_struct_ty = ctx.ctx.struct_type(
-                &[ctx.i8.ptr_type(AddressSpace::default()).into(), ctx.size_t.into()],
+                &[ctx.ptr.into(), ctx.size_t.into()],
                 false,
             );
 
@@ -1497,6 +1490,7 @@ impl InnerResolver {
             let ndarray_shape = shape_global.as_pointer_value();
             let ndarray_shape = unsafe {
                 ctx.builder.build_in_bounds_gep(
+                    llvm_usize.array_type(ndims as u32),
                     ndarray_shape,
                     &[llvm_usize.const_zero(), llvm_usize.const_zero()],
                     "",
@@ -1506,6 +1500,7 @@ impl InnerResolver {
             let ndarray_strides = strides_global.as_pointer_value();
             let ndarray_strides = unsafe {
                 ctx.builder.build_in_bounds_gep(
+                    llvm_usize.array_type(ndims as u32),
                     ndarray_strides,
                     &[llvm_usize.const_zero(), llvm_usize.const_zero()],
                     "",
@@ -1559,12 +1554,7 @@ impl InnerResolver {
             };
             if id == self.primitive_ids.artiq.none {
                 // for option type, just a null ptr
-                Ok(Some(
-                    ctx.get_llvm_type(option_val_ty)
-                        .ptr_type(AddressSpace::default())
-                        .const_null()
-                        .into(),
-                ))
+                Ok(Some(ctx.ptr.const_null().into()))
             } else {
                 match self
                     .get_obj_value(py, &obj.getattr("_nac3_option").unwrap(), ctx, option_val_ty)
@@ -1616,11 +1606,11 @@ impl InnerResolver {
                 &ctx.top_level.definitions.read(),
                 &ctx.primitives,
             )?;
-            let ty = ctx.get_alloca_type(ty).into_struct_type();
+            let struct_ty = ctx.get_alloca_type(ty).into_struct_type();
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
+                        ctx.module.add_global(struct_ty, Some(AddressSpace::default()), &id_str)
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
@@ -1628,26 +1618,32 @@ impl InnerResolver {
             }
             // should be classes
             let top_level_defs = ctx.top_level.definitions.read();
-            let TopLevelDef::Class { fields, .. } =
+            let TopLevelDef::Class { fields: fields_list, .. } =
                 &*top_level_defs[self.pyid_to_def.read()[&ty_id].0].read()
             else {
                 unreachable!()
             };
 
-            let values = fields
+            let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(ty) else {
+                // As guaranteed by invoking ctx.get_alloca_type(ty)
+                unreachable!("type {} must refer to a class instance", ctx.unifier.stringify(ty))
+            };
+            assert_eq!(*obj_id, self.pyid_to_def.read()[&ty_id], "unifier failed to infer the same object");
+
+            let values = fields_list
                 .iter()
-                .map(|(name, ty, _)| {
+                .map(|(name, _, _)| {
                     Ok(self
-                        .get_obj_value(py, &obj.getattr(name.to_string().as_str())?, ctx, *ty)
+                        .get_obj_value(py, &obj.getattr(name.to_string().as_str())?, ctx, fields[name].0)
                         .map_err(|e| {
                         super::CompileError::new_err(format!("Error getting field {name}: {e}"))
                     })?)
                 })
                 .collect::<anyhow::Result<Option<Vec<_>>>>()?;
             if let Some(values) = values {
-                let val = ty.const_named_struct(&values);
+                let val = struct_ty.const_named_struct(&values);
                 let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                    ctx.module.add_global(ty, Some(AddressSpace::default()), &id_str)
+                    ctx.module.add_global(struct_ty, Some(AddressSpace::default()), &id_str)
                 });
                 global.set_initializer(&val);
                 Ok(Some(global.as_pointer_value().into()))

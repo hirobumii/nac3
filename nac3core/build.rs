@@ -36,8 +36,6 @@ fn main() {
         "-fno-exceptions",
         "-fno-rtti",
         "-emit-llvm",
-        "-Xclang",
-        "-no-opaque-pointers",
         "-S",
         "-Wall",
         "-Wextra",
@@ -126,7 +124,6 @@ fn main() {
 
     let mut llvm_as = Command::new("llvm-as-irrt")
         .stdin(Stdio::piped())
-        .arg("-opaque-pointers=0")
         .arg("-o")
         .arg(out_dir.join("irrt.bc"))
         .spawn()

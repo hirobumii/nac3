@@ -1,6 +1,5 @@
 use inkwell::{
-    AddressSpace,
-    types::{BasicType, BasicTypeEnum},
+    types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue},
 };
 
@@ -11,7 +10,7 @@ use crate::{
         irrt::get_usize_dependent_function_name,
         stmt::gen_if_else_expr_callback,
         types::{
-            ListValue, NDArrayType, ProxyTypeBase, RefCountedArrayType, RefCountedValue, RefType,
+            ListValue, NDArrayType, ProxyTypeBase, RefCountedArrayType, RefCountedValue,
             array::ArrayLikeIndexer,
             field,
             list::ListType,
@@ -153,22 +152,17 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
     ) -> anyhow::Result<Self> {
         assert_eq!(copy.get_type(), ctx.i1);
 
-        // Ensure both branches return the same typed pointer by casting to the
-        // concrete TypedRefCountedType pointer type.
-        let expected_ptr_ty = ndarray.ty.alloca_ty(ctx).ptr_type(AddressSpace::default());
         let ndarray_val = gen_if_else_expr_callback(
             &mut (),
             ctx,
             |(), _ctx| Ok(copy),
             |(), ctx| {
                 let ndarray = ndarray.make_copy(ctx)?; // Force copy
-                let ptr = ctx.builder.build_pointer_cast(ndarray.value, expected_ptr_ty, "")?;
-                Ok(Some(ptr))
+                Ok(Some(ndarray.value))
             },
-            |(), ctx| {
+            |(), _ctx| {
                 // No need to copy. Return `ndarray` itself.
-                let ptr = ctx.builder.build_pointer_cast(ndarray.value, expected_ptr_ty, "")?;
-                Ok(Some(ptr))
+                Ok(Some(ndarray.value))
             },
         )?
         .unwrap();
