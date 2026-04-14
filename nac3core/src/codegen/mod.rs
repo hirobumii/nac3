@@ -45,9 +45,9 @@ use crate::{
         llvm_fns::FunctionStore,
         stmt::get_personality,
         types::{
-            ArraySliceValue, EnumerateType, ExceptionType, RawListType, NDArrayType,
-            OpaqueRefCountedType, OptionType, ProxyType, RangeType, RefCountedType,
-            RefCountedValue, RefType, StringType, TupleType,
+            ArraySliceValue, EnumerateType, ExceptionType, OpaqueRefCountedType, OptionType,
+            ProxyType, RangeType, RawListType, RawNDArrayType, RefCountedType, RefCountedValue,
+            RefType, StringType, TupleType,
         },
     },
     symbol_resolver::{StaticValue, SymbolResolver},
@@ -514,7 +514,7 @@ fn get_alloca_type<'ctx>(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> BasicT
     let item = if *obj_id == PrimDef::Option.id() {
         OptionType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else if *obj_id == PrimDef::NDArray.id() {
-        NDArrayType::from_unifier_type(ctx, ty).alloca_ty(ctx)
+        RawNDArrayType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else if *obj_id == PrimDef::Range.id() {
         RangeType::from_unifier_type(ctx, ty).alloca_ty(ctx)
     } else if *obj_id == PrimDef::Exception.id() {

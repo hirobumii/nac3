@@ -6,81 +6,52 @@ use inkwell::{
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
-    CodeGenContext,
+    CodeGenContext, ModuleContext,
     allocator::AllocationScope,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
     stmt::{BreakContinueHooks, gen_for_callback},
     typed_load, typed_store,
     types::{
-        ProxyTypeBase, Value,
-        array::ArraySliceValue,
-        builtin::BuiltinStruct,
-        field,
-        ndarray::{NDArrayValue, ScalarOrNDArray},
-        structure::StructField,
+        NDArrayType, NDArrayValue, ProxyTypeBase, TypedRefCountedType, TypedRefCountedValue, Value,
+        WithTypeinfo, array::ArraySliceValue, builtin::BuiltinStruct, field,
+        ndarray::ScalarOrNDArray, structure::StructField,
     },
 };
 
 #[derive(Clone, Copy, StructFields)]
 pub struct NDIterStructFields<'ctx> {
-    #[value_type(size_t)]
-    pub ndims: StructField<'ctx, IntValue<'ctx>>,
     #[value_type(ptr)]
-    pub shape: StructField<'ctx, PointerValue<'ctx>>,
-    #[value_type(ptr)]
-    pub strides: StructField<'ctx, PointerValue<'ctx>>,
+    pub array: StructField<'ctx, PointerValue<'ctx>>,
     #[value_type(ptr)]
     pub indices: StructField<'ctx, PointerValue<'ctx>>,
     #[value_type(size_t)]
     pub nth: StructField<'ctx, IntValue<'ctx>>,
-    #[value_type(ptr)]
-    pub element: StructField<'ctx, PointerValue<'ctx>>,
+    #[value_type(size_t)]
+    pub offset: StructField<'ctx, IntValue<'ctx>>,
     #[value_type(size_t)]
     pub size: StructField<'ctx, IntValue<'ctx>>,
 }
 
 #[derive(Clone, Copy, ProxyType)]
 #[llvm_ref(self.inner.llvm_ty)]
-pub struct NDIterType<'ctx> {
+pub struct RawNDIterType<'ctx> {
     pub(crate) inner: BuiltinStruct<'ctx, NDIterStructFields<'ctx>>,
     dtype: BasicTypeEnum<'ctx>,
     ndims: u64,
 }
 
-impl<'ctx> NDIterType<'ctx> {
+impl<'ctx> RawNDIterType<'ctx> {
     fn ndims_val(&self, ctx: &CodeGenContext<'ctx, '_>) -> IntValue<'ctx> {
         ctx.size_t.const_int(self.ndims, false)
     }
 }
 
-pub type NDIterValue<'ctx> = Value<'ctx, NDIterType<'ctx>>;
+pub type NDIterType<'ctx> = TypedRefCountedType<'ctx, RawNDIterType<'ctx>>;
+pub type RawNDIterValue<'ctx> = Value<'ctx, RawNDIterType<'ctx>>;
+pub type NDIterValue<'ctx> = TypedRefCountedValue<'ctx, RawNDIterType<'ctx>>;
 
-impl<'ctx> NDIterValue<'ctx> {
-    /// Creates an iterator that iterates through `ndarray`.
-    pub fn new(
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ndarray: NDArrayValue<'ctx>,
-    ) -> anyhow::Result<Self> {
-        let ty = NDIterType {
-            inner: BuiltinStruct::new(ctx, "nditer"),
-            dtype: ndarray.ty.dtype,
-            ndims: ndarray.ty.ndims,
-        };
-
-        let nditer = ty.allocate(ctx, None)?;
-
-        // The caller has the responsibility to allocate 'indices' for `NDIter`.
-        let indices = ctx
-            .build_array_allocate(AllocationScope::Default, ctx.size_t, ndarray.ty.ndims, None)?
-            .value
-            .0;
-        let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_initialize");
-        call_extern!(ctx: void _ = name(nditer.value, ndarray.value, indices))?;
-
-        Ok(nditer)
-    }
-
+impl<'ctx> RawNDIterValue<'ctx> {
     /// Advances the iterator to the next element.
     pub fn next(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
         let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_next");
@@ -97,12 +68,18 @@ impl<'ctx> NDIterValue<'ctx> {
         call_extern!(ctx: (ctx.i1) _ = name(self.value))
     }
 
+    fn array(&self, ctx: &ModuleContext<'ctx>) -> NDArrayValue<'ctx> {
+        NDArrayType::create(ctx, self.ty.dtype, self.ty.ndims).map_value(self.value, self.name)
+    }
+
     /// Returns a pointer to the current element.
     pub fn curr_ptr(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<PointerValue<'ctx>> {
-        self.load(ctx, field!(element))
+        let data = self.array(ctx).inner_value(ctx)?.data(ctx)?;
+        let data_ptr = data.inner_value(ctx)?.value.0;
+        Ok(unsafe { ctx.builder.build_gep(data_ptr, &[self.load(ctx, field!(offset))?], "")? })
     }
 
     /// Loads and returns the current element as a scalar value.
@@ -129,6 +106,50 @@ impl<'ctx> NDIterValue<'ctx> {
     }
 }
 
+impl<'ctx> WithTypeinfo<'ctx> for RawNDIterType<'ctx> {
+    fn typename() -> &'static str {
+        "__nac3_nditer"
+    }
+
+    fn refcounted_field_offset(ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+        vec![ctx.i32.const_zero(), ctx.i32.const_int(ctx.sizeof(ctx.ptr), false)]
+    }
+}
+
+impl<'ctx> NDIterValue<'ctx> {
+    /// Creates an iterator that iterates through `ndarray`.
+    pub fn new(
+        ctx: &mut CodeGenContext<'ctx, '_>,
+        ndarray: NDArrayValue<'ctx>,
+    ) -> anyhow::Result<Self> {
+        let ty = TypedRefCountedType::new(
+            ctx,
+            RawNDIterType {
+                inner: BuiltinStruct::new(ctx, "nditer"),
+                dtype: ndarray.ty.object.dtype,
+                ndims: ndarray.ty.object.ndims,
+            },
+        );
+
+        let nditer = ty.allocate(ctx, AllocationScope::Default, None)?;
+
+        // The caller has the responsibility to allocate 'indices' for `NDIter`.
+        let indices = ctx
+            .build_array_allocate(
+                AllocationScope::Default,
+                ctx.size_t,
+                ndarray.ty.object.ndims,
+                None,
+            )?
+            .value
+            .0;
+        let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_initialize");
+        call_extern!(ctx: void _ = name(nditer.value, ndarray.value, indices))?;
+
+        Ok(nditer)
+    }
+}
+
 impl<'ctx> NDArrayValue<'ctx> {
     /// Iterate through every element in the ndarray.
     ///
@@ -147,10 +168,10 @@ impl<'ctx> NDArrayValue<'ctx> {
             ctx,
             Some("ndarray_foreach"),
             |(), ctx| NDIterValue::new(ctx, *self),
-            |(), ctx, nditer| nditer.has_element(ctx),
+            |(), ctx, nditer| nditer.inner_value(ctx)?.has_element(ctx),
             |(), ctx, hooks, nditer| body(ctx, hooks, nditer),
             |(), ctx, nditer| {
-                nditer.next(ctx)?;
+                nditer.inner_value(ctx)?.next(ctx)?;
                 Ok(())
             },
             |(), _| Ok(()),
@@ -187,7 +208,7 @@ impl<'ctx> NDArrayValue<'ctx> {
             ctx,
             Some("ndarray_fold"),
             |(), ctx| NDIterValue::new(ctx, *self),
-            |(), ctx, nditer| nditer.has_element(ctx),
+            |(), ctx, nditer| nditer.inner_value(ctx)?.has_element(ctx),
             |(), ctx, hooks, nditer| {
                 let acc = V::try_from(ctx.builder.build_load(acc_ptr, "")?)
                     .map_err(|e| anyhow!("{e:?}"))?;
@@ -196,7 +217,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 Ok(())
             },
             |(), ctx, nditer| {
-                nditer.next(ctx)?;
+                nditer.inner_value(ctx)?.next(ctx)?;
                 Ok(())
             },
             |(), _| Ok(()),
@@ -234,7 +255,7 @@ impl<'ctx> ScalarOrNDArray<'ctx> {
         match self {
             ScalarOrNDArray::Scalar(v) => f(ctx, None, init, *v),
             ScalarOrNDArray::NDArray(v) => v.fold(ctx, init, |ctx, hooks, acc, nditer| {
-                let elem = nditer.get_scalar(ctx)?;
+                let elem = nditer.inner_value(ctx)?.get_scalar(ctx)?;
                 f(ctx, Some(&hooks), acc, elem)
             }),
         }

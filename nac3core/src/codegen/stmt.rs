@@ -25,9 +25,9 @@ use crate::{
         typed_load, typed_store,
         types::{
             ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
-            ListType, NDArrayType, OpaqueRefCountedType, ProxyTypeBase, RangeType, RawListType,
-            RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType, TupleType,
-            TupleValue, TypedRefCountedType, TypedRefCountedValue, broadcast, field,
+            ListType, ListValue, OpaqueRefCountedType, ProxyTypeBase, RangeType, RawListType,
+            RawNDArrayType, RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray,
+            StringType, TupleType, TupleValue, TypedRefCountedType, broadcast, field,
         },
     },
     symbol_resolver::{SymbolValue, ValueEnum},
@@ -132,7 +132,7 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
                 {
                     let list_ty = RawListType::from_unifier_type(ctx, pattern.custom.unwrap());
                     TypedRefCountedType::new(ctx, list_ty)
-                        .allocate(ctx, AllocationScope::Default, true, None)?
+                        .allocate(ctx, AllocationScope::Default, None)?
                         .value
                 } else {
                     ctx.build_allocate(AllocationScope::Default, ptr_ty, name)?
@@ -301,16 +301,11 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
             generator.gen_assign(&mut *ctx, target, &ValueEnum::Dynamic(val), val_ty)
         })
     };
-    let do_assign_list =
-        |generator: &mut G,
-         ctx: &mut _,
-         target,
-         list: &TypedRefCountedValue<'ctx, RawListType<'ctx>>| {
-            let ptr =
-                generator.gen_store_target(ctx, target, Some("starred_target.addr"))?.unwrap();
-            typed_store(ctx.builder, ptr, list.value)?;
-            anyhow::Ok(())
-        };
+    let do_assign_list = |generator: &mut G, ctx: &mut _, target, list: &ListValue<'ctx>| {
+        let ptr = generator.gen_store_target(ctx, target, Some("starred_target.addr"))?.unwrap();
+        typed_store(ctx.builder, ptr, list.value)?;
+        anyhow::Ok(())
+    };
 
     // Find the starred target if it exists.
     // Index of the "starred" target. If it exists, there may only be one.
@@ -616,7 +611,7 @@ pub fn gen_setitem<'ctx, G: CodeGenerator>(
             // # ...and finally copy 1-1 from value to target.
             // ```
 
-            let target = NDArrayType::from_unifier_type(ctx, target_ty)
+            let target = RawNDArrayType::from_unifier_type(ctx, target_ty)
                 .map_value(target.into_pointer_value(), None);
             let target = target.index(ctx, &key)?;
 
@@ -1160,7 +1155,7 @@ pub fn gen_for<G: CodeGenerator>(
         {
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, iter_ty);
             let ndims = extract_ndims(&ctx.unifier, ndims);
-            let ndarray = NDArrayType::from_unifier_type(ctx, iter_ty)
+            let ndarray = RawNDArrayType::from_unifier_type(ctx, iter_ty)
                 .map_value(iter_val.into_pointer_value(), None);
 
             let shape_dim0 = ndarray.len(ctx)?;

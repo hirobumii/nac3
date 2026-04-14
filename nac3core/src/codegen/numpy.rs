@@ -10,7 +10,10 @@ use crate::{
         macros::codegen_unreachable,
         stmt::gen_for_callback,
         typed_store,
-        types::{NDArrayType, NDArrayValue, NDIterValue, ProxyTypeBase, parse_numpy_int_sequence},
+        types::{
+            ProxyTypeBase, RawNDArrayType, RawNDArrayValue, RawNDIterValue,
+            parse_numpy_int_sequence,
+        },
     },
     symbol_resolver::ValueEnum,
     toplevel::{
@@ -40,8 +43,8 @@ pub fn gen_ndarray_empty<'ctx>(
 
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg))?;
 
-    let ndarray =
-        NDArrayType::new(context, llvm_dtype, ndims).construct_numpy_empty(context, shape, None)?;
+    let ndarray = RawNDArrayType::new(context, llvm_dtype, ndims)
+        .construct_numpy_empty(context, shape, None)?;
     Ok(ndarray.value)
 }
 
@@ -64,7 +67,7 @@ pub fn gen_ndarray_zeros<'ctx>(
 
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg))?;
 
-    let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
+    let ndarray = RawNDArrayType::new(context, llvm_dtype, ndims)
         .construct_numpy_zeros(context, dtype, shape, None)?;
     Ok(ndarray.value)
 }
@@ -88,7 +91,7 @@ pub fn gen_ndarray_ones<'ctx>(
 
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg))?;
 
-    let ndarray = NDArrayType::new(context, llvm_dtype, ndims)
+    let ndarray = RawNDArrayType::new(context, llvm_dtype, ndims)
         .construct_numpy_ones(context, dtype, shape, None)?;
     Ok(ndarray.value)
 }
@@ -114,7 +117,7 @@ pub fn gen_ndarray_full<'ctx>(
 
     let shape = parse_numpy_int_sequence(context, (shape_ty, shape_arg))?;
 
-    let ndarray = NDArrayType::new(context, llvm_dtype, ndims).construct_numpy_full(
+    let ndarray = RawNDArrayType::new(context, llvm_dtype, ndims).construct_numpy_full(
         context,
         shape,
         fill_value_arg,
@@ -150,7 +153,7 @@ pub fn gen_ndarray_array<'ctx>(
     let ndims = extract_ndims(&context.unifier, ndims);
 
     let copy = bool_to_i1(context, copy_arg.into_int_value())?;
-    let ndarray = NDArrayValue::construct_from(context, (obj_ty, obj_arg), copy, None)?
+    let ndarray = RawNDArrayValue::construct_from(context, (obj_ty, obj_arg), copy, None)?
         .atleast_nd(context, ndims)?;
 
     Ok(ndarray.value)
@@ -208,7 +211,7 @@ pub fn gen_ndarray_eye<'ctx>(
         "",
     )?;
 
-    let ndarray = NDArrayType::new(context, llvm_dtype, 2)
+    let ndarray = RawNDArrayType::new(context, llvm_dtype, 2)
         .construct_numpy_eye(context, dtype, nrows, ncols, offset, None)?;
     Ok(ndarray.value)
 }
@@ -233,7 +236,7 @@ pub fn gen_ndarray_identity<'ctx>(
 
     let n =
         context.builder.build_int_s_extend_or_bit_cast(n_arg.into_int_value(), llvm_usize, "")?;
-    let ndarray = NDArrayType::new(context, llvm_dtype, 2)
+    let ndarray = RawNDArrayType::new(context, llvm_dtype, 2)
         .construct_numpy_identity(context, dtype, n, None)?;
     Ok(ndarray.value)
 }
@@ -251,7 +254,7 @@ pub fn gen_ndarray_copy<'ctx>(
     let this_ty = obj.as_ref().unwrap().0;
     let this_arg = obj.as_ref().unwrap().1.clone().to_basic_value_enum(context, this_ty)?;
 
-    let this = NDArrayType::from_unifier_type(context, this_ty)
+    let this = RawNDArrayType::from_unifier_type(context, this_ty)
         .map_value(this_arg.into_pointer_value(), None);
     let ndarray = this.make_copy(context)?;
     Ok(ndarray.value)
@@ -272,7 +275,7 @@ pub fn gen_ndarray_fill<'ctx>(
     let value_ty = fun.0.args[0].ty;
     let value_arg = args[0].1.clone().to_basic_value_enum(context, value_ty)?;
 
-    let this = NDArrayType::from_unifier_type(context, this_ty)
+    let this = RawNDArrayType::from_unifier_type(context, this_ty)
         .map_value(this_arg.into_pointer_value(), None);
     this.fill(context, value_arg)?;
     Ok(())
@@ -293,8 +296,8 @@ pub fn ndarray_dot<'ctx>(
 
     match (x1, x2) {
         (BasicValueEnum::PointerValue(n1), BasicValueEnum::PointerValue(n2)) => {
-            let a = NDArrayType::from_unifier_type(ctx, x1_ty).map_value(n1, None);
-            let b = NDArrayType::from_unifier_type(ctx, x2_ty).map_value(n2, None);
+            let a = RawNDArrayType::from_unifier_type(ctx, x1_ty).map_value(n1, None);
+            let b = RawNDArrayType::from_unifier_type(ctx, x2_ty).map_value(n2, None);
 
             // TODO: General `np.dot()` https://numpy.org/doc/stable/reference/generated/numpy.dot.html.
             assert_eq!(a.ty.ndims, 1);
@@ -325,8 +328,8 @@ pub fn ndarray_dot<'ctx>(
                 ctx,
                 Some("np_dot"),
                 |(), ctx| {
-                    let a_iter = NDIterValue::new(ctx, a)?;
-                    let b_iter = NDIterValue::new(ctx, b)?;
+                    let a_iter = RawNDIterValue::new(ctx, a)?;
+                    let b_iter = RawNDIterValue::new(ctx, b)?;
                     Ok((a_iter, b_iter))
                 },
                 |(), ctx, (a_iter, _b_iter)| {

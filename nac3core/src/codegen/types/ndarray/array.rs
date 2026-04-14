@@ -6,16 +6,15 @@ use inkwell::{
 use crate::{
     codegen::{
         CodeGenContext,
-        allocator::AllocationScope,
         expr::call_extern,
         irrt::get_usize_dependent_function_name,
         stmt::gen_if_else_expr_callback,
         types::{
-            ProxyTypeBase,
+            ListValue, NDArrayType, ProxyTypeBase, RefCountedArrayType, RefCountedValue,
             array::ArrayLikeIndexer,
             field,
-            list::RawListType,
-            ndarray::{NDArrayType, NDArrayValue},
+            list::ListType,
+            ndarray::RawNDArrayType,
             reference::{TypedRefCountedType, TypedRefCountedValue},
         },
     },
@@ -34,11 +33,11 @@ fn get_list_object_dtype_and_ndims<'ctx>(
     (ctx.get_llvm_type(dtype), ndims)
 }
 
-impl<'ctx> NDArrayValue<'ctx> {
+impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
     /// Implementation of `np_array(<list>, copy=True)`
     fn from_list_must_copy(
         ctx: &mut CodeGenContext<'ctx, '_>,
-        (list_ty, list): (Type, TypedRefCountedValue<'ctx, RawListType<'ctx>>),
+        (list_ty, list): (Type, ListValue<'ctx>),
         name: Option<&'static str>,
     ) -> anyhow::Result<Self> {
         let (dtype, ndims_int) = get_list_object_dtype_and_ndims(ctx, list_ty);
@@ -47,16 +46,16 @@ impl<'ctx> NDArrayValue<'ctx> {
         // Raise an exception if `list` is something abnormal like `[[1, 2], [3]]`.
         // If `list` has a consistent shape, deduce the shape and write it to `shape`.
         let ndims = ctx.size_t.const_int(ndims_int, false);
-        let shape =
-            ctx.build_array_allocate(AllocationScope::Default, ctx.size_t, ndims_int, None)?;
+        let shape = RefCountedArrayType::new(ctx, ctx.size_t, Some(ndims_int as u32))
+            .allocate(ctx, ndims, None)?;
         let fn_name = get_usize_dependent_function_name(
             ctx,
             "__nac3_ndarray_array_set_and_validate_list_shape",
         );
-        call_extern!(ctx: void _ = fn_name(list.value, ndims, shape.value.0))?;
+        call_extern!(ctx: void _ = fn_name(list.value, ndims, shape.inner_value(ctx)?.value.0))?;
 
-        let ndarray = NDArrayType::new(ctx, dtype, ndims_int).construct(ctx, name)?;
-        ndarray.shape(ctx)?.memcpy_from(ctx, shape.value.0)?;
+        let ndarray = NDArrayType::create(ctx, dtype, ndims_int).construct(ctx, name)?;
+        ndarray.shape(ctx)?.inner_value(ctx)?.memcpy_from(ctx, shape.inner_value(ctx)?.value.0)?;
         ndarray.create_data(ctx)?;
 
         // Copy all contents from the list.
@@ -70,7 +69,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// Implementation of `np_array(<list>, copy=None)`
     fn from_list_maybe_copy(
         ctx: &mut CodeGenContext<'ctx, '_>,
-        (list_ty, list): (Type, TypedRefCountedValue<'ctx, RawListType<'ctx>>),
+        (list_ty, list): (Type, ListValue<'ctx>),
         name: Option<&'static str>,
     ) -> anyhow::Result<Self> {
         // np_array without copying is only possible `list` is not nested.
@@ -85,12 +84,23 @@ impl<'ctx> NDArrayValue<'ctx> {
             // `list` is not nested
             assert_eq!(ndims, 1);
 
-            let ndarray = NDArrayType::new(ctx, dtype, 1).construct(ctx, name)?;
+            let ndarray = NDArrayType::create(ctx, dtype, 1).construct(ctx, name)?;
 
             let (data, len) = list.inner_value(ctx)?.data(ctx)?.inner_value(ctx)?.value;
-            ndarray.store(ctx, field!(data), data)?;
+            // ndarray->data->refcount += 1;
+            RefCountedArrayType::new(ctx, ctx.i8, None)
+                .map_value(ndarray.inner_value(ctx)?.load(ctx, field!(data))?, None)
+                .header(ctx)
+                .increment_refcount(ctx);
+            // ndarray->data = list->data;
+            ndarray.inner_value(ctx)?.store(ctx, field!(data), data)?;
             // ndarray->shape[0] = list->len;
-            ndarray.shape(ctx)?.set_unchecked(ctx, &ctx.size_t.const_zero(), len, None)?;
+            ndarray.shape(ctx)?.inner_value(ctx)?.set_unchecked(
+                ctx,
+                &ctx.size_t.const_zero(),
+                len,
+                None,
+            )?;
             // Set strides, the `data` is contiguous
             ndarray.set_strides_contiguous(ctx)?;
 
@@ -104,7 +114,7 @@ impl<'ctx> NDArrayValue<'ctx> {
     /// Implementation of `np_array(<list>, copy=copy)`
     fn from_list(
         ctx: &mut CodeGenContext<'ctx, '_>,
-        (list_ty, list): (Type, TypedRefCountedValue<'ctx, RawListType<'ctx>>),
+        (list_ty, list): (Type, ListValue<'ctx>),
         copy: IntValue<'ctx>,
         name: Option<&'static str>,
     ) -> anyhow::Result<Self> {
@@ -127,7 +137,8 @@ impl<'ctx> NDArrayValue<'ctx> {
         )?
         .unwrap();
 
-        Ok(NDArrayType::new(ctx, dtype, ndims).map_value(ndarray, None))
+        Ok(TypedRefCountedType::new(ctx, RawNDArrayType::new(ctx, dtype, ndims))
+            .map_value(ndarray, None))
     }
 
     /// Implementation of `np_array(<ndarray>, copy=copy)`.
@@ -174,8 +185,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 if *obj_id == ctx.primitives.list.obj_id(&ctx.unifier).unwrap() =>
             {
                 let obj = object.into_pointer_value();
-                let list_ty = RawListType::from_unifier_type(ctx, object_ty);
-                let list = TypedRefCountedType::new(ctx, list_ty).map_value(obj, None);
+                let list = ListType::from_unifier_type(ctx, object_ty).map_value(obj, None);
                 Self::from_list(ctx, (object_ty, list), copy, name)
             }
 
@@ -183,7 +193,8 @@ impl<'ctx> NDArrayValue<'ctx> {
                 if *obj_id == ctx.primitives.ndarray.obj_id(&ctx.unifier).unwrap() =>
             {
                 let obj = object.into_pointer_value();
-                let ndarray = NDArrayType::from_unifier_type(ctx, object_ty).map_value(obj, None);
+                let llvm_ndarray_ty = RawNDArrayType::from_unifier_type(ctx, object_ty);
+                let ndarray = TypedRefCountedType::new(ctx, llvm_ndarray_ty).map_value(obj, None);
                 Self::from_ndarray(ctx, ndarray, copy, name)
             }
 

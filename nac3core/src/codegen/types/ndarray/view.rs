@@ -1,6 +1,6 @@
 use std::iter::{once, repeat_n};
 
-use inkwell::values::PointerValue;
+use inkwell::{types::IntType, values::PointerValue};
 use itertools::Itertools as _;
 
 use crate::codegen::{
@@ -9,9 +9,8 @@ use crate::codegen::{
     irrt::get_usize_dependent_function_name,
     stmt::gen_if_callback,
     types::{
-        array::ArraySliceValue,
-        field,
-        ndarray::{NDArrayType, NDArrayValue, indexing::RustNDIndex},
+        NDArrayType, NDArrayValue, RefCountedValue, array::ArraySliceValue, field,
+        ndarray::indexing::RustNDIndex,
     },
 };
 
@@ -25,7 +24,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         ndmin: u64,
     ) -> anyhow::Result<Self> {
-        let ndims = self.ty.ndims;
+        let ndims = self.inner_value(ctx)?.ty.ndims;
 
         if ndims < ndmin {
             // Extend the dimensions with np.newaxis.
@@ -53,7 +52,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         new_ndims: u64,
-        new_shape: ArraySliceValue<'ctx>,
+        new_shape: ArraySliceValue<'ctx, IntType<'ctx>>,
     ) -> anyhow::Result<Self> {
         assert_eq!(new_shape.ty.item_ty, ctx.size_t.into());
 
@@ -62,12 +61,13 @@ impl<'ctx> NDArrayValue<'ctx> {
         //       not contiguous but could be reshaped without copying data. Look into how numpy does
         //       it.
 
-        let dst_ndarray = NDArrayType::new(ctx, self.ty.dtype, new_ndims).construct(ctx, None)?;
-        dst_ndarray.shape(ctx)?.memcpy_from(ctx, new_shape.value.0)?;
+        let dst_ndarray =
+            NDArrayType::create(ctx, self.ty.object.dtype, new_ndims).construct(ctx, None)?;
+        dst_ndarray.shape(ctx)?.inner_value(ctx)?.memcpy_from(ctx, new_shape.value.0)?;
 
         // Resolve negative indices
         let size = self.size(ctx)?;
-        let (dst_shape, dst_ndims) = dst_ndarray.shape(ctx)?.value;
+        let (dst_shape, dst_ndims) = dst_ndarray.shape(ctx)?.inner_value(ctx)?.value;
         let name = get_usize_dependent_function_name(
             ctx,
             "__nac3_ndarray_reshape_resolve_and_check_new_shape",
@@ -81,12 +81,14 @@ impl<'ctx> NDArrayValue<'ctx> {
             |(), ctx| {
                 // Reshape is possible without copying
                 dst_ndarray.set_strides_contiguous(ctx)?;
-                let data = self.load(ctx, field!(data))?;
-                dst_ndarray.store(ctx, field!(data), data)?;
-                let base = self.load(ctx, field!(base))?;
-                dst_ndarray.store(ctx, field!(base), base)?;
-                let offset = self.load(ctx, field!(offset))?;
-                dst_ndarray.store(ctx, field!(offset), offset)?;
+                let data = self.inner_value(ctx)?.data(ctx)?;
+                data.header(ctx).safe_increment_refcount(ctx)?;
+                dst_ndarray.inner_value(ctx)?.store(ctx, field!(data), data.value)?;
+                let base = self.inner_value(ctx)?.base(ctx)?;
+                base.header(ctx).safe_increment_refcount(ctx)?;
+                dst_ndarray.inner_value(ctx)?.store(ctx, field!(base), base.value)?;
+                let offset = self.inner_value(ctx)?.load(ctx, field!(offset))?;
+                dst_ndarray.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
                 Ok(())
             },
             |(), ctx| {
@@ -114,7 +116,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         let transposed_ndarray = self.ty.construct(ctx, None)?;
 
         let (axes, num_axes) = match axes {
-            Some(axes) => (axes, self.ty.ndims_val(ctx)),
+            Some(axes) => (axes, self.inner_value(ctx)?.ty.ndims_val(ctx)),
             None => (ctx.ptr.const_null(), ctx.size_t.const_zero()),
         };
 

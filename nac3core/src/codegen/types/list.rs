@@ -1,19 +1,17 @@
 use inkwell::{
-    AddressSpace, IntPredicate,
-    module::Linkage,
+    IntPredicate,
     types::BasicTypeEnum,
     values::{IntValue, PointerValue},
 };
-use itertools::Itertools as _;
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::{
     codegen::{
         AllocationScope, CodeGenContext, ModuleContext,
         types::{
-            ProxyType, ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue, RefType,
-            StringType, TypedRefCountedType, TypedRefCountedValue, TypeinfoType, TypeinfoValue,
-            Value, WithTypeinfo, builtin::BuiltinStruct, field, structure::StructField,
+            ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue, TypedRefCountedType,
+            TypedRefCountedValue, Value, WithTypeinfo, builtin::BuiltinStruct, field,
+            structure::StructField,
         },
     },
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
@@ -93,7 +91,7 @@ impl<'ctx> ListType<'ctx> {
         len: IntValue<'ctx>,
         name: Option<&'static str>,
     ) -> anyhow::Result<ListValue<'ctx>> {
-        let list = self.allocate(ctx, AllocationScope::Default, true, name)?;
+        let list = self.allocate(ctx, AllocationScope::Default, name)?;
 
         let len = ctx.builder.build_int_z_extend(len, ctx.size_t, "")?;
         list.inner_value(ctx)?.store(ctx, field!(len), len)?;
@@ -127,84 +125,12 @@ impl<'ctx> ListType<'ctx> {
 }
 
 impl<'ctx> WithTypeinfo<'ctx> for RawListType<'ctx> {
-    fn typeinfo(ctx: &ModuleContext<'ctx>) -> TypeinfoValue<'ctx> {
-        const NAME: &str = "__nac3_list";
+    fn typename() -> &'static str {
+        "__nac3_list"
+    }
 
-        let global = ctx.module.get_global(&format!("typeinfo for {NAME}")).unwrap_or_else(|| {
-            let name_data =
-                ctx.module.get_global(&format!("typename array for {NAME}")).unwrap_or_else(|| {
-                    let name_data = ctx.module.add_global(
-                        ctx.i8.array_type(NAME.len() as u32),
-                        None,
-                        &format!("typename array for {NAME}"),
-                    );
-                    name_data.set_linkage(Linkage::WeakAny);
-                    name_data.set_initializer(
-                        &ctx.i8.const_array(
-                            &NAME
-                                .as_bytes()
-                                .iter()
-                                .map(|&b| ctx.i8.const_int(u64::from(b), false))
-                                .collect_vec(),
-                        ),
-                    );
-                    name_data.set_constant(true);
-
-                    name_data
-                });
-
-            let name =
-                ctx.module.get_global(&format!("typename for {NAME}")).unwrap_or_else(|| {
-                    let llvm_str = StringType::new(ctx).llvm_ty(ctx).into_struct_type();
-                    let name =
-                        ctx.module.add_global(llvm_str, None, &format!("typename for {NAME}"));
-                    name.set_linkage(Linkage::WeakAny);
-                    name.set_initializer(&llvm_str.const_named_struct(&[
-                        name_data.as_pointer_value().into(),
-                        ctx.size_t.const_int(NAME.len() as u64, false).into(),
-                    ]));
-                    name.set_constant(true);
-
-                    name
-                });
-
-            let refcounted_field_offsets = ctx
-                .module
-                .get_global(&format!("refcounted_fields array for {NAME}"))
-                .unwrap_or_else(|| {
-                    let refcounted_field_offsets = ctx.module.add_global(
-                        ctx.i32.array_type(2),
-                        None,
-                        "refcounted_fields array for __nac3_list",
-                    );
-                    refcounted_field_offsets.set_linkage(Linkage::WeakAny);
-                    refcounted_field_offsets.set_initializer(
-                        &ctx.i32.const_array(&[ctx.i32.const_int(1, false), ctx.i32.const_zero()]),
-                    );
-                    refcounted_field_offsets.set_constant(true);
-
-                    refcounted_field_offsets
-                });
-
-            let llvm_typeinfo = TypeinfoType::new(ctx).alloca_ty(ctx).into_struct_type();
-
-            let value = ctx.module.add_global(llvm_typeinfo, None, &format!("typeinfo for {NAME}"));
-            value.set_linkage(Linkage::WeakAny);
-            value.set_initializer(
-                &llvm_typeinfo.const_named_struct(&[
-                    name.as_pointer_value()
-                        .const_cast(ctx.i8.ptr_type(AddressSpace::default()))
-                        .into(),
-                    refcounted_field_offsets
-                        .as_pointer_value()
-                        .const_cast(ctx.i32.ptr_type(AddressSpace::default()))
-                        .into(),
-                ]),
-            );
-            value.set_constant(true);
-            value
-        });
-        TypeinfoType::new(ctx).map_value(global.as_pointer_value(), None)
+    fn refcounted_field_offset(ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+        vec![ctx.i32.const_zero()]
     }
 }
 

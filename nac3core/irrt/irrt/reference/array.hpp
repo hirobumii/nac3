@@ -13,10 +13,36 @@ struct Array {
         return static_cast<T*>(&elems);
     }
 
+    const void* data() const
+        requires stdlib::same_as<T, void>
+    {
+        return static_cast<const T*>(&elems);
+    }
+
+    template<typename Target>
+    Target* data()
+        requires stdlib::same_as<T, void>
+    {
+        return reinterpret_cast<Target*>(&elems);
+    }
+
+    template<typename Target>
+    const Target* data() const
+        requires stdlib::same_as<T, void>
+    {
+        return reinterpret_cast<const Target*>(&elems);
+    }
+
     T* data()
         requires(!stdlib::same_as<T, void>)
     {
-        return static_cast<T*>(data());
+        return reinterpret_cast<T*>(&elems);
+    }
+
+    const T* data() const
+        requires(!stdlib::same_as<T, void>)
+    {
+        return reinterpret_cast<const T*>(&elems);
     }
 
     ObjectHeader header;

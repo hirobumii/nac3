@@ -1,4 +1,7 @@
-use inkwell::values::{BasicValueEnum, IntValue};
+use inkwell::{
+    types::IntType,
+    values::{BasicValueEnum, IntValue},
+};
 
 use crate::{
     codegen::{
@@ -6,8 +9,8 @@ use crate::{
         allocator::AllocationScope,
         stmt::gen_for_callback_incrementing,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, ProxyTypeBase, RawListType, TupleType,
-            TypedRefCountedType, field,
+            ArrayLikeIndexer, ListType, ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue,
+            TupleType, TypedRefCountedType, field,
         },
     },
     typecheck::typedef::{Type, TypeEnum},
@@ -28,7 +31,7 @@ use crate::{
 pub fn parse_numpy_int_sequence<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     (input_seq_ty, input_seq): (Type, BasicValueEnum<'ctx>),
-) -> anyhow::Result<ArraySliceValue<'ctx>> {
+) -> anyhow::Result<RefCountedArrayValue<'ctx, IntType<'ctx>>> {
     let llvm_usize = ctx.size_t;
     let zero = llvm_usize.const_zero();
     let one = llvm_usize.const_int(1, false);
@@ -40,19 +43,12 @@ pub fn parse_numpy_int_sequence<'ctx>(
         {
             // 1. A list of `int32`; e.g., `np.empty([600, 800, 3])`
 
-            let llvm_list_ty = RawListType::from_unifier_type(ctx, input_seq_ty);
-            let input_seq = TypedRefCountedType::new(ctx, llvm_list_ty)
+            let input_seq = ListType::from_unifier_type(ctx, input_seq_ty)
                 .map_value(input_seq.into_pointer_value(), None);
 
             let len = input_seq.inner_value(ctx)?.load(ctx, field!(len))?;
             // TODO: Find a way to remove this mid-BB allocation
-            let result = {
-                #[cfg(feature = "malloc")]
-                let scope = AllocationScope::Heap;
-                #[cfg(not(feature = "malloc"))]
-                let scope = AllocationScope::StackCurrentLoc;
-                ctx.build_dyn_array_allocate(scope, llvm_usize, len, None)?
-            };
+            let result = RefCountedArrayType::new(ctx, llvm_usize, None).alloca(ctx, len, None)?;
 
             // Load all the `int32`s from the input_sequence, cast them to `SizeT`, and store them into `result`
             gen_for_callback_incrementing(
@@ -73,7 +69,7 @@ pub fn parse_numpy_int_sequence<'ctx>(
                     let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "")?;
 
                     // Store
-                    result.set_unchecked(ctx, &i, int, None)?;
+                    result.inner_value(ctx)?.set_unchecked(ctx, &i, int, None)?;
 
                     Ok(())
                 },
@@ -92,10 +88,9 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let len = input_seq.ty.num_elements();
 
-            let result = ctx.build_array_allocate(
-                AllocationScope::Default,
-                llvm_usize,
-                u64::from(len),
+            let result = RefCountedArrayType::new(ctx, llvm_usize, Some(len)).alloca(
+                ctx,
+                ctx.size_t.const_int(len as u64, false),
                 None,
             )?;
 
@@ -104,7 +99,12 @@ pub fn parse_numpy_int_sequence<'ctx>(
                 let int = input_seq.extract(ctx, i)?.into_int_value();
                 let int = ctx.builder.build_int_s_extend_or_bit_cast(int, llvm_usize, "")?;
 
-                result.set_unchecked(ctx, &llvm_usize.const_int(u64::from(i), false), int, None)?;
+                result.inner_value(ctx)?.set_unchecked(
+                    ctx,
+                    &llvm_usize.const_int(u64::from(i), false),
+                    int,
+                    None,
+                )?;
             }
 
             result
@@ -117,11 +117,15 @@ pub fn parse_numpy_int_sequence<'ctx>(
 
             let input_int = input_seq.into_int_value();
 
-            let result = ctx.build_array_allocate(AllocationScope::Default, llvm_usize, 1, None)?;
+            let result = RefCountedArrayType::new(ctx, llvm_usize, Some(1)).alloca(
+                ctx,
+                ctx.size_t.const_int(1, false),
+                None,
+            )?;
             let int = ctx.builder.build_int_s_extend_or_bit_cast(input_int, llvm_usize, "")?;
 
             // Storing into result[0]
-            result.set_unchecked(ctx, &zero, int, None)?;
+            result.inner_value(ctx)?.set_unchecked(ctx, &zero, int, None)?;
             result
         }
 

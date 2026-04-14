@@ -6,7 +6,7 @@ use crate::codegen::{
     irrt::calculate_len_for_slice_range,
     macros::codegen_unreachable,
     stmt::gen_if_callback,
-    types::{RawListType, TypedRefCountedValue, field},
+    types::{ListValue, field},
 };
 
 /// This function handles 'end' **inclusively**.
@@ -15,9 +15,9 @@ use crate::codegen::{
 pub fn list_slice_assignment<'ctx>(
     ctx: &mut CodeGenContext<'ctx, '_>,
     ty: BasicTypeEnum<'ctx>,
-    dest_arr: TypedRefCountedValue<'ctx, RawListType<'ctx>>,
+    dest_arr: ListValue<'ctx>,
     dest_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
-    src_arr: TypedRefCountedValue<'ctx, RawListType<'ctx>>,
+    src_arr: ListValue<'ctx>,
     src_idx: (IntValue<'ctx>, IntValue<'ctx>, IntValue<'ctx>),
 ) -> anyhow::Result<()> {
     let llvm_usize = ctx.size_t;

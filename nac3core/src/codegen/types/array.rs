@@ -178,6 +178,55 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ArraySliceValue<'ctx, T> {
         ctx.builder.build_memcpy(self.value.0, align, src, align, bytes)?;
         Ok(())
     }
+
+    pub fn cast<U: ProxyType<'ctx> + Copy>(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        target_type: U,
+        new_size: Option<IntValue<'ctx>>,
+        name: Option<&'ctx str>,
+    ) -> anyhow::Result<Value<'ctx, ArraySliceType<'ctx, U>>> {
+        let new_size = if let Some(new_size) = new_size {
+            new_size
+        } else {
+            let bytes = ctx.builder.build_int_mul(
+                self.value.1,
+                ctx.size_t.const_int(ctx.sizeof(self.ty.item_ty.llvm_ty(ctx)), false),
+                "",
+            )?;
+            ctx.builder.build_int_unsigned_div(
+                bytes,
+                ctx.size_t.const_int(ctx.sizeof(target_type.llvm_ty(ctx)), false),
+                "",
+            )?
+        };
+
+        Ok(ArraySliceType { item_ty: target_type, _data: PhantomData }
+            .map_value((self.value.0, new_size), name))
+    }
+
+    pub fn const_cast<U: ProxyType<'ctx> + Copy>(
+        &self,
+        ctx: &ModuleContext<'ctx>,
+        target_type: U,
+        new_size: Option<IntValue<'ctx>>,
+        name: Option<&'ctx str>,
+    ) -> Value<'ctx, ArraySliceType<'ctx, U>> {
+        assert!(
+            self.value.1.is_constant_int(),
+            "const_cast can only be used on array slices with compile-time constant size"
+        );
+
+        let new_size = new_size.unwrap_or_else(|| {
+            let size = self.value.1.get_zero_extended_constant().unwrap();
+            let bytes = size * ctx.sizeof(self.ty.item_ty.llvm_ty(ctx));
+            let new_item_size = ctx.sizeof(target_type.llvm_ty(ctx));
+            ctx.size_t.const_int(bytes / new_item_size, false)
+        });
+
+        ArraySliceType { item_ty: target_type, _data: PhantomData }
+            .map_value((self.value.0, new_size), name)
+    }
 }
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> ArrayLikeIndexer<'ctx> for ArraySliceValue<'ctx, T> {

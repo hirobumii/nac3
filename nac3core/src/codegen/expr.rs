@@ -40,11 +40,10 @@ use crate::{
         },
         typed_load, typed_store,
         types::{
-            ArrayLikeIndexer, ExceptionType, ListType, NDArrayOut, NDArrayType,
-            OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType, RangeValue,
-            RawListType, RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
-            TupleType, TupleValue, TypedRefCountedType, TypedRefCountedValue, broadcast_starmap,
-            field,
+            ArrayLikeIndexer, ExceptionType, ListType, ListValue, NDArrayOut, OpaqueRefCountedType,
+            OptionType, ProxyTypeBase, RangeField, RangeType, RangeValue, RawListType,
+            RawNDArrayType, RefCountedType, RefCountedValue, RustNDIndex, ScalarOrNDArray,
+            StringType, TupleType, TupleValue, TypedRefCountedType, broadcast_starmap, field,
         },
     },
     symbol_resolver::{StaticValue, SymbolValue, ValueEnum},
@@ -983,17 +982,15 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     }
 
     // Emits the content of `cont_bb`
-    let emit_cont_bb =
-        |ctx: &mut CodeGenContext<'ctx, '_>,
-         list: TypedRefCountedValue<'ctx, RawListType<'ctx>>| {
-            ctx.builder.position_at_end(cont_bb);
-            list.inner_value(ctx)?.store(
-                ctx,
-                field!(len),
-                ctx.builder.build_load(index, "index")?.into_int_value(),
-            )?;
-            anyhow::Ok(())
-        };
+    let emit_cont_bb = |ctx: &mut CodeGenContext<'ctx, '_>, list: ListValue<'ctx>| {
+        ctx.builder.position_at_end(cont_bb);
+        list.inner_value(ctx)?.store(
+            ctx,
+            field!(len),
+            ctx.builder.build_load(index, "index")?.into_int_value(),
+        )?;
+        anyhow::Ok(())
+    };
 
     for cond in ifs {
         let result = generator.gen_expr(ctx, cond)?.to_basic_value_enum(ctx)?.into_int_value();
@@ -1401,7 +1398,7 @@ pub fn gen_unaryop_expr_with_values<'ctx>(
         let (ndarray_dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
 
         let ndarray =
-            NDArrayType::from_unifier_type(ctx, ty).map_value(val.into_pointer_value(), None);
+            RawNDArrayType::from_unifier_type(ctx, ty).map_value(val.into_pointer_value(), None);
 
         // ndarray uses `~` rather than `not` to perform elementwise inversion, convert it before
         // passing it to the elementwise codegen function
@@ -2358,7 +2355,7 @@ fn gen_subscript_expr<'ctx, G: CodeGenerator>(
         TypeEnum::TObj { obj_id, .. } if *obj_id == PrimDef::NDArray.id() => {
             let ndarray_ty = value.custom.unwrap();
             let ndarray = generator.gen_expr(ctx, value)?.to_basic_value_enum(ctx)?;
-            let ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty)
+            let ndarray = RawNDArrayType::from_unifier_type(ctx, ndarray_ty)
                 .map_value(ndarray.into_pointer_value(), None);
 
             let indices = RustNDIndex::from_subscript_expr(generator, ctx, slice)?;

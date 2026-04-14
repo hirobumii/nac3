@@ -11,11 +11,11 @@ use crate::{
         irrt::get_usize_dependent_function_name,
         typed_store,
         types::{
-            ProxyTypeBase, RefType, Value,
+            NDArrayType, ProxyTypeBase, RawNDArrayValue, RefType, Value,
             array::{ArrayLikeIndexer, ArraySliceValue},
             builtin::BuiltinStruct,
             field,
-            ndarray::{NDArrayType, NDArrayValue},
+            ndarray::NDArrayValue,
             structure::StructField,
         },
     },
@@ -244,7 +244,7 @@ impl<'ctx> RustNDIndex<'ctx> {
     }
 }
 
-impl<'ctx> NDArrayValue<'ctx> {
+impl<'ctx> RawNDArrayValue<'ctx> {
     /// Get the expected `ndims` after indexing with `indices`.
     #[must_use]
     fn deduce_ndims_after_indexing_with(&self, indices: &[RustNDIndex<'ctx>]) -> u64 {
@@ -261,7 +261,9 @@ impl<'ctx> NDArrayValue<'ctx> {
         }
         ndims
     }
+}
 
+impl<'ctx> NDArrayValue<'ctx> {
     /// Index into the ndarray, and return a newly-allocated view on this ndarray.
     ///
     /// This function behaves like NumPy's ndarray indexing, but if the indices index
@@ -271,8 +273,9 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
         indices: &[RustNDIndex<'ctx>],
     ) -> anyhow::Result<Self> {
-        let dst_ndims = self.deduce_ndims_after_indexing_with(indices);
-        let dst = NDArrayType::new(ctx, self.ty.dtype, dst_ndims).construct(ctx, None)?;
+        let dst_ndims = self.inner_value(ctx)?.deduce_ndims_after_indexing_with(indices);
+        let dst = NDArrayType::create(ctx, self.inner_value(ctx)?.ty.dtype, dst_ndims)
+            .construct(ctx, None)?;
         let indices = NDIndexType::new(ctx).construct(ctx, indices)?;
 
         let name = get_usize_dependent_function_name(ctx, "__nac3_ndarray_index");

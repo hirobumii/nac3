@@ -1,6 +1,10 @@
 #pragma once
 
 #include "irrt/stdlib/cstdint.h"
+#include "irrt/stdlib/type_traits.h"
+
+#include "irrt/reference/array.hpp"
+#include "irrt/reference/header.hpp"
 
 namespace {
 /**
@@ -9,30 +13,35 @@ namespace {
  * Official numpy implementation:
  * https://github.com/numpy/numpy/blob/735a477f0bc2b5b84d0e72d92f224bde78d4e069/doc/source/reference/c-api/types-and-structures.rst#pyarrayinterface
  *
- * Note that this implementation is based on `PyArrayInterface` rather of `PyArrayObject`. The
- * difference between `PyArrayInterface` and `PyArrayObject` (relevant to our implementation) is
- * that `PyArrayInterface` *has* `itemsize` and uses `void*` for its `data`, whereas `PyArrayObject`
- * does not require `itemsize` (probably using `strides[-1]` instead) and uses `char*` for its
- * `data`. There are also minor differences in the struct layout.
+ * Note that this implementation is based on `tinynumpy`'s `ndarray` class as opposed to the official numpy
+ * implementation:
+ * https://github.com/wadetb/tinynumpy/blob/0d23d22e07062ffab2afa287374c7b366eebdda1/tinynumpy/tinynumpy.py#L458
+ *
+ * TODO
  */
 template<typename SizeT>
 struct NDArray {
     /**
+     * @brief The object header for reference counting.
+     */
+    __nac3_impl::reference::ObjectHeader header;
+
+    /**
      * @brief The number of bytes of a single element in `data`.
      */
-    SizeT itemsize;
+    __nac3_impl::stdlib::make_signed_t<SizeT> itemsize;
 
     /**
      * @brief The number of dimensions of this shape.
      */
-    SizeT ndims;
+    __nac3_impl::stdlib::make_signed_t<SizeT> ndims;
 
     /**
      * @brief The NDArray shape, with length equal to `ndims`.
      *
      * Note that it may contain 0.
      */
-    SizeT* shape;
+    __nac3_impl::reference::Array<SizeT, __nac3_impl::stdlib::make_signed_t<SizeT>>* shape;
 
     /**
      * @brief Array strides, with length equal to `ndims`
@@ -41,12 +50,12 @@ struct NDArray {
      *
      * Note that `strides` can have negative values or contain 0.
      */
-    SizeT* strides;
+    __nac3_impl::reference::Array<SizeT, __nac3_impl::stdlib::make_signed_t<SizeT>>* strides;
 
     /**
      * @brief The underlying data this `ndarray` is pointing to.
      */
-    void* data;
+    __nac3_impl::reference::Array<SizeT>* data;
 
     /**
      * @brief The base array that owns the memory this `ndarray` is pointing to.
@@ -56,6 +65,6 @@ struct NDArray {
     /**
      * @brief The offset in bytes from the start of the base array to the first element of this `ndarray`.
      */
-    SizeT offset;
+    __nac3_impl::stdlib::make_signed_t<SizeT> offset;
 };
 }  // namespace

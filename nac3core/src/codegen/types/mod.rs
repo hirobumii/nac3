@@ -1,7 +1,10 @@
 use inkwell::{
+    AddressSpace,
+    module::Linkage,
     types::{BasicType, BasicTypeEnum},
-    values::{BasicValue, BasicValueEnum, PointerValue},
+    values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
 };
+use itertools::Itertools as _;
 
 use crate::codegen::{
     AllocationScope, CodeGenContext, ModuleContext, types::structure::StructField,
@@ -94,10 +97,11 @@ pub use enumerate::{EnumerateType, EnumerateValue};
 pub use exception::{ExceptionType, ExceptionValue};
 pub use list::{ListStructFields, ListType, ListValue, RawListType, RawListValue};
 pub use ndarray::{
-    BroadcastAllResult, ContiguousNDArrayType, ContiguousNDArrayValue, NDArrayLikeType, NDArrayOut,
-    NDArrayType, NDArrayValue, NDIndexType, NDIndexValue, NDIterType, NDIterValue, RustNDIndex,
-    ScalarOrNDArray, assert_ndarray_can_be_written_by_out, broadcast, broadcast_starmap,
-    make_contiguous_strides, parse_numpy_int_sequence,
+    BroadcastAllResult, NDArrayLikeType, NDArrayOut, NDArrayType, NDArrayValue, NDIndexType,
+    NDIndexValue, RawContiguousNDArrayType, RawContiguousNDArrayValue, RawNDArrayType,
+    RawNDArrayValue, RawNDIterType, RawNDIterValue, RustNDIndex, ScalarOrNDArray,
+    assert_ndarray_can_be_written_by_out, broadcast, broadcast_starmap, make_contiguous_strides,
+    parse_numpy_int_sequence,
 };
 pub use option::{OptionType, OptionValue};
 pub use range::{RangeField, RangeType, RangeValue};
@@ -171,10 +175,114 @@ pub trait ProxyType<'ctx>: ProxyTypeBase<'ctx> {
 }
 
 /// Represents a type with a `typeinfo` global structure.
+// TODO(Derppening): Consider adding `typename()` and `refcounted_fields()` methods to this trait
+// and move the corresponding methods from `typeinfo.rs` here.
 pub trait WithTypeinfo<'ctx> {
     /// Returns a global instance of [`TypeinfoValue`] representing the type information of this
     /// reference type.
-    fn typeinfo(ctx: &ModuleContext<'ctx>) -> TypeinfoValue<'ctx>;
+    fn typeinfo(ctx: &ModuleContext<'ctx>) -> TypeinfoValue<'ctx> {
+        let typename = Self::typename();
+
+        let global =
+            ctx.module.get_global(&format!("typeinfo for {typename}")).unwrap_or_else(|| {
+                let name_data = ctx
+                    .module
+                    .get_global(&format!("typename array for {typename}"))
+                    .unwrap_or_else(|| {
+                        let name_data = ctx.module.add_global(
+                            ctx.i8.array_type(typename.len() as u32),
+                            None,
+                            &format!("typename array for {typename}"),
+                        );
+                        name_data.set_linkage(Linkage::WeakAny);
+                        name_data.set_initializer(
+                            &ctx.i8.const_array(
+                                &typename
+                                    .as_bytes()
+                                    .iter()
+                                    .map(|&b| ctx.i8.const_int(u64::from(b), false))
+                                    .collect_vec(),
+                            ),
+                        );
+                        name_data.set_constant(true);
+
+                        name_data
+                    });
+
+                let name = ctx
+                    .module
+                    .get_global(&format!("typename for {typename}"))
+                    .unwrap_or_else(|| {
+                        let llvm_str = StringType::new(ctx).llvm_ty(ctx).into_struct_type();
+                        let name = ctx.module.add_global(
+                            llvm_str,
+                            None,
+                            &format!("typename for {typename}"),
+                        );
+                        name.set_linkage(Linkage::WeakAny);
+                        name.set_initializer(&llvm_str.const_named_struct(&[
+                            name_data.as_pointer_value().into(),
+                            ctx.size_t.const_int(typename.len() as u64, false).into(),
+                        ]));
+                        name.set_constant(true);
+
+                        name
+                    });
+
+                let refcounted_field_offsets = Self::refcounted_field_offset(ctx);
+                let refcounted_fields = ctx
+                    .module
+                    .get_global(&format!("refcounted_fields array for {typename}"))
+                    .unwrap_or_else(|| {
+                        let refcounted_fields = ctx.module.add_global(
+                            ctx.i32.array_type(refcounted_field_offsets.len() as u32 + 1),
+                            None,
+                            &format!("refcounted_fields array for {typename}"),
+                        );
+                        refcounted_fields.set_linkage(Linkage::WeakAny);
+                        refcounted_fields.set_initializer(
+                            &ctx.i32.const_array(
+                                &[
+                                    &[ctx
+                                        .i32
+                                        .const_int(refcounted_field_offsets.len() as u64, false)],
+                                    refcounted_field_offsets.as_slice(),
+                                ]
+                                .concat(),
+                            ),
+                        );
+                        refcounted_fields.set_constant(true);
+
+                        refcounted_fields
+                    });
+
+                let llvm_typeinfo = TypeinfoType::new(ctx).alloca_ty(ctx).into_struct_type();
+
+                let value =
+                    ctx.module.add_global(llvm_typeinfo, None, &format!("typeinfo for {typename}"));
+                value.set_linkage(Linkage::WeakAny);
+                value.set_initializer(
+                    &llvm_typeinfo.const_named_struct(&[
+                        name.as_pointer_value()
+                            .const_cast(ctx.i8.ptr_type(AddressSpace::default()))
+                            .into(),
+                        refcounted_fields
+                            .as_pointer_value()
+                            .const_cast(ctx.i32.ptr_type(AddressSpace::default()))
+                            .into(),
+                    ]),
+                );
+                value.set_constant(true);
+                value
+            });
+        TypeinfoType::new(ctx).map_value(global.as_pointer_value(), None)
+    }
+
+    /// Returns the name of this type, which is used for debugging and error messages.
+    fn typename() -> &'static str;
+
+    /// Returns a vector of byte offsets of the reference-counted fields in this type.
+    fn refcounted_field_offset(ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>>;
 }
 
 /// Represents a type that is passed around by pointer.

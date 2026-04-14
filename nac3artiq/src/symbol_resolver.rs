@@ -12,7 +12,7 @@ use itertools::Itertools as _;
 use nac3core::{
     codegen::{
         CodeGenContext,
-        types::{EnumerateType, NDArrayType, RefType, make_contiguous_strides},
+        types::{EnumerateType, RawNDArrayType, RefType, make_contiguous_strides},
     },
     inkwell::{
         AddressSpace,
@@ -1345,7 +1345,7 @@ impl InnerResolver {
 
             let llvm_pi8 = ctx.ptr;
             let llvm_usize = ctx.size_t;
-            let llvm_ndarray = NDArrayType::from_unifier_type(ctx, ndarray_ty);
+            let llvm_ndarray = RawNDArrayType::from_unifier_type(ctx, ndarray_ty);
             let dtype = llvm_ndarray.dtype;
 
             {

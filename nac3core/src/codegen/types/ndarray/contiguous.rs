@@ -1,14 +1,20 @@
-use inkwell::values::{IntValue, PointerValue};
+use inkwell::{
+    types::{BasicTypeEnum, IntType},
+    values::{IntValue, PointerValue},
+};
 use nac3core_derive::StructFields;
 
 use crate::codegen::{
-    CodeGenContext,
+    CodeGenContext, ModuleContext,
+    allocator::AllocationScope,
     stmt::gen_if_callback,
     types::{
-        ProxyTypeBase, Value,
+        NDArrayType, OpaqueRefCountedType, OpaqueRefCountedValue, ProxyTypeBase as _,
+        RefCountedArrayType, RefCountedArrayValue, RefCountedValue as _, TypedRefCountedType,
+        TypedRefCountedValue, Value, WithTypeinfo,
         builtin::BuiltinStruct,
         field,
-        ndarray::{NDArrayLikeType, NDArrayType, NDArrayValue},
+        ndarray::{NDArrayLikeType, NDArrayValue},
         structure::StructField,
     },
 };
@@ -27,8 +33,52 @@ pub struct ContiguousNDArrayStructFields<'ctx> {
     pub offset: StructField<'ctx, IntValue<'ctx>>,
 }
 
-pub type ContiguousNDArrayType<'ctx> = NDArrayLikeType<'ctx, ContiguousNDArrayStructFields<'ctx>>;
-pub type ContiguousNDArrayValue<'ctx> = Value<'ctx, ContiguousNDArrayType<'ctx>>;
+pub type RawContiguousNDArrayType<'ctx> =
+    NDArrayLikeType<'ctx, ContiguousNDArrayStructFields<'ctx>>;
+
+impl<'ctx> WithTypeinfo<'ctx> for RawContiguousNDArrayType<'ctx> {
+    fn typename() -> &'static str {
+        "__nac3_contiguous_ndarray"
+    }
+
+    fn refcounted_field_offset(ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+        vec![
+            ctx.i32.const_int(ctx.sizeof(ctx.size_t), false),
+            ctx.i32.const_int(ctx.sizeof(ctx.size_t) + ctx.sizeof(ctx.ptr), false),
+            ctx.i32.const_int(ctx.sizeof(ctx.size_t) + 2 * ctx.sizeof(ctx.ptr), false),
+        ]
+    }
+}
+
+pub type ContiguousNDArrayType<'ctx> = TypedRefCountedType<'ctx, RawContiguousNDArrayType<'ctx>>;
+pub type RawContiguousNDArrayValue<'ctx> = Value<'ctx, RawContiguousNDArrayType<'ctx>>;
+
+impl<'ctx> RawContiguousNDArrayValue<'ctx> {
+    pub fn shape(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<RefCountedArrayValue<'ctx, IntType<'ctx>>> {
+        let shape = self.load(ctx, field!(shape))?;
+        Ok(RefCountedArrayType::new(ctx, ctx.size_t, None).map_value(shape, None))
+    }
+
+    pub fn data(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<RefCountedArrayValue<'ctx, BasicTypeEnum<'ctx>>> {
+        let data = self.load(ctx, field!(data))?;
+        Ok(RefCountedArrayType::new(ctx, ctx.i8.into(), None).map_value(data, None))
+    }
+
+    pub fn base(
+        &self,
+        ctx: &mut CodeGenContext<'ctx, '_>,
+    ) -> anyhow::Result<OpaqueRefCountedValue<'ctx>> {
+        Ok(OpaqueRefCountedType::new(ctx).map_value(self.load(ctx, field!(base))?, None))
+    }
+}
+
+pub type ContiguousNDArrayValue<'ctx> = TypedRefCountedValue<'ctx, RawContiguousNDArrayType<'ctx>>;
 
 impl<'ctx> NDArrayValue<'ctx> {
     /// Create a [`ContiguousNDArrayValue`] from the contents of this ndarray.
@@ -45,19 +95,22 @@ impl<'ctx> NDArrayValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<ContiguousNDArrayValue<'ctx>> {
-        let result = ContiguousNDArrayType {
-            inner: BuiltinStruct::new(ctx, "contiguous_ndarray"),
-            dtype: self.ty.dtype,
-            ndims: self.ty.ndims,
-        };
-        let result = result.allocate(ctx, self.name)?;
+        let result = TypedRefCountedType::new(
+            ctx,
+            RawContiguousNDArrayType {
+                inner: BuiltinStruct::new(ctx, "contiguous_ndarray"),
+                dtype: self.ty.object.dtype,
+                ndims: self.ty.object.ndims,
+            },
+        );
+        let result = result.allocate(ctx, AllocationScope::Default, self.name)?;
 
         // Set ndims and shape.
-        let ndims = self.ty.ndims_val(ctx);
-        result.store(ctx, field!(ndims), ndims)?;
+        let ndims = self.ty.object.ndims_val(ctx);
+        result.inner_value(ctx)?.store(ctx, field!(ndims), ndims)?;
 
-        let shape = self.load(ctx, field!(shape))?;
-        result.store(ctx, field!(shape), shape)?;
+        let shape = self.inner_value(ctx)?.load(ctx, field!(shape))?;
+        result.inner_value(ctx)?.store(ctx, field!(shape), shape)?;
 
         gen_if_callback(
             &mut (),
@@ -65,14 +118,14 @@ impl<'ctx> NDArrayValue<'ctx> {
             |(), ctx| self.is_c_contiguous(ctx),
             |(), ctx| {
                 // This ndarray is contiguous.
-                let data = self.load(ctx, field!(data))?;
-                result.store(ctx, field!(data), data)?;
+                let data = self.inner_value(ctx)?.load(ctx, field!(data))?;
+                result.inner_value(ctx)?.store(ctx, field!(data), data)?;
 
-                let base = self.load(ctx, field!(base))?;
-                result.store(ctx, field!(base), base)?;
+                let base = self.inner_value(ctx)?.load(ctx, field!(base))?;
+                result.inner_value(ctx)?.store(ctx, field!(base), base)?;
 
-                let offset = self.load(ctx, field!(offset))?;
-                result.store(ctx, field!(offset), offset)?;
+                let offset = self.inner_value(ctx)?.load(ctx, field!(offset))?;
+                result.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
 
                 Ok(())
             },
@@ -80,11 +133,12 @@ impl<'ctx> NDArrayValue<'ctx> {
                 // This ndarray is not contiguous. Do a full-copy on `data`. `make_copy` produces an
                 // ndarray with contiguous `data`.
                 let copied_ndarray = self.make_copy(ctx)?;
-                let data = copied_ndarray.load(ctx, field!(data))?;
-                result.store(ctx, field!(data), data)?;
+                let data = copied_ndarray.inner_value(ctx)?.load(ctx, field!(data))?;
+                copied_ndarray.header(ctx).increment_refcount(ctx);
+                result.inner_value(ctx)?.store(ctx, field!(data), data)?;
 
-                result.store(ctx, field!(base), ctx.ptr.const_null())?;
-                result.store(ctx, field!(offset), ctx.size_t.const_zero())?;
+                result.inner_value(ctx)?.store(ctx, field!(base), ctx.ptr.const_null())?;
+                result.inner_value(ctx)?.store(ctx, field!(offset), ctx.size_t.const_zero())?;
 
                 Ok(())
             },
@@ -109,22 +163,25 @@ impl<'ctx> NDArrayValue<'ctx> {
         // TODO: Debug assert `ndims == carray.ndims` to catch bugs.
 
         // Allocate the resulting ndarray.
-        let ndarray = NDArrayType::new(ctx, carray.ty.dtype, ndims).construct(ctx, carray.name)?;
+        let ndarray =
+            NDArrayType::create(ctx, carray.ty.object.dtype, ndims).construct(ctx, carray.name)?;
 
         // Copy shape and update strides
-        let shape = carray.load(ctx, field!(shape))?;
-        ndarray.shape(ctx)?.memcpy_from(ctx, shape)?;
+        let shape = carray.inner_value(ctx)?.shape(ctx)?;
+        ndarray.shape(ctx)?.inner_value(ctx)?.memcpy_from(ctx, shape.inner_value(ctx)?.value.0)?;
         ndarray.set_strides_contiguous(ctx)?;
 
         // Share data
-        let data = carray.load(ctx, field!(data))?;
-        ndarray.store(ctx, field!(data), data)?;
+        let data = carray.inner_value(ctx)?.data(ctx)?;
+        data.header(ctx).safe_increment_refcount(ctx)?;
+        ndarray.inner_value(ctx)?.store(ctx, field!(data), data.value)?;
 
-        let base = carray.load(ctx, field!(base))?;
-        ndarray.store(ctx, field!(base), base)?;
+        let base = carray.inner_value(ctx)?.data(ctx)?;
+        base.header(ctx).safe_increment_refcount(ctx)?;
+        ndarray.inner_value(ctx)?.store(ctx, field!(base), base.value)?;
 
-        let offset = carray.load(ctx, field!(offset))?;
-        ndarray.store(ctx, field!(offset), offset)?;
+        let offset = carray.inner_value(ctx)?.load(ctx, field!(offset))?;
+        ndarray.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
 
         Ok(ndarray)
     }

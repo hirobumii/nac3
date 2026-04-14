@@ -16,7 +16,7 @@ use nac3core::{
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_allocate, typed_gep, typed_store,
         types::{
-            ArrayLikeIndexer, ExceptionType, NDArrayType, ProxyTypeBase, RangeType, RawListType,
+            ArrayLikeIndexer, ExceptionType, ProxyTypeBase, RangeType, RawListType, RawNDArrayType,
             field,
         },
     },
@@ -451,7 +451,7 @@ fn format_rpc_arg<'ctx>(
             let ndims = extract_ndims(&ctx.unifier, ndims);
             let dtype = ctx.get_llvm_type(elem_ty);
             let ndarray =
-                NDArrayType::new(ctx, dtype, ndims).map_value(arg.into_pointer_value(), None);
+                RawNDArrayType::new(ctx, dtype, ndims).map_value(arg.into_pointer_value(), None);
 
             // `ndarray.data` is possibly not contiguous, and we need it to be contiguous for
             // the reader.
@@ -568,7 +568,7 @@ fn format_rpc_ret<'ctx>(
             let (dtype, ndims) = unpack_ndarray_var_tys(&mut ctx.unifier, ret_ty);
             let dtype_llvm = ctx.get_llvm_type(dtype);
             let ndims = extract_ndims(&ctx.unifier, ndims);
-            let ndarray = NDArrayType::new(ctx, dtype_llvm, ndims).construct(ctx, None)?;
+            let ndarray = RawNDArrayType::new(ctx, dtype_llvm, ndims).construct(ctx, None)?;
 
             // NOTE: Current content of `ndarray`:
             //   - * `data` - **NOT YET** allocated.
@@ -1219,7 +1219,7 @@ fn polymorphic_print<'ctx>(
                 flush(ctx, &mut fmt, &mut args)?;
 
                 let (dtype, _) = unpack_ndarray_var_tys(&mut ctx.unifier, ty);
-                let ndarray = NDArrayType::from_unifier_type(ctx, ty)
+                let ndarray = RawNDArrayType::from_unifier_type(ctx, ty)
                     .map_value(value.into_pointer_value(), None);
 
                 let num_0 = llvm_usize.const_zero();
