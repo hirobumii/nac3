@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use inkwell::{
-    AddressSpace,
     types::{ArrayType, BasicType, BasicTypeEnum, StructType},
     values::{BasicValueEnum, IntValue, PointerValue},
 };
@@ -209,13 +208,13 @@ pub trait RefCountedValue<'ctx> {
 
 #[derive(Clone, Copy)]
 pub struct OpaqueRefCountedType<'ctx> {
-    inner: StructType<'ctx>,
+    _phantom: std::marker::PhantomData<&'ctx ()>,
 }
 
 impl<'ctx> OpaqueRefCountedType<'ctx> {
     /// Creates a new instance of this type.
-    pub fn new(ctx: &ModuleContext<'ctx>) -> Self {
-        Self { inner: ObjectHeaderType::new(ctx).alloca_ty(ctx).into_struct_type() }
+    pub fn new(_ctx: &ModuleContext<'ctx>) -> Self {
+        Self { _phantom: std::marker::PhantomData }
     }
 }
 
@@ -253,8 +252,8 @@ impl<'ctx> ProxyTypeBase<'ctx> for OpaqueRefCountedType<'ctx> {
 }
 
 impl<'ctx> ProxyType<'ctx> for OpaqueRefCountedType<'ctx> {
-    fn llvm_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
-        self.inner.ptr_type(AddressSpace::default()).into()
+    fn llvm_ty(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
+        ctx.ptr.into()
     }
 }
 
