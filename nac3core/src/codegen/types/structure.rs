@@ -7,7 +7,7 @@ use inkwell::{
 };
 use itertools::Itertools as _;
 
-use crate::codegen::{CodeGenContext, ModuleContext, typed_load, typed_store};
+use crate::codegen::{CodeGenContext, ModuleContext};
 
 /// Trait indicating that the structure is a field-wise representation of an LLVM structure.
 ///
@@ -192,14 +192,14 @@ impl<'ctx, Value> StructField<'ctx, Value> {
     where
         Value: TryFrom<BasicValueEnum<'ctx>, Error: std::fmt::Debug>,
     {
-        typed_load(
-            ctx.builder,
-            self.ptr_by_gep(ctx, struct_ty, pobj, obj_name)?,
-            self.ty,
-            &obj_name.map(|name| format!("{name}.{}", self.name)).unwrap_or_default(),
-        )?
-        .try_into()
-        .map_err(|e| anyhow!("{e:?}"))
+        ctx.builder
+            .build_load(
+                self.ty,
+                self.ptr_by_gep(ctx, struct_ty, pobj, obj_name)?,
+                &obj_name.map(|name| format!("{name}.{}", self.name)).unwrap_or_default(),
+            )?
+            .try_into()
+            .map_err(|e| anyhow!("{e:?}"))
     }
 
     /// Stores the value of this field for a pointer-to-structure.
@@ -214,7 +214,7 @@ impl<'ctx, Value> StructField<'ctx, Value> {
     where
         Value: BasicValue<'ctx>,
     {
-        typed_store(ctx.builder, self.ptr_by_gep(ctx, struct_ty, pobj, obj_name)?, value)?;
+        ctx.builder.build_store(self.ptr_by_gep(ctx, struct_ty, pobj, obj_name)?, value)?;
         Ok(())
     }
 }

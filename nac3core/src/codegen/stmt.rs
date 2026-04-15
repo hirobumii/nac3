@@ -19,7 +19,6 @@ use crate::{
         irrt::{handle_slice_indices, list_slice_assignment},
         llvm_fns::FunctionDecl,
         macros::codegen_unreachable,
-        typed_load, typed_store,
         types::{
             ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
             ListType, ListValue, NDArrayType, ProxyTypeExt, RangeType, RustNDIndex,
@@ -262,7 +261,7 @@ pub fn gen_assign<'ctx, G: CodeGenerator>(
                 val
             };
 
-            typed_store(ctx.builder, ptr, val)?;
+            ctx.builder.build_store(ptr, val)?;
         }
     }
     Ok(())
@@ -283,7 +282,7 @@ pub fn gen_assign_target_list<'ctx, G: CodeGenerator>(
     };
     let do_assign_list = |generator: &mut G, ctx: &mut _, target, list: &ListValue<'ctx>| {
         let ptr = generator.gen_store_target(ctx, target, Some("starred_target.addr"))?.unwrap();
-        typed_store(ctx.builder, ptr, list.value)?;
+        ctx.builder.build_store(ptr, list.value)?;
         anyhow::Ok(())
     };
 
@@ -782,7 +781,8 @@ where
         |_, ctx, iv_pair| {
             let element_struct = ctx.ctx.struct_type(&[int32.into(), default_element_ty], false);
             let i = ctx.builder.build_struct_gep(element_struct, iv_pair, 0, "i")?;
-            let i_val = ctx.builder.build_load(int32, i, "i_val").map(BasicValueEnum::into_int_value)?;
+            let i_val =
+                ctx.builder.build_load(int32, i, "i_val").map(BasicValueEnum::into_int_value)?;
             gen_in_range_check(
                 ctx,
                 ctx.builder.build_int_sub(i_val, start, "sub")?,
@@ -796,21 +796,32 @@ where
             match target_expr {
                 ExprKind::Tuple { elts, .. } if elts.len() == 2 => {
                     let i = ctx.builder.build_struct_gep(element_struct, iv_pair, 0, "i")?;
-                    let i_val =
-                        ctx.builder.build_load(int32, i, "i_val").map(BasicValueEnum::into_int_value)?;
-                    let ptr_1 = ctx.builder.build_struct_gep(target_struct_ty, target_i, 0, "tuple.0")?;
-                    let addr_1 =
-                        ctx.builder.build_load(ctx.ptr, ptr_1, "tuple.0.addr")?.into_pointer_value();
+                    let i_val = ctx
+                        .builder
+                        .build_load(int32, i, "i_val")
+                        .map(BasicValueEnum::into_int_value)?;
+                    let ptr_1 =
+                        ctx.builder.build_struct_gep(target_struct_ty, target_i, 0, "tuple.0")?;
+                    let addr_1 = ctx
+                        .builder
+                        .build_load(ctx.ptr, ptr_1, "tuple.0.addr")?
+                        .into_pointer_value();
                     ctx.builder.build_store(addr_1, i_val)?;
                     let v = ctx.builder.build_struct_gep(element_struct, iv_pair, 1, "v")?;
                     let v_val = ctx.builder.build_load(default_element_ty, v, "")?;
-                    let ptr_2 = ctx.builder.build_struct_gep(target_struct_ty, target_i, 1, "tuple.1")?;
-                    let addr_2 =
-                        ctx.builder.build_load(ctx.ptr, ptr_2, "tuple.1.addr")?.into_pointer_value();
+                    let ptr_2 =
+                        ctx.builder.build_struct_gep(target_struct_ty, target_i, 1, "tuple.1")?;
+                    let addr_2 = ctx
+                        .builder
+                        .build_load(ctx.ptr, ptr_2, "tuple.1.addr")?
+                        .into_pointer_value();
                     ctx.builder.build_store(addr_2, v_val)?;
                 }
                 ExprKind::Name { .. } => {
-                    ctx.builder.build_store(target_i, ctx.builder.build_load(element_struct, iv_pair, "iv")?)?;
+                    ctx.builder.build_store(
+                        target_i,
+                        ctx.builder.build_load(element_struct, iv_pair, "iv")?,
+                    )?;
                 }
                 _ => codegen_unreachable!(
                     ctx,
@@ -823,7 +834,8 @@ where
         |_, ctx, iv_pair| {
             let element_struct = ctx.ctx.struct_type(&[int32.into(), default_element_ty], false);
             let i = ctx.builder.build_struct_gep(element_struct, iv_pair, 0, "i")?;
-            let i_val = ctx.builder.build_load(int32, i, "i_val").map(BasicValueEnum::into_int_value)?;
+            let i_val =
+                ctx.builder.build_load(int32, i, "i_val").map(BasicValueEnum::into_int_value)?;
             let next_i = ctx.builder.build_int_add(i_val, int32.const_int(1, false), "inc")?;
             ctx.builder.build_store(i, next_i)?;
             if element_ty.is_some() {
@@ -887,7 +899,7 @@ pub fn gen_for<G: CodeGenerator>(
                         codegen_unreachable!(ctx)
                     };
 
-                    typed_store(ctx.builder, i, start)?;
+                    ctx.builder.build_store(i, start)?;
 
                     Ok((i, target_i))
                 },
@@ -900,8 +912,7 @@ pub fn gen_for<G: CodeGenerator>(
                     )
                 },
                 |generator, ctx, _, (i, target_i)| {
-                    typed_store(
-                        ctx.builder,
+                    ctx.builder.build_store(
                         target_i,
                         ctx.builder.build_load(int32, i, "").map(BasicValueEnum::into_int_value)?,
                     )?;
@@ -915,7 +926,7 @@ pub fn gen_for<G: CodeGenerator>(
                         step,
                         "inc",
                     )?;
-                    typed_store(ctx.builder, i, next_i)?;
+                    ctx.builder.build_store(i, next_i)?;
 
                     Ok(())
                 },
@@ -941,21 +952,17 @@ pub fn gen_for<G: CodeGenerator>(
                 let iterable_ptr = enumerate.load(ctx, field!(iterable))?;
                 let iterable_struct_ty =
                     ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
-                let iterable_struct_val = typed_load(
-                    ctx.builder,
-                    iterable_ptr,
-                    iterable_struct_ty.into(),
-                    "iterable_struct",
-                )?
-                .into_struct_value();
+                let iterable_struct_val = ctx
+                    .builder
+                    .build_load(iterable_struct_ty, iterable_ptr, "iterable_struct")?
+                    .into_struct_value();
                 let iterable_data_i8ptr =
                     ctx.builder.build_extract_value(iterable_struct_val, 0, "iterable_data")?;
                 let iterable_ty = iter_type_vars(params).nth(1).unwrap().ty;
                 let iterable_llvm_ty = ctx.get_llvm_type(iterable_ty);
-                let ag = typed_load(
-                    ctx.builder,
-                    iterable_data_i8ptr.into_pointer_value(),
+                let ag = ctx.builder.build_load(
                     iterable_llvm_ty,
+                    iterable_data_i8ptr.into_pointer_value(),
                     "iterable_struct",
                 )?;
                 (iterable_ty, ag)
@@ -1045,7 +1052,7 @@ pub fn gen_for<G: CodeGenerator>(
                 None,
                 |_, ctx| {
                     let index_addr = gen_var(ctx, size_t, Some("for.index.addr"))?;
-                    typed_store(ctx.builder, index_addr, size_t.const_zero())?;
+                    ctx.builder.build_store(index_addr, size_t.const_zero())?;
 
                     Ok(index_addr)
                 },
@@ -1078,7 +1085,7 @@ pub fn gen_for<G: CodeGenerator>(
                         .build_load(size_t, index_addr, "")
                         .map(BasicValueEnum::into_int_value)?;
                     let inc = ctx.builder.build_int_add(index, size_t.const_int(1, true), "inc")?;
-                    typed_store(ctx.builder, index_addr, inc)?;
+                    ctx.builder.build_store(index_addr, inc)?;
 
                     Ok(())
                 },
@@ -1101,7 +1108,7 @@ pub fn gen_for<G: CodeGenerator>(
                 None,
                 |_, ctx| {
                     let index_addr = gen_var(ctx, size_t, Some("for.index.addr"))?;
-                    typed_store(ctx.builder, index_addr, size_t.const_zero())?;
+                    ctx.builder.build_store(index_addr, size_t.const_zero())?;
 
                     Ok(index_addr)
                 },
@@ -1160,7 +1167,7 @@ pub fn gen_for<G: CodeGenerator>(
                         .map(BasicValueEnum::into_int_value)?;
                     let inc =
                         ctx.builder.build_int_add(index, size_t.const_int(1, false), "inc")?;
-                    typed_store(ctx.builder, index_addr, inc)?;
+                    ctx.builder.build_store(index_addr, inc)?;
 
                     Ok(())
                 },
@@ -1247,28 +1254,37 @@ where
         label,
         |_, ctx| {
             let i_addr = gen_var(ctx, init_val_t, None)?;
-            typed_store(ctx.builder, i_addr, init_val)?;
+            ctx.builder.build_store(i_addr, init_val)?;
 
             Ok(i_addr)
         },
         |_, ctx, i_addr| {
             let cmp_op = if max_val.1 { IntPredicate::ULE } else { IntPredicate::ULT };
 
-            let i = ctx.builder.build_load(init_val_t, i_addr, "").map(BasicValueEnum::into_int_value)?;
+            let i = ctx
+                .builder
+                .build_load(init_val_t, i_addr, "")
+                .map(BasicValueEnum::into_int_value)?;
             let max_val = ctx.builder.build_int_z_extend_or_bit_cast(max_val.0, init_val_t, "")?;
 
             Ok(ctx.builder.build_int_compare(cmp_op, i, max_val, "")?)
         },
         |generator, ctx, hooks, i_addr| {
-            let i = ctx.builder.build_load(init_val_t, i_addr, "").map(BasicValueEnum::into_int_value)?;
+            let i = ctx
+                .builder
+                .build_load(init_val_t, i_addr, "")
+                .map(BasicValueEnum::into_int_value)?;
 
             body(generator, ctx, hooks, i)
         },
         |_, ctx, i_addr| {
-            let i = ctx.builder.build_load(init_val_t, i_addr, "").map(BasicValueEnum::into_int_value)?;
+            let i = ctx
+                .builder
+                .build_load(init_val_t, i_addr, "")
+                .map(BasicValueEnum::into_int_value)?;
             let incr_val = ctx.builder.build_int_z_extend_or_bit_cast(incr_val, init_val_t, "")?;
             let i = ctx.builder.build_int_add(i, incr_val, "")?;
-            typed_store(ctx.builder, i_addr, i)?;
+            ctx.builder.build_store(i_addr, i)?;
 
             Ok(())
         },
@@ -1332,7 +1348,7 @@ where
             let i_addr = gen_var(ctx, init_val_t, None)?;
 
             let start = start_fn(generator, ctx)?;
-            typed_store(ctx.builder, i_addr, start)?;
+            ctx.builder.build_store(i_addr, start)?;
 
             let start = start_fn(generator, ctx)?;
             let stop = stop_fn(generator, ctx)?;
@@ -1361,7 +1377,10 @@ where
                 (false, false) => (IntPredicate::SLT, IntPredicate::SGT),
             };
 
-            let i = ctx.builder.build_load(init_val_t, i_addr, "").map(BasicValueEnum::into_int_value)?;
+            let i = ctx
+                .builder
+                .build_load(init_val_t, i_addr, "")
+                .map(BasicValueEnum::into_int_value)?;
             let stop = stop_fn(generator, ctx)?;
             let stop = if stop.get_type().get_bit_width() == i.get_type().get_bit_width() {
                 stop
@@ -1382,12 +1401,18 @@ where
             Ok(cond)
         },
         |generator, ctx, hooks, (i_addr, _)| {
-            let i = ctx.builder.build_load(init_val_t, i_addr, "").map(BasicValueEnum::into_int_value)?;
+            let i = ctx
+                .builder
+                .build_load(init_val_t, i_addr, "")
+                .map(BasicValueEnum::into_int_value)?;
 
             body_fn(generator, ctx, hooks, i)
         },
         |generator, ctx, (i_addr, _)| {
-            let i = ctx.builder.build_load(init_val_t, i_addr, "").map(BasicValueEnum::into_int_value)?;
+            let i = ctx
+                .builder
+                .build_load(init_val_t, i_addr, "")
+                .map(BasicValueEnum::into_int_value)?;
 
             let incr_val = step_fn(generator, ctx)?;
             let incr_val = if incr_val.get_type().get_bit_width() == i.get_type().get_bit_width() {
@@ -1399,7 +1424,7 @@ where
             };
 
             let i = ctx.builder.build_int_add(i, incr_val, "")?;
-            typed_store(ctx.builder, i_addr, i)?;
+            ctx.builder.build_store(i_addr, i)?;
 
             Ok(())
         },
@@ -1704,7 +1729,7 @@ pub fn final_proxy<'ctx>(
     let prev = ctx.builder.get_insert_block().unwrap();
     ctx.builder.position_at_end(block);
     unsafe {
-        typed_store(ctx.builder, *final_state, target.get_address().unwrap())?;
+        ctx.builder.build_store(*final_state, target.get_address().unwrap())?;
     }
     ctx.builder.position_at_end(prev);
     final_targets.push(target);
@@ -1865,7 +1890,8 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         } else {
             let return_target = ctx.ctx.append_basic_block(current_fun, "try.return_target");
             ctx.builder.position_at_end(return_target);
-            let return_value = ctx.return_buffer
+            let return_value = ctx
+                .return_buffer
                 .zip(ctx.return_buffer_type)
                 .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
                 .transpose()?;
@@ -1996,7 +2022,8 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
         || {
             let doreturn = ctx.ctx.append_basic_block(current_fun, "try.doreturn");
             ctx.builder.position_at_end(doreturn);
-            let return_value = ctx.return_buffer
+            let return_value = ctx
+                .return_buffer
                 .zip(ctx.return_buffer_type)
                 .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
                 .transpose()?;
@@ -2028,7 +2055,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             let exn_ty = ctx.get_llvm_type(type_.as_ref().unwrap().custom.unwrap());
             let exn_store = gen_var(ctx, exn_ty, Some("try.exn_store.addr"))?;
             ctx.var_assignment.insert(*name, VarValue::new(exn_store));
-            typed_store(ctx.builder, exn_store, exn.as_basic_value())?;
+            ctx.builder.build_store(exn_store, exn.as_basic_value())?;
         }
         generator.gen_block(ctx, body.iter())?;
         let current = ctx.builder.get_insert_block().unwrap();
@@ -2144,7 +2171,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             if block.get_terminator().is_none() {
                 ctx.builder.position_at_end(*block);
                 unsafe {
-                    typed_store(ctx.builder, final_state, tail.get_address().unwrap())?;
+                    ctx.builder.build_store(final_state, tail.get_address().unwrap())?;
                 }
                 ctx.builder.build_unconditional_branch(finalizer)?;
             }
@@ -2279,7 +2306,8 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     } else {
         let return_target = ctx.ctx.append_basic_block(current_fun, "with.return_target");
         ctx.builder.position_at_end(return_target);
-        let return_value = ctx.return_buffer
+        let return_value = ctx
+            .return_buffer
             .zip(ctx.return_buffer_type)
             .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
             .transpose()?;
@@ -2345,7 +2373,8 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         || {
             let doreturn = ctx.ctx.append_basic_block(current_fun, "with.doreturn");
             ctx.builder.position_at_end(doreturn);
-            let return_value = ctx.return_buffer
+            let return_value = ctx
+                .return_buffer
                 .zip(ctx.return_buffer_type)
                 .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
                 .transpose()?;
@@ -2408,7 +2437,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         if block.get_terminator().is_none() {
             ctx.builder.position_at_end(*block);
             unsafe {
-                typed_store(ctx.builder, final_state, tail.get_address().unwrap())?;
+                ctx.builder.build_store(final_state, tail.get_address().unwrap())?;
             }
             ctx.builder.build_unconditional_branch(finalizer)?;
         }
@@ -2450,7 +2479,7 @@ pub fn gen_return<G: CodeGenerator>(
 
     if let Some(return_target) = ctx.return_target {
         if let Some(value) = value {
-            typed_store(ctx.builder, ctx.return_buffer.unwrap(), value)?;
+            ctx.builder.build_store(ctx.return_buffer.unwrap(), value)?;
         }
         ctx.builder.build_unconditional_branch(return_target)?;
     } else {

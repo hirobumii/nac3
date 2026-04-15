@@ -12,7 +12,6 @@ use crate::{
         irrt::get_usize_dependent_function_name,
         llvm_intrinsics::call_int_umin,
         stmt::{gen_array_var, gen_dyn_array_var, gen_for_callback_incrementing, gen_var},
-        typed_load, typed_store,
         types::{
             ProxyTypeExt, Value,
             array::{ArrayLikeIndexer, ArraySliceValue},
@@ -192,7 +191,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         let dtype = value.get_type();
         let ndarray = NDArrayType::new(ctx, dtype, 0).construct(ctx, name)?;
         let data = gen_var(ctx, value.get_type(), Some("map_unsized"))?;
-        typed_store(ctx.builder, data, value)?;
+        ctx.builder.build_store(data, value)?;
         let data = ctx.builder.build_pointer_cast(data, ctx.ptr, "")?;
         ndarray.store(ctx, field!(data), data)?;
         Ok(ndarray)
@@ -350,7 +349,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         //       Probably best to implement in IRRT.
         self.foreach(ctx, |ctx, _, nditer| {
             let p = nditer.curr_ptr(ctx)?;
-            typed_store(ctx.builder, p, value)?;
+            ctx.builder.build_store(p, value)?;
             Ok(())
         })?;
         Ok(())
@@ -362,7 +361,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         let data = self.load(ctx, field!(data))?;
-        typed_load(ctx.builder, data, self.ty.dtype, "first_element")
+        Ok(ctx.builder.build_load(self.ty.dtype, data, "first_element")?)
     }
 }
 

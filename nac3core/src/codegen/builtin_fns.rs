@@ -14,7 +14,6 @@ use crate::{
         llvm_intrinsics,
         macros::codegen_unreachable,
         stmt::gen_var,
-        typed_store,
         types::{
             ArrayLikeIndexer, ListType, NDArrayOut, NDArrayType, NDArrayValue, ProxyTypeExt,
             RangeType, ScalarOrNDArray, TupleType, TupleValue, broadcast_starmap, field,
@@ -816,13 +815,14 @@ pub fn call_numpy_max_min<'ctx>(
             let extremum_idx = gen_var(ctx, ctx.size_t, None)?;
 
             let first_value = ndarray.first_element(ctx)?;
-            typed_store(ctx.builder, extremum, first_value)?;
-            typed_store(ctx.builder, extremum_idx, zero)?;
+            ctx.builder.build_store(extremum, first_value)?;
+            ctx.builder.build_store(extremum_idx, zero)?;
 
             // The first element is iterated, but this doesn't matter.
             ndarray.foreach(ctx, |ctx, _, nditer| {
                 let old_extremum = ctx.builder.build_load(llvm_dtype, extremum, "")?;
-                let old_extremum_idx = ctx.builder.build_load(ctx.size_t, extremum_idx, "")?.into_int_value();
+                let old_extremum_idx =
+                    ctx.builder.build_load(ctx.size_t, extremum_idx, "")?.into_int_value();
 
                 let curr_value = nditer.get_scalar(ctx)?;
                 let curr_idx = nditer.get_index(ctx)?;
@@ -861,8 +861,8 @@ pub fn call_numpy_max_min<'ctx>(
                     }
                 };
 
-                typed_store(ctx.builder, extremum, new_extremum)?;
-                typed_store(ctx.builder, extremum_idx, new_extremum_idx)?;
+                ctx.builder.build_store(extremum, new_extremum)?;
+                ctx.builder.build_store(extremum_idx, new_extremum_idx)?;
 
                 Ok(())
             })?;

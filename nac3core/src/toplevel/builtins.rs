@@ -19,7 +19,6 @@ use crate::{
             gen_ndarray_zeros, ndarray_dot,
         },
         stmt::{exn_constructor, gen_if_callback, gen_var},
-        typed_store,
         types::{
             EnumerateType, NDArrayType, ProxyTypeExt, RangeField, RangeType, ScalarOrNDArray,
             field, parse_numpy_int_sequence,
@@ -933,7 +932,7 @@ impl<'a> BuiltinBuilder<'a> {
                     let arg_ty = fun.0.args[0].ty;
                     let arg_val = args[0].1.clone().to_basic_value_enum(ctx, arg_ty)?;
                     let alloca = gen_var(ctx, arg_val.get_type(), Some("alloca_some"))?;
-                    typed_store(ctx.builder, alloca, arg_val)?;
+                    ctx.builder.build_store(alloca, arg_val)?;
                     Ok(Some(alloca.into()))
                 })))),
                 loc: None,

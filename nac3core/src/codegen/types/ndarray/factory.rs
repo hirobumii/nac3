@@ -9,7 +9,6 @@ use crate::{
         CodeGenContext,
         expr::call_extern,
         irrt::get_usize_dependent_function_name,
-        typed_store,
         types::{
             array::{ArrayLikeIndexer, ArraySliceValue},
             ndarray::{NDArrayType, NDArrayValue},
@@ -185,7 +184,7 @@ impl<'ctx> NDArrayType<'ctx> {
             let value = ctx.builder.build_select(be_one, ndone, ndzero, "value")?;
 
             let p = nditer.curr_ptr(ctx)?;
-            typed_store(ctx.builder, p, value)?;
+            ctx.builder.build_store(p, value)?;
 
             Ok(())
         })?;

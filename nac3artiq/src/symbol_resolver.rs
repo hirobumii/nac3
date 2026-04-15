@@ -1155,9 +1155,7 @@ impl InnerResolver {
             } else {
                 ctx.get_llvm_type(elem_ty)
             };
-            let arr_ty = ctx
-                .ctx
-                .struct_type(&[ctx.ptr.into(), size_t.into()], false);
+            let arr_ty = ctx.ctx.struct_type(&[ctx.ptr.into(), size_t.into()], false);
 
             {
                 if self.global_value_ids.read().contains_key(&id) {
@@ -1280,10 +1278,8 @@ impl InnerResolver {
                     unreachable!("unexpected iterable type for enumerate")
                 };
 
-            let iterable_struct_ty = ctx.ctx.struct_type(
-                &[ctx.ptr.into(), ctx.size_t.into()],
-                false,
-            );
+            let iterable_struct_ty =
+                ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.size_t.into()], false);
 
             let iterable_struct_val = iterable_struct_ty.const_named_struct(&[
                 iterable,
@@ -1628,16 +1624,25 @@ impl InnerResolver {
                 // As guaranteed by invoking ctx.get_alloca_type(ty)
                 unreachable!("type {} must refer to a class instance", ctx.unifier.stringify(ty))
             };
-            assert_eq!(*obj_id, self.pyid_to_def.read()[&ty_id], "unifier failed to infer the same object");
+            assert_eq!(
+                *obj_id,
+                self.pyid_to_def.read()[&ty_id],
+                "unifier failed to infer the same object"
+            );
 
             let values = fields_list
                 .iter()
                 .map(|(name, _, _)| {
                     Ok(self
-                        .get_obj_value(py, &obj.getattr(name.to_string().as_str())?, ctx, fields[name].0)
+                        .get_obj_value(
+                            py,
+                            &obj.getattr(name.to_string().as_str())?,
+                            ctx,
+                            fields[name].0,
+                        )
                         .map_err(|e| {
-                        super::CompileError::new_err(format!("Error getting field {name}: {e}"))
-                    })?)
+                            super::CompileError::new_err(format!("Error getting field {name}: {e}"))
+                        })?)
                 })
                 .collect::<anyhow::Result<Option<Vec<_>>>>()?;
             if let Some(values) = values {

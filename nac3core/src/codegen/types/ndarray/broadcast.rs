@@ -9,7 +9,6 @@ use crate::codegen::{
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
     stmt::{gen_array_var, gen_for_callback},
-    typed_store,
     types::{
         ProxyTypeExt,
         array::{ArrayLikeIndexer, ArraySliceValue},
@@ -183,7 +182,7 @@ where
             let result = mapping(ctx, &in_scalars)?;
 
             let p = out_nditer.curr_ptr(ctx)?;
-            typed_store(ctx.builder, p, result)?;
+            ctx.builder.build_store(p, result)?;
 
             Ok(())
         },

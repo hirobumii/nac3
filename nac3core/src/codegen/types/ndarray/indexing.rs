@@ -9,7 +9,6 @@ use crate::{
         expr::call_extern,
         irrt::get_usize_dependent_function_name,
         stmt::{gen_array_var, gen_var},
-        typed_store,
         types::{
             ProxyTypeExt, RefType, Value,
             array::{ArrayLikeIndexer, ArraySliceValue},
@@ -226,7 +225,7 @@ impl<'ctx> RustNDIndex<'ctx> {
         match *self {
             RustNDIndex::SingleElement(in_index) => {
                 let index_ptr = gen_var(ctx, ctx.i32, None)?;
-                typed_store(ctx.builder, index_ptr, in_index)?;
+                ctx.builder.build_store(index_ptr, in_index)?;
                 dst_ndindex.store(ctx, field!(data), index_ptr)?;
             }
             RustNDIndex::Slice(slice) => {

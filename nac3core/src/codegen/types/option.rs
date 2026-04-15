@@ -3,7 +3,7 @@ use nac3core_derive::ProxyType;
 
 use crate::{
     codegen::{
-        CodeGenContext, ModuleContext, typed_load, typed_store,
+        CodeGenContext, ModuleContext,
         types::{ProxyTypeExt, RefType, Value},
     },
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
@@ -48,7 +48,7 @@ impl OptionType {
         match value {
             Some(v) => {
                 let value = self.alloca(ctx, name)?;
-                typed_store(ctx.builder, value.value, v)?;
+                ctx.builder.build_store(value.value, v)?;
                 Ok(value)
             }
             None => Ok(self.map_value(ctx.ptr.const_null(), name)),
@@ -73,6 +73,6 @@ impl<'ctx> OptionValue<'ctx> {
         name: Option<&str>,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         let ty = self.ty.alloca_ty(ctx);
-        typed_load(ctx.builder, self.value, ty, name.or(self.name).unwrap_or(""))
+        Ok(ctx.builder.build_load(ty, self.value, name.or(self.name).unwrap_or(""))?)
     }
 }

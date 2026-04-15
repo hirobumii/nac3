@@ -9,7 +9,6 @@ use crate::{
         CodeGenContext, bool_to_i1,
         macros::codegen_unreachable,
         stmt::{gen_for_callback, gen_var},
-        typed_store,
         types::{NDArrayType, NDArrayValue, NDIterValue, ProxyTypeExt, parse_numpy_int_sequence},
     },
     symbol_resolver::ValueEnum,
@@ -316,7 +315,7 @@ pub fn ndarray_dot<'ctx>(
             let dtype_llvm = ctx.get_llvm_type(common_dtype);
 
             let result = gen_var(ctx, dtype_llvm, Some("np_dot_result"))?;
-            typed_store(ctx.builder, result, dtype_llvm.const_zero())?;
+            ctx.builder.build_store(result, dtype_llvm.const_zero())?;
 
             // Do dot product.
             gen_for_callback(
@@ -357,7 +356,7 @@ pub fn ndarray_dot<'ctx>(
                         }
                     };
 
-                    typed_store(ctx.builder, result, new_result)?;
+                    ctx.builder.build_store(result, new_result)?;
                     Ok(())
                 },
                 |(), ctx, (a_iter, b_iter)| {

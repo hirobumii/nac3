@@ -6,7 +6,7 @@ use inkwell::{
 };
 
 use crate::codegen::{
-    CodeGenContext, typed_load, typed_store,
+    CodeGenContext,
     types::{ProxyTypeMarker, Value},
 };
 
@@ -40,7 +40,8 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> anyhow::Result<V> {
         let ptr = self.ptr_offset_unchecked(ctx, idx, name)?;
-        typed_load(ctx.builder, ptr, self.item_type(), name.unwrap_or_default())?
+        ctx.builder
+            .build_load(self.item_type(), ptr, name.unwrap_or_default())?
             .try_into()
             .map_err(|e| anyhow!("{e:?}"))
     }
@@ -53,7 +54,8 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> anyhow::Result<V> {
         let ptr = self.ptr_offset(ctx, idx, name)?;
-        typed_load(ctx.builder, ptr, self.item_type(), name.unwrap_or_default())?
+        ctx.builder
+            .build_load(self.item_type(), ptr, name.unwrap_or_default())?
             .try_into()
             .map_err(|e| anyhow!("{e:?}"))
     }
@@ -67,7 +69,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> anyhow::Result<()> {
         let ptr = self.ptr_offset_unchecked(ctx, idx, name)?;
-        typed_store(ctx.builder, ptr, value.as_basic_value_enum())?;
+        ctx.builder.build_store(ptr, value.as_basic_value_enum())?;
         Ok(())
     }
 
@@ -80,7 +82,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> anyhow::Result<()> {
         let ptr = self.ptr_offset(ctx, idx, name)?;
-        typed_store(ctx.builder, ptr, value.as_basic_value_enum())?;
+        ctx.builder.build_store(ptr, value.as_basic_value_enum())?;
         Ok(())
     }
 }
