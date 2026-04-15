@@ -210,11 +210,11 @@ impl Image {
 
         self.data.write({
             // This leaks the memory, but ...
-            let mut temp_vec: mem::ManuallyDrop<Vec<u32>> =
-                mem::ManuallyDrop::new(Vec::with_capacity(final_len / header_alignment as usize));
+            let (ptr, _, cap) =
+                Vec::<u32>::with_capacity(final_len / header_alignment as usize).into_raw_parts();
             // This new vector picks up the memory.
             // The new vector is responsible to free the memory instead.
-            unsafe { Vec::from_raw_parts(temp_vec.as_mut_ptr().cast(), final_len, final_len) }
+            unsafe { Vec::from_raw_parts(ptr.cast(), final_len, cap * size_of::<u32>()) }
         });
         let owned_buffer = unsafe { self.data.assume_init_mut() };
 

@@ -654,8 +654,9 @@ where
     };
     match value {
         BasicTypeEnum::ArrayType(ty) => try_fold_basic_type(new_init, &ty.get_element_type(), f),
-        BasicTypeEnum::FloatType(_) | BasicTypeEnum::IntType(_) => ControlFlow::Continue(new_init),
-        BasicTypeEnum::PointerType(_) => ControlFlow::Continue(new_init),
+        BasicTypeEnum::FloatType(_) | BasicTypeEnum::IntType(_) | BasicTypeEnum::PointerType(_) => {
+            ControlFlow::Continue(new_init)
+        }
         BasicTypeEnum::StructType(ty) => {
             // fold all fields of the struct
             ty.get_field_types()
