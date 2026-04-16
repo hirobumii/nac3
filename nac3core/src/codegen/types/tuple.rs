@@ -111,21 +111,6 @@ impl<'ctx> TupleType<'ctx> {
     pub const fn refcounted_mask(&self) -> u64 {
         self.refcounted_mask
     }
-
-    /// Initializes the [`ObjectHeader`][ObjectHeaderType] of a tuple stored at the given memory
-    /// location.
-    ///
-    /// The header is initialized with `refcount = 0` (tuples are not refcounted) and a typeinfo
-    /// pointer that allows the IRRT to walk refcounted children.
-    pub fn init_header(
-        &self,
-        ctx: &mut CodeGenContext<'ctx, '_>,
-        ptr: inkwell::values::PointerValue<'ctx>,
-    ) -> anyhow::Result<()> {
-        let header = ObjectHeaderType::new(ctx).map_value(ptr, None);
-        header.init(ctx, false, self.typeinfo(ctx))?;
-        Ok(())
-    }
 }
 
 impl<'ctx> WithTypeinfo<'ctx> for TupleType<'ctx> {
@@ -144,21 +129,22 @@ impl<'ctx> WithTypeinfo<'ctx> for TupleType<'ctx> {
 
     fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
         if self.refcounted_mask == 0 {
-            return vec![];
+            return Vec::new();
         }
 
         let data_layout = ctx.target.get_target_data();
         let num_fields = self.fields.count_fields();
 
-        let mut offsets = Vec::new();
-        for i in 0..num_fields {
-            if self.refcounted_mask & (1 << i) != 0 {
-                let offset = data_layout.offset_of_element(&self.fields, i).unwrap();
-                offsets.push(ctx.i32.const_int(offset, false));
-            }
-        }
-
-        offsets
+        (0..num_fields)
+            .filter_map(|i| {
+                if self.refcounted_mask & (1 << i) != 0 {
+                    let offset = data_layout.offset_of_element(&self.fields, i).unwrap();
+                    Some(ctx.i32.const_int(offset, false))
+                } else {
+                    None
+                }
+            })
+            .collect_vec()
     }
 }
 
