@@ -30,10 +30,7 @@ use inkwell::{
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{BasicType, BasicTypeEnum, FloatType, IntType, PointerType},
-    values::{
-        BasicValue, BasicValueEnum, FunctionValue, InstructionValue, IntValue, PhiValue,
-        PointerValue,
-    },
+    values::{BasicValueEnum, FunctionValue, IntValue, PhiValue, PointerValue},
 };
 use itertools::Itertools as _;
 use nac3parser::ast::{Location, Stmt, StrRef};
@@ -585,33 +582,6 @@ fn get_llvm_type<'ctx>(
         type_cache.insert(unifier.get_representative(ty), result);
         result
     })
-}
-
-/// Loads a value from the memory location pointed to by `ptr`.
-///
-/// This ignores the original type of `ptr` and casts it to the appropriate pointer type
-/// corresponding to `ty`.
-#[deprecated = "Use `Builder::build_load` instead."]
-pub fn typed_load<'ctx>(
-    b: &Builder<'ctx>,
-    ptr: PointerValue<'ctx>,
-    ty: BasicTypeEnum<'ctx>,
-    name: &str,
-) -> anyhow::Result<BasicValueEnum<'ctx>> {
-    Ok(b.build_load(ty, ptr, name)?)
-}
-
-/// Stores `value` into the memory location pointed to by `ptr`.
-///
-/// This ignores the original type of `ptr` and casts it to the appropriate pointer type
-/// corresponding to the type of `value`.
-#[deprecated = "Use `Builder::build_store` instead."]
-pub fn typed_store<'ctx>(
-    b: &Builder<'ctx>,
-    ptr: PointerValue<'ctx>,
-    value: impl BasicValue<'ctx>,
-) -> anyhow::Result<InstructionValue<'ctx>> {
-    Ok(b.build_store(ptr, value)?)
 }
 
 /// Retrieves the [LLVM type][`BasicTypeEnum`] corresponding to the [`Type`].
