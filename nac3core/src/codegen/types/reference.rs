@@ -296,7 +296,6 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
         Self { inner: ctx.ctx.struct_type(&[header.into(), object], false), object: object_ty }
     }
 
-    // TODO(Derppening): Do we need `is_refcounted` param here, can we just derive it from `scope`?
     pub fn allocate(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,

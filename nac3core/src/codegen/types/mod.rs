@@ -182,8 +182,6 @@ pub trait ProxyType<'ctx>: ProxyTypeBase<'ctx> {
 }
 
 /// Represents a type with a `typeinfo` global structure.
-// TODO(Derppening): Consider adding `typename()` and `refcounted_fields()` methods to this trait
-// and move the corresponding methods from `typeinfo.rs` here.
 pub trait WithTypeinfo<'ctx> {
     /// Returns a global instance of [`TypeinfoValue`] representing the type information of this
     /// reference type.
@@ -268,12 +266,10 @@ pub trait WithTypeinfo<'ctx> {
                 let value =
                     ctx.module.add_global(llvm_typeinfo, None, &format!("typeinfo for {typename}"));
                 value.set_linkage(Linkage::WeakAny);
-                value.set_initializer(
-                    &llvm_typeinfo.const_named_struct(&[
-                        name.as_pointer_value().into(),
-                        refcounted_fields.as_pointer_value().into(),
-                    ]),
-                );
+                value.set_initializer(&llvm_typeinfo.const_named_struct(&[
+                    name.as_pointer_value().into(),
+                    refcounted_fields.as_pointer_value().into(),
+                ]));
                 value.set_constant(true);
                 value
             });
