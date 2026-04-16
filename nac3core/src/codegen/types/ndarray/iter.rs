@@ -14,7 +14,6 @@ use crate::codegen::{
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
     stmt::{BreakContinueHooks, gen_for_callback},
-    typed_load, typed_store,
     types::{
         NDArrayType, NDArrayValue, ProxyTypeBase, RefCountedArrayType, TypedRefCountedType,
         TypedRefCountedValue, Value, WithTypeinfo, array::ArraySliceValue, builtin::BuiltinStruct,
@@ -99,7 +98,7 @@ impl<'ctx> RawNDIterValue<'ctx> {
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         let p = self.curr_ptr(ctx)?;
-        typed_load(ctx.builder, p, self.ty.dtype, "value")
+        Ok(ctx.builder.build_load(self.ty.dtype, p, "value")?)
     }
 
     /// Returns the current iteration index (i.e., how many elements have been iterated so far).
@@ -210,7 +209,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         let init = init.as_basic_value_enum();
         let acc_ty = init.get_type();
         let acc_ptr = ctx.build_allocate(AllocationScope::Default, acc_ty, None)?;
-        typed_store(ctx.builder, acc_ptr, init)?;
+        ctx.builder.build_store(acc_ptr, init)?;
 
         gen_for_callback(
             &mut (),
@@ -222,7 +221,7 @@ impl<'ctx> NDArrayValue<'ctx> {
                 let acc = V::try_from(ctx.builder.build_load(acc_ty, acc_ptr, "")?)
                     .map_err(|e| anyhow!("{e:?}"))?;
                 let acc = f(ctx, hooks, acc, nditer)?;
-                typed_store(ctx.builder, acc_ptr, acc)?;
+                ctx.builder.build_store(acc_ptr, acc)?;
                 Ok(())
             },
             |(), ctx, nditer| {

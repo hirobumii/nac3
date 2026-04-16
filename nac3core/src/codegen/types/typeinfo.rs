@@ -2,7 +2,7 @@ use inkwell::values::PointerValue;
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
-    CodeGenContext, ModuleContext, typed_load,
+    CodeGenContext, ModuleContext,
     types::{ArraySliceValue, BuiltinStruct, RefType, Value, structure::StructField},
 };
 
@@ -41,17 +41,12 @@ impl<'ctx> TypeinfoValue<'ctx> {
     ) -> anyhow::Result<ArraySliceValue<'ctx>> {
         let struct_ty = self.ty.alloca_ty(ctx);
         let ptr = self.ty.inner.fields.refcounted_fields.load(ctx, struct_ty, self.value, None)?;
-        let pcount = unsafe {
-            ctx.builder.build_gep(ctx.i32, ptr, &[ctx.size_t.const_zero()], "").unwrap()
-        };
-        let count = typed_load(ctx.builder, pcount, ctx.i32.into(), "")?.into_int_value();
-        let sizeof_i32 = ctx.builder.build_int_truncate_or_bit_cast(
-            ctx.i32.size_of(),
-            ctx.size_t,
-            "",
-        )?;
-        let arr_begin =
-            unsafe { ctx.builder.build_gep(ctx.i8, ptr, &[sizeof_i32], "")? };
+        let pcount =
+            unsafe { ctx.builder.build_gep(ctx.i32, ptr, &[ctx.size_t.const_zero()], "").unwrap() };
+        let count = ctx.builder.build_load(ctx.i32, pcount, "")?.into_int_value();
+        let sizeof_i32 =
+            ctx.builder.build_int_truncate_or_bit_cast(ctx.i32.size_of(), ctx.size_t, "")?;
+        let arr_begin = unsafe { ctx.builder.build_gep(ctx.i8, ptr, &[sizeof_i32], "")? };
         Ok(ArraySliceValue::new(ctx.i32.into(), arr_begin, count, self.name))
     }
 }

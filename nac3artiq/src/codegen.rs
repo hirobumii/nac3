@@ -14,7 +14,7 @@ use nac3core::{
         expr::{call_extern, destructure_range, gen_call},
         llvm_intrinsics::{call_int_smax, call_memcpy, call_stackrestore, call_stacksave},
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
-        type_aligned_allocate, typed_gep, typed_store,
+        type_aligned_allocate,
         types::{
             ArrayLikeIndexer, ExceptionType, NDArrayType, ProxyTypeBase, RangeType, RawListType,
             field,
@@ -149,7 +149,7 @@ impl<'a> ArtiqCodeGenerator<'a> {
                     store_name.map(|name| format!("{name}.addr")).as_deref(),
                 )?
                 .unwrap();
-            typed_store(ctx.builder, end_store, max)?;
+            ctx.builder.build_store(end_store, max)?;
         }
 
         Ok(())
@@ -274,7 +274,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
                                 let start = self
                                     .gen_store_target(ctx, &start_expr, Some("start.addr"))?
                                     .unwrap();
-                                typed_store(ctx.builder, start, now)?;
+                                ctx.builder.build_store(start, now)?;
                                 anyhow::Ok(Some(start_expr))
                             },
                             |v| Ok(Some(v)),
@@ -287,7 +287,7 @@ impl CodeGenerator for ArtiqCodeGenerator<'_> {
                             custom: Some(ctx.primitives.int64),
                         };
                         let end = self.gen_store_target(ctx, &end_expr, Some("end.addr"))?.unwrap();
-                        typed_store(ctx.builder, end, now)?;
+                        ctx.builder.build_store(end, now)?;
                         self.end = Some(end_expr);
                         self.name_counter += 1;
                         self.parallel_mode = if python_id == self.special_ids.parallel {
@@ -498,7 +498,7 @@ fn format_rpc_arg<'ctx>(
                 arg.get_type(),
                 Some(&format!("rpc.arg{arg_idx}")),
             )?;
-            typed_store(ctx.builder, arg_slot, arg)?;
+            ctx.builder.build_store(arg_slot, arg)?;
 
             ctx.builder.build_bit_cast(arg_slot, llvm_pi8, "rpc.arg")?.into_pointer_value()
         }
@@ -671,7 +671,7 @@ fn format_rpc_ret<'ctx>(
                 .value
                 .0;
             let ndarray_data =
-                typed_gep(ctx.builder, &ctx.i8, ndarray_data, &[ndarray_offset], "")?;
+                unsafe { ctx.builder.build_gep(ctx.i8, ndarray_data, &[ndarray_offset], "")? };
 
             let entry_bb = ctx.builder.get_insert_block().unwrap();
             ctx.builder.build_unconditional_branch(head_bb)?;
@@ -1092,7 +1092,7 @@ fn polymorphic_print<'ctx>(
                         value.get_type(),
                         None,
                     )?;
-                    typed_store(ctx.builder, pvalue, value)?;
+                    ctx.builder.build_store(pvalue, value)?;
                     pvalue
                 };
 
@@ -1105,8 +1105,14 @@ fn polymorphic_print<'ctx>(
                     .enumerate()
                     .map(|(i, ty)| {
                         anyhow::Ok((*ty, {
-                            let field_ty = value_struct_ty.get_field_type_at_index(i as u32).unwrap();
-                            let pfield = ctx.builder.build_struct_gep(value_struct_ty, pvalue, i as u32, "")?;
+                            let field_ty =
+                                value_struct_ty.get_field_type_at_index(i as u32).unwrap();
+                            let pfield = ctx.builder.build_struct_gep(
+                                value_struct_ty,
+                                pvalue,
+                                i as u32,
+                                "",
+                            )?;
                             ValueEnum::from(ctx.builder.build_load(field_ty, pfield, "")?)
                         }))
                     })

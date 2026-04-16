@@ -9,7 +9,6 @@ use crate::{
         allocator::AllocationScope,
         expr::call_extern,
         irrt::get_usize_dependent_function_name,
-        typed_store,
         types::{
             NDArrayType, ProxyTypeBase, RawNDArrayValue, RefType, Value,
             array::{ArrayLikeIndexer, ArraySliceValue},
@@ -231,7 +230,7 @@ impl<'ctx> RustNDIndex<'ctx> {
         match *self {
             RustNDIndex::SingleElement(in_index) => {
                 let index_ptr = ctx.build_allocate(AllocationScope::Default, ctx.i32, None)?;
-                typed_store(ctx.builder, index_ptr, in_index)?;
+                ctx.builder.build_store(index_ptr, in_index)?;
                 dst_ndindex.store(ctx, field!(data), index_ptr)?;
             }
             RustNDIndex::Slice(slice) => {

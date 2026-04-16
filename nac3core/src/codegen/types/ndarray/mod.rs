@@ -15,7 +15,6 @@ use crate::{
         irrt::get_usize_dependent_function_name,
         llvm_intrinsics::call_int_umin,
         stmt::gen_for_callback_incrementing,
-        typed_store,
         types::{
             ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue, TypedRefCountedType,
             TypedRefCountedValue, Value, WithTypeinfo,
@@ -463,7 +462,7 @@ impl<'ctx> TypedRefCountedValue<'ctx, RawNDArrayType<'ctx>> {
         //       Probably best to implement in IRRT.
         self.foreach(ctx, |ctx, _, nditer| {
             let p = nditer.inner_value(ctx)?.curr_ptr(ctx)?;
-            typed_store(ctx.builder, p, value)?;
+            ctx.builder.build_store(p, value)?;
             Ok(())
         })?;
         Ok(())

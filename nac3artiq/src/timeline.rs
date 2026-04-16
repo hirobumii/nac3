@@ -1,5 +1,5 @@
 use nac3core::{
-    codegen::{CodeGenContext, expr::call_extern, typed_store},
+    codegen::{CodeGenContext, expr::call_extern},
     inkwell::{AtomicOrdering, values::BasicValueEnum},
 };
 
@@ -44,7 +44,12 @@ impl TimeFns for NowPinningTimeFns64 {
         let now_hiptr = now.as_pointer_value();
 
         let now_loptr = unsafe {
-            ctx.builder.build_gep(i32_type, now_hiptr, &[i32_type.const_int(2, false)], "now.lo.addr")?
+            ctx.builder.build_gep(
+                i32_type,
+                now_hiptr,
+                &[i32_type.const_int(2, false)],
+                "now.lo.addr",
+            )?
         };
 
         let now_hi = ctx.builder.build_load(i32_type, now_hiptr, "now.hi")?.into_int_value();
@@ -81,11 +86,18 @@ impl TimeFns for NowPinningTimeFns64 {
         let now_hiptr = now.as_pointer_value();
 
         let now_loptr = unsafe {
-            ctx.builder.build_gep(i32_type, now_hiptr, &[i32_type.const_int(2, false)], "now.lo.addr")?
+            ctx.builder.build_gep(
+                i32_type,
+                now_hiptr,
+                &[i32_type.const_int(2, false)],
+                "now.lo.addr",
+            )?
         };
-        typed_store(ctx.builder, now_hiptr, time_hi)?
+        ctx.builder
+            .build_store(now_hiptr, time_hi)?
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)?;
-        typed_store(ctx.builder, now_loptr, time_lo)?
+        ctx.builder
+            .build_store(now_loptr, time_lo)?
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)?;
 
         Ok(())
@@ -105,7 +117,12 @@ impl TimeFns for NowPinningTimeFns64 {
         let now_hiptr = now.as_pointer_value();
 
         let now_loptr = unsafe {
-            ctx.builder.build_gep(i32_type, now_hiptr, &[i32_type.const_int(2, false)], "now.lo.addr")?
+            ctx.builder.build_gep(
+                i32_type,
+                now_hiptr,
+                &[i32_type.const_int(2, false)],
+                "now.lo.addr",
+            )?
         };
 
         let now_hi = ctx.builder.build_load(i32_type, now_hiptr, "now.hi")?.into_int_value();
@@ -126,9 +143,11 @@ impl TimeFns for NowPinningTimeFns64 {
         )?;
         let time_lo = ctx.builder.build_int_truncate(time, i32_type, "time.lo")?;
 
-        typed_store(ctx.builder, now_hiptr, time_hi)?
+        ctx.builder
+            .build_store(now_hiptr, time_hi)?
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)?;
-        typed_store(ctx.builder, now_loptr, time_lo)?
+        ctx.builder
+            .build_store(now_loptr, time_lo)?
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)?;
 
         Ok(())
@@ -149,7 +168,8 @@ impl TimeFns for NowPinningTimeFns {
             .module
             .get_global("now")
             .unwrap_or_else(|| ctx.module.add_global(i64_type, None, "now"));
-        let now_raw = ctx.builder.build_load(i64_type, now.as_pointer_value(), "now")?.into_int_value();
+        let now_raw =
+            ctx.builder.build_load(i64_type, now.as_pointer_value(), "now")?.into_int_value();
 
         let i64_32 = i64_type.const_int(32, false);
         let now_lo = ctx.builder.build_left_shift(now_raw, i64_32, "now.lo")?;
@@ -181,11 +201,18 @@ impl TimeFns for NowPinningTimeFns {
         let now_hiptr = now.as_pointer_value();
 
         let now_loptr = unsafe {
-            ctx.builder.build_gep(i32_type, now_hiptr, &[i32_type.const_int(1, false)], "now.lo.addr")?
+            ctx.builder.build_gep(
+                i32_type,
+                now_hiptr,
+                &[i32_type.const_int(1, false)],
+                "now.lo.addr",
+            )?
         };
-        typed_store(ctx.builder, now_hiptr, time_hi)?
+        ctx.builder
+            .build_store(now_hiptr, time_hi)?
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)?;
-        typed_store(ctx.builder, now_loptr, time_lo)?
+        ctx.builder
+            .build_store(now_loptr, time_lo)?
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)?;
 
         Ok(())
@@ -203,7 +230,8 @@ impl TimeFns for NowPinningTimeFns {
             .module
             .get_global("now")
             .unwrap_or_else(|| ctx.module.add_global(i64_type, None, "now"));
-        let now_raw = ctx.builder.build_load(i64_type, now.as_pointer_value(), "")?.into_int_value();
+        let now_raw =
+            ctx.builder.build_load(i64_type, now.as_pointer_value(), "")?.into_int_value();
 
         let dt = dt.into_int_value();
 
@@ -220,11 +248,18 @@ impl TimeFns for NowPinningTimeFns {
         let now_hiptr = now.as_pointer_value();
 
         let now_loptr = unsafe {
-            ctx.builder.build_gep(i32_type, now_hiptr, &[i32_type.const_int(1, false)], "now.lo.addr")?
+            ctx.builder.build_gep(
+                i32_type,
+                now_hiptr,
+                &[i32_type.const_int(1, false)],
+                "now.lo.addr",
+            )?
         };
-        typed_store(ctx.builder, now_hiptr, time_hi)?
+        ctx.builder
+            .build_store(now_hiptr, time_hi)?
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)?;
-        typed_store(ctx.builder, now_loptr, time_lo)?
+        ctx.builder
+            .build_store(now_loptr, time_lo)?
             .set_atomic_ordering(AtomicOrdering::SequentiallyConsistent)?;
 
         Ok(())

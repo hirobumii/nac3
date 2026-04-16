@@ -38,7 +38,6 @@ use crate::{
         stmt::{
             gen_for_callback_incrementing, gen_if_callback, gen_if_else_expr_callback, gen_raise,
         },
-        typed_load, typed_store,
         types::{
             ArrayLikeIndexer, ClassType, ExceptionType, ListType, ListValue, NDArrayOut,
             NDArrayType, OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType,
@@ -128,7 +127,7 @@ impl<'ctx> CodeGenContext<'ctx, '_> {
         ptr: PointerValue<'ctx>,
         index: &[IntValue<'ctx>],
         name: Option<&str>,
-        load_ty: BasicTypeEnum<'ctx>
+        load_ty: BasicTypeEnum<'ctx>,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         let gep = unsafe { self.builder.build_gep(gep_ty, ptr, index, "")? };
         Ok(self.builder.build_load(load_ty, gep, name.unwrap_or_default())?)
@@ -888,7 +887,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
     let zero_32 = int32.const_zero();
 
     let index = ctx.build_allocate(AllocationScope::Default, size_t, Some("index.addr"))?;
-    typed_store(ctx.builder, index, zero_size_t)?;
+    ctx.builder.build_store(index, zero_size_t)?;
 
     let elem_ty = elt.custom.unwrap();
     let list;
@@ -923,7 +922,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             )?;
 
             let i = generator.gen_store_target(ctx, target, Some("i.addr"))?.unwrap();
-            typed_store(ctx.builder, i, ctx.builder.build_int_sub(start, step, "start_init")?)?;
+            ctx.builder.build_store(i, ctx.builder.build_int_sub(start, step, "start_init")?)?;
 
             ctx.builder.build_conditional_branch(
                 gen_in_range_check(ctx, start, stop, step)?,
@@ -938,7 +937,7 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
                 step,
                 "start_loop",
             )?;
-            typed_store(ctx.builder, i, tmp)?;
+            ctx.builder.build_store(i, tmp)?;
             ctx.builder.build_conditional_branch(
                 gen_in_range_check(ctx, tmp, stop, step)?,
                 body_bb,
@@ -959,13 +958,13 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
             let counter =
                 ctx.build_allocate(AllocationScope::Default, size_t, Some("counter.addr"))?;
             // counter = -1
-            typed_store(ctx.builder, counter, size_t.const_all_ones())?;
+            ctx.builder.build_store(counter, size_t.const_all_ones())?;
             ctx.builder.build_unconditional_branch(test_bb)?;
 
             ctx.builder.position_at_end(test_bb);
             let tmp = ctx.builder.build_load(size_t, counter, "i")?.into_int_value();
             let tmp = ctx.builder.build_int_add(tmp, size_t.const_int(1, false), "inc")?;
-            typed_store(ctx.builder, counter, tmp)?;
+            ctx.builder.build_store(counter, tmp)?;
             let cmp = ctx.builder.build_int_compare(IntPredicate::SLT, tmp, length, "cmp")?;
             ctx.builder.build_conditional_branch(cmp, body_bb, cont_bb)?;
 
@@ -1013,12 +1012,9 @@ pub fn gen_comprehension<'ctx, G: CodeGenerator>(
         .inner_value(ctx, Some(list_cap))?
         .ptr_offset_unchecked(ctx, &i, Some("elem_ptr"))?;
     let val = generator.gen_expr(ctx, elt)?.to_basic_value_enum(ctx)?;
-    typed_store(ctx.builder, elem_ptr, val)?;
-    typed_store(
-        ctx.builder,
-        index,
-        ctx.builder.build_int_add(i, size_t.const_int(1, false), "inc")?,
-    )?;
+    ctx.builder.build_store(elem_ptr, val)?;
+    ctx.builder
+        .build_store(index, ctx.builder.build_int_add(i, size_t.const_int(1, false), "inc")?)?;
     ctx.builder.build_unconditional_branch(test_bb)?;
 
     emit_cont_bb(ctx, list)?;
@@ -1682,7 +1678,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                         |_, _ctx| Ok(eq_len),
                         |generator, ctx| {
                             let acc_addr = ctx.build_allocate(AllocationScope::Default, ctx.i8, None)?;
-                            typed_store(ctx.builder, acc_addr, ctx.i8.const_all_ones())?;
+                            ctx.builder.build_store(acc_addr, ctx.i8.const_all_ones())?;
 
                             gen_for_callback_incrementing(
                                 &mut (),
@@ -1714,7 +1710,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
                                         ctx,
                                         |(), _ctx| Ok(bool_res),
                                         |(), ctx| {
-                                            typed_store(ctx.builder, acc_addr, false_)?;
+                                            ctx.builder.build_store(acc_addr, false_)?;
                                             hooks.build_break_branch(ctx.builder)?;
 
                                             Ok(())
@@ -1768,7 +1764,7 @@ pub fn gen_cmpop_expr_with_values<'ctx, G: CodeGenerator>(
 
                 // Assume `true` by default
                 let cmp_addr = ctx.build_allocate(AllocationScope::Default, llvm_i8, None)?;
-                typed_store(ctx.builder, cmp_addr, llvm_i8.const_all_ones())?;
+                ctx.builder.build_store(cmp_addr, llvm_i8.const_all_ones())?;
 
                 let current_bb = ctx.builder.get_insert_block().unwrap();
                 let post_foreach_cmp = ctx.ctx.insert_basic_block_after(current_bb, "foreach.cmp.end");
@@ -2137,7 +2133,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         None => None,
         Some(v) => {
             let a = a.to_basic_value_enum(ctx)?;
-            Some(typed_store(ctx.builder, v, a))
+            Some(ctx.builder.build_store(v, a))
         }
     };
     ctx.builder.build_unconditional_branch(cont_bb)?;
@@ -2148,7 +2144,7 @@ fn gen_ifexp_expr<'ctx, G: CodeGenerator>(
         None => None,
         Some(v) => {
             let b = b.to_basic_value_enum(ctx)?;
-            Some(typed_store(ctx.builder, v, b)?)
+            Some(ctx.builder.build_store(v, b)?)
         }
     };
     ctx.builder.build_unconditional_branch(cont_bb)?;
@@ -2298,8 +2294,11 @@ fn gen_call_expr<'ctx, G: CodeGenerator>(
                             )?;
                             ctx.builder.position_at_end(unreachable_block);
                             let ptr = ctx.ptr.const_null();
-                            let loaded_val =
-                                ctx.builder.build_load(ctx.get_llvm_type(ty), ptr, "unwrap_none_unreachable_load")?;
+                            let loaded_val = ctx.builder.build_load(
+                                ctx.get_llvm_type(ty),
+                                ptr,
+                                "unwrap_none_unreachable_load",
+                            )?;
                             RtValue::dynamic(ty, loaded_val)
                         }
                     }
@@ -2506,7 +2505,7 @@ pub fn gen_expr<'ctx, G: CodeGenerator>(
             let llvm_ty = ctx.get_llvm_type(ty);
             match ctx.var_assignment.get(id) {
                 Some(VarValue { ptr, static_value: None, .. }) => {
-                    let val = typed_load(ctx.builder, *ptr, llvm_ty, id.to_string().as_str())?;
+                    let val = ctx.builder.build_load(llvm_ty, *ptr, id.to_string().as_str())?;
                     // TODO(Derppening): Add refcount incr here instead(?)
                     Ok(RtValue::dynamic(ty, val))
                 }

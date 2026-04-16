@@ -14,7 +14,7 @@ use crate::{
         irrt::get_usize_dependent_function_name,
         llvm_intrinsics,
         stmt::gen_if_callback,
-        type_aligned_allocate, typed_gep, typed_load, typed_store,
+        type_aligned_allocate,
         types::{
             ArraySliceValue, BuiltinStruct, ProxyType, ProxyTypeBase, RefType, TypeinfoValue,
             Value, WithTypeinfo, structure::StructField,
@@ -202,7 +202,7 @@ pub trait RefCountedValue<'ctx> {
         inner_ty: BasicTypeEnum<'ctx>,
         name: &str,
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
-        typed_load(ctx.builder, self.inner_ptr(ctx)?, inner_ty, name)
+        Ok(ctx.builder.build_load(inner_ty, self.inner_ptr(ctx)?, name)?)
     }
 }
 
@@ -490,9 +490,9 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         // Note: Stack-allocated arrays containing refcounted objects should still hold a strong
         // reference to their elements to prevent unintentional deallocation
         if self.array.get_element_type().is_pointer_type() {
-            typed_store(ctx.builder, psize, size)?;
+            ctx.builder.build_store(psize, size)?;
         } else {
-            typed_store(ctx.builder, psize, ctx.size_t.const_zero())?;
+            ctx.builder.build_store(psize, ctx.size_t.const_zero())?;
         }
 
         // Zero-initialize the array if this array stores pointers to avoid unintentional access of
@@ -650,9 +650,8 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
             ctx.size_t.const_int(u64::from(n), false)
         });
         let pdata = unsafe {
-            typed_gep(
-                ctx.builder,
-                &self.ty.inner.get_field_type_at_index_unchecked(1),
+            ctx.builder.build_gep(
+                self.ty.inner.get_field_type_at_index_unchecked(1),
                 self.inner_ptr(ctx)?,
                 &[ctx.size_t.const_zero(), ctx.i32.const_int(1, false)],
                 "",

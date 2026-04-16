@@ -72,7 +72,7 @@ impl<'ctx> OptionSomeValue<'ctx> {
     ) -> anyhow::Result<BasicValueEnum<'ctx>> {
         let arr_data = self.as_array(ctx).inner_value(ctx, None)?;
         let elem_llvm_ty = self.ty.inner.elem.llvm_ty(ctx);
-        crate::codegen::typed_load(ctx.builder, arr_data.value.0, elem_llvm_ty, name.unwrap_or(""))
+        Ok(ctx.builder.build_load(elem_llvm_ty, arr_data.value.0, name.unwrap_or(""))?)
     }
 
     /// Stores `val` into this `__nac3_some` payload.
@@ -82,7 +82,7 @@ impl<'ctx> OptionSomeValue<'ctx> {
         val: BasicValueEnum<'ctx>,
     ) -> anyhow::Result<()> {
         let arr_data = self.as_array(ctx).inner_value(ctx, None)?;
-        crate::codegen::typed_store(ctx.builder, arr_data.value.0, val)?;
+        ctx.builder.build_store(arr_data.value.0, val)?;
         Ok(())
     }
 }

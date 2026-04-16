@@ -7,7 +7,6 @@ use crate::{
         expr::{call_extern, gen_prim_binop_expr},
         irrt::get_usize_dependent_function_name,
         stmt::gen_for_callback_incrementing,
-        typed_load, typed_store,
         types::{
             NDArrayValue, RefCountedArrayType,
             array::ArrayLikeIndexer,
@@ -87,7 +86,7 @@ fn matmul_at_least_2d<'ctx>(
     dst.foreach(ctx, |ctx, _, hdl| {
         let pdst_ij = hdl.inner_value(ctx)?.curr_ptr(ctx)?;
 
-        typed_store(ctx.builder, pdst_ij, dst_zero)?;
+        ctx.builder.build_store(pdst_ij, dst_zero)?;
 
         let indices = hdl.inner_value(ctx)?.indices(ctx)?;
         let i = indices.get_unchecked::<IntValue<'ctx>>(ctx, &at_row, None)?;
@@ -126,7 +125,7 @@ fn matmul_at_least_2d<'ctx>(
                 .expect("matmul: ndarray should contain primtives only");
 
                 // dst_[...]ij += x
-                let dst_ij = typed_load(ctx.builder, pdst_ij, dst_dtype_llvm, "")?;
+                let dst_ij = ctx.builder.build_load(dst_dtype_llvm, pdst_ij, "")?;
                 let dst_ij = gen_prim_binop_expr(
                     ctx,
                     (&Some(dst_dtype), dst_ij),
@@ -134,7 +133,7 @@ fn matmul_at_least_2d<'ctx>(
                     (&Some(dst_dtype), x),
                 )?
                 .expect("matmul: ndarray should contain primtives only");
-                typed_store(ctx.builder, pdst_ij, dst_ij)?;
+                ctx.builder.build_store(pdst_ij, dst_ij)?;
 
                 Ok(())
             },

@@ -580,6 +580,7 @@ fn get_llvm_type<'ctx>(
 ///
 /// This ignores the original type of `ptr` and casts it to the appropriate pointer type
 /// corresponding to `ty`.
+#[deprecated = "Use `Builder::build_load` directly."]
 pub fn typed_load<'ctx>(
     b: &Builder<'ctx>,
     ptr: PointerValue<'ctx>,
@@ -593,6 +594,7 @@ pub fn typed_load<'ctx>(
 ///
 /// This ignores the original type of `ptr` and casts it to the appropriate pointer type
 /// corresponding to the type of `value`.
+#[deprecated = "Use `Builder::build_store` directly."]
 pub fn typed_store<'ctx>(
     b: &Builder<'ctx>,
     ptr: PointerValue<'ctx>,
@@ -608,6 +610,7 @@ pub fn typed_store<'ctx>(
 /// # Panics
 ///
 /// This function panics if `ptr` is neither an opaque pointer nor a pointer to `pointee_ty`.
+#[deprecated = "Use `Builder::build_gep` directly."]
 pub fn typed_gep<'ctx, T: BasicType<'ctx>>(
     b: &Builder<'ctx>,
     pointee_ty: &T,
@@ -854,7 +857,7 @@ pub fn gen_func_impl<
             param
         };
 
-        typed_store(builder, alloca, param)?;
+        builder.build_store(alloca, param)?;
         var_assignment.insert(arg.name, VarValue::new(alloca, arg.ty));
     }
 

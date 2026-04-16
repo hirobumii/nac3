@@ -8,7 +8,7 @@ use inkwell::{
 };
 
 use crate::codegen::{
-    CodeGenContext, ModuleContext, typed_load, typed_store,
+    CodeGenContext, ModuleContext,
     types::{ProxyType, ProxyTypeBase, Value},
 };
 
@@ -42,7 +42,8 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> anyhow::Result<V> {
         let ptr = self.ptr_offset_unchecked(ctx, idx, name)?;
-        typed_load(ctx.builder, ptr, self.item_type(ctx), name.unwrap_or_default())?
+        ctx.builder
+            .build_load(self.item_type(ctx), ptr, name.unwrap_or_default())?
             .try_into()
             .map_err(|e| anyhow!("{e:?}"))
     }
@@ -55,7 +56,8 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> anyhow::Result<V> {
         let ptr = self.ptr_offset(ctx, idx, name)?;
-        typed_load(ctx.builder, ptr, self.item_type(ctx), name.unwrap_or_default())?
+        ctx.builder
+            .build_load(self.item_type(ctx), ptr, name.unwrap_or_default())?
             .try_into()
             .map_err(|e| anyhow!("{e:?}"))
     }
@@ -95,7 +97,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> anyhow::Result<()> {
         let ptr = self.ptr_offset_unchecked(ctx, idx, name)?;
-        typed_store(ctx.builder, ptr, value.as_basic_value_enum())?;
+        ctx.builder.build_store(ptr, value)?;
         Ok(())
     }
 
@@ -108,7 +110,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
         name: Option<&str>,
     ) -> anyhow::Result<()> {
         let ptr = self.ptr_offset(ctx, idx, name)?;
-        typed_store(ctx.builder, ptr, value.as_basic_value_enum())?;
+        ctx.builder.build_store(ptr, value)?;
         Ok(())
     }
 
