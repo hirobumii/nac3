@@ -616,8 +616,7 @@ pub fn typed_gep<'ctx, T: BasicType<'ctx>>(
     name: &str,
 ) -> anyhow::Result<PointerValue<'ctx>> {
     unsafe {
-        b.build_gep(pointee_ty.as_basic_type_enum(), ptr, ordered_indexes, name)
-            .map_err(Into::into)
+        b.build_gep(pointee_ty.as_basic_type_enum(), ptr, ordered_indexes, name).map_err(Into::into)
     }
 }
 

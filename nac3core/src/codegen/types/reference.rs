@@ -213,7 +213,7 @@ pub struct OpaqueRefCountedType<'ctx> {
 
 impl<'ctx> OpaqueRefCountedType<'ctx> {
     /// Creates a new instance of this type.
-    pub fn new(_ctx: &ModuleContext<'ctx>) -> Self {
+    pub const fn new(_ctx: &ModuleContext<'ctx>) -> Self {
         Self { _phantom: std::marker::PhantomData }
     }
 }
