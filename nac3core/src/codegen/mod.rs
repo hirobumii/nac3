@@ -30,10 +30,7 @@ use inkwell::{
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{BasicType, BasicTypeEnum, FloatType, IntType, PointerType},
-    values::{
-        BasicValue, BasicValueEnum, FunctionValue, GlobalValue, InstructionValue, IntValue,
-        PhiValue, PointerValue,
-    },
+    values::{BasicValueEnum, FunctionValue, GlobalValue, IntValue, PhiValue, PointerValue},
 };
 use itertools::Itertools as _;
 use nac3parser::ast::{Location, Stmt, StrRef};
@@ -574,53 +571,6 @@ fn get_llvm_type<'ctx>(
         type_cache.insert(unifier.get_representative(ty), result);
         result
     })
-}
-
-/// Loads a value from the memory location pointed to by `ptr`.
-///
-/// This ignores the original type of `ptr` and casts it to the appropriate pointer type
-/// corresponding to `ty`.
-#[deprecated = "Use `Builder::build_load` directly."]
-pub fn typed_load<'ctx>(
-    b: &Builder<'ctx>,
-    ptr: PointerValue<'ctx>,
-    ty: BasicTypeEnum<'ctx>,
-    name: &str,
-) -> anyhow::Result<BasicValueEnum<'ctx>> {
-    Ok(b.build_load(ty, ptr, name)?)
-}
-
-/// Stores `value` into the memory location pointed to by `ptr`.
-///
-/// This ignores the original type of `ptr` and casts it to the appropriate pointer type
-/// corresponding to the type of `value`.
-#[deprecated = "Use `Builder::build_store` directly."]
-pub fn typed_store<'ctx>(
-    b: &Builder<'ctx>,
-    ptr: PointerValue<'ctx>,
-    value: impl BasicValue<'ctx>,
-) -> anyhow::Result<InstructionValue<'ctx>> {
-    Ok(b.build_store(ptr, value)?)
-}
-
-/// Builds a `getelementptr` instruction with a possibly-opaque pointer.
-///
-/// See [`Builder::build_gep`].
-///
-/// # Panics
-///
-/// This function panics if `ptr` is neither an opaque pointer nor a pointer to `pointee_ty`.
-#[deprecated = "Use `Builder::build_gep` directly."]
-pub fn typed_gep<'ctx, T: BasicType<'ctx>>(
-    b: &Builder<'ctx>,
-    pointee_ty: &T,
-    ptr: PointerValue<'ctx>,
-    ordered_indexes: &[IntValue<'ctx>],
-    name: &str,
-) -> anyhow::Result<PointerValue<'ctx>> {
-    unsafe {
-        b.build_gep(pointee_ty.as_basic_type_enum(), ptr, ordered_indexes, name).map_err(Into::into)
-    }
 }
 
 /// Retrieves the [LLVM type][`BasicTypeEnum`] corresponding to the [`Type`].
