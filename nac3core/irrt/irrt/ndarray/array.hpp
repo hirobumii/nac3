@@ -98,14 +98,13 @@ void write_list_to_array_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
     if (axis + 1 == ndarray->ndims) {
         // `list` has type `list[scalar]`
         // `ndarray` is contiguous, so we can do this, and this is fast.
-        uint8_t* dst = static_cast<uint8_t*>(ndarray->data->data()) + ndarray->offset + (ndarray->itemsize * (*index));
+        auto* dst = ndarray->data->template data<uint8_t>() + ndarray->offset + (ndarray->itemsize * (*index));
         __builtin_memcpy(dst, reinterpret_cast<__nac3_impl::reference::Array<SizeT>*>(list->items)->data(),
                          ndarray->itemsize * list->len);
         *index += list->len;
     } else {
         // `list` has type `list[list[...]]`
-        auto** lists =
-            static_cast<List<SizeT>**>(reinterpret_cast<__nac3_impl::reference::Array<SizeT>*>(list->items)->data());
+        auto** lists = list->items->template data<List<SizeT>*>();
 
         for (SizeT i = 0; i < list->len; i++) {
             write_list_to_array_helper<SizeT>(axis + 1, index, lists[i], ndarray);

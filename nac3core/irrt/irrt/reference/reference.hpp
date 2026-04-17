@@ -5,9 +5,22 @@
 
 namespace __nac3_impl::reference {
 namespace {
+/**
+ * @brief A magic value for `Typeinfo::refcounted_field_offsets[0]`, indicating that the object is an array of pointer
+ * elements.
+ */
 constexpr const uint32_t REFCOUNT_ARRAY_MAGIC = 0xffff'ffff;
+
+/**
+ * @brief A magic value for `Typeinfo::refcounted_field_offsets[0]`, indicating that the object is an array of inline
+ * elements with ObjectHeaders, and that the second element of `refcounted_field_offsets` contains the stride between
+ * elements.
+ */
 constexpr const uint32_t REFCOUNT_ARRAY_INLINE_MAGIC = 0xffff'fffe;
 
+/**
+ * @brief Returns a pointer to the start of the user data of the object after the `ObjectHeader`.
+ */
 void* get_object_start(void* object) {
     if (object == nullptr) {
         return nullptr;
@@ -16,14 +29,9 @@ void* get_object_start(void* object) {
     return static_cast<void*>(static_cast<unsigned char*>(object) + sizeof(ObjectHeader));
 }
 
-const void* get_object_start(const void* object) {
-    if (object == nullptr) {
-        return nullptr;
-    }
-
-    return static_cast<const void*>(static_cast<const unsigned char*>(object) + sizeof(ObjectHeader));
-}
-
+/**
+ * @brief Returns a pointer to the object header for the given object.
+ */
 ObjectHeader* get_object_header(void* object) {
     if (object == nullptr) {
         return nullptr;
@@ -32,6 +40,9 @@ ObjectHeader* get_object_header(void* object) {
     return reinterpret_cast<ObjectHeader*>(object);
 }
 
+/**
+ * @brief Returns a const pointer to the object header for the given object.
+ */
 const ObjectHeader* get_object_header(const void* object) {
     if (object == nullptr) {
         return nullptr;
@@ -40,6 +51,9 @@ const ObjectHeader* get_object_header(const void* object) {
     return reinterpret_cast<const ObjectHeader*>(object);
 }
 
+/**
+ * @brief Returns a pointer to the `Typeinfo` instance for the given object.
+ */
 template<typename SizeT>
 const Typeinfo<SizeT>* get_object_typeinfo(const void* object) {
     if (const auto* const header = get_object_header(object)) {
@@ -49,6 +63,11 @@ const Typeinfo<SizeT>* get_object_typeinfo(const void* object) {
     return nullptr;
 }
 
+/**
+ * @brief Checks if the given object is refcounted.
+ *
+ * An object is reference-counted if it has a non-zero reference count.
+ */
 bool is_object_refcounted(const void* object) {
     if (const auto* const header = get_object_header(object)) {
         return header->refcount != 0;
@@ -57,6 +76,13 @@ bool is_object_refcounted(const void* object) {
     return false;
 }
 
+/**
+ * @brief Initializes the object header for a newly allocated object.
+ *
+ * @param is_refcounted Whether the object should be initialized as refcounted (refcount=1) or non-refcounted
+ * (refcount=0).
+ * @param typeinfo A pointer to the `Typeinfo` instance for the object's type.
+ */
 void object_header_init(void* const object, bool is_refcounted, const void* const typeinfo) {
     if (auto* const header = get_object_header(object)) {
         header->refcount = is_refcounted ? 1 : 0;
@@ -64,6 +90,9 @@ void object_header_init(void* const object, bool is_refcounted, const void* cons
     }
 }
 
+/**
+ * @brief Increments the reference count of the given object if it is refcounted.
+ */
 template<typename SizeT>
 void refcount_incr(void* const object) {
     if (is_object_refcounted(object)) {
@@ -72,57 +101,57 @@ void refcount_incr(void* const object) {
     }
 }
 
-template<typename SizeT>
-void refcount_decr(void* const object);
-
-template<typename SizeT>
-void walk_children(void* const object) {
-    const auto* const typeinfo = get_object_typeinfo<SizeT>(object);
-    const uint32_t num_refcounted_fields = typeinfo->refcounted_field_offsets[0];
-
-    if (num_refcounted_fields == REFCOUNT_ARRAY_MAGIC) {
-        // Array of pointer elements - dereference each
-        auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
-        const SizeT size = *reinterpret_cast<SizeT*>(obj_start);
-        for (SizeT i = 0; i < size; ++i) {
-            void* const field = obj_start + (i + 1) * sizeof(SizeT);
-            refcount_decr<SizeT>(*reinterpret_cast<void**>(field));
-        }
-    } else if (num_refcounted_fields == REFCOUNT_ARRAY_INLINE_MAGIC) {
-        // Array of inline elements with ObjectHeaders - pass address, don't dereference
-        auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
-        const SizeT size = *reinterpret_cast<SizeT*>(obj_start);
-        const uint32_t stride = typeinfo->refcounted_field_offsets[1];
-        for (SizeT i = 0; i < size; ++i) {
-            void* const elem = obj_start + sizeof(SizeT) + i * stride;
-            refcount_decr<SizeT>(elem);
-        }
-    } else {
-        // Struct with fixed refcounted fields - dereference each
-        for (uint32_t i = 0; i < num_refcounted_fields; ++i) {
-            void* const field =
-                static_cast<unsigned char*>(get_object_start(object)) + typeinfo->refcounted_field_offsets[i + 1];
-            refcount_decr<SizeT>(*reinterpret_cast<void**>(field));
-        }
-    }
-}
-
+/**
+ * @brief Decrements the reference count of the given object if it is refcounted.
+ */
 template<typename SizeT>
 void refcount_decr(void* const object) {
+    static constexpr auto walk_children = [](void* const object) {
+        const auto* const typeinfo = get_object_typeinfo<SizeT>(object);
+        const uint32_t num_refcounted_fields = typeinfo->refcounted_field_offsets[0];
+
+        if (num_refcounted_fields == REFCOUNT_ARRAY_MAGIC) {
+            // Array of pointer elements - dereference each element and pass to `refcount_decr`
+            auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
+            const SizeT size = *reinterpret_cast<SizeT*>(obj_start);
+            for (SizeT i = 0; i < size; ++i) {
+                void* const field = obj_start + (i + 1) * sizeof(SizeT);
+                refcount_decr<SizeT>(*reinterpret_cast<void**>(field));
+            }
+        } else if (num_refcounted_fields == REFCOUNT_ARRAY_INLINE_MAGIC) {
+            // Array of inline elements with ObjectHeaders - directly pass each element to `refcount_decr`
+            auto* const obj_start = static_cast<unsigned char*>(get_object_start(object));
+            const SizeT size = *reinterpret_cast<SizeT*>(obj_start);
+            const uint32_t stride = typeinfo->refcounted_field_offsets[1];
+            for (SizeT i = 0; i < size; ++i) {
+                void* const elem = obj_start + sizeof(SizeT) + i * stride;
+                refcount_decr<SizeT>(elem);
+            }
+        } else {
+            // Struct with fixed refcounted fields - dereference each refcounted field and pass to `refcount_decr`
+            for (uint32_t i = 0; i < num_refcounted_fields; ++i) {
+                void* const field =
+                    static_cast<unsigned char*>(get_object_start(object)) + typeinfo->refcounted_field_offsets[i + 1];
+                refcount_decr<SizeT>(*reinterpret_cast<void**>(field));
+            }
+        }
+    };
+
     auto* const header = get_object_header(object);
-    if (!header) return;
+    if (!header) {
+        return;
+    }
 
     if (header->refcount > 0) {
-        // Refcounted object - decrement
+        // refcounted object - decrement refcount and free if refcount reaches zero
         --header->refcount;
         if (header->refcount == 0) {
-            walk_children<SizeT>(object);
+            walk_children(object);
             __builtin_free(object);
         }
     } else {
-        // Non-refcounted object (e.g. inline tuple with refcount=0)
-        // Walk children to decrement any refcounted sub-fields, but don't free
-        walk_children<SizeT>(object);
+        // non-refcounted object - just walk children to decrement any refcounted sub-fields
+        walk_children(object);
     }
 }
 }  // namespace
