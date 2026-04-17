@@ -99,8 +99,7 @@ void write_list_to_array_helper(__nac3_impl::stdlib::make_signed_t<SizeT> axis,
         // `list` has type `list[scalar]`
         // `ndarray` is contiguous, so we can do this, and this is fast.
         auto* dst = ndarray->data->template data<uint8_t>() + ndarray->offset + (ndarray->itemsize * (*index));
-        __builtin_memcpy(dst, reinterpret_cast<__nac3_impl::reference::Array<SizeT>*>(list->items)->data(),
-                         ndarray->itemsize * list->len);
+        __builtin_memcpy(dst, list->items->data(), ndarray->itemsize * list->len);
         *index += list->len;
     } else {
         // `list` has type `list[list[...]]`

@@ -19,7 +19,6 @@ nac3core = { path = "../nac3core" }
 nac3binutils = { path = "../nac3binutils" }
 
 [features]
-default = ["escape-analysis"]
 init-llvm-profile = []
 escape-analysis = ["nac3core/escape-analysis"]
 malloc = ["nac3core/malloc"]
