@@ -16,8 +16,8 @@ use crate::{
         llvm_intrinsics::call_int_umin,
         stmt::gen_for_callback_incrementing,
         types::{
-            ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue, RefType,
-            TypedRefCountedType, TypedRefCountedValue, Value, WithTypeinfo,
+            ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue, RefType, TypedRefCountedType,
+            TypedRefCountedValue, Value, WithTypeinfo,
             array::{ArrayLikeIndexer, ArraySliceValue},
             builtin::BuiltinStruct,
             field,

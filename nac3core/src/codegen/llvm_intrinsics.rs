@@ -137,11 +137,8 @@ pub fn call_memcpy_generic_array<'ctx>(
     elem_type: BasicTypeEnum<'ctx>,
 ) -> anyhow::Result<()> {
     let llvm_usize = ctx.size_t;
-    let sizeof_elem = ctx.builder.build_int_truncate_or_bit_cast(
-        elem_type.size_of().unwrap(),
-        llvm_usize,
-        "",
-    )?;
+    let sizeof_elem =
+        ctx.builder.build_int_truncate_or_bit_cast(elem_type.size_of().unwrap(), llvm_usize, "")?;
     let len = ctx.builder.build_int_mul(len, sizeof_elem, "")?;
     call_memcpy(ctx, dest, src, len)
 }
@@ -194,11 +191,8 @@ pub fn call_memset_generic_array<'ctx>(
     elem_type: BasicTypeEnum<'ctx>,
 ) -> anyhow::Result<()> {
     let llvm_usize = ctx.size_t;
-    let sizeof_elem = ctx.builder.build_int_truncate_or_bit_cast(
-        elem_type.size_of().unwrap(),
-        llvm_usize,
-        "",
-    )?;
+    let sizeof_elem =
+        ctx.builder.build_int_truncate_or_bit_cast(elem_type.size_of().unwrap(), llvm_usize, "")?;
     let len = ctx.builder.build_int_mul(len, sizeof_elem, "")?;
     call_memset(ctx, dest, val, len)
 }
