@@ -16,8 +16,8 @@ use crate::codegen::{
     stmt::{BreakContinueHooks, gen_for_callback},
     types::{
         NDArrayType, NDArrayValue, ProxyTypeBase, RefCountedArrayType, TypedRefCountedType,
-        TypedRefCountedValue, Value, WithTypeinfo, array::ArraySliceValue, builtin::BuiltinStruct,
-        field, ndarray::ScalarOrNDArray, structure::StructField,
+        TypedRefCountedValue, Value, WithTypeinfo, array::ArraySliceValue,
+        builtin::BuiltinStruct, field, ndarray::ScalarOrNDArray, structure::StructField,
     },
 };
 

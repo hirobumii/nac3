@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use inkwell::{
     types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue},
@@ -10,6 +12,7 @@ use crate::{
         types::{
             OpaqueRefCountedType, OpaqueRefCountedValue, ProxyType, ProxyTypeBase,
             RefCountedArrayType, RefCountedArrayValue, RefCountedType, RefCountedValue, Value,
+            WithTypeinfo,
             reference::{ObjectHeaderType, ObjectHeaderValue},
         },
     },
@@ -28,6 +31,16 @@ use crate::{
 #[llvm_ref(self.inner.alloca_ty(ctx))]
 pub struct OptionSomeType<'ctx> {
     inner: RefCountedArrayType<'ctx, BasicTypeEnum<'ctx>>,
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for OptionSomeType<'ctx> {
+    fn typename(&self) -> Cow<'static, str> {
+        self.inner.typename()
+    }
+
+    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+        self.inner.refcounted_field_offset(ctx)
+    }
 }
 
 impl<'ctx> OptionSomeType<'ctx> {

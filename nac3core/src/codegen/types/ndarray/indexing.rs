@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use inkwell::values::{IntValue, PointerValue};
 use itertools::Itertools as _;
 use nac3core_derive::{ProxyType, StructFields};
@@ -10,7 +12,7 @@ use crate::{
         expr::call_extern,
         irrt::get_usize_dependent_function_name,
         types::{
-            NDArrayType, ProxyTypeBase, RawNDArrayValue, RefType, Value,
+            NDArrayType, ProxyTypeBase, RawNDArrayValue, RefType, Value, WithTypeinfo,
             array::{ArrayLikeIndexer, ArraySliceValue},
             builtin::BuiltinStruct,
             field,
@@ -33,6 +35,16 @@ pub struct NDIndexStructFields<'ctx> {
 #[llvm_ref(self.inner.llvm_ty)]
 pub struct NDIndexType<'ctx> {
     inner: BuiltinStruct<'ctx, NDIndexStructFields<'ctx>>,
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for NDIndexType<'ctx> {
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_ndindex")
+    }
+
+    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+        Vec::new()
+    }
 }
 
 impl<'ctx> NDIndexType<'ctx> {
@@ -89,6 +101,16 @@ struct SliceStructFields<'ctx> {
 #[llvm_ref(self.inner.llvm_ty)]
 pub struct SliceType<'ctx> {
     inner: BuiltinStruct<'ctx, SliceStructFields<'ctx>>,
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for SliceType<'ctx> {
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_slice")
+    }
+
+    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+        Vec::new()
+    }
 }
 
 impl<'ctx> SliceType<'ctx> {

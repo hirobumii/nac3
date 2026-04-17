@@ -1,9 +1,11 @@
+use std::borrow::Cow;
+
 use inkwell::values::{IntValue, PointerValue};
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
     ModuleContext,
-    types::{Value, builtin::BuiltinStruct, structure::StructField},
+    types::{Value, WithTypeinfo, builtin::BuiltinStruct, structure::StructField},
 };
 
 #[derive(Clone, Copy, StructFields)]
@@ -21,6 +23,16 @@ pub struct EnumerateStructFields<'ctx> {
 #[llvm_ref(self.inner.llvm_ty)]
 pub struct EnumerateType<'ctx> {
     pub inner: BuiltinStruct<'ctx, EnumerateStructFields<'ctx>>,
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for EnumerateType<'ctx> {
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_enumerate")
+    }
+
+    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+        Vec::new()
+    }
 }
 
 impl<'ctx> EnumerateType<'ctx> {

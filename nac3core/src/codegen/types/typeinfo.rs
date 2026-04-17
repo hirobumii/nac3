@@ -1,9 +1,9 @@
-use inkwell::values::PointerValue;
+use inkwell::{types::BasicTypeEnum, values::PointerValue};
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
     CodeGenContext, ModuleContext,
-    types::{ArraySliceValue, BuiltinStruct, RefType, Value, structure::StructField},
+    types::{ArraySliceValue, BuiltinStruct, Value, structure::StructField},
 };
 
 #[derive(Clone, Copy, StructFields)]
@@ -18,7 +18,7 @@ pub struct TypeinfoStructFields<'ctx> {
 }
 
 #[derive(Clone, Copy, ProxyType)]
-#[llvm_ref(self.inner.llvm_ty)]
+#[llvm_ty(PointerValue<'ctx>, ctx.ptr)]
 pub struct TypeinfoType<'ctx> {
     pub inner: BuiltinStruct<'ctx, TypeinfoStructFields<'ctx>>,
 }
@@ -27,6 +27,11 @@ impl<'ctx> TypeinfoType<'ctx> {
     /// Creates a new instance of this type.
     pub fn new(ctx: &ModuleContext<'ctx>) -> Self {
         Self { inner: BuiltinStruct::new(ctx, "__nac3_typeinfo") }
+    }
+
+    /// Returns the LLVM type used for allocating this type.
+    pub fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
+        self.inner.llvm_ty.into()
     }
 }
 

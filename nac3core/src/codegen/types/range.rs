@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use inkwell::{types::ArrayType, values::IntValue};
 use nac3core_derive::ProxyType;
 
@@ -5,7 +7,7 @@ use crate::{
     codegen::{
         CodeGenContext, ModuleContext,
         types::{
-            Value,
+            Value, WithTypeinfo,
             array::{ArrayLikeIndexer as _, ArraySliceValue},
         },
     },
@@ -17,6 +19,16 @@ use crate::{
 #[llvm_ref(self.llvm_ty)]
 pub struct RangeType<'ctx> {
     llvm_ty: ArrayType<'ctx>,
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for RangeType<'ctx> {
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_range")
+    }
+
+    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+        Vec::new()
+    }
 }
 
 impl<'ctx> RangeType<'ctx> {

@@ -70,7 +70,7 @@ pub struct ObjectHeaderStructFields<'ctx> {
 }
 
 #[derive(Clone, Copy, ProxyType)]
-#[llvm_ref(self.inner.llvm_ty)]
+#[llvm_ty(PointerValue<'ctx>, ctx.ptr)]
 pub struct ObjectHeaderType<'ctx> {
     pub inner: BuiltinStruct<'ctx, ObjectHeaderStructFields<'ctx>>,
 }
@@ -79,6 +79,11 @@ impl<'ctx> ObjectHeaderType<'ctx> {
     /// Creates a new instance of this type.
     pub fn new(ctx: &ModuleContext<'ctx>) -> Self {
         Self { inner: BuiltinStruct::new(ctx, "__nac3_object_header") }
+    }
+
+    /// Returns the LLVM type used for allocating this type.
+    pub fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
+        self.inner.llvm_ty.into()
     }
 }
 
@@ -281,7 +286,7 @@ impl<'ctx> RefCountedValue<'ctx> for OpaqueRefCountedValue<'ctx> {
 }
 
 #[derive(Clone, Copy, ProxyType)]
-#[llvm_ref(self.inner)]
+#[llvm_ty(PointerValue<'ctx>, ctx.ptr)]
 pub struct TypedRefCountedType<'ctx, T: RefType<'ctx> + Copy> {
     inner: StructType<'ctx>,
     pub object: T,
@@ -296,15 +301,17 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
         Self { inner: ctx.ctx.struct_type(&[header.into(), object], false), object: object_ty }
     }
 
+    /// Returns the LLVM type used for allocating this type.
+    pub fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
+        self.inner.into()
+    }
+
     pub fn allocate(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
         scope: AllocationScope,
         name: Option<&'ctx str>,
-    ) -> anyhow::Result<Value<'ctx, Self>>
-    where
-        T: RefType<'ctx> + WithTypeinfo<'ctx> + Copy,
-    {
+    ) -> anyhow::Result<Value<'ctx, Self>> {
         let alloca = self.alloca_ty(ctx);
         let ptr = ctx.build_allocate(scope, alloca, name)?;
         let value = self.map_value(ptr, name);

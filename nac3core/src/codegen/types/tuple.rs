@@ -10,7 +10,7 @@ use crate::{
     codegen::{
         CodeGenContext,
         types::{
-            ModuleContext, ProxyType, ProxyTypeBase, RefType, Value, WithTypeinfo,
+            ModuleContext, ProxyType, ProxyTypeBase, Value, WithTypeinfo,
             reference::{ObjectHeaderType, is_refcounted_type},
         },
     },

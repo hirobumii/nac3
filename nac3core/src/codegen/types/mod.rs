@@ -283,11 +283,9 @@ pub trait WithTypeinfo<'ctx> {
     fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>>;
 }
 
-/// Represents a type that is passed around by pointer.
-// TODO(Derppening): Uncomment the following line when all RefType implementors also implement
-// WithTypeinfo.
-// pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> + WithTypeinfo<'ctx> {
-pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> {
+/// Represents a type that is passed around by pointer and contains a global `typeinfo` instance
+/// containing the type information of this type.
+pub trait RefType<'ctx>: ProxyType<'ctx, Value = PointerValue<'ctx>> + WithTypeinfo<'ctx> {
     /// Returns the LLVM type used for allocating this reference type.
     fn alloca_ty(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx>;
 

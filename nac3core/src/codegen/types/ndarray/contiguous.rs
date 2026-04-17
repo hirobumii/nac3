@@ -12,8 +12,8 @@ use crate::codegen::{
     stmt::gen_if_callback,
     types::{
         NDArrayType, OpaqueRefCountedType, OpaqueRefCountedValue, ProxyTypeBase as _,
-        RefCountedArrayType, RefCountedArrayValue, RefCountedValue as _, TypedRefCountedType,
-        TypedRefCountedValue, Value, WithTypeinfo,
+        RefCountedArrayType, RefCountedArrayValue, RefCountedValue as _, RefType,
+        TypedRefCountedType, TypedRefCountedValue, Value, WithTypeinfo,
         builtin::BuiltinStruct,
         field,
         ndarray::{NDArrayLikeType, NDArrayValue},
@@ -37,6 +37,12 @@ pub struct ContiguousNDArrayStructFields<'ctx> {
 
 pub type RawContiguousNDArrayType<'ctx> =
     NDArrayLikeType<'ctx, ContiguousNDArrayStructFields<'ctx>>;
+
+impl<'ctx> RefType<'ctx> for NDArrayLikeType<'ctx, ContiguousNDArrayStructFields<'ctx>> {
+    fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
+        self.inner.llvm_ty.into()
+    }
+}
 
 impl<'ctx> WithTypeinfo<'ctx> for RawContiguousNDArrayType<'ctx> {
     fn typename(&self) -> Cow<'static, str> {

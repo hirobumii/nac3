@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use inkwell::{
     types::{BasicTypeEnum, IntType},
     values::{BasicValueEnum, IntValue, PointerValue},
@@ -11,7 +13,7 @@ use crate::codegen::{
     stmt::gen_for_callback,
     types::{
         NDArrayValue, ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue,
-        TypedRefCountedValue,
+        TypedRefCountedValue, WithTypeinfo,
         array::ArrayLikeIndexer,
         builtin::BuiltinStruct,
         field,
@@ -33,6 +35,16 @@ struct ShapeEntryStructFields<'ctx> {
 #[llvm_ref(self.inner.llvm_ty)]
 struct ShapeEntryType<'ctx> {
     inner: BuiltinStruct<'ctx, ShapeEntryStructFields<'ctx>>,
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for ShapeEntryType<'ctx> {
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_shape_entry")
+    }
+
+    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+        Vec::new()
+    }
 }
 
 impl<'ctx> ShapeEntryType<'ctx> {

@@ -1,10 +1,12 @@
+use std::borrow::Cow;
+
 use inkwell::values::{IntValue, StructValue};
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::{
     codegen::{
         CodeGenContext, ModuleContext,
-        types::{Value, builtin::BuiltinStruct, structure::StructField},
+        types::{Value, WithTypeinfo, builtin::BuiltinStruct, structure::StructField},
     },
     typecheck::typedef::{Type, TypeEnum},
 };
@@ -49,6 +51,16 @@ pub struct ExceptionStructFields<'ctx> {
 #[llvm_ref(self.inner.llvm_ty)]
 pub struct ExceptionType<'ctx> {
     pub inner: BuiltinStruct<'ctx, ExceptionStructFields<'ctx>>,
+}
+
+impl<'ctx> WithTypeinfo<'ctx> for ExceptionType<'ctx> {
+    fn typename(&self) -> Cow<'static, str> {
+        Cow::Borrowed("__nac3_exception")
+    }
+
+    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+        Vec::new()
+    }
 }
 
 impl<'ctx> ExceptionType<'ctx> {

@@ -16,8 +16,8 @@ use crate::{
         llvm_intrinsics::call_int_umin,
         stmt::gen_for_callback_incrementing,
         types::{
-            ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue, TypedRefCountedType,
-            TypedRefCountedValue, Value, WithTypeinfo,
+            ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue, RefType,
+            TypedRefCountedType, TypedRefCountedValue, Value, WithTypeinfo,
             array::{ArrayLikeIndexer, ArraySliceValue},
             builtin::BuiltinStruct,
             field,
@@ -49,7 +49,7 @@ pub use iter::{NDIterType, NDIterValue, RawNDIterType, RawNDIterValue};
 pub use shape::parse_numpy_int_sequence;
 
 #[derive(Clone, Copy, ProxyType)]
-#[llvm_ref(self.inner.llvm_ty)]
+#[llvm_ty(PointerValue<'ctx>, ctx.ptr)]
 pub struct NDArrayLikeType<'ctx, S> {
     pub inner: BuiltinStruct<'ctx, S>,
     pub dtype: BasicTypeEnum<'ctx>,
@@ -67,7 +67,10 @@ impl<'ctx, S> NDArrayLikeType<'ctx, S> {
         ctx.size_t.const_int(size, false)
     }
 }
-impl<'ctx, S> Value<'ctx, NDArrayLikeType<'ctx, S>> {
+impl<'ctx, S> Value<'ctx, NDArrayLikeType<'ctx, S>>
+where
+    NDArrayLikeType<'ctx, S>: RefType<'ctx>,
+{
     /// Loads a slice of length `ndims` from the given field.
     pub(crate) fn load_ndims_slice(
         &self,
@@ -108,6 +111,12 @@ pub struct NDArrayStructFields<'ctx> {
 }
 
 pub type RawNDArrayType<'ctx> = NDArrayLikeType<'ctx, NDArrayStructFields<'ctx>>;
+
+impl<'ctx> RefType<'ctx> for NDArrayLikeType<'ctx, NDArrayStructFields<'ctx>> {
+    fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
+        self.inner.llvm_ty.into()
+    }
+}
 
 impl<'ctx> RawNDArrayType<'ctx> {
     /// Creates an instance of [`NDArrayType`].
