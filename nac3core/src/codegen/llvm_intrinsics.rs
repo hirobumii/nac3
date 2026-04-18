@@ -114,27 +114,14 @@ pub fn call_memcpy<'ctx>(
 
 #[doc = llvm_doc!("memcpy")]
 ///
-/// Unlike [`call_memcpy`], this function accepts any type of pointer value.
-pub fn call_memcpy_generic<'ctx>(
+/// This function additionally accepts `elem_type` and computes the number of bytes to copy based on
+/// the number of elements (`len`) and the size of each element.
+pub fn call_memcpy_array<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     dest: PointerValue<'ctx>,
     src: PointerValue<'ctx>,
-    len: IntValue<'ctx>,
-) -> anyhow::Result<()> {
-    call_memcpy(ctx, dest, src, len)
-}
-
-#[doc = llvm_doc!("memcpy")]
-///
-/// Unlike [`call_memcpy`], this function accepts any type of pointer value.
-/// Moreover, `len` now refers to the number of elements to copy (rather than number of bytes to
-/// copy). The caller must supply `elem_type` to compute the byte count.
-pub fn call_memcpy_generic_array<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    dest: PointerValue<'ctx>,
-    src: PointerValue<'ctx>,
-    len: IntValue<'ctx>,
     elem_type: BasicTypeEnum<'ctx>,
+    len: IntValue<'ctx>,
 ) -> anyhow::Result<()> {
     let llvm_usize = ctx.size_t;
     let sizeof_elem =
@@ -168,27 +155,14 @@ pub fn call_memset<'ctx>(
 
 #[doc = llvm_doc!("memset")]
 ///
-/// Unlike [`call_memset`], this function accepts any type of pointer value.
-pub fn call_memset_generic<'ctx>(
+/// This function additionally accepts `elem_type` and computes the number of bytes to fill based on
+/// the number of elements (`len`) and the size of each element.
+pub fn call_memset_array<'ctx>(
     ctx: &CodeGenContext<'ctx, '_>,
     dest: PointerValue<'ctx>,
     val: IntValue<'ctx>,
-    len: IntValue<'ctx>,
-) -> anyhow::Result<()> {
-    call_memset(ctx, dest, val, len)
-}
-
-#[doc = llvm_doc!("memset")]
-///
-/// Unlike [`call_memset`], this function accepts any type of pointer value.
-/// Moreover, `len` now refers to the number of elements to set (rather than number of bytes to
-/// set). The caller must supply `elem_type` to compute the byte count.
-pub fn call_memset_generic_array<'ctx>(
-    ctx: &CodeGenContext<'ctx, '_>,
-    dest: PointerValue<'ctx>,
-    val: IntValue<'ctx>,
-    len: IntValue<'ctx>,
     elem_type: BasicTypeEnum<'ctx>,
+    len: IntValue<'ctx>,
 ) -> anyhow::Result<()> {
     let llvm_usize = ctx.size_t;
     let sizeof_elem =
