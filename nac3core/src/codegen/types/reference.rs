@@ -47,17 +47,16 @@ pub fn is_obj_id_refcounted(obj_id: DefinitionId) -> bool {
 /// Returns whether the given unifier type is a reference-counted composite type.
 ///
 /// Reference-counted types are heap-allocated composites: `list`, `ndarray`, `option`, and
-/// user-defined classes. This delegates to [`is_obj_id_refcounted`] after extracting
-/// the `obj_id` from the unifier type.
+/// user-defined classes.
 #[must_use]
 pub fn is_refcounted_type(unifier: &mut Unifier, ty: Type) -> bool {
-    let ty_enum = unifier.get_ty(ty);
-    match &*ty_enum {
+    match &*unifier.get_ty(ty) {
         TypeEnum::TObj { obj_id, .. } => is_obj_id_refcounted(*obj_id),
         _ => false,
     }
 }
 
+/// The structure fields for the `ObjectHeader` struct.
 #[derive(Clone, Copy, StructFields)]
 pub struct ObjectHeaderStructFields<'ctx> {
     /// The reference count of this object.
@@ -82,6 +81,10 @@ impl<'ctx> ObjectHeaderType<'ctx> {
     }
 
     /// Returns the LLVM type used for allocating this type.
+    ///
+    /// Note that `ObjectHeaderType` should never be allocated directly, it should always be
+    /// allocated as part of a refcounted object; This only serves as a convenience function for
+    /// returning the struct layout of the object header.
     pub fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
         self.inner.llvm_ty.into()
     }
@@ -92,10 +95,8 @@ pub type ObjectHeaderValue<'ctx> = Value<'ctx, ObjectHeaderType<'ctx>>;
 impl<'ctx> ObjectHeaderValue<'ctx> {
     /// Initializes the reference count metadata with the following values:
     ///
-    /// - `refcount`: Initialized to `1`.
-    /// - `field_metadata`: Initialized to the provided `field_metadata` pointer, which points to a
-    ///   (usually global) array of `size_t` values, where the first value is the number of fields
-    ///   with reference counts, followed by the byte offsets of each field.
+    /// - `refcount`: Initialized to 1 if `is_refcounted` is `true`, or 0 if `false`.
+    /// - `typeinfo`: The `typeinfo` instance for this object.
     pub fn init(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -122,7 +123,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         call_extern!(ctx: (ctx.i1) _ = FUNC_NAME(value))
     }
 
-    /// Recursively increments the reference count of this object by one.
+    /// Increments the reference count of this object by one.
     pub fn increment_refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
         let value = self.value;
 
@@ -150,7 +151,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         )
     }
 
-    /// Recursively decrements the reference count of this object by one.
+    /// Decrements the reference count of this object by one.
     ///
     /// When the reference count reaches zero, the object will be automatically deallocated.
     pub fn decrement_refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<()> {
@@ -180,6 +181,7 @@ impl<'ctx> ObjectHeaderValue<'ctx> {
         )
     }
 
+    /// Returns the reference count of this object.
     pub fn refcount(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<IntValue<'ctx>> {
         let struct_ty = self.ty.alloca_ty(ctx);
         self.ty.inner.fields.refcount.load(ctx, struct_ty, self.value, self.name)
@@ -306,6 +308,7 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
         self.inner.into()
     }
 
+    /// Allocates an instance of this type.
     pub fn allocate(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -379,7 +382,14 @@ impl<'ctx, T: RefType<'ctx> + Copy> RefCountedValue<'ctx> for TypedRefCountedVal
 #[derive(Clone, Copy)]
 pub struct RefCountedArrayType<'ctx, T: ProxyType<'ctx> + Copy> {
     inner: StructType<'ctx>,
+
+    /// The array type used to represent the `data` of this array.
+    ///
+    /// This is `[N x ty]` if the static size `N` is known at compile time, or `[0 x ty]` if the
+    /// size is only known at runtime.
     pub array: ArrayType<'ctx>,
+
+    /// The element type of this array.
     pub elem: T,
 
     /// Compile-time-known number of elements, or `None` for dynamically-sized arrays.
@@ -389,23 +399,18 @@ pub struct RefCountedArrayType<'ctx, T: ProxyType<'ctx> + Copy> {
     /// making the two cases indistinguishable via the LLVM type alone.
     static_size: Option<u32>,
 
-    /// If `true`, elements are inline objects with `ObjectHeader`s (e.g., tuples).
+    /// If `true`, elements are inline objects with an object header (e.g. tuples).
     inline_refcounted_elements: bool,
 }
 
 impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
     /// Creates a new instance of this type.
-    ///
-    /// Automatically detects whether elements are inline objects with `ObjectHeader`s (e.g.,
-    /// tuples). When the element LLVM type is a struct whose first field is an `ObjectHeader`,
-    /// the array's typeinfo will use `REFCOUNT_ARRAY_INLINE_MAGIC` so the IRRT iterates by
-    /// stride and passes element addresses directly to `refcount_decr`.
     pub fn new(ctx: &ModuleContext<'ctx>, elem_ty: T, static_size: Option<u32>) -> Self {
         let elem_llvm_ty = elem_ty.llvm_ty(ctx);
         let object = elem_llvm_ty.array_type(static_size.unwrap_or_default());
 
-        // Auto-detect inline elements: if the element type is a struct whose first field
-        // is an ObjectHeader, elements are stored inline with their own headers (e.g. tuples).
+        // If the element type is a struct whose first field is an object header, the elements of
+        // the array are assumed to be inlined refcounted objects (e.g. tuples)
         let header_ty = ObjectHeaderType::new(ctx).alloca_ty(ctx);
         let inline_refcounted_elements = if let BasicTypeEnum::StructType(st) = elem_llvm_ty {
             st.count_fields() >= 2
@@ -520,6 +525,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         Ok(value)
     }
 
+    /// Allocates an instance of this type on the stack with the given size.
     pub fn alloca(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -538,6 +544,8 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         )
     }
 
+    /// Allocates an instance of this type in the
+    /// [default allocation scope][AllocationScope::Default] with the given size.
     pub fn allocate(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -551,7 +559,6 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
 impl<'ctx, T: ProxyType<'ctx> + Copy> ProxyTypeBase<'ctx> for RefCountedArrayType<'ctx, T> {
     type Value = PointerValue<'ctx>;
 
-    #[allow(deprecated)]
     fn alloca(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -633,16 +640,8 @@ pub type RefCountedArrayValue<'ctx, T> = Value<'ctx, RefCountedArrayType<'ctx, T
 impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayValue<'ctx, T> {
     /// Returns the data portion of this array as an [`ArraySliceValue`].
     ///
-    /// `len` controls the length of the returned slice, used for bounds checking in
-    /// [`get`][ArraySliceValue::get] / [`set`][ArraySliceValue::set] and byte calculations in
-    /// [`memcpy_from`][ArraySliceValue::memcpy_from]:
-    ///
-    /// - Pass `None` for arrays created with a known compile-time size (e.g., ndarray
-    ///   shape/strides via [`load_ndims_slice`][super::ndarray::NDArrayLikeValue::load_ndims_slice],
-    ///   or [`OptionSomeType`][super::OptionSomeType] with 1 element). The static size is used
-    ///   automatically and an assertion fires if none is set.
-    /// - Pass `Some(runtime_len)` for dynamically-sized arrays (e.g., list items) where the
-    ///   actual element count is known only at runtime.
+    /// The caller must provide the length of the array as `len` if the size of this array type is
+    /// not known at compile-time.
     pub fn inner_value(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
