@@ -504,12 +504,19 @@ mod layout {
 
         // Class with two i32 fields (like Point)
         let point_inner = ctx.ctx.struct_type(&[ctx.i32.into(), ctx.i32.into()], false);
-        let point_class = ClassType::create(ctx, point_inner, DefinitionId(100), 0);
+        let point_class =
+            ClassType::create(ctx, point_inner, DefinitionId(100), 0, "Class<i32, i32>".into());
         sections.push(format_layout_recursive(ctx, point_class.alloca_ty(ctx), "Class<i32, i32>"));
 
         // Class with two ptr fields (like Container)
         let container_inner = ctx.ctx.struct_type(&[ctx.ptr.into(), ctx.ptr.into()], false);
-        let container_class = ClassType::create(ctx, container_inner, DefinitionId(101), 0b11);
+        let container_class = ClassType::create(
+            ctx,
+            container_inner,
+            DefinitionId(101),
+            0b11,
+            "Class<ptr, ptr>".into(),
+        );
         sections.push(format_layout_recursive(
             ctx,
             container_class.alloca_ty(ctx),

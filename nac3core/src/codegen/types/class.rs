@@ -5,6 +5,7 @@ use inkwell::{
     values::{IntValue, PointerValue},
 };
 use itertools::Itertools as _;
+use nac3parser::ast::StrRef;
 
 use crate::{
     codegen::{
@@ -21,25 +22,21 @@ use crate::{
 /// The raw inner type of a user-defined class.
 ///
 /// Stores the LLVM struct type for the class fields and precomputed refcount metadata.
-/// This type is `Copy`-friendly (no `String` or `Vec`) to be compatible with
-/// [`TypedRefCountedType`]'s `T: Copy` bound.
-///
-/// The LLVM inner struct is `{field0, field1, ...}`. When wrapped by
-/// [`TypedRefCountedType`], the full layout becomes `{ObjectHeader, {field0, field1, ...}}`.
 #[derive(Clone, Copy)]
 pub struct RawClassType<'ctx> {
     /// The LLVM inner struct type: `{field0, field1, ...}`
     inner: StructType<'ctx>,
 
-    /// The class definition ID — used for unique typename generation.
+    /// The class definition ID.
     class_id: DefinitionId,
 
     /// Bitmask of which fields are refcounted pointer types (bit `i` = 1).
     /// Supports up to 64 fields.
     refcounted_mask: u64,
-}
 
-pub type ClassType<'ctx> = TypedRefCountedType<'ctx, RawClassType<'ctx>>;
+    /// The name of the class type.
+    name: StrRef,
+}
 
 // Manual ProxyTypeBase/ProxyType/RefType implementations.
 // Classes are passed by pointer (like List/Option/NDArray).
@@ -56,7 +53,6 @@ impl<'ctx> ProxyType<'ctx> for RawClassType<'ctx> {
 
 impl<'ctx> RefType<'ctx> for RawClassType<'ctx> {
     fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
-        // TypedRefCountedType::new() will prepend the ObjectHeader automatically.
         self.inner.into()
     }
 }
@@ -68,8 +64,9 @@ impl<'ctx> RawClassType<'ctx> {
         inner: StructType<'ctx>,
         class_id: DefinitionId,
         refcounted_mask: u64,
+        class_name: StrRef,
     ) -> Self {
-        Self { inner, class_id, refcounted_mask }
+        Self { inner, class_id, refcounted_mask, name: class_name }
     }
 
     /// Creates a [`RawClassType`] from a [unifier type][Type].
@@ -84,13 +81,14 @@ impl<'ctx> RawClassType<'ctx> {
         let obj_id = *obj_id;
         let fields = fields.clone();
 
-        let fields_list = {
+        let (class_name, fields_list) = {
             let top_level_defs = ctx.top_level.definitions.read();
-            let TopLevelDef::Class { fields: fields_list, .. } = &*top_level_defs[obj_id.0].read()
+            let TopLevelDef::Class { name, fields: fields_list, .. } =
+                &*top_level_defs[obj_id.0].read()
             else {
                 unreachable!()
             };
-            fields_list.clone()
+            (*name, fields_list.clone())
         };
 
         // Build the LLVM struct type and compute refcounted mask
@@ -112,7 +110,7 @@ impl<'ctx> RawClassType<'ctx> {
             }
         }
 
-        Self::new(struct_type, obj_id, mask)
+        Self::new(struct_type, obj_id, mask, class_name)
     }
 
     /// Returns the inner struct type (class fields without `ObjectHeader`).
@@ -128,6 +126,8 @@ impl<'ctx> RawClassType<'ctx> {
     }
 }
 
+pub type ClassType<'ctx> = TypedRefCountedType<'ctx, RawClassType<'ctx>>;
+
 impl<'ctx> ClassType<'ctx> {
     /// Creates an instance of [`ClassType`].
     #[must_use]
@@ -136,8 +136,9 @@ impl<'ctx> ClassType<'ctx> {
         inner: StructType<'ctx>,
         class_id: DefinitionId,
         refcounted_mask: u64,
+        class_name: StrRef,
     ) -> Self {
-        Self::new(ctx, RawClassType::new(inner, class_id, refcounted_mask))
+        Self::new(ctx, RawClassType::new(inner, class_id, refcounted_mask, class_name))
     }
 
     /// Creates a [`ClassType`] from a [unifier type][Type].
@@ -150,20 +151,22 @@ impl<'ctx> ClassType<'ctx> {
 
 impl<'ctx> WithTypeinfo<'ctx> for RawClassType<'ctx> {
     fn typename(&self) -> Cow<'static, str> {
-        // Include class ID and struct layout to distinguish monomorphized generic classes.
+        // Include class name and struct layout to distinguish monomorphized generic classes.
         let struct_str = self.inner.print_to_string();
         let sanitized: String = struct_str
             .to_str()
-            .unwrap_or("unknown")
+            .unwrap_or_else(|_| {
+                panic!("Failed to convert struct type to string: {}", struct_str.to_string_lossy())
+            })
             .chars()
             .map(|c| if c.is_alphanumeric() { c } else { '_' })
             .collect();
-        Cow::Owned(format!("__nac3_class_{}_{sanitized}", self.class_id.0))
+        Cow::Owned(format!("{}_{sanitized}", self.name))
     }
 
     fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
         if self.refcounted_mask == 0 {
-            return vec![];
+            return Vec::new();
         }
 
         let data_layout = ctx.target.get_target_data();
@@ -181,5 +184,6 @@ impl<'ctx> WithTypeinfo<'ctx> for RawClassType<'ctx> {
     }
 }
 
+// TODO(Derppening): RawClassValue and ClassValue seems to be unused
 pub type RawClassValue<'ctx> = Value<'ctx, RawClassType<'ctx>>;
 pub type ClassValue<'ctx> = TypedRefCountedValue<'ctx, RawClassType<'ctx>>;

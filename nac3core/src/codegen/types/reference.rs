@@ -68,6 +68,7 @@ pub struct ObjectHeaderStructFields<'ctx> {
     pub typeinfo_offset: StructField<'ctx, IntValue<'ctx>>,
 }
 
+/// Proxy type representing the header of a reference-counted object.
 #[derive(Clone, Copy, ProxyType)]
 #[llvm_ty(PointerValue<'ctx>, ctx.ptr)]
 pub struct ObjectHeaderType<'ctx> {
@@ -213,6 +214,7 @@ pub trait RefCountedValue<'ctx> {
     }
 }
 
+/// Proxy type representing a reference-counted type with an opaque inner structure.
 #[derive(Clone, Copy)]
 pub struct OpaqueRefCountedType<'ctx> {
     _phantom: std::marker::PhantomData<&'ctx ()>,
