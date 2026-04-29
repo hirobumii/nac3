@@ -143,6 +143,7 @@ pub trait ArrayLikeIndexer<'ctx, Index = IntValue<'ctx>> {
     }
 }
 
+/// Type representing a slice of a contiguous array.
 #[derive(Clone, Copy)]
 pub struct ArraySliceType<'ctx, T: ProxyType<'ctx> + Copy = BasicTypeEnum<'ctx>> {
     pub item_ty: T,
@@ -181,6 +182,12 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ArraySliceValue<'ctx, T> {
         Ok(())
     }
 
+    /// Creates a new [`ArraySliceValue`] by reinterpreting the data in this slice as the specified
+    /// `target_type`.
+    ///
+    /// The size of the new slice is determined by `new_size` if provided. Otherwise, the size is
+    /// calculated based on the total byte size of the original slice and the size of the target
+    /// type.
     pub fn cast<U: ProxyType<'ctx> + Copy>(
         &self,
         ctx: &CodeGenContext<'ctx, '_>,
@@ -207,6 +214,15 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> ArraySliceValue<'ctx, T> {
             .map_value((self.value.0, new_size), name))
     }
 
+    /// Creates a new [`ArraySliceValue`] by reinterpreting the data in this slice as the specified
+    /// `target_type`.
+    ///
+    /// Unlike [`cast`], this function computes the new size at compile-time, and therefore can only
+    /// be used if this slice has a compile-time constant size.
+    ///
+    /// # Panic
+    ///
+    /// This function panics if this slice does not have a compile-time constant size.
     pub fn const_cast<U: ProxyType<'ctx> + Copy>(
         &self,
         ctx: &ModuleContext<'ctx>,

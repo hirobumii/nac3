@@ -30,6 +30,7 @@ pub struct ListStructFields<'ctx> {
     pub len: StructField<'ctx, IntValue<'ctx>>,
 }
 
+/// Type of a `list`.
 #[derive(Clone, Copy, ProxyType)]
 #[llvm_ref(self.inner.llvm_ty)]
 pub struct RawListType<'ctx> {
@@ -63,7 +64,7 @@ impl<'ctx> RawListType<'ctx> {
 }
 
 impl<'ctx> ListType<'ctx> {
-    /// Creates an instance of [`ListType`] from .
+    /// Creates an instance of [`ListType`].
     #[must_use]
     pub fn create(ctx: &ModuleContext<'ctx>, item_ty: Type) -> Self {
         Self::new(ctx, RawListType::new(ctx, item_ty))

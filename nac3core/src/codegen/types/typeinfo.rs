@@ -6,6 +6,7 @@ use crate::codegen::{
     types::{ArraySliceValue, BuiltinStruct, Value, structure::StructField},
 };
 
+/// Structure fields for `typeinfo`.
 #[derive(Clone, Copy, StructFields)]
 pub struct TypeinfoStructFields<'ctx> {
     /// Pointer to the name of the type, as a [`StringType`] value.
@@ -17,6 +18,7 @@ pub struct TypeinfoStructFields<'ctx> {
     pub refcounted_fields: StructField<'ctx, PointerValue<'ctx>>,
 }
 
+/// The `typeinfo` type, containing metadata about a type.
 #[derive(Clone, Copy, ProxyType)]
 #[llvm_ty(PointerValue<'ctx>, ctx.ptr)]
 pub struct TypeinfoType<'ctx> {

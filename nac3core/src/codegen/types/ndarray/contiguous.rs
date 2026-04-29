@@ -38,6 +38,12 @@ pub struct ContiguousNDArrayStructFields<'ctx> {
 pub type RawContiguousNDArrayType<'ctx> =
     NDArrayLikeType<'ctx, ContiguousNDArrayStructFields<'ctx>>;
 
+impl<'ctx> RawContiguousNDArrayType<'ctx> {
+    pub fn new(ctx: &ModuleContext<'ctx>, dtype: BasicTypeEnum<'ctx>, ndims: u64) -> Self {
+        Self { inner: BuiltinStruct::new(ctx, "contiguous_ndarray"), dtype, ndims }
+    }
+}
+
 impl<'ctx> RefType<'ctx> for NDArrayLikeType<'ctx, ContiguousNDArrayStructFields<'ctx>> {
     fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
         self.inner.llvm_ty.into()
@@ -59,9 +65,18 @@ impl<'ctx> WithTypeinfo<'ctx> for RawContiguousNDArrayType<'ctx> {
 }
 
 pub type ContiguousNDArrayType<'ctx> = TypedRefCountedType<'ctx, RawContiguousNDArrayType<'ctx>>;
+
+impl<'ctx> ContiguousNDArrayType<'ctx> {
+    /// Creates an instance of [`ContiguousNDArrayType`].
+    pub fn create(ctx: &ModuleContext<'ctx>, dtype: BasicTypeEnum<'ctx>, ndims: u64) -> Self {
+        Self::new(ctx, RawContiguousNDArrayType::new(ctx, dtype, ndims))
+    }
+}
+
 pub type RawContiguousNDArrayValue<'ctx> = Value<'ctx, RawContiguousNDArrayType<'ctx>>;
 
 impl<'ctx> RawContiguousNDArrayValue<'ctx> {
+    /// Returns the shape of this array.
     pub fn shape(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -70,6 +85,7 @@ impl<'ctx> RawContiguousNDArrayValue<'ctx> {
         Ok(RefCountedArrayType::new(ctx, ctx.size_t, None).map_value(shape, None))
     }
 
+    /// Returns the underlying data [`RefCountedArrayValue`] of this ndarray.
     pub fn data(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -78,6 +94,7 @@ impl<'ctx> RawContiguousNDArrayValue<'ctx> {
         Ok(RefCountedArrayType::new(ctx, ctx.i8.into(), None).map_value(data, None))
     }
 
+    /// Returns the base of this array.
     pub fn base(
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
@@ -103,14 +120,7 @@ impl<'ctx> NDArrayValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<ContiguousNDArrayValue<'ctx>> {
-        let result = TypedRefCountedType::new(
-            ctx,
-            RawContiguousNDArrayType {
-                inner: BuiltinStruct::new(ctx, "contiguous_ndarray"),
-                dtype: self.ty.object.dtype,
-                ndims: self.ty.object.ndims,
-            },
-        );
+        let result = ContiguousNDArrayType::create(ctx, self.ty.object.dtype, self.ty.object.ndims);
         let result = result.allocate(ctx, AllocationScope::Default, self.name)?;
 
         // Set ndims and shape.
@@ -146,7 +156,9 @@ impl<'ctx> NDArrayValue<'ctx> {
                 result.inner_value(ctx)?.store(ctx, field!(data), data.value.0)?;
 
                 result.inner_value(ctx)?.store(ctx, field!(base), ctx.ptr.const_null())?;
-                result.inner_value(ctx)?.store(ctx, field!(offset), ctx.size_t.const_zero())?;
+
+                let offset = self.inner_value(ctx)?.load(ctx, field!(offset))?;
+                result.inner_value(ctx)?.store(ctx, field!(offset), offset)?;
 
                 Ok(())
             },

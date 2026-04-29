@@ -1,18 +1,16 @@
 use std::borrow::Cow;
 
-use inkwell::{
-    types::{BasicTypeEnum, StructType},
-    values::{IntValue, PointerValue},
-};
+use inkwell::{types::StructType, values::IntValue};
 use itertools::Itertools as _;
+use nac3core_derive::ProxyType;
 use nac3parser::ast::StrRef;
 
 use crate::{
     codegen::{
         CodeGenContext,
         types::{
-            ModuleContext, ProxyType, ProxyTypeBase, RefType, TypedRefCountedType,
-            TypedRefCountedValue, Value, WithTypeinfo, reference::is_refcounted_type,
+            ModuleContext, TypedRefCountedType, TypedRefCountedValue, Value, WithTypeinfo,
+            reference::is_refcounted_type,
         },
     },
     toplevel::TopLevelDef,
@@ -22,7 +20,8 @@ use crate::{
 /// The raw inner type of a user-defined class.
 ///
 /// Stores the LLVM struct type for the class fields and precomputed refcount metadata.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, ProxyType)]
+#[llvm_ref(self.inner)]
 pub struct RawClassType<'ctx> {
     /// The LLVM inner struct type: `{field0, field1, ...}`
     inner: StructType<'ctx>,
@@ -34,25 +33,6 @@ pub struct RawClassType<'ctx> {
     name: StrRef,
 }
 
-// Manual ProxyTypeBase/ProxyType/RefType implementations.
-// Classes are passed by pointer (like List/Option/NDArray).
-
-impl<'ctx> ProxyTypeBase<'ctx> for RawClassType<'ctx> {
-    type Value = PointerValue<'ctx>;
-}
-
-impl<'ctx> ProxyType<'ctx> for RawClassType<'ctx> {
-    fn llvm_ty(&self, ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
-        ctx.ptr.into()
-    }
-}
-
-impl<'ctx> RefType<'ctx> for RawClassType<'ctx> {
-    fn alloca_ty(&self, _ctx: &ModuleContext<'ctx>) -> BasicTypeEnum<'ctx> {
-        self.inner.into()
-    }
-}
-
 impl<'ctx> RawClassType<'ctx> {
     /// Creates an instance of [`RawClassType`] from precomputed components.
     #[must_use]
@@ -61,9 +41,6 @@ impl<'ctx> RawClassType<'ctx> {
     }
 
     /// Creates a [`RawClassType`] from a [unifier type][Type].
-    ///
-    /// Resolves the class definition, builds the LLVM struct type for its fields,
-    /// and precomputes the refcounted field mask.
     #[must_use]
     pub fn from_unifier_type(ctx: &mut CodeGenContext<'ctx, '_>, ty: Type) -> Self {
         let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(ty) else {
@@ -82,20 +59,18 @@ impl<'ctx> RawClassType<'ctx> {
 
         // Build the LLVM struct type and compute refcounted mask
         let name = ctx.unifier.stringify(ty);
-        let struct_type = if let Some(t) = ctx.module.get_struct_type(&name) {
-            t
-        } else {
+        let struct_type = ctx.module.get_struct_type(&name).unwrap_or_else(|| {
             let struct_type = ctx.ctx.opaque_struct_type(&name);
             let llvm_fields =
                 fields_list.iter().map(|f| ctx.get_llvm_type(fields[&f.0].0)).collect_vec();
             struct_type.set_body(&llvm_fields, false);
             struct_type
-        };
+        });
 
         Self::new(struct_type, ty, class_name)
     }
 
-    /// Returns the inner struct type (class fields without `ObjectHeader`).
+    /// Returns the inner struct type.
     #[must_use]
     pub const fn inner_type(&self) -> StructType<'ctx> {
         self.inner
@@ -126,7 +101,7 @@ impl<'ctx> ClassType<'ctx> {
 
 impl<'ctx> WithTypeinfo<'ctx> for RawClassType<'ctx> {
     fn typename(&self) -> Cow<'static, str> {
-        // Include class name and struct layout to distinguish monomorphized generic classes.
+        // Include class name and struct layout to distinguish monomorphized generic classes
         let struct_str = self.inner.print_to_string();
         let sanitized: String = struct_str
             .to_str()

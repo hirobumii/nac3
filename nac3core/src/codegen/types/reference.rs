@@ -289,6 +289,7 @@ impl<'ctx> RefCountedValue<'ctx> for OpaqueRefCountedValue<'ctx> {
     }
 }
 
+/// A reference-counted type with a known inner structure represented by `T`.
 #[derive(Clone, Copy, ProxyType)]
 #[llvm_ty(PointerValue<'ctx>, ctx.ptr)]
 pub struct TypedRefCountedType<'ctx, T: RefType<'ctx> + Copy> {
@@ -382,6 +383,7 @@ impl<'ctx, T: RefType<'ctx> + Copy> RefCountedValue<'ctx> for TypedRefCountedVal
     }
 }
 
+/// Type representing a reference-counted array with element type `T`.
 #[derive(Clone, Copy)]
 pub struct RefCountedArrayType<'ctx, T: ProxyType<'ctx> + Copy> {
     inner: StructType<'ctx>,

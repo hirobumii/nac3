@@ -340,6 +340,8 @@ impl<'ctx, T: ProxyTypeBase<'ctx, Value = PointerValue<'ctx>>> Value<'ctx, T> {
     }
 }
 
+/// Implements [`ProxyType`] for simple wrapper types, such as [`IntType`][inkwell::types::IntType]
+/// and [`FloatType`][inkwell::types::FloatType].
 macro_rules! impl_proxytype_for_simple_type {
     ($type:ty, $value:ty $(,)?) => {
         impl<'ctx> $crate::codegen::types::ProxyTypeBase<'ctx> for $type {
