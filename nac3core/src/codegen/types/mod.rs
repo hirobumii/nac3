@@ -1,3 +1,36 @@
+//! This module defines various traits and types for exposing a high-level interface for types and
+//! values in LLVM.
+//!
+//! # Types
+//!
+//! The primary abstraction over LLVM types is the [`ProxyType`] trait, which represents a
+//! higher-level type that represents either specific built-in types (e.g. `str`, `list`, etc.) or
+//! user-defined struct types.
+//!
+//! Reference types (i.e. types that are passed around by pointer and have a global `typeinfo`)
+//! contain a object header to allow for reference counting and metadata tracking. To aid in code
+//! reuse, reference types are separated into two categories:
+//!
+//! - Types prefixed with `Raw` (e.g. [`RawListType`]) represent the raw struct type that only
+//!   contains the fields of the type itself and lacks an object header.
+//! - Types without the `Raw` prefix (e.g. [`ListType`]) represent the full struct type that contains
+//!   an object header and the fields of the type. These types are often implemented as type aliases
+//!   of `TypedRefCountedType<'_, RawType>`.
+//!
+//! To obtain an instance of a non-raw reference type, use one of the `construct`-family of
+//! functions on the reference type.
+//!
+//! # Values
+//!
+//! Values are implemented using the [`Value`] struct, which is used to represent a pair of a value
+//! and its respective type.
+//!
+//! Similar to types, values of reference types are also separated into raw and non-raw variants
+//! with the same naming convention. Since the object header of reference values can be stripped to
+//! obtain the raw reference value, some operations on reference values may be implemented directly
+//! on the raw reference value. In such cases, [`TypedRefCountedValue::inner_value`] can be used to
+//! obtain the raw reference value.
+
 use std::borrow::Cow;
 
 use inkwell::{
