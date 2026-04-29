@@ -127,7 +127,7 @@ impl<'ctx> WithTypeinfo<'ctx> for TupleType<'ctx> {
         Cow::Owned(format!("__nac3_tuple_{sanitized}"))
     }
 
-    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         if self.refcounted_mask == 0 {
             return Vec::new();
         }

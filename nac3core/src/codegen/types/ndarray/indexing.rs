@@ -42,7 +42,7 @@ impl<'ctx> WithTypeinfo<'ctx> for NDIndexType<'ctx> {
         Cow::Borrowed("__nac3_ndindex")
     }
 
-    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         Vec::new()
     }
 }
@@ -108,7 +108,7 @@ impl<'ctx> WithTypeinfo<'ctx> for SliceType<'ctx> {
         Cow::Borrowed("__nac3_slice")
     }
 
-    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         Vec::new()
     }
 }

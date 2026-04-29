@@ -185,7 +185,7 @@ pub trait ProxyType<'ctx>: ProxyTypeBase<'ctx> {
 pub trait WithTypeinfo<'ctx> {
     /// Returns a global instance of [`TypeinfoValue`] representing the type information of this
     /// reference type.
-    fn typeinfo(&self, ctx: &ModuleContext<'ctx>) -> TypeinfoValue<'ctx> {
+    fn typeinfo(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> TypeinfoValue<'ctx> {
         let typename = self.typename();
 
         let global =
@@ -280,7 +280,7 @@ pub trait WithTypeinfo<'ctx> {
     fn typename(&self) -> Cow<'static, str>;
 
     /// Returns a vector of byte offsets of the reference-counted fields in this type.
-    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>>;
+    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>>;
 }
 
 /// Represents a type that is passed around by pointer and contains a global `typeinfo` instance

@@ -42,7 +42,7 @@ impl<'ctx> WithTypeinfo<'ctx> for ShapeEntryType<'ctx> {
         Cow::Borrowed("__nac3_shape_entry")
     }
 
-    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         Vec::new()
     }
 }

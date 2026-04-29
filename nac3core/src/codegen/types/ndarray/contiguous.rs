@@ -49,7 +49,7 @@ impl<'ctx> WithTypeinfo<'ctx> for RawContiguousNDArrayType<'ctx> {
         Cow::Borrowed("__nac3_contiguous_ndarray")
     }
 
-    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         vec![
             ctx.i32.const_int(ctx.sizeof(ctx.size_t), false),
             ctx.i32.const_int(ctx.sizeof(ctx.size_t) + ctx.sizeof(ctx.ptr), false),

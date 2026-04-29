@@ -58,7 +58,7 @@ impl<'ctx> WithTypeinfo<'ctx> for ExceptionType<'ctx> {
         Cow::Borrowed("__nac3_exception")
     }
 
-    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         Vec::new()
     }
 }

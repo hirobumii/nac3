@@ -325,7 +325,8 @@ impl<'ctx, T: RefType<'ctx> + Copy> TypedRefCountedType<'ctx, T> {
         let is_refcounted = matches!(scope, AllocationScope::Default | AllocationScope::Heap);
         #[cfg(not(feature = "malloc"))]
         let is_refcounted = false;
-        value.header(ctx).init(ctx, is_refcounted, self.object.typeinfo(ctx))?;
+        let typeinfo = self.object.typeinfo(ctx);
+        value.header(ctx).init(ctx, is_refcounted, typeinfo)?;
 
         // Zero-initialize the inner data so that pointer fields (e.g. refcounted children
         // in class fields) start as null rather than garbage.
@@ -492,7 +493,8 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> RefCountedArrayType<'ctx, T> {
         let is_refcounted = matches!(scope, AllocationScope::Default | AllocationScope::Heap);
         #[cfg(not(feature = "malloc"))]
         let is_refcounted = false;
-        value.header(ctx).init(ctx, is_refcounted, self.typeinfo(ctx))?;
+        let typeinfo = self.typeinfo(ctx);
+        value.header(ctx).init(ctx, is_refcounted, typeinfo)?;
 
         // Store the size into the array metadata
         let psize = value.inner_ptr(ctx)?;
@@ -611,7 +613,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> WithTypeinfo<'ctx> for RefCountedArrayType
         }
     }
 
-    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         if self.inline_refcounted_elements {
             // REFCOUNT_ARRAY_INLINE_MAGIC (0xFFFFFFFE) + stride (byte size of each element)
             let data_layout = ctx.target.get_target_data();

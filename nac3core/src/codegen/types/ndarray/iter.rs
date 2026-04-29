@@ -9,7 +9,7 @@ use inkwell::{
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
-    CodeGenContext, ModuleContext,
+    CodeGenContext,
     allocator::AllocationScope,
     expr::call_extern,
     irrt::get_usize_dependent_function_name,
@@ -124,7 +124,7 @@ impl<'ctx> WithTypeinfo<'ctx> for RawNDIterType<'ctx> {
         Cow::Borrowed("__nac3_nditer")
     }
 
-    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         vec![ctx.i32.const_zero(), ctx.i32.const_int(ctx.sizeof(ctx.ptr), false)]
     }
 }

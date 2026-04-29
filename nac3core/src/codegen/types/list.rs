@@ -131,7 +131,7 @@ impl<'ctx> WithTypeinfo<'ctx> for RawListType<'ctx> {
         Cow::Borrowed("__nac3_list")
     }
 
-    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         vec![ctx.i32.const_zero()]
     }
 }

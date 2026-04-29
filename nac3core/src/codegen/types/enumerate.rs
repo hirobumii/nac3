@@ -4,7 +4,7 @@ use inkwell::values::{IntValue, PointerValue};
 use nac3core_derive::{ProxyType, StructFields};
 
 use crate::codegen::{
-    ModuleContext,
+    CodeGenContext, ModuleContext,
     types::{Value, WithTypeinfo, builtin::BuiltinStruct, structure::StructField},
 };
 
@@ -30,7 +30,7 @@ impl<'ctx> WithTypeinfo<'ctx> for EnumerateType<'ctx> {
         Cow::Borrowed("__nac3_enumerate")
     }
 
-    fn refcounted_field_offset(&self, _ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_field_offset(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         Vec::new()
     }
 }

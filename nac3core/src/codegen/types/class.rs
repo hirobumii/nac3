@@ -15,7 +15,7 @@ use crate::{
             TypedRefCountedValue, Value, WithTypeinfo, reference::is_refcounted_type,
         },
     },
-    toplevel::{DefinitionId, TopLevelDef},
+    toplevel::TopLevelDef,
     typecheck::typedef::{Type, TypeEnum},
 };
 
@@ -27,12 +27,8 @@ pub struct RawClassType<'ctx> {
     /// The LLVM inner struct type: `{field0, field1, ...}`
     inner: StructType<'ctx>,
 
-    /// The class definition ID.
-    class_id: DefinitionId,
-
-    /// Bitmask of which fields are refcounted pointer types (bit `i` = 1).
-    /// Supports up to 64 fields.
-    refcounted_mask: u64,
+    /// The [unifier type][Type] of this class.
+    unifier_ty: Type,
 
     /// The name of the class type.
     name: StrRef,
@@ -60,13 +56,8 @@ impl<'ctx> RefType<'ctx> for RawClassType<'ctx> {
 impl<'ctx> RawClassType<'ctx> {
     /// Creates an instance of [`RawClassType`] from precomputed components.
     #[must_use]
-    pub const fn new(
-        inner: StructType<'ctx>,
-        class_id: DefinitionId,
-        refcounted_mask: u64,
-        class_name: StrRef,
-    ) -> Self {
-        Self { inner, class_id, refcounted_mask, name: class_name }
+    pub const fn new(inner: StructType<'ctx>, unifier_ty: Type, class_name: StrRef) -> Self {
+        Self { inner, unifier_ty, name: class_name }
     }
 
     /// Creates a [`RawClassType`] from a [unifier type][Type].
@@ -78,8 +69,6 @@ impl<'ctx> RawClassType<'ctx> {
         let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(ty) else {
             panic!("Expected TObj, got {}", ctx.unifier.stringify(ty));
         };
-        let obj_id = *obj_id;
-        let fields = fields.clone();
 
         let (class_name, fields_list) = {
             let top_level_defs = ctx.top_level.definitions.read();
@@ -103,26 +92,13 @@ impl<'ctx> RawClassType<'ctx> {
             struct_type
         };
 
-        let mut mask = 0u64;
-        for (i, f) in fields_list.iter().enumerate() {
-            if is_refcounted_type(&mut ctx.unifier, fields[&f.0].0) {
-                mask |= 1 << i;
-            }
-        }
-
-        Self::new(struct_type, obj_id, mask, class_name)
+        Self::new(struct_type, ty, class_name)
     }
 
     /// Returns the inner struct type (class fields without `ObjectHeader`).
     #[must_use]
     pub const fn inner_type(&self) -> StructType<'ctx> {
         self.inner
-    }
-
-    /// Returns the class [`DefinitionId`].
-    #[must_use]
-    pub const fn class_id(&self) -> DefinitionId {
-        self.class_id
     }
 }
 
@@ -134,11 +110,10 @@ impl<'ctx> ClassType<'ctx> {
     pub fn create(
         ctx: &ModuleContext<'ctx>,
         inner: StructType<'ctx>,
-        class_id: DefinitionId,
-        refcounted_mask: u64,
+        unifier_ty: Type,
         class_name: StrRef,
     ) -> Self {
-        Self::new(ctx, RawClassType::new(inner, class_id, refcounted_mask, class_name))
+        Self::new(ctx, RawClassType::new(inner, unifier_ty, class_name))
     }
 
     /// Creates a [`ClassType`] from a [unifier type][Type].
@@ -164,18 +139,26 @@ impl<'ctx> WithTypeinfo<'ctx> for RawClassType<'ctx> {
         Cow::Owned(format!("{}_{sanitized}", self.name))
     }
 
-    fn refcounted_field_offset(&self, ctx: &ModuleContext<'ctx>) -> Vec<IntValue<'ctx>> {
-        if self.refcounted_mask == 0 {
-            return Vec::new();
-        }
-
-        let data_layout = ctx.target.get_target_data();
-        let num_fields = self.inner.count_fields();
-
+    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         let mut offsets = Vec::new();
-        for i in 0..num_fields {
-            if self.refcounted_mask & (1 << i) != 0 {
-                let offset = data_layout.offset_of_element(&self.inner, i).unwrap();
+
+        let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(self.unifier_ty) else {
+            panic!("Expected TObj, got {}", ctx.unifier.stringify(self.unifier_ty));
+        };
+
+        let fields_list = {
+            let top_level_defs = ctx.top_level.definitions.read();
+            let TopLevelDef::Class { fields: fields_list, .. } = &*top_level_defs[obj_id.0].read()
+            else {
+                unreachable!()
+            };
+            fields_list.clone()
+        };
+
+        for (i, f) in fields_list.iter().enumerate() {
+            if is_refcounted_type(&mut ctx.unifier, fields[&f.0].0) {
+                let offset =
+                    ctx.target.get_target_data().offset_of_element(&self.inner, i as u32).unwrap();
                 offsets.push(ctx.i32.const_int(offset, false));
             }
         }
