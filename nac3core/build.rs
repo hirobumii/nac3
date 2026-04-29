@@ -25,7 +25,10 @@ fn compile_irrt(target: &str, flags: &[&str]) -> String {
     std::str::from_utf8(&output.stdout).unwrap().replace("\r\n", "\n")
 }
 
-fn is_db64_define(block: &str, name_re: &Regex) -> bool {
+// Returns true if an IR `define` block is a 64-bit IRRT function.
+// extern "C" 64-bit functions end with "64" (e.g. __nac3_ndarray_len64).
+// C++ template helpers using _BitInt(64) are mangled by Clang as "IDB64".
+fn is_64bit_define(block: &str, name_re: &Regex) -> bool {
     if !block.starts_with("define") {
         return false;
     }
@@ -49,7 +52,7 @@ fn main() {
 
     /*
      * HACK: Sadly, clang doesn't let us emit generic LLVM bitcode.
-     * Compiling for WASM (wasm32 for DB32, wasm64 for DB64) and
+     * Compiling for WASM (wasm32 for 32-bit, wasm64 for 64-bit) and
      * filtering the output with regex is the closest we can get.
      */
     let mut flags: Vec<&str> = vec![
@@ -103,20 +106,20 @@ fn main() {
     // Regex to extract the function name from a `define` block header
     let name_re = Regex::new(r"@(\w+)\(").unwrap();
 
-    // From wasm32: keep everything except DB64 define blocks
+    // From wasm32: keep everything except 64-bit define blocks
     for f in regex_filter.captures_iter(&wasm32_output) {
         assert_eq!(f.len(), 1);
-        if is_db64_define(&f[0], &name_re) {
+        if is_64bit_define(&f[0], &name_re) {
             continue;
         }
         filtered_output.push_str(&f[0]);
         filtered_output.push('\n');
     }
 
-    // From wasm64: keep only DB64 define blocks
+    // From wasm64: keep only 64-bit define blocks
     for f in regex_filter.captures_iter(&wasm64_output) {
         assert_eq!(f.len(), 1);
-        if is_db64_define(&f[0], &name_re) {
+        if is_64bit_define(&f[0], &name_re) {
             filtered_output.push_str(&f[0]);
             filtered_output.push('\n');
         }
