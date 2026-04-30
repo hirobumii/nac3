@@ -208,6 +208,12 @@ uint32_t __nac3_raise(struct Exception* e) {
 
 void __nac3_end_catch(void) {}
 
+void __nac3_resume(void) {
+    printf("__nac3_resume called\n");
+    exit(101);
+    __builtin_unreachable();
+}
+
 extern int32_t run(void);
 
 int main(void) {

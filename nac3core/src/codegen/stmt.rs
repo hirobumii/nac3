@@ -2124,20 +2124,8 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
             old_loop_target = ctx.loop_target.replace((continue_proxy, break_proxy));
         }
         let return_proxy = ctx.ctx.append_basic_block(current_fun, "try.return");
-        if let Some(return_target) = ctx.return_target {
-            final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
-        } else {
-            let return_target = ctx.ctx.append_basic_block(current_fun, "try.return_target");
-            ctx.builder.position_at_end(return_target);
-            let return_value = ctx
-                .return_buffer
-                .zip(ctx.return_buffer_type)
-                .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
-                .transpose()?;
-            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
-            ctx.builder.position_at_end(current_block);
-            final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
-        }
+        let return_target = ctx.return_target.unwrap();
+        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
         old_return = ctx.return_target.replace(return_proxy);
         cleanup = Some(ctx.ctx.append_basic_block(current_fun, "try.cleanup"));
     }
@@ -2192,7 +2180,9 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     let (all_clauses, _, _) = ctx.outer_catch_clauses.take().unwrap();
     ctx.outer_catch_clauses = old_clauses;
     ctx.unwind_target = old_unwind;
-    ctx.return_target = old_return;
+    if has_cleanup {
+        ctx.return_target = old_return;
+    }
     ctx.loop_target = old_loop_target.or(ctx.loop_target);
 
     let old_unwind = if finalbody.is_empty() {
@@ -2257,20 +2247,7 @@ pub fn gen_try<'ctx, 'a, G: CodeGenerator>(
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "try.return");
     ctx.builder.position_at_end(return_proxy);
     ctx.build_call(&end_catch, &[], "end_catch")?;
-    let return_target = ctx.return_target.take().map_or_else(
-        || {
-            let doreturn = ctx.ctx.append_basic_block(current_fun, "try.doreturn");
-            ctx.builder.position_at_end(doreturn);
-            let return_value = ctx
-                .return_buffer
-                .zip(ctx.return_buffer_type)
-                .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
-                .transpose()?;
-            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
-            anyhow::Ok(doreturn)
-        },
-        Ok,
-    )?;
+    let return_target = ctx.return_target.take().unwrap();
     redirect(ctx, return_target, return_proxy)?;
     ctx.return_target = Some(return_proxy);
     old_return = Some(return_target);
@@ -2543,20 +2520,8 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
         old_loop_target = ctx.loop_target.replace((continue_proxy, break_proxy));
     }
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "with.return");
-    if let Some(return_target) = ctx.return_target {
-        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
-    } else {
-        let return_target = ctx.ctx.append_basic_block(current_fun, "with.return_target");
-        ctx.builder.position_at_end(return_target);
-        let return_value = ctx
-            .return_buffer
-            .zip(ctx.return_buffer_type)
-            .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
-            .transpose()?;
-        ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
-        ctx.builder.position_at_end(current_block);
-        final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
-    }
+    let return_target = ctx.return_target.unwrap();
+    final_proxy(ctx, return_target, return_proxy, final_data.as_mut().unwrap())?;
     let old_return = ctx.return_target.replace(return_proxy);
     let cleanup = ctx.ctx.append_basic_block(current_fun, "with.cleanup");
 
@@ -2611,20 +2576,7 @@ pub fn gen_with<'ctx, 'a, G: CodeGenerator>(
     let return_proxy = ctx.ctx.append_basic_block(current_fun, "with.return");
     ctx.builder.position_at_end(return_proxy);
     ctx.build_call(&end_catch, &[], "end_catch")?;
-    let return_target = ctx.return_target.take().map_or_else(
-        || {
-            let doreturn = ctx.ctx.append_basic_block(current_fun, "with.doreturn");
-            ctx.builder.position_at_end(doreturn);
-            let return_value = ctx
-                .return_buffer
-                .zip(ctx.return_buffer_type)
-                .map(|(v, ty)| anyhow::Ok(ctx.builder.build_load(ty, v, "$ret")?))
-                .transpose()?;
-            ctx.builder.build_return(return_value.as_ref().map(|v| v as &dyn BasicValue))?;
-            anyhow::Ok(doreturn)
-        },
-        Ok,
-    )?;
+    let return_target = ctx.return_target.take().unwrap();
     redirect(ctx, return_target, return_proxy)?;
     ctx.return_target = Some(return_proxy);
     let old_return = Some(return_target);
@@ -2719,27 +2671,11 @@ pub fn gen_return<G: CodeGenerator>(
         })
     }).transpose()?;
 
-    if let Some(return_target) = ctx.return_target {
-        if let Some(value) = value {
-            ctx.builder.build_store(ctx.return_buffer.unwrap(), value)?;
-        }
-        ctx.builder.build_unconditional_branch(return_target)?;
-    } else {
-        // TODO(Derppening): Remove once all LLVM pointers are migrated to opaque pointers
-        let value = value
-            .map(|v| {
-                anyhow::Ok(if v.is_pointer_value() && v.get_type() != ctx.ptr.into() {
-                    ctx.builder
-                        .build_pointer_cast(v.into_pointer_value(), ctx.ptr, "cast_ret")?
-                        .as_basic_value_enum()
-                } else {
-                    v
-                })
-            })
-            .transpose()?;
-        let value = value.as_ref().map(|v| v as &dyn BasicValue);
-        ctx.builder.build_return(value)?;
+    let return_target = ctx.return_target.unwrap();
+    if let Some(value) = value {
+        ctx.builder.build_store(ctx.return_buffer.unwrap(), value)?;
     }
+    ctx.builder.build_unconditional_branch(return_target)?;
     Ok(())
 }
 

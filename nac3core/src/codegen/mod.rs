@@ -30,7 +30,9 @@ use inkwell::{
     passes::PassBuilderOptions,
     targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple},
     types::{BasicType, BasicTypeEnum, FloatType, IntType, PointerType},
-    values::{BasicValueEnum, FunctionValue, GlobalValue, IntValue, PhiValue, PointerValue},
+    values::{
+        BasicValue, BasicValueEnum, FunctionValue, GlobalValue, IntValue, PhiValue, PointerValue,
+    },
 };
 use itertools::Itertools as _;
 use nac3parser::ast::{Location, Stmt, StrRef};
@@ -40,7 +42,7 @@ use crate::{
     codegen::{
         allocator::AllocationScope,
         llvm_fns::FunctionStore,
-        stmt::get_personality,
+        stmt::{get_builtins, get_personality},
         types::{
             ArraySliceValue, ClassType, EnumerateType, ExceptionType, OpaqueRefCountedType,
             OptionType, ProxyType, ProxyTypeBase, RangeType, RawListType, RawNDArrayType,
@@ -276,9 +278,6 @@ pub struct CodeGenContext<'ctx, 'a> {
     pub unwind_target: Option<BasicBlock<'ctx>>,
 
     /// The target [`BasicBlock`] to jump to before returning from the function.
-    ///
-    /// If this field is [None] when generating a return from a function, `ret` with no argument can
-    /// be emitted.
     pub return_target: Option<BasicBlock<'ctx>>,
 
     /// The [`PointerValue`] containing the return value of the function.
@@ -647,6 +646,22 @@ where
     .is_continue()
 }
 
+/// Emits refcount decrements for all refcounted locals in
+/// [`var_assignment`][CodeGenContext::var_assignment] at the current builder location.
+fn emit_local_refcount_decrements(ctx: &mut CodeGenContext<'_, '_>) -> anyhow::Result<()> {
+    let opaque_refcounted_ty = OpaqueRefCountedType::new(ctx);
+
+    for (local_ptr, ty) in ctx.var_assignment.values().map(|v| (v.ptr, v.ty)).collect_vec() {
+        if !is_refcounted_type(&mut ctx.unifier, ty) {
+            continue;
+        }
+
+        let ptr = ctx.builder.build_load(ctx.ptr, local_ptr, "")?.into_pointer_value();
+        opaque_refcounted_ty.map_value(ptr, None).header(ctx).safe_decrement_refcount(ctx)?;
+    }
+    Ok(())
+}
+
 /// Implementation for generating LLVM IR for a function.
 #[allow(
     clippy::too_many_arguments,
@@ -775,13 +790,18 @@ pub fn gen_func_impl<
     // so we must redefine the function from scratch.
     let (_, fn_val) = ctx.declare_internal(symbol, ret_type, &params_type, task.export_symbol);
 
-    if let Some(personality) = get_personality(&top_level_ctx, ctx) {
+    let personality = get_personality(&top_level_ctx, ctx);
+    if let Some(personality) = personality {
         fn_val.set_personality_function(personality);
     }
 
     let init_bb = ctx.ctx.append_basic_block(fn_val, "init");
     builder.position_at_end(init_bb);
     let body_bb = ctx.ctx.append_basic_block(fn_val, "body");
+    let finalize_bb = ctx.ctx.append_basic_block(fn_val, "finalize");
+    // Only construct the function-level cleanup landingpad if a personality function is available,
+    // otherwise the landingpad is unreachable
+    let cleanup_lp = personality.map(|_| ctx.ctx.append_basic_block(fn_val, "fn.cleanup.lp"));
 
     // Store non-vararg argument values into local variables
     let mut var_assignment = HashMap::new();
@@ -901,10 +921,10 @@ pub fn gen_func_impl<
         top_level: top_level_ctx.as_ref(),
         calls: task.calls,
         loop_target: None,
-        return_target: None,
+        return_target: Some(finalize_bb),
         return_buffer,
         return_buffer_type: ret_type,
-        unwind_target: None,
+        unwind_target: cleanup_lp,
         outer_catch_clauses: None,
         const_strings: HashMap::default(),
         registry,
@@ -923,49 +943,42 @@ pub fn gen_func_impl<
 
     let result = codegen_function(generator, &mut code_gen_context).map(|()| fn_val);
 
-    // decrement all reference counts
-    // TODO(Derppening): Move to finalize BB, ensure all returns must decrement refcounts
-    {
-        // Store the `return` instruction and remove it from the basic block if present
-        let return_instr = if code_gen_context.is_terminated() {
-            let return_instr = code_gen_context
-                .builder
-                .get_insert_block()
-                .and_then(BasicBlock::get_last_instruction)
-                .unwrap();
-            return_instr.remove_from_basic_block();
-            Some(return_instr)
-        } else {
-            None
-        };
-
-        // decrement the reference counts of all local variables
-        for (local_ptr, ty) in
-            code_gen_context.var_assignment.values().map(|v| (v.ptr, v.ty)).collect_vec()
-        {
-            if !is_refcounted_type(&mut code_gen_context.unifier, ty) {
-                continue;
-            }
-
-            let ptr = code_gen_context
-                .builder
-                .build_load(code_gen_context.ptr, local_ptr, "")?
-                .into_pointer_value();
-            OpaqueRefCountedType::new(&code_gen_context)
-                .map_value(ptr, None)
-                .header(&code_gen_context)
-                .safe_decrement_refcount(&mut code_gen_context)?;
-        }
-
-        // emit the stored `return` instruction after decrementing reference counts
-        if let Some(return_instr) = return_instr {
-            code_gen_context.builder.insert_instruction(&return_instr, None);
-        }
+    // If the function body is not terminated, jump to `finalize_bb` to decrement refcounts
+    if !code_gen_context.is_terminated() {
+        code_gen_context.builder.build_unconditional_branch(finalize_bb)?;
     }
 
-    // after static analysis, only void functions can have no return at the end.
-    if !code_gen_context.is_terminated() {
+    // Decrement refcounts of all locals in `finalize_bb`, and emit the final `ret`
+    code_gen_context.builder.position_at_end(finalize_bb);
+    emit_local_refcount_decrements(&mut code_gen_context)?;
+    if let Some((return_buffer, return_buffer_type)) =
+        code_gen_context.return_buffer.zip(code_gen_context.return_buffer_type)
+    {
+        let loaded =
+            code_gen_context.builder.build_load(return_buffer_type, return_buffer, "$ret")?;
+        code_gen_context.builder.build_return(Some(&loaded as &dyn BasicValue))?;
+    } else {
         code_gen_context.builder.build_return(None)?;
+    }
+
+    // Similarly for `cleanup.lp`: Decrement refcounts of all locals, then resume unwinding
+    if let Some(cleanup_lp) = cleanup_lp {
+        code_gen_context.builder.position_at_end(cleanup_lp);
+        let exception_type = code_gen_context.get_llvm_type(code_gen_context.primitives.exception);
+        let ptr_type = code_gen_context.ptr;
+        code_gen_context.builder.build_landing_pad(
+            code_gen_context.ctx.struct_type(&[ptr_type.into(), exception_type], false),
+            personality.unwrap(),
+            &[],
+            true,
+            "fn.cleanup.lp",
+        )?;
+        emit_local_refcount_decrements(&mut code_gen_context)?;
+        // Clear `unwind_target` before emitting the resume call to avoid infinite loop
+        code_gen_context.unwind_target = None;
+        let resume = get_builtins(&mut code_gen_context, "__nac3_resume");
+        code_gen_context.build_call_or_invoke(&resume, &[], "resume")?;
+        code_gen_context.builder.build_unreachable()?;
     }
 
     code_gen_context.builder.unset_current_debug_location();
