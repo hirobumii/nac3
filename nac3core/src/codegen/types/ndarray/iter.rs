@@ -2,7 +2,6 @@ use std::borrow::Cow;
 
 use anyhow::anyhow;
 use inkwell::{
-    IntPredicate,
     types::{BasicTypeEnum, IntType},
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
 };
@@ -66,12 +65,8 @@ impl<'ctx> RawNDIterValue<'ctx> {
         &self,
         ctx: &mut CodeGenContext<'ctx, '_>,
     ) -> anyhow::Result<IntValue<'ctx>> {
-        // NOTE: IRRT is compiled for WASM32, and -O3 bakes in struct field byte offsets for
-        // 32-bit pointers that are incorrect on 64-bit targets, so we emit the `nth < size`
-        // check directly instead of calling `__nac3_nditer_has_element`.
-        let nth = self.load(ctx, field!(nth))?;
-        let size = self.load(ctx, field!(size))?;
-        Ok(ctx.builder.build_int_compare(IntPredicate::SLT, nth, size, "has_element")?)
+        let name = get_usize_dependent_function_name(ctx, "__nac3_nditer_has_element");
+        call_extern!(ctx: (ctx.i1) _ = name(self.value))
     }
 
     fn array(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> anyhow::Result<NDArrayValue<'ctx>> {

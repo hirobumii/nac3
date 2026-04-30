@@ -15,6 +15,11 @@ use crate::{
     typecheck::typedef::{FunSignature, Type},
 };
 
+/// Trait for customizing LLVM IR generation.
+///
+/// The default implementations delegate to the free functions in `codegen::expr` and
+/// `codegen::stmt`. Frontends override specific methods to change behavior -- for example,
+/// `ArtiqCodeGenerator` overrides `gen_with()` to handle `with parallel` blocks.
 pub trait CodeGenerator {
     /// Return the module name for the code generator.
     fn get_name(&self) -> &str;
@@ -221,6 +226,7 @@ pub trait CodeGenerator {
     }
 }
 
+/// Default code generator with no frontend-specific behavior. Used by nac3standalone.
 pub struct DefaultCodeGenerator {
     name: String,
 }

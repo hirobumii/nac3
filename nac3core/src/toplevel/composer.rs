@@ -34,6 +34,7 @@ use crate::{
 /// for standalone mode. Use `DefaultBuiltinRegistry` when you need a simple
 /// builtin registry without custom matching logic.
 #[derive(Debug, Clone, Copy, Default)]
+/// Name-based builtin registry used by nac3standalone. Matches builtins by string comparison.
 pub struct DefaultBuiltinRegistry;
 
 impl BuiltinRegistry for DefaultBuiltinRegistry {}
@@ -374,6 +375,14 @@ pub fn promote_expr_type(
 }
 
 pub type DefAst = (Arc<RwLock<TopLevelDef>>, Option<Stmt<()>>);
+
+/// Orchestrates the registration and type analysis of all top-level definitions.
+///
+/// The typical usage is:
+/// 1. Create with `TopLevelComposer::new()`.
+/// 2. Call `register_top_level()` for each class and function definition.
+/// 3. Call `start_analysis()` to run type inference and unification on all definitions.
+/// 4. Call `make_top_level_context()` to produce a `TopLevelContext` for code generation.
 pub struct TopLevelComposer {
     // list of top level definitions, same as top level context
     pub definition_ast_list: Vec<DefAst>,

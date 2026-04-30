@@ -12,6 +12,33 @@ use std::{
 
 use regex::Regex;
 
+fn compile_irrt(target: &str, flags: &[&str]) -> String {
+    let output = Command::new("clang-irrt")
+        .arg(format!("--target={target}"))
+        .args(flags)
+        .output()
+        .inspect(|o| {
+            assert!(o.status.success(), "{}", std::str::from_utf8(&o.stderr).unwrap());
+        })
+        .unwrap();
+    // https://github.com/rust-lang/regex/issues/244
+    std::str::from_utf8(&output.stdout).unwrap().replace("\r\n", "\n")
+}
+
+// Returns true if an IR `define` block is a 64-bit IRRT function.
+// extern "C" 64-bit functions end with "64" (e.g. __nac3_ndarray_len64).
+// C++ template helpers using _BitInt(64) are mangled by Clang as "IDB64".
+fn is_64bit_define(block: &str, name_re: &Regex) -> bool {
+    if !block.starts_with("define") {
+        return false;
+    }
+    if let Some(cap) = name_re.captures(block) {
+        let name = &cap[1];
+        return name.ends_with("64") || name.contains("IDB64");
+    }
+    false
+}
+
 fn main() {
     // For debugging
     // Doing `DEBUG_DUMP_IRRT=1 cargo build -p nac3core` dumps the LLVM IR generated
@@ -25,10 +52,10 @@ fn main() {
 
     /*
      * HACK: Sadly, clang doesn't let us emit generic LLVM bitcode.
-     * Compiling for WASM32 and filtering the output with regex is the closest we can get.
+     * Compiling for WASM (wasm32 for 32-bit, wasm64 for 64-bit) and
+     * filtering the output with regex is the closest we can get.
      */
     let mut flags: Vec<&str> = vec![
-        "--target=wasm32",
         "-x",
         "c++",
         "-std=c++20",
@@ -61,24 +88,9 @@ fn main() {
     // Tell Cargo to rerun if any file under `irrt_dir` (recursive) changes
     println!("cargo:rerun-if-changed={}", irrt_dir.to_str().unwrap());
 
-    // Compile IRRT and capture the LLVM IR output
-    let output = Command::new("clang-irrt")
-        .args(flags)
-        .output()
-        .inspect(|o| {
-            assert!(o.status.success(), "{}", std::str::from_utf8(&o.stderr).unwrap());
-        })
-        .unwrap();
-
-    // https://github.com/rust-lang/regex/issues/244
-    let output = std::str::from_utf8(&output.stdout).unwrap().replace("\r\n", "\n");
-    println!("cargo:rerun-if-env-changed={DEBUG_DUMP_IRRT}");
-    if env::var(DEBUG_DUMP_IRRT).is_ok() {
-        let mut file = File::create(out_dir.join("irrt.ll")).unwrap();
-        file.write_all(output.as_bytes()).unwrap();
-    }
-
-    let mut filtered_output = String::with_capacity(output.len());
+    let wasm32_output = compile_irrt("wasm32", &flags);
+    let wasm64_output = compile_irrt("wasm64", &flags);
+    let mut filtered_output = String::with_capacity(wasm32_output.len() + wasm64_output.len());
 
     // Filter out irrelevant IR
     //
@@ -102,10 +114,27 @@ fn main() {
         .unwrap(),
         _ => unreachable!(),
     };
-    for f in regex_filter.captures_iter(&output) {
+
+    // Regex to extract the function name from a `define` block header
+    let name_re = Regex::new(r"@(\w+)\(").unwrap();
+
+    // From wasm32: keep everything except 64-bit define blocks
+    for f in regex_filter.captures_iter(&wasm32_output) {
         assert_eq!(f.len(), 1);
+        if is_64bit_define(&f[0], &name_re) {
+            continue;
+        }
         filtered_output.push_str(&f[0]);
         filtered_output.push('\n');
+    }
+
+    // From wasm64: keep only 64-bit define blocks
+    for f in regex_filter.captures_iter(&wasm64_output) {
+        assert_eq!(f.len(), 1);
+        if is_64bit_define(&f[0], &name_re) {
+            filtered_output.push_str(&f[0]);
+            filtered_output.push('\n');
+        }
     }
 
     let filtered_output = match env::var("PROFILE").as_deref() {
@@ -118,6 +147,12 @@ fn main() {
     .replace_all(&filtered_output, "");
 
     if env::var(DEBUG_DUMP_IRRT).is_ok() {
+        let mut file = File::create(out_dir.join("irrt-wasm32.ll")).unwrap();
+        file.write_all(wasm32_output.as_bytes()).unwrap();
+
+        let mut file = File::create(out_dir.join("irrt-wasm64.ll")).unwrap();
+        file.write_all(wasm64_output.as_bytes()).unwrap();
+
         let mut file = File::create(out_dir.join("irrt-filtered.ll")).unwrap();
         file.write_all(filtered_output.as_bytes()).unwrap();
     }

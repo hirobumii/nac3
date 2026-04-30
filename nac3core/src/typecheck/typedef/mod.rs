@@ -229,7 +229,10 @@ impl AttrKind {
     }
 }
 
-/// Category of variable and value types.
+/// The concrete representation of a type, stored in the unification table.
+///
+/// `Type` handles are lightweight keys; to inspect what a type actually is, look it up
+/// through `Unifier::get_ty()` to obtain a `TypeEnum`.
 #[derive(Debug, Clone)]
 pub enum TypeEnum {
     TRigidVar {
@@ -314,6 +317,11 @@ impl TypeEnum {
 
 pub type SharedUnifier = Arc<Mutex<(UnificationTable<TypeEnum>, u32, Vec<Call>)>>;
 
+/// Type unification engine based on union-find.
+///
+/// Manages type constraints during inference and resolves type variables to concrete types.
+/// Each module gets its own `Unifier` during analysis; during code generation, workers receive
+/// a snapshot.
 #[derive(Clone)]
 pub struct Unifier {
     pub(crate) top_level: Option<Arc<TopLevelContext>>,

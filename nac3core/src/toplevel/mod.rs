@@ -28,6 +28,7 @@ pub mod numpy;
 mod test;
 pub mod type_annotation;
 
+/// Index of a top-level definition (class, function, or module) in the global definition list.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Debug)]
 pub struct DefinitionId(pub usize);
 
@@ -40,6 +41,10 @@ type GenCallCallback = dyn for<'ctx, 'a> Fn(
     + Send
     + Sync;
 
+/// A callback that overrides code generation for a specific function.
+///
+/// Used by frontends to implement custom calling conventions (e.g., RPC serialization in
+/// nac3artiq) instead of generating a normal function call.
 pub struct GenCall {
     fp: Box<GenCallCallback>,
 }
@@ -74,6 +79,8 @@ impl Debug for GenCall {
     }
 }
 
+/// A monomorphized instance of a generic function, containing the typed AST body and the
+/// type variable substitutions for this particular instantiation.
 #[derive(Clone, Debug)]
 pub struct FunInstance {
     pub body: Arc<Vec<Stmt<Option<Type>>>>,
@@ -87,6 +94,11 @@ pub enum FunAttribute {
     StaticMethod,
 }
 
+/// A top-level definition: module, class, or function.
+///
+/// Definitions are stored in a global list and referenced by [`DefinitionId`]. During type
+/// analysis, fields and method signatures are populated. During code generation, function
+/// instances are created on demand as generic functions are called with concrete type arguments.
 #[derive(Debug, Clone)]
 pub enum TopLevelDef {
     Module {
@@ -167,6 +179,10 @@ pub enum TopLevelDef {
     },
 }
 
+/// Global compilation context shared across all codegen workers.
+///
+/// Contains the full list of top-level definitions, per-module unifiers, and the builtin
+/// registry. Created by `TopLevelComposer::make_top_level_context()` after type analysis.
 pub struct TopLevelContext {
     pub definitions: Arc<RwLock<Vec<Arc<RwLock<TopLevelDef>>>>>,
     pub unifiers: Arc<RwLock<Vec<(SharedUnifier, PrimitiveStore)>>>,
