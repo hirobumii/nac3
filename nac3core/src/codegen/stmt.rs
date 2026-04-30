@@ -23,9 +23,9 @@ use crate::{
         llvm_intrinsics,
         macros::codegen_unreachable,
         types::{
-            ArrayLikeIndexer, ArraySliceValue, EnumerateType, ExceptionType, ExceptionValue,
-            ListType, ListValue, NDArrayType, OpaqueRefCountedType, ProxyTypeBase, RangeType,
-            RawClassType, RawListType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
+            ArrayLikeIndexer, ArraySliceValue, ClassType, EnumerateType, ExceptionType,
+            ExceptionValue, ListType, ListValue, NDArrayType, OpaqueRefCountedType, ProxyTypeBase,
+            RangeType, RawListType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
             TupleType, TupleValue, TypedRefCountedType, broadcast, field, is_refcounted_type,
         },
     },
@@ -144,24 +144,21 @@ pub fn gen_store_target<'ctx, G: CodeGenerator>(
             let BasicValueEnum::PointerValue(ptr) = val else {
                 codegen_unreachable!(ctx);
             };
-            // For refcounted classes, use inner_ptr to skip past the ObjectHeader,
-            // then GEP into the inner struct with the original field index.
             let is_refcounted = is_refcounted_type(&mut ctx.unifier, value.custom.unwrap());
-            let (ptr, alloca_ty) = if is_refcounted {
-                let rc = OpaqueRefCountedType::new(ctx).map_value(ptr, None);
-                let inner_ptr = rc.inner_ptr(ctx)?;
-                let raw_class = RawClassType::from_unifier_type(ctx, value.custom.unwrap());
-                (inner_ptr, raw_class.inner_type().as_basic_type_enum())
+            if is_refcounted {
+                let class_val =
+                    ClassType::from_unifier_type(ctx, value.custom.unwrap()).map_value(ptr, None);
+                class_val.inner_value(ctx)?.gep_field(ctx, index as u32)?
             } else {
-                (ptr, ctx.get_alloca_type(value.custom.unwrap()))
-            };
-            unsafe {
-                ctx.builder.build_in_bounds_gep(
-                    alloca_ty,
-                    ptr,
-                    &[ctx.i32.const_zero(), ctx.i32.const_int(index as u64, false)],
-                    name.unwrap_or(""),
-                )?
+                let alloca_ty = ctx.get_alloca_type(value.custom.unwrap());
+                unsafe {
+                    ctx.builder.build_in_bounds_gep(
+                        alloca_ty,
+                        ptr,
+                        &[ctx.i32.const_zero(), ctx.i32.const_int(index as u64, false)],
+                        name.unwrap_or(""),
+                    )?
+                }
             }
         }
         ExprKind::Tuple { elts, .. } => {

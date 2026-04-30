@@ -1,6 +1,9 @@
 use std::borrow::Cow;
 
-use inkwell::{types::StructType, values::IntValue};
+use inkwell::{
+    types::{BasicTypeEnum, StructType},
+    values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
+};
 use itertools::Itertools as _;
 use nac3core_derive::ProxyType;
 use nac3parser::ast::StrRef;
@@ -75,6 +78,18 @@ impl<'ctx> RawClassType<'ctx> {
     pub const fn inner_type(&self) -> StructType<'ctx> {
         self.inner
     }
+
+    /// Returns the number of fields in this class.
+    #[must_use]
+    pub fn count_fields(&self) -> u32 {
+        self.inner.count_fields()
+    }
+
+    /// Returns the LLVM type of the field at the given `index`, or `None` if out of bounds.
+    #[must_use]
+    pub fn field_type_at_index(&self, index: u32) -> Option<BasicTypeEnum<'ctx>> {
+        self.inner.get_field_type_at_index(index)
+    }
 }
 
 pub type ClassType<'ctx> = TypedRefCountedType<'ctx, RawClassType<'ctx>>;
@@ -142,6 +157,41 @@ impl<'ctx> WithTypeinfo<'ctx> for RawClassType<'ctx> {
     }
 }
 
-// TODO(Derppening): RawClassValue and ClassValue seems to be unused
 pub type RawClassValue<'ctx> = Value<'ctx, RawClassType<'ctx>>;
 pub type ClassValue<'ctx> = TypedRefCountedValue<'ctx, RawClassType<'ctx>>;
+
+impl<'ctx> RawClassValue<'ctx> {
+    /// Returns a pointer to the field at `index` in this class instance.
+    pub fn gep_field(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        index: u32,
+    ) -> anyhow::Result<PointerValue<'ctx>> {
+        let field_name = self.name.map(|v| format!("{v}.field{index}.addr")).unwrap_or_default();
+        Ok(ctx.builder.build_struct_gep(self.ty.inner, self.value, index, &field_name)?)
+    }
+
+    /// Loads the value of the field at `index` in this class instance.
+    pub fn load_field(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        index: u32,
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
+        let ptr = self.gep_field(ctx, index)?;
+        let field_ty = self.ty.field_type_at_index(index).unwrap();
+        let load_name = self.name.map(|v| format!("{v}.field{index}")).unwrap_or_default();
+        Ok(ctx.builder.build_load(field_ty, ptr, &load_name)?)
+    }
+
+    /// Stores `value` into the field at `index` in this class instance.
+    pub fn store_field(
+        &self,
+        ctx: &CodeGenContext<'ctx, '_>,
+        index: u32,
+        value: impl BasicValue<'ctx>,
+    ) -> anyhow::Result<()> {
+        let ptr = self.gep_field(ctx, index)?;
+        ctx.builder.build_store(ptr, value)?;
+        Ok(())
+    }
+}

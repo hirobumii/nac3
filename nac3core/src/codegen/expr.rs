@@ -10,7 +10,7 @@ use anyhow::{anyhow, bail};
 use inkwell::{
     IntPredicate,
     basic_block::BasicBlock,
-    types::{BasicType, BasicTypeEnum},
+    types::BasicTypeEnum,
     values::{BasicValueEnum, IntValue, PointerValue, StructValue},
 };
 use itertools::{Itertools as _, izip};
@@ -41,8 +41,8 @@ use crate::{
         types::{
             ArrayLikeIndexer, ClassType, ExceptionType, ListType, ListValue, NDArrayOut,
             NDArrayType, OpaqueRefCountedType, OptionType, ProxyTypeBase, RangeField, RangeType,
-            RangeValue, RawClassType, RawListType, RefCountedValue, RustNDIndex, ScalarOrNDArray,
-            StringType, TupleType, TupleValue, TypedRefCountedType, broadcast_starmap, field,
+            RangeValue, RawListType, RefCountedValue, RustNDIndex, ScalarOrNDArray, StringType,
+            TupleType, TupleValue, TypedRefCountedType, broadcast_starmap, field,
             is_refcounted_type,
         },
     },
@@ -2000,16 +2000,14 @@ fn gen_attr_expr<'ctx, G: CodeGenerator>(
         let (index, _) = ctx.get_attr_index(value.custom.unwrap(), attr);
         let is_refcounted = is_refcounted_type(&mut ctx.unifier, value.custom.unwrap());
 
-        // For refcounted classes, use inner_ptr to skip past the ObjectHeader,
-        // then GEP into the inner struct with the original field index.
-        let (ptr, alloca_type) = if is_refcounted {
-            let rc = OpaqueRefCountedType::new(ctx).map_value(v.into_pointer_value(), None);
-            let inner_ptr = rc.inner_ptr(ctx)?;
-            let raw_class = RawClassType::from_unifier_type(ctx, value.custom.unwrap());
-            (inner_ptr, raw_class.inner_type().as_basic_type_enum())
-        } else {
-            (v.into_pointer_value(), ctx.get_alloca_type(result.ty))
-        };
+        if is_refcounted {
+            let class_val = ClassType::from_unifier_type(ctx, value.custom.unwrap())
+                .map_value(v.into_pointer_value(), None);
+            return class_val.inner_value(ctx)?.load_field(ctx, index as u32);
+        }
+
+        let ptr = v.into_pointer_value();
+        let alloca_type = ctx.get_alloca_type(result.ty);
         let field_ty = match alloca_type {
             BasicTypeEnum::StructType(s) => s.get_field_type_at_index(index as u32).unwrap(),
             BasicTypeEnum::ArrayType(a) => a.get_element_type(),
