@@ -9,7 +9,7 @@ use inkwell::{
 use nac3parser::ast::Expr;
 
 use crate::{
-    codegen::{CodeGenContext, CodeGenerator},
+    codegen::{CodeGenContext, CodeGenerator, TargetMachineOptions},
     symbol_resolver::SymbolResolver,
     typecheck::typedef::Type,
 };
@@ -31,10 +31,19 @@ mod string;
 #[must_use]
 pub fn load_irrt<'ctx>(
     ctx: ContextRef<'ctx>,
+    target: &TargetMachineOptions,
     symbol_resolver: &dyn SymbolResolver,
 ) -> Module<'ctx> {
+    let target = target.create_target_machine();
+    let size_t = ctx.ptr_sized_int_type(&target.get_target_data(), None);
     let bitcode_buf = MemoryBuffer::create_from_memory_range(
-        include_bytes!(concat!(env!("OUT_DIR"), "/irrt.bc")),
+        if size_t == ctx.i64_type() {
+            include_bytes!(concat!(env!("OUT_DIR"), "/irrt64.bc"))
+        } else if size_t == ctx.i32_type() {
+            include_bytes!(concat!(env!("OUT_DIR"), "/irrt32.bc"))
+        } else {
+            unreachable!("Unsupported size_t type bit width, must be either 32-bit or 64-bit")
+        },
         "irrt_bitcode_buffer",
     );
     let irrt_mod = Module::parse_bitcode_from_buffer(&bitcode_buf, ctx).unwrap();

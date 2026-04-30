@@ -330,7 +330,7 @@ fn main() {
 
     context_ref!(context);
 
-    let irrt = load_irrt(context, resolver.as_ref());
+    let irrt = load_irrt(context, &target, resolver.as_ref());
     emit_llvm(&irrt, "irrt");
 
     // Process the Python script
