@@ -20,7 +20,7 @@ use crate::{
             TypedRefCountedValue, Value, WithTypeinfo,
             array::{ArrayLikeIndexer, ArraySliceValue},
             builtin::BuiltinStruct,
-            field,
+            field, refcounted_fields_for_struct,
             structure::StructField,
             tuple::TupleValue,
         },
@@ -210,13 +210,16 @@ impl<'ctx> WithTypeinfo<'ctx> for RawNDArrayType<'ctx> {
         Cow::Borrowed("__nac3_ndarray")
     }
 
-    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
-        vec![
-            ctx.i32.const_int(2 * ctx.sizeof(ctx.size_t), false),
-            ctx.i32.const_int(2 * ctx.sizeof(ctx.size_t) + ctx.sizeof(ctx.ptr), false),
-            ctx.i32.const_int(2 * ctx.sizeof(ctx.size_t) + 2 * ctx.sizeof(ctx.ptr), false),
-            ctx.i32.const_int(2 * ctx.sizeof(ctx.size_t) + 3 * ctx.sizeof(ctx.ptr), false),
-        ]
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(
+            ctx,
+            vec![
+                ctx.i32.const_int(2 * ctx.sizeof(ctx.size_t), false),
+                ctx.i32.const_int(2 * ctx.sizeof(ctx.size_t) + ctx.sizeof(ctx.ptr), false),
+                ctx.i32.const_int(2 * ctx.sizeof(ctx.size_t) + 2 * ctx.sizeof(ctx.ptr), false),
+                ctx.i32.const_int(2 * ctx.sizeof(ctx.size_t) + 3 * ctx.sizeof(ctx.ptr), false),
+            ],
+        )
     }
 }
 

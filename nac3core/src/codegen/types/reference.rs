@@ -615,7 +615,7 @@ impl<'ctx, T: ProxyType<'ctx> + Copy> WithTypeinfo<'ctx> for RefCountedArrayType
         }
     }
 
-    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         if self.inline_refcounted_elements {
             // REFCOUNT_ARRAY_INLINE_MAGIC (0xFFFFFFFE) + stride (byte size of each element)
             let data_layout = ctx.target.get_target_data();

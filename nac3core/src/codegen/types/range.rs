@@ -9,6 +9,7 @@ use crate::{
         types::{
             Value, WithTypeinfo,
             array::{ArrayLikeIndexer as _, ArraySliceValue},
+            refcounted_fields_for_struct,
         },
     },
     toplevel::helper::PrimDef,
@@ -26,8 +27,8 @@ impl<'ctx> WithTypeinfo<'ctx> for RangeType<'ctx> {
         Cow::Borrowed("__nac3_range")
     }
 
-    fn refcounted_field_offset(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
-        Vec::new()
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(ctx, Vec::new())
     }
 }
 

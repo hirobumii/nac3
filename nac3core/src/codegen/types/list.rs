@@ -13,7 +13,7 @@ use crate::{
         types::{
             ProxyTypeBase, RefCountedArrayType, RefCountedArrayValue, TypedRefCountedType,
             TypedRefCountedValue, Value, WithTypeinfo, builtin::BuiltinStruct, field,
-            structure::StructField,
+            refcounted_fields_for_struct, structure::StructField,
         },
     },
     typecheck::typedef::{Type, TypeEnum, iter_type_vars},
@@ -132,8 +132,8 @@ impl<'ctx> WithTypeinfo<'ctx> for RawListType<'ctx> {
         Cow::Borrowed("__nac3_list")
     }
 
-    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
-        vec![ctx.i32.const_zero()]
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(ctx, vec![ctx.i32.const_zero()])
     }
 }
 

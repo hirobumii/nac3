@@ -17,6 +17,7 @@ use crate::{
             builtin::BuiltinStruct,
             field,
             ndarray::NDArrayValue,
+            refcounted_fields_for_struct,
             structure::StructField,
         },
     },
@@ -42,8 +43,8 @@ impl<'ctx> WithTypeinfo<'ctx> for NDIndexType<'ctx> {
         Cow::Borrowed("__nac3_ndindex")
     }
 
-    fn refcounted_field_offset(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
-        Vec::new()
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(ctx, Vec::new())
     }
 }
 
@@ -108,8 +109,8 @@ impl<'ctx> WithTypeinfo<'ctx> for SliceType<'ctx> {
         Cow::Borrowed("__nac3_slice")
     }
 
-    fn refcounted_field_offset(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
-        Vec::new()
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(ctx, Vec::new())
     }
 }
 

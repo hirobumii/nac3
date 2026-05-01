@@ -38,8 +38,8 @@ impl<'ctx> WithTypeinfo<'ctx> for OptionSomeType<'ctx> {
         self.inner.typename()
     }
 
-    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
-        self.inner.refcounted_field_offset(ctx)
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        self.inner.refcounted_fields_data(ctx)
     }
 }
 

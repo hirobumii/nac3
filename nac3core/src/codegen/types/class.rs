@@ -13,7 +13,7 @@ use crate::{
         CodeGenContext,
         types::{
             ModuleContext, TypedRefCountedType, TypedRefCountedValue, Value, WithTypeinfo,
-            reference::is_refcounted_type,
+            refcounted_fields_for_struct, reference::is_refcounted_type,
         },
     },
     toplevel::TopLevelDef,
@@ -129,7 +129,7 @@ impl<'ctx> WithTypeinfo<'ctx> for RawClassType<'ctx> {
         Cow::Owned(format!("{}_{sanitized}", self.name))
     }
 
-    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         let mut offsets = Vec::new();
 
         let TypeEnum::TObj { obj_id, fields, .. } = &*ctx.unifier.get_ty(self.unifier_ty) else {
@@ -153,7 +153,7 @@ impl<'ctx> WithTypeinfo<'ctx> for RawClassType<'ctx> {
             }
         }
 
-        offsets
+        refcounted_fields_for_struct(ctx, offsets)
     }
 }
 

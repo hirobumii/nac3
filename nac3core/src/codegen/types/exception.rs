@@ -6,7 +6,10 @@ use nac3core_derive::{ProxyType, StructFields};
 use crate::{
     codegen::{
         CodeGenContext, ModuleContext,
-        types::{Value, WithTypeinfo, builtin::BuiltinStruct, structure::StructField},
+        types::{
+            Value, WithTypeinfo, builtin::BuiltinStruct, refcounted_fields_for_struct,
+            structure::StructField,
+        },
     },
     typecheck::typedef::{Type, TypeEnum},
 };
@@ -58,8 +61,8 @@ impl<'ctx> WithTypeinfo<'ctx> for ExceptionType<'ctx> {
         Cow::Borrowed("__nac3_exception")
     }
 
-    fn refcounted_field_offset(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
-        Vec::new()
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(ctx, Vec::new())
     }
 }
 

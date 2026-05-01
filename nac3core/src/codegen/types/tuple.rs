@@ -11,6 +11,7 @@ use crate::{
         CodeGenContext,
         types::{
             ModuleContext, ProxyType, ProxyTypeBase, Value, WithTypeinfo,
+            refcounted_fields_for_struct,
             reference::{ObjectHeaderType, is_refcounted_type},
         },
     },
@@ -127,15 +128,15 @@ impl<'ctx> WithTypeinfo<'ctx> for TupleType<'ctx> {
         Cow::Owned(format!("__nac3_tuple_{sanitized}"))
     }
 
-    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
         if self.refcounted_mask == 0 {
-            return Vec::new();
+            return refcounted_fields_for_struct(ctx, Vec::new());
         }
 
         let data_layout = ctx.target.get_target_data();
         let num_fields = self.fields.count_fields();
 
-        (0..num_fields)
+        let offsets = (0..num_fields)
             .filter_map(|i| {
                 if self.refcounted_mask & (1 << i) != 0 {
                     let offset = data_layout.offset_of_element(&self.fields, i).unwrap();
@@ -144,7 +145,8 @@ impl<'ctx> WithTypeinfo<'ctx> for TupleType<'ctx> {
                     None
                 }
             })
-            .collect_vec()
+            .collect_vec();
+        refcounted_fields_for_struct(ctx, offsets)
     }
 }
 

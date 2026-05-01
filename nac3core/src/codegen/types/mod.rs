@@ -31,7 +31,7 @@
 //! on the raw reference value. In such cases, [`TypedRefCountedValue::inner_value`] can be used to
 //! obtain the raw reference value.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, iter};
 
 use inkwell::{
     module::Linkage,
@@ -267,28 +267,19 @@ pub trait WithTypeinfo<'ctx> {
                         name
                     });
 
-                let refcounted_field_offsets = self.refcounted_field_offset(ctx);
+                let refcounted_fields_data = self.refcounted_fields_data(ctx);
                 let refcounted_fields = ctx
                     .module
                     .get_global(&format!("refcounted_fields array for {typename}"))
                     .unwrap_or_else(|| {
                         let refcounted_fields = ctx.module.add_global(
-                            ctx.i32.array_type(refcounted_field_offsets.len() as u32 + 1),
+                            ctx.i32.array_type(refcounted_fields_data.len() as u32),
                             None,
                             &format!("refcounted_fields array for {typename}"),
                         );
                         refcounted_fields.set_linkage(Linkage::WeakAny);
-                        refcounted_fields.set_initializer(
-                            &ctx.i32.const_array(
-                                &[
-                                    &[ctx
-                                        .i32
-                                        .const_int(refcounted_field_offsets.len() as u64, false)],
-                                    refcounted_field_offsets.as_slice(),
-                                ]
-                                .concat(),
-                            ),
-                        );
+                        refcounted_fields
+                            .set_initializer(&ctx.i32.const_array(&refcounted_fields_data));
                         refcounted_fields.set_constant(true);
 
                         refcounted_fields
@@ -312,8 +303,29 @@ pub trait WithTypeinfo<'ctx> {
     /// Returns the name of this type, which is used for debugging and error messages.
     fn typename(&self) -> Cow<'static, str>;
 
-    /// Returns a vector of byte offsets of the reference-counted fields in this type.
-    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>>;
+    /// Returns the complete `refcounted_fields` array payload for this type.
+    ///
+    /// The first element distinguishes the type's IRRT layout:
+    /// - `0xFFFFFFFF` (`REFCOUNT_ARRAY_MAGIC`): an array of refcounted pointer elements.
+    /// - `0xFFFFFFFE` (`REFCOUNT_ARRAY_INLINE_MAGIC`): an array of inline refcounted objects;
+    ///   the second element is the byte stride between elements.
+    /// - Any other value `N`: a struct with `N` refcounted fields - the subsequent `N` elements
+    ///   contains the byte offsets of the refcounted fields relative to the start of the struct.
+    ///
+    /// Struct-flavored implementations can use [`refcounted_fields_for_struct`] to build a payload
+    /// containing the prepended count of offsets.
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>>;
+}
+
+/// Builds a `refcounted_fields` payload for a struct-flavored [`WithTypeinfo`] implementation by
+/// prepending the count of `offsets` to the slice itself.
+#[must_use]
+pub fn refcounted_fields_for_struct<'ctx>(
+    ctx: &CodeGenContext<'ctx, '_>,
+    offsets: Vec<IntValue<'ctx>>,
+) -> Vec<IntValue<'ctx>> {
+    let count = ctx.i32.const_int(offsets.len() as u64, false);
+    iter::once(count).chain(offsets).collect()
 }
 
 /// Represents a type that is passed around by pointer and contains a global `typeinfo` instance

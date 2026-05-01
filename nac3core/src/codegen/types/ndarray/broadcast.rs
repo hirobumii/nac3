@@ -18,6 +18,7 @@ use crate::codegen::{
         builtin::BuiltinStruct,
         field,
         ndarray::{NDArrayOut, NDArrayType, RawNDArrayType, ScalarOrNDArray, iter::NDIterValue},
+        refcounted_fields_for_struct,
         structure::StructField,
     },
 };
@@ -42,8 +43,8 @@ impl<'ctx> WithTypeinfo<'ctx> for ShapeEntryType<'ctx> {
         Cow::Borrowed("__nac3_shape_entry")
     }
 
-    fn refcounted_field_offset(&self, _ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
-        Vec::new()
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(ctx, Vec::new())
     }
 }
 

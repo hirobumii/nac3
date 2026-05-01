@@ -16,7 +16,7 @@ use crate::codegen::{
     types::{
         NDArrayType, NDArrayValue, ProxyTypeBase, RefCountedArrayType, TypedRefCountedType,
         TypedRefCountedValue, Value, WithTypeinfo, array::ArraySliceValue, builtin::BuiltinStruct,
-        field, ndarray::ScalarOrNDArray, structure::StructField,
+        field, ndarray::ScalarOrNDArray, refcounted_fields_for_struct, structure::StructField,
     },
 };
 
@@ -119,8 +119,11 @@ impl<'ctx> WithTypeinfo<'ctx> for RawNDIterType<'ctx> {
         Cow::Borrowed("__nac3_nditer")
     }
 
-    fn refcounted_field_offset(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
-        vec![ctx.i32.const_zero(), ctx.i32.const_int(ctx.sizeof(ctx.ptr), false)]
+    fn refcounted_fields_data(&self, ctx: &mut CodeGenContext<'ctx, '_>) -> Vec<IntValue<'ctx>> {
+        refcounted_fields_for_struct(
+            ctx,
+            vec![ctx.i32.const_zero(), ctx.i32.const_int(ctx.sizeof(ctx.ptr), false)],
+        )
     }
 }
 
