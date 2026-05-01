@@ -6,7 +6,7 @@ use nac3core::{
 /// Trait for emitting LLVM IR for ARTIQ timeline operations.
 ///
 /// Different implementations target different hardware backends: `NowPinningTimeFns64`
-/// directly reads/writes split 32-bit CSR registers on VexRiscv, while `ExternTimeFns`
+/// directly reads/writes split 32-bit CSR registers on `VexRiscv`, while `ExternTimeFns`
 /// calls external C functions (used for host-mode execution and `runkernel`).
 pub trait TimeFns {
     /// Emits LLVM IR for `now_mu`.
