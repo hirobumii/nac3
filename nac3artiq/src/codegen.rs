@@ -16,8 +16,8 @@ use nac3core::{
         stmt::{gen_block, gen_for_callback_incrementing, gen_if_callback, gen_with},
         type_aligned_allocate,
         types::{
-            ArrayLikeIndexer, ExceptionType, NDArrayType, ProxyTypeBase, RangeType, RawListType,
-            field,
+            ArrayLikeIndexer, ClassType, ExceptionType, NDArrayType, ProxyTypeBase, RangeType,
+            RawListType, field, is_refcounted_type,
         },
     },
     inkwell::{
@@ -939,21 +939,26 @@ pub fn attributes_writeback<'ctx>(
                         if gen_rpc_tag(ctx, *field_ty, &mut scratch_buffer).is_ok() {
                             attributes.push(name.to_string());
                             let (index, _) = ctx.get_attr_index(ty, *name);
-                            let obj_alloca_ty = ctx.get_alloca_type(ty);
-                            let field_llvm_ty = obj_alloca_ty
-                                .into_struct_type()
-                                .get_field_type_at_index(index as u32)
-                                .unwrap();
-                            values.push((
-                                *field_ty,
+
+                            let field_val = if is_refcounted_type(&mut ctx.unifier, ty) {
+                                let class_val = ClassType::from_unifier_type(ctx, ty)
+                                    .map_value(obj.into_pointer_value(), None);
+                                class_val.inner_value(ctx)?.load_field(ctx, index as u32)?
+                            } else {
+                                let obj_alloca_ty = ctx.get_alloca_type(ty);
+                                let field_llvm_ty = obj_alloca_ty
+                                    .into_struct_type()
+                                    .get_field_type_at_index(index as u32)
+                                    .unwrap();
                                 ctx.build_gep_and_load(
                                     obj_alloca_ty,
                                     obj.into_pointer_value(),
                                     &[zero, int32.const_int(index as u64, false)],
                                     None,
                                     field_llvm_ty,
-                                )?,
-                            ));
+                                )?
+                            };
+                            values.push((*field_ty, field_val));
                         }
                     }
                     if !attributes.is_empty() {

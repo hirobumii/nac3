@@ -12,7 +12,10 @@ use itertools::Itertools as _;
 use nac3core::{
     codegen::{
         CodeGenContext,
-        types::{EnumerateType, RawNDArrayType, RefType, make_contiguous_strides},
+        types::{
+            ClassType, EnumerateType, RawNDArrayType, RefType, WithTypeinfo,
+            make_contiguous_strides,
+        },
     },
     inkwell::{
         AddressSpace,
@@ -1602,11 +1605,18 @@ impl InnerResolver {
                 &ctx.top_level.definitions.read(),
                 &ctx.primitives,
             )?;
-            let struct_ty = ctx.get_alloca_type(ty).into_struct_type();
+            // User-defined classes are reference-counted: the alloca type wraps the user struct
+            // with an `ObjectHeader` ({ refcount, typeinfo_offset }). We construct the global
+            // with the same wrapper layout so loads via `ClassType::inner_value` see the right
+            // offsets at runtime.
+            let class_ty = ClassType::from_unifier_type(ctx, ty);
+            let wrapper_ty = class_ty.alloca_ty(ctx).into_struct_type();
+            let header_ty = wrapper_ty.get_field_type_at_index(0).unwrap().into_struct_type();
+            let inner_ty = wrapper_ty.get_field_type_at_index(1).unwrap().into_struct_type();
             {
                 if self.global_value_ids.read().contains_key(&id) {
                     let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                        ctx.module.add_global(struct_ty, Some(AddressSpace::default()), &id_str)
+                        ctx.module.add_global(wrapper_ty, Some(AddressSpace::default()), &id_str)
                     });
                     return Ok(Some(global.as_pointer_value().into()));
                 }
@@ -1646,9 +1656,24 @@ impl InnerResolver {
                 })
                 .collect::<anyhow::Result<Option<Vec<_>>>>()?;
             if let Some(values) = values {
-                let val = struct_ty.const_named_struct(&values);
+                // Synthesize the object header constant. `refcount = 0` marks the object as
+                // non-refcounted so the runtime never frees this global. `typeinfo_offset` mirrors
+                // the IRRT formula `typeinfo - __nac3_global_begin`, expressed as an LLVM constant
+                // expression (resolved at link time).
+                let typeinfo = class_ty.object.typeinfo(ctx);
+                let typeinfo_offset = typeinfo
+                    .value
+                    .const_to_int(ctx.size_t)
+                    .const_sub(ctx.global_begin_ptr().const_to_int(ctx.size_t))
+                    .const_truncate_or_bit_cast(ctx.i32);
+                let header_val = header_ty
+                    .const_named_struct(&[ctx.i32.const_zero().into(), typeinfo_offset.into()]);
+
+                let inner_val = inner_ty.const_named_struct(&values);
+                let val = wrapper_ty.const_named_struct(&[header_val.into(), inner_val.into()]);
+
                 let global = ctx.module.get_global(&id_str).unwrap_or_else(|| {
-                    ctx.module.add_global(struct_ty, Some(AddressSpace::default()), &id_str)
+                    ctx.module.add_global(wrapper_ty, Some(AddressSpace::default()), &id_str)
                 });
                 global.set_initializer(&val);
                 Ok(Some(global.as_pointer_value().into()))
